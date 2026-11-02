@@ -4,7 +4,7 @@
 //! is read, and only prompts, the agent's text, tool calls and turn ends
 //! are kept.
 
-use crate::agents::cut;
+use crate::agents::{Picture, block_picture, cut};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 use std::{
@@ -47,12 +47,25 @@ pub(super) struct Digest {
     tools: HashMap<String, usize>,
     /// Turns that ended in this stretch.
     pub(super) turns_ended: u32,
+    /// The pictures the user's prompts held, each shown as its image line,
+    /// when asked for; without, prompts show no images.
+    pub(super) pictures: Option<Vec<Picture>>,
 }
 
 impl Digest {
     /// Reads every complete line of `text`.
     pub(super) fn read(text: &str) -> Self {
         let mut digest = Self::default();
+        digest.lines(text);
+        digest
+    }
+
+    /// Reads every complete line of `text`, keeping prompts' pictures.
+    pub(super) fn with_pictures(text: &str) -> Self {
+        let mut digest = Self {
+            pictures: Some(Vec::new()),
+            ..Self::default()
+        };
         digest.lines(text);
         digest
     }
@@ -118,12 +131,20 @@ impl Digest {
             return;
         }
         let content = &value["message"]["content"];
+        let mut lines = String::new();
         let text = match content {
             Value::String(text) => Some(text.clone()),
             Value::Array(blocks) => {
                 for block in blocks {
                     if block["type"] == "tool_result" && block["is_error"].as_bool() == Some(true) {
                         self.tool_failed(block["tool_use_id"].as_str().unwrap_or(""));
+                    }
+                }
+                if let Some(pictures) = &mut self.pictures {
+                    for picture in blocks.iter().filter_map(block_picture) {
+                        lines.push('\n');
+                        lines.push_str(&picture.line());
+                        pictures.push(picture);
                     }
                 }
                 let texts: Vec<&str> = blocks
@@ -135,11 +156,17 @@ impl Digest {
             }
             _ => None,
         };
-        let Some(prompt) = text.as_deref().and_then(prompt_text) else {
+        let prompt = text.as_deref().and_then(prompt_text);
+        if let Some(prompt) = &prompt {
+            self.last_prompt = Some(cut(prompt.trim(), MAX_SHORT));
+        } else if lines.is_empty() {
             return;
-        };
-        self.last_prompt = Some(cut(prompt.trim(), MAX_SHORT));
-        self.push(EntryKind::User, prompt.trim());
+        }
+        // The image lines go whole after the text, cut to make room.
+        let room = MAX_ENTRY.saturating_sub(lines.len());
+        let mut shown = cut(prompt.as_deref().unwrap_or("").trim(), room);
+        shown.push_str(&lines);
+        self.push(EntryKind::User, shown.trim_start());
     }
 
     fn assistant(&mut self, value: &Value) {
@@ -328,10 +355,18 @@ pub(super) fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Tai
 /// The digest of the end of a file, reading back far enough for `entries`
 /// entries when it can.
 pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<(Digest, bool)> {
+    digest_tail_with(path, entries, Digest::read)
+}
+
+fn digest_tail_with(
+    path: &Path,
+    entries: usize,
+    read: fn(&str) -> Digest,
+) -> io::Result<(Digest, bool)> {
     let mut window = FIRST_WINDOW;
     loop {
         let tail = read_tail(path, window)?;
-        let digest = Digest::read(&tail.text);
+        let digest = read(&tail.text);
         let enough = digest.entries.len() > entries && digest.prompt().is_some();
         if tail.whole || enough || window >= MAX_WINDOW {
             return Ok((digest, tail.whole));
@@ -353,13 +388,27 @@ pub(super) fn head(path: &Path) -> io::Result<Digest> {
     Ok(Digest::read(&head.text))
 }
 
-/// The last `last` entries of the transcript at `path`, and how many came
-/// before them in what was read.
-pub(super) fn entries(path: &Path, last: usize) -> io::Result<(Vec<Entry>, u64)> {
-    let (mut digest, _) = digest_tail(path, last)?;
+/// The end of a transcript, as `entries` reads it.
+#[derive(Debug)]
+pub(crate) struct Excerpt {
+    pub(crate) entries: Vec<Entry>,
+    /// Entries before these in what was read.
+    pub(crate) earlier: u64,
+    /// The pictures the prompts read held, oldest first.
+    pub(crate) pictures: Vec<Picture>,
+}
+
+/// The last `last` entries of the transcript at `path`, with the pictures
+/// their image lines show.
+pub(super) fn entries(path: &Path, last: usize) -> io::Result<Excerpt> {
+    let (mut digest, _) = digest_tail_with(path, last, Digest::with_pictures)?;
     let skip = digest.entries.len().saturating_sub(last);
     let entries = digest.entries.split_off(skip);
-    Ok((entries, skip as u64))
+    Ok(Excerpt {
+        entries,
+        earlier: skip as u64,
+        pictures: digest.pictures.unwrap_or_default(),
+    })
 }
 
 #[cfg(test)]
@@ -445,10 +494,43 @@ pub(super) mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("s.jsonl");
         std::fs::write(&path, FIXTURE).unwrap();
-        let (entries, earlier) = entries(&path, 3).unwrap();
-        assert_eq!(earlier, 7);
-        assert_eq!(entries[2].text, "All 42 tests pass now.");
+        let read = entries(&path, 3).unwrap();
+        assert_eq!(read.earlier, 7);
+        assert_eq!(read.entries[2].text, "All 42 tests pass now.");
+        assert!(read.pictures.is_empty());
         assert_eq!(started_at(&path).unwrap(), Some(1_793_260_800));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_prompt_with_an_image_shows_its_image_line() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let png = b"\x89PNG\r\n\x1a\nshot".to_vec();
+        let line = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "what is this [Image #1]"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                "data": STANDARD.encode(&png)}}
+        ]}});
+        let only = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                "data": STANDARD.encode(&png)}}
+        ]}});
+        let text = format!("{line}\n{only}\n");
+        let shown = format!("[image: image-{}]", beep_proto::image_key(&png));
+        let digest = Digest::with_pictures(&text);
+        let texts: Vec<&str> = digest.entries.iter().map(|e| e.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [format!("what is this [Image #1]\n{shown}"), shown.clone()]
+        );
+        assert_eq!(digest.prompt(), Some("what is this [Image #1]"));
+        let pictures = digest.pictures.unwrap();
+        assert_eq!(pictures.len(), 2);
+        assert_eq!(pictures[0].mime, "image/png");
+        assert_eq!(pictures[0].data, png);
+        // A listing reads no pictures.
+        let listed = Digest::read(&text);
+        assert_eq!(listed.entries.len(), 1);
+        assert_eq!(listed.entries[0].text, "what is this [Image #1]");
     }
 }

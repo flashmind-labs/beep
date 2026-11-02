@@ -2,6 +2,7 @@
 //! sends, and the transport over the adapter's stdio, which caps each
 //! message and skips lines that are not JSON-RPC.
 
+use super::images::{Picture, image_line};
 use agent_client_protocol::{
     Lines,
     schema::{
@@ -110,22 +111,25 @@ impl From<String> for Prompt {
 }
 
 impl Prompt {
-    /// How the transcript shows it: the text, then a line per image, such
-    /// as `[image: shot.png]`, which the apps draw as the picture.
+    /// How the transcript shows it: the text, then a line per image by its
+    /// key, `[image: image-<key>]`, which the apps ask the node for.
     pub(super) fn shown(&self) -> String {
         let mut shown = self.text.clone();
         for image in &self.images {
             if !shown.is_empty() {
                 shown.push('\n');
             }
-            let name = if image.name.is_empty() {
-                "image"
-            } else {
-                &image.name
-            };
-            shown.push_str(&format!("[image: {name}]"));
+            shown.push_str(&image_line(&image.data));
         }
         shown
+    }
+
+    /// Its images, for the transcript's lines to show.
+    pub(super) fn pictures(&self) -> impl Iterator<Item = Picture> + '_ {
+        self.images.iter().map(|image| Picture {
+            mime: image.mime.clone(),
+            data: image.data.clone(),
+        })
     }
 
     /// A prompt with images, refused as the server refuses it: too many,
@@ -328,6 +332,7 @@ mod tests {
     use agent_client_protocol::schema::v1::{
         AgentCapabilities, SessionCapabilities, SessionResumeCapabilities,
     };
+    use beep_proto::image_key;
     use futures::StreamExt;
 
     #[test]
@@ -403,7 +408,8 @@ mod tests {
         assert_eq!(blocks[1]["type"], "image");
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert_eq!(blocks[1]["data"], STANDARD.encode(&shot.data));
-        assert_eq!(message.shown(), "The button overlaps\n[image: shot.png]");
+        let line = format!("[image: image-{}]", image_key(&shot.data));
+        assert_eq!(message.shown(), format!("The button overlaps\n{line}"));
 
         let only = Prompt {
             text: String::new(),
@@ -411,7 +417,7 @@ mod tests {
         };
         let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only)).unwrap();
         assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
-        assert_eq!(only.shown(), "[image: shot.png]");
+        assert_eq!(only.shown(), line);
     }
 
     fn png(name: &str, len: usize) -> Upload {

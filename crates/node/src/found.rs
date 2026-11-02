@@ -178,6 +178,15 @@ impl Stores {
         describe(seen, now)
     }
 
+    /// The file of session `id`, of `agent` when given; `None` for one not
+    /// found or kept in a database.
+    pub(crate) fn file(&self, agent: Option<Agent>, id: &str) -> Option<PathBuf> {
+        self.sessions(agent)
+            .into_iter()
+            .find(|seen| seen.id == id)?
+            .file
+    }
+
     /// One session of `agent` by its id, described.
     pub(crate) fn find(&self, agent: Agent, id: &str) -> Option<ExternalSession> {
         let seen = self
