@@ -1081,6 +1081,22 @@ requests! {
     /// the project has no GitHub or Forgejo host; `BadRequest` saying why
     /// when no machine of the project can read it or the host refuses.
     262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
+    /// Starts an interactive terminal of `project` on one of the caller's
+    /// online machines: `command` in `cwd`, or the user's shell there when
+    /// `command` is empty, in a pseudo-terminal of `cols` by `rows` cells,
+    /// named `name` (the command, or "shell", when empty). `AttachTerminal`
+    /// follows it and types into it; `CloseTerminal` stops it. `NotFound`
+    /// when the machine is not one of the caller's online ones;
+    /// `BadRequest` saying why when a field is malformed or the node
+    /// refuses, such as a node from before interactive terminals.
+    272 OpenTerminal { project: String, machine_id: String, name: String, command: String, cwd: String, cols: u32, rows: u32 } => Call<Terminal>
+    /// Follows a terminal live from byte `from` of its output, at `cols` by
+    /// `rows` cells: `TerminalEvent::Output` as it comes, until it ends or
+    /// the client finishes its side. After the request the client sends
+    /// `TerminalInput`s (see `Duplex`). A terminal `StartTerminal` started
+    /// cannot be typed into: it answers `ViewOnly` and ends. `NotFound`
+    /// when the caller has no such terminal.
+    273 AttachTerminal { id: Uuid, from: u64, cols: u32, rows: u32 } => Stream<TerminalEvent>
 }
 
 /// A machine whose folder of a project Syncthing keeps in step, as
@@ -1546,6 +1562,47 @@ pub struct TerminalOutput {
     pub lines: Vec<String>,
     /// Lines were dropped before these.
     pub earlier: bool,
+}
+
+impl Duplex for AttachTerminal {
+    type Up = TerminalInput;
+}
+
+wire_enum! {
+    /// What `AttachTerminal` streams. `Output` is the terminal's output
+    /// from byte `at`, raw, escape sequences and all; an `at` past the
+    /// asked `from` means the bytes in between were no longer kept.
+    /// `Ended` says how it stood when the stream ended: it stopped, or its
+    /// machine went offline. `ViewOnly` is a terminal that takes no input,
+    /// to read with `GetTerminal` instead.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum TerminalEvent {
+        0 Output { at: u64, data: serde_bytes::ByteBuf }
+        1 Ended { state: TerminalState }
+        2 ViewOnly {}
+    }
+}
+
+wire_enum! {
+    /// What the client sends after `AttachTerminal`: keys typed, at most
+    /// `MAX_TERMINAL_INPUT` bytes at a time, or the terminal's new size.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum TerminalInput {
+        0 Keys { data: serde_bytes::ByteBuf }
+        1 Resize { cols: u32, rows: u32 }
+    }
+}
+
+/// The most one `TerminalInput::Keys` may carry.
+pub const MAX_TERMINAL_INPUT: usize = node::terminal::MAX_INPUT;
+
+#[cfg(test)]
+impl compat::Sample for serde_bytes::ByteBuf {
+    fn samples(_: u32) -> Vec<Self> {
+        vec![serde_bytes::ByteBuf::from(
+            b"$ ls\r\n\x1b[32mok\x1b[0m".to_vec(),
+        )]
+    }
 }
 
 /// One saved version of the user's instructions.
