@@ -185,6 +185,20 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-line .r { grid-auto-flow: column; align-items: center }
 .cc-line .ok { font-size: 12px; color: var(--emerald) }
 .cc-line .err { font-size: 12px; color: var(--err) }
+/* Home's open PRs and issues by project: counts and chips on one line, the
+   items indented under their project. */
+.cc-gr .r { display: flex; align-items: center; gap: 6px }
+.cc-gr .r .age { min-width: 40px; text-align: right }
+.cc-row.cc-gr.it { grid-template-columns: 16px minmax(0, 1fr) auto; padding: 5px 11px 5px 30px }
+.cc-row.cc-gr.it + .cc-row.cc-gr.it { border-top-color: rgba(255,255,255,.04) }
+.cc-gr.it .ic { display: grid; color: var(--muted) }
+.cc-gr.it .t { display: flex; gap: 6px; align-items: baseline }
+.cc-gr.it .t .num { flex: none }
+.cc-gr.it .t b { font-weight: 450 }
+.cc-gr.it.more { padding: 3px 11px 6px 26px }
+.cc-gr.it.more + .cc-row { border-top: 1px solid var(--border) }
+.cc-open .cc-note { margin: 8px 10px 2px }
+.cc-tag.bad { color: #f08a7a; border-color: rgba(240,138,122,.45) }
 /* Machines as a table: one row per machine, so a glance compares them. */
 .cc-mt { display: grid; grid-template-columns: minmax(110px, 1.2fr) 52px max-content max-content minmax(0, 1.5fr) minmax(0, 1fr); font-size: 12px; border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82); overflow: hidden }
 .cc-mt > * { padding: 6px 10px; display: flex; align-items: center; gap: 6px; min-width: 0; border-top: 1px solid rgba(255,255,255,.05) }

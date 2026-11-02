@@ -31,6 +31,16 @@ pub struct CredentialRow {
     pub unreadable: bool,
 }
 
+/// A git host token, opened, with who it signs in as.
+#[derive(Debug)]
+pub struct GitLogin {
+    /// `CredentialRow::id`; a new one each time the token is saved.
+    pub id: String,
+    pub slot: Slot,
+    pub secret: SecretString,
+    pub account: Option<String>,
+}
+
 /// A credential to save, replacing the user's one in the same slot.
 pub struct NewCredential<'a> {
     pub slot: &'a Slot,
@@ -408,6 +418,48 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
+    /// The user's git host tokens (GitHub, Forgejo), opened, with who each
+    /// signs in as. One that does not open is left out and logged, so the
+    /// rest still go.
+    pub(crate) async fn git_logins(
+        &self,
+        user: &UserKey,
+        key: &CredentialKey,
+    ) -> Result<Vec<GitLogin>> {
+        let rows = sqlx::query(
+            "SELECT id, kind, provider, host_url, account, secret FROM credentials
+             WHERE user_id=$1 AND kind IN ('github', 'forgejo') ORDER BY kind, host_url, id",
+        )
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::new();
+        for row in &rows {
+            let id: String = row.try_get("id")?;
+            let sealed: Vec<u8> = row.try_get("secret")?;
+            let account: Option<String> = row.try_get("account")?;
+            let opened = slot_from(row).and_then(|slot| {
+                let owner = Owner {
+                    user: user.as_str(),
+                    slot: &slot,
+                    id: &id,
+                };
+                let secret = key.open(&owner, &sealed)?;
+                Ok((slot, secret))
+            });
+            match opened {
+                Ok((slot, secret)) => out.push(GitLogin {
+                    id,
+                    slot,
+                    secret,
+                    account,
+                }),
+                Err(e) => log::warn!("credential {id} skipped: {e:#}"),
+            }
+        }
+        Ok(out)
+    }
+
     /// The user's credentials meant for their machines, opened. One that
     /// does not open is left out and logged, so the rest still go.
     pub(crate) async fn machine_credentials(
@@ -724,6 +776,26 @@ mod tests {
         let opened = store.machine_credentials(&alice, &key).await.unwrap();
         let secrets: Vec<&str> = opened.iter().map(|o| o.secret.expose_secret()).collect();
         assert_eq!(secrets, ["token-two", "token-three"]);
+        // The git hosts open for the overview, API keys never.
+        let git = store.git_logins(&alice, &key).await.unwrap();
+        let hosts: Vec<(&str, &str)> = git
+            .iter()
+            .map(|login| {
+                let host = match &login.slot {
+                    Slot::Forgejo(url) => url.as_str(),
+                    _ => "not a forgejo server",
+                };
+                (host, login.secret.expose_secret())
+            })
+            .collect();
+        assert_eq!(
+            hosts,
+            [
+                ("https://code.example.org", "token-two"),
+                ("https://git.example.com", "token-three")
+            ]
+        );
+        assert!(store.git_logins(&bob, &key).await.unwrap().is_empty());
 
         assert!(store.remove_credential(&alice, &second.id).await.unwrap());
         assert_eq!(store.credentials(&alice, &key).await.unwrap().len(), 2);
