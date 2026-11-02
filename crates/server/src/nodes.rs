@@ -75,6 +75,9 @@ pub struct Online {
     /// The folder the user's files and code live in, when this node is
     /// their environment (`beep-node --workspace`).
     pub workspace: Option<String>,
+    /// It makes the branch or worktree a session's start asks for; a node
+    /// from before that ignores the ask.
+    pub checkouts: bool,
     pub connection: Connection,
     /// Held weakly: the app owns the nodes.
     app: Weak<App>,
@@ -414,6 +417,7 @@ async fn serve(
             name: hello.name,
             offers: hello.offers,
             workspace: hello.workspace,
+            checkouts: hello.checkouts,
             connection: connection.clone(),
             app: Arc::downgrade(app),
             shell: Arc::default(),

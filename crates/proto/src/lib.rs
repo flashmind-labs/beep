@@ -658,8 +658,10 @@ requests! {
     /// why when no machine fits or the node refuses. `model`, an id from
     /// `ListAgentModels`, picks the agent's model; the agent's own default
     /// when `None`. `effort` sets how hard it thinks, one of
-    /// `node::agent::efforts(agent)`; `BadRequest` for another. Older apps send
-    /// neither.
+    /// `node::agent::efforts(agent)`; `BadRequest` for another. `checkout`
+    /// first makes a branch or worktree in `cwd`'s git checkout, named
+    /// from the prompt; `BadRequest` when the machine's beep-node is too old
+    /// to. Older apps send none of these.
     141 StartAgentSession {
         machine_id: Option<String>,
         agent: Option<String>,
@@ -671,6 +673,8 @@ requests! {
         model: Option<String>,
         #[serde(default)]
         effort: Option<AgentEffort>,
+        #[serde(default)]
+        checkout: Option<AgentCheckoutPlan>,
     } => Call<StartedAgent>
     /// One session as `ListAgentSessions` lists it, with its plan, the
     /// files it changed and the last `last` entries of its transcript (at
@@ -1227,6 +1231,19 @@ wire_enum! {
         0 Fixed {}
         1 Listed {}
         2 Named {}
+    }
+}
+
+wire_enum! {
+    /// What a coding agent starts on, as `StartAgentSession::checkout`
+    /// asks: a new `beep/<slug>` branch in the checkout itself, or one in a
+    /// new worktree at `.worktrees/beep-<slug>`, made from `base` (the
+    /// checkout's `HEAD` when `None`). See `node::agent::CheckoutPlan`.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentCheckoutPlan {
+        0 NewBranch { base: Option<String> }
+        1 NewWorktree { base: Option<String> }
     }
 }
 

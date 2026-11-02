@@ -26,6 +26,7 @@ use std::{
 use tokio::task::spawn_blocking;
 
 mod acp;
+mod checkout;
 mod images;
 mod live;
 mod models;
@@ -384,6 +385,7 @@ impl Agents {
                 resume: Some(id.to_owned()),
                 model: None,
                 effort: None,
+                note: None,
             },
         )
     }
@@ -525,6 +527,7 @@ impl Agents {
             resume: begin.resume,
             model: begin.model,
             effort: begin.effort,
+            note: begin.note,
             images: self.images.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
@@ -542,6 +545,8 @@ struct Begin {
     resume: Option<String>,
     model: Option<String>,
     effort: Option<agent::Effort>,
+    /// A first line for the transcript, such as the branch it started on.
+    note: Option<String>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or
@@ -626,18 +631,39 @@ pub async fn serve_session(
             prompt,
             model,
             effort,
-        } => agents
-            .start(
-                &kind,
-                cwd.as_deref(),
-                Begin {
-                    prompt: Some(prompt),
-                    resume: None,
-                    model,
-                    effort,
-                },
-            )
-            .map_err(|e| format!("{e:#}")),
+            checkout,
+        } => {
+            // The branch or worktree comes first; the agent starts in it.
+            let made = match checkout {
+                Some(plan) => checkout::make_checkout(cwd.as_deref(), plan, &prompt)
+                    .await
+                    .map(Some),
+                None => Ok(None),
+            };
+            made.and_then(|made| {
+                let folder = match &made {
+                    Some(made) => Some(
+                        made.folder
+                            .to_str()
+                            .context("the new folder is not UTF-8")?
+                            .to_owned(),
+                    ),
+                    None => cwd,
+                };
+                agents.start(
+                    &kind,
+                    folder.as_deref(),
+                    Begin {
+                        prompt: Some(prompt),
+                        resume: None,
+                        model,
+                        effort,
+                        note: made.as_ref().map(checkout::Made::note),
+                    },
+                )
+            })
+            .map_err(|e| format!("{e:#}"))
+        }
         Request::Resume { session, prompt } => agents
             .resume(&kind, &session, prompt)
             .await
@@ -948,6 +974,7 @@ while read -r line; do reply '{}'; done
             resume: Some(CLAUDE_ID.into()),
             model: None,
             effort: None,
+            note: None,
         };
         let session = agents
             .start(&kind, Some(dir.to_str().unwrap()), begin)
@@ -1184,6 +1211,7 @@ while read -r line; do reply '{}'; done
             resume: Some(id.to_owned()),
             model: None,
             effort: None,
+            note: None,
         };
         let first = agents.start(&kind, Some("/"), begin()).unwrap();
         let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
@@ -1212,6 +1240,7 @@ while read -r line; do reply '{}'; done
             resume: Some(id.to_owned()),
             model: None,
             effort: None,
+            note: None,
         };
         let first = agents.start(&kind, Some("/"), begin).unwrap();
         first.close().await;
