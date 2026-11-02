@@ -12,6 +12,7 @@ use crate::{
     logfile,
     machine::{self, Machine},
     markdown, orb,
+    projects::unknown_op,
     state::{LinkState, NoticeVoice},
     voice::{Answered, NoticeCard, Voice, Waiting},
 };
@@ -21,13 +22,13 @@ use beep_proto::{
     CreateGroup, Cron, DeleteCron, DeleteGroupReminder, DeleteMemory, DeleteSession, DeleteSkill,
     GetAgents, GetGroup, GetGroupImages, GetModels, GetRouteCard, GetSessionAgents,
     GetSessionFiles, GetSessionSources, GroupInvite, GroupPreview, GroupReminder, JoinGroup,
-    LeaveGroup, ListCrons, ListGroupReminders, ListGroups, ListMemories, ListMemoryReads,
-    ListMemoryScopes, ListSkills, Memory, MemoryRead, MemoryScope, Models, PeekGroup, PinGroup,
-    PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron, SendToGroup, SentFiles, Session,
-    SessionMatch, SetAgents, SetAutoModel, SetModel, SetThinking, ShareGroupApps, ShareSession,
-    SharedLink, Skill, StockChart, ToggleCron, TurnAgent, TurnSources, UndoSkill, UnshareSession,
-    UpdateCron, UpdateMemory, UpdateSkill, format_group_code, group_code,
-    node::desktop::Permission,
+    LeaveGroup, ListActiveRuns, ListCrons, ListGroupReminders, ListGroups, ListMemories,
+    ListMemoryReads, ListMemoryScopes, ListSkills, Memory, MemoryRead, MemoryScope, Models,
+    PeekGroup, PinGroup, PinSession, ReasoningLevel, RenameSession, RouteCard, RunCron,
+    SendToGroup, SentFiles, Session, SessionMatch, SetAgents, SetAutoModel, SetModel, SetThinking,
+    ShareGroupApps, ShareSession, SharedLink, Skill, StockChart, ToggleCron, TurnAgent,
+    TurnSources, UndoSkill, UnshareSession, UpdateCron, UpdateMemory, UpdateSkill,
+    format_group_code, group_code, node::desktop::Permission,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -89,7 +90,8 @@ pub async fn send_prompt(
 }
 
 /// Sends the chat's `index`th prompt again on another model or thinking,
-/// dropping it and the turns after it first. Admins only.
+/// dropping it and the turns after it first: an admin's Rerun. An empty
+/// `pick` is Retry, which anyone may use: the account's own pick.
 #[tauri::command]
 pub async fn rerun_prompt(
     window: WebviewWindow,
@@ -203,6 +205,17 @@ pub fn fit_orb(app: AppHandle, width: f64, height: f64) -> Result<()> {
 #[tauri::command]
 pub async fn active_run(beep: Service<'_>, session: String) -> Result<Option<String>> {
     beep.active_run(&session).await
+}
+
+/// The chats with a run going on, started here or on another device, by
+/// session id. Empty from a server too old to say.
+#[tauri::command]
+pub async fn active_runs(beep: Service<'_>) -> Result<Vec<String>> {
+    match beep.call(ListActiveRuns {}).await {
+        Ok(runs) => Ok(runs.into_iter().map(|run| run.session_id).collect()),
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]

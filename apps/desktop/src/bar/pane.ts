@@ -6,10 +6,10 @@ import { type AgentRow, loadAgentHosts, openAgent, renderAgents } from "./agents
 import { renderApps } from "./apps.ts";
 import { body, focusAsk, grow, newChat, renderChat, send } from "./chat.ts";
 import { renderChats, rows, type SessionSummary } from "./chats.ts";
-import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, invoke, type PaneNow, S } from "./core.ts";
+import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, invoke, live, type PaneNow, S } from "./core.ts";
 import { type GroupSummary, renderGroup } from "./groups.ts";
 import { refreshHints } from "./hints.ts";
-import { openSession } from "./history.ts";
+import { drawChatTop, openSession } from "./history.ts";
 import { mountPane } from "./keys.ts";
 import { renderInvitePhone, renderLink, renderRevoked } from "./link.ts";
 import { renderMachines } from "./machines.ts";
@@ -139,6 +139,17 @@ export const pane = {
     ]);
     return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
   },
+  /// The chats a reply streams into here.
+  running(): string[] {
+    return [...live].filter(([id, e]) => id && e.run).map(([id]) => id!);
+  },
+  /// The chats with a run going on, started from any device; empty from a
+  /// server too old to say.
+  activeRuns(): Promise<string[]> {
+    return invoke<string[]>("active_runs").catch((): string[] => []);
+  },
+  /// Draws what the window shows atop the open chat again, once it knows.
+  chatTop: drawChatTop,
   /// When the open chat's first message was sent, in milliseconds, or
   /// null before its history has loaded.
   startedAt(): number | null {

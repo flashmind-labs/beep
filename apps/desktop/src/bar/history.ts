@@ -1,7 +1,7 @@
 import { askFiles } from "./attach.ts";
 import { approvalCard, body, drawLatest, drawSteps, failed, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
-import { $$, changed, esc, h, invoke, live, queued, S } from "./core.ts";
+import { $$, changed, esc, h, invoke, live, queued, S, windowHooks } from "./core.ts";
 import type { ChatBody, Step, Turn } from "./core.ts";
 import type { ImageRef, SentFile } from "./media.ts";
 import { replyActs } from "./rerun.ts";
@@ -46,6 +46,7 @@ export async function openSession(id: string) {
   renderChat();
   $$<HTMLTextAreaElement>("#ask").placeholder = "Ask a follow-up…";
   if (running) {
+    drawChatTop();
     scrollDown();
     invoke("open_session", { id }).catch(() => {});
     return;
@@ -111,11 +112,24 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   }
   // Only the latest reply's follow-ups still make sense.
   if (last) suggestions(last.turn, last.replies);
+  drawChatTop();
   scrollDown();
   loadAskFiles(id, b);
   loadAgents(id, b);
   loadSources(id, b);
   keepWaitingQuestions(id);
+}
+
+/// Puts what the window shows atop the open chat first in its body, such
+/// as the card of the pull request it is about.
+export function drawChatTop() {
+  const b = body();
+  if (!b || S.view !== "chat" || !S.session) return;
+  const top = windowHooks?.chatTop?.(S.session) ?? null;
+  b.querySelectorAll(":scope > .dchattop").forEach(el => { if (el !== top) el.remove(); });
+  if (!top) return;
+  top.classList.add("dchattop");
+  if (b.firstElementChild !== top) b.prepend(top);
 }
 
 /// Calls `draw` with each turn of session `id` that `list` names, once the
