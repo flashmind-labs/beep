@@ -71,6 +71,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 }
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 .cc-link { cursor: pointer }
 .cc-link:hover { text-decoration: underline }

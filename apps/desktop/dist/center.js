@@ -138,6 +138,9 @@ function rowButton(label, cls, on) {
 
 /// One row of Running now, Needs you, Updates or Coming up: a title and one
 /// muted line, opening `open` on a click, with `right` beside it.
+/// A row with no tile before its title.
+function bare(row) { row.classList.add("bare"); return row; }
+
 function line(lead, title, sub, right, open) {
   const t = h("button", "t", h("b", "", title), h("span", "", sub));
   t.type = "button";
@@ -235,14 +238,13 @@ function offlineNote(machines) {
 // ---------- Running now ----------
 
 function runningRow(r) {
-  const { title, sub } = runningLine(r);
+  const { title, sub } = runningLine(r, state.home?.projects || []);
   const right = [r.status === "asking" ? tag("wait", "needs you") : ago(r.started_at)];
   if (r.kind === "research") {
-    return line(avatar("beep", icon(IC.find)), title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}));
+    return bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})));
   }
-  const ag = agentOf(r.agent);
   // The pane's agent view (app.js) follows and answers it.
-  return line(avatar(ag.cls, ag.ini), title, sub, right, () => go("pane", { agent: r }));
+  return bare(line(null, title, sub, right, () => go("pane", { agent: r })));
 }
 
 function runningSection(running) {

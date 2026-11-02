@@ -24,9 +24,14 @@ test("the OS line prefers the version", () => {
   assert.equal(machineOs(machine()), "");
 });
 
-test("a running agent shows its title, then project and machine", () => {
-  const r = { kind: "agent", agent: "claude", title: "Fix the build", cwd: "/srv/project/widget", machine_name: "build-box" };
-  assert.deepEqual(runningLine(r), { title: "Fix the build", sub: "widget · build-box" });
+test("a running agent shows its title, then agent, repo and machine", () => {
+  const r = { kind: "agent", agent: "claude", title: "Fix the build", cwd: "/srv/project/widget-fix/src", machine_id: "m1", machine_name: "build-box" };
+  assert.deepEqual(runningLine(r), { title: "Fix the build", sub: "Claude Code · src · build-box" });
+  const projects = [
+    { name: "org/widget", machine_id: "m1", folder: "/srv/project/widget-fix" },
+    { name: "org/other", machine_id: "m2", folder: "/srv/project/widget-fix/src" },
+  ];
+  assert.deepEqual(runningLine(r, projects), { title: "Fix the build", sub: "Claude Code · widget · build-box" });
   assert.deepEqual(runningLine({ ...r, title: null, cwd: "" }), { title: "Claude Code", sub: "Claude Code · build-box" });
 });
 
