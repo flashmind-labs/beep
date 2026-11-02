@@ -77,8 +77,8 @@ pub use profile::{ProfileNote, ProfileRead};
 pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
-    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused,
-    TaskRow, TrackedIssue, WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, OverviewRow, ProjectRow,
+    StartRefused, TaskRow, TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};

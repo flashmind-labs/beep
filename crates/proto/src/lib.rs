@@ -822,6 +822,36 @@ requests! {
     /// The projects the caller pinned to the top of the sidebar, in the
     /// order they were pinned.
     194 ListProjectsOnTop {} => Call<Vec<String>>
+    /// Every project of the caller's with how many of its tasks stand in
+    /// each state, its live workers and its latest task, by name: what the
+    /// Projects overview shows, in one call instead of one per project.
+    195 ListProjectOverview {} => Call<Vec<ProjectOverview>>
+}
+
+/// One project as `ListProjectOverview` sums it up.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectOverview {
+    pub project_id: Uuid,
+    /// `org/repo`.
+    pub name: String,
+    /// How many of its tasks stand in each state, dropped ones left out.
+    pub tasks: TaskCounts,
+    /// Its workers that have not ended.
+    pub workers: u32,
+    /// The task that changed last, dropped ones left out.
+    pub latest: Option<ProjectTask>,
+}
+
+/// How many of a project's tasks stand in each state.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskCounts {
+    pub planned: u32,
+    pub running: u32,
+    pub blocked: u32,
+    pub review: u32,
+    pub done: u32,
 }
 
 /// One of the caller's GitHub accounts, as `ListGitHubAccounts` lists it.

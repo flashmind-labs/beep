@@ -12,7 +12,7 @@ import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machin
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop } from "./projects-state.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
 import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
 import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
@@ -63,7 +63,7 @@ const CONNECT_RETRY_MS = 3000;
 /// `sessions` each project's past sessions once read, by name.
 /// `agents` lists the project agents (undefined before, null from a server
 /// without them) and `pview` each one's tasks, workers and chat, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], top: [] };
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], top: [], overview: undefined };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -1028,6 +1028,69 @@ function projectTable(rows) {
   return table;
 }
 
+/// Every project as a card, grouped by org: its tasks per state, its
+/// workers, what changed last and where it lives.
+function overviewSection(rows) {
+  const groups = overviewGroups(rows, state.overview, state.top);
+  const out = groups.map(g => h("section", "pj-org",
+    h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", `${g.cards.length} ${g.cards.length === 1 ? "repo" : "repos"}`)),
+    h("div", "pj-grid", ...g.cards.map(projectCard))));
+  const add = h("div", "cc-panel cc-row pj-add",
+    h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder your agents worked in, any folder, or a repository to clone.")),
+    button("Add", "", addProject));
+  return [...out, add];
+}
+
+function projectCard(c) {
+  const sw = h("span", "cc-pdot");
+  sw.style.background = PROJECT_COLORS[c.i % PROJECT_COLORS.length];
+  const pin = h("button", `pa${c.pinned ? " on" : ""}`, icon(IC.pin));
+  pin.type = "button";
+  pin.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
+  pin.addEventListener("click", e => { e.stopPropagation(); setProjectOnTop(c.name, !c.pinned); });
+  const card = h("div", "pj-card", h("div", "h", sw, h("b", "", c.repo), pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.title = c.name;
+  if (c.sum) {
+    const bar = h("div", "pj-bar");
+    for (const s of barSegments(c.sum.tasks)) {
+      const seg = h("i", s.state);
+      seg.style.width = `${s.share}%`;
+      seg.title = `${s.n} ${s.state}`;
+      bar.append(seg);
+    }
+    const [open, ...rest] = countsLine(c.sum.tasks);
+    card.append(bar, h("span", "line", h("b", "", open), rest.map(x => ` · ${x}`).join("")));
+    const latest = c.sum.latest;
+    card.append(h("span", "line", latestLine(latest), latest ? h("small", "", ` · ${ago(latest.updated_at)}`) : null));
+  } else {
+    card.append(h("span", "line", c.imported ? "No project agent yet" : "From running agents"));
+  }
+  const on = c.machines.map(m => m.name);
+  card.append(h("span", "line", on.length ? `On ${[...new Set(on)].join(", ")}` : "On no machine yet"));
+  const open = () => openProjects(c.name);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  return card;
+}
+
+/// The overview's cards; `null` from a server too old to sum projects up,
+/// when the page keeps its table.
+let overviewLoading = false;
+async function loadOverview() {
+  if (overviewLoading) return;
+  overviewLoading = true;
+  try {
+    state.overview = await invoke("project_overview");
+  } catch (e) {
+    console.warn("project overview:", e);
+  } finally {
+    overviewLoading = false;
+  }
+  if (shown === "projects" && !state.picked) { drawProjects(views.get("projects").el); drawTop(); }
+}
+
 /// One project: where it lives on every machine, with "Start an agent here"
 /// per folder and "Clone here" where it is not, and the coding agents
 /// running in it now.
@@ -1469,6 +1532,7 @@ function drawProjects(el) {
     const shownRows = filterProjects(rows, state.picked);
     const one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     if (one) view.append(...projectDetail(one));
+    else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
     const found = one ? null : foundSection();
     if (found) view.append(found);
@@ -1494,7 +1558,11 @@ function drawProjects(el) {
 
 registerView("projects", {
   title() {
-    if (!state.picked) return { title: "Projects", sub: "Repositories on your machines", tools: [importButton("small")] };
+    if (!state.picked) {
+      const rows = projectRows();
+      const sub = state.overview && rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top)) : "Repositories on your machines";
+      return { title: "Projects", sub, tools: [importButton("small")] };
+    }
     const p = filterProjects(projectRows() || [], state.picked)[0];
     const tools = [];
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
@@ -1513,7 +1581,7 @@ registerView("projects", {
     pa.startError = null;
     pa.tile = null;
     drawProjects(el);
-    if (!state.picked) loadFound();
+    if (!state.picked) { loadFound(); loadOverview(); }
     refresh();
   },
   unmount() {
@@ -1752,6 +1820,7 @@ async function refresh() {
   // A project's agent refreshes with Home: on focus, on notices and every
   // 10 seconds while the window shows.
   if (shown === "projects" && state.picked) loadProjectAgent();
+  if (shown === "projects" && !state.picked) loadOverview();
   reloadGroup("projects");
   reloadGroup("pinned");
   reloadGroup("machines");

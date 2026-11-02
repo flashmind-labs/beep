@@ -1463,6 +1463,11 @@ impl User {
     }
 
     /// How many of the project's tasks are open and workers live.
+    /// Every project summed up for the Projects overview, by name.
+    pub(crate) async fn project_overviews(&self) -> Result<Vec<crate::store::OverviewRow>> {
+        self.store.project_overviews(&self.key).await
+    }
+
     pub(crate) async fn project_open_counts(&self, project: ProjectId) -> Result<OpenCounts> {
         self.store.open_counts(project).await
     }

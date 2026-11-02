@@ -89,6 +89,8 @@ sample_struct! {
     ProjectAgent { project_id, name, chat_id, open_tasks, open_workers }
     ProjectTask { id, slug, title, body, state, depends_on, issue_number, issue_url, branch, pr_url, created_at, updated_at }
     ProjectIssue { number, title, labels, author, opened_at, comments, url }
+    ProjectOverview { project_id, name, tasks, workers, latest }
+    TaskCounts { planned, running, blocked, review, done }
     IssueStart { agent, node_id }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }

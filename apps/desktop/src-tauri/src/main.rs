@@ -27,6 +27,7 @@ mod machines;
 mod markdown;
 mod news;
 mod orb;
+mod overview;
 mod palette;
 mod presence;
 mod products;
@@ -193,6 +194,7 @@ fn main() {
             projects::open_folder,
             projects::center_projects,
             projects::projects_on_top,
+            overview::project_overview,
             projects::pin_project_to_top,
             projects::center_open_project,
             projects::center_project,

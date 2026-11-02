@@ -330,3 +330,81 @@ export function whereCount(rows, known) {
   const machines = x => x === 1 ? "1 machine" : `${x} machines`;
   return known && rows.length > n ? `${n} of ${machines(rows.length)}` : machines(n);
 }
+
+// ---------- The Projects overview ----------
+
+/// The order a card's bar takes, work in hand first.
+export const BAR_STATES = ["running", "review", "blocked", "planned", "done"];
+
+/// The overview's cards grouped by org, as the sidebar groups projects:
+/// `[{ org, cards }]`, projects without an org last under `org: null`.
+/// Each card is the project row with `i` for its colour, `pinned`, and
+/// `sum`, the server's overview of it (null when it has no project agent
+/// yet). Pinned projects come first in their org.
+export function overviewGroups(rows, overview, top) {
+  const sums = new Map((overview || []).map(o => [o.name, o]));
+  const pins = new Set(top || []);
+  const groups = new Map();
+  (rows || []).forEach((p, i) => {
+    const cut = p.name.indexOf("/");
+    const org = cut > 0 ? p.name.slice(0, cut) : null;
+    if (!groups.has(org)) groups.set(org, []);
+    groups.get(org).push({ ...p, i, repo: cut > 0 ? p.name.slice(cut + 1) : p.name, pinned: pins.has(p.name), sum: sums.get(p.name) || null });
+  });
+  const out = [...groups].map(([org, cards]) => ({ org, cards: cards.sort((a, b) => (b.pinned - a.pinned) || (a.i - b.i)) }));
+  return [...out.filter(g => g.org), ...out.filter(g => !g.org)];
+}
+
+/// Tasks not done or dropped.
+export function openTasks(counts) {
+  const c = counts || {};
+  return (c.running || 0) + (c.review || 0) + (c.blocked || 0) + (c.planned || 0);
+}
+
+/// The bar's segments, `{ state, share }` with share in percent, empty
+/// states left out.
+export function barSegments(counts) {
+  const total = openTasks(counts) + ((counts && counts.done) || 0);
+  if (!total) return [];
+  return BAR_STATES.filter(k => counts[k]).map(k => ({ state: k, n: counts[k], share: counts[k] / total * 100 }));
+}
+
+/// "2 open · 1 in review · 1 blocked · 3 done", the parts after "open"
+/// only when there are some.
+export function countsLine(counts) {
+  const c = counts || {};
+  const parts = [`${openTasks(c)} open`];
+  if (c.review) parts.push(`${c.review} in review`);
+  if (c.blocked) parts.push(`${c.blocked} blocked`);
+  parts.push(`${c.done || 0} done`);
+  return parts;
+}
+
+/// What the task that changed last says about the project.
+export function latestLine(latest) {
+  if (!latest) return "No tasks yet";
+  const t = latest.title || latest.slug;
+  switch (latest.state) {
+    case "running": return `Working on ${t}`;
+    case "blocked": return `${latest.slug || t} is blocked`;
+    case "review": return latest.pr_url ? `${t}: its PR waits for your review` : `${t} waits for your review`;
+    case "planned": return `Next: ${t}`;
+    case "done": return `Finished ${t}`;
+    default: return t;
+  }
+}
+
+/// "1 worker", "2 workers", or "idle".
+export function workersLabel(n) {
+  return n ? `${n} ${n === 1 ? "worker" : "workers"}` : "idle";
+}
+
+/// The heading's line: "3 projects in 2 orgs, 3 workers running".
+export function overviewSub(groups) {
+  const cards = groups.flatMap(g => g.cards);
+  const orgs = groups.filter(g => g.org).length;
+  const workers = cards.reduce((n, c) => n + (c.sum?.workers || 0), 0);
+  const projects = `${cards.length} ${cards.length === 1 ? "project" : "projects"}`;
+  const inOrgs = orgs ? ` in ${orgs} ${orgs === 1 ? "org" : "orgs"}` : "";
+  return `${projects}${inOrgs}, ${workers ? `${workers} ${workers === 1 ? "worker" : "workers"} running` : "no workers running"}`;
+}
