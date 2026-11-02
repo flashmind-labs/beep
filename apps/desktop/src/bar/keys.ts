@@ -2,9 +2,9 @@ import { renderAgentNew } from "./agentnew.ts";
 import { agentBack, agentKeys } from "./agents.ts";
 import { A, addServer, drawApps, drawMcpTools, renderApps } from "./apps.ts";
 import { attachedCount, unattach } from "./attach.ts";
-import { answer, newChat, openInWindow, renderChat, send, sendQueued, toWindow } from "./chat.ts";
+import { answer, newChat, openInWindow, renderChat, send, sendQueued, stop, toWindow } from "./chat.ts";
 import { chatAction, chatMode, drawChats, openRow, renderChats } from "./chats.ts";
-import { $, bar, G, here, invoke, PANE, queued, S, windowHooks } from "./core.ts";
+import { $, $$, bar, G, here, invoke, PANE, queued, S, windowHooks } from "./core.ts";
 import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "./groups.ts";
 import { toggleKeys } from "./hints.ts";
 import { openSession } from "./history.ts";
@@ -21,12 +21,19 @@ import { answerWork, waitingQuestion } from "./work.ts";
 
 // ---------- Keys ----------
 
+/// What a key's target is: a field, or any element the key came from.
+type KeyTarget = HTMLElement & { value?: string };
+const target = (e: KeyboardEvent) => e.target as KeyTarget;
+const decision = (e: KeyboardEvent) => e.altKey ? "always" : e.shiftKey ? "session" : "allow";
+/// Back on the open chat, or a new one.
+const backToChat = () => S.session ? openSession(S.session) : renderChat();
+
 export function back() {
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
   if (S.view === "chats") {
     if (S.chats.mode !== "list") return chatMode("list");
     if (S.chats.back) return renderGroup(S.chats.back);
-    return S.session ? openSession(S.session) : renderChat();
+    return backToChat();
   }
   if (S.view === "group" && G.mention) return closeMention();
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
@@ -41,9 +48,9 @@ export function back() {
   if (S.view === "mcp") return renderApps();
   if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
   if (S.view === "apps" || S.view === "machines") return renderSettings();
-  if (S.view === "model") return S.session ? openSession(S.session) : renderChat();
-  if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return S.session ? openSession(S.session) : renderChat();
-  if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id);
+  if (S.view === "model") return backToChat();
+  if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return backToChat();
+  if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id!);
   if (S.view === "gnew") {
     if (J.mode === "join") return renderGroupNew("code");
     if (J.mode === "code") return renderGroupNew("new");
@@ -52,7 +59,7 @@ export function back() {
   if (!PANE) invoke("hide_bar");
 }
 
-export function chatsKeys(e, cmd) {
+export function chatsKeys(e: KeyboardEvent, cmd: boolean) {
   const { list, mode } = S.chats, c = list[S.chats.sel];
   const key = e.key.toLowerCase();
   if (mode === "rename") {
@@ -86,8 +93,9 @@ export function chatsKeys(e, cmd) {
   }
 }
 
-export function groupKeys(e, cmd) {
-  if (e.target.id !== "gask") return;
+export function groupKeys(e: KeyboardEvent) {
+  const t = target(e);
+  if (t.id !== "gask") return;
   const mn = G.mention;
   if (mn && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
     e.preventDefault();
@@ -96,7 +104,7 @@ export function groupKeys(e, cmd) {
   }
   if (mn && (e.key === "Enter" || e.key === "Tab") && !e.isComposing) { e.preventDefault(); return insertMention(mn.sel); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); return sendGroup(); }
-  if (!PANE && e.key === "ArrowUp" && !e.target.value) { e.preventDefault(); return renderChats(); }
+  if (!PANE && e.key === "ArrowUp" && !t.value) { e.preventDefault(); return renderChats(); }
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") setTimeout(findMention);
 }
 
@@ -104,7 +112,7 @@ export function groupKeys(e, cmd) {
 /// closes that first (Rust keeps the sheet with the view). Keys that would
 /// open another view do nothing; a typed character leaves live mode, keeping
 /// the words, and goes in the prompt after them. True when the key is taken.
-export function liveKeys(e, cmd) {
+export function liveKeys(e: KeyboardEvent, cmd: boolean) {
   if (cmd && e.key === "/") { e.preventDefault(); invoke("live_sheet", { open: null }).catch(() => {}); return true; }
   if (e.key === "Escape") { e.preventDefault(); invoke("cancel_live").catch(() => {}); return true; }
   if (cmd && e.key.toLowerCase() === "q") return false;
@@ -134,7 +142,8 @@ document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
   if (PANE && !paneMounted) return;
   // A key meant for the sidebar (Enter on a row) is not the pane's.
-  if (PANE && !cmd && e.target !== document.body && !bar.contains(e.target)) return;
+  const t = target(e);
+  if (PANE && !cmd && t !== document.body && !bar.contains(t)) return;
   if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase())) return;
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
@@ -151,7 +160,7 @@ document.addEventListener("keydown", e => {
   const key = e.key.toLowerCase();
   if (cmd && e.shiftKey && key === "a" && S.link === "linked") {
     e.preventDefault();
-    return renderAgentNew(S.view === "chat" ? $("#ask")?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
+    return renderAgentNew(S.view === "chat" ? $<HTMLTextAreaElement>("#ask")?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
   }
   // These views live in the window now; before linking the bar keeps them.
   const linked = S.link === "linked";
@@ -174,17 +183,18 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "e" && canPickModel()) { e.preventDefault(); return S.view === "model" ? back() : renderModel(); }
   if (S.view === "model") return modelKeys(e);
   if (S.view === "chat") {
-    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : e.shiftKey ? "session" : "allow"); }
+    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(decision(e)); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
-    const asked = !here()?.approval && S.view === "chat" && waitingQuestion(S.session);
-    if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : e.shiftKey ? "session" : "allow"); }
+    const asked = !here()?.approval && waitingQuestion(S.session);
+    if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, decision(e)); }
     if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }
-    if (cmd && e.shiftKey && e.key === "Enter" && e.target.id === "ask") { e.preventDefault(); return research(e.target.value); }
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.id === "ask") { e.preventDefault(); return send(e.target.value); }
-    if (!PANE && e.key === "ArrowUp" && e.target.id === "ask" && !e.target.value) { e.preventDefault(); return renderChats(); }
-    if (e.key === "Backspace" && !cmd && e.target.id === "ask" && !e.target.value && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
+    const ask = t.id === "ask" ? t.value! : null;
+    if (cmd && e.shiftKey && e.key === "Enter" && ask != null) { e.preventDefault(); return research(ask); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && ask != null) { e.preventDefault(); return send(ask); }
+    if (!PANE && e.key === "ArrowUp" && ask === "") { e.preventDefault(); return renderChats(); }
+    if (e.key === "Backspace" && !cmd && ask === "" && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
   }
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);
@@ -192,11 +202,12 @@ document.addEventListener("keydown", e => {
   if (S.view === "grants") return grantKeys(e, cmd);
   if (S.view === "research") return researchKeys(e);
   if (S.view === "skills") return skillKeys(e, cmd);
-  if (S.view === "group") return groupKeys(e, cmd);
-  if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && e.target.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }
-  if (S.view === "apps" && e.key === "Enter" && !e.isComposing && (e.target.id === "mname" || e.target.id === "murl")) {
+  if (S.view === "group") return groupKeys(e);
+  if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && t.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }
+  if (S.view === "apps" && e.key === "Enter" && !e.isComposing && (t.id === "mname" || t.id === "murl")) {
     e.preventDefault();
-    return e.target.id === "mname" && !$("#murl").value.trim() ? $("#murl").focus() : addServer();
+    const url = $$<HTMLInputElement>("#murl");
+    return t.id === "mname" && !url.value.trim() ? url.focus() : addServer();
   }
 });
 

@@ -4,34 +4,61 @@
 // claims it with `beep-node setup <token>` and links itself to this
 // account. The sheet waits, asking which machine claimed the token, and flips to Linked
 // by itself. Esc or Cancel closes it and revokes a token nobody used.
+// The other sheets share its scrim and styles.
+import { invoke } from "./tauri.ts";
 import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.ts";
-import { present } from "./projects-state.ts";
+import type { AddEvent, MacSeen } from "./addmachine-state.ts";
+import type { MacControl, MachineView } from "./home.ts";
+import { button, el, present } from "./projects-state.ts";
 
-const { invoke } = window.__TAURI__.core;
+/// A setup token as `create_node_token` gives it (TokenView).
+interface NodeToken {
+  token: string;
+  command: string;
+  /// In milliseconds since the Unix epoch.
+  expires_at: number;
+}
+
+type Timer = ReturnType<typeof setInterval> | undefined;
 
 const POLL_MS = 2000;
 const TICK_MS = 1000;
 
-let root = null, sheet = null, state = START;
-let ticker = null, poller = null, back = null, onClose = null;
+let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START;
+let ticker: Timer, poller: Timer, back: Element | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
-let mac = null, macAsked = false, macPoller = null;
+let mac: MacSeen | null = null, macAsked = false, macPoller: Timer;
 
-function el(tag, cls, ...kids) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  for (const k of kids) if (k != null && k !== false) e.append(k);
-  return e;
+/// A dialog over the window: the dimmed scrim holding the sheet, not yet
+/// on the page.
+export function sheetShell(label: string, cls: string) {
+  const scrim = el("div", "am-scrim");
+  const box = el("div", cls);
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", label);
+  scrim.append(box);
+  return { root: scrim, sheet: box };
 }
 
-function button(label, cls, onClick) {
-  const b = el("button", cls, label);
-  b.type = "button";
-  b.addEventListener("click", onClick);
-  return b;
+/// Gives focus back to what had it before a sheet opened.
+export function focusBack(was: Element | null) {
+  const f = was as HTMLElement | null;
+  if (f && f.focus) f.focus();
 }
 
-function copyButton(text) {
+/// Loads the sheets' shared styles once, so the window only has to import
+/// the sheets.
+export function linkSheetStyle() {
+  if (document.querySelector("link[data-am]")) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = new URL("./addmachine.css", import.meta.url).href;
+  link.dataset.am = "";
+  document.head.append(link);
+}
+
+function copyButton(text: string) {
   const b = button("Copy", "dbtn", async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -44,23 +71,18 @@ function copyButton(text) {
   return b;
 }
 
-function codeLine(text) {
+function codeLine(text: string) {
   return el("div", "am-line", el("div", "am-code", text), copyButton(text));
 }
 
 /// Opens the sheet over the window. `options.onClose` runs once it closes,
 /// as when the window wants to refresh its machines.
-export function openAddMachine(options = {}) {
+export function openAddMachine(options: { onClose?: () => void } = {}) {
   if (root) return;
   onClose = options.onClose || null;
   back = document.activeElement;
-  injectStyle();
-  root = el("div", "am-scrim");
-  sheet = el("div", "am-sheet");
-  sheet.setAttribute("role", "dialog");
-  sheet.setAttribute("aria-modal", "true");
-  sheet.setAttribute("aria-label", "Add a machine");
-  root.append(sheet);
+  linkSheetStyle();
+  ({ root, sheet } = sheetShell("Add a machine", "am-sheet"));
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
@@ -78,18 +100,18 @@ export function closeAddMachine() {
   clearInterval(ticker);
   clearInterval(poller);
   clearInterval(macPoller);
-  ticker = poller = macPoller = null;
+  ticker = poller = macPoller = undefined;
   document.removeEventListener("keydown", onKey, true);
   root.remove();
   root = sheet = null;
   state = START;
-  if (back && back.focus) back.focus();
+  focusBack(back);
   const done = onClose;
   onClose = null;
   if (done) done();
 }
 
-function onKey(e) {
+function onKey(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   e.preventDefault();
   e.stopPropagation();
@@ -100,9 +122,9 @@ function onKey(e) {
 async function start() {
   update({ type: "renew" });
   clearInterval(poller);
-  poller = null;
+  poller = undefined;
   try {
-    const made = await invoke("create_node_token", { name: null });
+    const made = await invoke<NodeToken>("create_node_token", { name: null });
     if (!root) {
       invoke("revoke_node_token", { token: made.token }).catch(() => {});
       return;
@@ -118,11 +140,11 @@ async function poll() {
   if (state.step !== "waiting") return;
   const token = state.token;
   try {
-    const id = await invoke("node_token_machine", { token });
+    const id = await invoke<string | null>("node_token_machine", { token });
     if (!id) return;
     // Matched by id, so a machine set up again is found too.
-    const machine = machineById(await invoke("list_machines"), id);
-    if (machine && state.token === token) update({ type: "found", machine });
+    const machine = machineById(await invoke<MachineView[]>("list_machines"), id);
+    if (machine && state.step === "waiting" && state.token === token) update({ type: "found", machine });
   } catch {
     // The next poll tries again.
   }
@@ -131,7 +153,7 @@ async function poll() {
 /// Reads where this Mac stands and redraws its option.
 async function loadMac() {
   try {
-    const view = await invoke("mac_control");
+    const view = await invoke<MacControl>("mac_control");
     if (!root) return;
     mac = view;
   } catch (e) {
@@ -145,7 +167,7 @@ async function loadMac() {
 async function useThisMac() {
   macAsked = true;
   try {
-    mac = await invoke("set_mac_control", { enabled: true });
+    mac = await invoke<MacControl>("set_mac_control", { enabled: true });
   } catch (e) {
     mac = { ...mac, enabled: true, status: "failed", error: String(e) };
   }
@@ -176,12 +198,12 @@ function macBlock() {
       : status);
 }
 
-function update(event) {
+function update(event: AddEvent) {
   const was = state;
   state = next(state, event);
   if (state.step !== "waiting") {
     clearInterval(poller);
-    poller = null;
+    poller = undefined;
   }
   if (!root) return;
   // A tick only moves the countdown.
@@ -195,12 +217,13 @@ function tickOnly() {
 }
 
 function draw() {
+  const box = sheet!;
   const head = el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc"));
   const mine = macBlock();
   const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
-  sheet.replaceChildren(head, ...present([mine, other, ...body()]));
-  const first = sheet.querySelector("button");
-  if (first && !sheet.contains(document.activeElement)) first.focus();
+  box.replaceChildren(head, ...present([mine, other, ...body()]));
+  const first = box.querySelector("button");
+  if (first && !box.contains(document.activeElement)) first.focus();
 }
 
 function body() {
@@ -243,14 +266,4 @@ function body() {
         el("div", "am-line", button("Try again", "dbtn pri", start), button("Close", "dbtn quiet", closeAddMachine)),
       ];
   }
-}
-
-/// Loads the sheet's styles once, so the window only has to import this.
-function injectStyle() {
-  if (document.querySelector('link[data-am]')) return;
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = new URL("./addmachine.css", import.meta.url).href;
-  link.dataset.am = "";
-  document.head.append(link);
 }

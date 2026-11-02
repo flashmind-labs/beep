@@ -2,18 +2,80 @@
 // board's Issues tile and the Pull requests tile's rows, and their full
 // lists: an open issue no task tracks gets Work on it (agent and machine),
 // Plan, Discuss and Not now; a thread of the user's gets Let the agent
-// reply when someone wrote after them, and Discuss. center.js draws the
+// reply when someone wrote after them, and Discuss. center.ts draws the
 // page; this file keeps the state.
-import { agentLabel } from "./projects-state.ts";
+import type { invoke as Invoke } from "./tauri.ts";
+import { agentLabel, reason } from "./projects-state.ts";
+import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
+import type { ProjectAgent } from "./project.ts";
+import type { TileData } from "./board.ts";
+
+/// An open issue no task tracks (IssueRow).
+export interface IssueRow {
+  number: number;
+  title: string;
+  labels: string[];
+  author: string;
+  /// In milliseconds since the Unix epoch.
+  opened_at: number;
+  comments: number;
+  url: string;
+}
+
+/// One of the user's open pull requests or issues in a project (ThreadRow).
+export interface ThreadRow {
+  /// `pr` or `issue`.
+  kind: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  /// Who wrote last after the user, and what.
+  last_other: string;
+  needs_reply: boolean;
+  /// In milliseconds since the Unix epoch.
+  updated_at: number;
+}
+
+/// A chat about one thread (ThreadChatRow).
+export interface ThreadChatRow {
+  chat_id: string;
+  /// `pr` or `issue`.
+  kind: string;
+  repo: string;
+  number: number;
+  title: string;
+}
+
+/// A machine and the coding agents it offers (HostRow).
+export interface HostRow {
+  machine_id: string;
+  machine_name: string;
+  agents: string[];
+  workspace: string | null;
+  home: string | null;
+  capabilities: string[];
+}
+
+/// What Work on it offers.
+export interface WorkChoices {
+  agents: string[];
+  machines: { id: string; name: string; agents: string[] }[];
+  agent: string | null;
+  machine: string | null;
+}
+
+/// A machine row as `workChoices` reads it: `whereRows` gives them.
+type Where = { id: string; kind: string };
 
 /// "#52", "PR #41".
-export function threadCode(t) {
+export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
   return t.kind === "pr" ? `PR #${t.number}` : `#${t.number}`;
 }
 
 /// The Issues tile from the open issues no task tracks; undefined while
 /// they load, null from a server too old to list them.
-export function issueTile(list) {
+export function issueTile(list: readonly Pick<IssueRow, "number" | "title" | "url" | "labels" | "comments">[] | null | undefined): TileData {
   if (list === undefined) return { count: "", rows: [], empty: "Loading…" };
   if (list === null) return { count: "", rows: [], empty: "The server lists no issues yet" };
   return {
@@ -26,7 +88,7 @@ export function issueTile(list) {
 /// The Pull requests tile from the user's threads: their open PRs, those
 /// waiting on a reply first; `fallback` (the tasks' PRs) while they load or
 /// on a server too old to list them.
-export function threadTile(list, fallback) {
+export function threadTile(list: readonly (Pick<ThreadRow, "kind" | "number" | "title" | "needs_reply"> & Partial<Pick<ThreadRow, "url">>)[] | null | undefined, fallback: TileData): TileData {
   if (!Array.isArray(list)) return fallback;
   const prs = list.filter(t => t.kind === "pr");
   const waiting = list.filter(t => t.needs_reply).length;
@@ -43,7 +105,7 @@ export function threadTile(list, fallback) {
 }
 
 /// The line under an issue: who opened it, when, its labels and comments.
-export function issueMeta(i, ago) {
+export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "labels" | "comments">>, ago: Ago) {
   const out = [`opened by ${i.author || "someone"}`];
   if (i.opened_at) out.push(ago(i.opened_at));
   out.push(...(i.labels || []));
@@ -52,7 +114,7 @@ export function issueMeta(i, ago) {
 }
 
 /// The line under a thread: who wrote last, else that nothing waits.
-export function threadMeta(t, ago) {
+export function threadMeta(t: Pick<ThreadRow, "last_other" | "updated_at" | "needs_reply">, ago: Ago) {
   const out = [];
   if (t.last_other) out.push(t.last_other);
   if (t.updated_at) out.push(ago(t.updated_at));
@@ -63,53 +125,89 @@ export function threadMeta(t, ago) {
 /// What Work on it offers: the agents the machines offer, in the order
 /// first seen, and the machines with the project, then "Pick at start".
 /// The first agent offered is picked.
-export function workChoices(hosts, where) {
-  const agents = [];
+export function workChoices(hosts: readonly Pick<HostRow, "machine_id" | "machine_name" | "agents">[] | null | undefined, where: readonly Where[] | null | undefined): WorkChoices {
+  const agents: string[] = [];
   for (const h of hosts || []) for (const a of h.agents || []) if (!agents.includes(a)) agents.push(a);
   const here = new Set((where || []).filter(r => r.kind === "here").map(r => r.id));
   const machines = (hosts || []).filter(h => here.has(h.machine_id)).map(h => ({ id: h.machine_id, name: h.machine_name, agents: h.agents || [] }));
   return { agents, machines, agent: agents[0] || null, machine: machines[0]?.id || null };
 }
 
-/// `deps`: { invoke, h, button, ago, redraw, openUrl, openChat, changed }.
-/// `openChat(chatId)` shows a chat in the pane; `changed()` reloads the
-/// project's tasks once an issue became one.
-export function makeThreads(deps) {
+/// What the window hands `makeThreads`. `openChat(chatId)` shows a chat in
+/// the pane; `changed()` reloads the project's tasks once an issue became one.
+export interface ThreadDeps {
+  invoke: typeof Invoke;
+  h: MakeEl;
+  button: MakeButton;
+  ago: Ago;
+  redraw: () => void;
+  openUrl: (url: string) => unknown;
+  openChat: (chat: string) => void;
+  changed: () => unknown;
+}
+
+/// The issue whose Work on it picker shows, and what it picked; undefined
+/// until the picker first draws.
+interface IssuePick {
+  number: number;
+  agent?: string | null;
+  machine?: string | null;
+}
+
+/// One project's lists: undefined while they load, null from a server too
+/// old to give them.
+interface ProjectThreads {
+  issues: IssueRow[] | null | undefined;
+  threads: ThreadRow[] | null | undefined;
+  chats: ThreadChatRow[] | null | undefined;
+  error: string;
+  busy: Set<string>;
+  pick: IssuePick | null;
+}
+
+/// The project agent the lists belong to.
+type Agent = Pick<ProjectAgent, "project_id" | "name">;
+
+export function makeThreads(deps: ThreadDeps) {
   const { invoke, h, button, ago, redraw, openUrl, openChat, changed } = deps;
-  // By project id: { issues, threads, chats, error, busy, pick }.
-  const all = new Map();
-  let hosts;
+  const all = new Map<string, ProjectThreads>();
+  let hosts: HostRow[] | null | undefined;
 
-  const of = id => {
-    if (!all.has(id)) all.set(id, { issues: undefined, threads: undefined, chats: undefined, error: "", busy: new Set(), pick: null });
-    return all.get(id);
+  const of = (id: string) => {
+    let s = all.get(id);
+    if (!s) all.set(id, s = { issues: undefined, threads: undefined, chats: undefined, error: "", busy: new Set(), pick: null });
+    return s;
   };
-  const fail = e => String(e).replace(/^(bad request|error):\s*/i, "");
 
-  async function load(id) {
+  async function load(id: string) {
     const s = of(id);
     const [issues, threads, chats] = await Promise.allSettled([
-      invoke("center_project_issues", { projectId: id }),
-      invoke("center_project_threads", { projectId: id }),
-      invoke("center_thread_chats", { projectId: id }),
+      invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
+      invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
+      invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
     ]);
     s.error = "";
-    for (const [key, r] of [["issues", issues], ["threads", threads], ["chats", chats]]) {
-      if (r.status === "fulfilled") s[key] = r.value;
-      else { s[key] = s[key] ?? []; s.error = fail(r.reason); }
-    }
+    /// What a list becomes: what came back, else what it had or none.
+    const settle = <T>(r: PromiseSettledResult<T[] | null>, had: T[] | null | undefined) => {
+      if (r.status === "fulfilled") return r.value;
+      s.error = reason(r.reason);
+      return had ?? [];
+    };
+    s.issues = settle(issues, s.issues);
+    s.threads = settle(threads, s.threads);
+    s.chats = settle(chats, s.chats);
     redraw();
   }
 
   async function loadHosts() {
     if (hosts !== undefined) return;
     hosts = null;
-    try { hosts = await invoke("agent_hosts"); } catch (e) { console.warn("agent hosts:", e); hosts = []; }
+    try { hosts = await invoke<HostRow[]>("agent_hosts"); } catch (e) { console.warn("agent hosts:", e); hosts = []; }
     redraw();
   }
 
   /// Runs `work` for row `key`, showing it busy and its error.
-  async function act(id, key, work) {
+  async function act(id: string, key: string, work: () => Promise<void>) {
     const s = of(id);
     if (s.busy.has(key)) return;
     s.busy.add(key);
@@ -118,21 +216,22 @@ export function makeThreads(deps) {
     try {
       await work();
     } catch (e) {
-      s.error = fail(e);
+      s.error = reason(e);
     } finally {
       s.busy.delete(key);
       redraw();
     }
   }
 
-  const discuss = (agent, number) => act(agent.project_id, `d${number}`, async () => {
-    const chat = await invoke("center_open_thread_chat", { projectId: agent.project_id, repo: agent.name, number });
+  const discuss = (agent: Agent, number: number) => act(agent.project_id, `d${number}`, async () => {
+    const chat = await invoke<ThreadChatRow>("center_open_thread_chat", { projectId: agent.project_id, repo: agent.name, number });
     const s = of(agent.project_id);
     s.chats = [chat, ...(s.chats || []).filter(c => c.chat_id !== chat.chat_id)];
     openChat(chat.chat_id);
   });
 
-  function track(agent, number, start) {
+  /// Makes issue `number` a task; `start` starts a worker on it too.
+  function track(agent: Agent, number: number, start: { agent: string | null | undefined; machine: string | null | undefined } | null) {
     return act(agent.project_id, `i${number}`, async () => {
       await invoke("center_track_issue", { projectId: agent.project_id, number, agent: start?.agent ?? null, nodeId: start?.machine ?? null });
       const s = of(agent.project_id);
@@ -142,7 +241,7 @@ export function makeThreads(deps) {
     });
   }
 
-  function dismiss(agent, number) {
+  function dismiss(agent: Agent, number: number) {
     return act(agent.project_id, `i${number}`, async () => {
       await invoke("center_dismiss_issue", { projectId: agent.project_id, number });
       const s = of(agent.project_id);
@@ -150,7 +249,7 @@ export function makeThreads(deps) {
     });
   }
 
-  function seg(label, options, current, choose) {
+  function seg<T>(label: string, options: { label: string; value: T }[], current: T, choose: (value: T) => void) {
     const box = h("span", "pb-seg");
     for (const o of options) {
       const b = h("button", "", o.label);
@@ -163,26 +262,27 @@ export function makeThreads(deps) {
   }
 
   /// The agent and machine picker under the issue being started.
-  function pickRow(agent, issue, where) {
+  function pickRow(agent: Agent, issue: IssueRow, where: readonly Where[] | null | undefined) {
     const s = of(agent.project_id);
     if (hosts === undefined) loadHosts();
     const c = workChoices(hosts, where);
-    const p = s.pick;
+    const p = s.pick!;
     p.agent ??= c.agent;
     if (p.machine === undefined) p.machine = c.machine;
+    const cancel = () => button("Cancel", "", () => { s.pick = null; redraw(); });
     if (!c.agents.length) {
-      return h("span", "pj-start", h("span", "dmuted", hosts === null ? "Reading your machines…" : "No machine offers a coding agent."),
-        button("Cancel", "", () => { s.pick = null; redraw(); }));
+      return h("span", "pj-start", h("span", "dmuted", hosts === null ? "Reading your machines…" : "No machine offers a coding agent."), cancel());
     }
-    const go = button(s.busy.has(`i${issue.number}`) ? "Starting…" : "Start worker", "pri", () => track(agent, issue.number, { agent: p.agent, machine: p.machine }));
-    go.disabled = !p.agent || s.busy.has(`i${issue.number}`);
+    const busy = s.busy.has(`i${issue.number}`);
+    const go = button(busy ? "Starting…" : "Start worker", "pri", () => track(agent, issue.number, { agent: p.agent, machine: p.machine }));
+    go.disabled = !p.agent || busy;
     return h("span", "pj-start",
       ...seg("Agent", c.agents.map(a => ({ label: agentLabel(a), value: a })), p.agent, v => { p.agent = v; redraw(); }),
-      ...seg("Machine", [...c.machines.map(m => ({ label: m.name, value: m.id })), { label: "Pick at start", value: null }], p.machine, v => { p.machine = v; redraw(); }),
-      h("span", "acts", go, button("Cancel", "", () => { s.pick = null; redraw(); })));
+      ...seg<string | null | undefined>("Machine", [...c.machines.map(m => ({ label: m.name, value: m.id })), { label: "Pick at start", value: null }], p.machine, v => { p.machine = v; redraw(); }),
+      h("span", "acts", go, cancel()));
   }
 
-  function link(text, url) {
+  function link(text: string, url: string) {
     const a = h("a", "", text);
     a.href = "#";
     a.addEventListener("click", e => { e.preventDefault(); openUrl(url); });
@@ -190,10 +290,10 @@ export function makeThreads(deps) {
   }
 
   /// The full Issues list.
-  function issuesPanel(agent, where) {
+  function issuesPanel(agent: Agent, where: readonly Where[] | null | undefined) {
     const s = of(agent.project_id);
     if (s.issues === undefined) load(agent.project_id);
-    const out = [];
+    const out: HTMLElement[] = [];
     if (s.error) out.push(h("div", "cc-err", s.error));
     const list = s.issues;
     if (list === undefined) return [...out, h("div", "cc-panel cc-empty", h("span", "", "Reading the issues…"))];
@@ -209,13 +309,14 @@ export function makeThreads(deps) {
         h("span", "m", issueMeta(i, ago)));
       if (picking) row.append(pickRow(agent, i, where));
       else {
-        const acts = h("span", "acts",
+        const acts = [
           button("Work on it", "pri", () => { s.pick = { number: i.number }; redraw(); }),
           button("Plan", "", () => track(agent, i.number, null)),
           button(s.busy.has(`d${i.number}`) ? "Opening…" : "Discuss", "", () => discuss(agent, i.number)),
-          button("Not now", "", () => dismiss(agent, i.number)));
-        for (const b of acts.children) b.disabled = busy;
-        row.append(acts);
+          button("Not now", "", () => dismiss(agent, i.number)),
+        ];
+        for (const b of acts) b.disabled = busy;
+        row.append(h("span", "acts", ...acts));
       }
       return row;
     });
@@ -225,11 +326,11 @@ export function makeThreads(deps) {
   }
 
   /// The user's pull requests and issues, with replies and chats.
-  function threadsPanel(agent) {
+  function threadsPanel(agent: Agent) {
     const s = of(agent.project_id);
     if (s.threads === undefined) load(agent.project_id);
     const list = s.threads;
-    const out = [];
+    const out: HTMLElement[] = [];
     if (list === undefined) return [h("div", "cc-panel cc-empty", h("span", "", "Reading your pull requests and issues…"))];
     if (list === null) return [];
     if (s.error) out.push(h("div", "cc-err", s.error));
@@ -245,8 +346,7 @@ export function makeThreads(deps) {
         const acts = h("span", "acts");
         if (t.needs_reply) {
           acts.append(button(s.busy.has(`r${t.number}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${t.number}`, async () => {
-            const chat = await invoke("center_reply_thread", { projectId: agent.project_id, repo: t.repo, number: t.number });
-            openChat(chat);
+            openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: t.repo, number: t.number }));
           })));
         }
         acts.append(button(s.busy.has(`d${t.number}`) ? "Opening…" : "Discuss", "", () => discuss(agent, t.number)),
@@ -269,8 +369,8 @@ export function makeThreads(deps) {
 
   return {
     load,
-    issues: id => of(id).issues,
-    threads: id => of(id).threads,
+    issues: (id: string) => of(id).issues,
+    threads: (id: string) => of(id).threads,
     issuesPanel,
     threadsPanel,
   };

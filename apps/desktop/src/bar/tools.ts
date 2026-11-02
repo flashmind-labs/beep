@@ -6,7 +6,7 @@ export const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "show_ca
 
 /// What a tool is doing, in words, the same as the phone's toolLabel.
 /// Unknown tools fall back to their name: "GMAIL_SEND_EMAIL" becomes "Gmail: send email".
-export const TOOL_LABELS = {
+export const TOOL_LABELS: Record<string, string> = {
   web_search: "Searching the web",
   decision: "Weighing the options",
   get_location: "Checking your location",
@@ -95,7 +95,7 @@ export const DESCRIBED = new Set([
 ]);
 /// A finished step's label in the past tense, as on the phone: "Recalling
 /// memories" becomes "Recalled memories". Unknown verbs stay as they are.
-export const PAST = {
+export const PAST: Record<string, string> = {
   searching: "Searched", reading: "Read", checking: "Checked", looking: "Looked", fetching: "Fetched",
   opening: "Opened", saving: "Saved", finding: "Found", getting: "Got", creating: "Created",
   updating: "Updated", deleting: "Deleted", sending: "Sent", setting: "Set", using: "Used",
@@ -108,16 +108,16 @@ export const PAST = {
   clicking: "Clicked", typing: "Typed", pressing: "Pressed", scrolling: "Scrolled", writing: "Wrote",
   linking: "Linked", copying: "Copied", typesetting: "Typeset",
 };
-export function doneLabel(label) {
-  const text = String(label).replace(/[.\u2026\s]+$/, "");
+export function doneLabel(label: string) {
+  const text = label.replace(/[.\u2026\s]+$/, "");
   const head = text.split(" ", 1)[0];
   const past = PAST[head.toLowerCase()];
   return past ? past + text.slice(head.length) : text;
 }
-export const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
-export function toolLabel(name) {
+export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export function toolLabel(name: string) {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name];
-  const words = String(name ?? "").split(/[_.-]/).filter(w => w.trim()).map(w => w.toLowerCase());
+  const words = name.split(/[_.-]/).filter(w => w.trim()).map(w => w.toLowerCase());
   if (!words.length) return "";
   // Connected app tools are named APP_ACTION.
   if (name === name.toUpperCase() && words.length > 1) return cap(words[0]) + ": " + words.slice(1).join(" ");

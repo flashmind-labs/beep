@@ -11,8 +11,15 @@ export const TOOL_LINES = 4;
 
 /// The parts of a tool entry: its title, its status (one of `STATUSES`, or
 /// "" when the text does not say) and its output, "" when it has none.
-export function parseTool(text) {
-  text = String(text ?? "");
+export interface ToolParts {
+  title: string;
+  status: string;
+  output: string;
+}
+
+/// Reads a tool entry's text, which may be missing, into its parts.
+export function parseTool(entry: unknown): ToolParts {
+  const text = String(entry ?? "");
   const live = LIVE.exec(text);
   if (live) return { title: plainTitle(live[1]), status: live[2], output: unfence(live[3] ?? "") };
   const failed = / \(failed\)$/.exec(text);
@@ -22,19 +29,19 @@ export function parseTool(text) {
 
 /// Titles quote what they name in backticks (Edit `src/main.rs`); the row
 /// shows them in mono already.
-function plainTitle(title) {
+function plainTitle(title: string) {
   return title.trim().replace(/`([^`\n]*)`/g, "$1");
 }
 
 /// Output the agent wrapped in one fenced block, without the fence.
-function unfence(output) {
+function unfence(output: string) {
   const m = /^(`{3,}|~{3,})[^\n`]*\n([\s\S]*?)\n?\1\s*$/.exec(output.trim());
   return (m ? m[2] : output).replace(/\s+$/, "");
 }
 
 /// The output as the row shows it: closed, its first `TOOL_LINES` lines and
 /// how many more there are.
-export function toolLines(output, open = false) {
+export function toolLines(output: string, open = false) {
   if (!output) return { shown: "", more: 0 };
   const lines = output.split("\n");
   if (open || lines.length <= TOOL_LINES) return { shown: output, more: 0 };

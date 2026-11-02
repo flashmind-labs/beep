@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { MacControl } from "../src/home.ts";
 import { agentOf, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../src/home.ts";
 
 const machine = (over = {}) => ({
@@ -25,20 +26,20 @@ test("the OS line prefers the version", () => {
 });
 
 test("a running agent shows its title, then project and machine", () => {
-  const r = { kind: "agent", agent: "claude", title: "Fix the build", cwd: "/srv/project/widget", machine_name: "build-box" };
+  const r = { kind: "agent" as const, agent: "claude", title: "Fix the build", cwd: "/srv/project/widget", machine_name: "build-box" };
   assert.deepEqual(runningLine(r), { title: "Fix the build", sub: "widget · build-box" });
   assert.deepEqual(runningLine({ ...r, title: null, cwd: "" }), { title: "Claude Code", sub: "Claude Code · build-box" });
 });
 
 test("a chat approval allows from the row and names no device", () => {
-  const n = { kind: "chat", session_title: "Deposit", pending: { approval: { app: "Gmail", action: "send email", fields: [] } } };
+  const n = { kind: "chat" as const, session_title: "Deposit", pending: { approval: { app: "Gmail", action: "send email", fields: [] } } };
   const line = needsLine(n);
   assert.deepEqual(line, { title: "Send email?", sub: "Gmail · Deposit", button: "Allow" });
   assert.doesNotMatch(JSON.stringify(line), /phone|desktop|mac/i);
 });
 
 test("an agent's question is answered in its session", () => {
-  const n = { kind: "agent", agent: "codex", title: "Swipe strip", machine_name: "build-box", question: { text: "Keep the old endpoint?" } };
+  const n = { kind: "agent" as const, agent: "codex", title: "Swipe strip", machine_name: "build-box", question: { text: "Keep the old endpoint?" } };
   assert.deepEqual(needsLine(n), { title: "Keep the old endpoint?", sub: "Codex · Swipe strip", button: "Answer" });
 });
 
@@ -87,20 +88,20 @@ test("Memory shows used of total in GB with the load in its title", () => {
 });
 
 test("This Mac gets a row until the server lists it", () => {
-  const mac = (over = {}) => ({ id: "mac-key", name: "Studio", enabled: true, status: "connecting", error: null, ...over });
+  const mac = (over: Partial<MacControl> = {}): Omit<MacControl, "permissions"> => ({ id: "mac-key", name: "Studio", enabled: true, status: "connecting", error: null, ...over });
   assert.equal(thisMacRow(mac(), [{ id: "mac-key" }]), null);
   assert.equal(thisMacRow(mac(), null), null);
   assert.equal(thisMacRow(null, []), null);
   assert.equal(thisMacRow(mac({ status: "unlinked" }), []), null);
   const off = thisMacRow(mac({ enabled: false, status: "off" }), [{ id: "other" }]);
-  assert.equal(off.state, "Off");
-  assert.equal(off.action, "Add");
-  assert.equal(off.name, "This Mac");
-  assert.equal(off.sub, "Studio");
+  assert.equal(off!.state, "Off");
+  assert.equal(off!.action, "Add");
+  assert.equal(off!.name, "This Mac");
+  assert.equal(off!.sub, "Studio");
   const failed = thisMacRow(mac({ status: "failed", error: "connect timed out" }), []);
-  assert.equal(failed.state, "connect timed out");
-  assert.match(failed.title, /connect timed out/);
-  assert.equal(thisMacRow(mac({ status: "connected" }), []).state, "Connecting");
+  assert.equal(failed!.state, "connect timed out");
+  assert.match(failed!.title, /connect timed out/);
+  assert.equal(thisMacRow(mac({ status: "connected" }), [])!.state, "Connecting");
 });
 
 test("each coding agent has its badge, and an unknown one its initials", () => {

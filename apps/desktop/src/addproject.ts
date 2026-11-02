@@ -3,40 +3,47 @@
 // Import, then "Choose a folder…" and "Clone a repository…", which open the
 // Import a project sheet. Import links the folder where it is, on every
 // machine that has it, so its sessions come along. Esc closes it.
-import { agentLabel, foundSessions, importPlan, lookingText, present } from "./projects-state.ts";
+import { invoke } from "./tauri.ts";
+import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
+import { agentLabel, button, el, foundSessions, importPlan, lookingText, present, reason } from "./projects-state.ts";
+import type { FoundRow, ProjectRow } from "./projects-state.ts";
 
-const { invoke } = window.__TAURI__.core;
+/// What the window hands the sheet.
+export interface AddProjectOptions {
+  /// The machines Home lists.
+  machines?: readonly { online: boolean }[];
+  /// Runs once a found folder is in.
+  onImported?: (project: ProjectRow) => void;
+  /// Opens the Import a project sheet for a folder.
+  onChoose?: () => void;
+  /// Opens the Import a project sheet for a repository.
+  onClone?: () => void;
+}
 
-let root = null, sheet = null, opts = {}, back = null;
+/// How a found row shows: `busy` names the row being imported, `error` is
+/// why this one failed, `quiet` drops the primary look from Import.
+export interface FoundRowState {
+  busy?: string | null;
+  error?: string | null;
+  quiet?: boolean;
+}
+
+let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, back: Element | null = null;
 /// null while the machines look, then the rows they found.
-let found = null;
-let error = null;
+let found: FoundRow[] | null = null;
+let error: string | null = null;
 /// The row being imported, by name, and why one failed.
-let importing = null;
-const failed = new Map();
-
-function el(tag, cls, ...kids) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  for (const k of kids) if (k != null && k !== false) e.append(k);
-  return e;
-}
-
-function button(label, cls, onClick) {
-  const b = el("button", cls, label);
-  b.type = "button";
-  b.addEventListener("click", onClick);
-  return b;
-}
+let importing: string | null = null;
+const failed = new Map<string, string>();
 
 /// Imports a found row in place on each machine that has it. Resolves to the
 /// first import's project; a failure on one machine after another worked is
 /// logged, not thrown, so the project still lands.
-export async function importFound(row) {
-  let first = null;
+export async function importFound(row: FoundRow) {
+  let first: ProjectRow | null = null;
   for (const one of importPlan(row)) {
     try {
-      const project = await invoke("import_project", one);
+      const project = await invoke<ProjectRow>("import_project", one);
       first = first || project;
     } catch (e) {
       if (!first) throw e;
@@ -47,11 +54,8 @@ export async function importFound(row) {
   return first;
 }
 
-/// Opens the sheet. `options.machines` are the machines Home lists;
-/// `options.onImported(project)` runs once a found folder is in,
-/// `options.onChoose()` and `options.onClone()` open the Import a project
-/// sheet for a folder or a repository.
-export function openAddProject(options = {}) {
+/// Opens the sheet.
+export function openAddProject(options: AddProjectOptions = {}) {
   if (root) return;
   opts = options;
   back = document.activeElement;
@@ -60,19 +64,14 @@ export function openAddProject(options = {}) {
   importing = null;
   failed.clear();
   injectStyle();
-  root = el("div", "am-scrim");
+  ({ root, sheet } = sheetShell("Add a project", "am-sheet ap-sheet"));
   root.addEventListener("mousedown", e => { if (e.target === root && !importing) closeAddProject(); });
-  sheet = el("div", "am-sheet ap-sheet");
-  sheet.setAttribute("role", "dialog");
-  sheet.setAttribute("aria-modal", "true");
-  sheet.setAttribute("aria-label", "Add a project");
-  root.append(sheet);
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   draw();
-  invoke("found_projects")
+  invoke<FoundRow[]>("found_projects")
     .then(rows => { found = rows; })
-    .catch(e => { found = []; error = String(e).replace(/^(bad request|error):\s*/i, ""); })
+    .catch(e => { found = []; error = reason(e); })
     .finally(() => { if (root) draw(); });
 }
 
@@ -81,17 +80,17 @@ export function closeAddProject() {
   document.removeEventListener("keydown", onKey, true);
   root.remove();
   root = sheet = null;
-  if (back && back.focus) back.focus();
+  focusBack(back);
 }
 
-function onKey(e) {
+function onKey(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   e.preventDefault();
   e.stopPropagation();
   if (!importing) closeAddProject();
 }
 
-async function doImport(row) {
+async function doImport(row: FoundRow) {
   if (importing) return;
   importing = row.name;
   failed.delete(row.name);
@@ -103,7 +102,7 @@ async function doImport(row) {
     opts.onImported?.(project);
   } catch (e) {
     importing = null;
-    failed.set(row.name, String(e).replace(/^(bad request|error):\s*/i, ""));
+    failed.set(row.name, reason(e));
     if (root) draw();
   }
 }
@@ -118,7 +117,7 @@ function draw() {
   const ways = el("div", "ap-ways",
     way("Choose a folder…", "Anywhere on this Mac, or browse another machine", () => { closeAddProject(); opts.onChoose?.(); }),
     way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }));
-  sheet.replaceChildren(...present([
+  sheet!.replaceChildren(...present([
     head,
     el("div", "am-label", "Found on your machines"),
     list,
@@ -127,15 +126,14 @@ function draw() {
   ]));
 }
 
-function way(title, sub, onClick) {
+function way(title: string, sub: string, onClick: () => void) {
   return button(el("span", "", el("b", "", title), el("span", "", sub)), "", onClick);
 }
 
 /// One found checkout: its name, where it is on each machine, its sessions
-/// per agent and when one last ran, and Import. `state.busy` names the row
-/// being imported; `state.error` is why this one failed. `onImport`
-/// defaults to importing it from this sheet.
-export function foundRow(row, state = {}, onImport = doImport) {
+/// per agent and when one last ran, and Import. `onImport` defaults to
+/// importing it from this sheet.
+export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (row: FoundRow) => void = doImport) {
   const go = button(state.busy === row.name ? "Importing…" : "Import", `dbtn${state.quiet ? "" : " pri"} small`, () => onImport(row));
   go.disabled = !!state.busy;
   go.title = `Import ${row.name} with ${foundSessions(row)} sessions`;
@@ -155,7 +153,7 @@ export function foundRow(row, state = {}, onImport = doImport) {
 }
 
 /// "12 min ago", "yesterday", "3 days ago".
-export function ago(ms, now = Date.now()) {
+export function ago(ms: number, now = Date.now()) {
   const s = Math.max(0, Math.round((now - ms) / 1000));
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
@@ -168,13 +166,7 @@ export function ago(ms, now = Date.now()) {
 
 /// Loads the sheet's styles once: the Add a machine sheet's, plus the rows.
 export function injectStyle() {
-  if (!document.querySelector("link[data-am]")) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = new URL("./addmachine.css", import.meta.url).href;
-    link.dataset.am = "";
-    document.head.append(link);
-  }
+  linkSheetStyle();
   if (document.querySelector("style[data-ap]")) return;
   const style = document.createElement("style");
   style.dataset.ap = "";

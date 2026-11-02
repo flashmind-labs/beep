@@ -1,10 +1,9 @@
 import { drawAgentNew, renderAgentNew, startAgent } from "./agentnew.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
-import { $, bar, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
+import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
 import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
-import { back } from "./keys.ts";
 import { loadPic, openViewer, pictures } from "./media.ts";
 import { cap } from "./tools.ts";
 
@@ -13,19 +12,161 @@ import { cap } from "./tools.ts";
 // Start a coding agent on one of the user's machines, follow it live and
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike.
-export const AG = {
+
+/// A question a session waits on, such as whether to run a command.
+export interface AgentQuestion {
+  id: number;
+  text: string;
+  /// The command, path or other input it would act on, cut short.
+  detail: string | null;
+  options: { id: string; name: string; allow: boolean }[];
+}
+
+/// A session row as `agent_sessions` returns it.
+export interface AgentSession {
+  machine_id: string;
+  machine_name: string;
+  id: string;
+  agent: string;
+  title: string | null;
+  cwd: string;
+  /// asking, working, running, starting, waiting, idle or ended.
+  status: string;
+  doing: string | null;
+  /// In milliseconds since the epoch.
+  started_at: number;
+  last_activity: number;
+  /// Started outside Beep, which only follows it.
+  external: boolean;
+  question: AgentQuestion | null;
+}
+
+/// What the session view needs of a session to open it: a row from
+/// `agent_sessions`, or one the window has, such as Home's running rows.
+export type AgentRow = Pick<AgentSession, "machine_id" | "machine_name" | "id" | "agent" | "cwd" | "status" | "external"> & Partial<AgentSession>;
+
+/// A machine that can run a coding agent.
+export interface AgentHost {
+  machine_id: string;
+  machine_name: string;
+  agents: string[];
+  workspace: string | null;
+  home: string | null;
+  capabilities: string[];
+}
+
+/// One line of a session's log. Only the agent's own have `html`.
+export interface AgentEntry {
+  kind: string;
+  text: string;
+  html?: string;
+}
+
+/// One session in full, as `agent_view` returns it.
+export interface AgentPage {
+  session: AgentRow;
+  plan: { content: string; status: string }[];
+  files: string[];
+  last_message: string;
+  error: string | null;
+  queued: number;
+  turns: number;
+  /// The newest entries, and how many came before them.
+  entries: AgentEntry[];
+  earlier: number;
+}
+
+/// A session `agent_start` or `agent_resume` started, and why Auto picked its machine.
+export interface Started {
+  session: AgentSession;
+  why: string;
+}
+
+/// An image the server kept for a session.
+interface AgentImage {
+  name: string;
+  file_id: string;
+  mime: string;
+  key: string;
+}
+
+/// An image waiting to go with the next message.
+interface Attached {
+  name: string;
+  mime: string;
+  size: number;
+  /// Base64, and as a data URL for its chip.
+  data: string;
+  url: string;
+}
+
+/// The session the view follows, as the node knows it.
+interface OpenAgent {
+  machine_id: string;
+  agent: string;
+  session: string;
+}
+
+/// The start form.
+export interface AgentForm {
+  prompt: string;
+  /// A machine id, or "auto".
+  machine: string;
+  agent: string | null;
+  cwd: string;
+  /// The chat the form was opened from, which hears how the session goes.
+  chat: string | null;
+}
+
+/// What `agent_steer` sends: a message, or stop the turn, or close the session.
+type Steer = { prompt: { text: string; images?: { name: string; mime: string; data: string }[] } } | { cancel: null } | { close: null };
+
+interface AgentState {
+  /// Images the server kept for the open session, by name and by `image-<key>`.
+  images: Map<string, AgentImage>;
+  readError: string;
+  hosts: AgentHost[] | null;
+  sessions: AgentSession[];
+  error: string;
+  busy: boolean;
+  form: AgentForm;
+  open: OpenAgent | null;
+  page: AgentPage | null;
+  why: string;
+  /// Where Esc goes: "chat", "agents", or a window view.
+  back: string | BackTo;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  inflight: OpenAgent | null;
+  /// "gone", or an error to show under the log.
+  note: string;
+  sel: number;
+  /// Polling: what the last answer looked like, when it last changed,
+  /// whether it stopped for quiet, and the question an answer is going to.
+  sig: string;
+  changed: number;
+  paused: boolean;
+  answering: number | null;
+  barHidden: boolean;
+  /// Images pasted or dropped into the session's field, the error from the
+  /// last one and when it goes, and the session the server turned images
+  /// down for.
+  att: Attached[];
+  attError: string;
+  attTimer: ReturnType<typeof setTimeout> | undefined;
+  noImages: string | null;
+  /// The tool entries opened to their full output, by place in the session,
+  /// and the module that reads tool entries, once loaded.
+  opened: Set<number>;
+  log: typeof import("../agentlog.ts") | null;
+}
+
+export const AG: AgentState = {
   images: new Map(), readError: "",
   hosts: null, sessions: [], error: "", busy: false,
   form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
-  open: null, page: null, why: "", back: "chat", timer: 0, inflight: null, note: "", sel: 0,
-  // Polling: what the last answer looked like, when it last changed,
-  // whether it stopped for quiet, and the question an answer is going to.
+  open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
-  // Images pasted or dropped into the session's field, the error from the
-  // last one, and the session the server turned images down for.
-  att: [], attError: "", noImages: null,
-  // The tool entries opened to their full output, by place in the session,
-  // and the module that reads tool entries, once loaded.
+  att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), log: null,
 };
 export const agentLog = () => import("../agentlog.ts").then(m => (AG.log = m));
@@ -36,9 +177,9 @@ export const AGENT_MAX_IMAGE = 5 * 1024 * 1024;
 export const AGENT_MAX_IMAGES_TOTAL = 7 * 1024 * 1024;
 /// Thumbnails of images sent from here, by session and name, so the
 /// transcript's `[image: name]` lines show the picture.
-export const agentPics = new Map();
+export const agentPics = new Map<string, string>();
 export const AGENT_PICS_KEPT = 60;
-export let pastedCount = 0;
+let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 export const AGENT_POLL_MS = 1500;
 /// A quiet session (idle, or started outside Beep) unchanged this long is
@@ -46,9 +187,14 @@ export const AGENT_POLL_MS = 1500;
 export const AGENT_SLOW_AFTER = 2 * 60_000;
 export const AGENT_SLOW_MS = 10_000;
 export const AGENT_PAUSE_AFTER = 5 * 60_000;
-export const AGENT_ACTIVE = new Set(["asking", "working", "running", "starting"]);
+export const AGENT_ACTIVE = new Set<string | undefined>(["asking", "working", "running", "starting"]);
 export const AGENT_LAST = 60;
-export const AGENT_KINDS = {
+interface AgentKind {
+  ini: string;
+  name: string;
+  cls: string;
+}
+export const AGENT_KINDS: Record<string, AgentKind> = {
   claude: { ini: "CC", name: "Claude Code", cls: "claude" },
   codex: { ini: "CX", name: "Codex", cls: "codex" },
   gemini: { ini: "GE", name: "Gemini CLI", cls: "gemini" },
@@ -57,19 +203,21 @@ export const AGENT_KINDS = {
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
 };
 export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
-export const CAP_NAMES = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
+export const CAP_NAMES: Record<string, string> = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
-export const agentKind = a => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
-export const agentAvatar = a => `<span class="dapp dcoderav ${agentKind(a).cls}">${esc(agentKind(a).ini)}</span>`;
-export const folderName = p => String(p || "").split("/").filter(Boolean).pop() || p || "";
-export const byPreference = (a, b) => (AGENT_ORDER.indexOf(a) + 1 || 99) - (AGENT_ORDER.indexOf(b) + 1 || 99);
+export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
+export const agentAvatar = (a: string) => `<span class="dapp dcoderav ${agentKind(a).cls}">${esc(agentKind(a).ini)}</span>`;
+export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
+export const byPreference = (a: string, b: string) => (AGENT_ORDER.indexOf(a) + 1 || 99) - (AGENT_ORDER.indexOf(b) + 1 || 99);
+/// The session `o` names, as the node's commands take it.
+const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agent, session: o.session });
 
 /// The machines that can run an agent; none for an account that may not use machines.
 export async function loadAgentHosts() {
   if (S.link !== "linked") return;
   try {
-    AG.hosts = await invoke("agent_hosts");
+    AG.hosts = await invoke<AgentHost[]>("agent_hosts");
   } catch {
     AG.hosts = [];
   }
@@ -82,11 +230,11 @@ export function drawAgentButton() {
   const row = bar.querySelector(":scope > .dinput.dgrow");
   if (!row || S.view !== "chat" || $("#agentGo") || !AG.hosts?.length) return;
   const b = h(`<button class="dbtn quiet" id="agentGo" title="Start a coding agent on a machine (⌘⇧A)">${AGENT_ICON}Agent</button>`);
-  b.onclick = () => renderAgentNew($("#ask")?.value.trim() ?? "");
+  b.onclick = () => renderAgentNew($<HTMLTextAreaElement>("#ask")?.value.trim() ?? "");
   row.insertBefore(b, $("#grip"));
 }
 
-export function stateTag(status) {
+export function stateTag(status: string) {
   if (status === "asking") return '<span class="dstate ask">Waiting for you</span>';
   if (status === "working" || status === "running" || status === "starting") return `<span class="dstate run">${status === "starting" ? "Starting" : "Working"}</span>`;
   if (status === "waiting") return '<span class="dstate ask">Waiting in terminal</span>';
@@ -97,29 +245,21 @@ export function stateTag(status) {
 // ----- One session -----
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
-export function openAgent(s, { why = "", back: from } = {}) {
+export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   S.view = "agent";
-  AG.open = { machine_id: s.machine_id, agent: s.agent, session: s.id };
-  AG.page = { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
-  AG.why = why;
-  AG.back = from;
-  AG.note = "";
-  AG.sig = "";
-  AG.changed = Date.now();
-  AG.paused = false;
-  AG.answering = null;
-  AG.att = [];
-  AG.attError = "";
-  AG.noImages = null;
-  AG.images = new Map();
-  AG.opened = new Set();
+  Object.assign(AG, {
+    open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
+    page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
+    why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
+    att: [], attError: "", noImages: null, images: new Map(), opened: new Set(),
+  });
   drawAgentFrame();
   pollAgent();
-  loadAgentImages(AG.open);
+  loadAgentImages(AG.open!);
 }
 
-export const isOpen = o => S.view === "agent" && AG.open && o === AG.open;
+export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
 /// Whether the session view can be seen: the window is not hidden, and
 /// the bar, when this is the bar, is up.
@@ -141,10 +281,10 @@ export function agentDelay() {
 export async function pollAgent() {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!isOpen(o) || AG.inflight === o || !agentOnScreen()) return;
+  if (!o || !isOpen(o) || AG.inflight === o || !agentOnScreen()) return;
   AG.inflight = o;
   try {
-    const page = await invoke("agent_view", { machineId: o.machine_id, agent: o.agent, session: o.session, last: AGENT_LAST });
+    const page = await invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST });
     if (isOpen(o)) {
       const sig = JSON.stringify(page);
       if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
@@ -203,20 +343,26 @@ export function agentHints() {
   return hints([...paste, [ICON.ret, "send"], ...stop, ["esc", "back"]]);
 }
 
+/// Puts the session's key hints in place of those on screen.
+function redrawAgentHints() {
+  const hint = bar.querySelector(":scope > .dhints");
+  if (hint) hint.replaceWith(h(agentHints()));
+}
+
 // ----- Images for the agent -----
 
 /// A name for an image, unique among those waiting; a pasted one is
 /// named "Pasted image 1.png" and so on rather than "image.png".
-export function agentImageName(f) {
-  const ext = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[f.type] || "png";
-  let name = f.name && f.name !== `image.${ext}` && f.name !== "image.png" ? f.name : `Pasted image ${++pastedCount}.${ext}`;
-  const dot = name.lastIndexOf(".");
-  const base = name;
+export function agentImageName(f: File) {
+  const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" } as Record<string, string>)[f.type] || "png";
+  const base = f.name && f.name !== `image.${ext}` && f.name !== "image.png" ? f.name : `Pasted image ${++pastedCount}.${ext}`;
+  const dot = base.lastIndexOf(".");
+  let name = base;
   for (let n = 2; AG.att.some(a => a.name === name); n++) name = dot > 0 ? `${base.slice(0, dot)} ${n}${base.slice(dot)}` : `${base} ${n}`;
   return name;
 }
 
-export function agentAttachError(text) {
+export function agentAttachError(text: string) {
   AG.attError = text;
   drawAgentAttached();
   clearTimeout(AG.attTimer);
@@ -225,7 +371,7 @@ export function agentAttachError(text) {
 
 /// Adds pasted or dropped images to the session's next message, refusing
 /// what the agent cannot take rather than shrinking or dropping it.
-export async function agentAttach(files) {
+export async function agentAttach(files: Iterable<File>) {
   if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
   for (const f of [...files]) {
     if (!AGENT_IMAGE_TYPES.includes(f.type)) { agentAttachError(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
@@ -250,22 +396,21 @@ export function drawAgentAttached() {
   const old = $("#agatt");
   const el = AG.att.length || AG.attError ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
     `<span class="chip"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
-  el?.querySelectorAll("[data-agatt]").forEach(b => b.addEventListener("click", () => {
+  el?.querySelectorAll<HTMLElement>("[data-agatt]").forEach(b => b.addEventListener("click", () => {
     AG.att.splice(Number(b.dataset.agatt), 1);
     drawAgentAttached();
     $("#agmsg")?.focus();
   }));
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) field.before(el);
-  const hint = bar.querySelector(":scope > .dhints");
-  if (hint && S.view === "agent") hint.replaceWith(h(agentHints()));
+  if (S.view === "agent") redrawAgentHints();
 }
 
 /// Reads the images the server kept for the open session, by the name its
 /// log gives each and by its key, for an agent that replays it without one.
-export async function loadAgentImages(o) {
-  let got = [];
-  try { got = await invoke("agent_images", { machineId: o.machine_id, session: o.session }); } catch { return; }
+export async function loadAgentImages(o: OpenAgent) {
+  let got: AgentImage[] = [];
+  try { got = await invoke<AgentImage[]>("agent_images", { machineId: o.machine_id, session: o.session }); } catch { return; }
   if (!isOpen(o)) return;
   AG.images = new Map();
   for (const i of got) { AG.images.set(i.name, i); AG.images.set(`image-${i.key}`, i); }
@@ -273,66 +418,68 @@ export async function loadAgentImages(o) {
 }
 
 /// Fills the session pictures drawn before their bytes were here.
-export function fillAgentPics(b) {
-  for (const img of b.querySelectorAll("img.pic[data-file]:not([src])")) {
-    const id = img.dataset.file;
-    loadPic(id, img.dataset.mime).then(url => { if (url) img.src = url; });
+export function fillAgentPics(b: HTMLElement) {
+  for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-file]:not([src])")) {
+    loadPic(img.dataset.file!, img.dataset.mime!).then(url => { if (url) img.src = url; });
   }
 }
 
 /// Keeps the thumbnails of images just sent, for the transcript.
-export function keepAgentPics(o, images) {
+export function keepAgentPics(o: OpenAgent, images: Attached[]) {
   for (const a of images) {
     const key = `${o.session}\n${a.name}`;
     agentPics.delete(key);
     agentPics.set(key, a.url);
   }
-  while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value);
+  while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value!);
 }
 
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
-  const s = AG.page.session, k = agentKind(s.agent);
+  const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
     : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><button class="dbtn" id="agstop" aria-label="Stop the turn"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button><button class="dbtn quiet" id="agclose">Close session</button></div>`;
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)">${esc(s.cwd)}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="dbody" id="agbody" style="padding-top:10px"></div>${field}${agentHints()}`;
   drawAgentAttached();
-  const b = $("#agbody");
+  const b = $$<ChatBody>("#agbody");
   b.stuck = true;
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; };
   drawAgentBody();
   $("#agmsg")?.focus();
-  bar.onclick = e => {
-    if (S.view !== "agent") return;
-    const opt = e.target.closest("[data-agopt]");
-    if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
-    const tool = e.target.closest("#agbody .dcoderen.tool[data-at]");
-    if (tool && !getSelection().toString()) {
-      const at = Number(tool.dataset.at);
-      if (!AG.opened.delete(at)) AG.opened.add(at);
-      return drawAgentBody();
-    }
-    const pic = e.target.closest("#agbody img.pic");
-    if (pic) {
-      const all = [...pic.parentElement.querySelectorAll("img.pic")];
-      // A kept one opens as the file it is, to save or copy.
-      const shown = all.map(i => i.dataset.file
-        ? { file: { id: i.dataset.file, name: i.alt, mime: i.dataset.mime }, caption: "" }
-        : { url: i.src, name: i.alt, caption: "" });
-      return openViewer(shown, all.indexOf(pic));
-    }
-    if (e.target.closest("#agresume")) return resumeAgent();
-    if (e.target.closest("#agstop")) return steerAgent({ cancel: null });
-    if (e.target.closest("#agclose")) return steerAgent({ close: null });
-  };
+  bar.onclick = agentClick;
+}
+
+function agentClick(e: MouseEvent) {
+  if (S.view !== "agent") return;
+  const target = e.target as HTMLElement;
+  const opt = target.closest<HTMLElement>("[data-agopt]");
+  if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+  const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
+  if (tool && !getSelection()!.toString()) {
+    const at = Number(tool.dataset.at);
+    if (!AG.opened.delete(at)) AG.opened.add(at);
+    return drawAgentBody();
+  }
+  const pic = target.closest<HTMLImageElement>("#agbody img.pic");
+  if (pic) {
+    const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic")];
+    // A kept one opens as the file it is, to save or copy.
+    const shown = all.map(i => i.dataset.file
+      ? { file: { id: i.dataset.file, name: i.alt, mime: i.dataset.mime! }, caption: "" }
+      : { url: i.src, name: i.alt, caption: "" });
+    return openViewer(shown, all.indexOf(pic));
+  }
+  if (target.closest("#agresume")) return resumeAgent();
+  if (target.closest("#agstop")) return steerAgent({ cancel: null });
+  if (target.closest("#agclose")) return steerAgent({ close: null });
 }
 
 /// A user entry's text and the images it carried: the node writes each
 /// as a line `[image: name]` after the text.
-export function userImages(text) {
-  const lines = String(text).split("\n"), names = [];
+export function userImages(text: string) {
+  const lines = String(text).split("\n"), names: string[] = [];
   while (lines.length) {
     const m = /^\[image: (.+)\]$/.exec(lines[lines.length - 1]);
     if (!m) break;
@@ -345,9 +492,10 @@ export function userImages(text) {
 /// A tool entry as a row: a mark for how it went, its title in mono and
 /// the first lines of its output. `at` is its place in the session, which
 /// keeps it open across redraws.
-export function toolRow(en, at) {
-  const { title, status, output } = AG.log.parseTool(en.text);
-  const open = AG.opened.has(at), { shown, more } = AG.log.toolLines(output, open);
+export function toolRow(en: AgentEntry, at: number) {
+  const log = AG.log!;
+  const { title, status, output } = log.parseTool(en.text);
+  const open = AG.opened.has(at), { shown, more } = log.toolLines(output, open);
   const running = AGENT_ACTIVE.has(AG.page?.session.status);
   const mark = status === "completed" ? `<span class="dok" title="Done">${ICON.check}</span>`
     : status === "failed" ? `<span class="dbad" title="Failed">${ICON.x}</span>`
@@ -362,21 +510,24 @@ export function toolRow(en, at) {
     + (shown ? `<pre class="out">${esc(shown)}</pre>` : "") + toggle + "</div>";
 }
 
-export function entryRow(en, at) {
+/// An image a user entry carried: the one sent from here, the one the
+/// server kept, or its name when neither is here.
+function entryPic(n: string) {
+  const kept = AG.images.get(n), label = kept?.name || (/^image-[0-9a-f]{16}$/.test(n) ? "Image" : n);
+  const loaded = kept && pictures.get(kept.file_id);
+  const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof loaded === "string" ? loaded : "");
+  const file = kept ? ` data-file="${esc(kept.file_id)}" data-mime="${esc(kept.mime)}"` : "";
+  if (url) return `<img class="pic" src="${esc(url)}"${file} alt="${esc(label)}" title="${esc(label)}">`;
+  if (kept) return `<img class="pic"${file} alt="${esc(label)}" title="${esc(label)}">`;
+  return `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
+}
+
+export function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
     if (!names.length) return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
-    const pics = names.map(n => {
-      const kept = AG.images.get(n), label = kept?.name || (/^image-[0-9a-f]{16}$/.test(n) ? "Image" : n);
-      const loaded = kept && pictures.get(kept.file_id);
-      const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof loaded === "string" ? loaded : "");
-      const file = kept ? ` data-file="${esc(kept.file_id)}" data-mime="${esc(kept.mime)}"` : "";
-      if (url) return `<img class="pic" src="${esc(url)}"${file} alt="${esc(label)}" title="${esc(label)}">`;
-      if (kept) return `<img class="pic"${file} alt="${esc(label)}" title="${esc(label)}">`;
-      return `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
-    }).join("");
-    return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
+    return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${names.map(entryPic).join("")}</span></div>`;
   }
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}</div>` : `<div class="dcoderen agent">${text}</div>`;
@@ -384,16 +535,24 @@ export function entryRow(en, at) {
   return `<div class="dcoderen other">${text}</div>`;
 }
 
+/// The question's answers; the first that allows and the first that does
+/// not take ⌘Return and ⌘D.
+function questionCard(q: AgentQuestion) {
+  const allow = q.options.findIndex(x => x.allow), deny = q.options.findIndex(x => !x.allow);
+  const buttons = q.options.map((o, i) => `<button class="dbtn${i === allow ? " pri" : i === deny ? " warn" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}${i === allow ? `<kbd>⌘${ICON.ret}</kbd>` : i === deny ? "<kbd>⌘D</kbd>" : ""}</button>`);
+  return `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}
+      <div class="dups">${buttons.join("")}</div></div>`;
+}
+
 export function drawAgentBody() {
-  const b = $("#agbody"), p = AG.page;
+  const b = $<ChatBody>("#agbody"), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
   const st = $("#agstate");
   if (st) st.innerHTML = stateTag(s.status);
-  const mark = x => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
+  const mark = (x: string) => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
   const doing = s.doing && s.status !== "ended" ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${esc(s.doing)}</div>` : "";
-  const question = q ? `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}
-      <div class="dups">${q.options.map((o, i) => `<button class="dbtn${o.allow && i === q.options.findIndex(x => x.allow) ? " pri" : !o.allow && i === q.options.findIndex(x => !x.allow) ? " warn" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}${o.allow && i === q.options.findIndex(x => x.allow) ? `<kbd>⌘${ICON.ret}</kbd>` : !o.allow && i === q.options.findIndex(x => !x.allow) ? "<kbd>⌘D</kbd>" : ""}</button>`).join("")}</div></div>` : "";
+  const question = q ? questionCard(q) : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
   const queued = p.queued ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${p.queued === 1 ? "1 message waits" : `${p.queued} messages wait`} for the turn to end</div>` : "";
@@ -411,11 +570,9 @@ export function drawAgentBody() {
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   b.innerHTML = why + card + entries + err + note + paused;
   fillAgentPics(b);
-  const hint = bar.querySelector(":scope > .dhints");
-  if (hint) hint.replaceWith(h(agentHints()));
-  const field = $("#agfield");
+  redrawAgentHints();
   // An ended session goes on from the field: the next message resumes it.
-  const msg = $("#agmsg"), k = agentKind(s.agent);
+  const msg = $<HTMLInputElement>("#agmsg"), k = agentKind(s.agent);
   if (msg) msg.placeholder = s.status === "ended" ? `Message ${k.name} to continue` : `Message ${k.name}`;
   const close = $("#agclose");
   if (close) close.style.display = s.status === "ended" ? "none" : "";
@@ -427,16 +584,16 @@ export function drawAgentBody() {
 
 /// Answers the open question once: its buttons stay disabled, and a poll
 /// that still shows it does not bring them back, until the node moves on.
-export async function answerAgentQuestion(i) {
-  const o = AG.open, q = AG.page?.session.question, opt = q?.options[i];
-  if (!opt || AG.answering === q.id) return;
+export async function answerAgentQuestion(i: number) {
+  const o = AG.open!, q = AG.page?.session.question, opt = q?.options[i];
+  if (!q || !opt || AG.answering === q.id) return;
   AG.answering = q.id;
   drawAgentBody();
   try {
-    await invoke("center_answer_agent", { machineId: o.machine_id, agent: o.agent, session: o.session, question: q.id, reply: opt.id });
-    if (isOpen(o) && AG.page.session.question?.id === q.id) {
-      AG.page.session.question = null;
-      AG.page.session.status = "working";
+    await invoke("center_answer_agent", { ...where(o), question: q.id, reply: opt.id });
+    if (isOpen(o) && AG.page!.session.question?.id === q.id) {
+      AG.page!.session.question = null;
+      AG.page!.session.status = "working";
     }
   } catch (e) {
     // A conflict means it was answered already, so it stays answered.
@@ -447,7 +604,7 @@ export async function answerAgentQuestion(i) {
   if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
 }
 /// The first option of the open question that allows, or that does not.
-export function answerFirst(allow) {
+export function answerFirst(allow: boolean) {
   const q = AG.page?.session.question;
   const i = q ? q.options.findIndex(o => o.allow === allow) : -1;
   if (i >= 0) answerAgentQuestion(i);
@@ -455,12 +612,12 @@ export function answerFirst(allow) {
 }
 
 /// Sends `steer` to the open session; true when the node took it.
-export async function steerAgent(steer) {
+export async function steerAgent(steer: Steer) {
   const o = AG.open;
   if (!o || AG.page?.session.external) return false;
   let ok = false;
   try {
-    await invoke("agent_steer", { machineId: o.machine_id, agent: o.agent, session: o.session, steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
+    await invoke("agent_steer", { ...where(o), steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
     AG.note = "";
     ok = true;
   } catch (e) {
@@ -471,20 +628,20 @@ export async function steerAgent(steer) {
 }
 
 export async function sendAgentMessage() {
-  const input = $("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
+  const input = $<HTMLInputElement>("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
   if (!text && !images.length) return;
-  const o = AG.open;
-  if (AG.page.session.status === "ended") return continueAgent(input, text, images);
-  input.value = "";
+  const o = AG.open!, page = AG.page!;
+  if (page.session.status === "ended") return continueAgent(input!, text, images);
+  input!.value = "";
   if (!images.length) {
-    AG.page.entries.push({ kind: "user", text });
+    page.entries.push({ kind: "user", text });
     drawAgentBody();
     return steerAgent({ prompt: { text } });
   }
   AG.att = [];
   drawAgentAttached();
   keepAgentPics(o, images);
-  const page = AG.page, mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
+  const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
   page.entries.push(mine);
   drawAgentBody();
   const sent = await steerAgent({ prompt: { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } });
@@ -494,7 +651,7 @@ export async function sendAgentMessage() {
   // A poll may have drawn more since: take out this message, not the last.
   const at = page.entries.indexOf(mine);
   if (at >= 0) page.entries.splice(at, 1);
-  const field = $("#agmsg");
+  const field = $<HTMLInputElement>("#agmsg");
   if (field && !field.value) field.value = text;
   AG.att = images;
   drawAgentBody();
@@ -503,23 +660,22 @@ export async function sendAgentMessage() {
 
 /// Resumes the ended session with `text`, then follows the session that
 /// goes on from it. Images go once it runs again.
-export async function continueAgent(input, text, images) {
-  const o = AG.open;
+export async function continueAgent(input: HTMLInputElement, text: string, images: Attached[]) {
+  const o = AG.open!;
   if (images.length && !text) { AG.note = "Say something to continue the session, then send the images."; return drawAgentBody(); }
   input.value = "";
   input.disabled = true;
   AG.note = "";
-  AG.page.entries.push({ kind: "user", text });
+  AG.page!.entries.push({ kind: "user", text });
   drawAgentBody();
   try {
-    const started = await invoke("agent_resume", { machineId: o.machine_id, agent: o.agent, session: o.session, prompt: text });
+    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: text });
     if (!isOpen(o)) return;
-    const back = AG.back;
-    openAgent(started.session, { back });
+    openAgent(started.session, { back: AG.back });
     if (images.length) { AG.att = images; drawAgentAttached(); }
   } catch (e) {
     if (!isOpen(o)) return;
-    AG.page.entries.pop();
+    AG.page!.entries.pop();
     input.disabled = false;
     input.value = text;
     AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
@@ -534,7 +690,7 @@ export async function renderAgents() {
   AG.sel = 0;
   drawAgents(true);
   try {
-    AG.sessions = await invoke("agent_sessions");
+    AG.sessions = await invoke<AgentSession[]>("agent_sessions");
     AG.error = "";
   } catch (e) {
     AG.error = String(e);
@@ -542,34 +698,36 @@ export async function renderAgents() {
   if (S.view === "agents") drawAgents(false);
 }
 
-export function drawAgents(loading) {
+function sessionRow(s: AgentSession, i: number) {
+  const k = agentKind(s.agent), folder = folderName(s.cwd);
+  const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
+    : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run"><span class="dspin"></span>${esc(s.doing || "Working")}</span>`
+    : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
+  return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">${agentAvatar(s.agent)}
+      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(`${folder ? folder + ", " : ""}${k.name} on ${s.machine_name}`)}</small></span>${tail}</button>`;
+}
+
+export function drawAgents(loading: boolean) {
   const list = AG.sessions;
   const machines = new Set(list.map(s => s.machine_id)).size;
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
-  const row = (s, i) => {
-    const k = agentKind(s.agent), where = folderName(s.cwd);
-    const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
-      : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run"><span class="dspin"></span>${esc(s.doing || "Working")}</span>`
-      : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
-    return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">${agentAvatar(s.agent)}
-      <span class="t"><span>${esc(s.title || where || k.name)}</span><small>${esc(`${where ? where + ", " : ""}${k.name} on ${s.machine_name}`)}</small></span>${tail}</button>`;
-  };
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
     ${AG.error ? `<div class="derr" style="padding:8px 18px 0">${esc(AG.error)}</div>` : ""}
-    ${list.length ? `<div class="dlist" role="listbox" style="padding-top:6px">${list.map(row).join("")}</div>`
+    ${list.length ? `<div class="dlist" role="listbox" style="padding-top:6px">${list.map(sessionRow).join("")}</div>`
       : loading ? "" : `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${AGENT_ICON}</span><b style="font-size:14px">No sessions running.</b>
         <span class="dmuted" style="display:block">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>`}
     ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
   bar.onclick = e => {
     if (S.view !== "agents") return;
-    const r = e.target.closest("[data-agi]");
+    const target = e.target as HTMLElement;
+    const r = target.closest<HTMLElement>("[data-agi]");
     if (r) return openAgent(AG.sessions[Number(r.dataset.agi)], { back: "agents" });
-    if (e.target.closest("#agNew")) renderAgentNew("", "agents");
+    if (target.closest("#agNew")) renderAgentNew("", "agents");
   };
 }
 
 /// Keys of the agent views; true when one was taken.
-export function agentKeys(e, cmd) {
+export function agentKeys(e: KeyboardEvent, cmd: boolean) {
   if (S.view === "agentnew") {
     if (cmd && e.key === "Enter") { e.preventDefault(); startAgent(); return true; }
     return false;
@@ -578,7 +736,7 @@ export function agentKeys(e, cmd) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); steerAgent({ cancel: null }); return true; }
-    if (e.key === "Enter" && !e.isComposing && e.target.id === "agmsg") { e.preventDefault(); sendAgentMessage(); return true; }
+    if (e.key === "Enter" && !e.isComposing && (e.target as HTMLElement).id === "agmsg") { e.preventDefault(); sendAgentMessage(); return true; }
     return false;
   }
   if (S.view === "agents") {
@@ -597,9 +755,7 @@ export function agentKeys(e, cmd) {
 
 /// Esc from an agent view.
 export function agentBack() {
-  if (AG.back?.view && windowHooks) return windowHooks.goBack(AG.back);
-  if (S.view === "agent" && AG.back === "agents") return renderAgents();
-  if (S.view === "agentnew" && AG.back === "agents") return renderAgents();
+  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
+  if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   return S.session ? openSession(S.session) : renderChat();
 }
-

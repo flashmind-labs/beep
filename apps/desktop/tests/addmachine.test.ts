@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { MacControl } from "../src/home.ts";
 import { START, next, timeLeft, machineById, describeMachine, outdated, macOption } from "../src/addmachine-state.ts";
 
-const created = { type: "created", token: "bk1-x", command: "beep-node setup bk1-x", expiresAt: 600_000 };
+const created = { type: "created", token: "bk1-x", command: "beep-node setup bk1-x", expiresAt: 600_000 } as const;
 
 test("the countdown reads minutes and seconds and stops at zero", () => {
   assert.equal(timeLeft(600_000, 0), "10:00");
@@ -40,7 +41,7 @@ test("an old server reads as needing an update", () => {
 
 test("the linked machine is the one that claimed the token, even one already listed", () => {
   const machines = [{ id: "a", name: "old box" }, { id: "c", name: "new" }];
-  assert.equal(machineById(machines, "a").name, "old box");
+  assert.equal(machineById(machines, "a")!.name, "old box");
   assert.equal(machineById(machines, "z"), null);
   assert.equal(machineById(machines, null), null);
   assert.equal(machineById(null, "a"), null);
@@ -54,13 +55,13 @@ test("a machine reads as its OS and known tools", () => {
 });
 
 test("Use this Mac is offered while the Mac is off and follows it once asked", () => {
-  const mac = (over = {}) => ({ id: "mac-key", name: "Studio", enabled: true, status: "connecting", error: null, ...over });
+  const mac = (over: Partial<MacControl> = {}): Omit<MacControl, "permissions"> => ({ id: "mac-key", name: "Studio", enabled: true, status: "connecting", error: null, ...over });
   assert.equal(macOption(null, false), null);
   assert.equal(macOption(mac({ status: "unlinked" }), false), null);
   assert.equal(macOption(mac({ status: "connected" }), false), null);
   const off = macOption(mac({ enabled: false, status: "off" }), false);
-  assert.equal(off.button, "Use this Mac");
-  assert.equal(macOption(mac(), true).busy, true);
-  assert.equal(macOption(mac({ status: "connected" }), true).done, true);
-  assert.match(macOption(mac({ status: "failed", error: "connect timed out" }), true).text, /connect timed out/);
+  assert.equal(off!.button, "Use this Mac");
+  assert.equal(macOption(mac(), true)!.busy, true);
+  assert.equal(macOption(mac({ status: "connected" }), true)!.done, true);
+  assert.match(macOption(mac({ status: "failed", error: "connect timed out" }), true)!.text, /connect timed out/);
 });

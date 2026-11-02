@@ -2,26 +2,161 @@
 // Branches tile and its full list, each branch with Review; the review
 // view: its facts, the reviewers' shards, the verified findings and the
 // actions (fix with a worker, post the review, merge), polled while the
-// reviewers read. center.js draws the page; this file keeps the state.
-import { agentLabel } from "./projects-state.ts";
+// reviewers read. center.ts draws the page; this file keeps the state.
+import type { invoke as Invoke } from "./tauri.ts";
+import { agentLabel, reason } from "./projects-state.ts";
+import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import { worktreeMachines, worktreeName } from "./branchwork.ts";
+import type { Place } from "./branchwork.ts";
+import type { TileData, TileRow } from "./board.ts";
+
+/// One branch of a project, as `project_branches` lists it (BranchRow).
+export interface BranchRow {
+  name: string;
+  worktree: string | null;
+  ahead: number;
+  behind: number;
+  head: string;
+  subject: string;
+  /// In milliseconds since the Unix epoch.
+  committed_at: number;
+  local: boolean;
+  pushed: boolean;
+}
+
+/// A project's branches, read on one machine (BranchesView).
+export interface BranchesView {
+  machine_id: string;
+  machine_name: string;
+  default_branch: string;
+  branches: BranchRow[];
+}
+
+/// The pull request a review's branch has (PrView).
+export interface PrView {
+  number: number;
+  url: string;
+  /// `none`, `pending`, `passing` or `failing`.
+  checks: string;
+}
+
+/// One reviewer's part of the diff (ShardView).
+export interface ShardView {
+  area: string;
+  files: number;
+  lines: number;
+  agent: string;
+  /// `reading`, `verifying`, `done` or `failed`.
+  state: string;
+  /// What the reviewer does now while reading; why it failed.
+  note: string;
+  found: number;
+}
+
+/// One finding of a review (FindingView).
+export interface FindingView {
+  id: number;
+  area: string;
+  /// `high`, `medium` or `low`.
+  severity: string;
+  title: string;
+  file: string;
+  line: number | null;
+  why: string;
+  /// `waiting`, `verified`, `dropped` or `unchecked`.
+  verdict: string;
+  /// Why the verifier dropped it.
+  dropped_why: string;
+  dismissed: boolean;
+}
+
+/// A review of a branch (ReviewView).
+export interface ReviewView {
+  id: string;
+  project: string;
+  branch: string;
+  base: string;
+  head: string;
+  /// In milliseconds since the Unix epoch.
+  head_at: number;
+  started_at: number;
+  machine_name: string;
+  changed_lines: number;
+  files: number;
+  /// `clean`, `conflicts` or `unknown`.
+  merge: string;
+  conflicts: string[];
+  pr: PrView | null;
+  shards: ShardView[];
+  findings: FindingView[];
+}
+
+/// Where a review's branch is now (ReviewHead); `head` is null once it is gone.
+export interface ReviewHead {
+  head: string | null;
+  stale: boolean;
+}
+
+/// The task Fix with worker made (FixView).
+export interface FixView {
+  id: string;
+  slug: string;
+  title: string;
+  /// The task's state, as a project's page lists it.
+  state: string;
+}
+
+/// A review's state, for its pill.
+export type ReviewState = "running" | "blocked" | "changes" | "ready";
+
+/// One fact of the facts row: an optional spinner or dot, then its words.
+export interface ReviewFact {
+  text: string;
+  bold?: string;
+  code?: string;
+  pre?: string;
+  dot?: string;
+  spin?: boolean;
+  bad?: boolean;
+}
+
+/// A shard's state chip.
+export interface ShardChip {
+  cls: string;
+  text: string;
+  spin?: boolean;
+}
+
+/// What the review helpers read of a review.
+type Shards = { shards?: readonly Pick<ShardView, "state">[] } | null | undefined;
+type Findings<F> = { findings?: readonly F[] } | null | undefined;
+type Verdicts = Pick<FindingView, "dismissed" | "verdict">;
+type Mergeable = Pick<ReviewView, "merge" | "conflicts" | "pr" | "shards" | "findings">;
+
+/// The branches a project lists; one that failed to read before any arrived
+/// has only its default branch and rows.
+type Branches = Pick<BranchesView, "default_branch" | "branches"> & Partial<Pick<BranchesView, "machine_id" | "machine_name">>;
+
+/// The machine a worktree goes on: one of `worktreeMachines`, or the one
+/// the branches were read on.
+type Target = Partial<Place>;
 
 /// How often a running review is read again.
 const POLL_MS = 4000;
 
 /// Findings neither dismissed nor dropped by the verifier.
-export function openFindings(r) {
+export function openFindings<F extends Verdicts>(r: Findings<F>) {
   return (r?.findings || []).filter(f => !f.dismissed && f.verdict !== "dropped");
 }
 
 /// Whether a reviewer or a verifier still works.
-export function isRunning(r) {
+export function isRunning(r: Shards) {
   return (r?.shards || []).some(s => s.state === "reading" || s.state === "verifying");
 }
 
 /// "running", "blocked" (conflicts or failing checks), "changes" (open
 /// findings) or "ready".
-export function reviewState(r) {
+export function reviewState(r: Pick<ReviewView, "merge" | "pr" | "shards" | "findings">): ReviewState {
   if (isRunning(r)) return "running";
   if (r.merge === "conflicts" || r.pr?.checks === "failing") return "blocked";
   if (openFindings(r).length) return "changes";
@@ -29,13 +164,13 @@ export function reviewState(r) {
 }
 
 /// The pill's words for each state.
-export const STATE_LABEL = { running: "Reviewing", blocked: "Blocked", changes: "Needs changes", ready: "Ready" };
+export const STATE_LABEL: Record<ReviewState, string> = { running: "Reviewing", blocked: "Blocked", changes: "Needs changes", ready: "Ready" };
 
-function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
+function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 
 /// What to say when the branch moved since the review, from what
 /// `CheckBranchReview` gave; "" when it did not, or is not known yet.
-export function staleText(r, now) {
+export function staleText(r: Pick<ReviewView, "branch">, now: ReviewHead | null | undefined) {
   if (!now?.stale) return "";
   const head = now.head ? now.head.slice(0, 7) : null;
   return head ? `${r.branch} moved to ${head} since this review.` : `${r.branch} is gone since this review.`;
@@ -43,7 +178,7 @@ export function staleText(r, now) {
 
 /// Why Merge is off, or "" when it may ask. `now` is where the branch is
 /// now, when read.
-export function mergeBlock(r, now) {
+export function mergeBlock(r: Mergeable, now?: ReviewHead | null) {
   if (isRunning(r)) return "Actions open when the review is done";
   if (now?.stale) return "Merge is off: the branch moved since this review";
   const why = [];
@@ -57,8 +192,8 @@ export function mergeBlock(r, now) {
 }
 
 /// The facts row: changed lines, shards, CI, merge, head and when.
-export function reviewFacts(r, ago) {
-  const out = [
+export function reviewFacts(r: Mergeable & Pick<ReviewView, "changed_lines" | "started_at" | "head_at" | "head">, ago: Ago) {
+  const out: ReviewFact[] = [
     { bold: String(r.changed_lines), text: " changed lines" },
     { bold: String(r.shards.length), text: r.shards.length === 1 ? " shard" : " shards" },
   ];
@@ -71,25 +206,25 @@ export function reviewFacts(r, ago) {
   if (r.merge === "conflicts") out.push({ text: `Conflicts in ${plural(r.conflicts.length, "file", "files")}`, bad: true });
   else if (r.merge === "clean") out.push({ text: "Merges cleanly" });
   else out.push({ text: "Merge not checked" });
-  const since = ms => (ago(ms) === "now" ? "just now" : `${ago(ms)} ago`);
+  const since = (ms: number) => (ago(ms) === "now" ? "just now" : `${ago(ms)} ago`);
   const when = isRunning(r) ? `started ${since(r.started_at)}` : since(r.head_at);
   out.push({ code: r.head.slice(0, 7), text: ` · ${when}`, pre: "head " });
   return out;
 }
 
 /// "file:18", or the file alone.
-export function findingPlace(f) {
+export function findingPlace(f: Pick<FindingView, "file" | "line">) {
   return f.line ? `${f.file}:${f.line}` : f.file;
 }
 
 /// A shard's second line: "268 lines · 6 files · Claude Code on build-box".
-export function shardLine(s, machine) {
+export function shardLine(s: Pick<ShardView, "lines" | "files" | "agent">, machine: string | null | undefined) {
   const who = machine ? `${agentLabel(s.agent)} on ${machine}` : agentLabel(s.agent);
   return `${plural(s.lines, "line", "lines")} · ${plural(s.files, "file", "files")} · ${who}`;
 }
 
-/// A shard's state chip: { cls, text, spin }.
-export function shardChip(s) {
+/// A shard's state chip.
+export function shardChip(s: Pick<ShardView, "state"> & Partial<Pick<ShardView, "note" | "found">>): ShardChip {
   if (s.state === "reading") return { cls: "running", text: s.note || "reading", spin: true };
   if (s.state === "verifying") return { cls: "running", text: "verifying", spin: true };
   if (s.state === "failed") return { cls: "bad", text: "failed" };
@@ -97,14 +232,14 @@ export function shardChip(s) {
 }
 
 /// The findings section's subtitle.
-export function findingsSub(r) {
+export function findingsSub(r: Pick<ReviewView, "shards" | "findings">) {
   if (isRunning(r)) return "reviewing";
   const open = openFindings(r).length;
   return open ? `${open} open, ranked` : "none open";
 }
 
 /// What the empty findings panel says once the review is done.
-export function readySummary(r) {
+export function readySummary(r: Pick<ReviewView, "shards" | "findings" | "changed_lines">) {
   const dropped = (r.findings || []).filter(f => f.verdict === "dropped");
   const dismissed = (r.findings || []).filter(f => f.dismissed && f.verdict !== "dropped").length;
   const parts = [`${plural(r.shards.length, "reviewer", "reviewers")} read all ${r.changed_lines} lines.`];
@@ -116,11 +251,15 @@ export function readySummary(r) {
 
 /// The Branches tile: branches with work first (the default branch last),
 /// each with its PR, worker or how far ahead it is.
-export function branchTile(data, reviews, ago) {
+export function branchTile(
+  data: { default_branch: string; branches: readonly Pick<BranchRow, "name" | "ahead" | "behind" | "worktree" | "pushed" | "committed_at" | "subject">[] } | null | undefined,
+  reviews: readonly (Pick<ReviewView, "branch"> & Parameters<typeof reviewState>[0])[] | null | undefined,
+  ago: Ago,
+): TileData {
   if (data === undefined) return { count: "", rows: [], empty: "Loading…" };
   if (data === null) return { count: "", rows: [], empty: "The server lists no branches" };
   const byBranch = new Map((reviews || []).map(r => [r.branch, r]));
-  const rows = data.branches.map(b => {
+  const rows: (TileRow & { work: boolean })[] = data.branches.map(b => {
     const r = byBranch.get(b.name);
     const isDefault = b.name === data.default_branch;
     let note;
@@ -142,37 +281,63 @@ export function branchTile(data, reviews, ago) {
 }
 
 const TICK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-const INITIALS = { claude: "CC", codex: "CX", gemini: "GM", opencode: "OC", pi: "PI", flsh: "FL" };
+const INITIALS: Record<string, string> = { claude: "CC", codex: "CX", gemini: "GM", opencode: "OC", pi: "PI", flsh: "FL" };
 
-/// `deps`: { invoke, h, button, ago, redraw, openUrl, openTile, machines }.
-/// `machines()` gives Home's machines, for where a worktree goes.
-export function makeReviews(deps) {
+/// What the window hands `makeReviews`. `machines()` gives Home's machines,
+/// for where a worktree goes.
+export interface ReviewDeps {
+  invoke: typeof Invoke;
+  h: MakeEl;
+  button: MakeButton;
+  ago: Ago;
+  redraw: () => void;
+  openUrl: (url: string) => unknown;
+  openTile: (key: string) => void;
+  machines?: () => readonly (Place & { online: boolean })[];
+}
+
+/// One project's branches and reviews. `now` is where the open review's
+/// branch is now.
+interface ProjectReviews {
+  branches: Branches | null | undefined;
+  /// Null from a server from before reviews.
+  reviews: ReviewView[] | null | undefined;
+  open: string | null;
+  review: ReviewView | null;
+  starting: string | null;
+  error: string;
+  note: string;
+  busy: string;
+  now?: ReviewHead & { id: string };
+  /// The branch whose Other machine… list shows.
+  picking?: string | null;
+}
+
+export function makeReviews(deps: ReviewDeps) {
   const { invoke, h, button, ago, redraw, openUrl, openTile } = deps;
   const machines = deps.machines || (() => []);
-  // By project: { branches, reviews, open, review, starting, error, note, busy, now }.
-  // `now` is where the open review's branch is now: { id, head, stale }.
-  const all = new Map();
-  let timer = null;
-  let polling = null;
+  const all = new Map<string, ProjectReviews>();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let polling: string | null = null;
 
-  const of = name => {
-    if (!all.has(name)) all.set(name, { branches: undefined, reviews: undefined, open: null, review: null, starting: null, error: "", note: "", busy: "" });
-    return all.get(name);
+  const of = (name: string) => {
+    let t = all.get(name);
+    if (!t) all.set(name, t = { branches: undefined, reviews: undefined, open: null, review: null, starting: null, error: "", note: "", busy: "" });
+    return t;
   };
-  const fail = e => String(e).replace(/^(bad request|error):\s*/i, "");
 
-  async function load(name) {
+  async function load(name: string) {
     const t = of(name);
     const [branches, reviews] = await Promise.all([
-      invoke("project_branches", { project: name }).catch(e => { t.error = fail(e); return t.branches ?? { default_branch: "", branches: [] }; }),
-      invoke("reviews_list", { project: name }).catch(e => { console.warn("reviews:", e); return t.reviews ?? []; }),
+      invoke<BranchesView | null>("project_branches", { project: name }).catch((e): Branches | null => { t.error = reason(e); return t.branches ?? { default_branch: "", branches: [] }; }),
+      invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { console.warn("reviews:", e); return t.reviews ?? []; }),
     ]);
     t.branches = branches;
     t.reviews = reviews;
     redraw();
   }
 
-  function keep(name, r) {
+  function keep(name: string, r: ReviewView) {
     const t = of(name);
     if (t.open === r.id) t.review = r;
     t.reviews = [r, ...(t.reviews || []).filter(x => x.branch !== r.branch)];
@@ -180,12 +345,12 @@ export function makeReviews(deps) {
 
   /// Reads once per review where its branch is now; a server from before
   /// the check, or an offline machine, leaves it unknown.
-  async function checkHead(name, r) {
+  async function checkHead(name: string, r: ReviewView) {
     const t = of(name);
     if (t.now?.id === r.id || isRunning(r)) return;
     t.now = { id: r.id, head: null, stale: false };
     try {
-      const now = await invoke("review_check", { id: r.id });
+      const now = await invoke<ReviewHead | null>("review_check", { id: r.id });
       if (now && t.now?.id === r.id) t.now = { id: r.id, ...now };
     } catch (e) {
       console.warn("review head:", e);
@@ -193,23 +358,23 @@ export function makeReviews(deps) {
     redraw();
   }
 
-  async function read(name) {
+  async function read(name: string) {
     const t = of(name);
     if (!t.open) return;
     const id = t.open;
     try {
-      const r = await invoke("review_get", { id });
+      const r = await invoke<ReviewView>("review_get", { id });
       if (t.open !== id) return;
       keep(name, r);
       t.error = "";
     } catch (e) {
-      t.error = fail(e);
+      t.error = reason(e);
     }
     redraw();
   }
 
   /// Polls the open review of `name` while it runs and shows; null stops.
-  function watch(name) {
+  function watch(name: string | null) {
     if (polling === name) return;
     clearInterval(timer);
     polling = name;
@@ -221,7 +386,7 @@ export function makeReviews(deps) {
 
   /// Opens `branch`'s newest review, starting one when it has none or
   /// `again` asks for a fresh one.
-  async function openBranch(name, branch, again = false) {
+  async function openBranch(name: string, branch: string, again = false) {
     const t = of(name);
     t.error = "";
     t.note = "";
@@ -238,18 +403,18 @@ export function makeReviews(deps) {
     t.starting = branch;
     redraw();
     try {
-      const r = await invoke("review_start", { project: name, branch });
+      const r = await invoke<ReviewView>("review_start", { project: name, branch });
       t.open = r.id;
       keep(name, r);
     } catch (e) {
-      t.error = fail(e);
+      t.error = reason(e);
     } finally {
       t.starting = null;
     }
     redraw();
   }
 
-  async function act(name, what, call, done) {
+  async function act<T>(name: string, what: string, call: () => Promise<T>, done: (out: T) => void) {
     const t = of(name);
     t.busy = what;
     t.error = "";
@@ -259,38 +424,38 @@ export function makeReviews(deps) {
       const out = await call();
       done(out);
     } catch (e) {
-      t.error = fail(e);
+      t.error = reason(e);
     } finally {
       t.busy = "";
     }
     redraw();
   }
 
-  const dismiss = (name, r, f) => act(name, `f${f.id}`,
-    () => invoke("review_dismiss", { review: r.id, finding: f.id, dismissed: !f.dismissed }),
+  const dismiss = (name: string, r: ReviewView, f: FindingView) => act(name, `f${f.id}`,
+    () => invoke<ReviewView>("review_dismiss", { review: r.id, finding: f.id, dismissed: !f.dismissed }),
     out => keep(name, out));
 
-  const fix = (name, r) => act(name, "fix", () => invoke("review_fix", { review: r.id }),
+  const fix = (name: string, r: ReviewView) => act(name, "fix", () => invoke<FixView>("review_fix", { review: r.id }),
     task => { of(name).note = task.state === "running" ? `Started ${task.title}. It shows under Tasks.` : `Made ${task.title}; it starts when a worker slot frees.`; });
 
-  const post = (name, r) => act(name, "post", () => invoke("review_post", { review: r.id }),
+  const post = (name: string, r: ReviewView) => act(name, "post", () => invoke<string>("review_post", { review: r.id }),
     () => { of(name).note = "Asked the project agent to post the review. Its approval card shows at the top of the project before anything posts."; });
 
-  const merge = (name, r) => act(name, "merge", () => invoke("review_merge", { review: r.id }),
+  const merge = (name: string, r: ReviewView) => act(name, "merge", () => invoke<string>("review_merge", { review: r.id }),
     () => { of(name).note = "Asked the project agent to merge. Its card shows at the top of the project; nothing merges until you approve it."; });
 
   // ---------- Branches ----------
 
   /// Gives `branch` a worktree on `machine`, then reads the branches again.
-  const addWorktree = (name, branch, machine) => act(name, `wt:${branch}`,
-    () => invoke("add_branch_worktree", { project: name, branch, machineId: machine.id }),
+  const addWorktree = (name: string, branch: string, machine: Target) => act(name, `wt:${branch}`,
+    () => invoke<BranchRow>("add_branch_worktree", { project: name, branch, machineId: machine.id }),
     b => { const t = of(name); t.picking = null; t.note = `Added ${b.worktree || worktreeName(branch)} on ${machine.name}.`; load(name); });
 
   /// A branch without a worktree: one on the machine the list was read
   /// on, or Other machine… to pick among the online ones.
-  function worktreeActs(name, t, data, b) {
+  function worktreeActs(name: string, t: ProjectReviews, data: Branches, b: BranchRow) {
     const where = worktreeMachines(machines(), data.machine_id);
-    const here = where.find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
+    const here: Target = where.find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
     const busy = t.busy === `wt:${b.name}`;
     if (t.picking === b.name) {
       return [
@@ -302,13 +467,13 @@ export function makeReviews(deps) {
     go.disabled = busy;
     go.title = `git worktree add ${worktreeName(b.name)}`;
     const other = where.length > 1 ? button("Other machine…", "quiet", () => { t.picking = b.name; redraw(); }) : null;
-    return [go, other].filter(Boolean);
+    return other ? [go, other] : [go];
   }
 
-  function branchesPanel(name) {
+  function branchesPanel(name: string) {
     const t = of(name);
     if (t.branches === undefined) load(name);
-    const out = [];
+    const out: HTMLElement[] = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
     if (t.note && t.note.startsWith("Added ")) out.push(h("div", "cc-note", h("span", "ddot"), h("span", "", t.note)));
     const data = t.branches;
@@ -346,15 +511,15 @@ export function makeReviews(deps) {
 
   // ---------- Review ----------
 
-  function fact(f) {
-    const el = h("span", `rv-fact${f.bad ? " bad" : ""}`);
-    if (f.spin) el.append(h("span", "dspin"));
-    else if (f.dot != null) el.append(h("span", `ddot${f.dot ? " " + f.dot : ""}`));
-    if (f.pre) el.append(f.pre);
-    if (f.bold) el.append(h("b", "", f.bold));
-    if (f.code) el.append(h("code", "", f.code));
-    el.append(f.text);
-    return el;
+  function fact(f: ReviewFact) {
+    const box = h("span", `rv-fact${f.bad ? " bad" : ""}`);
+    if (f.spin) box.append(h("span", "dspin"));
+    else if (f.dot != null) box.append(h("span", `ddot${f.dot ? " " + f.dot : ""}`));
+    if (f.pre) box.append(f.pre);
+    if (f.bold) box.append(h("b", "", f.bold));
+    if (f.code) box.append(h("code", "", f.code));
+    box.append(f.text);
+    return box;
   }
 
   function tick() {
@@ -363,7 +528,7 @@ export function makeReviews(deps) {
     return s.firstChild;
   }
 
-  function findingRow(name, r, f) {
+  function findingRow(name: string, r: ReviewView, f: FindingView) {
     const dropped = f.verdict === "dropped";
     const ver = dropped ? h("span", "")
       : f.verdict === "waiting" ? h("span", "rv-ver wait", h("span", "dspin"), "verifying")
@@ -377,14 +542,13 @@ export function makeReviews(deps) {
       b.disabled = of(name).busy === `f${f.id}`;
       right.append(b);
     }
-    const el = h("div", `rv-find${dropped || f.dismissed ? " gone" : ""}`,
+    return h("div", `rv-find${dropped || f.dismissed ? " gone" : ""}`,
       h("span", `rv-sev ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
-    return el;
   }
 
-  function reviewPanel(name) {
+  function reviewPanel(name: string) {
     const t = of(name);
-    const out = [];
+    const out: HTMLElement[] = [];
     if (t.starting) {
       out.push(h("div", "cc-panel cc-empty", h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`),
         h("span", "", "Fetching, reading the diff and starting a read-only reviewer per shard.")));
@@ -405,7 +569,8 @@ export function makeReviews(deps) {
     const stale = staleText(r, now);
     const pill = h("span", `rv-pill ${stale ? "changes" : st}`, running ? h("span", "dspin") : null, stale ? "Stale" : STATE_LABEL[st]);
     const tools = h("span", "rv-tools");
-    if (r.pr) tools.append(button(`PR #${r.pr.number}`, "", () => openUrl(r.pr.url)));
+    const pr = r.pr;
+    if (pr) tools.append(button(`PR #${pr.number}`, "", () => openUrl(pr.url)));
     if (!running) {
       const again = button("Run again", "", () => openBranch(name, r.branch, true));
       again.title = "Reviews the branch head again";
@@ -420,12 +585,12 @@ export function makeReviews(deps) {
         h("span", "", h("b", "", stale), ` The findings are for ${r.head.slice(0, 7)}; Merge is off until the new head is reviewed.`),
         button("Review again", "pri", () => openBranch(name, r.branch, true))));
     }
-    const blocked = [];
+    const blocked: (Node | string)[] = [];
     if (r.merge === "conflicts") {
       blocked.push(h("b", "", `Conflicts with ${r.base} in ${plural(r.conflicts.length, "file", "files")}`),
         h("span", "", ...r.conflicts.slice(0, 6).flatMap((f, i) => [i ? ", " : "", h("code", "", f)]), r.conflicts.length > 6 ? ` and ${r.conflicts.length - 6} more` : ""));
     }
-    if (r.pr?.checks === "failing") blocked.push(h("b", "", "CI failing"), h("span", "", `Checks fail on PR #${r.pr.number}. The review still ran.`));
+    if (pr?.checks === "failing") blocked.push(h("b", "", "CI failing"), h("span", "", `Checks fail on PR #${pr.number}. The review still ran.`));
     if (blocked.length) out.push(h("div", "cc-note rv-cfl", h("span", "ddot bad"), h("span", "rv-cfl-t", ...blocked)));
 
     const findings = r.findings || [];
@@ -458,8 +623,8 @@ export function makeReviews(deps) {
     fixB.disabled = running || !open || !!t.busy;
     fixB.title = open ? `Starts a task on ${r.branch} with ${plural(open, "finding", "findings")}` : "";
     const postB = button(t.busy === "post" ? "Asking…" : "Post review…", "", () => post(name, r));
-    postB.disabled = running || !r.pr || !!t.busy;
-    postB.title = r.pr ? "The project agent posts it; its card asks you first" : "The branch has no pull request";
+    postB.disabled = running || !pr || !!t.busy;
+    postB.title = pr ? "The project agent posts it; its card asks you first" : "The branch has no pull request";
     const mergeOk = !running && why.startsWith("Merge always");
     const mergeB = button(t.busy === "merge" ? "Asking…" : "Merge…", mergeOk ? "pri" : "", () => merge(name, r));
     mergeB.disabled = !mergeOk || !!t.busy;
@@ -470,8 +635,8 @@ export function makeReviews(deps) {
 
   return {
     load,
-    branches: name => of(name).branches,
-    reviews: name => of(name).reviews,
+    branches: (name: string) => of(name).branches,
+    reviews: (name: string) => of(name).reviews,
     openBranch,
     branchesPanel,
     reviewPanel,

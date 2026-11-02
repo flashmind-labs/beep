@@ -2,10 +2,20 @@
 // gave, so a problem waiting will not fix shows as itself and not as
 // "Still connecting".
 
+/// A failure waiting will not fix, as the window says it.
+export interface ConnectProblem {
+  kind: "unlinked" | "revoked" | "refused";
+  title: string;
+  text: string;
+  /// The button that leads to the fix, and the pane page it opens.
+  action: string | null;
+  view: string | null;
+}
+
 /// What to show for `error`, or null when trying again may help, such as
 /// a slow or lost connection or a server error. `view` is the pane page
 /// that fixes it, when there is one.
-export function connectProblem(error) {
+export function connectProblem(error: unknown): ConnectProblem | null {
   const e = String(error ?? "");
   if (e === "not linked to a phone yet") {
     return {

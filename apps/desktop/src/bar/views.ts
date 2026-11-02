@@ -2,7 +2,7 @@ import { loadAgentHosts } from "./agents.ts";
 import { loadApps, renderApps } from "./apps.ts";
 import { focusAsk, newChat, renderChat } from "./chat.ts";
 import { renderChats } from "./chats.ts";
-import { $, bar, GROUP_VIEWS, invoke, PANE, S } from "./core.ts";
+import { $, bar, GROUP_VIEWS, invoke, type LinkState, PANE, S } from "./core.ts";
 import { loadGroup } from "./groups.ts";
 import { openSession } from "./history.ts";
 import { renderLink, renderRevoked } from "./link.ts";
@@ -16,15 +16,33 @@ import { renderSkills } from "./skills.ts";
 
 // ---------- State ----------
 
+/// Whether this Mac is linked, and the chat Rust has current (Status).
+export interface Status {
+  link: LinkState;
+  session: string | null;
+}
+
 export async function refreshStatus() {
-  const st = await invoke("status");
+  const st = await invoke<Status>("status");
   S.link = st.link;
   // The bar's chat is not the window's.
   if (S.session === null && !PANE) S.session = st.session;
   return st;
 }
 
-export async function show(view) {
+/// Views the bar shows by name when Rust names one, once linked.
+const NAMED: Record<string, () => unknown> = {
+  new: newChat,
+  chats: renderChats,
+  memories: renderMemories,
+  routines: renderRoutines,
+  skills: renderSkills,
+  research: renderResearches,
+  apps: renderApps,
+};
+
+/// Shows the bar on `view`, as Rust names it, or on what it showed last.
+export async function show(view: string | null) {
   const st = await refreshStatus();
   loadResearches();
   loadLiveChats();
@@ -32,13 +50,7 @@ export async function show(view) {
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
-  if (view === "new") return newChat();
-  if (view === "chats") return renderChats();
-  if (view === "memories") return renderMemories();
-  if (view === "routines") return renderRoutines();
-  if (view === "skills") return renderSkills();
-  if (view === "research") return renderResearches();
-  if (view === "apps") return renderApps();
+  if (view && Object.hasOwn(NAMED, view)) return NAMED[view]();
   // Back from the browser: look again at what is connected.
   if (S.view === "apps") return loadApps();
   // A chat picked from the tray's Recent menu, or the orb's approval card,
@@ -63,4 +75,3 @@ export async function show(view) {
   }
   focusAsk();
 }
-

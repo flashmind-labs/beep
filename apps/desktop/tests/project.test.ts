@@ -6,7 +6,7 @@ const MIN = 60000;
 
 test("the project agent is found by its org/repo name", () => {
   const agents = [{ name: "acme/widget", chat_id: "c1" }, { name: "acme/app", chat_id: "c2" }];
-  assert.equal(agentFor(agents, "acme/app").chat_id, "c2");
+  assert.equal(agentFor(agents, "acme/app")!.chat_id, "c2");
   assert.equal(agentFor(agents, "widget"), null);
   assert.equal(agentFor(null, "acme/app"), null);
 });
@@ -66,7 +66,7 @@ test("the prompt bar names the project and offers the chat once it has turns", (
 
 test("a chat belongs to the project whose agent chat it is", () => {
   const agents = [{ name: "acme/widget", chat_id: "c1" }];
-  assert.equal(chatProject(agents, "c1").name, "acme/widget");
+  assert.equal(chatProject(agents, "c1")!.name, "acme/widget");
   assert.equal(chatProject(agents, "c2"), null);
   assert.equal(chatProject(agents, null), null);
   assert.equal(chatProject(null, "c1"), null);

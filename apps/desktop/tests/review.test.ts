@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { ReviewView } from "../src/review.ts";
 import { openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../src/review.ts";
 
 const ago = () => "12 min";
 
-function review(over = {}) {
+function review(over: Partial<ReviewView> = {}): ReviewView {
   return {
     id: "r1", project: "acme/widget", branch: "login-copy", base: "main", head: "3f2c1a0aaaa",
     head_at: 1, started_at: 1, machine_name: "build-box", changed_lines: 412, files: 9,
@@ -19,7 +20,7 @@ function review(over = {}) {
       { id: 100, severity: "low", title: "Unused import", file: "crates/core/limit.rs", line: 3, why: "", verdict: "dropped", dropped_why: "a macro uses it", dismissed: false },
     ],
     ...over,
-  };
+  } as ReviewView;
 }
 
 test("open findings leave out dismissed and dropped ones", () => {

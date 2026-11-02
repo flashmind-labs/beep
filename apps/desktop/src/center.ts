@@ -1,19 +1,20 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
-// (app.js, loaded before this module) for chats, memories and routines.
-const { invoke, Channel } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
-
+// (src/bar, loaded with this module) for chats, memories and routines.
+import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
 import { connectProblem } from "./connect.ts";
-import { pane } from "./bar/pane.ts";
+import { pane, type PaneTarget } from "./bar/pane.ts";
+import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
 import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
+import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.ts";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, el as h } from "./projects-state.ts";
+import type { FoundRow, Kid, OverviewCard, OverviewCardRow, Placed, Project, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads, outsideTitle } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
@@ -22,17 +23,47 @@ import { makeTerminals, terminalTile } from "./terminals.ts";
 import { makeReviews, branchTile } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.ts";
 import { makeThreads, issueTile, threadTile } from "./threads.ts";
+import type { GitItemRow, GitItemsView } from "./openitems.ts";
+import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
 
-const $ = sel => document.querySelector(sel);
+// ---------- What the app gives ----------
 
-/// An element with `cls`; string children become text, never markup.
-function h(tag, cls, ...kids) {
-  const el = document.createElement(tag);
-  if (cls) el.className = cls;
-  for (const k of kids) if (k != null && k !== false) el.append(k);
-  return el;
+/// What `agent_resume` gives.
+interface Started {
+  session: SessionRow;
+  why: string;
 }
-function icon(svg) {
+
+/// What the bar or tray asked the window to show (CenterTarget).
+type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | { chat: { session: string | null } };
+
+// ---------- Window state ----------
+
+/// What a view's mount gets: a pane target, or the Projects page's pick.
+type ViewArg = PaneTarget | ProjectsArg | undefined;
+interface ProjectsArg { project: string | null }
+
+/// A view's header: its title and line, buttons, and an element beside the title.
+interface ViewHead { title: string; sub?: string; tools?: Node[]; scope?: Node }
+
+export interface CenterView {
+  el?: HTMLElement;
+  title?: string | (() => ViewHead);
+  mount(el: HTMLElement, arg: ViewArg): void;
+  unmount?(): void;
+}
+
+/// How a Needs you card or a project card was answered.
+interface Outcome { said?: string; error?: string; final?: boolean }
+
+/// A chat or group in the sidebar, or a project pinned among them.
+type ChatItem = Awaited<ReturnType<typeof pane.chatRows>>[number];
+interface ProjectPin { kind: "project"; id: string; title: string; pinned: true; project: Placed<Project> }
+type SideChat = ChatItem | ProjectPin;
+
+const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+
+function icon(svg: string) {
   const s = h("span");
   s.style.display = "inline-flex";
   s.innerHTML = svg; // fixed markup from this file, no server text
@@ -74,21 +105,40 @@ const CONNECT_RETRY_MS = 3000;
 /// without them) and `pview` each one's tasks, workers and chat, by name.
 /// `git` is what `git_items` last gave (null before, or from an old
 /// server), and `gitAll` the projects whose open items show in full.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], git: null, gitAll: new Set(), top: [], overview: undefined };
+const state = {
+  home: null as HomeView | null,
+  mac: null as MacControl | null,
+  error: null as string | null,
+  outcomes: new Map<string, Outcome>(),
+  since: Date.now(),
+  picked: null as string | null,
+  found: null as FoundRow[] | null,
+  importing: null as string | null,
+  foundError: null as { name: string; message: string } | null,
+  sessions: new Map<string, SessionRow[]>(),
+  where: new Map<string, ProjectMachineRow[] | null>(),
+  agents: undefined as ProjectAgent[] | null | undefined,
+  pview: new Map<string, { view: ProjectView | null; error: string | null }>(),
+  sync: [] as SyncRow[],
+  git: null as GitItemsView | null,
+  gitAll: new Set<string>(),
+  top: [] as string[],
+  overview: undefined as OverviewCard[] | null | undefined,
+};
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
 // ---------- Formatting ----------
 
-function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
-function ago(ms) {
+function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
+function ago(ms: number) {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return "now";
   if (s < 3600) return `${Math.round(s / 60)} min`;
   if (s < 86400) return `${Math.round(s / 3600)} h`;
   return `${Math.round(s / 86400)} d`;
 }
-function whenOf(iso) {
+function whenOf(iso: string) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return { time: "", day: "" };
   const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -98,43 +148,82 @@ function whenOf(iso) {
 }
 /// A routine's schedule in words. The row already shows when it runs next,
 /// so a one-off is just "Once".
-function scheduleText(s) {
+function scheduleText(s: string) {
   if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
   return pane.when(s) ?? s;
 }
 
+/// Why a call failed, cut short; a conflict means another answer won.
+function failure(e: unknown) {
+  const text = String(e);
+  return conflict(e) ? "Already answered" : text.length > 90 ? text.slice(0, 90) + "..." : text;
+}
+function conflict(e: unknown) { return /^conflict/i.test(String(e)); }
+/// A refusal without its "bad request:" or "error:" prefix.
+function refusal(e: unknown) { return String(e).replace(/^(bad request|error):\s*/i, ""); }
+
 // ---------- Pieces ----------
 
-function dot(m) { return h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`); }
+function dot(m: MachineCard) { return h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`); }
+
+/// A project's colour dot; `i` is its place in the project list, none
+/// leaves it plain.
+function projectDot(i?: number) {
+  const d = h("span", "cc-pdot");
+  if (i !== undefined) d.style.background = PROJECT_COLORS[i % PROJECT_COLORS.length];
+  return d;
+}
 
 /// A Home section: its title and count, an optional button on the right,
-/// then its body.
-function section(id, title, count, action, body) {
+/// then its body. `notes` follow the count in the title.
+function section(id: string, title: string, count: number | string, action: Kid, body: Node, ...notes: Kid[]) {
   const el = h("div");
   el.id = id;
   const head = h("h4", "", title);
   if (count) head.append(h("span", "n", String(count)));
+  for (const n of notes) if (n) head.append(n);
   el.append(h("div", "cc-sec", head, action), body);
   return el;
 }
-function avatar(cls, ini) { return h("span", `cc-ag ${cls}`, ini); }
-function tag(cls, ...kids) { return h("span", `cc-tag${cls ? " " + cls : ""}`, ...kids); }
+function avatar(cls: string, ini: Kid) { return h("span", `cc-ag ${cls}`, ini); }
+function tag(cls: string, ...kids: Kid[]) { return h("span", `cc-tag${cls ? " " + cls : ""}`, ...kids); }
 
-function button(label, cls, on) {
+function button(label: string | Node, cls: string, on: (e: MouseEvent) => void) {
   const b = h("button", `dbtn${cls ? " " + cls : ""}`, label);
   b.type = "button";
   b.addEventListener("click", on);
   return b;
 }
 
+/// A button with a + before `label`.
+function plusLabel(label: string, cls: string, on: () => void) {
+  const b = button("", cls, on);
+  b.append(icon(IC.plus)!, ` ${label}`);
+  return b;
+}
+
 /// A button inside a row that does its own thing, not the row's.
-function rowButton(label, cls, on) {
+function rowButton(label: string | Node, cls: string, on: () => void) {
   return button(label, cls, e => { e.stopPropagation(); on(); });
+}
+
+/// A note in red above a list: what failed.
+function errorNote(text: string) {
+  return h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", text));
+}
+
+/// Placeholder rows of these widths, in percent, while a list loads.
+function skeleton(widths: number[]) {
+  return widths.map(w => {
+    const row = h("div", "cc-skel");
+    row.style.width = `${w}%`;
+    return row;
+  });
 }
 
 /// One row of Running now, Needs you, Updates or Coming up: a title and one
 /// muted line, opening `open` on a click, with `right` beside it.
-function line(lead, title, sub, right, open) {
+function line(lead: Node, title: string, sub: string, right: Kid[], open: () => void) {
   const t = h("button", "t", h("b", "", title), h("span", "", sub));
   t.type = "button";
   t.title = title;
@@ -145,15 +234,11 @@ function line(lead, title, sub, right, open) {
 
 // ---------- Machines ----------
 
-function addMachineButton(cls) {
-  const b = button("", cls, openAddMachine);
-  b.append(icon(IC.plus), " Add a machine");
-  return b;
-}
+const addMachineButton = (cls: string) => plusLabel("Add a machine", cls, openAddMachine);
 
 /// One machine per row: name and OS, agents, free disk, memory in use,
 /// what it can run and what it is doing now.
-function machineTable(machines) {
+function machineTable(machines: MachineCard[]) {
   const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Can run", "Now"].map(t => h("span", "th", t)));
   for (const m of machines) {
     const off = m.online ? "" : " off";
@@ -179,17 +264,17 @@ function machineTable(machines) {
 }
 
 /// The Now cell of a machine fetching a synced project: a bar and how far.
-function syncCell(sync) {
-  const bar = h("span", "bar", sync.pct == null ? null : h("i"));
-  if (sync.pct != null) bar.firstChild.style.width = `${sync.pct}%`;
-  const cell = h("span", "num sync", bar, h("small", "", sync.text));
+function syncCell(sync: MachineSyncing) {
+  const fill = sync.pct == null ? null : h("i");
+  if (fill) fill.style.width = `${sync.pct}%`;
+  const cell = h("span", "num sync", h("span", "bar", fill), h("small", "", sync.text));
   cell.title = [`${sync.text.split(",")[0]} ${sync.project}`, sync.files].filter(Boolean).join(": ");
   return cell;
 }
 
 /// This Mac's row while the server does not list it: its state across the
 /// middle columns and, while it is off, Add under Now.
-function thisMacCells(mac) {
+function thisMacCells(mac: MacRow) {
   const name = h("span", "nm off", h("b", "", h("span", "ddot off"), h("span", "", mac.name)), h("span", "os", mac.sub));
   name.id = "m-this-mac";
   const st = h("span", `caps mac-state${mac.bad ? " bad" : ""}`, mac.state);
@@ -201,7 +286,7 @@ function thisMacCells(mac) {
 /// Turns on Let Beep use this Mac, so it joins as a machine.
 async function useThisMac() {
   try {
-    state.mac = await invoke("set_mac_control", { enabled: true });
+    state.mac = await invoke<MacControl>("set_mac_control", { enabled: true });
   } catch (e) {
     console.warn("turning on this Mac:", e);
   }
@@ -211,7 +296,7 @@ async function useThisMac() {
   for (const ms of [1500, 5000]) setTimeout(refresh, ms);
 }
 
-function machinesSection(machines) {
+function machinesSection(machines: MachineCard[]) {
   if (!machines.length && !thisMacRow(state.mac, machines)) {
     return section("sec-machines", "Machines", "", addMachineButton("small"),
       h("div", "cc-panel cc-empty", h("b", "", "No machines linked yet"), addMachineButton("pri")));
@@ -221,7 +306,7 @@ function machinesSection(machines) {
   return section("sec-machines", "Machines", count, addMachineButton("small"), machineTable(machines));
 }
 
-function offlineNote(machines) {
+function offlineNote(machines: MachineCard[]) {
   const gone = machines.filter(m => !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
   if (!gone.length) return null;
   const names = gone.map(m => m.name).join(", ");
@@ -230,34 +315,34 @@ function offlineNote(machines) {
 
 // ---------- Running now ----------
 
-function runningRow(r) {
+function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r);
   const right = [r.status === "asking" ? tag("wait", "needs you") : ago(r.started_at)];
   if (r.kind === "research") {
     return line(avatar("beep", icon(IC.find)), title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}));
   }
   const ag = agentOf(r.agent);
-  // The pane's agent view (app.js) follows and answers it.
+  // The pane's agent view follows and answers it.
   return line(avatar(ag.cls, ag.ini), title, sub, right, () => go("pane", { agent: r }));
 }
 
-function runningSection(running) {
-  return section("sec-running", "Running now", running.length, null, h("div", "cc-panel", ...running.map(runningRow)));
+/// A panel of Running now rows.
+const runningPanel = (running: RunningRow[]) => h("div", "cc-panel", ...running.map(runningRow));
+
+function runningSection(running: RunningRow[]) {
+  return section("sec-running", "Running now", running.length, null, runningPanel(running));
 }
 
 // ---------- Needs you ----------
 
-function cardKey(n) { return n.kind === "chat" ? `chat:${n.pending.query_id}` : `agent:${n.machine_id}:${n.session}:${n.question.id}`; }
+type ChatNeed = Extract<NeedsYou, { kind: "chat" }>;
+type AgentNeed = Extract<NeedsYou, { kind: "agent" }>;
 
-function setOutcome(key, outcome) { state.outcomes.set(key, outcome); draw(); }
+function cardKey(n: NeedsYou) { return n.kind === "chat" ? `chat:${n.pending.query_id}` : `agent:${n.machine_id}:${n.session}:${n.question.id}`; }
 
-function failure(e) {
-  const text = String(e);
-  return conflict(e) ? "Already answered" : text.length > 90 ? text.slice(0, 90) + "..." : text;
-}
-function conflict(e) { return /^conflict/i.test(String(e)); }
+function setOutcome(key: string, outcome: Outcome) { state.outcomes.set(key, outcome); draw(); }
 
-function answerChat(n, decision, said) {
+function answerChat(n: ChatNeed, decision: string, said: string) {
   const key = cardKey(n);
   setOutcome(key, { said });
   // The call returns when the run it resumes ends, so the outcome shows now.
@@ -267,14 +352,14 @@ function answerChat(n, decision, said) {
 }
 
 /// Opens the session an agent's question came from, where it is answered.
-function openAsking(n) {
-  const r = state.home?.running?.find(r => r.kind === "agent" && r.machine_id === n.machine_id && r.id === n.session);
+function openAsking(n: AgentNeed) {
+  const r = state.home?.running?.find((r): r is RunningAgent => r.kind === "agent" && r.machine_id === n.machine_id && r.id === n.session);
   go("pane", { agent: r || { kind: "agent", machine_id: n.machine_id, machine_name: n.machine_name, id: n.session, agent: n.agent, title: n.title, cwd: "", status: "asking", external: false } });
 }
 
 /// Allow answers a chat's approval from the row; the chat itself has the
 /// details, Always allow and Deny. Answer opens the agent's session.
-function needsRow(n) {
+function needsRow(n: NeedsYou) {
   const out = state.outcomes.get(cardKey(n));
   const { title, sub, button: label } = needsLine(n);
   let lead, open, act;
@@ -292,18 +377,18 @@ function needsRow(n) {
   else if (out?.final) right = [h("span", "err", out.error)];
   else right = [rowButton(label, "pri small", act)];
   const row = line(lead, title, sub, right, open);
-  if (out?.error && !out.final) row.querySelector(".t > span").replaceChildren(h("span", "err", out.error));
+  if (out?.error && !out.final) row.querySelector(".t > span")!.replaceChildren(h("span", "err", out.error));
   if (out?.said) row.style.opacity = ".55";
   return row;
 }
 
-function needsSection(needs) {
+function needsSection(needs: NeedsYou[]) {
   return section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow)));
 }
 
 // ---------- Coming up ----------
 
-function comingSection(rows) {
+function comingSection(rows: CronRow[]) {
   return section("sec-coming", "Coming up", rows.length, null, h("div", "cc-panel", ...rows.map(c => {
     const w = whenOf(c.next_run_at);
     return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label.trim() || c.prompt.trim() || "Routine", scheduleText(c.schedule), [], () => go("pane", "routines"));
@@ -313,7 +398,7 @@ function comingSection(rows) {
 // ---------- Updates ----------
 
 /// When an update came: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct".
-function updateTime(ms) {
+function updateTime(ms: number) {
   const at = new Date(ms);
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
   if (days <= 0) return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -324,17 +409,17 @@ function updateTime(ms) {
 
 /// When a chat started, for its title line: "09:12" today, then as an
 /// update's time reads.
-function startedWhen(ms) {
+function startedWhen(ms: number) {
   const t = updateTime(ms);
   return t === "Yesterday" ? "yesterday" : t;
 }
 
 /// Updates dismissed here that a list may still carry, by id.
-const dismissedUpdates = new Set();
+const dismissedUpdates = new Set<number>();
 
 /// Takes updates off Home at once and tells the server; a failed dismiss
 /// brings them back on the next refresh.
-function dismissUpdates(ids) {
+function dismissUpdates(ids: number[]) {
   if (!ids.length) return;
   for (const id of ids) dismissedUpdates.add(id);
   if (state.home?.updates) state.home.updates = state.home.updates.filter(u => !ids.includes(u.id));
@@ -347,7 +432,7 @@ function dismissUpdates(ids) {
 }
 
 /// Starts a new chat with the update's summary in the composer, not sent.
-async function openUpdate(u) {
+async function openUpdate(u: UpdateRow) {
   dismissUpdates([u.id]);
   go("pane", { chat: { session: null } });
   try {
@@ -357,40 +442,43 @@ async function openUpdate(u) {
   }
 }
 
-function updateRow(u) {
+function updateRow(u: UpdateRow) {
   const letter = (u.app_name || "").slice(0, 1).toUpperCase();
-  const close = rowButton(icon(IC.x), "quiet", () => dismissUpdates([u.id]));
+  const close = rowButton(icon(IC.x)!, "quiet", () => dismissUpdates([u.id]));
   close.setAttribute("aria-label", "Dismiss");
   close.style.padding = "2px 6px";
   const sub = u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at);
   const row = line(avatar("beep", letter || icon(IC.chat)), u.summary, sub, [close], () => openUpdate(u));
-  row.querySelector(".t").title = "Ask Beep about this";
+  row.querySelector<HTMLElement>(".t")!.title = "Ask Beep about this";
   return row;
 }
 
 /// What the event triage agent found in the user's apps, apart from any
 /// chat. Hidden while there is nothing.
-function updatesSection(updates) {
+function updatesSection(updates: UpdateRow[]) {
   const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
   return section("sec-updates", "Updates", updates.length, clear, h("div", "cc-panel", ...updates.map(updateRow)));
 }
 
 // ---------- Open PRs and issues ----------
 
-function openUrl(url) {
+function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
 }
 
+/// What Review needs of a project: where it is checked out.
+type ReviewProject = Parameters<typeof reviewStart>[1];
+
 /// Review prefills Start a coding agent: in the project's folder on an
 /// online machine when it is imported, else on Auto.
-function reviewItem(item, project) {
+function reviewItem(item: GitItemRow, project: ReviewProject) {
   const start = reviewStart(item, project, state.home?.machines);
   go("pane", { agentnew: start });
 }
 
 /// Reply opens a new chat with Beep that asks for help with the item; Beep
 /// reads it with its GitHub tools, and posting asks first.
-async function replyItem(item) {
+async function replyItem(item: GitItemRow) {
   go("pane", { chat: { session: null } });
   try {
     await pane.compose(replyPrompt(item));
@@ -400,7 +488,7 @@ async function replyItem(item) {
   reloadChats();
 }
 
-function openItemRow(item, project) {
+function openItemRow(item: GitItemRow, project: ReviewProject) {
   const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
   const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title));
   title.type = "button";
@@ -416,15 +504,22 @@ function openItemRow(item, project) {
   return row;
 }
 
+/// A repository's head row among open items.
+function repoLine(i: number | undefined, repo: string, sub: string, right: Kid[], open: () => void) {
+  const head = line(projectDot(i), repo, sub, right, open);
+  head.classList.add("cc-gr");
+  return head;
+}
+
+type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
+
 /// One project's row, its counts and its newest items.
-function openProjectRows(p, i) {
+function openProjectRows(p: OpenRepo, i: number) {
   const counts = [p.prs ? plural(p.prs, "PR", "PRs") : null, p.issues ? plural(p.issues, "issue", "issues") : null]
     .filter(Boolean).map(t => h("span", "", t));
   const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
   const sub = p.project ? p.host : `${p.host} · not imported`;
-  const head = line(h("span", "cc-pdot"), p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
-  head.classList.add("cc-gr");
-  head.querySelector(".cc-pdot").style.background = PROJECT_COLORS[i % PROJECT_COLORS.length];
+  const head = repoLine(i, p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
   const all = state.gitAll.has(p.key);
   const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project))];
   if (p.items.length > ITEMS_SHOWN) {
@@ -439,7 +534,7 @@ function openProjectRows(p, i) {
 
 /// Open PRs and issues on the user's git hosts, one row per project with
 /// its items under it. A host that failed says why above the rows.
-function gitSection(view) {
+function gitSection(view: GitItemsView) {
   const projects = projectsWithOpen(view, projectRows() || []);
   const notes = view.hosts.filter(x => x.error).map(x =>
     h("div", "cc-note", h("span", "ddot bad"), h("span", "", x.error)));
@@ -451,34 +546,43 @@ function gitSection(view) {
   return section("sec-git", openTitle(view.hosts), count, null, h("div", "cc-panel cc-open", ...notes, ...body));
 }
 
-let readingGit = false;
+/// `load` run so that a call while one runs is dropped.
+function single(load: () => Promise<void>) {
+  let running = false;
+  return async () => {
+    if (running) return;
+    running = true;
+    try {
+      await load();
+    } finally {
+      running = false;
+    }
+  };
+}
+
 /// Asks the server for the open items; it keeps them a few minutes, so
 /// this runs less often than Home's refresh.
-async function refreshGit() {
-  if (readingGit) return;
-  readingGit = true;
+const refreshGit = single(async () => {
   try {
-    state.git = await invoke("git_items");
+    state.git = await invoke<GitItemsView | null>("git_items");
   } catch (e) {
     console.warn("open PRs and issues:", e);
-  } finally {
-    readingGit = false;
   }
   if (shown === "home") draw();
-}
+});
 
 // ---------- Views ----------
 
-const views = new Map();
-let shown = null;
+const views = new Map<string, CenterView & { el: HTMLElement }>();
+let shown: string | null = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
-let shownArg;
+let shownArg: ViewArg;
 
 /// Adds a view the window can show. `mount(el, arg)` draws it into its own
 /// element, `unmount()` runs when another view takes over. `title` is a
 /// string or a function giving `{ title, sub, tools, scope }`, `scope` an
 /// element shown beside the title.
-export function registerView(name, view) {
+export function registerView(name: string, view: CenterView) {
   let el = view.el;
   if (!el) {
     el = h("div", "cc-box");
@@ -488,22 +592,27 @@ export function registerView(name, view) {
   views.set(name, { ...view, el });
 }
 
+/// A pane target that opens an agent view, which can go back.
+function opensAgent(arg: ViewArg): arg is Extract<PaneTarget, { agent: unknown } | { agentnew: unknown }> {
+  return !!arg && typeof arg === "object" && ("agent" in arg || "agentnew" in arg);
+}
+
 /// Shows view `name`, passing `arg` to its mount. The others are hidden,
 /// not destroyed, so a reply streaming in the pane keeps going under Home.
-export function go(name, arg) {
+export function go(name: string, arg?: ViewArg) {
   // Settings open over whatever shows, which stays as it is.
   if (name === "pane" && arg === "settings") {
     if (!shown) go("home");
     return openSettings();
   }
   // An agent view opened from another view goes back there on Esc.
-  if (name === "pane" && arg && (arg.agent || arg.agentnew) && !arg.from && shown && shown !== "pane") {
+  if (name === "pane" && opensAgent(arg) && !arg.from && shown && shown !== "pane") {
     arg = { ...arg, from: { view: shown, arg: shown === "projects" ? { project: state.picked } : shownArg } };
   }
   shownArg = arg;
   const view = views.get(name);
   if (!view) return;
-  if (shown && shown !== name) views.get(shown).unmount?.();
+  if (shown && shown !== name) views.get(shown)!.unmount?.();
   shown = name;
   for (const [n, v] of views) v.el.hidden = n !== name;
   view.mount(view.el, arg);
@@ -512,8 +621,8 @@ export function go(name, arg) {
 }
 
 function drawTop() {
-  const view = views.get(shown);
-  const head = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
+  const view = shown ? views.get(shown) : undefined;
+  const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   $("#title").textContent = head.title || "Beep";
   $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
   $("#date").textContent = head.sub || "";
@@ -522,20 +631,41 @@ function drawTop() {
 
 // ---------- Sidebar ----------
 
-const groups = new Map();
+/// A sidebar group. `load()` gives its items, or null to hide the group;
+/// `row(item)` draws one; `onPick(item)` runs on a click; `onTitle()`,
+/// when given, makes the title a button; `action()` adds a button beside
+/// the title; `empty` is what an empty group says; `foot()` adds rows
+/// after the items. Groups sort by `order`.
+interface SidebarGroup<T> {
+  order: number;
+  title?: string;
+  load(): Promise<T[] | null>;
+  row(item: T): HTMLElement;
+  onPick?(item: T): void;
+  onTitle?(): void;
+  action?(): HTMLElement;
+  empty?: string | (() => string | HTMLElement);
+  foot?(): HTMLElement[];
+}
 
-/// Adds a sidebar group. `load()` gives its items, or null to hide the
-/// group; `row(item)` draws one; `onPick(item)` runs on a click;
-/// `onTitle()`, when given, makes the title a button. Groups sort by
-/// `order`.
-export function registerSidebarGroup(name, group) {
-  groups.set(name, { title: "", ...group, items: null, loading: false, again: false });
+interface GroupSlot<T> extends SidebarGroup<T> {
+  title: string;
+  items: T[] | null;
+  loading: boolean;
+  again: boolean;
+}
+
+const groups = new Map<string, GroupSlot<unknown>>();
+
+export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
+  const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
+  groups.set(name, slot);
   reloadGroup(name);
 }
 
 /// Loads a group's items again. Never two loads at once: one asked for
 /// during a load runs once more after it.
-async function reloadGroup(name) {
+async function reloadGroup(name: string) {
   const g = groups.get(name);
   if (!g) return;
   if (g.loading) { g.again = true; return; }
@@ -551,7 +681,15 @@ async function reloadGroup(name) {
   if (g.again) { g.again = false; reloadGroup(name); }
 }
 
-function sideItem(svg, label, count, opts = {}) {
+interface SideOpts {
+  cls?: string;
+  current?: boolean;
+  hot?: boolean;
+  kbd?: string;
+  on?: () => void;
+}
+
+function sideItem(svg: string | null, label: string, count: number | undefined, opts: SideOpts = {}) {
   const b = h("button", `cc-si${opts.cls ? " " + opts.cls : ""}`, svg ? icon(svg) : null, h("span", "tt", label));
   b.type = "button";
   if (opts.current) b.setAttribute("aria-current", "true");
@@ -562,9 +700,9 @@ function sideItem(svg, label, count, opts = {}) {
 }
 
 /// Element Home scrolls to once it has drawn.
-let scrollTarget = null;
+let scrollTarget: string | null = null;
 
-function jump(id) {
+function jump(id?: string) {
   go("home");
   const view = $("#view");
   if (!id) return view.scrollTo({ top: 0 });
@@ -580,7 +718,7 @@ function applyScroll() {
 }
 
 /// What the pane shows, for the sidebar's highlight.
-function paneOn() {
+function paneOn(): { view: string | null; session: string | null; group: string | null } {
   return shown === "pane" ? pane.current() : { view: null, session: null, group: null };
 }
 
@@ -597,7 +735,7 @@ function drawSide() {
   const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
-    if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton()));
+    if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
@@ -609,7 +747,7 @@ function drawSide() {
     if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
     for (const item of g.items) {
       const el = g.row(item);
-      if (g.onPick) el.addEventListener("click", () => g.onPick(item));
+      if (g.onPick) el.addEventListener("click", () => g.onPick!(item));
       grp.append(el);
     }
     if (g.foot) grp.append(...g.foot());
@@ -628,24 +766,16 @@ function drawSide() {
 }
 
 /// A group title that opens what the group lists.
-function titleButton(title, on) {
+function titleButton(title: string, on: () => void) {
   const b = h("button", "cc-gt", title);
   b.type = "button";
   b.addEventListener("click", on);
   return b;
 }
 
-function skeleton() {
-  return [70, 55, 62].map(w => {
-    const row = h("div", "cc-skel");
-    row.style.width = `${w}%`;
-    return row;
-  });
-}
-
-function footer(machines) {
+function footer(machines: MachineCard[] | null | undefined): Kid[] {
   const p = problem();
-  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), ` ${{ unlinked: "Not linked", revoked: "Removed" }[p.kind] ?? "Refused"}`)];
+  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "revoked" ? "Removed" : "Refused"}`)];
   if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
   if (!machines) return ["Machines unavailable"];
   if (!machines.length) return ["No machines linked"];
@@ -656,13 +786,13 @@ function footer(machines) {
 /// Pinned chats and groups, then the newest of the rest, the open one
 /// highlighted.
 const SIDE_CHATS = 5;
-let chatList = [];
-let chatFetch = null;
+let chatList: ChatItem[] = [];
+let chatFetch: Promise<ChatItem[]> | null = null;
 
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
   if (chatFetch) return chatFetch;
-  const mine = pane.chatRows().then(rows => {
+  const mine: Promise<ChatItem[]> = pane.chatRows().then(rows => {
     if (chatFetch === mine) chatList = rows;
     return rows;
   }).finally(() => { if (chatFetch === mine) chatFetch = null; });
@@ -677,7 +807,7 @@ function reloadChats() {
 
 /// The projects pinned to the top, as rows of the Pinned group shaped like
 /// chat rows.
-function pinnedProjects() {
+function pinnedProjects(): ProjectPin[] {
   const rows = projectRows();
   if (!rows) return [];
   return splitOnTop(rows, state.top).onTop.map(p => ({ kind: "project", id: p.name, title: p.name, pinned: true, project: p }));
@@ -685,7 +815,7 @@ function pinnedProjects() {
 
 /// Pins project `name` to the top of the sidebar, or unpins it. Not the
 /// file sync pin, which keeps a project on the machines it is on.
-async function setProjectOnTop(name, pinned) {
+async function setProjectOnTop(name: string, pinned: boolean) {
   const before = state.top;
   state.top = pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name);
   redrawProjectPins();
@@ -701,11 +831,11 @@ async function setProjectOnTop(name, pinned) {
 function redrawProjectPins() {
   reloadGroup("pinned");
   reloadGroup("projects");
-  if (shown === "projects") { drawProjects(views.get("projects").el); drawTop(); }
+  redrawProjectsPage();
 }
 
 /// The pin button of a sidebar row: pins it to the top, or unpins it.
-function pinToggle(id, pinned, on) {
+function pinToggle(id: string, pinned: boolean, on: () => void) {
   const toggle = h("button", "pa", icon(IC.pin));
   toggle.type = "button";
   toggle.dataset.id = id;
@@ -716,15 +846,15 @@ function pinToggle(id, pinned, on) {
 
 /// Gives the pin button of chat `id` the focus again, unless focus has gone
 /// elsewhere meanwhile (a redraw leaves it on the page body).
-function restorePinFocus(id) {
+function restorePinFocus(id: string) {
   const on = document.activeElement;
   if (on && on !== document.body) return;
-  document.querySelector(`.cc-chat .pa[data-id="${CSS.escape(id)}"]`)?.focus();
+  document.querySelector<HTMLElement>(`.cc-chat .pa[data-id="${CSS.escape(id)}"]`)?.focus();
 }
 
-async function setPinned(c, pinned) {
+async function setPinned(c: SideChat, pinned: boolean) {
   if (c.kind === "project") return setProjectOnTop(c.id, pinned);
-  const active = document.activeElement;
+  const active = document.activeElement as HTMLElement | null;
   const hadFocus = active?.classList.contains("pa") && active.dataset.id === c.id;
   try {
     await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
@@ -735,7 +865,7 @@ async function setPinned(c, pinned) {
   if (hadFocus) restorePinFocus(c.id);
 }
 
-function chatRow(c) {
+function chatRow(c: SideChat) {
   if (c.kind === "project") return projectRow(c.project, c.title, true);
   const on = paneOn();
   const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
@@ -750,10 +880,8 @@ function chatRow(c) {
 }
 
 /// A project's sidebar row, `label` beside its colour, with its pin button.
-function projectRow(p, label, pinned) {
-  const sw = h("span", "cc-pdot");
-  sw.style.background = PROJECT_COLORS[p.i % PROJECT_COLORS.length];
-  const openBtn = h("button", "open", sw, h("span", "tt", label));
+function projectRow(p: Placed<Project>, label: string, pinned: boolean) {
+  const openBtn = h("button", "open", projectDot(p.i), h("span", "tt", label));
   openBtn.type = "button";
   openBtn.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
   if (shown === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
@@ -762,7 +890,7 @@ function projectRow(p, label, pinned) {
   return h("div", `cc-si cc-chat${pinned ? "" : " pj-repo"}`, openBtn, toggle);
 }
 
-function pickChat(c) {
+function pickChat(c: SideChat) {
   if (c.kind === "project") return openProjects(c.id);
   if (c.kind === "group") return go("pane", { group: { id: c.id } });
   // A research opens in its own window, as from the bar's list.
@@ -770,7 +898,7 @@ function pickChat(c) {
   go("pane", { chat: { session: c.id } });
 }
 
-registerSidebarGroup("pinned", {
+registerSidebarGroup<SideChat>("pinned", {
   order: 2,
   title: "Pinned",
   async load() {
@@ -780,7 +908,7 @@ registerSidebarGroup("pinned", {
   onPick: pickChat,
 });
 
-registerSidebarGroup("chats", {
+registerSidebarGroup<SideChat>("chats", {
   order: 3,
   title: "Chats",
   onTitle: () => go("pane", "chats"),
@@ -819,7 +947,7 @@ function projectRows() {
 }
 
 /// A small + button for a group's heading or the footer.
-function plusButton(label, on) {
+function plusButton(label: string, on: () => void) {
   const b = h("button", "", icon(IC.plus));
   b.type = "button";
   b.title = label;
@@ -829,7 +957,7 @@ function plusButton(label, on) {
 }
 
 /// An empty group's row: what is missing. The group's + adds one.
-function emptyRow(text) {
+function emptyRow(text: string) {
   return h("div", "cc-si none", text);
 }
 
@@ -839,12 +967,12 @@ export function openAddMachine() {
 }
 
 /// Opens the Projects page, filtered to `name` when given.
-export function openProjects(name) {
+export function openProjects(name?: string | null) {
   go("projects", { project: name || null });
 }
 
 /// Opens a project once it is in: Home and the found folders load again.
-function landed(p) {
+function landed(p: { name: string }) {
   state.picked = p.name;
   sessionsDue.add(p.name);
   state.where.delete(p.name);
@@ -856,7 +984,7 @@ function landed(p) {
 /// Opens the Import a project sheet, at the folder choice with `choose`;
 /// the project is selected once it is in. `repo` and `machine` fill it in,
 /// as Clone here does.
-function importSheet(choose = false, repo = null, machine = null) {
+function importSheet(choose = false, repo: string | null = null, machine: string | null = null) {
   openImportProject({
     machines: state.home?.machines || [],
     macId: state.mac?.id || null,
@@ -879,35 +1007,30 @@ export function addProject() {
 
 /// Asks the machines for the checkouts their agents worked in, for the
 /// Projects page; it redraws once they answer.
-let finding = false;
-async function loadFound() {
-  if (finding) return;
-  finding = true;
+const loadFound = single(async () => {
   try {
-    state.found = await invoke("found_projects");
+    state.found = await invoke<FoundRow[]>("found_projects");
   } catch (e) {
     console.warn("found projects:", e);
     state.found = state.found || [];
-  } finally {
-    finding = false;
   }
-  if (shown === "projects" && !state.picked) drawProjects(views.get("projects").el);
-}
+  if (!state.picked) redrawProjects();
+});
 
 /// Imports a found row from the Projects page and opens it.
-async function importFromPage(row) {
+async function importFromPage(row: FoundRow) {
   if (state.importing) return;
   state.importing = row.name;
   state.foundError = null;
-  drawProjects(views.get("projects").el);
+  drawProjects(projectsEl());
   try {
     const project = await importFound(row);
     state.importing = null;
     landed(project);
   } catch (e) {
     state.importing = null;
-    state.foundError = { name: row.name, message: String(e).replace(/^(bad request|error):\s*/i, "") };
-    if (shown === "projects") drawProjects(views.get("projects").el);
+    state.foundError = { name: row.name, message: refusal(e) };
+    redrawProjects();
   }
 }
 
@@ -926,14 +1049,14 @@ registerSidebarGroup("projects", {
   },
   row(p) {
     // An org's heading; under it only the repo name shows.
-    if (p.org) return h("div", "cc-org", `${p.org}/`);
+    if (p.org !== undefined) return h("div", "cc-org", `${p.org}/`);
     const row = projectRow(p, p.repo ?? p.name, false);
     if (!p.repo) row.classList.remove("pj-repo");
     return row;
   },
   onPick: p => { if (!p.org) openProjects(p.name); },
   foot() {
-    if (!groups.get("projects").items?.length) return [];
+    if (!groups.get("projects")!.items?.length) return [];
     const all = sideItem(null, "All projects", 0, { cls: "more", current: shown === "projects" && !state.picked, on: () => openProjects() });
     return [all];
   },
@@ -941,7 +1064,7 @@ registerSidebarGroup("projects", {
 
 // The machines Home lists, each with its online dot. It shows once Home has
 // loaded, empty or not, unless the server is too old to list machines.
-registerSidebarGroup("machines", {
+registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
   order: 5.5,
   title: "Machines",
   onTitle: () => jump("sec-machines"),
@@ -954,17 +1077,17 @@ registerSidebarGroup("machines", {
     return mac ? [...machines, { thisMac: mac }] : machines;
   },
   row(m) {
-    if (m.thisMac) return thisMacItem(m.thisMac);
+    if ("thisMac" in m) return thisMacItem(m.thisMac);
     const b = sideItem(null, m.name, m.agents || 0);
     b.prepend(dot(m));
     b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
     return b;
   },
-  onPick: m => jump(m.thisMac ? "m-this-mac" : `m-${m.id}`),
+  onPick: m => jump("thisMac" in m ? "m-this-mac" : `m-${m.id}`),
 });
 
 /// The sidebar's This Mac: its state, or Add while it is off.
-function thisMacItem(mac) {
+function thisMacItem(mac: MacRow) {
   const title = `This Mac: ${mac.title}`;
   if (mac.action) {
     // A row with a button in it, never a button inside a button.
@@ -986,29 +1109,30 @@ function thisMacItem(mac) {
 /// beside Coming up. On a wide window, two columns instead: Needs you,
 /// Running now and Updates, beside Machines and Coming up. A section with
 /// nothing in it is left out; Machines stays to offer Add a machine.
-function page(home, wide) {
+function page(home: HomeView, wide: boolean) {
   const { machines, running, coming_up: coming, needs_you: needs } = home;
-  const out = [];
-  if (state.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh: ${state.error}`)));
+  const out: HTMLElement[] = [];
+  if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
   if (!machines && !running) {
     out.push(h("div", "cc-note", h("span", "ddot off"), h("span", "", "Machines and running sessions aren't available for this account or server.")));
   } else if (machines) {
     const note = offlineNote(machines);
     if (note) out.push(note);
   }
-  const make = {
-    machines: () => machinesSection(machines),
-    running: () => runningSection(running),
+  // Each is made only when its list is there to show.
+  const make: Record<HomeSection, () => HTMLElement> = {
+    machines: () => machinesSection(machines!),
+    running: () => runningSection(running!),
     needs: () => needsSection(needs),
-    updates: () => updatesSection(home.updates),
-    coming: () => comingSection(coming),
+    updates: () => updatesSection(home.updates!),
+    coming: () => comingSection(coming!),
     projects: () => projectsSection(projectRows() || []),
-    git: () => gitSection(state.git),
+    git: () => gitSection(state.git!),
   };
   const laid = { ...home, git: state.git };
   const cols = wide && homeColumns(laid);
   if (cols) {
-    const col = keys => h("div", "", ...keys.map(k => make[k]()));
+    const col = (keys: HomeSection[]) => h("div", "", ...keys.map(k => make[k]()));
     out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
     return out;
   }
@@ -1027,54 +1151,60 @@ function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STU
 /// Before Home first loads, a failure waiting will not fix, or null.
 function problem() { return state.home ? null : connectProblem(state.error); }
 
-/// What is wrong, said plainly, with the way to fix it and a Retry.
-function problemView(p) {
-  const acts = h("div", "acts");
-  if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
-  const retry = button("Try again", p.action ? "" : "pri", () => { refresh(); retry.disabled = true; });
-  retry.classList.add("retry");
+const logButton = () => button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
+
+/// A button that asks for Home now, and stays off until the answer.
+function retryButton(label: string, cls: string) {
+  const retry = button(label, cls, () => { refresh(); retry.disabled = true; });
   retry.disabled = loading;
-  acts.append(retry, button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e))));
-  const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
-  box.dataset.problem = `${p.kind}:${p.text}`;
-  return box;
+  return retry;
+}
+
+/// What "Still connecting" says, with how long the server has been silent.
+function waitText() {
+  const secs = Math.round((Date.now() - state.since) / 1000);
+  return `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`;
 }
 
 /// What Home shows before the server first answers: pulsing dots, never a
 /// blank page. Once stuck it says so and offers Retry; retries go on anyway.
+/// A failure waiting will not fix is said plainly, with the way to fix it
+/// and a Retry.
 function connecting() {
   const p = problem();
-  if (p) return problemView(p);
+  if (p) {
+    const acts = h("div", "acts");
+    if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
+    const retry = retryButton("Try again", p.action ? "" : "pri");
+    retry.classList.add("retry");
+    acts.append(retry, logButton());
+    const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
+    box.dataset.problem = `${p.kind}:${p.text}`;
+    return box;
+  }
   const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
   if (!stuck()) {
     return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"), h("span", "", "Your chats, machines and approvals load once the server answers."));
   }
-  const secs = Math.round((Date.now() - state.since) / 1000);
-  const why = h("span", "why", `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`);
-  const retry = button("Retry now", "pri", () => { refresh(); retry.disabled = true; });
-  retry.disabled = loading;
-  const log = button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
-  const box = h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), why, h("div", "acts", retry, log));
-  return box;
+  return h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), h("span", "why", waitText()), h("div", "acts", retryButton("Retry now", "pri"), logButton()));
 }
 
 /// Draws the waiting view, or brings the one on screen up to date so its
 /// buttons keep their focus.
-function drawConnecting(view) {
-  const on = view.querySelector(":scope > .cc-conn");
+function drawConnecting(view: HTMLElement) {
+  const on = view.querySelector<HTMLElement>(":scope > .cc-conn");
   const p = problem(), was = on?.dataset.problem;
   if (p || was) {
     if (p && was === `${p.kind}:${p.text}`) {
-      on.querySelector(".acts .retry").disabled = loading;
+      on!.querySelector<HTMLButtonElement>(".acts .retry")!.disabled = loading;
       return;
     }
     return view.replaceChildren(connecting());
   }
   if (on && on.classList.contains("stuck") === stuck()) {
     if (!stuck()) return;
-    const secs = Math.round((Date.now() - state.since) / 1000);
-    on.querySelector(".why").textContent = `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`;
-    on.querySelector(".acts .pri").disabled = loading;
+    on.querySelector(".why")!.textContent = waitText();
+    on.querySelector<HTMLButtonElement>(".acts .pri")!.disabled = loading;
     return;
   }
   view.replaceChildren(connecting());
@@ -1090,12 +1220,12 @@ function draw() {
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
-  $("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
+  $<HTMLInputElement>("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
 
 /// Whether Home has room for two columns.
-function isWide(view) { return view.clientWidth >= WIDE_HOME_PX; }
+function isWide(view: HTMLElement) { return view.clientWidth >= WIDE_HOME_PX; }
 // Redraws Home when the window crosses the width for two columns, including
 // when Home is shown again after a pane (it measures 0 while hidden).
 new ResizeObserver(() => {
@@ -1110,15 +1240,11 @@ registerView("home", {
 
 // ---------- Projects ----------
 
-function importButton(cls) {
-  const b = button("", cls, addProject);
-  b.append(icon(IC.plus), " Add a project");
-  return b;
-}
+const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
 
 /// One project per row: its name and host, where it is on each machine,
 /// the agents running in it and when one last did something.
-function projectTable(rows) {
+function projectTable(rows: Project[]) {
   const table = h("div", "cc-mt cc-pt", ...["Project", "Machine and folder", "Agents", "Last activity"].map(t => h("span", "th", t)));
   for (const p of rows) {
     const open = h("button", "", h("span", "", p.name));
@@ -1141,7 +1267,7 @@ function projectTable(rows) {
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
-function overviewSection(rows) {
+function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top);
   const out = groups.map(g => h("section", "pj-org",
     h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", `${g.cards.length} ${g.cards.length === 1 ? "repo" : "repos"}`)),
@@ -1152,14 +1278,12 @@ function overviewSection(rows) {
   return [...out, add];
 }
 
-function projectCard(c) {
-  const sw = h("span", "cc-pdot");
-  sw.style.background = PROJECT_COLORS[c.i % PROJECT_COLORS.length];
+function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   const pin = h("button", `pa${c.pinned ? " on" : ""}`, icon(IC.pin));
   pin.type = "button";
   pin.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
   pin.addEventListener("click", e => { e.stopPropagation(); setProjectOnTop(c.name, !c.pinned); });
-  const card = h("div", "pj-card", h("div", "h", sw, h("b", "", c.repo), pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
+  const card = h("div", "pj-card", h("div", "h", projectDot(c.i), h("b", "", c.repo), pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.title = c.name;
@@ -1188,48 +1312,42 @@ function projectCard(c) {
 
 /// The overview's cards; `null` from a server too old to sum projects up,
 /// when the page keeps its table.
-let overviewLoading = false;
-async function loadOverview() {
-  if (overviewLoading) return;
-  overviewLoading = true;
+const loadOverview = single(async () => {
   try {
-    state.overview = await invoke("project_overview");
+    state.overview = await invoke<OverviewCard[] | null>("project_overview");
   } catch (e) {
     console.warn("project overview:", e);
-  } finally {
-    overviewLoading = false;
   }
-  if (shown === "projects" && !state.picked) { drawProjects(views.get("projects").el); drawTop(); }
-}
+  if (!state.picked) redrawProjectsPage();
+});
 
 /// One project: where it lives on every machine, with "Start an agent here"
 /// per folder and "Clone here" where it is not, and the coding agents
 /// running in it now.
-function projectDetail(p) {
+function projectDetail(p: Project) {
   const machines = p.imported ? state.where.get(p.name) : null;
   if (p.imported && machines === undefined) loadWhere(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
-  const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
-  const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
+  const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
+  const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
   return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
 /// there is none.
-function whereSection(p, rows, known) {
+function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
   for (const m of rows) where.append(...whereRow(p, m));
-  const el = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
-  if (known) el.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
-  return el;
+  return section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where,
+    known && h("small", "", `on ${whereCount(rows, true)}`));
 }
 
 /// The coding agents running in the project's folders now.
-function agentsSection(running) {
+function agentsSection(running: RunningAgent[]) {
   const list = running.length
-    ? h("div", "cc-panel", ...running.map(runningRow))
+    ? runningPanel(running)
     : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
   return section("sec-project-agents", "Agents", running.length || "", null, list);
 }
@@ -1241,7 +1359,7 @@ const LAYOUT_KEY = "beep.center.projectLayout";
 let layout = "board";
 try { layout = localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "board"; } catch {}
 
-function setLayout(to) {
+function setLayout(to: string) {
   layout = to;
   pa.tile = null;
   try { localStorage.setItem(LAYOUT_KEY, to); } catch {}
@@ -1250,33 +1368,29 @@ function setLayout(to) {
 }
 
 /// The board shows for an imported project whose agent's view has loaded.
-function boardOn(p) {
+function boardOn(p: Project) {
   return layout === "board" && p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
 }
 
 /// Opens tile `key` in place of the board, or goes back with null.
-function openTile(key) {
+function openTile(key: string | null) {
   pa.tile = key;
   if (key !== "terminals") terms.stop();
   if (key !== "review") revs.stop();
   redrawProjects();
-  $("#main .cc-view")?.scrollTo({ top: 0 });
+  document.querySelector("#main .cc-view")?.scrollTo({ top: 0 });
 }
 
 /// The board: what the project chat waits on, then a tile per kind of
 /// thing, or one tile's full list once its header is clicked.
-function projectBoard(p, rows, known, running) {
-  const pv = state.pview.get(p.name);
-  const view = pv.view;
-  const agent = agentFor(state.agents, p.name);
+function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]) {
+  const view = state.pview.get(p.name)!.view!;
+  const agent = agentFor(state.agents, p.name)!;
   const sessions = state.sessions.get(p.name);
   if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
-  const out = [];
-  if (pv.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${pv.error}`)));
-  const needs = cardsSection(view, chatActs(p));
-  if (needs) out.push(needs);
-  const full = {
-    tasks: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))],
+  const out = agentNotes(p, view);
+  const full: Record<string, () => Node[]> = {
+    tasks: () => [taskColumns(view)],
     prs: () => [...thr.threadsPanel(agent), prsSection(view, agentActs)],
     issues: () => thr.issuesPanel(agent, rows),
     machines: () => [whereSection(p, rows, known)],
@@ -1306,9 +1420,25 @@ function projectBoard(p, rows, known, running) {
 }
 
 /// What the project chat's cards do, on the board and in the list.
-function chatActs(p) {
+function chatActs(p: Project) {
   const agent = agentFor(state.agents, p.name);
-  return { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) };
+  return { ...agentActs, answer: (c: { query_id: string }, decision: string, said: string) => answerCard(agent!, c, decision, said) };
+}
+
+/// Above the board or the list: why the project did not refresh, then the
+/// cards the project chat waits on.
+function agentNotes(p: Project, view: ProjectView): Node[] {
+  const out: Node[] = [];
+  const error = state.pview.get(p.name)?.error;
+  if (error) out.push(errorNote(`Could not refresh the project: ${error}`));
+  const needs = cardsSection(view, chatActs(p));
+  if (needs) out.push(needs);
+  return out;
+}
+
+/// Tasks beside Workers.
+function taskColumns(view: ProjectView) {
+  return h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat));
 }
 
 /// The Board and List switch in the header of a project with an agent.
@@ -1330,7 +1460,7 @@ function layoutSwitch() {
 /// id, `outcomes` of answered cards by query id, and `starting` the project
 /// whose agent the prompt bar is making.
 /// `tile` is the board tile opened in place of the board, null for the board.
-const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), starting: null, tile: null };
+const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), starting: null as string | null, tile: null as string | null };
 
 /// The project's terminals; the board's tile and its full view.
 const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjects() });
@@ -1340,8 +1470,8 @@ const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjec
 const revs = makeReviews({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
-  openUrl: url => agentActs.openUrl(url),
-  openTile: key => openTile(key),
+  openUrl: (url: string) => agentActs.openUrl(url),
+  openTile: (key: string) => openTile(key),
   machines: () => state.home?.machines || [],
 });
 
@@ -1350,31 +1480,39 @@ const revs = makeReviews({
 const thr = makeThreads({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
-  openUrl: url => agentActs.openUrl(url),
-  openChat: chat => { go("pane", { chat: { session: chat } }); reloadChats(); },
+  openUrl: (url: string) => agentActs.openUrl(url),
+  openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); },
   changed: () => loadProjectAgent(),
 });
 
+/// The Projects page's element.
+function projectsEl() { return views.get("projects")!.el; }
+
 function redrawProjects() {
-  if (shown === "projects") drawProjects(views.get("projects").el);
+  if (shown === "projects") drawProjects(projectsEl());
+}
+
+/// The Projects page and its header, while it shows.
+function redrawProjectsPage() {
+  if (shown === "projects") { drawProjects(projectsEl()); drawTop(); }
 }
 
 const agentActs = {
-  busy: id => pa.busy.has(id),
-  error: id => pa.errors.get(id),
-  outcome: id => pa.outcomes.get(id),
-  openUrl: url => invoke("open_url", { url }).catch(e => console.warn("open url:", e)),
-  review: branch => { if (state.picked) revs.openBranch(state.picked, branch); },
-  async change(task, change) {
+  busy: (id: string) => pa.busy.has(id),
+  error: (id: string) => pa.errors.get(id),
+  outcome: (id: string) => pa.outcomes.get(id),
+  openUrl: (url: string) => invoke("open_url", { url }).catch(e => console.warn("open url:", e)),
+  review: (branch: string) => { if (state.picked) revs.openBranch(state.picked, branch); },
+  async change(task: { id: string }, change: unknown) {
     await act(task.id, () => invoke("center_update_task", { task: task.id, change }));
   },
-  async stop(worker) {
+  async stop(worker: { id: string }) {
     await act(worker.id, () => invoke("center_stop_worker", { worker: worker.id }));
   },
 };
 
 /// Runs `call` for row `id`, showing it busy, then reloads the project.
-async function act(id, call) {
+async function act(id: string, call: () => Promise<unknown>) {
   if (pa.busy.has(id)) return;
   pa.busy.add(id);
   pa.errors.delete(id);
@@ -1392,21 +1530,15 @@ async function act(id, call) {
 
 /// The cards the project chat waits on, then Tasks beside Workers, above
 /// the folders, once the project has an agent.
-function agentTop(p) {
+function agentTop(p: Project) {
   const view = p.imported ? state.pview.get(p.name)?.view : null;
   if (!view) return [];
-  const out = [];
-  const error = state.pview.get(p.name)?.error;
-  if (error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${error}`)));
-  const needs = cardsSection(view, chatActs(p));
-  if (needs) out.push(needs);
-  out.push(h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat)));
-  return out;
+  return [...agentNotes(p, view), taskColumns(view)];
 }
 
 /// Answers a card of the project chat. The call returns when the run it
 /// resumes ends, so the outcome shows now and the view reloads after.
-function answerCard(agent, c, decision, said) {
+function answerCard(agent: ProjectAgent, c: { query_id: string }, decision: string, said: string) {
   pa.outcomes.set(c.query_id, { said });
   redrawProjects();
   invoke("answer_approval", { session: agent.chat_id, queryId: c.query_id, decision, onEvent: new Channel() })
@@ -1446,19 +1578,19 @@ const projectComp = (() => {
 
 /// Points the prompt bar at project `name`: its placeholder, whether its
 /// chat has turns to open, and whether its agent is being made.
-function drawProjectComp(name) {
+function drawProjectComp(name: string) {
   const c = projectComp;
   c.input.placeholder = barPlaceholder(name);
   c.open.hidden = !chatStarted(state.pview.get(name)?.view?.turns);
   const starting = pa.starting === name;
   c.send.disabled = starting;
-  c.send.firstChild.textContent = starting ? "Starting" : "Send";
+  c.send.firstChild!.textContent = starting ? "Starting" : "Send";
 }
 
 /// Sends the bar's prompt to the picked project's agent, making the agent
 /// first when there is none, and shows the project chat with the reply
 /// streaming.
-async function sendToProject(input, note) {
+async function sendToProject(input: HTMLInputElement, note: HTMLElement) {
   const name = state.picked;
   const text = input.value.trim();
   if (!name || !text || pa.starting) return;
@@ -1468,8 +1600,8 @@ async function sendToProject(input, note) {
     pa.starting = name;
     redrawProjects();
     try {
-      agent = await invoke("center_open_project", { name });
-      state.agents = [...(state.agents || []).filter(a => a.name !== agent.name), agent];
+      const made = agent = await invoke<ProjectAgent>("center_open_project", { name });
+      state.agents = [...(state.agents || []).filter(a => a.name !== made.name), made];
     } catch (e) {
       note.textContent = failure(e);
       return;
@@ -1500,7 +1632,7 @@ async function loadProjectAgent() {
   agentLoading = true;
   try {
     try {
-      state.agents = await invoke("center_projects");
+      state.agents = await invoke<ProjectAgent[] | null>("center_projects");
     } catch (e) {
       console.warn("project agents:", e);
       if (state.agents === undefined) state.agents = null;
@@ -1509,7 +1641,7 @@ async function loadProjectAgent() {
     if (agent) {
       const was = state.pview.get(agent.name);
       try {
-        const view = await invoke("center_project", { projectId: agent.project_id, chatId: agent.chat_id });
+        const view = await invoke<ProjectView>("center_project", { projectId: agent.project_id, chatId: agent.chat_id });
         state.pview.set(agent.name, { view, error: null });
       } catch (e) {
         state.pview.set(agent.name, { view: was?.view ?? null, error: failure(e) });
@@ -1518,24 +1650,24 @@ async function loadProjectAgent() {
   } finally {
     agentLoading = false;
   }
-  redrawProjects();
   // The header's Board and List switch shows once the project has an agent.
-  if (shown === "projects") drawTop();
+  redrawProjectsPage();
   if (agentAgain) { agentAgain = false; loadProjectAgent(); }
 }
 
 /// One machine's row under "Where it lives": its folder and what to do
 /// there, or why there is none.
-function whereRow(p, m) {
+function whereRow(p: Project, m: WhereRow) {
   const name = h("span", "nm", h("b", "", m.name));
   if (m.kind === "here") {
-    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: m.folder } } }));
+    const path = m.folder!;
+    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path } } }));
     const copy = button("Copy path", "quiet small", async () => {
-      try { await navigator.clipboard.writeText(m.folder); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
+      try { await navigator.clipboard.writeText(path); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
     });
-    const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path: m.folder }).catch(e => console.warn("open folder:", e))) : null;
-    const folder = h("span", "nm", h("span", "os", m.folder));
-    folder.title = m.folder;
+    const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
+    const folder = h("span", "nm", h("span", "os", path));
+    folder.title = path;
     return [name, folder, h("span", "acts", finder, copy, start)];
   }
   const said = h("span", "os", m.text);
@@ -1548,22 +1680,22 @@ function whereRow(p, m) {
 /// Asks the server where `name` lives on each machine; while it looks
 /// through one, it asks again shortly. A folder it finds brings that
 /// machine's sessions with it.
-let readingWhere = null;
-let whereTimer = null;
-async function loadWhere(name) {
+let readingWhere: string | null = null;
+let whereTimer: ReturnType<typeof setTimeout> | undefined;
+async function loadWhere(name: string) {
   if (readingWhere === name) return;
   readingWhere = name;
   const before = state.where.get(name);
-  let got = null;
+  let got: ProjectMachineRow[] | null = null;
   try {
-    got = await invoke("project_machines", { project: name });
+    got = await invoke<ProjectMachineRow[] | null>("project_machines", { project: name });
   } catch (e) {
     console.warn("project machines:", e);
   } finally {
     readingWhere = null;
   }
   state.where.set(name, got);
-  const folders = list => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
+  const folders = (list: ProjectMachineRow[] | null) => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
   if (before !== undefined && folders(before) !== folders(got)) {
     sessionsDue.add(name);
     refresh();
@@ -1574,12 +1706,12 @@ async function loadWhere(name) {
       if (shown === "projects" && state.picked === name) loadWhere(name);
     }, 3000);
   }
-  if (shown === "projects" && state.picked === name) drawProjects(views.get("projects").el);
+  if (state.picked === name) redrawProjects();
 }
 
 /// The sessions your coding agents ran in the project's folders, newest
 /// first, each resumable; those running now are under Agents.
-function sessionsSection(p, running) {
+function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
@@ -1591,31 +1723,30 @@ function sessionsSection(p, running) {
       ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
       : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
-  const el = section("sec-sessions", "Sessions", sessions?.length || "", null, body);
-  el.querySelector("h4").append(h("small", "", "from your coding agents in its folders on every machine, newest first"));
-  if (sessions !== undefined && readingSessions.has(p.name)) el.querySelector("h4").append(h("small", "ss-updating", "Updating…"));
-  return el;
+  return section("sec-sessions", "Sessions", sessions?.length || "", null, body,
+    h("small", "", "from your coding agents in its folders on every machine, newest first"),
+    sessions !== undefined && readingSessions.has(p.name) && h("small", "ss-updating", "Updating…"));
 }
 
 /// The agent view for a session row.
-function openAgentRow(r) { go("pane", { agent: { kind: "agent", ...r } }); }
+function openAgentRow(r: SessionRow) { go("pane", { agent: { kind: "agent", ...r } }); }
 
-function sessionRow(s) {
+function sessionRow(s: SessionRow) {
   const ended = s.status === "ended";
   const said = h("span", "bad");
-  const act = ended
+  const act: HTMLButtonElement = ended
     ? button("Resume", "small", async () => {
       act.disabled = true;
       act.textContent = "Resuming…";
       said.textContent = "";
       try {
-        const started = await invoke("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: null });
-        sessionsDue.add(state.picked);
+        const started = await invoke<Started>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: null });
+        sessionsDue.add(state.picked!);
         openAgentRow(started.session);
       } catch (e) {
         act.disabled = false;
         act.textContent = "Resume";
-        said.textContent = String(e).replace(/^(bad request|error):\s*/i, "");
+        said.textContent = refusal(e);
       }
     })
     : button("Open", "small", () => openAgentRow(s));
@@ -1627,15 +1758,15 @@ function sessionRow(s) {
 /// The projects whose sessions are being read, and those to read again on
 /// the next draw. The last list read stays in `state.sessions` and shows
 /// meanwhile, so an opened project lists its sessions at once.
-const readingSessions = new Set();
-const sessionsDue = new Set();
-async function loadSessions(name) {
+const readingSessions = new Set<string>();
+const sessionsDue = new Set<string>();
+async function loadSessions(name: string) {
   if (readingSessions.has(name)) return;
   readingSessions.add(name);
   sessionsDue.delete(name);
-  let got = null;
+  let got: SessionRow[] | null = null;
   try {
-    got = await invoke("project_sessions", { project: name });
+    got = await invoke<SessionRow[]>("project_sessions", { project: name });
   } catch (e) {
     console.warn("project sessions:", e);
   } finally {
@@ -1644,7 +1775,7 @@ async function loadSessions(name) {
   const { list, changed } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (shown !== "projects" || state.picked !== name) return;
-  if (changed) drawProjects(views.get("projects").el);
+  if (changed) drawProjects(projectsEl());
   else for (const el of document.querySelectorAll(".ss-updating")) el.remove();
 }
 
@@ -1656,15 +1787,14 @@ function foundSection() {
   const list = state.found.slice(0, 3).map(row => foundRow(row,
     { busy: state.importing, error: state.foundError?.name === row.name ? state.foundError.message : null }, importFromPage));
   const more = state.found.length > 3 ? button(`All ${state.found.length}`, "quiet small", addProject) : null;
-  const el = section("sec-found", "Found on your machines", "", more, h("div", "cc-panel ap-list", ...list));
-  el.querySelector("h4").append(h("small", "", "folders your coding agents worked in, without a project"));
-  return el;
+  return section("sec-found", "Found on your machines", "", more, h("div", "cc-panel ap-list", ...list),
+    h("small", "", "folders your coding agents worked in, without a project"));
 }
 
 let askedGit = false;
 /// The open PRs and issues in repos without a project, each repo with
 /// Import project, under the Projects overview.
-function elsewhereSection(rows) {
+function elsewhereSection(rows: Project[]) {
   if (!state.git) {
     if (!askedGit) { askedGit = true; refreshGit().then(redrawProjects); }
     return null;
@@ -1673,24 +1803,22 @@ function elsewhereSection(rows) {
   if (!repos.length) return null;
   const body = repos.flatMap((r, i) => {
     const imp = rowButton("Import project", i ? "small" : "pri small", () => importSheet(false, r.repo));
-    const head = line(h("span", "cc-pdot"), r.repo, r.host, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
-    head.classList.add("cc-gr");
+    const head = repoLine(undefined, r.repo, r.host, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
     return [head, ...r.items.slice(0, ITEMS_SHOWN).map(item => openItemRow(item, null))];
   });
-  const el = section("sec-elsewhere", outsideTitle(repos), "", null, h("div", "cc-panel cc-open", ...body));
-  el.querySelector("h4").append(h("small", "", "your open PRs and issues in repos without a project"));
-  return el;
+  return section("sec-elsewhere", outsideTitle(repos), "", null, h("div", "cc-panel cc-open", ...body),
+    h("small", "", "your open PRs and issues in repos without a project"));
 }
 
 /// "github.com" from a project's web page.
-function hostOf(url) {
-  try { return new URL(url).host; } catch { return ""; }
+function hostOf(url: string | null) {
+  try { return new URL(url ?? "").host; } catch { return ""; }
 }
 
-function drawProjects(el) {
+function drawProjects(el: HTMLElement) {
   const rows = projectRows();
   const view = h("div", "cc-view");
-  let one = null;
+  let one: Project | null = null;
   if (!state.home) {
     view.append(h("div", "cc-panel cc-empty", h("b", "", "Loading projects…")));
   } else if (!rows || !rows.length) {
@@ -1738,8 +1866,10 @@ registerView("projects", {
     const p = filterProjects(projectRows() || [], state.picked)[0];
     const tools = [];
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
-    const label = p?.url ? openOnLabel(p.url) : null;
-    if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+    if (p?.url) {
+      const label = openOnLabel(p.url);
+      if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+    }
     if (p) {
       const on = state.top.includes(p.name);
       tools.push(button(on ? "Unpin" : "Pin", "quiet small", () => setProjectOnTop(p.name, !on)));
@@ -1748,7 +1878,7 @@ registerView("projects", {
     return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
   mount(el, arg) {
-    state.picked = arg?.project || null;
+    state.picked = (arg as ProjectsArg | undefined)?.project || null;
     if (state.picked) { sessionsDue.add(state.picked); state.where.delete(state.picked); }
     pa.tile = null;
     drawProjects(el);
@@ -1762,40 +1892,43 @@ registerView("projects", {
 });
 
 /// Home's short list of projects: the page has the table.
-function projectsSection(rows) {
+function projectsSection(rows: Project[]) {
   const more = button("All projects", "quiet small", () => openProjects());
-  const list = rows.slice(0, 6).map(p => line(
-    h("span", "cc-pdot"),
+  const list = rows.slice(0, 6).map((p, i) => line(
+    projectDot(i),
     p.name,
     [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
     [p.last ? ago(p.last) : ""],
     () => openProjects(p.name)));
-  list.forEach((row, i) => { row.querySelector(".cc-pdot").style.background = PROJECT_COLORS[i % PROJECT_COLORS.length]; });
   return section("sec-projects-home", "Projects", rows.length, more, h("div", "cc-panel", ...list));
 }
 
 // ---------- Pane ----------
 
+const ROUTINES_TITLE: [string, string] = ["Routines", "What Beep does on its own"];
+const APPS_TITLE: [string, string] = ["Apps", "What Beep can use for you"];
+const SETTINGS_TITLE: [string, string] = ["Settings", ""];
+
 /// Titles of the pane's views; a chat or group takes its own name.
-const PANE_TITLES = {
+const PANE_TITLES: Record<string, [string, string]> = {
   chats: ["Chats", "Every chat, from the bar, this window and your phone"],
   memories: ["Memories", "What Beep knows about you"],
-  routines: ["Routines", "What Beep does on its own"],
-  rnew: ["Routines", "What Beep does on its own"],
-  grants: ["Routines", "What Beep does on its own"],
+  routines: ROUTINES_TITLE,
+  rnew: ROUTINES_TITLE,
+  grants: ROUTINES_TITLE,
   skills: ["Skills", "What Beep knows how to do"],
-  apps: ["Apps", "What Beep can use for you"],
-  mcp: ["Apps", "What Beep can use for you"],
-  appperms: ["Apps", "What Beep can use for you"],
-  settings: ["Settings", ""],
-  machines: ["Settings", ""],
+  apps: APPS_TITLE,
+  mcp: APPS_TITLE,
+  appperms: APPS_TITLE,
+  settings: SETTINGS_TITLE,
+  machines: SETTINGS_TITLE,
   research: ["Research", ""],
   agents: ["Coding agents", "On your machines"],
   agentnew: ["Coding agents", "Start one on a machine"],
   agent: ["Coding agents", "Follow it and answer it here"],
 };
 
-function paneTitle() {
+function paneTitle(): ViewHead {
   const on = paneOn();
   if (on.view === "chat") {
     const c = chatList.find(x => x.id === on.session);
@@ -1807,20 +1940,17 @@ function paneTitle() {
     const g = chatList.find(x => x.id === on.group);
     return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
   }
-  const [title, sub] = PANE_TITLES[on.view] ?? ["Beep", ""];
+  const [title, sub] = PANE_TITLES[on.view ?? ""] ?? ["Beep", ""];
   return { title, sub };
 }
 
 /// Beside a chat's title: the project it belongs to, which opens the
 /// project, or General.
-function scopeTag(session) {
+function scopeTag(session: string | null) {
   const agent = chatProject(state.agents, session);
   if (!agent) return h("span", "cc-tag", "General");
-  const rows = projectRows() || [];
-  const i = rows.findIndex(p => p.name === agent.name);
-  const dot = h("span", "cc-pdot");
-  if (i >= 0) dot.style.background = PROJECT_COLORS[i % PROJECT_COLORS.length];
-  const b = h("button", "cc-tag pj-scope", dot, shortName(agent.name));
+  const i = (projectRows() || []).findIndex(p => p.name === agent.name);
+  const b = h("button", "cc-tag pj-scope", projectDot(i >= 0 ? i : undefined), shortName(agent.name));
   b.type = "button";
   b.title = `${agent.name}: open the project`;
   b.addEventListener("click", () => openProjects(agent.name));
@@ -1831,7 +1961,7 @@ function scopeTag(session) {
 /// any project page has loaded them.
 async function loadAgents() {
   try {
-    state.agents = await invoke("center_projects");
+    state.agents = await invoke<ProjectAgent[] | null>("center_projects");
   } catch (e) {
     console.warn("project agents:", e);
     return;
@@ -1839,7 +1969,7 @@ async function loadAgents() {
   if (shown === "pane") drawTop();
 }
 
-function pinButton(c) {
+function pinButton(c: ChatItem) {
   return button(c.pinned ? "Unpin" : "Pin", "", () => setPinned(c, !c.pinned));
 }
 
@@ -1848,7 +1978,7 @@ registerView("pane", {
   title: paneTitle,
   mount(el, arg) {
     pane.mounted(true);
-    pane.open(arg);
+    pane.open(arg as PaneTarget);
   },
   unmount() {
     pane.mounted(false);
@@ -1858,7 +1988,7 @@ registerView("pane", {
 
 /// The window stops showing a chat or group when the pane moves off it, so
 /// a focused window no longer keeps their notices quiet.
-let last = { view: null, session: null };
+let last: Pick<PaneNow, "session"> & { view: string | null; group?: string | null } = { view: null, session: null };
 $("#bar").dataset.view = pane.current().view ?? "";
 pane.onChange(now => {
   if (shown === "pane") {
@@ -1873,8 +2003,8 @@ pane.onChange(now => {
 // ---------- Handoffs ----------
 
 /// Shows what the bar or tray asked for, once; Home when nothing is waiting.
-async function takePending(fallback) {
-  const target = await invoke("center_pending").catch(() => null);
+async function takePending(fallback: string | null) {
+  const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
   if (target === "home") return go("home");
   if (target === "instructions") return go("instructions");
@@ -1891,9 +2021,9 @@ listen("center-open", () => takePending(null));
 /// sheet with its sections on the left. Esc or a click outside closes it;
 /// the view behind keeps its state. The sheet draws at once from what
 /// this Mac knows and fills in the server's parts as they answer.
-let settingsOpen = null;
+let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null } | null = null;
 
-export function openSettings(section) {
+export function openSettings(section?: string) {
   if (settingsOpen) return section && showSection(settingsOpen.scrim, section);
   const sheet = h("div", "cc-set");
   sheet.setAttribute("role", "dialog");
@@ -1901,14 +2031,14 @@ export function openSettings(section) {
   sheet.setAttribute("aria-label", "Settings");
   sheet.tabIndex = -1;
   const nav = h("nav", "dset-nav", h("b", "", "Settings"));
-  const body = h("div", "dset-body", h("div", "dset-top", h("span", "tt", h("b", "", "Settings")), h("kbd", "", "esc")), ...skeletonRows());
+  const body = h("div", "dset-body", h("div", "dset-top", h("span", "tt", h("b", "", "Settings")), h("kbd", "", "esc")), ...skeleton([80, 60, 72, 50]));
   sheet.append(nav, body);
   const scrim = h("div", "cc-set-scrim", sheet);
-  const back = document.activeElement;
+  const back = document.activeElement as HTMLElement | null;
   scrim.addEventListener("mousedown", e => { if (e.target === scrim) closeSettings(); });
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
-  const keys = e => {
+  const keys = (e: KeyboardEvent) => {
     if (e.key === "Escape") { e.preventDefault(); closeSettings(); }
     else if (e.metaKey && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
@@ -1924,8 +2054,8 @@ export function openSettings(section) {
 }
 
 /// Scrolls the open sheet to `section`, such as "machines".
-function showSection(scrim, section) {
-  scrim.querySelector(`[data-goto="${section}"]`)?.click();
+function showSection(scrim: HTMLElement, section: string) {
+  scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
 }
 
 export function closeSettings() {
@@ -1937,17 +2067,9 @@ export function closeSettings() {
   if (back?.isConnected) back.focus();
 }
 
-function skeletonRows() {
-  return [80, 60, 72, 50].map(w => {
-    const row = h("div", "cc-skel");
-    row.style.width = `${w}%`;
-    return row;
-  });
-}
-
 /// Keeps Tab inside the sheet.
-function trapTab(e, sheet) {
-  const all = [...sheet.querySelectorAll("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
+  const all = [...sheet.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
   if (!all.length) return;
   const first = all[0], last = all[all.length - 1];
   // Focus lost to the page (a redraw removed it): bring it back in.
@@ -1965,6 +2087,9 @@ initSideResize($(".cwin"), $("#side-grip"));
 
 initPalette({ go, jump, pane, settings: openSettings, project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 
+/// ⌘ and a letter: the pane page it opens.
+const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
+
 document.addEventListener("keydown", e => {
   // Esc on an opened board tile goes back to the board.
   if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
@@ -1975,7 +2100,7 @@ document.addEventListener("keydown", e => {
   const key = e.key.toLowerCase();
   if (key === "k") { e.preventDefault(); return openPalette(); }
   if (key === ",") { e.preventDefault(); return openSettings(); }
-  const to = { m: "memories", j: "routines", l: "skills" }[key];
+  const to = PANE_KEYS[key];
   if (to) { e.preventDefault(); return go("pane", to); }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
@@ -2003,12 +2128,12 @@ pane.connect({
     if (view) go("pane", view);
   },
   newChat: newChatHere,
-  goBack: from => go(from.view, from.arg),
+  goBack: (from: BackTo) => go(from.view, from.arg as ViewArg),
 });
 
 // ---------- Refresh ----------
 
-let loading = false, again = false, retryTimer = null;
+let loading = false, again = false, retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 /// Fetches Home. Never two calls at once: a request during one runs once more after it.
 async function refresh() {
@@ -2017,11 +2142,11 @@ async function refresh() {
   loading = true;
   try {
     const [home, mac, sync, top] = await Promise.all([
-      invoke("center_home"),
-      invoke("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
+      invoke<HomeView>("center_home"),
+      invoke<MacControl>("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
       // Sync progress only adds to the Now column; Home draws without it.
-      invoke("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
-      invoke("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
+      invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
+      invoke<string[]>("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
     ]);
     state.mac = mac;
     state.top = top || [];
@@ -2037,12 +2162,19 @@ async function refresh() {
     loading = false;
   }
   draw();
-  if (shown === "projects") { drawProjects(views.get("projects").el); drawTop(); }
   // A project's agent refreshes with Home: on focus, on notices and every
   // 10 seconds while the window shows.
-  if (shown === "projects" && state.picked) loadProjectAgent();
-  if (shown === "projects" && state.picked && boardOn(filterProjects(projectRows() || [], state.picked)[0] || {})) terms.load(state.picked);
-  if (shown === "projects" && !state.picked) loadOverview();
+  if (shown === "projects") {
+    drawProjects(projectsEl());
+    drawTop();
+    if (state.picked) {
+      loadProjectAgent();
+      const p = filterProjects(projectRows() || [], state.picked)[0];
+      if (p && boardOn(p)) terms.load(state.picked);
+    } else {
+      loadOverview();
+    }
+  }
   reloadGroup("projects");
   reloadGroup("pinned");
   reloadGroup("machines");
@@ -2069,9 +2201,9 @@ for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
   listen(name, () => reloadChats());
 }
 
-$("#home-comp").addEventListener("submit", async e => {
+$<HTMLFormElement>("#home-comp").addEventListener("submit", async e => {
   e.preventDefault();
-  const input = $("#home-ask"), note = $("#home-err"), prompt = input.value.trim();
+  const input = $<HTMLInputElement>("#home-ask"), note = $("#home-err"), prompt = input.value.trim();
   if (!prompt) return;
   note.textContent = "";
   input.value = "";
@@ -2088,7 +2220,7 @@ $("#home-comp").addEventListener("submit", async e => {
 });
 
 $("#home-agent")?.addEventListener("click", () => {
-  const input = $("#home-ask"), prompt = input.value.trim();
+  const input = $<HTMLInputElement>("#home-ask"), prompt = input.value.trim();
   input.value = "";
   go("pane", { agentnew: { prompt } });
 });
