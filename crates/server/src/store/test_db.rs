@@ -206,6 +206,15 @@ impl TestDb {
         Ok(pool)
     }
 
+    /// A pool on this schema migrated up to `last`, for testing the
+    /// migration after it. [`Self::store`] then migrates the rest.
+    #[cfg(test)]
+    pub(crate) async fn pool_at(&self, last: i64) -> Result<PgPool> {
+        let pool = self.pool().await?;
+        super::migrator(last).run(&pool).await?;
+        Ok(pool)
+    }
+
     /// A pool on this schema, for tests that check rows no store method
     /// reads back.
     #[doc(hidden)]

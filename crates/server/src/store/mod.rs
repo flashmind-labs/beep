@@ -459,6 +459,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "drop agent images",
         include_str!("../../migrations/0074_drop_agent_images.sql"),
     ),
+    (
+        75,
+        "imported projects",
+        include_str!("../../migrations/0075_imported_projects.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

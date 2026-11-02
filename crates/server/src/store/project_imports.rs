@@ -2,11 +2,12 @@
 //! `crate::imports`).
 
 use super::Store;
-use crate::user::UserKey;
+use crate::{projects::model::RepoName, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use sqlx::Row;
+use sqlx::{PgConnection, Row};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// One project imported onto one machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,12 +32,14 @@ pub struct NewImport<'a> {
 
 impl Store {
     /// Records an import, or moves an earlier one of the same project on
-    /// the same machine to `folder`. Gives the row as stored.
+    /// the same machine to `folder`, and makes the project if it is new.
+    /// Gives the row as stored.
     pub(crate) async fn save_import(
         &self,
         user: &UserKey,
         import: NewImport<'_>,
     ) -> Result<ImportRow> {
+        let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
             "INSERT INTO project_imports (user_id, project, endpoint_id, folder, url)
              VALUES ($1, $2, $3, $4, $5)
@@ -49,9 +52,12 @@ impl Store {
         .bind(import.endpoint)
         .bind(import.folder)
         .bind(import.url)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
-        import_row(&row)
+        let row = import_row(&row)?;
+        ensure_imported_project(&mut tx, user, import.project).await?;
+        tx.commit().await?;
+        Ok(row)
     }
 
     /// The user's imports, by project, then machine.
@@ -68,8 +74,9 @@ impl Store {
 
     /// Records a checkout found on a machine as the project's folder there,
     /// unless the project already has one on that machine. Says whether it
-    /// was recorded.
+    /// was recorded. Makes the project if it is new.
     pub(crate) async fn link_import(&self, user: &UserKey, import: NewImport<'_>) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let done = sqlx::query(
             "INSERT INTO project_imports (user_id, project, endpoint_id, folder, url)
              VALUES ($1, $2, $3, $4, $5)
@@ -80,8 +87,10 @@ impl Store {
         .bind(import.endpoint)
         .bind(import.folder)
         .bind(import.url)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        ensure_imported_project(&mut tx, user, import.project).await?;
+        tx.commit().await?;
         Ok(done.rows_affected() == 1)
     }
 
@@ -119,6 +128,32 @@ impl Store {
             .map(|row| Ok((row.try_get(0)?, row.try_get(1)?)))
             .collect()
     }
+}
+
+/// Makes the project an import names, unless the user has one of that
+/// name in any case, so its agent and board exist without its chat being
+/// opened first. A name that is not `owner/repo` gets no project.
+async fn ensure_imported_project(
+    conn: &mut PgConnection,
+    user: &UserKey,
+    project: &str,
+) -> Result<()> {
+    let Ok(name) = RepoName::parse(project) else {
+        log::warn!("imported project has no project row, not owner/repo: {project}");
+        return Ok(());
+    };
+    sqlx::query(
+        "INSERT INTO projects (id, user_id, name)
+         SELECT $1, $2, $3
+         WHERE NOT EXISTS (SELECT 1 FROM projects WHERE user_id=$2 AND lower(name)=lower($3))
+         ON CONFLICT (user_id, name) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(user.as_str())
+    .bind(name.to_string())
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 fn import_row(row: &sqlx::postgres::PgRow) -> Result<ImportRow> {
@@ -224,6 +259,90 @@ mod tests {
                 .await
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    async fn project_names(store: &Store, user: &UserKey) -> Vec<String> {
+        store
+            .projects(user)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.name.to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_imported_project_is_listed_once_and_stays_removed() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        store
+            .save_import(&alice, import("org/a", "node-1", "/w/projects/org/a"))
+            .await
+            .unwrap();
+        store
+            .link_import(&alice, import("org/a", "node-2", "/srv/a"))
+            .await
+            .unwrap();
+        store
+            .link_import(&alice, import("org/b", "node-2", "/srv/b"))
+            .await
+            .unwrap();
+        store
+            .save_import(&alice, import("Org/A", "node-3", "/w/projects/Org/A"))
+            .await
+            .unwrap();
+        assert_eq!(project_names(&store, &alice).await, ["org/a", "org/b"]);
+        assert!(
+            project_names(&store, &UserKey::for_test("bob"))
+                .await
+                .is_empty()
+        );
+        store.remove_project(&alice, "org/a").await.unwrap();
+        assert_eq!(project_names(&store, &alice).await, ["org/b"]);
+    }
+
+    #[tokio::test]
+    async fn imports_from_before_get_their_project() {
+        let db = TestDb::new().await.unwrap();
+        let pool = db.pool_at(74).await.unwrap();
+        for (user, project, endpoint) in [
+            ("alice", "org/a", "node-1"),
+            ("alice", "org/a", "node-2"),
+            ("alice", "ORG/A", "node-3"),
+            ("alice", "org/opened", "node-1"),
+            ("alice", "not a repo", "node-1"),
+            ("bob", "org/a", "node-1"),
+        ] {
+            sqlx::query(
+                "INSERT INTO project_imports (user_id, project, endpoint_id, folder, url)
+                 VALUES ($1, $2, $3, '/w', 'https://github.com/org/a')",
+            )
+            .bind(user)
+            .bind(project)
+            .bind(endpoint)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query("INSERT INTO projects (id, user_id, name) VALUES ($1, 'alice', 'Org/Opened')")
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let names = project_names(&store, &alice).await;
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(names.contains(&"Org/Opened".to_owned()), "{names:?}");
+        assert!(
+            names.iter().any(|n| n.eq_ignore_ascii_case("org/a")),
+            "{names:?}"
+        );
+        assert_eq!(
+            project_names(&store, &UserKey::for_test("bob")).await,
+            ["org/a"]
         );
     }
 }
