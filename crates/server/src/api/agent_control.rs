@@ -21,6 +21,7 @@ use crate::{
     tools::machines::command_name,
 };
 use futures::{StreamExt, stream};
+use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
 /// The most transcript entries one view reads.
@@ -427,9 +428,12 @@ async fn running(online: &Online) -> u32 {
 /// A transcript that cannot be read leaves `entries` empty, so the rest
 /// still shows.
 pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<AgentSessionView> {
+    let started = Instant::now();
     let live = live_host(&cx, &get.machine_id).await?;
     let host = live.host();
+    let found_host = started.elapsed();
     let listed = limited(live.online.agent_sessions()).await?;
+    let listed_at = started.elapsed();
     let mut view = match listed
         .into_iter()
         .find(|info| info.id == get.session && info.agent == get.agent)
@@ -467,6 +471,7 @@ pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<Age
         }
     };
     let last = get.last.clamp(1, MAX_ENTRIES);
+    let read_at = started.elapsed();
     match timeout(NODE_LIMIT, live.online.transcript(&get.session, last)).await {
         Ok(Ok((entries, earlier))) => {
             view.entries = entries.into_iter().map(entry).collect();
@@ -475,8 +480,22 @@ pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<Age
         Ok(Err(e)) => log::warn!("transcript not read; session={} error={e:#}", get.session),
         Err(_) => log::warn!("transcript not read in time; session={}", get.session),
     }
+    let took = started.elapsed();
+    if took >= SLOW_READ {
+        log::info!(
+            "agent session read slowly; session={} host_ms={} list_ms={} outside_ms={} transcript_ms={}",
+            get.session,
+            found_host.as_millis(),
+            (listed_at - found_host).as_millis(),
+            (read_at - listed_at).as_millis(),
+            (took - read_at).as_millis(),
+        );
+    }
     Ok(view)
 }
+
+/// A session read slower than this is logged with where the time went.
+const SLOW_READ: Duration = Duration::from_millis(500);
 
 fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
     let state = info.state.clone();
