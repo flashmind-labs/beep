@@ -143,13 +143,6 @@ export function outsideThreads<T extends Pick<GitItemRow, "host" | "repo" | "upd
   return [...rows.values()].sort((a, b) => b.last - a.last);
 }
 
-/// "Elsewhere on GitHub", or on Forgejo, or both, from the rows shown.
-export function outsideTitle(rows: readonly { host: string }[]) {
-  const github = rows.some(r => r.host === "github.com");
-  const other = rows.some(r => r.host !== "github.com");
-  return `Elsewhere on ${[github ? "GitHub" : null, other ? "Forgejo" : null].filter(Boolean).join(" and ") || "your git hosts"}`;
-}
-
 /// What the import sheet says it found: the checkouts and through which
 /// remote, or that there is none yet.
 export function checkoutNote(preview: { checkouts?: readonly Omit<CheckoutRow, "machine_id">[] } | null | undefined) {

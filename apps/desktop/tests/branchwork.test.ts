@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, outsideTitle, checkoutNote } from "../src/branchwork.ts";
+import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, checkoutNote } from "../src/branchwork.ts";
 
 const preview = {
   project: "tools-org/uploader",
@@ -65,7 +65,5 @@ test("outside_threads_skip_registered_repos", () => {
     ["tools-org/uploader", [812, 40]],
     ["big-org/parser", [2210]],
   ]);
-  assert.equal(outsideTitle(rows), "Elsewhere on GitHub");
-  assert.equal(outsideTitle([{ host: "git.example.com" }, { host: "github.com" }]), "Elsewhere on GitHub and Forgejo");
   assert.deepEqual(outsideThreads(null, null), []);
 });
