@@ -327,7 +327,7 @@ async fn stop(app: &Arc<App>, user: &Arc<User>, id: WorkerId) -> Reply<()> {
     Ok(())
 }
 
-fn task_view(task: TaskRow) -> ProjectTask {
+pub(super) fn task_view(task: TaskRow) -> ProjectTask {
     let (issue_number, issue_url) = match task.issue {
         Some(issue) => (Some(issue.number), Some(issue.url)),
         None => (None, None),

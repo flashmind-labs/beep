@@ -327,6 +327,7 @@ fn new_task(title: &str) -> NewTask {
 
 fn claude() -> StartRequest {
     StartRequest {
+        base: None,
         machine: None,
         agent: Some(super::model::WorkerAgent::Claude),
         persona: None,

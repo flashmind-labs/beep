@@ -794,6 +794,7 @@ impl PlanTool {
                 start: None,
             },
             start: StartRequest {
+                base: None,
                 machine,
                 agent,
                 persona: planned.persona.clone(),
