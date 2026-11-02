@@ -155,8 +155,9 @@ interface AgentState {
   attTimer: ReturnType<typeof setTimeout> | undefined;
   noImages: string | null;
   /// The tool entries opened to their full output, by place in the session,
-  /// and the module that reads tool entries, once loaded.
-  opened: Set<number>;
+  /// the pasted blocks left open ("place:block"), and the module that reads
+  /// tool entries, once loaded.
+  opened: Set<number | string>;
   log: typeof import("../agentlog.ts") | null;
 }
 
@@ -462,6 +463,13 @@ function agentClick(e: MouseEvent) {
     if (!AG.opened.delete(at)) AG.opened.add(at);
     return drawAgentBody();
   }
+  // A pasted block opens by itself; remember it so a redraw keeps it open.
+  const paste = target.closest<HTMLElement>("#agbody .dcoderen.user[data-at] details.paste > summary");
+  if (paste) {
+    const key = `${paste.closest<HTMLElement>("[data-at]")!.dataset.at}:${paste.parentElement!.dataset.paste}`;
+    if (!AG.opened.delete(key)) AG.opened.add(key);
+    return;
+  }
   const pic = target.closest<HTMLImageElement>("#agbody img.pic");
   if (pic) {
     const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic")];
@@ -526,8 +534,9 @@ export function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
-    if (!names.length) return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
-    return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${names.map(entryPic).join("")}</span></div>`;
+    const user = (s: string) => AG.log ? AG.log.userHtml(s, esc, i => AG.opened.has(`${at}:${i}`)) : esc(s);
+    if (!names.length) return `<div class="dcoderen user" data-at="${at}"><b>You</b><span>${user(en.text)}</span></div>`;
+    return `<div class="dcoderen user" data-at="${at}"><b>You</b>${said ? `<span>${user(said)}</span>` : ""}<span class="pics">${names.map(entryPic).join("")}</span></div>`;
   }
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}</div>` : `<div class="dcoderen agent">${text}</div>`;

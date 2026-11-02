@@ -228,7 +228,10 @@ function skeleton(widths: number[]) {
 
 /// One row of Running now, Needs you, Updates or Coming up: a title and one
 /// muted line, opening `open` on a click, with `right` beside it.
-function line(lead: Node, title: string, sub: string, right: Kid[], open: () => void) {
+/// A row with no tile before its title.
+function bare(row: HTMLElement) { row.classList.add("bare"); return row; }
+
+function line(lead: Node | null, title: string, sub: string, right: Kid[], open: () => void) {
   const t = h("button", "t", h("b", "", title), h("span", "", sub));
   t.type = "button";
   t.title = title;
@@ -321,14 +324,13 @@ function offlineNote(machines: MachineCard[]) {
 // ---------- Running now ----------
 
 function runningRow(r: RunningRow) {
-  const { title, sub } = runningLine(r);
+  const { title, sub } = runningLine(r, state.home?.projects || []);
   const right = [r.status === "asking" ? tag("wait", "needs you") : ago(r.started_at)];
   if (r.kind === "research") {
-    return line(avatar("beep", icon(IC.find)), title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}));
+    return bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})));
   }
-  const ag = agentOf(r.agent);
   // The pane's agent view follows and answers it.
-  return line(avatar(ag.cls, ag.ini), title, sub, right, () => go("pane", { agent: r }));
+  return bare(line(null, title, sub, right, () => go("pane", { agent: r })));
 }
 
 /// A panel of Running now rows.
@@ -948,7 +950,7 @@ registerSidebarGroup("views", {
 function projectRows() {
   const home = state.home;
   if (!home || (!home.running && !home.projects)) return null;
-  return mergeProjects(home.projects, home.running);
+  return mergeProjects(home.projects, home.running, state.found);
 }
 
 /// A small + button for a group's heading or the footer.
@@ -1020,6 +1022,8 @@ const loadFound = single(async () => {
     state.found = state.found || [];
   }
   if (!state.picked) redrawProjects();
+  // Their remotes name the folders agents run in as org/repo.
+  reloadGroup("projects");
 });
 
 /// Imports a found row from the Projects page and opens it.
@@ -1060,11 +1064,6 @@ registerSidebarGroup("projects", {
     return row;
   },
   onPick: p => { if (!p.org) openProjects(p.name); },
-  foot() {
-    if (!groups.get("projects")!.items?.length) return [];
-    const all = sideItem(null, "All projects", 0, { cls: "more", current: shown === "projects" && !state.picked, on: () => openProjects() });
-    return [all];
-  },
 });
 
 // The machines Home lists, each with its online dot. It shows once Home has
@@ -1345,7 +1344,8 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
   for (const m of rows) where.append(...whereRow(p, m));
-  return section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where,
+  // Once every machine answered, the note says the count instead.
+  return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,
     known && h("small", "", `on ${whereCount(rows, true)}`));
 }
 
@@ -2089,6 +2089,8 @@ registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
+// The sidebar names running folders by their remote, which the found list gives.
+loadFound();
 
 initPalette({ go, jump, pane, settings: openSettings, project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 

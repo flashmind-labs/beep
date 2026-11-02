@@ -607,6 +607,9 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcoderen { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
 .dcoderen.user { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
+.dcoderen.user details.paste { display: block; margin: 4px 0; border: 1px solid var(--border); border-radius: 6px; white-space: normal }
+.dcoderen.user details.paste summary { cursor: pointer; padding: 3px 8px; font-size: 12px; color: var(--muted) }
+.dcoderen.user details.paste pre { margin: 0; padding: 6px 8px; max-height: 320px; overflow: auto; font: 11.5px/16px var(--mono, monospace); white-space: pre-wrap; border-top: 1px solid var(--border) }
 /* What the agent said, from Markdown: headings stay near the text's size. */
 .dcoderen.agent.md { white-space: normal }
 .dcoderen.agent.md :is(h1, h2) { font-size: 14.5px; margin: 10px 0 4px } .dcoderen.agent.md :is(h3, h4, h5, h6) { font-size: 14px; margin: 8px 0 2px }
