@@ -7,7 +7,7 @@ use crate::{
     app::App,
     projects::{
         fleet::NodeFleet,
-        issues::{self, IssueError, IssueWork, OpenIssue},
+        issues::{self, IssueError, IssueWork, ListedPr, OpenIssue},
         lifecycle::fill_slots,
         model::{ProjectId, RepoName, TaskId, TaskState, WorkerAgent, WorkerId},
         tools::{drop_task, reopen_task},
@@ -75,6 +75,13 @@ pub(super) async fn list_project_issues(
     project_issues(&cx.app, &cx.user, ProjectId(req.project_id)).await
 }
 
+pub(super) async fn list_project_pull_requests(
+    cx: Cx,
+    req: ListProjectPullRequests,
+) -> Reply<Vec<ProjectPullRequest>> {
+    project_pull_requests(&cx.app, &cx.user, ProjectId(req.project_id)).await
+}
+
 pub(super) async fn track_project_issue(cx: Cx, req: TrackProjectIssue) -> Reply<ProjectTask> {
     track_issue(
         &cx.app,
@@ -127,6 +134,37 @@ async fn project_issues(
         .await
         .map_err(issue_refusal)?;
     Ok(open.into_iter().map(issue_view).collect())
+}
+
+fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
+    let pr = listed.pr;
+    ProjectPullRequest {
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        author: pr.author,
+        draft: pr.draft,
+        mine: listed.mine,
+        created_at: pr.created_at.into(),
+        updated_at: pr.updated_at.into(),
+    }
+}
+
+/// Every open pull request of the project, newest first.
+async fn project_pull_requests(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    id: ProjectId,
+) -> Reply<Vec<ProjectPullRequest>> {
+    let project = project_of(user, id).await?;
+    let fleet = NodeFleet {
+        app: app.clone(),
+        user: user.clone(),
+    };
+    let open = issues::list_open_prs(&fleet, user, &project)
+        .await
+        .map_err(issue_refusal)?;
+    Ok(open.into_iter().map(pull_request_view).collect())
 }
 
 /// How the app asked the worker to start, checked.
