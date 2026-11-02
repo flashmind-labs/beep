@@ -10,6 +10,7 @@ pub(crate) use lifecycle::finish_task;
 pub(crate) use service::Handled;
 pub use service::Projects;
 
+pub(crate) mod branches;
 mod commands;
 pub(crate) mod fleet;
 pub(crate) mod gate;

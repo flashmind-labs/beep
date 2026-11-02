@@ -7,6 +7,7 @@ mod apps;
 mod audio;
 mod bar;
 mod beep;
+mod branches;
 mod cards;
 mod center;
 mod cli_login;
@@ -221,6 +222,8 @@ fn main() {
             terminals::terminal_output,
             terminals::terminal_close,
             reviews::project_branches,
+            branches::preview_import,
+            branches::add_branch_worktree,
             reviews::reviews_list,
             reviews::review_start,
             reviews::review_get,

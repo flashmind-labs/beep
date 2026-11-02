@@ -22,6 +22,7 @@ mod agent_auto;
 mod agent_control;
 mod agent_found;
 mod agent_sessions;
+mod branch_work;
 mod credentials;
 mod crons;
 mod devices;
@@ -272,6 +273,8 @@ pub fn router() -> Router {
         .call(project_import::list_imported_projects)
         .call(project_import::list_machine_folder)
         .call(project_import::list_project_machines)
+        .call(project_import::preview_import)
+        .call(branch_work::add_branch_worktree)
         .call(agent_found::list_found_folders)
         .call(agent_found::list_project_sessions)
         .call(agent_control::resume_agent_session)

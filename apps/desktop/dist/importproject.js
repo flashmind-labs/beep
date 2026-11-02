@@ -6,10 +6,16 @@
 // new project. Esc or Cancel closes it, except while cloning, when the
 // clone goes on and the project shows up once it is in.
 import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp } from "./projects-state.js";
+import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.js";
 
 const { invoke } = window.__TAURI__.core;
 
 let root = null, sheet = null, state = START, machines = [], macId = null, back = null, onDone = null;
+/// The repository's checkouts and branches with work, once read: for the
+/// repo text `previewFor`, null from a server too old to say. `picks` is
+/// where each branch gets a worktree, by name: a machine id, `""` for
+/// where the project lands, or absent to skip.
+let preview = undefined, previewFor = "", previewError = "", picks = {}, previewTimer = null;
 /// The folder each machine starts in (workspace, else home), by id, once read.
 const bases = new Map();
 /// A folder is being read, so the folder buttons wait.
@@ -56,9 +62,39 @@ export function openImportProject(options = {}) {
   root.append(sheet);
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
+  preview = undefined;
+  previewFor = "";
+  previewError = "";
+  picks = {};
   draw();
   learnBase();
+  schedulePreview();
   if (options.choose) choose();
+}
+
+/// Reads the preview for the repository typed, once typing pauses.
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  const repo = state.repo.trim();
+  if (!looksLikeRepo(repo) || repo === previewFor) return;
+  previewTimer = setTimeout(async () => {
+    previewFor = repo;
+    preview = undefined;
+    previewError = "";
+    picks = {};
+    if (root) draw();
+    try {
+      const got = await invoke("preview_import", { repo });
+      if (previewFor !== repo) return;
+      preview = got;
+      picks = defaultPlaces(got);
+    } catch (e) {
+      if (previewFor !== repo) return;
+      preview = null;
+      previewError = String(e).replace(/^(bad request|error):\s*/i, "");
+    }
+    if (root && state.step !== "cloning" && state.step !== "done") draw();
+  }, 700);
 }
 
 export function closeImportProject() {
@@ -68,6 +104,9 @@ export function closeImportProject() {
   root = sheet = null;
   const done = state.step === "done" ? state.project : null;
   state = START;
+  clearTimeout(previewTimer);
+  preview = undefined;
+  previewFor = "";
   if (back && back.focus) back.focus();
   const then = onDone;
   onDone = null;
@@ -91,8 +130,10 @@ async function submit() {
   const was = state;
   update({ type: "submit" });
   if (state === was) return;
+  // The branches picked go with it only when they were read for this repo.
+  const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
   try {
-    const project = await invoke("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null });
+    const project = await invoke("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees });
     update({ type: "done", project });
     // The sheet may have closed while cloning: the project still lands.
     if (!root && onDone) { const then = onDone; onDone = null; then(project); }
@@ -192,7 +233,7 @@ function form() {
   input.setAttribute("autocorrect", "off");
   input.setAttribute("aria-label", "Repository");
   input.value = state.repo;
-  input.addEventListener("input", () => update({ type: "edit", repo: input.value }));
+  input.addEventListener("input", () => { update({ type: "edit", repo: input.value }); schedulePreview(); });
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
   const chips = el("div", "dchips", ...machineChips(machines).map(c => {
     const b = button(c.label, "dchip", () => { update({ type: "pick", machine: c.id }); learnBase(); });
@@ -210,8 +251,38 @@ function form() {
     state.browsing ? browser(state.browsing) : folderLine(),
     state.chosen && !state.browsing ? el("div", "ip-found", state.chosen.origin != null && el("span", "ddot"), folderNote(state.chosen, state.repo)) : null,
     el("div", "am-sub", folderHelp(state, machines)),
+    ...branchesBlock(),
     state.error ? el("div", "am-msg bad", state.error) : null,
     el("div", "am-line", go, button("Cancel", "dbtn quiet", closeImportProject)),
+  ];
+}
+
+/// The checkouts found and the branches with work, each with where its
+/// worktree goes or Skip. Nothing before a repository is typed, or from a
+/// server too old to look.
+function branchesBlock() {
+  if (!previewFor || previewFor !== state.repo.trim()) return [];
+  if (preview === undefined) return [el("div", "am-label", "Branches"), el("div", "am-wait", el("span", "dspin"), "Looking for checkouts and branches…")];
+  if (preview === null) return previewError ? [el("div", "am-label", "Branches"), el("div", "am-sub", previewError)] : [];
+  const choices = placeChoices(preview, machines);
+  const rows = preview.branches.map(b => {
+    const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", previewLine(b, preview.default_branch)));
+    if (b.name !== preview.default_branch && !b.worktree) {
+      const seg = el("span", "seg");
+      const pick = (id, label) => {
+        const x = button(label, "", () => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); });
+        x.setAttribute("aria-pressed", String(id == null ? !(b.name in picks) : picks[b.name] === id));
+        return x;
+      };
+      seg.append(...choices.map(c => pick(c.id, c.name)), pick(null, "Skip"));
+      line.append(el("span", "lbl", "Worktree"), seg);
+    }
+    return line;
+  });
+  return [
+    el("div", "am-label", "Branches"),
+    el("div", "am-sub", [checkoutNote(preview), preview.note].filter(Boolean).join(" ")),
+    rows.length ? el("div", "ip-branches", ...rows) : el("div", "am-sub", "No branches with work."),
   ];
 }
 
@@ -274,6 +345,14 @@ function injectStyle() {
     + " .ip-browse .dirs .none { padding: 5px 12px; font-size: 12.5px; color: var(--muted) }"
     + " .ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }"
     + " .ip-browse .foot .note { flex: 1; min-width: 0 }"
-    + " .ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px }";
+    + " .ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px }"
+    + " .ip-branches { display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow: auto }"
+    + " .ip-branch { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--border) }"
+    + " .ip-branch:last-child { border-bottom: 0 }"
+    + " .ip-branch code { font-family: var(--mono) } .ip-branch .m { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
+    + " .ip-branch .lbl { color: var(--muted); font-size: 11.5px }"
+    + " .ip-branch .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden }"
+    + " .ip-branch .seg button { all: unset; cursor: pointer; padding: 3px 9px; font-size: 12px } .ip-branch .seg button + button { border-left: 1px solid var(--border) }"
+    + " .ip-branch .seg button[aria-pressed=true] { background: rgba(52, 211, 153, .14); color: var(--fg) }";
   document.head.append(style);
 }

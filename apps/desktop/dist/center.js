@@ -13,7 +13,8 @@ import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
-import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart } from "./openitems.js";
+import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.js";
+import { outsideThreads, outsideTitle } from "./branchwork.js";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted } from "./project.js";
 import { registerInstructions } from "./instructions.js";
 import { makeTerminals, terminalTile } from "./terminals.js";
@@ -1329,6 +1330,7 @@ const revs = makeReviews({
   redraw: () => redrawProjects(),
   openUrl: url => agentActs.openUrl(url),
   openTile: key => openTile(key),
+  machines: () => state.home?.machines || [],
 });
 
 function redrawProjects() {
@@ -1628,6 +1630,27 @@ function foundSection() {
   return el;
 }
 
+let askedGit = false;
+/// The open PRs and issues in repos without a project, each repo with
+/// Import project, under the Projects overview.
+function elsewhereSection(rows) {
+  if (!state.git) {
+    if (!askedGit) { askedGit = true; refreshGit().then(redrawProjects); }
+    return null;
+  }
+  const repos = outsideThreads(state.git, rows).slice(0, 8);
+  if (!repos.length) return null;
+  const body = repos.flatMap((r, i) => {
+    const imp = rowButton("Import project", i ? "small" : "pri small", () => importSheet(false, r.repo));
+    const head = line(h("span", "cc-pdot"), r.repo, r.host, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
+    head.classList.add("cc-gr");
+    return [head, ...r.items.slice(0, ITEMS_SHOWN).map(item => openItemRow(item, null))];
+  });
+  const el = section("sec-elsewhere", outsideTitle(repos), "", null, h("div", "cc-panel cc-open", ...body));
+  el.querySelector("h4").append(h("small", "", "your open PRs and issues in repos without a project"));
+  return el;
+}
+
 /// "github.com" from a project's web page.
 function hostOf(url) {
   try { return new URL(url).host; } catch { return ""; }
@@ -1652,6 +1675,8 @@ function drawProjects(el) {
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
     const found = one ? null : foundSection();
     if (found) view.append(found);
+    const elsewhere = !state.picked && state.overview ? elsewhereSection(rows) : null;
+    if (elsewhere) view.append(elsewhere);
   }
   // Only the view is drawn again: the composer keeps what is typed and its
   // focus, and the view keeps its scroll.

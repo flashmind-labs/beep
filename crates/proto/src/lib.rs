@@ -720,10 +720,13 @@ requests! {
     /// checkout there is imported in place, an empty or missing folder gets
     /// the clone, and a folder with other files gets it in
     /// `<folder>/<repo>`. Apps from before it send no `folder`.
+    /// `worktrees` are branches to give a worktree once it is in, as
+    /// `AddBranchWorktree` does; one that fails is logged and the import
+    /// still stands. Apps from before it send none.
     /// `BadRequest` saying why: the repo is malformed or on an unknown host,
     /// the folder is not one Beep takes, it is not found or the token has
     /// no access, the machine is offline, or the clone failed.
-    166 ImportProject { repo: String, machine_id: Option<String>, #[serde(default)] folder: Option<String> } => Call<ImportedProject>
+    166 ImportProject { repo: String, machine_id: Option<String>, #[serde(default)] folder: Option<String>, #[serde(default)] worktrees: Vec<BranchPlace> } => Call<ImportedProject>
     /// The projects the caller imported, by name, then machine; those on
     /// machines no longer linked are left out. `cloned` is always false.
     167 ListImportedProjects {} => Call<Vec<ImportedProject>>
@@ -957,6 +960,23 @@ requests! {
     /// `NotFound` when the caller has no such review; `BadRequest` saying
     /// why when the machine is offline or git fails.
     240 CheckBranchReview { id: Uuid } => Call<ReviewHead>
+    /// What importing `repo` (`org/repo` or its URL) would find, before
+    /// `ImportProject`: the checkouts of it on the caller's online machines,
+    /// found by any remote (`origin` or a fork's), and its branches with
+    /// work in the first one: the heads of the caller's open pull requests,
+    /// branches ahead of the default branch and those with a worktree, the
+    /// default branch last. Read on each call. Without a checkout, only the
+    /// pull requests, read with `gh` on an online machine. `BadRequest`
+    /// saying why when `repo` is malformed or no machine is online.
+    245 PreviewImport { repo: String } => Call<ImportPreview>
+    /// Gives `branch` of `project` (`org/repo`) a worktree on the machine
+    /// `machine_id`, at `.worktrees/<branch>` in its checkout there (a `/`
+    /// in the name becomes `-`), fetching the branch from a remote that has
+    /// it when it is not local. Gives the branch as it is after. `NotFound`
+    /// when the caller has no such project; `BadRequest` saying why when
+    /// the machine is offline or has no checkout of it, the branch already
+    /// has a worktree or is not found, or git fails.
+    246 AddBranchWorktree { project: String, branch: String, machine_id: String } => Call<ProjectBranch>
 }
 
 /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
@@ -1105,6 +1125,60 @@ pub struct ReviewHead {
     pub head: Option<String>,
     /// It moved since the review, so its findings may be out of date.
     pub stale: bool,
+}
+
+/// A branch to give a worktree, and where.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BranchPlace {
+    pub branch: String,
+    /// The machine; `None` for the one the project is imported on.
+    pub machine_id: Option<String>,
+}
+
+/// What `PreviewImport` found for a repository.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportPreview {
+    /// `org/repo`.
+    pub project: String,
+    /// The checkouts found, the one the branches were read in first.
+    pub checkouts: Vec<ImportCheckout>,
+    /// Empty when no checkout was read.
+    pub default_branch: String,
+    pub branches: Vec<WorkBranch>,
+    /// What could not be read, such as the pull requests; empty when all
+    /// was.
+    pub note: String,
+}
+
+/// A checkout of a repository on one of the caller's machines.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportCheckout {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub folder: String,
+    /// The remote that is the repository, such as `origin` or `upstream`.
+    pub remote: String,
+}
+
+/// A branch with work, as `PreviewImport` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkBranch {
+    pub name: String,
+    /// The caller's open pull request from it.
+    pub pr: Option<u64>,
+    pub pr_title: String,
+    /// Commits ahead of the default branch; 0 when not read.
+    pub ahead: u32,
+    /// Its worktree's folder, on the first checkout's machine.
+    pub worktree: Option<String>,
+    /// It is in the checkout read, locally or on `origin`.
+    pub in_checkout: bool,
+    /// Its last commit; `None` when not read.
+    pub committed_at: Option<SystemTime>,
 }
 
 /// A review of a branch against its base, as it stands.

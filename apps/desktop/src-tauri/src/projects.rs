@@ -9,8 +9,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    ApiError, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent, ImportProject,
-    ImportedProject, ListFoundFolders, ListMachineFolder, ListPendingApprovals,
+    ApiError, BranchPlace, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent,
+    ImportProject, ImportedProject, ListFoundFolders, ListMachineFolder, ListPendingApprovals,
     ListProjectMachines, ListProjectSessions, ListProjectTasks, ListProjectWorkers, ListProjects,
     ListProjectsOnTop, MachineFolder, PendingApproval, PinProjectToTop, ProjectAgent,
     ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
@@ -35,6 +35,14 @@ type Service<'a> = State<'a, Arc<Beep>>;
 const UNKNOWN_OP: &str = "unknown op";
 /// The server stops a clone after 30 minutes; this leaves it time to say so.
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(31 * 60);
+
+/// A branch the import sheet gives a worktree, on `machine_id` or, without
+/// one, the machine the project lands on.
+#[derive(Debug, Deserialize)]
+pub struct WorktreeArg {
+    branch: String,
+    machine_id: Option<String>,
+}
 
 /// One imported project as the window shows it.
 #[derive(Debug, Serialize)]
@@ -182,21 +190,32 @@ pub(crate) fn unknown_op(e: &DesktopError) -> bool {
 }
 
 /// Clones `repo` onto `machine_id`, or the machine the server picks, into
-/// `folder` when the user chose one, else the machine's projects folder.
+/// `folder` when the user chose one, else the machine's projects folder,
+/// then gives each of `worktrees` its worktree.
 #[tauri::command]
 pub async fn import_project(
     beep: Service<'_>,
     repo: String,
     machine_id: Option<String>,
     folder: Option<String>,
+    worktrees: Option<Vec<WorktreeArg>>,
 ) -> Result<ProjectRow> {
     let machine_id = machine_id.filter(|id| !id.is_empty());
     let folder = folder.filter(|folder| !folder.trim().is_empty());
+    let worktrees = worktrees
+        .unwrap_or_default()
+        .into_iter()
+        .map(|w| BranchPlace {
+            branch: w.branch,
+            machine_id: w.machine_id.filter(|id| !id.is_empty()),
+        })
+        .collect();
     beep.call_within(
         ImportProject {
             repo,
             machine_id,
             folder,
+            worktrees,
         },
         IMPORT_TIMEOUT,
     )

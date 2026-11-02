@@ -302,7 +302,13 @@ impl Reader {
         F: Future<Output = ()> + Send + 'static,
     {
         self.stop();
-        self.0 = Some(tauri::async_runtime::spawn(task).inner().abort_handle());
+        // Tests spawn on their own single-threaded runtime, so a reader
+        // cannot run on another thread while it is being replaced.
+        #[cfg(not(test))]
+        let reader = tauri::async_runtime::spawn(task).inner().abort_handle();
+        #[cfg(test)]
+        let reader = tokio::spawn(task).abort_handle();
+        self.0 = Some(reader);
     }
 
     fn stop(&mut self) {
