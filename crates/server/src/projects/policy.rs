@@ -3,7 +3,8 @@
 //! verdict either answers it or hands it to the user.
 //!
 //! Not every agent asks. `flsh` runs its tools without a permission request,
-//! so [`judge`] never sees its actions: see [`agent_asks`].
+//! and so does `opencode` unless its own config sets a tool to `ask`, so
+//! [`judge`] never sees their actions: see [`agent_asks`].
 
 use super::model::{MachinePath, RepoName, Visibility};
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
 /// One that does not is not held to this policy, so a worker must not rely on
 /// the policy alone to keep it inside its worktree.
 pub(crate) fn agent_asks(agent: &str) -> bool {
-    agent != "flsh"
+    !matches!(agent, "flsh" | "opencode")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1018,11 +1019,12 @@ mod tests {
     }
 
     #[test]
-    fn only_flsh_skips_the_questions() {
+    fn only_flsh_and_opencode_skip_the_questions() {
         for agent in ["claude", "codex", "gemini", "pi"] {
             assert!(agent_asks(agent), "{agent}");
         }
         assert!(!agent_asks("flsh"));
+        assert!(!agent_asks("opencode"));
     }
 
     #[test]

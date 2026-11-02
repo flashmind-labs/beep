@@ -26,7 +26,7 @@ use tokio::time::timeout;
 const MAX_ENTRIES: u32 = 200;
 /// The agent Auto starts when the request names none, in this order of
 /// preference among those the machine offers.
-const PREFERRED: [&str; 5] = ["claude", "codex", "gemini", "pi", "flsh"];
+const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
 /// An online machine of the caller's that offers a coding agent.
 pub(super) struct Live {
