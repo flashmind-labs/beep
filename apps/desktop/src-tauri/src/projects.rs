@@ -176,7 +176,7 @@ fn openable(path: &Path) -> bool {
 }
 
 /// The server did not know the request.
-fn unknown_op(e: &DesktopError) -> bool {
+pub(crate) fn unknown_op(e: &DesktopError) -> bool {
     matches!(e, DesktopError::Api(ApiError::BadRequest { message }) if message.starts_with(UNKNOWN_OP))
 }
 

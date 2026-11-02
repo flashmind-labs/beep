@@ -197,6 +197,10 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-mt .num.low { color: var(--coral) }
 .cc-mt .caps { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 30px }
 .cc-mt .off { opacity: .5 }
+.cc-mt .sync { flex-direction: column; align-items: stretch; justify-content: center; gap: 3px }
+.cc-mt .sync .bar { display: block; height: 3px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden }
+.cc-mt .sync .bar i { display: block; height: 100%; background: rgba(111,211,168,.6) }
+.cc-mt .sync small { font-size: 10.5px; white-space: nowrap }
 .cc-mt .mac-state { grid-column: span 4 }
 .cc-mt .mac-state.bad, .cc-si .mac-state.bad { color: var(--coral) }
 .cc-si .mac-state { max-width: 45%; overflow: hidden; text-overflow: ellipsis }

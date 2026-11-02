@@ -4,6 +4,7 @@
 // the board shows; this file holds the tiles' rows, as pure functions the
 // tests check, and draws the grid.
 import { prLabel } from "./project.js";
+import { machineSync } from "./home.js";
 
 /// Rows a tile shows before its full list.
 export const TILE_ROWS = 4;
@@ -41,16 +42,22 @@ export function prTile(tasks) {
 }
 
 /// The Machines tile: every machine with where the project is there.
-/// `rows` is `whereRows`.
-export function machineTile(rows) {
+/// `rows` is `whereRows`; `sync`, the project's `project_sync` rows, marks
+/// a machine still fetching it.
+export function machineTile(rows, sync) {
   const list = rows || [];
   const here = list.filter(r => r.kind === "here").length;
+  const note = r => {
+    const s = machineSync(r.id, sync);
+    if (s) return s.pct == null ? "scanning" : `syncing ${s.pct}%`;
+    return r.kind === "here" ? folderName(r.folder) : r.kind === "checking" ? "checking" : r.kind === "offline" ? "offline" : "not here";
+  };
   return {
     count: list.length ? `${here}/${list.length}` : "",
     rows: list.map(r => ({
       text: r.name,
       dot: r.kind === "here" ? "" : "off",
-      note: r.kind === "here" ? folderName(r.folder) : r.kind === "checking" ? "checking" : r.kind === "offline" ? "offline" : "not here",
+      note: note(r),
       title: r.folder ? `${r.name}: ${r.folder}` : r.text || r.name,
     })),
     empty: "No machine has it yet",

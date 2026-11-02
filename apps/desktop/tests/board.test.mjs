@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { taskTile, prTile, machineTile, agentTile } from "../dist/board.js";
 import { importedWhen, projectLine } from "../dist/projects-state.js";
+import { machineSync } from "../dist/home.js";
 
 test("the tasks tile lists open tasks, running first, and chips what waits on you", () => {
   const tile = taskTile([
@@ -42,6 +43,19 @@ test("the machines tile counts where the project is checked out", () => {
   assert.deepEqual(tile.rows.map(r => r.note), ["widget", "offline", "not here"]);
   assert.deepEqual(tile.rows.map(r => r.dot), ["", "off", "off"]);
   assert.equal(machineTile([]).count, "");
+});
+
+test("a machine still fetching the project says how far it is", () => {
+  const where = [{ kind: "here", id: "m1", name: "build-box", folder: "/srv/project/widget" }, { kind: "here", id: "m2", name: "mac-box", folder: "/srv/w" }];
+  const sync = [
+    { project: "acme/widget", machine_id: "m1", status: "syncing", files: 142, pending: 468 },
+    { project: "acme/widget", machine_id: "m2", status: "in_sync", files: 610, pending: 0 },
+  ];
+  assert.deepEqual(machineTile(where, sync).rows.map(r => r.note), ["syncing 23%", "w"]);
+  assert.deepEqual(machineSync("m1", sync), { project: "acme/widget", pct: 23, text: "Syncing, 23%", files: "142 of 610 files" });
+  assert.equal(machineSync("m2", sync), null);
+  assert.equal(machineSync("m1", [{ project: "p", machine_id: "m1", status: "scanning", files: 0, pending: 0 }]).text, "Scanning");
+  assert.equal(machineSync("m1", null), null);
 });
 
 test("the agents tile lists running agents, then past sessions", () => {
