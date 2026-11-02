@@ -11,6 +11,7 @@ use crate::{
     AsyncMutex,
     files::Folders,
     link::{Protocol, Session},
+    syncthing::{Managed, Syncthing},
     transfer::{
         grants::Access,
         place::{Journal, Room, open_target},
@@ -19,7 +20,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    sync::{PROTOCOL, Project, ProjectStatus, Refused, Reply, Request, Skipped},
+    sync::{PROTOCOL, Project, ProjectStatus, Refused, Reply, Request, Skipped, State},
 };
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_blobs::{Hash, store::fs::FsStore};
@@ -30,12 +31,15 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, PoisonError, Weak,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
-use tokio::{task::spawn_blocking, time::timeout};
+use tokio::{
+    task::spawn_blocking,
+    time::{MissedTickBehavior, interval, timeout},
+};
 use tokio_util::task::AbortOnDropHandle;
 
 mod disk;
@@ -53,6 +57,8 @@ use watch::{Key, Watcher};
 
 /// How long a project that stops may take to save its state.
 const STOP_LIMIT: Duration = Duration::from_secs(10);
+/// How often the synced folders are checked against Syncthing's.
+const SYNCTHING_CHECK: Duration = Duration::from_secs(60);
 const CONFIG: &str = "projects.json";
 
 /// What sync shares with transfers.
@@ -72,9 +78,37 @@ struct Config {
 }
 
 struct Running {
-    folder: String,
+    project: Project,
     shared: Arc<Shared>,
     task: AbortOnDropHandle<()>,
+}
+
+/// A project the server set that Syncthing already keeps in step: kept on
+/// the list, not synced, until Syncthing lets go of its folder.
+struct Held {
+    project: Project,
+    managed: Managed,
+}
+
+impl Held {
+    fn status(&self) -> ProjectStatus {
+        ProjectStatus {
+            name: self.project.name.clone(),
+            folder: self.project.folder.clone(),
+            state: State::Failed,
+            error: Some(self.managed.reason()),
+            ..ProjectStatus::default()
+        }
+    }
+}
+
+/// Where a list of projects comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// Saved on disk: the server set each of them before.
+    Saved,
+    /// The server, which may be turning one on now.
+    Server,
 }
 
 struct Inner {
@@ -84,6 +118,10 @@ struct Inner {
     dir: PathBuf,
     watcher: Watcher,
     projects: Mutex<BTreeMap<String, Running>>,
+    held: Mutex<BTreeMap<String, Held>>,
+    syncthing: Syncthing,
+    /// Checks the folders against Syncthing's every so often.
+    checking: Mutex<Option<AbortOnDropHandle<()>>>,
     /// One configure at a time.
     configuring: AsyncMutex<()>,
     /// The pulls other nodes have open here.
@@ -123,6 +161,14 @@ impl Inner {
     fn lock(&self) -> MutexGuard<'_, BTreeMap<String, Running>> {
         self.projects.lock().unwrap_or_else(PoisonError::into_inner)
     }
+
+    fn held(&self) -> MutexGuard<'_, BTreeMap<String, Held>> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn checking(&self) -> MutexGuard<'_, Option<AbortOnDropHandle<()>>> {
+        self.checking.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// Which state a project in `folder` keeps; another folder starts over.
@@ -137,8 +183,14 @@ fn key_of(name: &str, folder: &Path) -> Key {
 }
 
 impl Syncs {
-    /// Starts the projects saved in `dir`, as the server last set them.
-    pub(crate) async fn start(parts: Parts, folders: Folders, dir: PathBuf) -> Result<Self> {
+    /// Starts the projects saved in `dir`, as the server last set them,
+    /// holding those `syncthing` keeps in step.
+    pub(crate) async fn start(
+        parts: Parts,
+        folders: Folders,
+        dir: PathBuf,
+        syncthing: Syncthing,
+    ) -> Result<Self> {
         fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
         let config = match fs::read(dir.join(CONFIG)) {
             Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
@@ -157,13 +209,18 @@ impl Syncs {
                 dir,
                 watcher,
                 projects: Mutex::default(),
+                held: Mutex::default(),
+                syncthing,
+                checking: Mutex::default(),
                 configuring: AsyncMutex::new(()),
                 serving: Arc::default(),
             }),
         };
-        for refused in syncs.configure(config.projects).await {
+        for refused in syncs.configure_from(config.projects, Source::Saved).await {
             log::warn!("not syncing {}: {}", refused.project, refused.message);
         }
+        let task = tokio::spawn(check_syncthing(Arc::downgrade(&syncs.inner)));
+        *syncs.inner.checking() = Some(AbortOnDropHandle::new(task));
         Ok(syncs)
     }
 
@@ -178,8 +235,14 @@ impl Syncs {
     }
 
     /// Syncs exactly `projects`, and says which it refused. A project left
-    /// out stops; its files stay and its state is forgotten.
+    /// out stops; its files stay and its state is forgotten. A folder
+    /// Syncthing keeps in step is refused when it is new here, and held
+    /// when the server set it before.
     pub async fn configure(&self, projects: Vec<Project>) -> Vec<Refused> {
+        self.configure_from(projects, Source::Server).await
+    }
+
+    async fn configure_from(&self, projects: Vec<Project>, from: Source) -> Vec<Refused> {
         let _one = self.inner.configuring.lock().await;
         let me = self.inner.parts.endpoint.id();
         let mut refused = Vec::new();
@@ -196,15 +259,21 @@ impl Syncs {
             for name in gone {
                 stopping.extend(running.remove(&name));
             }
+            self.inner
+                .held()
+                .retain(|name, _| names.contains(&name.as_str()));
         }
         for mut project in projects {
             project.peers.retain(|peer| peer.id != me);
             let same = {
-                let running = self.inner.lock();
+                let mut running = self.inner.lock();
                 running
-                    .get(&project.name)
-                    .filter(|running| running.folder == project.folder)
-                    .map(|running| running.shared.clone())
+                    .get_mut(&project.name)
+                    .filter(|running| running.project.folder == project.folder)
+                    .map(|running| {
+                        running.project.peers = project.peers.clone();
+                        running.shared.clone()
+                    })
             };
             if let Some(shared) = same {
                 shared.set_peers(project.peers.clone());
@@ -212,6 +281,35 @@ impl Syncs {
                 continue;
             }
             stopping.extend(self.inner.lock().remove(&project.name));
+            let was_held = self
+                .inner
+                .held()
+                .remove(&project.name)
+                .is_some_and(|held| held.project.folder == project.folder);
+            if let Some(managed) = self
+                .inner
+                .syncthing
+                .managed(Path::new(&project.folder))
+                .await
+            {
+                if was_held || from == Source::Saved {
+                    log::info!("not syncing {}: {}", project.name, managed.reason());
+                    self.inner.held().insert(
+                        project.name.clone(),
+                        Held {
+                            project: project.clone(),
+                            managed,
+                        },
+                    );
+                    kept.push(project);
+                } else {
+                    refused.push(Refused {
+                        project: project.name.clone(),
+                        message: managed.reason(),
+                    });
+                }
+                continue;
+            }
             match self.run(&project).await {
                 Ok(running) => {
                     self.inner.lock().insert(project.name.clone(), running);
@@ -262,7 +360,7 @@ impl Syncs {
             self.inner.watcher.clone(),
         ));
         Ok(Running {
-            folder: project.folder.clone(),
+            project: project.clone(),
             shared,
             task: AbortOnDropHandle::new(task),
         })
@@ -309,8 +407,62 @@ impl Syncs {
         }
     }
 
+    /// Checks the synced folders against Syncthing's now: a project whose
+    /// folder Syncthing keeps in step stops, as one turned off does, which
+    /// deletes nothing anywhere, and is held; a held one whose folder
+    /// Syncthing let go of starts again, from a fresh scan.
+    pub async fn check_syncthing(&self) {
+        let _one = self.inner.configuring.lock().await;
+        let running: Vec<Project> = self
+            .inner
+            .lock()
+            .values()
+            .map(|running| running.project.clone())
+            .collect();
+        for project in running {
+            let Some(managed) = self.inner.syncthing.check(Path::new(&project.folder)).await else {
+                continue;
+            };
+            log::info!("stopped syncing {}: {}", project.name, managed.reason());
+            let stopped = self.inner.lock().remove(&project.name);
+            self.inner
+                .held()
+                .insert(project.name.clone(), Held { project, managed });
+            if let Some(stopped) = stopped {
+                self.stop(stopped).await;
+            }
+        }
+        let held: Vec<Project> = self
+            .inner
+            .held()
+            .values()
+            .map(|held| held.project.clone())
+            .collect();
+        for project in held {
+            if self
+                .inner
+                .syncthing
+                .check(Path::new(&project.folder))
+                .await
+                .is_some()
+            {
+                continue;
+            }
+            match self.run(&project).await {
+                Ok(running) => {
+                    log::info!("syncing {} again: Syncthing let go of it", project.name);
+                    self.inner.held().remove(&project.name);
+                    self.inner.lock().insert(project.name.clone(), running);
+                }
+                Err(e) => log::warn!("{} does not sync yet: {e:#}", project.name),
+            }
+        }
+    }
+
     /// Stops every project, saving its state.
     pub(crate) async fn shutdown(&self) {
+        let checking = self.inner.checking().take();
+        drop(checking);
         let _one = self.inner.configuring.lock().await;
         let running = std::mem::take(&mut *self.inner.lock());
         for running in running.into_values() {
@@ -324,11 +476,14 @@ impl Syncs {
 
     /// How each project stands.
     pub fn status(&self) -> Vec<ProjectStatus> {
-        self.inner
+        let mut out: Vec<ProjectStatus> = self
+            .inner
             .lock()
             .values()
             .map(|running| running.shared.status())
-            .collect()
+            .collect();
+        out.extend(self.inner.held().values().map(Held::status));
+        out
     }
 
     /// What `project`'s sync leaves out, at most `limit` paths.
@@ -376,6 +531,22 @@ impl Syncs {
 
     fn is_peer(&self, peer: &EndpointId) -> bool {
         self.inner.may_connect(peer)
+    }
+}
+
+/// Checks the folders against Syncthing's every `SYNCTHING_CHECK` while
+/// the syncs live.
+async fn check_syncthing(inner: Weak<Inner>) {
+    let mut every = interval(SYNCTHING_CHECK);
+    every.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // Starting checked them already.
+    every.tick().await;
+    loop {
+        every.tick().await;
+        let Some(inner) = inner.upgrade() else {
+            return;
+        };
+        Syncs { inner }.check_syncthing().await;
     }
 }
 
