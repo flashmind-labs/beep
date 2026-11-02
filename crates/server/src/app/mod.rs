@@ -118,6 +118,9 @@ pub struct App {
     pub watchers: crate::watchers::Hub,
     /// Seals and opens users' credentials.
     pub credential_key: CredentialKey,
+    /// Each user's open PRs and issues on their git hosts, kept a few
+    /// minutes.
+    pub git_items: crate::git_items::GitBoard,
 }
 
 /// Optional tools and integrations that need server credentials, and the
@@ -361,6 +364,7 @@ impl App {
             instance: instance.map(Instance::new),
             watchers: crate::watchers::Hub::default(),
             credential_key: credential_key.unwrap_or_else(CredentialKey::random),
+            git_items: crate::git_items::GitBoard::new(),
         })
     }
 

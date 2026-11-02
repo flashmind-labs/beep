@@ -100,7 +100,8 @@ export function needsLine(n) {
 }
 
 /// Home's rows of sections under Machines, each one or two wide, imported
-/// projects last. A section
+/// projects, then open PRs and issues by project (`home.git`, shown once a
+/// git host is saved), last. A section
 /// with nothing in it is left out, and a row left empty goes too.
 export function homeRows(home) {
   const has = list => Array.isArray(list) && list.length > 0;
@@ -108,6 +109,7 @@ export function homeRows(home) {
     [has(home.running) && "running", has(home.needs_you) && "needs"],
     [has(home.updates) && "updates", has(home.coming_up) && "coming"],
     [has(home.projects) && "projects"],
+    [has(home.git?.hosts) && "git"],
   ];
   return pairs.map(p => p.filter(Boolean)).filter(p => p.length);
 }
@@ -116,12 +118,13 @@ export function homeRows(home) {
 export const WIDE_HOME_PX = 1280;
 
 /// Home's two columns on a wide window: what to act on at the left (Needs
-/// you, Running now, Updates), Machines, Projects and Coming up at the right. Machines
+/// you, Running now, Updates, open PRs and issues), Machines, Projects and
+/// Coming up at the right. Machines
 /// counts whenever the server lists them, empty or not, as it offers Add a
 /// machine. Null when a side would be empty, so Home keeps one column.
 export function homeColumns(home) {
   const has = list => Array.isArray(list) && list.length > 0;
-  const left = [has(home.needs_you) && "needs", has(home.running) && "running", has(home.updates) && "updates"].filter(Boolean);
+  const left = [has(home.needs_you) && "needs", has(home.running) && "running", has(home.updates) && "updates", has(home.git?.hosts) && "git"].filter(Boolean);
   const right = [Array.isArray(home.machines) && "machines", has(home.projects) && "projects", has(home.coming_up) && "coming"].filter(Boolean);
   return left.length && right.length ? { left, right } : null;
 }
