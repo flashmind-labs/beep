@@ -7,12 +7,14 @@
 
 mod clone;
 mod folder;
+mod found;
 mod place;
 mod repo;
 mod service;
 mod tool;
 
-pub(crate) use service::{Import, browse, import, imported};
+pub(crate) use found::MachineFound;
+pub(crate) use service::{Import, browse, found_projects, import, imported};
 pub(crate) use tool::ImportProjectTool;
 
 use thiserror::Error;

@@ -4,6 +4,7 @@ use super::{
     ImportError,
     clone::{self, Failure, Job, Outcome},
     folder::{self, FolderPath, Seen},
+    found::{self, MachineFound},
     place::{self, Candidate, Folders},
     repo::{Host, RepoRef},
 };
@@ -11,7 +12,7 @@ use crate::{
     app::App,
     credentials::{ForgejoUrl, Opened, Slot},
     nodes::{Online, SHELL},
-    protocol::{ImportedProject, MachineFolder},
+    protocol::{FoundProject, ImportedProject, MachineFolder},
     store::{ImportRow, NewImport, NodeRow},
     user::User,
 };
@@ -259,6 +260,25 @@ async fn run_clone(
             had_token: token.is_some(),
         })),
     }
+}
+
+/// What the machines found, one row per repository not imported yet.
+pub(crate) async fn found_projects(
+    app: &App,
+    user: &User,
+    found: Vec<MachineFound>,
+) -> anyhow::Result<Vec<FoundProject>> {
+    let servers: Vec<ForgejoUrl> = user
+        .git_credentials(&app.credential_key)
+        .await?
+        .into_iter()
+        .filter_map(|opened| match opened.slot {
+            Slot::Forgejo(url) => Some(url),
+            _ => None,
+        })
+        .collect();
+    let imported = user.imports().await?;
+    Ok(found::group(found, &imported, &servers))
 }
 
 /// The user's imported projects on machines still theirs.

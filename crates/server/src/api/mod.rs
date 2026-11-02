@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 mod agent_auto;
 mod agent_control;
+mod agent_found;
 mod agent_sessions;
 mod credentials;
 mod crons;
@@ -231,6 +232,9 @@ pub fn router() -> Router {
         .call(project_import::import_project)
         .call(project_import::list_imported_projects)
         .call(project_import::list_machine_folder)
+        .call(agent_found::list_found_folders)
+        .call(agent_found::list_project_sessions)
+        .call(agent_control::resume_agent_session)
 }
 
 type Reply<T> = Result<T, ApiError>;
