@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "../dist/project.js";
+import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "../src/project.ts";
 
 const MIN = 60000;
 

@@ -3,7 +3,7 @@
 // Import, then "Choose a folder…" and "Clone a repository…", which open the
 // Import a project sheet. Import links the folder where it is, on every
 // machine that has it, so its sessions come along. Esc closes it.
-import { agentLabel, foundSessions, importPlan, lookingText, present } from "./projects-state.js";
+import { agentLabel, foundSessions, importPlan, lookingText, present } from "./projects-state.ts";
 
 const { invoke } = window.__TAURI__.core;
 

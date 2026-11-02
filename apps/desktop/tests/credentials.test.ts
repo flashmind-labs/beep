@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, ghChoices, githubAccounts, hostOf, sameServer, teaHas, teaOffers, toolLine,
-} from "../dist/credentials.js";
+} from "../src/credentials.ts";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = () => "today";

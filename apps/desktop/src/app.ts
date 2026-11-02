@@ -1058,7 +1058,7 @@ function drawHistory(id, turns) {
   if (last) suggestions(last.turn, last.replies);
   scrollDown();
   loadAskFiles(id, body());
-  loadAgents(id, body());
+  loadAgentAccounts();
   loadSources(id, body());
   keepWaitingQuestions(id);
 }
@@ -1111,17 +1111,8 @@ function sourceRow(turn, sources) {
   anchor ? anchor.after(row) : turn.append(row);
 }
 
-/// Names the agent that answered each turn of session `id`, from the
-/// server's list. General and turns without agents show nothing.
-async function loadAgents(id, b) {
-  const agents = await invoke("session_agents", { id }).catch(() => []);
-  if (S.session !== id || body() !== b) return;
-  for (const { message, agent } of agents) {
-    const turn = agent && b.querySelector(`.turn[data-at="${message}"]`);
-    if (turn) { turn.agent = agent; replyActs(turn); }
-  }
-}
-/// The same for a turn that just finished live: it is the newest one listed.
+/// Names the agent that answered a turn that just finished live: it is the
+/// newest one the server lists.
 async function loadTurnAgent(id, turn) {
   const agents = await invoke("session_agents", { id }).catch(() => []);
   const agent = agents.at(-1)?.agent;
@@ -1714,10 +1705,6 @@ function viewerKeys(e, cmd) {
     : cmd && key === "s" ? "save" : cmd && key === "c" ? "copy" : null;
   if (act) { e.preventDefault(); viewerAct(act); }
   else if (cmd && key === "q") invoke("quit");
-}
-
-function hostOf(url) {
-  try { return new URL(url).hostname; } catch { return "Picture"; }
 }
 
 /// Saves a picture Beep sent to Downloads and says where it went.
@@ -2430,7 +2417,7 @@ const SET_SECTIONS = [["general", "General"], ["models", "Models"], ["apps", "Ap
 /// `github` is the GitHub accounts, undefined when the server could not
 /// list them; `ghAdd` whether "Add another GitHub account" is open.
 const CRED = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false };
-const credModule = () => import("./credentials.js").then(m => (CRED.mod = m));
+const credModule = () => import("./credentials.ts").then(m => (CRED.mod = m));
 
 function setCredsHtml() {
   if (CRED.list === undefined || !CRED.mod) return setSkeleton(2);
@@ -2630,7 +2617,7 @@ async function setModelChange(command, args) {
 /// `claudeFlow` whether `claude setup-token` waits on the browser, and
 /// `codex` the Codex sign-ins under way by machine id.
 const ACC = { mod: null, data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
-const agModule = () => import("./agentaccounts.js").then(m => (ACC.mod = m));
+const agModule = () => import("./agentaccounts.ts").then(m => (ACC.mod = m));
 
 function setAgentsHtml() {
   if (ACC.data === undefined || !ACC.mod) return setSkeleton(2);
@@ -2642,7 +2629,7 @@ function redrawAgents() {
   if (setShown() && !setRoot().querySelector("#agSecret")?.value) fillSection("agents", setAgentsHtml());
 }
 
-async function loadAgents() {
+async function loadAgentAccounts() {
   try {
     const [, data] = await Promise.all([agModule(), invoke("agent_accounts")]);
     ACC.data = data ?? false;
@@ -2676,7 +2663,7 @@ function pollCodex() {
         done = true;
       }
     }
-    if (done) await loadAgents();
+    if (done) await loadAgentAccounts();
     else redrawAgents();
   }, 2000);
 }
@@ -2712,7 +2699,7 @@ function bindAgents(el) {
     // The typed token is gone from the page either way.
     const input = setRoot().querySelector("#agSecret");
     if (input) input.value = "";
-    await loadAgents();
+    await loadAgentAccounts();
   };
   $in("#agSave")?.addEventListener("click", save);
   $in("#agSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
@@ -2727,7 +2714,7 @@ function bindAgents(el) {
       else ACC.error = String(e);
     }
     ACC.busy = "";
-    await loadAgents();
+    await loadAgentAccounts();
   }));
   // Runs `claude setup-token` here; the token goes to the server, never the page.
   el.querySelectorAll("[data-ag-claude-sign]").forEach(b => b.addEventListener("click", async () => {
@@ -2742,7 +2729,7 @@ function bindAgents(el) {
       ACC.claudeError = String(e);
     }
     ACC.claudeFlow = false;
-    await loadAgents();
+    await loadAgentAccounts();
   }));
   el.querySelectorAll("[data-ag-claude-cancel]").forEach(b => b.addEventListener("click", () => {
     b.disabled = true;
@@ -3041,7 +3028,7 @@ async function renderSettings(confirm = false, root = undefined) {
       if (CRED.list) fillSection("creds", setCredsHtml());
     });
   loadCreds();
-  loadAgents();
+  loadAgentAccounts();
 }
 
 // ---------- Apps ----------
@@ -4766,7 +4753,7 @@ const AG = {
   // and the module that reads tool entries, once loaded.
   opened: new Set(), log: null,
 };
-const agentLog = () => import("./agentlog.js").then(m => (AG.log = m));
+const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
 const AGENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const AGENT_MAX_IMAGES = 5;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -77,7 +77,7 @@ test("a refusal goes back to the form with the server's sentence", () => {
 });
 
 test("Home lists imported projects last, or beside Machines when wide", async () => {
-  const { homeRows, homeColumns } = await import("../dist/home.js");
+  const { homeRows, homeColumns } = await import("../src/home.ts");
   const home = { machines: [], running: [{}], needs_you: [], updates: [], coming_up: [], projects: [{}] };
   assert.deepEqual(homeRows(home), [["running"], ["projects"]]);
   assert.deepEqual(homeColumns(home), { left: ["running"], right: ["machines", "projects"] });

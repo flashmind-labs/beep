@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { itemChips, openTitle, projectsWithOpen, replyPrompt, repoUrl, reviewStart, showsOpen, waitsOnYou } from "../dist/openitems.js";
-import { homeColumns, homeRows } from "../dist/home.js";
+import { itemChips, openTitle, projectsWithOpen, replyPrompt, repoUrl, reviewStart, showsOpen, waitsOnYou } from "../src/openitems.ts";
+import { homeColumns, homeRows } from "../src/home.ts";
 
 const item = (over = {}) => ({
   host: "github.com", repo: "acme/widget", number: 1, kind: "pull_request", title: "A change",

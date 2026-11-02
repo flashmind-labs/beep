@@ -3,24 +3,24 @@
 const { invoke, Channel } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-import { splitPinned } from "./pinned.js";
-import { initPalette, openPalette } from "./palette.js";
-import { initSideResize } from "./sidewidth.js";
-import { connectProblem } from "./connect.js";
-import { withoutDismissed } from "./updates.js";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.js";
-import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
-import { openImportProject } from "./importproject.js";
-import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
-import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.js";
-import { outsideThreads, outsideTitle } from "./branchwork.js";
-import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.js";
-import { registerInstructions } from "./instructions.js";
-import { makeTerminals, terminalTile } from "./terminals.js";
-import { makeReviews, branchTile } from "./review.js";
-import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
-import { makeThreads, issueTile, threadTile } from "./threads.js";
+import { splitPinned } from "./pinned.ts";
+import { initPalette, openPalette } from "./palette.ts";
+import { initSideResize } from "./sidewidth.ts";
+import { connectProblem } from "./connect.ts";
+import { withoutDismissed } from "./updates.ts";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
+import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
+import { openImportProject } from "./importproject.ts";
+import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.ts";
+import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
+import { outsideThreads, outsideTitle } from "./branchwork.ts";
+import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
+import { registerInstructions } from "./instructions.ts";
+import { makeTerminals, terminalTile } from "./terminals.ts";
+import { makeReviews, branchTile } from "./review.ts";
+import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.ts";
+import { makeThreads, issueTile, threadTile } from "./threads.ts";
 
 const $ = sel => document.querySelector(sel);
 

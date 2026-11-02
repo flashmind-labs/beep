@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stateLabel, terminalTile, terminalPlaces } from "../dist/terminals.js";
+import { stateLabel, terminalTile, terminalPlaces } from "../src/terminals.ts";
 
 const ago = () => "2 h";
 

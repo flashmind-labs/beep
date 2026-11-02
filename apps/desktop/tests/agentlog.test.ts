@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseTool, toolLines, TOOL_LINES } from "../dist/agentlog.js";
+import { parseTool, toolLines, TOOL_LINES } from "../src/agentlog.ts";
 
 test("a live tool entry splits into title, status and output", () => {
   assert.deepEqual(parseTool("cargo test -p beep-node [completed]\nrunning 12 tests\nok"), {

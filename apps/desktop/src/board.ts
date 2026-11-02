@@ -3,8 +3,8 @@
 // full list in place of the board. center.js owns the page and decides when
 // the board shows; this file holds the tiles' rows, as pure functions the
 // tests check, and draws the grid.
-import { prLabel } from "./project.js";
-import { machineSync } from "./home.js";
+import { prLabel } from "./project.ts";
+import { machineSync } from "./home.ts";
 
 /// Rows a tile shows before its full list.
 export const TILE_ROWS = 4;

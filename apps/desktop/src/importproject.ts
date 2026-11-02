@@ -5,8 +5,8 @@
 // is imported in place. It shows the clone's progress and closes onto the
 // new project. Esc or Cancel closes it, except while cloning, when the
 // clone goes on and the project shows up once it is in.
-import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp } from "./projects-state.js";
-import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.js";
+import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp } from "./projects-state.ts";
+import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
 
 const { invoke } = window.__TAURI__.core;
 

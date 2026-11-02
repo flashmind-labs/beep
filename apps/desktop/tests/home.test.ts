@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentOf, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../dist/home.js";
+import { agentOf, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../src/home.ts";
 
 const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,
