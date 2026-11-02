@@ -187,7 +187,6 @@ struct ChatView: View {
         }
         .onDisappear {
             voice.cancel()
-            model.speaker.stop()
             if model.onScreen == model.chat.id { model.onScreen = nil }
         }
         .fullScreenCover(isPresented: Binding(get: { model.browserOpen }, set: { model.browserOpen = $0 })) {
@@ -350,15 +349,6 @@ struct ChatView: View {
         .background(Mint.page)
     }
 
-    /// Reads the running reply aloud, or stops reading it; coral while it speaks, as live voice.
-    private var speakButton: some View {
-        let speaking = model.speaker.speaking
-        return Button { model.speaker.toggle() } label: { Image(systemName: "speaker.wave.2") }
-            .buttonStyle(ChunkyButton(fill: speaking ? LiveColors.speak : Mint.surface, size: 50, radius: 18))
-            .accessibilityLabel(speaking ? "Stop speaking" : "Speak reply")
-            .transition(.scale(scale: 0.6).combined(with: .opacity))
-    }
-
     private var composer: some View {
         let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty && files.isEmpty
         let prompt = voice.listening ? "Speak now..." : photos.count > 1 ? "Ask about the photos..."
@@ -406,14 +396,9 @@ struct ChatView: View {
                 .chunky()
                 .blocksChatSwipe()
                 VStack(spacing: 8) {
-                    // A reading goes on after the reply finished, and keeps its button until it is done.
-                    if model.speaker.speaking, !model.chat.busy { speakButton }
                     if model.chat.busy {
                         VStack(spacing: 8) {
-                            // The queue button takes the speaker's place while there is something typed.
-                            if empty {
-                                speakButton
-                            } else {
+                            if !empty {
                                 Button {
                                     model.queue(draft, images: photos, files: files)
                                     clearDraft()
@@ -437,7 +422,6 @@ struct ChatView: View {
                                 voice.stop()
                             } else {
                                 typing = false
-                                model.speaker.stop()
                                 // What is said goes after what was typed before.
                                 let before = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                                 Task { await voice.start { draft = before.isEmpty ? $0 : before + " " + $0 } }
@@ -450,7 +434,6 @@ struct ChatView: View {
                     } else {
                         Button {
                             voice.cancel()
-                            model.speaker.stop()
                             model.live.dismissEnded()
                             model.send(draft, images: photos, files: files)
                             clearDraft()
@@ -472,7 +455,6 @@ struct ChatView: View {
                 }
             }
             .animation(.bouncy, value: model.chat.busy)
-            .animation(.bouncy, value: model.speaker.speaking)
             .animation(.easeOut(duration: 0.15), value: empty)
             .padding(.leading, 14)
             .padding(.trailing, 16)
