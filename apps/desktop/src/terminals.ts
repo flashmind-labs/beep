@@ -1,8 +1,10 @@
-// A project's terminals: commands kept running on the user's machines,
-// apart from any chat. The board's Terminals tile, and its full view: a tab
-// per terminal with its output, and a form to start one. center.ts draws
-// the page; this file keeps the terminals' state and polls the open one.
-import type { invoke as Invoke } from "./tauri.ts";
+// A project's terminals: commands and shells kept running on the user's
+// machines, apart from any chat. The board's Terminals tile, and its full
+// view: a tab per terminal, the open one attached live so what is typed
+// goes to it, and a form to start one. center.ts draws the page; this file
+// keeps the terminals' state. Terminals from before interactive ones are
+// view only: their last lines are read every few seconds instead.
+import type { invoke as Invoke, Channel as ChannelCtor } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { TileData } from "./board.ts";
@@ -31,6 +33,14 @@ export interface OutputView {
   earlier: boolean;
 }
 
+/// What an attached terminal sends (TermEvent): output from byte `at` in
+/// base64, its end, or that it takes no input.
+export type TermEvent =
+  | { kind: "attached" }
+  | { kind: "output"; at: number; data: string }
+  | { kind: "ended"; state: string; code: number | null }
+  | { kind: "view_only" };
+
 /// A machine a terminal can start on, in the project's folder there.
 export interface TerminalPlace {
   id: string;
@@ -38,9 +48,28 @@ export interface TerminalPlace {
   folder: string;
 }
 
+/// A terminal emulator on the page (termview.ts draws one with xterm.js).
+export interface Screen {
+  el: HTMLElement;
+  write(data: Uint8Array): void;
+  /// A dim line of our own, such as "Reconnecting…".
+  note(text: string): void;
+  size(): { cols: number; rows: number };
+  /// Fits the screen to its element, once it is on the page.
+  fit(): void;
+  focus(): void;
+  onData(cb: (data: string) => void): void;
+  onResize(cb: (size: { cols: number; rows: number }) => void): void;
+  /// Whether keys typed go anywhere.
+  setInput(on: boolean): void;
+  dispose(): void;
+}
+
 /// What the window hands `makeTerminals`.
 export interface TerminalDeps {
   invoke: typeof Invoke;
+  Channel: typeof ChannelCtor;
+  makeScreen: () => Screen;
   h: MakeEl;
   button: MakeButton;
   ago: Ago;
@@ -53,6 +82,23 @@ interface TerminalForm {
   name: string;
   machine: string | null;
   cwd: string;
+}
+
+/// How an open terminal's live view stands.
+type Link = "attaching" | "attached" | "detached" | "ended" | "view_only";
+
+/// The open terminal's live view: its screen and how far its output got.
+interface Live {
+  id: string;
+  screen: Screen;
+  link: Link;
+  /// Bytes of output on the screen so far: where a reattach starts.
+  next: number;
+  /// Typing is off by choice ("View only").
+  watching: boolean;
+  /// Failed attaches in a row, for the wait before the next.
+  tries: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 /// One project's terminals: `list` is undefined while it loads and null
@@ -69,8 +115,12 @@ interface ProjectTerminals {
 /// A machine row as `terminalPlaces` reads it: `whereRows` gives them.
 type Where = { kind: string; id: string; name: string; folder: string | null };
 
-/// How often the open terminal's output is read again.
+/// How often a view-only terminal's output is read again.
 const POLL_MS = 2000;
+/// The size a terminal starts at, before its screen is fitted.
+const START_SIZE = { cols: 100, rows: 30 };
+/// Attaches tried in a row before giving up until asked again.
+const MAX_TRIES = 6;
 
 /// "running", "exited 1", "stopped", "offline", "gone".
 export function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<TerminalRow, "code">>) {
@@ -105,11 +155,47 @@ export function terminalPlaces(where: readonly Where[] | null | undefined): Term
   return (where || []).filter((r): r is Where & { folder: string } => r.kind === "here" && !!r.folder).map(r => ({ id: r.id, name: r.name, folder: r.folder }));
 }
 
+/// Where a chunk of `len` bytes from byte `at` meets the `next` byte the
+/// screen waits for: `skip` leading bytes it already shows, and `gap` when
+/// bytes before it were no longer kept.
+export function splice(next: number, at: number, len: number): { skip: number; gap: boolean } {
+  if (at > next) return { skip: 0, gap: true };
+  return { skip: Math.min(next - at, len), gap: false };
+}
+
+/// The bytes of a base64 string.
+export function fromBase64(data: string): Uint8Array {
+  const text = atob(data);
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i);
+  return out;
+}
+
+/// How long to wait before attach number `tries` (1 for the first retry).
+export function retryDelay(tries: number) {
+  return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
+}
+
+/// The footer line of an open terminal.
+export function linkLabel(link: Link, watching: boolean, machine: string) {
+  switch (link) {
+    case "attaching": return "Attaching…";
+    case "attached": return watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`;
+    case "detached": return "Detached: it keeps running";
+    case "ended": return "Ended";
+    case "view_only": return "View only: the last 100 lines, read every 2 seconds";
+  }
+}
+
 export function makeTerminals(deps: TerminalDeps) {
-  const { invoke, h, button, ago, redraw } = deps;
+  const { invoke, Channel, makeScreen, h, button, ago, redraw } = deps;
   const all = new Map<string, ProjectTerminals>();
+  /// Live views by terminal id, for the project on show.
+  const lives = new Map<string, Live>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let polling: string | null = null;
+  /// The project whose terminals view shows.
+  let shown: string | null = null;
 
   const of = (name: string) => {
     let t = all.get(name);
@@ -137,7 +223,7 @@ export function makeTerminals(deps: TerminalDeps) {
       const out = await invoke<OutputView>("terminal_output", { id });
       if (t.open !== id) return;
       t.output = out;
-      t.list = (t.list || []).map(x => (x.id === id ? out.terminal : x));
+      setRow(name, out.terminal);
       t.error = "";
     } catch (e) {
       t.error = reason(e);
@@ -145,7 +231,12 @@ export function makeTerminals(deps: TerminalDeps) {
     redraw();
   }
 
-  /// Polls the open terminal of `name` while its view shows; `null` stops.
+  function setRow(name: string, row: TerminalRow) {
+    const t = of(name);
+    t.list = (t.list || []).map(x => (x.id === row.id ? row : x));
+  }
+
+  /// Polls the open view-only terminal of `name`; `null` stops.
   function watch(name: string | null) {
     if (polling === name) return;
     clearInterval(timer);
@@ -156,12 +247,118 @@ export function makeTerminals(deps: TerminalDeps) {
     }, POLL_MS);
   }
 
+  /// The live view of terminal `id`, made and attached the first time.
+  function liveOf(name: string, id: string) {
+    let live = lives.get(id);
+    if (!live) {
+      const screen = makeScreen();
+      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0 };
+      lives.set(id, live);
+      const l = live;
+      screen.onData(data => {
+        if (l.link !== "attached" || l.watching) return;
+        invoke("terminal_input", { id, data }).catch(e => { of(name).error = reason(e); redraw(); });
+      });
+      screen.onResize(({ cols, rows }) => {
+        if (l.link === "attached") invoke("terminal_resize", { id, cols, rows }).catch(() => {});
+      });
+      attach(name, live);
+    }
+    return live;
+  }
+
+  /// Follows `live` from where its screen got to, until it ends or is
+  /// detached; a dropped stream is attached again after a wait.
+  function attach(name: string, live: Live) {
+    clearTimeout(live.timer);
+    live.link = "attaching";
+    const channel = new Channel<TermEvent>();
+    channel.onmessage = ev => {
+      if (lives.get(live.id) !== live) return;
+      if (ev.kind === "attached") {
+        live.link = "attached";
+        live.tries = 0;
+        live.screen.setInput(!live.watching);
+        redraw();
+      } else if (ev.kind === "output") {
+        const bytes = fromBase64(ev.data);
+        const { skip, gap } = splice(live.next, ev.at, bytes.length);
+        if (gap) live.screen.note("… earlier output was not kept");
+        live.screen.write(bytes.subarray(skip));
+        live.next = Math.max(live.next, ev.at + bytes.length);
+      } else if (ev.kind === "ended") {
+        live.link = "ended";
+        live.screen.setInput(false);
+        const row = (of(name).list || []).find(x => x.id === live.id);
+        if (row) setRow(name, { ...row, state: ev.state, code: ev.code });
+        redraw();
+      } else {
+        live.link = "view_only";
+        live.screen.setInput(false);
+        readOutput(name);
+        redraw();
+      }
+    };
+    const { cols, rows } = live.screen.size();
+    invoke("terminal_attach", { id: live.id, from: live.next, cols, rows, onEvent: channel })
+      .then(() => {
+        // Ended, view only or detached on purpose; else the stream dropped.
+        if (lives.get(live.id) === live && (live.link === "attached" || live.link === "attaching")) retry(name, live, "");
+      })
+      .catch(e => {
+        if (lives.get(live.id) !== live || live.link === "detached") return;
+        const why = reason(e);
+        if (/needs an update/i.test(why)) {
+          live.link = "view_only";
+          readOutput(name);
+          redraw();
+          return;
+        }
+        retry(name, live, why);
+      });
+  }
+
+  function retry(name: string, live: Live, why: string) {
+    live.tries += 1;
+    live.screen.setInput(false);
+    if (live.tries > MAX_TRIES) {
+      live.link = "detached";
+      of(name).error = why || "The terminal's stream keeps dropping.";
+      redraw();
+      return;
+    }
+    live.link = "attaching";
+    live.screen.note("Reconnecting…");
+    live.timer = setTimeout(() => attach(name, live), retryDelay(live.tries));
+    redraw();
+  }
+
+  function detach(live: Live) {
+    clearTimeout(live.timer);
+    live.link = "detached";
+    live.screen.setInput(false);
+    invoke("terminal_detach", { id: live.id }).catch(() => {});
+  }
+
+  /// Detaches and drops every live view, such as when the view closes.
+  function dropAll() {
+    for (const live of lives.values()) {
+      if (live.link === "attached" || live.link === "attaching") detach(live);
+      live.screen.dispose();
+    }
+    lives.clear();
+  }
+
   function select(name: string, id: string) {
     const t = of(name);
     t.open = id;
     t.form = null;
     t.output = null;
-    readOutput(name);
+    const row = (t.list || []).find(x => x.id === id);
+    if (row) {
+      const live = liveOf(name, id);
+      queueMicrotask(() => live.screen.focus());
+    }
     redraw();
   }
 
@@ -170,8 +367,14 @@ export function makeTerminals(deps: TerminalDeps) {
     t.busy = true;
     t.error = "";
     redraw();
+    const fields = { project: name, machineId: form.machine, name: form.name, command: form.command, cwd: form.cwd };
     try {
-      const made = await invoke<TerminalRow>("terminal_start", { terminal: { project: name, machineId: form.machine, name: form.name, command: form.command, cwd: form.cwd } });
+      let made = await invoke<TerminalRow | null>("terminal_open", { terminal: { ...fields, ...START_SIZE } });
+      // A server from before interactive terminals runs commands view only.
+      if (!made) {
+        if (!form.command.trim()) throw new Error("The server needs an update before it runs a shell.");
+        made = await invoke<TerminalRow>("terminal_start", { terminal: fields });
+      }
       t.list = [...(t.list || []), made];
       t.form = null;
       select(name, made.id);
@@ -189,6 +392,12 @@ export function makeTerminals(deps: TerminalDeps) {
     redraw();
     try {
       await invoke("terminal_close", { id });
+      const live = lives.get(id);
+      if (live) {
+        detach(live);
+        live.screen.dispose();
+        lives.delete(id);
+      }
       t.list = (t.list || []).filter(x => x.id !== id);
       if (t.open === id) { t.open = null; t.output = null; }
       t.error = "";
@@ -226,12 +435,12 @@ export function makeTerminals(deps: TerminalDeps) {
       return b;
     }));
     const go = button(t.busy ? "Starting…" : "Start", "pri", () => {
-      if (f.command.trim() && f.machine && f.cwd.trim()) start(name, f);
+      if (f.machine && f.cwd.trim()) start(name, f);
     });
     go.disabled = t.busy || !places.length;
     const form = h("form", "cc-panel tm-form",
-      input("command", "Command", "npm run dev"),
-      input("name", "Name", "dev-server (the command when empty)"),
+      input("command", "Command", "Empty for a shell, or npm run dev"),
+      input("name", "Name", "The command, or shell, when empty"),
       h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", "No machine has this project yet")),
       input("cwd", "Folder", "The project's folder"),
       h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }),
@@ -240,8 +449,53 @@ export function makeTerminals(deps: TerminalDeps) {
     return form;
   }
 
-  /// The full view: tabs, then the open terminal's output or the form.
+  /// The open terminal: its live screen, or the last lines of a view-only one.
+  function openView(name: string, open: TerminalRow) {
+    const t = of(name);
+    const live = liveOf(name, open.id);
+    const acts: HTMLElement[] = [];
+    if (live.link === "attached" || live.link === "attaching") {
+      const typing = button(live.watching ? "Take control" : "View only", "small", () => {
+        live.watching = !live.watching;
+        live.screen.setInput(live.link === "attached" && !live.watching);
+        if (!live.watching) live.screen.focus();
+        redraw();
+      });
+      typing.title = live.watching ? "Type into the terminal again" : "Stop typing into it, keep watching";
+      const off = button("Detach", "small", () => { detach(live); redraw(); });
+      off.title = "Stop following it here; it keeps running";
+      acts.push(typing, off);
+    } else if (live.link === "detached" || (live.link === "ended" && open.state === "offline")) {
+      acts.push(button("Attach", "small pri", () => { live.tries = 0; attach(name, live); redraw(); }));
+    }
+    acts.push(button(open.state === "running" ? "Kill…" : "Close", "small warn", () => {
+      if (open.state !== "running" || confirm(`Stop ${open.name} on ${open.machine_name}?`)) close(name, open.id);
+    }));
+    const head = h("div", "tm-head",
+      h("span", "", h("b", "", open.name), ` ${open.machine_name} · ${open.cwd}`),
+      h("span", "tm-st", stateLabel(open)), ...acts);
+    let body: HTMLElement;
+    if (live.link === "view_only") {
+      const o = t.output;
+      body = h("pre", "tm-screen", h("span", "tm-cmd", `${open.machine_name} ${open.cwd} $ ${open.command}`), "\n",
+        o?.earlier ? "…\n" : "", (o ? o.lines : []).join("\n"));
+      watch(name);
+      // The screen follows its newest line.
+      queueMicrotask(() => { const s = document.querySelector(".tm-screen"); if (s) s.scrollTop = s.scrollHeight; });
+    } else {
+      body = live.screen.el;
+      watch(null);
+      requestAnimationFrame(() => live.screen.fit());
+    }
+    const on = live.link === "attached" && open.state === "running";
+    return h("div", "cc-panel tm-panel", head, body,
+      h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name)),
+        h("span", "", `started ${ago(open.started_at)}`)));
+  }
+
+  /// The full view: tabs, then the open terminal or the form.
   function panel(name: string, where: readonly Where[] | null | undefined) {
+    if (shown !== name) { dropAll(); shown = name; }
     const t = of(name);
     if (t.list === undefined) load(name);
     const places = terminalPlaces(where);
@@ -269,29 +523,15 @@ export function makeTerminals(deps: TerminalDeps) {
     if (t.form) out.push(formView(name, places));
     const open = t.open && (t.list || []).find(x => x.id === t.open);
     if (open) {
-      const o = t.output;
-      const head = h("div", "tm-head",
-        h("span", "", h("b", "", open.name), ` ${open.machine_name} · ${open.cwd}`),
-        h("span", "tm-st", stateLabel(open)),
-        button(open.state === "running" ? "Kill…" : "Close", "small warn", () => {
-          if (open.state !== "running" || confirm(`Stop ${open.name} on ${open.machine_name}?`)) close(name, open.id);
-        }));
-      const lines = o ? o.lines : [];
-      const screen = h("pre", "tm-screen", h("span", "tm-cmd", `${open.machine_name} ${open.cwd} $ ${open.command}`), "\n",
-        o?.earlier ? "…\n" : "", lines.join("\n"));
-      out.push(h("div", "cc-panel tm-panel", head, screen,
-        h("div", "tm-foot", h("span", "", h("span", `ddot${open.state === "running" ? "" : " off"}`), " View only: the last 100 lines, read every 2 seconds"), h("span", "", `started ${ago(open.started_at)}`))));
-      watch(name);
+      out.push(openView(name, open));
     } else {
       watch(null);
       if (!t.form) {
         out.push(h("div", "cc-panel cc-empty", h("b", "", t.list?.length ? "Pick a terminal" : "No terminals yet"),
-          h("span", "", "A terminal runs a command on one of your machines, such as a dev server or a log, and keeps running apart from any chat."),
+          h("span", "", "A terminal runs a shell or a command on one of your machines, such as a dev server, and keeps running apart from any chat."),
           button("New terminal", "pri", () => add.click())));
       }
     }
-    // The screen follows its newest line.
-    queueMicrotask(() => { const s = document.querySelector(".tm-screen"); if (s) s.scrollTop = s.scrollHeight; });
     return out;
   }
 
@@ -299,6 +539,6 @@ export function makeTerminals(deps: TerminalDeps) {
     load,
     list: (name: string) => of(name).list,
     panel,
-    stop: () => watch(null),
+    stop: () => { watch(null); dropAll(); shown = null; },
   };
 }
