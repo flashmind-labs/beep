@@ -10,12 +10,14 @@ mod clone;
 mod folder;
 mod found;
 mod place;
+mod preview;
 mod repo;
 mod service;
 mod tool;
 
 pub use checks::Checkouts;
 pub(crate) use found::MachineFound;
+pub(crate) use preview::{checkout_for_worktree, preview};
 pub(crate) use service::{Import, browse, found_projects, import, imported, project_machines};
 pub(crate) use tool::ImportProjectTool;
 
