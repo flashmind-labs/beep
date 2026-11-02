@@ -55,7 +55,6 @@ pub(super) async fn list_project_machines(
     cx: Cx,
     request: ListProjectMachines,
 ) -> Reply<Vec<ProjectMachine>> {
-    admin(&cx)?;
     imports::project_machines(&cx.app, &cx.user, &request.project)
         .await?
         .ok_or(ApiError::NotFound {})
