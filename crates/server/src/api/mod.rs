@@ -230,6 +230,7 @@ pub fn router() -> Router {
         .call(credentials::remove_credential)
         .call(project_import::import_project)
         .call(project_import::list_imported_projects)
+        .call(project_import::list_machine_folder)
 }
 
 type Reply<T> = Result<T, ApiError>;

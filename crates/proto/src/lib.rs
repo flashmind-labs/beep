@@ -713,14 +713,27 @@ requests! {
     /// (the machine with a workspace), else the only one online. On Linux
     /// it goes to `<workspace or home>/projects/<org>/<repo>`, on macOS and
     /// Windows to `~/Projects/<org>/<repo>`; a folder that already holds
-    /// that repository is used as it is. `BadRequest` saying why: the repo
-    /// is malformed or on an unknown host, it is not found or the token has
+    /// that repository is used as it is. `folder` puts it somewhere else:
+    /// an absolute path or one under the home folder (`~/code/repo`). A git
+    /// checkout there is imported in place, an empty or missing folder gets
+    /// the clone, and a folder with other files gets it in
+    /// `<folder>/<repo>`. Apps from before it send no `folder`.
+    /// `BadRequest` saying why: the repo is malformed or on an unknown host,
+    /// the folder is not one Beep takes, it is not found or the token has
     /// no access, the machine is offline, or the clone failed. Admins only.
-    166 ImportProject { repo: String, machine_id: Option<String> } => Call<ImportedProject>
+    166 ImportProject { repo: String, machine_id: Option<String>, #[serde(default)] folder: Option<String> } => Call<ImportedProject>
     /// The projects the caller imported, by name, then machine; those on
     /// machines no longer linked are left out. `cloned` is always false.
     /// Admins only.
     167 ListImportedProjects {} => Call<Vec<ImportedProject>>
+    /// One folder on one of the caller's machines, for choosing where
+    /// `ImportProject` puts a project: the folders in it and whether it is
+    /// a git checkout. `path` is absolute or under the home folder
+    /// (`~/code`); without it, the machine's workspace, else its home.
+    /// `BadRequest` saying why: the machine is not one of the caller's, it
+    /// is offline or runs no commands, or the path is malformed or not a
+    /// folder. Admins only.
+    168 ListMachineFolder { machine_id: String, path: Option<String> } => Call<MachineFolder>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -755,6 +768,26 @@ pub struct ImportedProject {
     /// This import cloned it, rather than finding it already there.
     pub cloned: bool,
     pub imported_at: SystemTime,
+}
+
+/// A folder on one of the caller's machines, as `ListMachineFolder` reads it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineFolder {
+    /// Its absolute path on the machine.
+    pub path: String,
+    /// The folder above it; `None` at the root.
+    pub parent: Option<String>,
+    /// `false` for a folder that is not there yet; an import makes it.
+    pub exists: bool,
+    /// The folders in it by name, sorted, hidden ones left out.
+    pub folders: Vec<String>,
+    /// Folders left out past the limit.
+    pub more: u32,
+    /// It holds nothing, hidden files included.
+    pub empty: bool,
+    /// It is a git checkout: its `origin` remote, empty when it has none.
+    pub origin: Option<String>,
 }
 
 /// One project's sync across the caller's machines.

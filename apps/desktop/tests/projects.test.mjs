@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -82,4 +82,62 @@ test("Home lists imported projects last, or beside Machines when wide", async ()
   assert.deepEqual(homeRows(home), [["running"], ["projects"]]);
   assert.deepEqual(homeColumns(home), { left: ["running"], right: ["machines", "projects"] });
   assert.deepEqual(homeRows({ ...home, projects: null }), [["running"]]);
+});
+
+test("empty slots never reach the sheet as text", () => {
+  const a = { n: 1 }, b = "text";
+  assert.deepEqual(present([a, null, undefined, false, b, 0, ""]), [a, b, 0, ""]);
+  assert.deepEqual(present(null), []);
+});
+
+test("the default folder follows the machine's OS and the repository", () => {
+  assert.equal(defaultFolder("/srv/work/", "linux", "n0-computer/iroh"), "/srv/work/projects/n0-computer/iroh");
+  assert.equal(defaultFolder("/Users/u", "macos", "https://github.com/org/app.git"), "/Users/u/Projects/org/app");
+  assert.equal(defaultFolder("/Users/u", "macos", ""), "/Users/u/Projects/org/repo");
+  assert.equal(defaultFolder(null, "linux", "org/app"), null);
+});
+
+test("a GitHub remote reads as org/repo, others as they are", () => {
+  assert.equal(repoFromRemote("git@github.com:org/app.git"), "org/app");
+  assert.equal(repoFromRemote("https://github.com/org/app"), "org/app");
+  assert.equal(repoFromRemote("https://git.example.com/team/app.git"), "https://git.example.com/team/app.git");
+});
+
+const listing = (over = {}) => ({ path: "/w/code", parent: "/w", exists: true, folders: [], more: 0, empty: false, origin: null, ...over });
+
+test("the note says what importing into a folder does", () => {
+  assert.equal(folderNote(listing({ origin: "git@github.com:org/app.git" }), ""), "A checkout of org/app. It is imported in place, without cloning.");
+  assert.match(folderNote(listing({ origin: "" }), ""), /no origin remote/);
+  assert.equal(folderNote(listing({ exists: false, empty: true }), "org/app"), "Not there yet: the clone makes it.");
+  assert.equal(folderNote(listing({ empty: true }), "org/app"), "Empty: the clone goes here.");
+  assert.equal(folderNote(listing(), "org/app"), "Has other files: it goes in /w/code/app.");
+  assert.equal(folderNote(null, "org/app"), null);
+});
+
+test("choosing a checkout fills the field; another machine drops the choice", () => {
+  let s = next(START, { type: "choose", listing: listing() });
+  assert.equal(s, START, "Auto has no folder to choose");
+  s = next(s, { type: "pick", machine: "a" });
+  s = next(s, { type: "browse", listing: listing() });
+  assert.equal(s.browsing.path, "/w/code");
+  s = next(s, { type: "choose", listing: listing({ origin: "git@github.com:org/app.git" }) });
+  assert.equal(s.repo, "org/app");
+  assert.equal(s.browsing, null);
+  assert.equal(s.chosen.path, "/w/code");
+  s = next(s, { type: "submit" });
+  assert.equal(progressText(s, [{ id: "a", name: "box" }]), "Importing org/app onto box…");
+  s = next(next(START, { type: "pick", machine: "a" }), { type: "choose", listing: listing() });
+  assert.equal(next(s, { type: "pick", machine: "a" }), s, "the same chip keeps it");
+  assert.equal(next(s, { type: "pick", machine: "b" }).chosen, null);
+  assert.equal(next(s, { type: "unchoose" }).chosen, null);
+  assert.equal(next(s, { type: "oops", message: "bad request: box cannot open /root." }).error, "box cannot open /root.");
+});
+
+test("the help line names the default only while it is the default", () => {
+  const machines = [{ id: "a", name: "box" }];
+  assert.match(folderHelp(START, machines), /^Pick a machine/);
+  const picked = next(START, { type: "pick", machine: "a" });
+  assert.match(folderHelp(picked, machines), /^The default on box\./);
+  assert.doesNotMatch(folderHelp(picked, machines), /Projects/);
+  assert.match(folderHelp(next(picked, { type: "choose", listing: listing() }), machines), /^Private repositories/);
 });

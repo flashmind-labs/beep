@@ -1,7 +1,10 @@
 //! `import_project`: clones a repository onto one of the user's machines and
 //! lists it as a project, as the Import a project sheet does.
 
-use super::{ImportError, service};
+use super::{
+    ImportError,
+    service::{self, Import},
+};
 use crate::tools::machines::{Machines, find, in_parameter};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -20,6 +23,8 @@ struct Args {
     repo: String,
     #[serde(default, rename = "in")]
     machine: Option<String>,
+    #[serde(default)]
+    folder: Option<String>,
 }
 
 #[async_trait]
@@ -30,10 +35,14 @@ impl Tool for ImportProjectTool {
     fn description(&self) -> &str {
         "Import a project: clone a git repository onto one of the user's machines and list it \
          under Projects. `repo` is org/repo (GitHub), a GitHub URL, or a URL on a Forgejo or \
-         Gitea server the user saved a token for. It goes to <workspace>/projects/<org>/<repo> \
-         on their Linux environment, or ~/Projects/<org>/<repo> on a Mac; a checkout already \
-         there is reused. Uses the user's tokens from Settings > Credentials. Use it when the \
-         user asks to import, add, clone or check out a project or repository."
+         Gitea server the user saved a token for. Without `folder` it goes to \
+         <workspace>/projects/<org>/<repo> on their Linux environment, or \
+         ~/Projects/<org>/<repo> on a Mac; a checkout already there is reused. With `folder`, \
+         a checkout of the repository there is listed in place without cloning, an empty or \
+         missing folder gets the clone, and a folder with other files gets it in \
+         <folder>/<repo>. Uses the user's tokens from Settings > Credentials. Use it when the \
+         user asks to import, add, clone or check out a project or repository, or to list one \
+         they already have somewhere."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -43,7 +52,11 @@ impl Tool for ImportProjectTool {
                     "type": "string",
                     "description": "org/repo, such as n0-computer/iroh, or the repository's URL"
                 },
-                "in": in_parameter("Omit for the user's own Linux environment, or the only machine online.")
+                "in": in_parameter("Omit for the user's own Linux environment, or the only machine online."),
+                "folder": {
+                    "type": "string",
+                    "description": "Where it goes on that machine, when the user names a place: an absolute path or one under the home folder, such as ~/Documents/code/iroh. Omit for the default projects folder."
+                }
             },
             "required": ["repo"],
             "additionalProperties": false
@@ -81,7 +94,17 @@ impl Tool for ImportProjectTool {
             _ => None,
         };
         Ok(
-            match service::import(app, user, &args.repo, machine.as_deref()).await {
+            match service::import(
+                app,
+                user,
+                Import {
+                    repo: &args.repo,
+                    machine_id: machine.as_deref(),
+                    folder: args.folder.as_deref(),
+                },
+            )
+            .await
+            {
                 Ok(done) => ToolResult::success(
                     ctx.tool_call_id,
                     format!(
