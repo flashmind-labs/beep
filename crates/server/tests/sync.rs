@@ -21,8 +21,9 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online},
     protocol::{
-        ApiError, DeviceKind, GetSyncSkipped, ListProjectSync, PinProject, ProjectSync,
-        RemoveDevice, RemoveProject, SetProjectSync, SkipRule, SyncStatus,
+        ApiError, ConflictKeep, DeviceKind, GetProjectSyncDetail, GetSyncSkipped, ListProjectSync,
+        PauseProjectSync, PinProject, ProjectSync, ProjectSyncDetail, RemoveDevice, RemoveProject,
+        ResolveSyncConflict, SetProjectSync, SkipRule, SyncStatus,
     },
     push::Pusher,
     store::{NewKey, SyncRow, TestDb},
@@ -155,6 +156,17 @@ impl Server {
     /// Links a machine, and runs `before` once its key is linked and
     /// before it connects.
     async fn node(&self, name: &'static str, before: impl AsyncFnOnce(&str, &str)) -> TestNode {
+        self.node_with(name, true, before).await
+    }
+
+    /// As `node`; without `controls` it is a beep-node from before sync
+    /// could pause or settle conflicts.
+    async fn node_with(
+        &self,
+        name: &'static str,
+        controls: bool,
+        before: impl AsyncFnOnce(&str, &str),
+    ) -> TestNode {
         let key = SecretKey::generate();
         self.user
             .link_key(NewKey {
@@ -185,13 +197,17 @@ impl Server {
             .await
             .expect("the transfers start");
         let syncs = transfers.syncs();
+        let mut extra = vec![
+            Arc::new(transfers.syncs()) as Arc<dyn Protocol>,
+            Arc::new(transfers) as Arc<dyn Protocol>,
+            Arc::new(folders) as Arc<dyn Protocol>,
+        ];
+        if controls {
+            extra.push(Arc::new(syncs.controls()));
+        }
         let offers = Offers {
             agents: Arc::default(),
-            extra: vec![
-                Arc::new(transfers.syncs()) as Arc<dyn Protocol>,
-                Arc::new(transfers) as Arc<dyn Protocol>,
-                Arc::new(folders) as Arc<dyn Protocol>,
-            ],
+            extra,
             provision: None,
         };
         let addr = self.router.endpoint().addr();
@@ -232,6 +248,43 @@ impl Server {
             e.downcast::<ApiError>()
                 .expect("the server answers with an ApiError")
         })
+    }
+}
+
+impl Server {
+    async fn pause(&self, paused: bool) -> ProjectSyncDetail {
+        self.phone
+            .call(&PauseProjectSync {
+                project: PROJECT.into(),
+                paused,
+            })
+            .await
+            .unwrap()
+    }
+
+    async fn detail(&self) -> ProjectSyncDetail {
+        self.phone
+            .call(&GetProjectSyncDetail {
+                project: PROJECT.into(),
+            })
+            .await
+            .unwrap()
+    }
+
+    async fn resolve(&self, node: &TestNode, path: &str) -> ApiError {
+        let refused = self
+            .phone
+            .call(&ResolveSyncConflict {
+                project: PROJECT.into(),
+                machine_id: node.id.clone(),
+                path: path.into(),
+                keep: ConflictKeep::Copy {},
+            })
+            .await
+            .expect_err("refused");
+        refused
+            .downcast::<ApiError>()
+            .expect("the server answers with an ApiError")
     }
 }
 
@@ -374,6 +427,74 @@ async fn the_app_turns_sync_on_and_sees_how_each_machine_stands() {
     let off = server.set(&a, &a.shown(), false).await.unwrap();
     assert!(off.machines.is_empty());
     assert!(a.online.sync_status().await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pausing_holds_every_machine_and_an_older_node_stops_instead() {
+    let server = server().await;
+    let a = server.node("render box", async |_, _| {}).await;
+    let old = server.node_with("old laptop", false, async |_, _| {}).await;
+    server.set(&a, &a.shown(), true).await.unwrap();
+    server.set(&old, &old.shown(), true).await.unwrap();
+    write(a.folder().join("notes.txt"), "hello");
+    eventually("the file to reach the older node", async || {
+        fs::read_to_string(old.folder().join("notes.txt")).is_ok()
+    })
+    .await;
+
+    let detail = server.detail().await;
+    assert!(!detail.paused);
+    let can: Vec<_> = detail
+        .machines
+        .iter()
+        .map(|m| (m.sync.machine_name.as_str(), m.can_resolve))
+        .collect();
+    assert!(can.contains(&("render box", true)), "{can:?}");
+    assert!(can.contains(&("old laptop", false)), "{can:?}");
+
+    let paused = server.pause(true).await;
+    assert!(paused.paused);
+    // The newer node keeps the project and holds it; the older one stops.
+    assert_eq!(a.online.sync_status().await.unwrap().len(), 1);
+    assert!(old.online.sync_status().await.unwrap().is_empty());
+    eventually("both machines to show paused", async || {
+        let detail = server.detail().await;
+        detail.machines.len() == 2
+            && detail
+                .machines
+                .iter()
+                .all(|m| m.paused && m.sync.status == SyncStatus::InSync {})
+    })
+    .await;
+    let refused = server.resolve(&a, "notes (conflict 1a2b3c4d).txt").await;
+    assert!(
+        matches!(&refused, ApiError::BadRequest { message } if message.contains("paused")),
+        "{refused:?}"
+    );
+    let refused = server.resolve(&old, "notes (conflict 1a2b3c4d).txt").await;
+    assert!(
+        matches!(&refused, ApiError::BadRequest { message } if message.contains("too old")),
+        "{refused:?}"
+    );
+
+    let resumed = server.pause(false).await;
+    assert!(!resumed.paused);
+    eventually("the newer node to resume", async || {
+        !a.online.sync_status().await.unwrap()[0].paused
+    })
+    .await;
+    assert_eq!(old.online.sync_status().await.unwrap().len(), 1);
+    write(a.folder().join("later.txt"), "after");
+    eventually("a change after the resume to arrive", async || {
+        fs::read_to_string(old.folder().join("later.txt")).is_ok()
+    })
+    .await;
+    // The node answers for a path that is no conflict copy.
+    let refused = server.resolve(&a, "notes.txt").await;
+    assert!(
+        matches!(&refused, ApiError::BadRequest { message } if message.contains("not a conflict copy")),
+        "{refused:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

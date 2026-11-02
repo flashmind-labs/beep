@@ -295,6 +295,9 @@ pub fn router() -> Router {
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
         .call(projects::list_project_pull_requests)
+        .call(project_sync::get_project_sync_detail)
+        .call(project_sync::pause_project_sync)
+        .call(project_sync::resolve_sync_conflict)
 }
 
 type Reply<T> = Result<T, ApiError>;

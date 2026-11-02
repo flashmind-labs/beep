@@ -223,6 +223,9 @@ sample_struct! {
     FoundAgent { agent, sessions }
     ProjectMachine { machine_id, machine_name, online, folder, checking, checked_at }
     SyncthingPlace { machine_id, folder, label }
+    ProjectSyncDetail { project, pinned, paused, machines }
+    MachineSyncDetail { sync, paused, progress, waiting, can_resolve }
+    SyncProgress { files_done, files_total, bytes_done, bytes_total, rate, eta_secs }
     GitItems { items, hosts }
     GitHost { host, kind, account, error }
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }
