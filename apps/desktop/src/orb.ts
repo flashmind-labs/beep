@@ -216,7 +216,7 @@ const PLAY_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="current
 function drawNotice() {
   if (!notice) return showCard(noticeEl, false);
   if (!live) orb.className = "dorb idle";
-  noticeEl.innerHTML = `<div class="head"><span class="dlogo">b</span><div class="tt"><b title="${esc(notice.title)}">${esc(notice.title)}</b><small>New message</small></div><button class="nx" data-n="dismiss" aria-label="Dismiss">${X_ICON}</button></div>
+  noticeEl.innerHTML = `<div class="head"><div class="tt"><b title="${esc(notice.title)}">${esc(notice.title)}</b><small>New message</small></div><button class="nx" data-n="dismiss" aria-label="Dismiss">${X_ICON}</button></div>
     ${notice.snippet ? `<div class="snip">${esc(notice.snippet)}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-n="play">${PLAY_ICON}Play</button><button class="dbtn" data-n="open">Open<kbd>⌥ ⌥</kbd></button></div>
     <div class="life"><i></i></div>`;

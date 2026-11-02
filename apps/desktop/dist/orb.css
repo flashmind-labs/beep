@@ -49,7 +49,6 @@
 .onote .head .tt { flex: 1; min-width: 0; display: grid; line-height: 17px }
 .onote .head b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .onote .head small { font-size: 11.5px; color: var(--muted) }
-.onote .dlogo { width: 24px; height: 24px; border-radius: 7px; font-size: 13px }
 .onote .nx { width: 22px; height: 22px; border-radius: 50%; border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; padding: 0; flex: none; align-self: flex-start }
 .onote .nx:hover { background: var(--elev); color: var(--fg) }
 .onote .snip { padding: 6px 11px 0; font-size: 12.5px; line-height: 17px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere }
