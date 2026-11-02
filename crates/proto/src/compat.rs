@@ -94,6 +94,8 @@ sample_struct! {
     InstructionsVersion { version, text, note, saved_at }
     MachineAgentFiles { machine_id, machine_name, files, error }
     AgentFile { agent, path, text, synced }
+    Terminal { id, project, machine_id, machine_name, name, command, cwd, state, started_at }
+    TerminalOutput { terminal, lines, earlier }
     IssueStart { agent, node_id }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
@@ -214,6 +216,7 @@ sample_values! {
     u8 => [7]
     u32 => [42]
     u64 => [70_000]
+    i32 => [-2]
     i64 => [1_760_000_000_000]
     f64 => [1.5]
     String => ["text".to_owned()]

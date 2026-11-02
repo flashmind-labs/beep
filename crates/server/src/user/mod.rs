@@ -1030,6 +1030,23 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// `project`'s terminals, oldest first.
+    pub(crate) async fn terminals(&self, project: &str) -> Result<Vec<crate::store::TerminalRow>> {
+        self.store.terminals(&self.key, project).await
+    }
+
+    pub(crate) async fn terminal(&self, id: Uuid) -> Result<Option<crate::store::TerminalRow>> {
+        self.store.terminal(&self.key, id).await
+    }
+
+    pub(crate) async fn add_terminal(&self, row: &crate::store::TerminalRow) -> Result<()> {
+        self.store.add_terminal(&self.key, row).await
+    }
+
+    pub(crate) async fn remove_terminal(&self, id: Uuid) -> Result<bool> {
+        self.store.remove_terminal(&self.key, id).await
+    }
+
     /// The newest `limit` versions of the user's instructions, newest
     /// first.
     pub(crate) async fn instructions_versions(

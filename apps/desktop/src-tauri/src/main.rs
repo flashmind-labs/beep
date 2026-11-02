@@ -36,6 +36,7 @@ mod projects;
 mod research;
 mod state;
 mod sync;
+mod terminals;
 mod tool_labels;
 mod update;
 mod voice;
@@ -201,6 +202,10 @@ fn main() {
             instructions::instructions_versions,
             instructions::agent_files_read,
             instructions::agent_files_sync,
+            terminals::terminals_list,
+            terminals::terminal_start,
+            terminals::terminal_output,
+            terminals::terminal_close,
             projects::pin_project_to_top,
             projects::center_open_project,
             projects::center_project,

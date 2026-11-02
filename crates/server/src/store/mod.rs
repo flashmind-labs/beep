@@ -29,6 +29,7 @@ mod instance;
 mod instructions;
 pub(crate) use habits::DuplicateHabit;
 pub(crate) use instructions::{InstructionsRow, Saved};
+pub(crate) use terminals::TerminalRow;
 mod location;
 mod memories;
 mod merge;
@@ -47,6 +48,7 @@ mod sessions;
 mod shares;
 mod skills;
 mod sources;
+mod terminals;
 mod test_db;
 mod updates;
 mod usage;
@@ -400,6 +402,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         66,
         "instructions",
         include_str!("../../migrations/0066_instructions.sql"),
+    ),
+    (
+        67,
+        "terminals",
+        include_str!("../../migrations/0067_terminals.sql"),
     ),
 ];
 
