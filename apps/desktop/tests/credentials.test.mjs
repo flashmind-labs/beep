@@ -91,13 +91,32 @@ test("a gh sign-in on this Mac is offered before pasting", () => {
   assert.match(refused, /class="derr"[^>]*>bad token/);
 });
 
-test("gh signed out asks to sign in and check again", () => {
+test("gh signed out offers to sign in with GitHub here", () => {
   const cli = { github: { state: "signed_out" }, forgejo: [] };
   const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
-  assert.match(html, /gh auth login<\/code> in Terminal, then press Check again/);
-  assert.match(html, /data-cred-recheck>Check again/);
+  assert.match(html, /class="dbtn pri"[^>]*data-cred-gh>Sign in with GitHub/);
   assert.match(html, /Paste a token/);
+  assert.doesNotMatch(html, /in Terminal/);
   assert.doesNotMatch(html, /data-cred-cli="github"/);
+  // Refused or cancelled, the reason shows and the button is back.
+  const failed = credentialsHtml({ list: noGithub, providers, edit: null, cli, cliError: { key: "github", message: "Sign-in cancelled" } }, machines, esc, ago);
+  assert.match(failed, /class="derr"[^>]*>Sign-in cancelled/);
+  assert.match(failed, /Sign in with GitHub/);
+});
+
+test("while gh signs in the row shows the code and Cancel", () => {
+  const cli = { github: { state: "signed_out" }, forgejo: [] };
+  const starting = credentialsHtml({ list: noGithub, providers, edit: null, cli, ghFlow: { code: "", url: "" } }, machines, esc, ago);
+  assert.match(starting, /Starting gh/);
+  assert.match(starting, /data-cred-gh-cancel>Cancel/);
+  assert.doesNotMatch(starting, /Sign in with GitHub/);
+  const flow = { code: "AB23-77BA", url: "https://github.com/login/device", copied: true };
+  const html = credentialsHtml({ list: noGithub, providers, edit: null, cli, ghFlow: flow }, machines, esc, ago);
+  assert.match(html, /Enter code <code[^>]*user-select:all[^>]*>AB23-77BA<\/code> on <a[^>]*data-cred-open="https:\/\/github\.com\/login\/device"/);
+  assert.match(html, /\(copied\)/);
+  assert.match(html, /class="dspin"><\/span>Waiting for GitHub/);
+  assert.match(html, /data-cred-gh-cancel>Cancel/);
+  assert.doesNotMatch(html, /Paste a token/);
 });
 
 test("without gh the row links to GitHub's token page", () => {
@@ -105,6 +124,8 @@ test("without gh the row links to GitHub's token page", () => {
   const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
   assert.match(html, /data-cred-open="https:\/\/github\.com\/settings\/tokens\/new\?scopes=repo,read:org,workflow&amp;description=Beep"/);
   assert.match(html, /Paste a token/);
+  assert.match(html, /Or install GitHub CLI \(<code[^>]*>brew install gh<\/code>\) and sign in here/);
+  assert.doesNotMatch(html, /data-cred-gh>/);
   // Before gh answers the paste form is still there.
   const unknown = credentialsHtml({ list: noGithub, providers, edit: null }, machines, esc, ago);
   assert.match(unknown, /data-cred-edit="github">Paste a token/);

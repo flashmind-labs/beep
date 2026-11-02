@@ -115,11 +115,23 @@ const code = text => `<code style="font-size:11px">${text}</code>`;
 const useButton = (esc, key, label, busy) =>
   `<button class="dbtn pri" ${sm} data-cred-cli="${esc(key)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : esc(label)}</button>`;
 
+/// The code gh's browser sign-in waits for, large and selectable, or a
+/// spinner until gh prints it.
+function ghWaiting(esc, flow) {
+  const entry = flow.code
+    ? `<span>Enter code <code style="font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:.1em;user-select:all;-webkit-user-select:all;cursor:text">${esc(flow.code)}</code> on ${link(esc, flow.url, "GitHub")}${flow.copied ? `<span style="color:var(--muted)"> (copied)</span>` : ""}</span>`
+    : "";
+  return `<div style="margin-left:15px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;display:grid;gap:6px">${entry}
+    <span style="display:flex;gap:6px;align-items:center;color:var(--muted)"><span class="dspin"></span>${flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>`;
+}
+
 /// What the GitHub row offers when no usable token is saved, from this
-/// Mac's gh: its sign-in, help to sign in, or a link to make a token.
-/// `gh` is undefined until checked and null when the check failed.
-export function ghOffer(esc, gh, busy) {
+/// Mac's gh: its sign-in, signing it in, or a link to make a token.
+/// `gh` is undefined until checked and null when the check failed; `flow`
+/// is gh's browser sign-in under way ({ code, url, copied }), if any.
+export function ghOffer(esc, gh, busy, flow) {
   const paste = quiet => `<button class="dbtn${quiet ? " quiet" : ""}" ${sm} data-cred-edit="github">Paste a token</button>`;
+  if (flow) return { acts: `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>`, help: "", body: ghWaiting(esc, flow) };
   switch (gh?.state) {
     case "signed_in":
       return {
@@ -129,13 +141,13 @@ export function ghOffer(esc, gh, busy) {
       };
     case "signed_out":
       return {
-        acts: `<button class="dbtn" ${sm} data-cred-recheck>Check again</button>${paste(true)}`,
-        help: `Run ${code("gh auth login")} in Terminal, then press Check again`,
+        acts: `<button class="dbtn pri" ${sm} data-cred-gh>Sign in with GitHub</button>${paste(true)}`,
+        help: "Opens GitHub in your browser, then saves the sign-in here",
       };
     case "missing":
       return {
         acts: paste(true),
-        help: `Make a token on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")}, then paste it. Or install gh and run ${code("gh auth login")}`,
+        help: `Make a token on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")}, then paste it.<br>Or install GitHub CLI (${code("brew install gh")}) and sign in here`,
       };
     default:
       return { acts: paste(false), help: "" };
@@ -156,10 +168,11 @@ function hostRow(esc, { name, cred, cli, machines, editKey, offer, cliKey, busy,
     ? `${use}<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove ${esc(name)}">Remove</button>`
     : offer?.acts ?? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
   const help = !usable && offer?.help ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${offer.help}</span>` : "";
-  const err = error ? `<span class="derr" style="padding-left:15px">${esc(error)}</span>` : "";
+  const body = !usable && offer?.body ? offer.body : "";
+  const err = error ?`<span class="derr" style="padding-left:15px">${esc(error)}</span>` : "";
   return `<div style="padding:9px 0;border-bottom:1px solid var(--border);display:grid;gap:3px;font-size:13px">
     <div style="display:flex;align-items:center;gap:8px;min-width:0"><span class="ddot${cred ? "" : " off"}"></span><b style="font-weight:600">${esc(name)}</b>${account ? `<span style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(account)}</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px;flex:none">${acts}</span></div>
-    ${line ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${line}</span>` : ""}${help}${err}</div>`;
+    ${line ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${line}</span>` : ""}${help}${body}${err}</div>`;
 }
 
 /// One provider's API key row.
@@ -176,10 +189,10 @@ function keyRow(esc, ago, p, cred) {
 const head = (text, top) => `<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:${top}px 0 2px">${text}</div>`;
 
 /// The whole section. `state`: { list, providers, edit, busy, error, cli,
-/// cliBusy, cliError }. `cli` is what gh and teacli on this Mac are signed
-/// in to (undefined until checked, null when the check failed); `cliBusy`
-/// the `data-cred-cli` key being saved and `cliError` { key, message } its
-/// refusal. `machines`: the machines list, or null when it is not known.
+/// cliBusy, cliError, ghFlow }. `cli` is what gh and teacli on this Mac are
+/// signed in to (undefined until checked, null when the check failed);
+/// `cliBusy` the `data-cred-cli` key being saved and `cliError` { key,
+/// message } its refusal; `ghFlow` gh's browser sign-in under way. `machines`: the machines list, or null when it is not known.
 export function credentialsHtml(state, machines, esc, ago) {
   const list = state.list ?? [];
   const e = state.edit;
@@ -194,7 +207,7 @@ export function credentialsHtml(state, machines, esc, ago) {
     : hostRow(esc, {
       name: "GitHub", cred: github, cli: "gh", machines, editKey: "github", ...rowState("github"),
       cliKey: cli?.github?.state === "signed_in" ? "github" : "",
-      offer: github ? null : ghOffer(esc, cli?.github, state.cliBusy === "github"),
+      offer: github ? null : ghOffer(esc, cli?.github, state.cliBusy === "github", state.ghFlow),
     });
   for (const c of forgejo) {
     const page = forgejoTokenPage(c.url);
