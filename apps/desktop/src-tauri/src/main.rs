@@ -355,6 +355,11 @@ fn main() {
         .expect("the app failed to start")
         .run(|app, event| {
             match event {
+                // Closing the last window leaves Beep in the menu bar; only
+                // Quit (an exit with a code) ends it.
+                RunEvent::ExitRequested {
+                    code: None, api, ..
+                } => api.prevent_exit(),
                 // However Beep quits, a downloaded update is installed for next time.
                 RunEvent::Exit => {
                     update::install(app);
