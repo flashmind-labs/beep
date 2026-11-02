@@ -473,7 +473,7 @@ pub async fn answer_group_approval(beep: Service<'_>, query_id: String, allow: b
 // ---------- Files ----------
 
 /// What the bar shows for a file or picture the server no longer has.
-const GONE: &str = "No longer available";
+pub(crate) const GONE: &str = "No longer available";
 
 /// Whether `id` names a file and nothing else, so it is safe in a path.
 fn file_id(id: &str) -> bool {
@@ -581,8 +581,39 @@ pub async fn picture(
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
+/// Saves a picture the bar holds as a data URL to Downloads, as `name`
+/// with the extension its type gives, and returns where it went.
+#[tauri::command]
+pub fn save_picture(app: AppHandle, name: String, url: String) -> Result<PathBuf> {
+    let (mime, data) = url
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(";base64,"))
+        .filter(|(mime, _)| image_mime(mime))
+        .ok_or_else(|| DesktopError::BadRequest("bad picture".into()))?;
+    let bytes = STANDARD
+        .decode(data)
+        .map_err(|_| DesktopError::BadRequest("bad picture".into()))?;
+    let to = free_name(&app.path().download_dir()?, &picture_name(&name, mime));
+    fs::write(&to, bytes).map_err(anyhow::Error::from)?;
+    Ok(to)
+}
+
+/// `name` as a file name, with the extension of `mime` when it has none.
+fn picture_name(name: &str, mime: &str) -> String {
+    let name = file_name(name);
+    if name.contains('.') {
+        return name;
+    }
+    let ext = match mime {
+        "image/jpeg" => "jpg",
+        "image/svg+xml" => "svg",
+        other => other.trim_start_matches("image/"),
+    };
+    format!("{name}.{ext}")
+}
+
 /// Whether `mime` is a picture type plain enough to put in a data URL.
-fn image_mime(mime: &str) -> bool {
+pub(crate) fn image_mime(mime: &str) -> bool {
     mime.strip_prefix("image/").is_some_and(|sub| {
         !sub.is_empty()
             && sub
@@ -800,6 +831,14 @@ mod tests {
         assert_eq!(file_name(".hidden"), "hidden");
         assert_eq!(file_name(".."), "file");
         assert_eq!(file_name(""), "file");
+    }
+
+    #[test]
+    fn a_saved_picture_gets_its_types_extension() {
+        assert_eq!(picture_name("image-0123", "image/png"), "image-0123.png");
+        assert_eq!(picture_name("photo", "image/jpeg"), "photo.jpg");
+        assert_eq!(picture_name("shot.png", "image/png"), "shot.png");
+        assert_eq!(picture_name("../x", "image/webp"), "x.webp");
     }
 
     #[test]
