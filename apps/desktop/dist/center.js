@@ -893,6 +893,27 @@ function projectTable(rows) {
   return table;
 }
 
+/// One project: where it lives, with "Start an agent here" per folder, and
+/// the coding agents running in it now.
+function projectDetail(p) {
+  const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
+  where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
+  for (const m of p.machines) {
+    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: m.folder } } }));
+    const folder = h("span", "nm", h("span", "os", m.folder));
+    folder.title = m.folder;
+    where.append(h("span", "nm", h("b", "", m.name)), folder, start);
+  }
+  const out = [section("sec-where", "Where it lives", p.machines.length, null, where)];
+  const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
+  const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
+  const list = running.length
+    ? h("div", "cc-panel", ...running.map(runningRow))
+    : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
+  out.push(section("sec-project-agents", "Agents", running.length || "", null, list));
+  return out;
+}
+
 /// "github.com" from a project's web page.
 function hostOf(url) {
   try { return new URL(url).host; } catch { return ""; }
@@ -910,7 +931,9 @@ function drawProjects(el) {
       importButton("pri")));
   } else {
     const shownRows = filterProjects(rows, state.picked);
-    view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
+    const one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
+    if (one) view.append(...projectDetail(one));
+    else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
   }
   el.replaceChildren(view);
 }
@@ -918,7 +941,11 @@ function drawProjects(el) {
 registerView("projects", {
   title() {
     const tools = [importButton("small")];
-    if (state.picked) tools.unshift(button("All projects", "quiet small", () => openProjects()));
+    if (state.picked) {
+      const p = filterProjects(projectRows() || [], state.picked)[0];
+      if (p?.url) tools.unshift(button(`Open on ${hostOf(p.url) === "github.com" ? "GitHub" : hostOf(p.url)}`, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+      tools.unshift(button("All projects", "quiet small", () => openProjects()));
+    }
     return { title: state.picked || "Projects", sub: state.picked ? "Project" : "Repositories on your machines", tools };
   },
   mount(el, arg) {

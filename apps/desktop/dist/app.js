@@ -4569,11 +4569,12 @@ function stateTag(status) {
 // ----- Start form -----
 
 /// The start form with `prompt`; `from` is where Esc goes back to.
-function renderAgentNew(prompt = "", from = "chat") {
+/// `at` presets the machine and folder, as a project's "Start an agent here" does.
+function renderAgentNew(prompt = "", from = "chat", at = null) {
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: "auto", agent: null, cwd: "", chat };
+  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", chat };
   AG.error = "";
   AG.busy = false;
   drawAgentNew();
@@ -6014,7 +6015,7 @@ if (PANE) {
       if (target && typeof target === "object" && "group" in target) return renderGroup(target.group.id);
       // Agent views are not a CenterTarget either: Home and the sidebar open them.
       if (target && typeof target === "object" && "agent" in target) return openAgent(target.agent, { back: "agents" });
-      if (target && typeof target === "object" && "agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", "agents");
+      if (target && typeof target === "object" && "agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", "agents", target.agentnew.at ?? null);
       if (target === "agents") return renderAgents();
       if (VIEWS[target]) return VIEWS[target]();
       if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();
