@@ -193,9 +193,9 @@ export function agentOf(name: string | null | undefined): AgentBadge {
 /// What a machine can run: its abilities, graphics cards and apps, once
 /// each. A named card stands in for the plain "GPU".
 export function machineCaps(m: { gpus: readonly { model: string }[]; capabilities: readonly string[]; apps: readonly { name: string }[] }) {
-  const gpus = m.gpus.map(g => g.model);
-  const out = m.capabilities.filter(c => !(c === "gpu" && gpus.length)).map(c => CAPS[c] || c);
-  out.push(...gpus, ...m.apps.map(a => a.name));
+  const out = m.capabilities.map(c => CAPS[c] || c);
+  if (m.gpus.length) out.push("GPU");
+  out.push(...m.apps.map(a => a.name));
   return [...new Set(out)];
 }
 
