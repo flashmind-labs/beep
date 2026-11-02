@@ -91,7 +91,7 @@ export const TOOL_LABELS: Record<string, string> = {
 // lease.pdf" or which action of a folded tool runs.
 export const DESCRIBED = new Set([
   "mac_files", "memory", "skill", "habit", "background", "reminder", "node",
-  "desktop", "code_agent", "send_file",
+  "desktop", "code_agent", "send_file", "exec",
 ]);
 /// A finished step's label in the past tense, as on the phone: "Recalling
 /// memories" becomes "Recalled memories". Unknown verbs stay as they are.
