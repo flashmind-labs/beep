@@ -951,6 +951,31 @@ requests! {
     /// start form shows under Auto. `BadRequest` saying why when no machine
     /// fits, as the start would.
     219 PreviewAgentMachine { agent: Option<String>, cwd: Option<String>, prompt: String, needs: Vec<MachineCapability> } => Call<MachinePick>
+    /// The caller's open pull requests and the open issues they opened on
+    /// `project_id`'s GitHub repository, newest activity first, each saying
+    /// whether someone else wrote after the caller's last comment or
+    /// review. Read with `gh` on the project's home checkout (else a
+    /// machine it was imported on) on each call. A project with no GitHub
+    /// host gives an empty list. `NotFound` when the caller has no such
+    /// project; `BadRequest` with the host's error when the machine is
+    /// offline or the command fails.
+    220 ListProjectThreads { project_id: Uuid } => Call<Vec<ProjectThread>>
+    /// Asks the project agent, in the project chat, to read the pull
+    /// request or issue `number` of `repo` and draft a reply; posting it
+    /// always asks the user first. Gives the project chat's id. `NotFound`
+    /// when the caller has no such project; `BadRequest` saying why when
+    /// `repo` is not the project's or the thread cannot be read.
+    221 ReplyToThread { project_id: Uuid, repo: String, number: u64 } => Call<Uuid>
+    /// The chat about one pull request or issue of `project_id`, made on
+    /// the first ask: the same chat on every call for one thread. It runs
+    /// as the project agent, reading the thread again at the start of each
+    /// turn. `NotFound` when the caller has no such project; `BadRequest`
+    /// saying why when `repo` is not the project's or the thread cannot be
+    /// read.
+    222 OpenThreadChat { project_id: Uuid, repo: String, number: u64 } => Call<ThreadChat>
+    /// The chats about one pull request or issue of `project_id`, newest
+    /// first. `NotFound` when the caller has no such project.
+    223 ListThreadChats { project_id: Uuid } => Call<Vec<ThreadChat>>
 }
 
 /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
@@ -1781,6 +1806,39 @@ pub struct ProjectIssue {
     pub comments: u32,
     /// Its web page.
     pub url: String,
+}
+
+/// An open pull request or issue of the caller's, as
+/// `ListProjectThreads` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectThread {
+    pub kind: GitItemKind,
+    /// `org/repo`.
+    pub repo: String,
+    pub number: u64,
+    pub title: String,
+    /// Its web page.
+    pub url: String,
+    /// Who wrote last and the start of what they wrote, on one line, such
+    /// as `sam: Can we cut it down?`; empty when nobody has.
+    pub last_other: String,
+    /// Someone other than the caller (bots aside) wrote after the caller's
+    /// last comment or review.
+    pub needs_reply: bool,
+    pub updated_at: SystemTime,
+}
+
+/// The chat about one pull request or issue, as `OpenThreadChat` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThreadChat {
+    pub chat_id: Uuid,
+    pub kind: GitItemKind,
+    /// `org/repo`.
+    pub repo: String,
+    pub number: u64,
+    pub title: String,
 }
 
 /// How `TrackProjectIssue` starts a worker on the issue.

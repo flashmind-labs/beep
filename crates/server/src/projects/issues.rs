@@ -40,8 +40,12 @@ pub(crate) async fn run_host(
     project: &ProjectRow,
     command: HostCommand<'_>,
 ) -> Result<String> {
-    let rendered = command.render(host, &project.name);
-    let out = shell.run(&rendered, HOST_LIMIT).await?;
+    run_rendered(shell, &command.render(host, &project.name)).await
+}
+
+/// Runs the host command `rendered`, failing unless it exits 0.
+pub(crate) async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
+    let out = shell.run(rendered, HOST_LIMIT).await?;
     match out.code {
         Some(0) => Ok(out.out),
         code => {
