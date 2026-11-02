@@ -49,6 +49,7 @@ test("the linked machine is the one that claimed the token, even one already lis
 test("a machine reads as its OS and known tools", () => {
   const env = { os: "linux", tools: [{ name: "git" }, { name: "docker" }, { name: "claude" }, { name: "codex" }] };
   assert.equal(describeMachine({ env }), "Linux, Docker, Claude Code, Codex");
+  assert.equal(describeMachine({ env: { os: "macos", tools: [{ name: "opencode" }] } }), "macOS, OpenCode");
   assert.equal(describeMachine({ env: null }), "");
 });
 

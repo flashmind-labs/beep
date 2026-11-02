@@ -743,6 +743,7 @@ fn agent_title(name: &str) -> &str {
         "claude" => "Claude Code",
         "codex" => "Codex",
         "gemini" => "Gemini CLI",
+        "opencode" => "OpenCode",
         other => other,
     }
 }

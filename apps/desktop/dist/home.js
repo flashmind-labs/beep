@@ -2,7 +2,7 @@
 // DOM so it can be tested.
 
 const CAPS = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
-const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" } };
+const AGENTS = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" }, opencode: { cls: "opencode", ini: "OC", name: "OpenCode" } };
 
 export function base(path) { return String(path || "").split("/").filter(Boolean).pop() || ""; }
 

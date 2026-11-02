@@ -1,5 +1,5 @@
 // The "Add a project" sheet: the git checkouts your coding agents worked in
-// (Claude Code, Codex, pi and flsh sessions each machine finds), each with
+// (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds), each with
 // Import, then "Choose a folder…" and "Clone a repository…", which open the
 // Import a project sheet. Import links the folder where it is, on every
 // machine that has it, so its sessions come along. Esc closes it.

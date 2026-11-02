@@ -30,6 +30,7 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("gemini", &["--version"]),
     ("pi", &["--version"]),
     ("flsh", &["--version"]),
+    ("opencode", &["--version"]),
     ("kubectl", &["version", "--client"]),
     ("adb", &["version"]),
     ("xcodebuild", &["-version"]),
@@ -53,13 +54,24 @@ pub async fn probe() -> EnvReport {
     let has = |name: &str| tools.iter().any(|tool| tool.name == name);
     let mut logins = Vec::new();
     if has("claude") {
-        logins.push(login("claude", &["auth", "status"], claude_account).await);
+        logins.push(
+            login(
+                "claude",
+                &["auth", "status"],
+                claude_logged_in,
+                claude_account,
+            )
+            .await,
+        );
     }
     if has("codex") {
-        logins.push(login("codex", &["login", "status"], |_| None).await);
+        logins.push(login("codex", &["login", "status"], |_| None, |_| None).await);
+    }
+    if has("opencode") {
+        logins.push(login("opencode", &["auth", "list"], opencode_logged_in, |_| None).await);
     }
     if has("gh") {
-        logins.push(login("gh", &["auth", "status"], gh_account).await);
+        logins.push(login("gh", &["auth", "status"], |_| None, gh_account).await);
     }
     EnvReport {
         os: env::consts::OS.to_owned(),
@@ -105,8 +117,14 @@ fn first_line(text: &str) -> Option<String> {
 }
 
 /// Whether `tool` is signed in, from its status command: it succeeds only
-/// when signed in, and `account` picks the account from what it printed.
-async fn login(tool: &str, args: &[&str], account: fn(&str) -> Option<String>) -> Login {
+/// when signed in, unless `logged_in` reads otherwise from what it printed,
+/// and `account` picks the account from it.
+async fn login(
+    tool: &str,
+    args: &[&str],
+    logged_in: fn(&str) -> Option<bool>,
+    account: fn(&str) -> Option<String>,
+) -> Login {
     let mut command = crate::process::command(tool);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
     spawn_env::apply(&mut command, Scope::Agent);
@@ -123,7 +141,7 @@ async fn login(tool: &str, args: &[&str], account: fn(&str) -> Option<String>) -
         }
         _ => (false, String::new()),
     };
-    let signed_in = signed_in && claude_logged_in(&text) != Some(false);
+    let signed_in = signed_in && logged_in(&text) != Some(false);
     Login {
         tool: tool.into(),
         signed_in,
@@ -136,6 +154,19 @@ async fn login(tool: &str, args: &[&str], account: fn(&str) -> Option<String>) -
 fn claude_logged_in(status: &str) -> Option<bool> {
     let status: serde_json::Value = serde_json::from_str(status).ok()?;
     status.get("loggedIn")?.as_bool()
+}
+
+/// Whether `opencode auth list` counts a stored credential: it always
+/// succeeds, and ends its credentials box with "<n> credentials", so no
+/// count reads as signed out.
+fn opencode_logged_in(list: &str) -> Option<bool> {
+    let count = list.lines().find_map(|line| {
+        let mut words = line.split_whitespace().rev();
+        words.next()?.starts_with("credential").then_some(())?;
+        let count: String = words.next()?.chars().filter(char::is_ascii_digit).collect();
+        count.parse::<u32>().ok()
+    });
+    Some(count.is_some_and(|count| count > 0))
 }
 
 /// The email in `claude auth status`.
@@ -238,6 +269,20 @@ mod tests {
         assert_eq!(claude_account(status).as_deref(), Some("me@example.com"));
         assert_eq!(claude_logged_in(r#"{"loggedIn": false}"#), Some(false));
         assert_eq!(claude_logged_in("Logged in using ChatGPT"), None);
+    }
+
+    #[test]
+    fn reads_opencode_auth_list() {
+        let one = "\u{1b}[0m\n\u{250c}  Credentials \u{1b}[90m~/.local/share/opencode/auth.json\n\
+            \u{2502}\n\u{25cf}  Anthropic \u{1b}[90moauth\n\u{2502}\n\u{2514}  1 credentials\n\n\
+            \u{250c}  Environment\n\u{2502}\n\u{2514}  2 environment variables\n";
+        assert_eq!(opencode_logged_in(one), Some(true));
+        let none = "\u{250c}  Credentials\n\u{2502}\n\u{2514}  0 credentials\n";
+        assert_eq!(opencode_logged_in(none), Some(false));
+        assert_eq!(
+            opencode_logged_in("Error: something went wrong"),
+            Some(false)
+        );
     }
 
     #[test]
