@@ -16,6 +16,7 @@ mod devices;
 mod error;
 mod file_sync;
 mod gh_sign_in;
+mod git_items;
 mod grants;
 mod groups;
 mod hotkey;
@@ -190,6 +191,7 @@ fn main() {
             projects::project_sessions,
             projects::project_machines,
             file_sync::project_sync,
+            git_items::git_items,
             projects::open_folder,
             projects::center_projects,
             projects::center_open_project,

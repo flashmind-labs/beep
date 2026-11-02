@@ -13,6 +13,7 @@ import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects } from "./projects-state.js";
+import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart } from "./openitems.js";
 import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
 import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
@@ -46,6 +47,8 @@ const IC = {
   pin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>',
   group: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14a5 5 0 016 5"/></svg>',
   doc: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
+  pr: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V10a3 3 0 00-3-3h-4M13 4.5L10.5 7 13 9.5"/></svg>',
+  issue: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
   rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -63,7 +66,9 @@ const CONNECT_RETRY_MS = 3000;
 /// `sessions` each project's past sessions once read, by name.
 /// `agents` lists the project agents (undefined before, null from a server
 /// without them) and `pview` each one's tasks, workers and chat, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [] };
+/// `git` is what `git_items` last gave (null before, or from an old
+/// server), and `gitAll` the projects whose open items show in full.
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], git: null, gitAll: new Set() };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -362,6 +367,98 @@ function updateRow(u) {
 function updatesSection(updates) {
   const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
   return section("sec-updates", "Updates", updates.length, clear, h("div", "cc-panel", ...updates.map(updateRow)));
+}
+
+// ---------- Open PRs and issues ----------
+
+function openUrl(url) {
+  invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
+}
+
+/// Review prefills Start a coding agent: in the project's folder on an
+/// online machine when it is imported, else on Auto.
+function reviewItem(item, project) {
+  const start = reviewStart(item, project, state.home?.machines);
+  go("pane", { agentnew: start });
+}
+
+/// Reply opens a new chat with Beep that asks for help with the item; Beep
+/// reads it with its GitHub tools, and posting asks first.
+async function replyItem(item) {
+  go("pane", { chat: { session: null } });
+  try {
+    await pane()?.compose(replyPrompt(item));
+  } catch (e) {
+    console.warn("starting a reply:", e);
+  }
+  reloadChats();
+}
+
+function openItemRow(item, project) {
+  const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
+  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title));
+  title.type = "button";
+  title.title = item.url;
+  const right = [
+    ...itemChips(item).map(c => tag(c.cls, c.text)),
+    h("span", "age", ago(item.updated_at)),
+    item.kind === "pull_request" ? rowButton("Review", "small", () => reviewItem(item, project)) : null,
+    rowButton("Reply", "small", () => replyItem(item)),
+  ];
+  const row = h("div", "cc-row cc-line cc-gr it", h("span", "ic", kindIcon), title, h("span", "r", ...right));
+  row.addEventListener("click", () => openUrl(item.url));
+  return row;
+}
+
+/// One project's row, its counts and its newest items.
+function openProjectRows(p, i) {
+  const counts = [p.prs ? plural(p.prs, "PR", "PRs") : null, p.issues ? plural(p.issues, "issue", "issues") : null]
+    .filter(Boolean).map(t => h("span", "", t));
+  const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
+  const sub = p.project ? p.host : `${p.host} · not imported`;
+  const head = line(h("span", "cc-pdot"), p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
+  head.classList.add("cc-gr");
+  head.querySelector(".cc-pdot").style.background = PROJECT_COLORS[i % PROJECT_COLORS.length];
+  const all = state.gitAll.has(p.key);
+  const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project))];
+  if (p.items.length > ITEMS_SHOWN) {
+    const more = button(all ? "Show fewer" : `Show all ${p.items.length}`, "quiet small", () => {
+      if (all) state.gitAll.delete(p.key); else state.gitAll.add(p.key);
+      draw();
+    });
+    rows.push(h("div", "cc-gr it more", more));
+  }
+  return rows;
+}
+
+/// Open PRs and issues on the user's git hosts, one row per project with
+/// its items under it. A host that failed says why above the rows.
+function gitSection(view) {
+  const projects = projectsWithOpen(view, projectRows() || []);
+  const notes = view.hosts.filter(x => x.error).map(x =>
+    h("div", "cc-note", h("span", "ddot bad"), h("span", "", x.error)));
+  const body = projects.length
+    ? projects.flatMap(openProjectRows)
+    : [h("div", "cc-empty", h("span", "", notes.length ? "Nothing to show from the hosts that answered." : "No open pull requests or issues."))];
+  const total = projects.reduce((n, p) => n + p.items.length, 0);
+  const count = projects.length ? `${total} in ${plural(projects.length, "project", "projects")}` : "";
+  return section("sec-git", openTitle(view.hosts), count, null, h("div", "cc-panel cc-open", ...notes, ...body));
+}
+
+let readingGit = false;
+/// Asks the server for the open items; it keeps them a few minutes, so
+/// this runs less often than Home's refresh.
+async function refreshGit() {
+  if (readingGit) return;
+  readingGit = true;
+  try {
+    state.git = await invoke("git_items");
+  } catch (e) {
+    console.warn("open PRs and issues:", e);
+  } finally {
+    readingGit = false;
+  }
+  if (shown === "home") draw();
 }
 
 // ---------- Views ----------
@@ -850,15 +947,17 @@ function page(home, wide) {
     updates: () => updatesSection(home.updates),
     coming: () => comingSection(coming),
     projects: () => projectsSection(projectRows() || []),
+    git: () => gitSection(state.git),
   };
-  const cols = wide && homeColumns(home);
+  const laid = { ...home, git: state.git };
+  const cols = wide && homeColumns(laid);
   if (cols) {
     const col = keys => h("div", "", ...keys.map(k => make[k]()));
     out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
     return out;
   }
   if (machines) out.push(make.machines());
-  for (const row of homeRows(home)) {
+  for (const row of homeRows(laid)) {
     out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
   }
   return out;
@@ -950,7 +1049,7 @@ new ResizeObserver(() => {
 registerView("home", {
   el: $("#home-box"),
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
-  mount() { refresh(); },
+  mount() { refresh(); refreshGit(); },
 });
 
 // ---------- Projects ----------
@@ -1716,6 +1815,10 @@ setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10000);
+// Open PRs and issues: the server keeps them a few minutes, so once a minute
+// on Home is plenty.
+window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
+setInterval(() => { if (document.visibilityState === "visible" && shown === "home") refreshGit(); }, 60000);
 for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
   listen(name, () => refresh());
 }
