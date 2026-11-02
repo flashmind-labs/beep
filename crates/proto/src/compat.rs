@@ -91,6 +91,7 @@ sample_struct! {
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }
+    GitHubAccount { id, login, orgs, default, last4, created_at, unreadable }
     Models { choices, selected, thinking, auto, auto_available }
     AutoPick { model, thinking }
     Agents { enabled, agents }

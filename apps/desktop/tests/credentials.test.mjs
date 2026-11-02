@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, hostOf, sameServer, teaHas, teaOffers, toolLine,
+  GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, ghChoices, githubAccounts, hostOf, sameServer, teaHas, teaOffers, toolLine,
 } from "../dist/credentials.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -148,6 +148,64 @@ test("teacli servers not in Beep can be used", () => {
   assert.match(html, /data-cred-cli="forgejo:http:\/\/git\.example\.net:8087">Use teacli sign-in/);
   assert.equal(teaHas(cli, "https://git.example.com"), true);
   assert.equal(teaHas(cli, "https://code.example.org"), false);
+});
+
+const accounts = [
+  { id: "g1", login: "octo-one", orgs: ["acme", "acme-labs"], default: true, last4: "4f2a", created_at: 0, unreadable: false },
+  { id: "g2", login: "octo-two", orgs: [], default: false, last4: "81c7", created_at: 0, unreadable: false },
+];
+
+test("each GitHub account is a row, the default tagged", () => {
+  const html = credentialsHtml({ list, github: accounts, providers, edit: null }, machines, esc, ago);
+  assert.match(html, /@octo-one/);
+  assert.match(html, /@octo-two/);
+  assert.match(html, />default<\/span>/);
+  assert.match(html, /orgs acme, acme-labs/);
+  assert.match(html, /GH_TOKEN on your machines/);
+  assert.match(html, /data-cred-gh-default="g2">Make default/);
+  assert.doesNotMatch(html, /data-cred-gh-default="g1"/);
+  assert.match(html, /data-cred-edit="github:g2">Replace/);
+  assert.match(html, /data-cred-remove="g2"/);
+  assert.match(html, /data-cred-gh-add="1">\+ Add another GitHub account/);
+  // The row from the credentials list is not shown twice.
+  assert.doesNotMatch(html, /data-cred-remove="g"/);
+  assert.doesNotMatch(html, /undefined/);
+});
+
+test("adding another account offers gh's accounts not in Beep yet", () => {
+  const cli = {
+    github: { state: "signed_in", account: "octo-three" },
+    github_accounts: [{ login: "octo-one", active: false }, { login: "octo-three", active: true }],
+    forgejo: [],
+  };
+  const html = credentialsHtml({ list, github: accounts, providers, edit: null, cli, ghAdd: true }, machines, esc, ago);
+  assert.match(html, /Add another GitHub account/);
+  assert.match(html, /gh on this Mac as @octo-three/);
+  assert.match(html, /data-cred-gh-use="octo-three">Use/);
+  assert.doesNotMatch(html, /data-cred-gh-use="octo-one"/);
+  assert.match(html, /data-cred-gh>Sign in with GitHub/);
+  assert.match(html, /data-cred-edit="github:new">Paste a token/);
+  assert.match(html, /@octo-one is in Beep already/);
+  const busy = credentialsHtml({ list, github: accounts, providers, edit: null, cli, ghAdd: true, cliBusy: "gh:octo-three" }, machines, esc, ago);
+  assert.match(busy, /data-cred-gh-use="octo-three" disabled>Checking…/);
+  const pasting = credentialsHtml({ list, github: accounts, providers, edit: editFor("github:new", list), cli, ghAdd: true }, machines, esc, ago);
+  assert.match(pasting, /Another account/);
+  assert.match(pasting, /id="credSecret"/);
+});
+
+test("with no account saved, several gh accounts each get Use", () => {
+  const cli = { github: { state: "signed_in", account: "octo-one" }, github_accounts: [{ login: "octo-one", active: true }, { login: "octo-two", active: false }], forgejo: [] };
+  const html = credentialsHtml({ list: noGithub, github: [], providers, edit: null, cli }, machines, esc, ago);
+  assert.match(html, /gh on this Mac has 2 accounts/);
+  assert.match(html, /data-cred-gh-use="octo-one"/);
+  assert.match(html, /data-cred-gh-use="octo-two"/);
+  assert.doesNotMatch(html, /Use gh sign-in/);
+});
+
+test("without the accounts list the GitHub row of the credentials is the default", () => {
+  assert.deepEqual(githubAccounts({ list }).map(a => [a.id, a.login, a.default]), [["g", "you", true]]);
+  assert.deepEqual(githubAccounts({ list, github: accounts }).map(a => a.id), ["g1", "g2"]);
+  assert.deepEqual(ghChoices({ github_accounts: [{ login: "OCTO-ONE" }, { login: "x" }] }, accounts).map(g => g.login), ["x"]);
 });
 
 test("server URLs compare by origin", () => {
