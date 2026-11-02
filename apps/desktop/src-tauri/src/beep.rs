@@ -55,6 +55,11 @@ pub const SUGGEST_REPLIES: &str = "suggest_replies";
 const SEND_FILE: &str = "send_file";
 /// Its result lists pictures, from the web or kept with the chat.
 const SEND_IMAGE: &str = "send_image";
+/// Its result lists the picture it made, the same as `send_image`'s.
+const IMAGE_GEN: &str = "image_gen";
+/// Their results name the video or 3D model they made, the same as
+/// `send_file`'s.
+const MADE_FILES: [&str; 2] = ["video_gen", "3d_gen"];
 /// Their results hold a chart, drawn under the reply.
 const SHOW_CHART: &str = "show_chart";
 const SHOW_STOCK_CHART: &str = "show_stock_chart";
@@ -1136,9 +1141,10 @@ struct FileOutput {
     file: SentFile,
 }
 
-/// The file a `send_file` result names, or `None` for any other tool.
+/// The file a `send_file`, `video_gen` or `3d_gen` result names, or `None`
+/// for any other tool.
 fn sent_file(name: &str, output: &str) -> Option<SentFile> {
-    if name != SEND_FILE {
+    if name != SEND_FILE && !MADE_FILES.contains(&name) {
         return None;
     }
     serde_json::from_str::<FileOutput>(output)
@@ -1151,9 +1157,10 @@ struct ImagesOutput {
     images: Vec<SentImage>,
 }
 
-/// The pictures a `send_image` result lists, or none for any other tool.
+/// The pictures a `send_image` or `image_gen` result lists, or none for any
+/// other tool.
 fn sent_images(name: &str, output: &str) -> Vec<SentImage> {
-    if name != SEND_IMAGE {
+    if name != SEND_IMAGE && name != IMAGE_GEN {
         return Vec::new();
     }
     serde_json::from_str::<ImagesOutput>(output)
@@ -1364,6 +1371,19 @@ mod tests {
         assert!(matches!(&images[1].source, ImageSource::File(file) if file.id == "f2"));
         assert!(sent_images(SEND_FILE, output).is_empty());
         assert!(sent_images(SEND_IMAGE, "failed").is_empty());
+    }
+
+    #[test]
+    fn made_media_shows_like_sent_media() {
+        let image = r#"{"action":"send_image","images":[{"file":{"id":"f3","name":"cat.png","mime":"image/png","size":900},"caption":""}],"provider":"OpenAI","model":"gpt-image-2","path":"cat.png"}"#;
+        let images = sent_images("image_gen", image);
+        assert_eq!(images.len(), 1);
+        assert!(matches!(&images[0].source, ImageSource::File(file) if file.id == "f3"));
+        let model = r#"{"action":"send_file","file":{"id":"f4","name":"cat.glb","mime":"model/gltf-binary","size":4000},"provider":"Meshy","model":"latest","path":"cat.glb"}"#;
+        for tool in ["video_gen", "3d_gen"] {
+            let file = sent_file(tool, model).expect("a made file is named like a sent one");
+            assert_eq!(file.id, "f4");
+        }
     }
 
     #[test]

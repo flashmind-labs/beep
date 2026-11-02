@@ -1192,6 +1192,14 @@ impl User {
         self.store.delete_project_group(&self.key, id).await
     }
 
+    /// The user's API keys, opened.
+    pub(crate) async fn api_keys(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::ApiKey>> {
+        self.store.api_keys(&self.key, key).await
+    }
+
     /// The user's credentials, without their secrets.
     pub async fn credentials(
         &self,

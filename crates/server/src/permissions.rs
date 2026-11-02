@@ -13,6 +13,7 @@ use crate::{
         AppAction, AppKind, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel,
     },
     store::{AppPermissionRow, ChatAllow},
+    tools::media::{self, MediaKind},
     user::User,
 };
 use anyhow::Result;
@@ -154,10 +155,15 @@ pub(crate) enum ToolApp {
     /// Beep's own tools that act on the user's machines, such as
     /// `send_file` sending to one.
     Machines,
+    /// Beep's tools that make media with the user's own API keys, which
+    /// spend their money: `image_gen`, `video_gen` and `3d_gen`.
+    Media,
 }
 
 /// The rules' name for the user's machines.
 pub(crate) const MACHINES_APP: &str = "machines";
+/// The rules' name for media made with the user's keys.
+const MEDIA_APP: &str = "media";
 
 impl ToolApp {
     pub(crate) fn slug(&self) -> &str {
@@ -165,6 +171,7 @@ impl ToolApp {
             ToolApp::Catalog(app) => app.slug,
             ToolApp::Added(slug) => slug,
             ToolApp::Machines => MACHINES_APP,
+            ToolApp::Media => MEDIA_APP,
         }
     }
 
@@ -176,6 +183,7 @@ impl ToolApp {
                 capitalize(&slug.trim_start_matches(ADDED_PREFIX).replace('-', " "))
             }
             ToolApp::Machines => "Your machines".to_owned(),
+            ToolApp::Media => "Media generation".to_owned(),
         }
     }
 }
@@ -192,6 +200,9 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     }
     if tool == ADD_MACHINE || tool == IMPORT_PROJECT {
         return Some((ToolApp::Machines, Acts::Always));
+    }
+    if MediaKind::from_tool(tool).is_some() {
+        return Some((ToolApp::Media, Acts::Always));
     }
     for app in CATALOG {
         if let Some(picked) = app.tools.iter().find(|picked| picked.slug == tool) {
@@ -244,7 +255,7 @@ fn project_tool(slug: &str) -> Option<(ToolApp, Acts)> {
 pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp, bool)> {
     match lookup(tool)? {
         (ToolApp::Catalog(app), acts) => Some((app, acts.on(args))),
-        (ToolApp::Added(_) | ToolApp::Machines, _) => None,
+        (ToolApp::Added(_) | ToolApp::Machines | ToolApp::Media, _) => None,
     }
 }
 
@@ -253,7 +264,16 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
     Approval {
         app: app.name(),
         action: action_name(app, ToolSlug::new(tool).as_str()),
-        fields: fields(args),
+        fields: call_fields(app, tool, args),
+    }
+}
+
+/// The arguments a card shows. A media call shows the service and model it
+/// runs on even when the model left the model out.
+fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
+    match (app, MediaKind::from_tool(tool)) {
+        (ToolApp::Media, Some(kind)) => media::approval_fields(kind, args),
+        _ => fields(args),
     }
 }
 
@@ -280,6 +300,9 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
 
 /// "send email" for `GMAIL_SEND_EMAIL`.
 pub(crate) fn action_name(app: &ToolApp, tool: &str) -> String {
+    if let (ToolApp::Media, Some(kind)) = (app, MediaKind::from_tool(tool)) {
+        return kind.action().to_owned();
+    }
     let prefix = format!("{}_", app.slug().to_uppercase());
     tool.strip_prefix(&prefix)
         .unwrap_or(tool)
@@ -611,7 +634,7 @@ pub(crate) fn waiting_approval(
 ) -> Option<HistoryEntry> {
     let call = open_calls(conversation).into_iter().next()?;
     let (app, _) = lookup_in(&call.name, is_project)?;
-    let mut fields = fields(&call.arguments);
+    let mut fields = call_fields(&app, &call.name, &call.arguments);
     fields.extend(records(&call, conversation));
     Some(HistoryEntry::Approval {
         approval: Approval {
@@ -1024,11 +1047,11 @@ pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -
     rule.allowed.insert(ToolSlug::new(tool).0);
     let row = match app {
         ToolApp::Catalog(app) => row(app, rule.level, rule.allowed.into_iter().collect()),
-        ToolApp::Machines => {
+        ToolApp::Machines | ToolApp::Media => {
             let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
             allowed.sort();
             AppPermissionRow {
-                app: MACHINES_APP.to_owned(),
+                app: app.slug().to_owned(),
                 level: rule.level,
                 allowed,
             }
@@ -1485,6 +1508,60 @@ mod tests {
         assert!(result.is_interrupt());
         let approval = approval_for(&app, "import_project", &args);
         assert_eq!(approval.action, "import project");
+    }
+
+    #[tokio::test]
+    async fn making_media_asks_first_with_its_service_and_model() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let args = json!({ "prompt": "a red fox", "provider": "openai" });
+        for tool in ["image_gen", "video_gen", "3d_gen"] {
+            let (app, acts) = lookup(tool).unwrap();
+            assert_eq!(app.slug(), MEDIA_APP);
+            assert_eq!(acts, Acts::Always);
+            let guarded = guard(
+                vec![Arc::new(Named(tool))],
+                Rules::default(),
+                Approved(None),
+                &HashSet::new(),
+                None,
+            );
+            let result = guarded[0]
+                .execute(ToolContext::new("call", args.clone(), None, &token))
+                .await
+                .unwrap();
+            assert!(result.is_interrupt(), "{tool}");
+            // An untrusted turn never gets it.
+            assert!(read_tools_only(vec![Arc::new(Named(tool))], &HashSet::new()).is_empty());
+        }
+        let approval = approval_for(&ToolApp::Media, "image_gen", &args);
+        assert_eq!(approval.app, "Media generation");
+        assert_eq!(approval.action, "make an image");
+        let shown: Vec<(&str, &str)> = approval
+            .fields
+            .iter()
+            .map(|field| (field.label.as_str(), field.value.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Prompt", "a red fox"),
+                ("Provider", "OpenAI"),
+                ("Model", "gpt-image-2")
+            ]
+        );
+        // The user's yes runs it.
+        let guarded = guard(
+            vec![Arc::new(Named("image_gen"))],
+            Rules::default(),
+            Approved(Some("call".into())),
+            &HashSet::new(),
+            None,
+        );
+        let result = guarded[0]
+            .execute(ToolContext::new("call", args, None, &token))
+            .await
+            .unwrap();
+        assert!(!result.is_interrupt());
     }
 
     #[test]

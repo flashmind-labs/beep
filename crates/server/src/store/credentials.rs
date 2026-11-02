@@ -589,6 +589,54 @@ impl Store {
     }
 }
 
+impl Store {
+    /// The user's API keys, opened, by provider. One that does not open, or
+    /// whose provider this server does not know, is left out and logged, so
+    /// the rest still work.
+    pub(crate) async fn api_keys(
+        &self,
+        user: &UserKey,
+        key: &CredentialKey,
+    ) -> Result<Vec<ApiKey>> {
+        let rows = sqlx::query(
+            "SELECT id, kind, provider, host_url, secret FROM credentials
+             WHERE user_id=$1 AND kind=$2 ORDER BY provider",
+        )
+        .bind(user.as_str())
+        .bind(API_KEY)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::new();
+        for row in &rows {
+            let id: String = row.try_get("id")?;
+            let sealed: Vec<u8> = row.try_get("secret")?;
+            let opened = slot_from(row).and_then(|slot| {
+                let Slot::ApiKey(provider) = slot else {
+                    bail!("not an API key");
+                };
+                let owner = Owner {
+                    user: user.as_str(),
+                    slot: &slot,
+                    id: &id,
+                };
+                let secret = key.open(&owner, &sealed)?;
+                Ok(ApiKey { provider, secret })
+            });
+            match opened {
+                Ok(opened) => out.push(opened),
+                Err(e) => log::warn!("credential {id} skipped: {e:#}"),
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// One of the user's API keys, opened.
+pub(crate) struct ApiKey {
+    pub(crate) provider: ApiProvider,
+    pub(crate) secret: SecretString,
+}
+
 /// Seals the credentials of `source` again for `target`, before an account
 /// merge moves them: what is sealed names its user. One that does not open
 /// is left as it is, unreadable either way.
