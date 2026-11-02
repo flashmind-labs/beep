@@ -25,6 +25,8 @@ pub(crate) const CHECK_LABEL: &str = "Project check";
 pub(crate) const WORKER_LABEL: &str = "Project worker";
 /// The user asked for a plan of an issue on the host.
 pub(crate) const ISSUE_LABEL: &str = "Project issue";
+/// The user asked for something about a branch review.
+pub(crate) const REVIEW_LABEL: &str = "Project review";
 
 /// Most project memories the context lists.
 const MAX_MEMORIES: usize = 30;

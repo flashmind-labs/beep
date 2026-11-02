@@ -38,6 +38,7 @@ mod project_import;
 mod project_sync;
 mod projects;
 mod research;
+mod reviews;
 mod sessions;
 mod settings;
 mod terminals;
@@ -232,6 +233,14 @@ pub fn router() -> Router {
         .call(terminals::start_terminal)
         .call(terminals::get_terminal)
         .call(terminals::close_terminal)
+        .call(reviews::list_project_branches)
+        .call(reviews::start_branch_review)
+        .call(reviews::get_branch_review)
+        .call(reviews::list_branch_reviews)
+        .call(reviews::dismiss_review_finding)
+        .call(reviews::fix_review_findings)
+        .call(reviews::post_branch_review)
+        .call(reviews::merge_reviewed_branch)
         .call(agent_accounts::get_agent_accounts)
         .call(agent_accounts::save_agent_token)
         .call(agent_accounts::revoke_agent_token)

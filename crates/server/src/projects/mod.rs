@@ -21,6 +21,7 @@ mod node_tests;
 mod personas;
 pub(crate) mod place;
 pub(crate) mod policy;
+pub(crate) mod review;
 mod schedule;
 mod service;
 #[cfg(test)]

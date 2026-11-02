@@ -879,6 +879,51 @@ requests! {
     /// terminal. `NotFound` when the caller has no such terminal;
     /// `BadRequest` when its machine is online and refuses to stop it.
     204 CloseTerminal { id: Uuid } => Call<()>
+    /// `project`'s (`org/repo`) branches on one machine with a checkout
+    /// (the home checkout's when it is online, else another online one):
+    /// local branches and those only on `origin`, newest commit first, at
+    /// most 100, each with its worktree there, how far it is ahead of and
+    /// behind the default branch, and its last commit. Read with git on
+    /// each call, without fetching. `NotFound` when the caller has no such
+    /// project; `BadRequest` saying why when no machine with a checkout is
+    /// online or git fails.
+    205 ListProjectBranches { project: String } => Call<ProjectBranches>
+    /// Reviews `branch` of `project` against its default branch before a
+    /// merge: fetches, reads the diff's stat, whether it merges cleanly
+    /// and the branch's pull request with its checks, then starts one
+    /// read-only coding-agent session per shard of the diff (by top-level
+    /// area). `NotFound` when the caller has no such project; `BadRequest`
+    /// saying why when no machine with a checkout and a coding agent is
+    /// online, the branch is not found, it has no changes or an agent does
+    /// not start.
+    206 StartBranchReview { project: String, branch: String } => Call<BranchReview>
+    /// One review as it stands. Asking moves it on: a reviewer that ended
+    /// its turn gives its findings and a fresh verifier session checks
+    /// them. `NotFound` when the caller has no such review.
+    207 GetBranchReview { id: Uuid } => Call<BranchReview>
+    /// `project`'s newest review of each branch, newest first, at most 20,
+    /// as they stand without moving them on.
+    208 ListBranchReviews { project: String } => Call<Vec<BranchReview>>
+    /// Dismisses one finding of a review, by `ReviewFinding::id`, or brings
+    /// it back. `NotFound` when the caller has no such review or finding.
+    209 DismissReviewFinding { review: Uuid, finding: u32, dismissed: bool } => Call<BranchReview>
+    /// Makes a project task with the review's open findings and starts a
+    /// worker on it, in a worktree off the reviewed branch. `NotFound` when
+    /// the caller has no such review; `BadRequest` when nothing is open or
+    /// the review is still running.
+    210 FixReviewFindings { review: Uuid } => Call<ProjectTask>
+    /// Asks the project agent, in the project chat, to post the review's
+    /// open findings on the branch's pull request; its host tools ask the
+    /// user before anything posts. Gives the project chat's id. `NotFound`
+    /// when the caller has no such review; `BadRequest` when the branch has
+    /// no pull request or the review is still running.
+    211 PostBranchReview { review: Uuid } => Call<Uuid>
+    /// Asks the project agent, in the project chat, to merge the branch's
+    /// pull request; the merge always asks the user first. Gives the
+    /// project chat's id. `NotFound` when the caller has no such review;
+    /// `BadRequest` saying why while the review runs, findings are open,
+    /// checks fail, the branch conflicts or it has no pull request.
+    212 MergeReviewedBranch { review: Uuid } => Call<Uuid>
     /// How the caller's coding agents sign in on their machines, for the
     /// Agent accounts section of Settings: the Claude Code token and Codex
     /// API key Beep keeps (never the secrets) and each machine that has
@@ -1010,6 +1055,176 @@ pub struct MachinePick {
     pub machine_name: String,
     /// Why, such as "It has Xcode and runs the fewest sessions."
     pub why: String,
+}
+
+/// A project's branches on one machine, as `ListProjectBranches` reads them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectBranches {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub default_branch: String,
+    pub branches: Vec<ProjectBranch>,
+}
+
+/// One branch of a project.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectBranch {
+    /// Without `origin/`.
+    pub name: String,
+    /// The folder of the worktree that has it checked out, on the machine
+    /// read.
+    pub worktree: Option<String>,
+    /// Commits it has that the default branch does not.
+    pub ahead: u32,
+    /// Commits the default branch has that it does not.
+    pub behind: u32,
+    /// Its last commit.
+    pub head: String,
+    pub subject: String,
+    pub committed_at: SystemTime,
+    /// It is a branch of the checkout, not only on `origin`.
+    pub local: bool,
+    /// It is on `origin`.
+    pub pushed: bool,
+}
+
+/// A review of a branch against its base, as it stands.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BranchReview {
+    pub id: Uuid,
+    /// `org/repo`.
+    pub project: String,
+    pub branch: String,
+    /// The branch it merges into.
+    pub base: String,
+    /// The commit reviewed.
+    pub head: String,
+    pub head_at: SystemTime,
+    pub started_at: SystemTime,
+    /// The machine whose checkout the reviewers read.
+    pub machine_name: String,
+    /// Lines added and removed.
+    pub changed_lines: u32,
+    pub files: u32,
+    pub merge: ReviewMerge,
+    /// The branch's open pull request, when it has one.
+    pub pr: Option<ReviewPr>,
+    pub shards: Vec<ReviewShard>,
+    /// Ranked: open ones by severity first, dismissed then dropped ones
+    /// last.
+    pub findings: Vec<ReviewFinding>,
+}
+
+/// A reviewed branch's pull request.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviewPr {
+    pub number: u64,
+    pub url: String,
+    pub checks: ReviewChecks,
+}
+
+wire_enum! {
+    /// How the checks on a pull request stand. `None` when it reports
+    /// none or the host does not say.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ReviewChecks {
+        0 None {}
+        1 Pending {}
+        2 Passing {}
+        3 Failing {}
+    }
+}
+
+wire_enum! {
+    /// Whether the branch merges into its base. `Unknown` when git on the
+    /// machine is too old to say.
+    #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ReviewMerge {
+        0 Clean {}
+        1 Conflicts { files: Vec<String> }
+        2 Unknown {}
+    }
+}
+
+/// One reviewer's part of the diff.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviewShard {
+    /// The folder its files are under, such as `apps/web`, or `.` for the
+    /// files at the top.
+    pub area: String,
+    pub files: u32,
+    pub lines: u32,
+    /// The coding agent reading it, such as `claude`.
+    pub agent: String,
+    pub state: ReviewShardState,
+    /// Findings its reviewer reported.
+    pub found: u32,
+}
+
+wire_enum! {
+    /// Where one shard stands. `Reading` says what the reviewer does now;
+    /// `Verifying` waits for the verifier.
+    #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ReviewShardState {
+        0 Reading { doing: String }
+        1 Verifying {}
+        2 Done {}
+        3 Failed { why: String }
+    }
+}
+
+/// One thing a reviewer found.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviewFinding {
+    /// Unique within its review.
+    pub id: u32,
+    /// Its shard's area.
+    pub area: String,
+    pub severity: ReviewSeverity,
+    pub title: String,
+    pub file: String,
+    pub line: Option<u32>,
+    /// One line on why it matters.
+    pub why: String,
+    pub verdict: ReviewVerdict,
+    pub dismissed: bool,
+}
+
+wire_enum! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ReviewSeverity {
+        0 High {}
+        1 Medium {}
+        2 Low {}
+    }
+}
+
+wire_enum! {
+    /// What the verifier made of a finding. `Unchecked` when it could not
+    /// say, so the finding stays.
+    #[derive(Debug, Clone, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ReviewVerdict {
+        0 Waiting {}
+        1 Verified {}
+        2 Dropped { why: String }
+        3 Unchecked {}
+    }
 }
 
 /// A command kept running on one of the user's machines for a project.

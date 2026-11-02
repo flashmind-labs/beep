@@ -209,7 +209,8 @@ export function prsSection(view, act) {
   const rows = tasks.map(t => {
     const title = h("span", "t", link(prLabel(t.pr_url), t.pr_url, act.openUrl), " ", t.title);
     title.title = t.title;
-    return h("div", "pj-task", title, chip(t.state), h("span", "m", t.branch ? h("code", "", t.branch) : null));
+    const review = t.branch && act.review && t.state !== "done" ? h("span", "acts", button("Review", t.state === "review" ? "pri" : "", () => act.review(t.branch))) : null;
+    return h("div", "pj-task", title, chip(t.state), h("span", "m", t.branch ? h("code", "", t.branch) : null), review);
   });
   const open = tasks.filter(t => t.state !== "done").length;
   return section("sec-prs", "Pull requests", open ? `${open} open` : "", h("div", "cc-panel", ...rows));

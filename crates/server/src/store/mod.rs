@@ -31,6 +31,9 @@ mod instance;
 mod instructions;
 pub(crate) use habits::DuplicateHabit;
 pub(crate) use instructions::{InstructionsRow, Saved};
+pub(crate) use reviews::{
+    Judged, PrRow, ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict,
+};
 pub(crate) use terminals::TerminalRow;
 mod location;
 mod memories;
@@ -44,6 +47,7 @@ mod project_imports;
 mod project_sync;
 mod projects;
 mod research;
+mod reviews;
 mod routes;
 mod runs;
 mod sessions;
@@ -414,9 +418,14 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         include_str!("../../migrations/0067_terminals.sql"),
     ),
     (
-        70,
+        68,
+        "branch reviews",
+        include_str!("../../migrations/0068_branch_reviews.sql"),
+    ),
+    (
+        69,
         "chat allows",
-        include_str!("../../migrations/0070_chat_allows.sql"),
+        include_str!("../../migrations/0069_chat_allows.sql"),
     ),
 ];
 
