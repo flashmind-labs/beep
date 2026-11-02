@@ -780,6 +780,41 @@ requests! {
     /// machine linked, even one set up again. `NotFound` when the caller
     /// made no such token; `BadRequest` when `token` is not one.
     182 GetNodeToken { token: String } => Call<Option<String>>
+    /// The caller's GitHub accounts, the default one first, then oldest
+    /// first. `ListCredentials` lists only the default one, as its single
+    /// GitHub row, for apps from before several accounts.
+    190 ListGitHubAccounts {} => Call<Vec<GitHubAccount>>
+    /// Saves a GitHub token as one of the caller's accounts, after GitHub
+    /// says who it signs in as: it replaces the account with that login,
+    /// or adds one. The first account is the default. The orgs the token
+    /// can see are kept, to pick the account for a project. `BadRequest`
+    /// saying why when GitHub refuses it.
+    191 SaveGitHubAccount { secret: SecretText } => Call<GitHubAccount>
+    /// Makes one of the caller's GitHub accounts, by `GitHubAccount::id`,
+    /// the default: the one machines get as `GH_TOKEN`. `NotFound` when the
+    /// caller has no such account. Remove one with `RemoveCredential`.
+    192 SetDefaultGitHubAccount { id: String } => Call<()>
+}
+
+/// One of the caller's GitHub accounts, as `ListGitHubAccounts` lists it.
+/// The token stays on the server.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitHubAccount {
+    /// The same id as its `Credential::id`.
+    pub id: String,
+    /// The login GitHub said the token signs in as.
+    pub login: String,
+    /// The orgs the token could see when it was saved.
+    pub orgs: Vec<String>,
+    /// The machines get it as `GH_TOKEN`, and projects no other account
+    /// owns use it.
+    pub default: bool,
+    /// The token's last four characters.
+    pub last4: String,
+    pub created_at: SystemTime,
+    /// The server can no longer open it; the user has to enter it again.
+    pub unreadable: bool,
 }
 
 /// A project imported onto one of the caller's machines.
