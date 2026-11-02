@@ -478,8 +478,11 @@ impl HostCommand<'_> {
             Self::CommentIssue { number, body } => {
                 number_command(&["issue", "comment"], number, &["--body", body])
             }
-            // `gh api` takes no -R: the account is the same for every repo.
-            Self::WhoAmI => Parts::new(&["gh", "api", "user", "--jq", ".login"]).render(),
+            // `gh api` takes no -R; the owner's account decides who it is.
+            Self::WhoAmI => format!(
+                "{account}{}",
+                Parts::new(&["gh", "api", "user", "--jq", ".login"]).render()
+            ),
             Self::FindIssue { marker } => {
                 // Filtered by gh itself, so only the match is printed.
                 let jq = format!(
@@ -1139,7 +1142,7 @@ mod tests {
         let list = HostCommand::ListOpenIssues.render(&github(), &repo());
         assert!(
             list.starts_with(
-                "gh issue list -R acme/widget --state open --limit 100 \
+                "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue list -R acme/widget --state open --limit 100 \
                  --json 'number,title,labels,author,createdAt,comments,url' --jq"
             ),
             "{list}"
@@ -1151,7 +1154,7 @@ mod tests {
         );
         assert_eq!(
             HostCommand::ViewIssue { number: 9 }.render(&github(), &repo()),
-            "gh issue view 9 -R acme/widget --json 'number,title,body,url,state,author'"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue view 9 -R acme/widget --json 'number,title,body,url,state,author'"
         );
         assert_eq!(
             HostCommand::ViewIssue { number: 9 }.render(&forgejo(), &repo()),
@@ -1204,7 +1207,7 @@ mod tests {
     fn whoami_and_comment_render_and_parse() {
         assert_eq!(
             HostCommand::WhoAmI.render(&github(), &repo()),
-            "gh api user --jq .login"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh api user --jq .login"
         );
         assert_eq!(
             HostCommand::WhoAmI.render(&forgejo(), &repo()),
@@ -1216,7 +1219,7 @@ mod tests {
         };
         assert_eq!(
             comment.render(&github(), &repo()),
-            "gh issue comment 4 -R acme/widget --body 'Fixed in #5'"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue comment 4 -R acme/widget --body 'Fixed in #5'"
         );
         assert_eq!(
             comment.render(&forgejo(), &repo()),
