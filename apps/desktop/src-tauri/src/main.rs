@@ -14,6 +14,7 @@ mod credentials;
 mod desktop;
 mod devices;
 mod error;
+mod gh_sign_in;
 mod grants;
 mod groups;
 mod hotkey;
@@ -175,6 +176,8 @@ fn main() {
             credentials::remove_credential,
             cli_login::cli_logins,
             cli_login::use_cli_login,
+            gh_sign_in::gh_sign_in,
+            gh_sign_in::cancel_gh_sign_in,
             projects::import_project,
             commands::open_file,
             commands::picture,
@@ -272,6 +275,8 @@ fn main() {
                 // However Beep quits, a downloaded update is installed for next time.
                 RunEvent::Exit => {
                     update::install(app);
+                    // gh, if it is still waiting for a GitHub code, goes too.
+                    app.state::<gh_sign_in::GhSignIn>().stop_on_quit();
                     // Background tasks the agent started here end with the app.
                     beep_node::kill_tasks();
                 }
@@ -312,6 +317,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(research::Pending::default());
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
+    app.manage(gh_sign_in::GhSignIn::default());
     app.manage(update::Updates::default());
     app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
