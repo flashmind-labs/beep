@@ -25,6 +25,7 @@ mod credentials;
 mod crons;
 mod devices;
 mod findings;
+mod git_items;
 mod grants;
 mod groups;
 mod live;
@@ -236,6 +237,7 @@ pub fn router() -> Router {
         .call(agent_found::list_found_folders)
         .call(agent_found::list_project_sessions)
         .call(agent_control::resume_agent_session)
+        .call(git_items::list_git_items)
 }
 
 type Reply<T> = Result<T, ApiError>;

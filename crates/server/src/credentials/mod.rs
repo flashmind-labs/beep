@@ -6,7 +6,7 @@ mod check;
 mod net;
 mod seal;
 
-pub use check::{Checked, Checker};
+pub use check::{Checked, Checker, host_client};
 pub use seal::{CredentialKey, Owner};
 
 use crate::protocol::{
