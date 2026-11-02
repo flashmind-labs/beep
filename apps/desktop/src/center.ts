@@ -1662,19 +1662,24 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   if (terms.list(p.name) === undefined) terms.load(p.name);
   if (revs.branches(p.name) === undefined) revs.load(p.name);
   if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
-  out.push(h("div", "pb-grid",
-    tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!) }),
-    tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl }),
-    tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl }),
-    tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
-      menu: (r, e) => {
-        const m = rows.find(w => w.id === r.id);
-        if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
-      },
-    }),
-    tile("agents", "Agents", agentTile(running, past), openTile),
-    tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
-    tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile)));
+  // Tiles in sections, two a row: the work, the code host, the machines.
+  const tileGroup = (title: string, ...tiles: Node[]) => h("div", "pb-sec", h("h4", "", title), h("div", "pb-grid", ...tiles));
+  out.push(
+    tileGroup("Work",
+      tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!) }),
+      tile("agents", "Agents", agentTile(running, past), openTile),
+      tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile)),
+    tileGroup("Pull requests and issues",
+      tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl }),
+      tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl })),
+    tileGroup("Machines",
+      tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
+        menu: (r, e) => {
+          const m = rows.find(w => w.id === r.id);
+          if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
+        },
+      }),
+      tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile)));
   return out;
 }
 
