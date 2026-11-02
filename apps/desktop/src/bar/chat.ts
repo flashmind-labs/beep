@@ -3,7 +3,8 @@ import { askFiles, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
 import { chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
-import { $, $$, bar, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "./core.ts";
+import { coderCard } from "./codercard.ts";
+import { $, $$, bar, changed, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "./core.ts";
 import type { ChatBody, LiveEntry, PendingApproval, Step, Turn } from "./core.ts";
 import { chatHints, drawStop, refreshHints } from "./hints.ts";
 import { loadTurnAgent, sourceRow } from "./history.ts";
@@ -12,7 +13,7 @@ import { heard, takeDraft } from "./live.ts";
 import { fillPics, picRow, productRow, replyPic, sentFile } from "./media.ts";
 import type { PicRef, SentFile, SentImage } from "./media.ts";
 import { canPickModel, modelName, MODELS } from "./model.ts";
-import { replyActs } from "./rerun.ts";
+import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel, VISIBLE_STEPS } from "./tools.ts";
 import { refreshStatus } from "./views.ts";
@@ -49,6 +50,8 @@ export interface ToolOutput {
   /// A `show_cards` result's cards, as HTML.
   cards: string | null;
   chart: Chart | null;
+  /// A `code_agent` result's text, which names the session its card shows.
+  code_agent?: string | null;
 }
 
 /// What a run streams into the bar (`BarEvent`).
@@ -290,6 +293,7 @@ export function toolOutput(turn: Turn, x: ToolOutput, route: string | null) {
   if (x.cards) productRow(turn, x.cards);
   if (x.chart) chartRow(turn, x.chart);
   if (route) routeRow(turn, route);
+  if (x.code_agent) coderCard(turn, x.code_agent);
 }
 
 /// A routine asking for a grant (`request_grant`). A grant always ends, so
@@ -340,6 +344,8 @@ export function finish(id: string | null, turn: Turn) {
     e.run = null;
     if (!e.approval) live.delete(id);
   }
+  // The window's sidebar stops its spinner.
+  changed();
   if (id === S.session) refreshHints();
   else if (S.view === "chats") S.chats.mode === "list" ? loadChats(S.chats.query) : drawChats();
   const q = queued.get(id);
@@ -453,7 +459,7 @@ export function follow(id: string | null, turn: Turn) {
         break;
       case "finished":
         turn.status = ev.status;
-        if (ev.status === "cancelled") turn.append(h('<div class="dmuted">Stopped</div>'));
+        if (ev.status === "cancelled") stoppedRow(turn);
         finish(id, turn);
         break;
     }
@@ -468,6 +474,8 @@ export function startRun(id: string | null, turn: Turn, runId: string | null) {
   const e = entry(id);
   e.body = body();
   e.run = { id: runId, turn };
+  // The window's sidebar shows the chat answering.
+  changed();
 }
 
 /// Waits out the command streaming `turn`'s run, then finishes the turn.
@@ -582,7 +590,7 @@ export function stop() {
     .catch(() => {})
     .finally(() => { if (stopping.get(id) === stopped) stopping.delete(id); });
   stopping.set(id, stopped);
-  turn.append(h('<div class="dmuted">Stopped</div>'));
+  stoppedRow(turn);
   finish(id, turn);
 }
 
