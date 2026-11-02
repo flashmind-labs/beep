@@ -758,6 +758,16 @@ requests! {
     /// why when the node refuses, such as when the session still runs in a
     /// terminal. Admins only.
     171 ResumeAgentSession { machine_id: String, agent: String, session: String, prompt: Option<String> } => Call<StartedAgent>
+    /// Every machine of the caller's, as `project`'s page lists it: its
+    /// folder there, whether Beep is looking through it for a checkout now,
+    /// and when it last did since the project was imported. A machine with
+    /// a checkout first, then those online, each by name. Asking starts a
+    /// look on an online machine not looked through since the import.
+    /// Machines are looked through when a project is imported and when
+    /// they connect: a checkout whose `origin` remote is the project's is
+    /// listed as its folder there, in place. `NotFound` when the caller has
+    /// not imported `project`. Admins only.
+    172 ListProjectMachines { project: String } => Call<Vec<ProjectMachine>>
     /// The open issues on `project_id`'s issues host that no task of the
     /// project tracks and the caller has not dismissed, newest first, at
     /// most 100. Read with `gh` or `teacli` on the project's home checkout
@@ -858,6 +868,21 @@ pub struct FoundPlace {
     pub machine_name: String,
     /// Its absolute folder on that machine.
     pub folder: String,
+}
+
+/// One of the caller's machines as a project's page lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectMachine {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub online: bool,
+    /// The project's absolute folder there; `None` without a checkout.
+    pub folder: Option<String>,
+    /// Beep is looking through it for a checkout now.
+    pub checking: bool,
+    /// When Beep last looked through it, since the project was imported.
+    pub checked_at: Option<SystemTime>,
 }
 
 /// How many sessions of one agent ran in a found folder.

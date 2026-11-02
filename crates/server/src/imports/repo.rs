@@ -180,6 +180,18 @@ pub(crate) fn remote_key(remote: &str) -> Option<String> {
         .then(|| format!("{host}/{path}").to_ascii_lowercase())
 }
 
+/// Whether a checkout's `origin` remote is the repository an import
+/// records as `url`, its web page: the same host and path in https or ssh,
+/// with or without `.git`, in any case, or the same repository on one of
+/// `servers` reached over ssh without the server's sub-path.
+pub(crate) fn same_repo(url: &str, origin: &str, servers: &[ForgejoUrl]) -> bool {
+    let Some(key) = remote_key(origin) else {
+        return false;
+    };
+    remote_key(url).is_some_and(|known| known == key)
+        || RepoRef::parse(url, servers).is_ok_and(|repo| repo.matches_remote(origin))
+}
+
 /// A remote URL's host, without port or user, and its path.
 fn remote_parts(remote: &str) -> Option<(String, String)> {
     if remote.contains("://") {
@@ -314,5 +326,48 @@ mod tests {
         assert_eq!(remote_key("ssh://git@github.com/org/repo/"), key);
         assert_eq!(remote_key("/srv/repo.git"), None);
         assert_eq!(remote_key(""), None);
+    }
+
+    #[test]
+    fn an_imported_url_matches_its_checkouts_in_any_form() {
+        let url = "https://github.com/acme/widget";
+        for origin in [
+            "https://github.com/acme/widget",
+            "https://github.com/acme/widget.git",
+            "https://GitHub.com/Acme/Widget.git/",
+            "git@github.com:acme/widget.git",
+            "git@github.com:ACME/widget",
+            "ssh://git@github.com/acme/widget.git",
+            "ssh://git@github.com:22/acme/widget",
+            "https://user@github.com/acme/widget",
+        ] {
+            assert!(same_repo(url, origin, &forge()), "{origin}");
+        }
+        for origin in [
+            "https://github.com/acme/widget-docs",
+            "https://github.com/other/widget",
+            "https://git.example.com/acme/widget",
+            "/srv/mirrors/acme/widget.git",
+            "",
+        ] {
+            assert!(!same_repo(url, origin, &forge()), "{origin}");
+        }
+        // A Forgejo server under a sub-path, reached over ssh from the root.
+        let sub = "https://code.example.org/forge/team/app";
+        assert!(same_repo(
+            sub,
+            "git@code.example.org:team/app.git",
+            &forge()
+        ));
+        assert!(same_repo(
+            sub,
+            "https://code.example.org/forge/team/app.git",
+            &[]
+        ));
+        assert!(!same_repo(
+            sub,
+            "git@code.example.org:team/other.git",
+            &forge()
+        ));
     }
 }

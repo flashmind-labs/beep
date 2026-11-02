@@ -189,6 +189,7 @@ sample_struct! {
     FoundProject { project, remote, places, agents, last_activity }
     FoundPlace { machine_id, machine_name, folder }
     FoundAgent { agent, sessions }
+    ProjectMachine { machine_id, machine_name, online, folder, checking, checked_at }
 }
 
 macro_rules! sample_values {
