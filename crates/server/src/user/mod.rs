@@ -1030,6 +1030,20 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// Lets `allow` run without asking for the rest of `chat`.
+    pub(crate) async fn allow_in_chat(
+        &self,
+        chat: Uuid,
+        allow: &crate::store::ChatAllow,
+    ) -> Result<()> {
+        self.store.allow_in_chat(&self.key, chat, allow).await
+    }
+
+    /// What the user allowed for the rest of `chat`.
+    pub(crate) async fn chat_allows(&self, chat: Uuid) -> Result<Vec<crate::store::ChatAllow>> {
+        self.store.chat_allows(&self.key, chat).await
+    }
+
     /// `project`'s terminals, oldest first.
     pub(crate) async fn terminals(&self, project: &str) -> Result<Vec<crate::store::TerminalRow>> {
         self.store.terminals(&self.key, project).await

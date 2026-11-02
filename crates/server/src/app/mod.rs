@@ -283,6 +283,9 @@ pub struct Draws {
 pub struct Answer {
     pub call_id: String,
     pub decision: ApprovalDecision,
+    /// With `Allow`, the action also runs without asking for the rest of
+    /// the chat.
+    pub for_session: bool,
 }
 
 impl Message {

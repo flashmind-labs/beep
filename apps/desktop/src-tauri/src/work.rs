@@ -103,6 +103,7 @@ pub async fn answer_work(
             session_id: session_id(&session)?,
             query_id,
             decision: decision.into(),
+            for_session: decision.for_session(),
         })
         .await;
     match asked {

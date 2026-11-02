@@ -173,7 +173,8 @@ export function workersSection(view, act, chatIcon) {
 }
 
 /// One card the project chat waits on: what it asks, its fields, and
-/// Approve or Deny.
+/// Approve, Allow for this session (the same action, until the chat ends)
+/// or Deny.
 function card(c, act) {
   const out = act.outcome(c.query_id);
   const a = c.approval;
@@ -183,6 +184,7 @@ function card(c, act) {
   else {
     acts.append(
       button("Approve", "pri small", () => act.answer(c, "allow", "Approved")),
+      button("Allow for this session", "small", () => act.answer(c, "session", "Allowed for the rest of this chat")),
       button("Deny", "warn small", () => act.answer(c, "deny", "Denied")));
     if (out?.error) acts.append(h("span", "cc-err", out.error));
   }

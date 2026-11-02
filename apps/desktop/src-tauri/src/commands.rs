@@ -123,7 +123,7 @@ pub async fn answer_approval(
     on_event: Channel<BarEvent>,
 ) -> Result<()> {
     let run = beep
-        .approve(&session, query_id.clone(), decision.into())
+        .approve(&session, query_id.clone(), decision)
         .await?;
     let answered = ApprovalAnswered {
         session: session.clone(),
