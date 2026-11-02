@@ -39,7 +39,8 @@ interface Started {
 }
 
 /// What the bar or tray asked the window to show (CenterTarget).
-type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | { chat: { session: string | null } };
+type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions"
+  | { chat: { session: string | null } } | { group: { id: string } } | { agent: RunningAgent };
 
 // ---------- Window state ----------
 

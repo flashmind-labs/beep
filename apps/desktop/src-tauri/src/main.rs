@@ -30,6 +30,7 @@ mod machine;
 mod machines;
 mod markdown;
 mod news;
+mod notify;
 mod orb;
 mod overview;
 mod palette;
@@ -46,6 +47,7 @@ mod threads;
 mod tool_labels;
 mod update;
 mod voice;
+mod waiting;
 mod work;
 
 use anyhow::Context;
@@ -70,7 +72,6 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_notification::NotificationExt;
 use voice::Voice;
 
 /// The server's node id, baked in by build.rs.
@@ -414,6 +415,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());
+    app.manage(waiting::WaitingList::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
@@ -426,6 +428,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     ));
     tauri::async_runtime::spawn(sync::follow(handle.clone(), beep.clone()));
     tauri::async_runtime::spawn(update::follow(handle.clone()));
+    tauri::async_runtime::spawn(waiting::follow(handle.clone(), beep.clone()));
     hotkey::start(move |input| voice.on_input(input));
 
     // Sign-ins come back as beep:// links, while running or as the reason
@@ -447,7 +450,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     TrayIconBuilder::with_id(TRAY)
         .icon(icon)
         .icon_as_template(true)
-        .tooltip("Beep")
+        .tooltip(waiting::tooltip(0))
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(on_menu)
@@ -489,6 +492,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         if beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
             became_linked(&app);
+        }
+        // What waits on the user may have changed; the tray looks again.
+        if notice.approval.is_some() || (notice.changed && !notice.group) {
+            app.state::<waiting::WaitingList>().poke();
         }
         // Checked before `changed`, which a resolved question also sets.
         if let Some(query_id) = notice.resolved_question() {
@@ -590,14 +597,11 @@ fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center:
 }
 
 fn notify(app: &AppHandle, notice: &Notice) {
-    notify_text(app, &notice.title, &notice.body);
+    notify::notice(app, notice);
 }
 
 fn notify_text(app: &AppHandle, title: &str, body: &str) {
-    let shown = app.notification().builder().title(title).body(body).show();
-    if let Err(e) = shown {
-        log::warn!("showing a notice: {e}");
-    }
+    notify::text(app, title, body);
 }
 
 fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
@@ -685,6 +689,36 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    let waiting = app.state::<waiting::WaitingList>().entries();
+    if linked && !waiting.is_empty() {
+        menu.append(&MenuItem::with_id(
+            app,
+            "waiting",
+            "Waiting",
+            false,
+            None::<&str>,
+        )?)?;
+        for entry in waiting.iter().take(waiting::SHOWN) {
+            menu.append(&MenuItem::with_id(
+                app,
+                entry.id.as_str(),
+                entry.label.as_str(),
+                true,
+                None::<&str>,
+            )?)?;
+        }
+        if waiting.len() > waiting::SHOWN {
+            let more = format!("{} more on Home", waiting.len() - waiting::SHOWN);
+            menu.append(&MenuItem::with_id(
+                app,
+                waiting::MORE,
+                more,
+                true,
+                None::<&str>,
+            )?)?;
+        }
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
     if link != LinkState::Linked {
         menu.append(&MenuItem::with_id(
             app,
@@ -728,6 +762,18 @@ fn refresh_tray(app: &AppHandle) {
         }
         Err(e) => log::warn!("building the tray menu: {e}"),
     }
+    // The count beside the icon, while anything waits on the user.
+    let count = if beep.link_state() == LinkState::Linked {
+        app.state::<waiting::WaitingList>().entries().len()
+    } else {
+        0
+    };
+    if let Err(e) = tray.set_title(waiting::badge(count)) {
+        log::warn!("showing what waits beside the tray icon: {e}");
+    }
+    if let Err(e) = tray.set_tooltip(Some(waiting::tooltip(count))) {
+        log::warn!("setting the tray tooltip: {e}");
+    }
 }
 
 /// Tells the bar and the tray this Mac now signs into an account.
@@ -737,6 +783,7 @@ pub fn became_linked(app: &AppHandle) {
         .sync(&app.state::<Arc<Beep>>());
     refresh_tray(app);
     tauri::async_runtime::spawn(refresh_recent(app.clone()));
+    app.state::<waiting::WaitingList>().poke();
 }
 
 /// Fetches the latest chats for Recent and rebuilds the menu.
@@ -768,11 +815,25 @@ fn tray_target(id: &str) -> Option<center::CenterTarget> {
         "routines" => Some(center::CenterTarget::Routines),
         "skills" => Some(center::CenterTarget::Skills),
         "settings" => Some(center::CenterTarget::Settings),
+        waiting::MORE => Some(center::CenterTarget::Home),
         _ => None,
     }
 }
 
 fn on_menu(app: &AppHandle, event: MenuEvent) {
+    // Something waiting opens where it is answered: its chat or agent
+    // session, or Home once it no longer waits.
+    if event.id().as_ref().starts_with(waiting::ITEM) {
+        let target = app
+            .state::<waiting::WaitingList>()
+            .target(event.id().as_ref())
+            .unwrap_or(center::CenterTarget::Home);
+        let pending = app.state::<center::Pending>();
+        if let Err(e) = center::open_on(app, &pending, target) {
+            log::warn!("opening what waits: {e}");
+        }
+        return;
+    }
     if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
         app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
         bar::show(app, Some("open"));
@@ -860,5 +921,6 @@ mod tests {
         );
         assert_eq!(tray_target("research"), None);
         assert_eq!(tray_target("check-update"), None);
+        assert_eq!(tray_target(waiting::MORE), Some(center::CenterTarget::Home));
     }
 }

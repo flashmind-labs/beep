@@ -202,7 +202,9 @@ pub fn center_window_project(window: WebviewWindow) -> Option<String> {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CenterTarget {
     Home,
-    Chat { session: Option<Uuid> },
+    Chat {
+        session: Option<Uuid>,
+    },
     Chats,
     Memories,
     Routines,
@@ -210,6 +212,57 @@ pub(crate) enum CenterTarget {
     Apps,
     Settings,
     Instructions,
+    /// A group chat, by id.
+    Group {
+        id: String,
+    },
+    /// A coding agent's session, as a Running now row names it.
+    Agent(AgentTarget),
+}
+
+/// A coding agent's session to open, shaped as the window's Running now
+/// row (`RunningAgent`) so it opens like one.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+pub(crate) struct AgentTarget {
+    kind: String,
+    machine_id: String,
+    machine_name: String,
+    id: String,
+    agent: String,
+    title: Option<String>,
+    cwd: String,
+    status: String,
+    doing: Option<String>,
+    started_at: u64,
+    last_activity: u64,
+    external: bool,
+}
+
+impl AgentTarget {
+    /// Agent `agent`'s session `session` on machine `machine_id`, which
+    /// waits on a question.
+    pub(crate) fn asking(
+        machine_id: &str,
+        machine_name: &str,
+        agent: &str,
+        session: &str,
+        title: Option<&str>,
+    ) -> Self {
+        Self {
+            kind: "agent".into(),
+            machine_id: machine_id.to_owned(),
+            machine_name: machine_name.to_owned(),
+            id: session.to_owned(),
+            agent: agent.to_owned(),
+            title: title.map(str::to_owned),
+            cwd: String::new(),
+            status: "asking".into(),
+            doing: None,
+            started_at: 0,
+            last_activity: 0,
+            external: false,
+        }
+    }
 }
 
 /// The view the window goes to next. It is read once, so a reload does not
@@ -399,7 +452,7 @@ enum RunningRow {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-enum NeedsYou {
+pub(crate) enum NeedsYou {
     Chat {
         session_id: Uuid,
         session_title: String,
@@ -629,7 +682,7 @@ impl From<&ResearchSummary> for RunningRow {
 /// from its session's last activity. A chat approval carries no time of its
 /// own, so it counts from its chat's last change; a chat the list lacks
 /// counts as the newest, so it comes last.
-fn needs_you<'a>(
+pub(crate) fn needs_you<'a>(
     sessions: impl Iterator<Item = &'a MachineSession>,
     approvals: Vec<ChatApproval>,
     chats: &[Session],
@@ -1386,6 +1439,22 @@ mod tests {
         let chat: CenterTarget =
             serde_json::from_str(&format!(r#"{{"chat":{{"session":"{id}"}}}}"#)).expect("parses");
         assert_eq!(chat, CenterTarget::Chat { session: Some(id) });
+    }
+
+    #[test]
+    fn group_and_agent_targets_read_as_the_pane_takes_them() {
+        let group = CenterTarget::Group { id: "g1".into() };
+        assert_eq!(
+            serde_json::to_value(&group).expect("serializes"),
+            serde_json::json!({ "group": { "id": "g1" } })
+        );
+        let agent = CenterTarget::Agent(AgentTarget::asking("m1", "Studio", "claude", "s1", None));
+        let json = serde_json::to_value(&agent).expect("serializes");
+        assert_eq!(json["agent"]["kind"], "agent");
+        assert_eq!(json["agent"]["id"], "s1");
+        assert_eq!(json["agent"]["status"], "asking");
+        let back: CenterTarget = serde_json::from_value(json).expect("reads back");
+        assert_eq!(back, agent);
     }
 
     #[test]
