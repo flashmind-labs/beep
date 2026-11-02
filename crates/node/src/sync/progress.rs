@@ -1,0 +1,187 @@
+//! How far one round of bringing files in line is, and how fast it moves.
+//! Times are passed in, so it runs on any clock.
+
+use beep_proto::node::sync::{MAX_WAITING, Progress};
+use std::collections::VecDeque;
+use tokio::time::{Duration, Instant};
+
+/// How far back the rate looks.
+const WINDOW: Duration = Duration::from_secs(10);
+/// The shortest span a rate is told over.
+const MIN_SPAN: Duration = Duration::from_millis(500);
+
+/// One point of the round: when, and the bytes done by then.
+#[derive(Debug, Clone, Copy)]
+struct Sample {
+    at: Instant,
+    bytes: u64,
+}
+
+/// One round's counts, and the recent points the rate comes from.
+#[derive(Debug)]
+pub(super) struct Meter {
+    files_done: u64,
+    files_total: u64,
+    bytes_done: u64,
+    bytes_total: u64,
+    samples: VecDeque<Sample>,
+}
+
+impl Meter {
+    /// A round of `files_total` files and `bytes_total` bytes, starting at
+    /// `now`.
+    pub(super) fn new(files_total: u64, bytes_total: u64, now: Instant) -> Self {
+        Self {
+            files_done: 0,
+            files_total,
+            bytes_done: 0,
+            bytes_total,
+            samples: VecDeque::from([Sample { at: now, bytes: 0 }]),
+        }
+    }
+
+    /// A file of `bytes` was brought in line at `now`.
+    pub(super) fn done(&mut self, bytes: u64, now: Instant) {
+        self.files_done = self.files_done.saturating_add(1);
+        self.bytes_done = self.bytes_done.saturating_add(bytes);
+        self.samples.push_back(Sample {
+            at: now,
+            bytes: self.bytes_done,
+        });
+        // Keeps the last point before the window, so a slow file still
+        // spans its whole time.
+        while self
+            .samples
+            .get(1)
+            .is_some_and(|next| now.saturating_duration_since(next.at) > WINDOW)
+        {
+            self.samples.pop_front();
+        }
+    }
+
+    /// A file of `bytes` failed; it no longer counts toward the bytes
+    /// left.
+    pub(super) fn failed(&mut self, bytes: u64) {
+        self.files_done = self.files_done.saturating_add(1);
+        self.bytes_total = self.bytes_total.saturating_sub(bytes);
+    }
+
+    /// Bytes a second over the window; 0 before it can tell.
+    pub(super) fn rate(&self) -> u64 {
+        let (Some(first), Some(last)) = (self.samples.front(), self.samples.back()) else {
+            return 0;
+        };
+        let span = last.at.saturating_duration_since(first.at);
+        if span < MIN_SPAN {
+            return 0;
+        }
+        let moved = u128::from(last.bytes.saturating_sub(first.bytes));
+        u64::try_from(moved * 1000 / span.as_millis()).unwrap_or(u64::MAX)
+    }
+
+    pub(super) fn progress(&self) -> Progress {
+        let rate = self.rate();
+        Progress {
+            files_done: self.files_done,
+            files_total: self.files_total,
+            bytes_done: self.bytes_done,
+            bytes_total: self.bytes_total,
+            rate,
+            eta_secs: eta(self.bytes_total.saturating_sub(self.bytes_done), rate),
+        }
+    }
+}
+
+/// Seconds to move `left` bytes at `rate` bytes a second; `None` when the
+/// rate is not known yet, or it would take longer than a `u32` holds.
+pub(super) fn eta(left: u64, rate: u64) -> Option<u32> {
+    if left == 0 {
+        return Some(0);
+    }
+    if rate == 0 {
+        return None;
+    }
+    u32::try_from(left.div_ceil(rate)).ok()
+}
+
+/// What still waits: the paths that failed, then those not reached yet,
+/// at most `MAX_WAITING`.
+pub(super) fn waiting(failed: &[String], ahead: &[String]) -> Vec<String> {
+    failed
+        .iter()
+        .chain(ahead)
+        .take(MAX_WAITING)
+        .cloned()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_rate_and_time_left_come_from_the_bytes_moved() {
+        let start = Instant::now();
+        let mut meter = Meter::new(4, 4_000_000, start);
+        let first = meter.progress();
+        assert_eq!(first.rate, 0);
+        assert_eq!(first.eta_secs, None);
+        meter.done(1_000_000, start + Duration::from_secs(1));
+        meter.done(1_000_000, start + Duration::from_secs(2));
+        let p = meter.progress();
+        assert_eq!((p.files_done, p.files_total), (2, 4));
+        assert_eq!((p.bytes_done, p.bytes_total), (2_000_000, 4_000_000));
+        assert_eq!(p.rate, 1_000_000);
+        assert_eq!(p.eta_secs, Some(2));
+    }
+
+    #[test]
+    fn the_rate_follows_the_last_ten_seconds() {
+        let start = Instant::now();
+        let mut meter = Meter::new(100, 100_000_000, start);
+        // Fast at first, 1 MB a second for 20 seconds...
+        for s in 1..=20 {
+            meter.done(1_000_000, start + Duration::from_secs(s));
+        }
+        // ...then 100 KB a second for 20 more.
+        for s in 21..=40 {
+            meter.done(100_000, start + Duration::from_secs(s));
+        }
+        let rate = meter.rate();
+        assert!((100_000..=200_000).contains(&rate), "rate {rate}");
+    }
+
+    #[test]
+    fn one_slow_file_spans_its_whole_time() {
+        let start = Instant::now();
+        let mut meter = Meter::new(1, 60_000_000, start);
+        meter.done(60_000_000, start + Duration::from_secs(60));
+        assert_eq!(meter.rate(), 1_000_000);
+    }
+
+    #[test]
+    fn a_failed_file_leaves_the_bytes_left() {
+        let start = Instant::now();
+        let mut meter = Meter::new(2, 300, start);
+        meter.failed(200);
+        let p = meter.progress();
+        assert_eq!((p.files_done, p.bytes_total), (1, 100));
+    }
+
+    #[test]
+    fn nothing_left_takes_no_time_and_no_rate_cannot_tell() {
+        assert_eq!(eta(0, 0), Some(0));
+        assert_eq!(eta(10, 0), None);
+        assert_eq!(eta(10, 3), Some(4));
+        assert_eq!(eta(u64::MAX, 1), None);
+    }
+
+    #[test]
+    fn failed_paths_wait_first_and_the_list_is_bounded() {
+        let ahead: Vec<String> = (0..100).map(|i| format!("f{i}")).collect();
+        let out = waiting(&["bad".into()], &ahead);
+        assert_eq!(out.len(), MAX_WAITING);
+        assert_eq!(out[0], "bad");
+        assert_eq!(out[1], "f0");
+    }
+}
