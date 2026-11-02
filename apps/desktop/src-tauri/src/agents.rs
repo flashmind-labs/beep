@@ -10,9 +10,10 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentEntry, AgentHost, AgentImage, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentSession,
-    ListAgentHosts, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
-    ListAgentImages, ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
+    AgentEntry, AgentHost, AgentImage, AgentQuestion, AgentSessionView, AgentSteer, ApiError,
+    GetAgentSession, ListAgentHosts, ListAgentImages, ListAgentSessions, MachinePick,
+    MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession, SteerAgentSession,
+    Upload, check_agent_images,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
