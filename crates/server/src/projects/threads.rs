@@ -10,7 +10,7 @@ use super::{
     turn::REPLY_LABEL,
 };
 use crate::{
-    protocol::GitItemKind,
+    protocol::{GitItemKind, ThreadPost, ThreadView},
     store::{NewThreadChat, ProjectRow, ThreadChatRow},
     user::User,
 };
@@ -25,6 +25,10 @@ use uuid::Uuid;
 const MAX_THREAD_TEXT: usize = 24 * 1024;
 /// The most comments one read gives, newest kept.
 const MAX_COMMENTS: usize = 30;
+/// The most comments a thread card shows, newest kept.
+const CARD_COMMENTS: usize = 20;
+/// The most of one post a thread card shows.
+const CARD_TEXT: usize = 2000;
 /// The most of the last comment `last_other` shows.
 const LAST_LINE: usize = 120;
 /// The most threads one list reads of each kind.
@@ -467,6 +471,57 @@ pub(crate) async fn read(
         shell,
         repo,
     })
+}
+
+/// `text` trimmed and cut to at most `max` bytes, "..." marking a cut.
+fn clipped(text: &str, max: usize) -> String {
+    let text = text.trim();
+    let cut = head(text, max);
+    if cut.len() < text.len() {
+        format!("{}...", cut.trim_end())
+    } else {
+        cut.to_owned()
+    }
+}
+
+/// Thread `number` of `repo` read now, as the card atop its chat shows it:
+/// the opening post and the newest comments, each cut short when long.
+pub(crate) async fn view(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    repo: &str,
+    number: u64,
+) -> Result<ThreadView, IssueError> {
+    project_repo(project, repo)?;
+    let read = read(fleet, user, project, number).await?;
+    Ok(card(&read.thread, &read.me))
+}
+
+/// What a thread card shows of `thread`, read by `me`.
+fn card(thread: &Thread, me: &str) -> ThreadView {
+    let skipped = thread.comments.len().saturating_sub(CARD_COMMENTS);
+    let comments = thread
+        .comments
+        .iter()
+        .skip(skipped)
+        .map(|c| ThreadPost {
+            author: c.author.clone(),
+            at: c.at.into(),
+            body: clipped(&c.body, CARD_TEXT),
+        })
+        .collect();
+    ThreadView {
+        kind: thread.kind.into(),
+        number: thread.number,
+        title: thread.title.trim().to_owned(),
+        url: thread.url.clone(),
+        author: thread.author.clone(),
+        body: clipped(&thread.body, CARD_TEXT),
+        needs_reply: needs_reply(&thread.comments, me),
+        comments,
+        earlier: u32::try_from(skipped).unwrap_or(u32::MAX),
+    }
 }
 
 /// The thread as the agent reads it: its text and newest comments, marked

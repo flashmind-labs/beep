@@ -273,6 +273,11 @@ impl User {
         self.store.active_run(&self.key, session).await
     }
 
+    /// The runs going on in any of the user's sessions.
+    pub async fn active_runs(&self) -> Result<Vec<Run>> {
+        self.store.active_runs(&self.key).await
+    }
+
     /// The run already started for `request`, without starting one.
     pub async fn existing_run(
         &self,
