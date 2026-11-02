@@ -30,6 +30,7 @@ mod findings;
 mod git_items;
 mod grants;
 mod groups;
+mod harnesses;
 mod instructions;
 mod live;
 mod location;
@@ -295,6 +296,9 @@ pub fn router() -> Router {
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
         .call(projects::list_project_pull_requests)
+        .call(harnesses::list_agent_harnesses)
+        .call(harnesses::save_harness_settings)
+        .call(harnesses::update_agent_harness)
 }
 
 type Reply<T> = Result<T, ApiError>;

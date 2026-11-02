@@ -958,6 +958,78 @@ impl User {
         self.store.nodes(&self.key).await
     }
 
+    /// The user's settings for the coding agent harnesses on `machine_id`.
+    pub(crate) async fn harness_settings(
+        &self,
+        machine_id: &str,
+    ) -> Result<Vec<crate::store::HarnessRow>> {
+        self.store.harness_settings(&self.key, machine_id).await
+    }
+
+    /// The env vars of the harness `agent` on `machine_id`, opened.
+    pub(crate) async fn harness_env(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        machine_id: &str,
+        agent: &str,
+    ) -> Result<Vec<crate::protocol::node::EnvSecret>> {
+        self.store
+            .harness_env(&self.key, key, machine_id, agent)
+            .await
+    }
+
+    /// Saves the user's settings for one harness on one machine.
+    pub(crate) async fn save_harness_settings(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        save: crate::store::SaveHarness<'_>,
+    ) -> Result<()> {
+        self.store.save_harness_settings(&self.key, key, save).await
+    }
+
+    /// The harnesses the user turned off, on any machine.
+    pub(crate) async fn off_harnesses(&self) -> Result<Vec<crate::store::OffHarness>> {
+        self.store.off_harnesses(&self.key).await
+    }
+
+    /// The user's settings for the harnesses on `machine_id`, as the node
+    /// takes them. A harness whose env vars no longer open goes without
+    /// them.
+    pub(crate) async fn agent_settings(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        machine_id: &str,
+    ) -> Result<crate::protocol::node::harness::AgentSettings> {
+        use crate::protocol::node::harness::{AgentSettings, HarnessConfig};
+        let mut harnesses = Vec::new();
+        for row in self.harness_settings(machine_id).await? {
+            let env = if row.env_names.is_empty() {
+                Vec::new()
+            } else {
+                match self.harness_env(key, machine_id, &row.agent).await {
+                    Ok(env) => env,
+                    Err(e) => {
+                        log::warn!(
+                            "harness env vars not opened; agent={} error={e:#}",
+                            row.agent
+                        );
+                        Vec::new()
+                    }
+                }
+            };
+            let text = |value: String| Some(value).filter(|value| !value.is_empty());
+            harnesses.push(HarnessConfig {
+                agent: row.agent,
+                enabled: row.enabled,
+                program: text(row.program),
+                home: text(row.home),
+                args: row.args,
+                env,
+            });
+        }
+        Ok(AgentSettings { harnesses })
+    }
+
     /// The machines that sync each project, by project.
     pub async fn project_syncs(&self) -> Result<Vec<SyncRow>> {
         self.store.project_syncs(&self.key).await
