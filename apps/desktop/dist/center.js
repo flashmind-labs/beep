@@ -19,6 +19,7 @@ import { registerInstructions } from "./instructions.js";
 import { makeTerminals, terminalTile } from "./terminals.js";
 import { makeReviews, branchTile } from "./review.js";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
+import { makeThreads, issueTile, threadTile } from "./threads.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -1259,6 +1260,7 @@ function openTile(key) {
 function projectBoard(p, rows, known, running) {
   const pv = state.pview.get(p.name);
   const view = pv.view;
+  const agent = agentFor(state.agents, p.name);
   const sessions = state.sessions.get(p.name);
   if (sessions === undefined) loadSessions(p.name);
   const out = [];
@@ -1267,7 +1269,8 @@ function projectBoard(p, rows, known, running) {
   if (needs) out.push(needs);
   const full = {
     tasks: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))],
-    prs: () => [prsSection(view, agentActs)],
+    prs: () => [...thr.threadsPanel(agent), prsSection(view, agentActs)],
+    issues: () => thr.issuesPanel(agent, rows),
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
@@ -1282,9 +1285,11 @@ function projectBoard(p, rows, known, running) {
   const openUrl = agentActs.openUrl;
   if (terms.list(p.name) === undefined) terms.load(p.name);
   if (revs.branches(p.name) === undefined) revs.load(p.name);
+  if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
   out.push(h("div", "pb-grid",
     tile("tasks", "Tasks", taskTile(view.tasks), openTile),
-    tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
+    tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks)), openTile, { openUrl }),
+    tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
     tile("agents", "Agents", agentTile(running, past), openTile),
     tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
@@ -1329,6 +1334,16 @@ const revs = makeReviews({
   redraw: () => redrawProjects(),
   openUrl: url => agentActs.openUrl(url),
   openTile: key => openTile(key),
+});
+
+/// The project's open issues and the user's threads there; the Issues
+/// tile, the rows of the Pull requests tile and their full lists.
+const thr = makeThreads({
+  invoke, h, button, ago,
+  redraw: () => redrawProjects(),
+  openUrl: url => agentActs.openUrl(url),
+  openChat: chat => { go("pane", { chat: { session: chat } }); reloadChats(); },
+  changed: () => loadProjectAgent(),
 });
 
 function redrawProjects() {
