@@ -116,7 +116,6 @@ private val actionDefaults = mapOf(
     "background" to "Checking background work",
     "habit" to "Checking habits",
     "reminder" to "Checking reminders",
-    "mac_files" to "Looking at files on your Mac",
     "send_file" to "Sending a file",
     "desktop" to "Using the Mac",
     "code_agent" to "Using a coding agent",
