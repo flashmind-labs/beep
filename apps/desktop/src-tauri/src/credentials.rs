@@ -7,8 +7,9 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    ApiError, ApiProvider, Credential, CredentialKind, ListCredentials, RemoveCredential,
-    SaveCredential, SecretText,
+    ApiError, ApiProvider, Credential, CredentialKind, GITHUB_ENV_VAR, GitHubAccount,
+    ListCredentials, ListGitHubAccounts, RemoveCredential, SaveCredential, SaveGitHubAccount,
+    SecretText, SetDefaultGitHubAccount,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -76,6 +77,48 @@ impl From<Credential> for CredentialView {
     }
 }
 
+impl From<GitHubAccount> for CredentialView {
+    fn from(account: GitHubAccount) -> Self {
+        Self {
+            id: account.id,
+            kind: Kind::Github,
+            last4: account.last4,
+            account: Some(account.login),
+            env_var: GITHUB_ENV_VAR.to_owned(),
+            to_machines: true,
+            created_at: epoch_ms(account.created_at),
+            unreadable: account.unreadable,
+        }
+    }
+}
+
+/// One GitHub account as the bar shows it.
+#[derive(Debug, Serialize)]
+pub struct GitHubAccountView {
+    id: String,
+    login: String,
+    orgs: Vec<String>,
+    default: bool,
+    last4: String,
+    /// Milliseconds since the Unix epoch.
+    created_at: u64,
+    unreadable: bool,
+}
+
+impl From<GitHubAccount> for GitHubAccountView {
+    fn from(account: GitHubAccount) -> Self {
+        Self {
+            id: account.id,
+            login: account.login,
+            orgs: account.orgs,
+            default: account.default,
+            last4: account.last4,
+            created_at: epoch_ms(account.created_at),
+            unreadable: account.unreadable,
+        }
+    }
+}
+
 /// A provider an API key can be added for.
 #[derive(Debug, Serialize)]
 pub struct ProviderView {
@@ -127,12 +170,20 @@ pub async fn save_credential(
 }
 
 /// Sends one to the server, which checks it with its host before keeping it.
+/// A GitHub token is saved as the account it signs in as, beside the others.
 pub(crate) async fn save(
     beep: &Beep,
     kind: Kind,
     secret: SecretText,
     to_machines: bool,
 ) -> Result<CredentialView> {
+    if matches!(kind, Kind::Github) {
+        let saved = beep
+            .call(SaveGitHubAccount { secret })
+            .await
+            .map_err(plain)?;
+        return Ok(saved.into());
+    }
     let saved = beep
         .call(SaveCredential {
             kind: kind.into(),
@@ -147,6 +198,19 @@ pub(crate) async fn save(
 #[tauri::command]
 pub async fn remove_credential(beep: Service<'_>, id: String) -> Result<()> {
     beep.call(RemoveCredential { id }).await
+}
+
+/// The GitHub accounts, the default first.
+#[tauri::command]
+pub async fn list_github_accounts(beep: Service<'_>) -> Result<Vec<GitHubAccountView>> {
+    let accounts = beep.call(ListGitHubAccounts {}).await?;
+    Ok(accounts.into_iter().map(GitHubAccountView::from).collect())
+}
+
+/// Makes one GitHub account the one machines get as GH_TOKEN.
+#[tauri::command]
+pub async fn set_default_github_account(beep: Service<'_>, id: String) -> Result<()> {
+    beep.call(SetDefaultGitHubAccount { id }).await
 }
 
 /// The server's reason on its own, without the "bad request:" before it.

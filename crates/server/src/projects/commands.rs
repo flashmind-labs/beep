@@ -8,7 +8,7 @@
 use super::model::{
     ForgejoHost, IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility,
 };
-use crate::{leak::PublicText, nodes::Online};
+use crate::{credentials::github_owner_var, leak::PublicText, nodes::Online};
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -198,6 +198,18 @@ fn remote_host(url: &str, name: &RepoName) -> Option<String> {
         .then(|| host.to_ascii_lowercase())
 }
 
+/// What goes before a `gh` command for `repo` (`owner/repo`) so it runs as
+/// the user's GitHub account for that owner: the machine holds that
+/// account's token in the owner's var when it is not the default one
+/// (see `credentials::for_machines`), and `GH_TOKEN` otherwise. Only the
+/// variable's name is in the command, never the token.
+fn gh_account(repo: &str) -> String {
+    repo.split_once('/')
+        .and_then(|(owner, _)| github_owner_var(owner))
+        .map(|var| format!("GH_TOKEN=\"${{{var}:-$GH_TOKEN}}\" "))
+        .unwrap_or_default()
+}
+
 /// One role: what config says, else what the remote's host is.
 fn role(configured: &str, remote_host: &str) -> Result<Option<IssueHost>, SetupError> {
     let from_host = || {
@@ -336,12 +348,14 @@ impl HostCommand<'_> {
     }
 
     fn gh(&self, repo: &str) -> String {
+        let account = gh_account(repo);
         let gh = |words: &[&str], flags: &[&str]| {
-            Parts::new(&["gh"])
+            let command = Parts::new(&["gh"])
                 .with(words)
                 .with(&["-R", repo])
                 .with(flags)
-                .render()
+                .render();
+            format!("{account}{command}")
         };
         let number_command = |sub: &[&str], number: u64, flags: &[&str]| {
             let number = number.to_string();
@@ -454,9 +468,12 @@ impl HostCommand<'_> {
                 number_command(&["pr", "view"], number, &["--json", PR_FIELDS])
             }
             Self::MergePr { number } => number_command(&["pr", "merge"], number, &["--squash"]),
-            Self::Visibility => Parts::new(&["gh", "repo", "view", repo])
-                .with(&["--json", "visibility"])
-                .render(),
+            Self::Visibility => format!(
+                "{account}{}",
+                Parts::new(&["gh", "repo", "view", repo])
+                    .with(&["--json", "visibility"])
+                    .render()
+            ),
         }
     }
 
@@ -925,7 +942,7 @@ mod tests {
         };
         assert_eq!(
             create.render(&github(), &repo()),
-            "gh issue create -R acme/widget --title 'Fix it' --body More --label beep"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue create -R acme/widget --title 'Fix it' --body More --label beep"
         );
         assert_eq!(
             create.render(&forgejo(), &repo()),
@@ -939,7 +956,7 @@ mod tests {
         };
         assert_eq!(
             close.render(&github(), &repo()),
-            "gh issue close 4 -R acme/widget --comment 'Done in #5' --reason 'not planned'"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue close 4 -R acme/widget --comment 'Done in #5' --reason 'not planned'"
         );
         assert_eq!(
             close.render(&forgejo(), &repo()),
@@ -953,7 +970,7 @@ mod tests {
         };
         assert_eq!(
             relabel.render(&github(), &repo()),
-            "gh issue edit 4 -R acme/widget --add-label beep:review \
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue edit 4 -R acme/widget --add-label beep:review \
              --remove-label beep:running --remove-label beep:blocked"
         );
         assert_eq!(
@@ -970,17 +987,16 @@ mod tests {
             find.render(&forgejo(), &repo()),
             "teacli pr find acme/widget main beep/fix-it --host git.example.com --format json"
         );
-        assert!(
-            find.render(&github(), &repo())
-                .starts_with("gh pr list -R acme/widget --head")
-        );
+        assert!(find.render(&github(), &repo()).starts_with(
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr list -R acme/widget --head"
+        ));
         assert_eq!(
             HostCommand::MergePr { number: 7 }.render(&github(), &repo()),
-            "gh pr merge 7 -R acme/widget --squash"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr merge 7 -R acme/widget --squash"
         );
         assert_eq!(
             HostCommand::Visibility.render(&github(), &repo()),
-            "gh repo view acme/widget --json visibility"
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh repo view acme/widget --json visibility"
         );
         assert_eq!(
             HostCommand::Visibility.render(&forgejo(), &repo()),
@@ -1000,6 +1016,27 @@ mod tests {
             HostCommand::EnsureLabels
                 .render(&forgejo(), &repo())
                 .contains("label create")
+        );
+    }
+
+    #[test]
+    fn gh_runs_as_the_account_for_the_owner() {
+        let repo = RepoName::parse("octo-two/tool").unwrap();
+        assert_eq!(
+            HostCommand::MergePr { number: 1 }.render(&github(), &repo),
+            "GH_TOKEN=\"${BEEP_GH_TOKEN_OCTO_TWO:-$GH_TOKEN}\" gh pr merge 1 -R octo-two/tool --squash"
+        );
+        // A name GitHub would not give an owner gets no account var.
+        let odd = RepoName::parse("my.org/tool").unwrap();
+        assert_eq!(
+            HostCommand::MergePr { number: 1 }.render(&github(), &odd),
+            "gh pr merge 1 -R my.org/tool --squash"
+        );
+        // Forgejo is untouched.
+        assert!(
+            HostCommand::MergePr { number: 1 }
+                .render(&forgejo(), &repo)
+                .starts_with("teacli ")
         );
     }
 
