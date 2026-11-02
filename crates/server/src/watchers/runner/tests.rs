@@ -18,6 +18,8 @@ struct Stub {
     kind: WatcherKind,
     act: Act,
     read: Mutex<Vec<(i64, i64)>>,
+    /// Each chat it read, with the user it was read for.
+    chats: Mutex<Vec<(Uuid, String)>>,
 }
 
 impl Stub {
@@ -26,11 +28,18 @@ impl Stub {
             kind,
             act,
             read: Mutex::default(),
+            chats: Mutex::default(),
         })
     }
 
     fn read(&self) -> Vec<(i64, i64)> {
         lock(&self.read).clone()
+    }
+
+    fn chats(&self) -> Vec<(Uuid, String)> {
+        let mut chats = lock(&self.chats).clone();
+        chats.sort();
+        chats
     }
 }
 
@@ -45,6 +54,7 @@ impl Watcher for Stub {
             Act::Read => {
                 let transcript = review.transcript;
                 lock(&self.read).push((transcript.first_seq, transcript.last_seq));
+                lock(&self.chats).push((review.chat, review.user.id().to_owned()));
                 Ok(())
             }
             Act::Fail => anyhow::bail!("the model said nothing useful"),
@@ -153,27 +163,43 @@ async fn each_watcher_reads_only_what_came_after_its_place() {
 }
 
 #[tokio::test]
-async fn a_task_ending_reads_its_chat_now_but_only_for_admins() {
+async fn a_task_ending_reads_its_chat_now_for_every_user() {
     let h = Harness::new(Scripted::default()).await;
     let (ours, theirs) = (test_chat("alice-task"), test_chat("bob-task"));
-    let last = h.turn(&h.alice, ours, "check the build").await;
+    h.turn(&h.alice, ours, "check the build").await;
     h.turn(&h.bob, theirs, "check the build").await;
     let memory = Stub::new(WatcherKind::Memory, Act::Read);
     let mut runner = stub_runner(&h, 2, slice::from_ref(&memory));
     runner.wake("alice".into(), ours);
     runner.wake("bob".into(), theirs);
+    // A wake for a chat that is not the user's own reads nothing.
+    runner.wake("bob".into(), ours);
     runner.tick(Utc::now()).await;
     runner.drain().await;
-    assert_eq!(memory.read().len(), 1);
-    assert_eq!(memory.read()[0].1, last);
+    let mut expected = vec![(ours, "alice".to_owned()), (theirs, "bob".to_owned())];
+    expected.sort();
+    assert_eq!(memory.chats(), expected);
     assert!(runner.woken.is_empty());
 
-    // Bob's chats are never read, quiet or not.
+    // Read once, so a later sweep leaves both alone.
     runner.tick(after_quiet() + TimeDelta::hours(1)).await;
     runner.drain().await;
-    assert_eq!(memory.read().len(), 1);
-    let states = h.app.store.watcher_states(&[theirs]).await.unwrap();
-    assert!(states.is_empty());
+    assert_eq!(memory.chats(), expected);
+}
+
+#[tokio::test]
+async fn quiet_chats_of_every_user_are_read_for_their_own_user() {
+    let h = Harness::new(Scripted::default()).await;
+    let (ours, theirs) = (test_chat("alice-quiet"), test_chat("bob-quiet"));
+    h.turn(&h.alice, ours, "plan the trip").await;
+    h.turn(&h.bob, theirs, "plan the move").await;
+    let memory = Stub::new(WatcherKind::Memory, Act::Read);
+    let mut runner = stub_runner(&h, 2, slice::from_ref(&memory));
+    runner.tick(after_quiet()).await;
+    runner.drain().await;
+    let mut expected = vec![(ours, "alice".to_owned()), (theirs, "bob".to_owned())];
+    expected.sort();
+    assert_eq!(memory.chats(), expected);
 }
 
 #[tokio::test]
@@ -242,7 +268,7 @@ fn the_config_sets_each_watchers_model_and_drops_disabled_ones() {
 async fn the_turn_skill_review_steps_aside_only_where_the_watcher_reads() {
     let h = Harness::new(Scripted::default()).await;
     let hub = &h.app.watchers;
-    assert!(!hub.watches(&h.app, "alice", WatcherKind::Skills));
+    assert!(!hub.watches(WatcherKind::Skills));
     let mut settings = settings(1);
     settings.watchers = vec![WatcherSettings {
         kind: WatcherKind::Skills,
@@ -250,8 +276,7 @@ async fn the_turn_skill_review_steps_aside_only_where_the_watcher_reads() {
         timeout: Duration::from_secs(30),
     }];
     start(&h.app, settings);
-    assert!(hub.watches(&h.app, "alice", WatcherKind::Skills));
-    assert!(!hub.watches(&h.app, "alice", WatcherKind::Memory));
-    assert!(!hub.watches(&h.app, "bob", WatcherKind::Skills));
+    assert!(hub.watches(WatcherKind::Skills));
+    assert!(!hub.watches(WatcherKind::Memory));
     hub.stop();
 }

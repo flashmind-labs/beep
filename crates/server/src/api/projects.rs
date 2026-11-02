@@ -5,7 +5,6 @@
 use super::Reply;
 use crate::{
     app::App,
-    instance::Privilege,
     projects::{
         fleet::NodeFleet,
         lifecycle::fill_slots,
@@ -28,21 +27,11 @@ use uuid::Uuid;
 /// How long an ended worker still shows.
 const ENDED_SHOWN: TimeDelta = TimeDelta::days(1);
 
-fn admin(app: &App, user: &User) -> Result<(), ApiError> {
-    if app.allows(Privilege::Nodes, user) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized {})
-    }
-}
-
 pub(super) async fn get_project_agent(cx: Cx, req: GetProjectAgent) -> Reply<ProjectAgent> {
-    admin(&cx.app, &cx.user)?;
     project_agent(&cx.user, &req.project).await
 }
 
 pub(super) async fn list_project_tasks(cx: Cx, req: ListProjectTasks) -> Reply<Vec<ProjectTask>> {
-    admin(&cx.app, &cx.user)?;
     project_tasks(&cx.user, ProjectId(req.project)).await
 }
 
@@ -50,22 +39,18 @@ pub(super) async fn list_project_workers(
     cx: Cx,
     req: ListProjectWorkers,
 ) -> Reply<Vec<ProjectWorker>> {
-    admin(&cx.app, &cx.user)?;
     project_workers(&cx.user, ProjectId(req.project)).await
 }
 
 pub(super) async fn update_project_task(cx: Cx, req: UpdateProjectTask) -> Reply<ProjectTask> {
-    admin(&cx.app, &cx.user)?;
     update_task(&cx.app, &cx.user, TaskId(req.task), req.state.into()).await
 }
 
 pub(super) async fn stop_project_worker(cx: Cx, req: StopProjectWorker) -> Reply<()> {
-    admin(&cx.app, &cx.user)?;
     stop(&cx.app, &cx.user, WorkerId(req.worker)).await
 }
 
 pub(super) async fn list_projects(cx: Cx, _: ListProjects) -> Reply<Vec<ProjectAgent>> {
-    admin(&cx.app, &cx.user)?;
     projects(&cx.user).await
 }
 

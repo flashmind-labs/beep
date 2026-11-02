@@ -246,3 +246,31 @@ export function openOnLabel(url) {
   try { host = new URL(url).host; } catch { return null; }
   return host === "github.com" ? "Open on GitHub" : `Open on ${host}`;
 }
+
+/// The rows of a project's "Where it lives": every machine, as
+/// `project_machines` gives them (null from a server too old to say, when
+/// the imported folders are listed), each with `kind`:
+/// - "here": a checkout in `folder`; `mac` when it is this Mac
+/// - "checking": the server is looking through it now
+/// - "none": online without a checkout, so it can be cloned there
+/// - "offline": offline without a checkout; it is looked through once it
+///   connects
+export function whereRows(project, machines, macId) {
+  const here = (id, name, folder) => ({ kind: "here", id, name, folder, mac: !!macId && id === macId });
+  if (!machines) return (project?.machines || []).map(m => here(m.id, m.name, m.folder));
+  return machines.map(m => {
+    if (m.folder) return here(m.id, m.name, m.folder);
+    const one = { id: m.id, name: m.name, folder: null, mac: false, checked_at: m.checked_at || null };
+    if (m.checking) return { ...one, kind: "checking", text: "Checking…" };
+    if (m.online) return { ...one, kind: "none", text: `Not on ${m.name}` };
+    return { ...one, kind: "offline", text: `Checks when ${m.name} is online` };
+  });
+}
+
+/// "2 of 5 machines" for the section's heading, or "2 machines" while
+/// only the imported folders are known.
+export function whereCount(rows, known) {
+  const n = rows.filter(r => r.kind === "here").length;
+  const machines = x => x === 1 ? "1 machine" : `${x} machines`;
+  return known && rows.length > n ? `${n} of ${machines(rows.length)}` : machines(n);
+}

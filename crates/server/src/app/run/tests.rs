@@ -10,7 +10,7 @@ use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
     StreamEvent,
 };
-use iroh::SecretKey;
+
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::{
@@ -125,9 +125,8 @@ async fn a_reply_keeps_the_sources_of_its_web_searches() {
     let server = tokio::spawn(firecrawl(listener));
     let go = Arc::new(Semaphore::new(0));
     let provider = Arc::new(Searcher { go: go.clone() });
-    let admin = SecretKey::generate().public();
     let model = "openai:test".parse().expect("a model name");
-    let models = ModelChoices::resolve(provider.as_ref(), model, Vec::new(), &[admin]).await;
+    let models = ModelChoices::resolve(provider.as_ref(), model, Vec::new()).await;
     let tools = ServerTools {
         search: Some(Arc::new(SearchTool::at(endpoint).expect("a search tool"))),
         ..ServerTools::default()

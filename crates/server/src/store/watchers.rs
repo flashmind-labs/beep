@@ -25,18 +25,14 @@ fn activity(row: &PgRow) -> Result<ChatActivity> {
 }
 
 impl Store {
-    /// The sessions of `users` whose messages changed since `since`.
-    pub(crate) async fn watched_chats(
-        &self,
-        users: &[String],
-        since: DateTime<Utc>,
-    ) -> Result<Vec<ChatActivity>> {
+    /// Every user's sessions whose messages changed since `since`, each
+    /// with the user it belongs to.
+    pub(crate) async fn watched_chats(&self, since: DateTime<Utc>) -> Result<Vec<ChatActivity>> {
         let rows = sqlx::query(&format!(
             "SELECT {ACTIVITY} FROM chats c JOIN chat_members m ON m.chat_id = c.id
-             WHERE c.kind = 'session' AND m.user_id = ANY($1) AND c.updated_at >= $2
+             WHERE c.kind = 'session' AND c.updated_at >= $1
              ORDER BY c.updated_at"
         ))
-        .bind(users)
         .bind(since)
         .fetch_all(&self.pool)
         .await?;
@@ -174,18 +170,16 @@ mod tests {
         .unwrap();
 
         let long_ago = Utc::now() - TimeDelta::days(1);
-        let chats = store
-            .watched_chats(&["alice".to_owned()], long_ago)
-            .await
-            .unwrap();
-        assert_eq!(chats.len(), 1);
-        assert_eq!(chats[0].chat, chat);
-        assert_eq!(chats[0].user, "alice");
+        let chats = store.watched_chats(long_ago).await.unwrap();
+        assert_eq!(chats.len(), 2);
+        let bobs = chats.iter().find(|found| found.user == "bob").unwrap();
+        assert_eq!(bobs.chat, test_chat("bobs"));
+        let alices = chats.iter().find(|found| found.user == "alice").unwrap();
+        assert_eq!(alices.chat, chat);
         // The reply comes after the message that opened the last turn.
-        assert!(chats[0].last_seq > last);
-        assert!(!chats[0].running);
-        let alice_only = ["alice".to_owned()];
-        let none = store.watched_chats(&alice_only, Utc::now() + TimeDelta::minutes(1));
+        assert!(alices.last_seq > last);
+        assert!(!alices.running);
+        let none = store.watched_chats(Utc::now() + TimeDelta::minutes(1));
         assert!(none.await.unwrap().is_empty());
         assert!(store.watched_chat("bob", chat).await.unwrap().is_none());
 

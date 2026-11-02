@@ -12,7 +12,7 @@ import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machin
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions } from "./projects-state.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote } from "./projects-state.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -59,7 +59,7 @@ const CONNECT_RETRY_MS = 3000;
 /// `found` is what `found_projects` last gave (null before), `importing` the
 /// found row being imported and `foundError` why one failed, and
 /// `sessions` each project's past sessions once read, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map() };
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map() };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -670,18 +670,22 @@ export function openProjects(name) {
 function landed(p) {
   state.picked = p.name;
   state.sessions.delete(p.name);
+  state.where.delete(p.name);
   loadFound();
   refresh();
   openProjects(p.name);
 }
 
 /// Opens the Import a project sheet, at the folder choice with `choose`;
-/// the project is selected once it is in.
-function importSheet(choose = false) {
+/// the project is selected once it is in. `repo` and `machine` fill it in,
+/// as Clone here does.
+function importSheet(choose = false, repo = null, machine = null) {
   openImportProject({
     machines: state.home?.machines || [],
     macId: state.mac?.id || null,
     choose,
+    repo,
+    machine,
     onDone: landed,
   });
 }
@@ -948,23 +952,19 @@ function projectTable(rows) {
   return table;
 }
 
-/// One project: where it lives, with "Start an agent here" per folder, and
-/// the coding agents running in it now.
+/// One project: where it lives on every machine, with "Start an agent here"
+/// per folder and "Clone here" where it is not, and the coding agents
+/// running in it now.
 function projectDetail(p) {
+  const machines = p.imported ? state.where.get(p.name) : null;
+  if (p.imported && machines === undefined) loadWhere(p.name);
+  const rows = whereRows(p, machines || null, state.mac?.id || null);
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
-  for (const m of p.machines) {
-    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: m.folder } } }));
-    const copy = button("Copy path", "quiet small", async () => {
-      try { await navigator.clipboard.writeText(m.folder); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
-    });
-    const mac = state.mac?.id && m.id === state.mac.id;
-    const finder = mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path: m.folder }).catch(e => console.warn("open folder:", e))) : null;
-    const folder = h("span", "nm", h("span", "os", m.folder));
-    folder.title = m.folder;
-    where.append(h("span", "nm", h("b", "", m.name)), folder, h("span", "acts", finder, copy, start));
-  }
-  const out = [section("sec-where", "Where it lives", p.machines.length, null, where)];
+  for (const m of rows) where.append(...whereRow(p, m));
+  const whereEl = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
+  if (machines) whereEl.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
+  const out = [whereEl];
   const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
   const list = running.length
@@ -973,6 +973,59 @@ function projectDetail(p) {
   out.push(section("sec-project-agents", "Agents", running.length || "", null, list));
   out.push(sessionsSection(p, running));
   return out;
+}
+
+/// One machine's row under "Where it lives": its folder and what to do
+/// there, or why there is none.
+function whereRow(p, m) {
+  const name = h("span", "nm", h("b", "", m.name));
+  if (m.kind === "here") {
+    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: m.folder } } }));
+    const copy = button("Copy path", "quiet small", async () => {
+      try { await navigator.clipboard.writeText(m.folder); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
+    });
+    const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path: m.folder }).catch(e => console.warn("open folder:", e))) : null;
+    const folder = h("span", "nm", h("span", "os", m.folder));
+    folder.title = m.folder;
+    return [name, folder, h("span", "acts", finder, copy, start)];
+  }
+  const said = h("span", "os", m.text);
+  if (m.kind === "none" && m.checked_at) said.title = `Checked ${ago(m.checked_at)} ago`;
+  const what = h("span", "nm", said);
+  const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(false, repoFromRemote(p.url), m.id)) : null;
+  return [name, what, h("span", "acts", clone)];
+}
+
+/// Asks the server where `name` lives on each machine; while it looks
+/// through one, it asks again shortly. A folder it finds brings that
+/// machine's sessions with it.
+let readingWhere = null;
+let whereTimer = null;
+async function loadWhere(name) {
+  if (readingWhere === name) return;
+  readingWhere = name;
+  const before = state.where.get(name);
+  let got = null;
+  try {
+    got = await invoke("project_machines", { project: name });
+  } catch (e) {
+    console.warn("project machines:", e);
+  } finally {
+    readingWhere = null;
+  }
+  state.where.set(name, got);
+  const folders = list => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
+  if (before !== undefined && folders(before) !== folders(got)) {
+    state.sessions.delete(name);
+    refresh();
+  }
+  clearTimeout(whereTimer);
+  if (got?.some(m => m.checking)) {
+    whereTimer = setTimeout(() => {
+      if (shown === "projects" && state.picked === name) loadWhere(name);
+    }, 3000);
+  }
+  if (shown === "projects" && state.picked === name) drawProjects(views.get("projects").el);
 }
 
 /// The sessions your coding agents ran in the project's folders, newest
@@ -990,7 +1043,7 @@ function sessionsSection(p, running) {
       : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi or flsh in these folders yet."));
   }
   const el = section("sec-sessions", "Sessions", sessions?.length || "", null, body);
-  el.querySelector("h4").append(h("small", "", "from your coding agents in these folders, newest first"));
+  el.querySelector("h4").append(h("small", "", "from your coding agents in its folders on every machine, newest first"));
   return el;
 }
 
@@ -1088,7 +1141,7 @@ registerView("projects", {
   },
   mount(el, arg) {
     state.picked = arg?.project || null;
-    if (state.picked) state.sessions.delete(state.picked);
+    if (state.picked) { state.sessions.delete(state.picked); state.where.delete(state.picked); }
     drawProjects(el);
     if (!state.picked) loadFound();
     refresh();

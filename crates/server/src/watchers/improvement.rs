@@ -2,8 +2,8 @@
 //! failed the user and proposes what to change in Beep itself. Each finding
 //! names its kind, what happened, how to make it happen again, the likely
 //! cause and a fix, and the messages it was seen in. The same problem in
-//! other chats counts towards one finding by its fingerprint. Nothing is
-//! applied: an admin resolves or dismisses each one. What it stores is
+//! the user's other chats counts towards one finding by its fingerprint.
+//! Nothing is applied: the user resolves or dismisses each one. What it stores is
 //! cut short and has anything that looks like a secret masked.
 
 use super::{
@@ -64,7 +64,7 @@ pub enum Cause {
     Other,
 }
 
-/// Where an admin left a finding.
+/// Where the user left a finding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum FindingStatus {

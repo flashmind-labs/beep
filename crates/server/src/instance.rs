@@ -2,9 +2,7 @@
 //!
 //! An instance has one owner account. The owner's key can be named in the
 //! config; otherwise the first key that connects claims it. Every other key
-//! is refused unless the owner linked it with `LinkDevice`. The owner counts
-//! as an admin, and the features only admins get on a shared server are
-//! settings here, on by default.
+//! is refused unless the owner linked it with `LinkDevice`.
 //!
 //! The bundled `beep-node` joins the owner without a link code: the server
 //! writes its key to a folder both share (`server.id`), the node writes its
@@ -41,14 +39,16 @@ pub struct InstanceConfig {
     /// What the server calls itself in its link code.
     #[serde(default = "default_name")]
     pub name: String,
-    /// Account events wake the agent (see `crate::events`).
+    /// Once turned account events off. Unused now that every user gets
+    /// them; kept so configs that set it still load.
     #[serde(default = "on")]
     pub events: bool,
     /// Once turned background sub-agents off. Unused now; kept so configs
     /// that set it still load.
     #[serde(default = "on")]
     pub background: bool,
-    /// Machines running `beep-node`.
+    /// Once turned machines off. Unused now that every user gets them;
+    /// kept so configs that set it still load.
     #[serde(default = "on")]
     pub nodes: bool,
     /// Once turned the removed per-prompt agents off. Unused now; kept so
@@ -65,14 +65,6 @@ fn on() -> bool {
 
 fn default_name() -> String {
     "Beep".to_owned()
-}
-
-/// What only admins get on a shared server, and what an instance's
-/// settings turn off.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Privilege {
-    Events,
-    Nodes,
 }
 
 /// The bundled node, as its file names it.
@@ -94,14 +86,6 @@ impl Instance {
         Self {
             config,
             owner: RwLock::default(),
-        }
-    }
-
-    /// Whether the settings leave `privilege` on.
-    pub fn allows(&self, privilege: Privilege) -> bool {
-        match privilege {
-            Privilege::Events => self.config.events,
-            Privilege::Nodes => self.config.nodes,
         }
     }
 
@@ -204,10 +188,11 @@ mod tests {
     }
 
     #[test]
-    fn an_agents_key_still_loads() {
-        let instance = Instance::new(config("agents = false"));
-        assert!(instance.allows(Privilege::Events));
-        assert!(instance.allows(Privilege::Nodes));
+    fn retired_keys_still_load() {
+        let instance = Instance::new(config(
+            "agents = false\nbackground = false\nevents = false\nnodes = false",
+        ));
+        assert_eq!(instance.name(), "Beep");
     }
 
     #[test]
@@ -225,16 +210,10 @@ mod tests {
     }
 
     #[test]
-    fn every_privilege_is_on_by_default() {
+    fn an_empty_table_names_no_owner() {
         let instance = Instance::new(config(""));
-        for privilege in [Privilege::Events, Privilege::Nodes] {
-            assert!(instance.allows(privilege), "{privilege:?} is on");
-        }
         assert_eq!(instance.name(), "Beep");
         assert!(instance.owner_key().is_none());
-        let off = Instance::new(config("events = false\nnodes = false"));
-        assert!(!off.allows(Privilege::Events));
-        assert!(!off.allows(Privilege::Nodes));
     }
 
     #[test]

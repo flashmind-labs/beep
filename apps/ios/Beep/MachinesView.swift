@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The machines running beep-node on the account, for admins, as on Android. A machine shows
+/// The machines running beep-node on the account, as on Android. A machine shows
 /// here once it has connected; linking one is the same as linking a computer, with the link
 /// `beep-node link` prints pasted as a code.
 struct MachinesView: View {

@@ -1,5 +1,7 @@
 //! Findings: where Beep failed a user, as the improvement watcher proposed
-//! them, one row per problem however many chats it came up in.
+//! them, one row per problem and user however many of the user's chats it
+//! came up in. A user only reads and settles findings seen in their own
+//! chats.
 
 use super::Store;
 use crate::watchers::{Cause, FindingKind, FindingStatus};
@@ -43,7 +45,8 @@ pub struct FindingRow {
     pub seen: i32,
     pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
-    /// Its latest sighting in a chat of the user it was read for.
+    /// Its latest sighting in a chat of the user it was read for. Always
+    /// there for a finding read back here.
     pub sighting: Option<SeenIn>,
 }
 
@@ -60,18 +63,34 @@ pub struct SeenIn {
 const COLUMNS: &str = "f.id, f.fingerprint, f.kind, f.summary, f.steps, f.cause, f.cause_detail,
     f.fix, f.status, f.seen, f.first_seen, f.last_seen, s.chat_id, s.first_seq, s.last_seq";
 
-/// `findings f` with the latest sighting in a chat of the user `$1`.
-const FROM: &str = "findings f LEFT JOIN LATERAL (
+/// `findings f` with the latest sighting in a chat of the user `$1`. A
+/// finding never seen in one of that user's chats is left out.
+const FROM: &str = "findings f JOIN LATERAL (
         SELECT chat_id, first_seq, last_seq FROM finding_sightings
         WHERE finding_id = f.id AND user_id = $1 ORDER BY seen_at DESC LIMIT 1
     ) s ON TRUE";
 
-fn finding(row: &PgRow) -> Result<FindingRow> {
+/// The fingerprint a finding of `user` is stored under, so each user's
+/// problems count apart.
+fn keyed(user: &str, fingerprint: &str) -> String {
+    format!("{user}|{fingerprint}")
+}
+
+/// `stored` as the watcher made it. Findings from before they were kept per
+/// user have no key.
+fn unkeyed(reader: &str, stored: String) -> String {
+    match stored.strip_prefix(&keyed(reader, "")) {
+        Some(fingerprint) => fingerprint.to_owned(),
+        None => stored,
+    }
+}
+
+fn finding(row: &PgRow, reader: &str) -> Result<FindingRow> {
     let text = |i: usize| -> Result<String> { Ok(row.try_get(i)?) };
     let chat: Option<Uuid> = row.try_get(12)?;
     Ok(FindingRow {
         id: row.try_get(0)?,
-        fingerprint: text(1)?,
+        fingerprint: unkeyed(reader, text(1)?),
         kind: text(2)?.parse().unwrap_or(FindingKind::Other),
         summary: text(3)?,
         steps: text(4)?,
@@ -94,8 +113,8 @@ fn finding(row: &PgRow) -> Result<FindingRow> {
 }
 
 impl Store {
-    /// Records `finding` seen at `seen`. One with the same fingerprint
-    /// counts once more instead, and opens again if it was resolved; a
+    /// Records `finding` seen at `seen`. One of the same user with the same
+    /// fingerprint counts once more instead, and opens again if it was resolved; a
     /// dismissed one stays dismissed. Returns its id.
     pub(crate) async fn record_finding(
         &self,
@@ -118,7 +137,7 @@ impl Store {
              RETURNING id",
         )
         .bind(Uuid::new_v4())
-        .bind(finding.fingerprint)
+        .bind(keyed(seen.user, finding.fingerprint))
         .bind(kind)
         .bind(finding.summary)
         .bind(finding.steps)
@@ -144,8 +163,8 @@ impl Store {
         Ok(id)
     }
 
-    /// Findings, most recently seen first, only those with `status` when
-    /// given, each with its latest sighting in a chat of `reader`.
+    /// The findings seen in `reader`'s chats, most recently seen first, only
+    /// those with `status` when given, each with its latest sighting there.
     pub(crate) async fn findings(
         &self,
         reader: &str,
@@ -163,10 +182,10 @@ impl Store {
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(finding).collect()
+        rows.iter().map(|row| finding(row, reader)).collect()
     }
 
-    /// Sets the status of finding `id`, `None` when there is none.
+    /// Sets the status of finding `id`, `None` when `reader` has none such.
     pub(crate) async fn set_finding_status(
         &self,
         reader: &str,
@@ -175,13 +194,18 @@ impl Store {
         at: DateTime<Utc>,
     ) -> Result<Option<FindingRow>> {
         let status: &str = status.into();
-        let changed = sqlx::query("UPDATE findings SET status = $2, updated_at = $3 WHERE id = $1")
-            .bind(id)
-            .bind(status)
-            .bind(at)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
+        let changed = sqlx::query(
+            "UPDATE findings SET status = $2, updated_at = $3 WHERE id = $1 AND EXISTS (
+                SELECT 1 FROM finding_sightings WHERE finding_id = $1 AND user_id = $4
+             )",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(at)
+        .bind(reader)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
         if changed == 0 {
             return Ok(None);
         }
@@ -190,7 +214,7 @@ impl Store {
             .bind(id)
             .fetch_one(&self.pool)
             .await?;
-        finding(&row).map(Some)
+        finding(&row, reader).map(Some)
     }
 }
 
@@ -216,16 +240,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_same_problem_in_other_chats_is_one_finding() {
+    async fn the_same_problem_in_a_users_chats_is_one_finding() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
-        let (ours, theirs) = (test_chat("ours"), test_chat("theirs"));
+        let (ours, elsewhere) = (test_chat("ours"), test_chat("elsewhere"));
         test_turn(&store, &UserKey::for_test("alice"), ours, "when", 1_000)
             .await
             .unwrap();
-        test_turn(&store, &UserKey::for_test("bob"), theirs, "when", 2_000)
-            .await
-            .unwrap();
+        test_turn(
+            &store,
+            &UserKey::for_test("alice"),
+            elsewhere,
+            "when",
+            1_500,
+        )
+        .await
+        .unwrap();
         let start = DateTime::UNIX_EPOCH + TimeDelta::days(1);
         let seen = |user, chat, first_seq| Sighting {
             user,
@@ -240,14 +270,14 @@ mod tests {
             .unwrap();
         let later = start + TimeDelta::hours(1);
         let again = store
-            .record_finding(&new(fingerprint), &seen("bob", theirs, 7), later)
+            .record_finding(&new(fingerprint), &seen("alice", elsewhere, 7), later)
             .await
             .unwrap();
         assert_eq!(id, again);
         let other = store
             .record_finding(
                 &new("loop:web_search:same-query"),
-                &seen("bob", theirs, 9),
+                &seen("alice", ours, 9),
                 start,
             )
             .await
@@ -257,18 +287,17 @@ mod tests {
         let found = store.findings("alice", None, 10).await.unwrap();
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].id, id, "most recently seen first");
+        assert_eq!(found[0].fingerprint, fingerprint);
         assert_eq!(found[0].seen, 2);
         assert_eq!((found[0].first_seen, found[0].last_seen), (start, later));
-        // Alice reads where she saw it, never Bob's chat.
         assert_eq!(
             found[0].sighting,
             Some(SeenIn {
-                chat: ours,
-                first_seq: 1,
-                last_seq: 2
+                chat: elsewhere,
+                first_seq: 7,
+                last_seq: 8
             })
         );
-        assert_eq!(found[1].sighting, None);
 
         let dismissed = store
             .set_finding_status("alice", other, FindingStatus::Dismissed, later)
@@ -301,7 +330,7 @@ mod tests {
         store
             .record_finding(
                 &new("loop:web_search:same-query"),
-                &seen("bob", theirs, 30),
+                &seen("alice", ours, 30),
                 later,
             )
             .await
@@ -310,5 +339,55 @@ mod tests {
         let status = |id| all.iter().find(|f| f.id == id).map(|f| (f.status, f.seen));
         assert_eq!(status(id), Some((FindingStatus::Open, 3)));
         assert_eq!(status(other), Some((FindingStatus::Dismissed, 2)));
+    }
+
+    #[tokio::test]
+    async fn each_user_reads_and_settles_only_their_own_findings() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let (ours, theirs) = (test_chat("ours"), test_chat("theirs"));
+        test_turn(&store, &UserKey::for_test("alice"), ours, "when", 1_000)
+            .await
+            .unwrap();
+        test_turn(&store, &UserKey::for_test("bob"), theirs, "when", 2_000)
+            .await
+            .unwrap();
+        let at = DateTime::UNIX_EPOCH + TimeDelta::days(1);
+        let fingerprint = "wrong_tool:gmail:calendar-in-mail";
+        let seen = |user, chat| Sighting {
+            user,
+            chat,
+            first_seq: 1,
+            last_seq: 2,
+        };
+        let alices = store
+            .record_finding(&new(fingerprint), &seen("alice", ours), at)
+            .await
+            .unwrap();
+        // The same problem in Bob's chat is Bob's own finding.
+        let bobs = store
+            .record_finding(&new(fingerprint), &seen("bob", theirs), at)
+            .await
+            .unwrap();
+        assert_ne!(alices, bobs);
+
+        let found = store.findings("bob", None, 10).await.unwrap();
+        assert_eq!(found.iter().map(|f| f.id).collect::<Vec<_>>(), [bobs]);
+        assert_eq!(found[0].seen, 1);
+        assert_eq!(found[0].fingerprint, fingerprint);
+        assert_eq!(found[0].sighting.as_ref().map(|s| s.chat), Some(theirs));
+        assert!(store.findings("carol", None, 10).await.unwrap().is_empty());
+
+        // Bob cannot settle Alice's.
+        assert!(
+            store
+                .set_finding_status("bob", alices, FindingStatus::Dismissed, at)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let hers = store.findings("alice", None, 10).await.unwrap();
+        assert_eq!(hers.iter().map(|f| f.id).collect::<Vec<_>>(), [alices]);
+        assert_eq!(hers[0].status, FindingStatus::Open);
     }
 }

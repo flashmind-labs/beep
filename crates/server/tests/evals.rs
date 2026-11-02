@@ -215,7 +215,6 @@ impl Server {
             provider.as_ref(),
             llm.model.clone(),
             config.model_choices.clone(),
-            &config.admins,
         )
         .await
         .with_routing(config.model_routing());

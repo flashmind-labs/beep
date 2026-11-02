@@ -2375,14 +2375,13 @@ function renderRevoked() {
 function thisMac(mac) {
   const p = mac.permissions;
   const sub = !mac.enabled ? "Beep can see the screen, click, type and run commands here when you ask"
-    : mac.status === "not_allowed" ? "This account can't add machines on this server"
     : mac.status === "failed" ? `Couldn't connect: ${esc(mac.error || "unknown error")}. Beep tries again on its own.`
     : mac.status === "connected" ? (p.screen_recording && p.accessibility ? "Connected. Ask Beep to do something on this Mac" : "Connected. Allow both below so Beep can see and use the screen")
     : "Connecting…";
   const perm = (key, name, why, ok) => `<div class="dtoggle"><span><b>${name}</b><small>${why}</small></span>${ok
     ? '<span class="dtag ok">Allowed</span>'
     : `<button class="dbtn" data-allow="${key}">Allow…</button>`}</div>`;
-  const rows = mac.enabled && mac.status !== "not_allowed"
+  const rows = mac.enabled
     ? perm("ScreenRecording", "Screen Recording", "To see the screen", p.screen_recording)
       + perm("Accessibility", "Accessibility", "To click, type and read app controls", p.accessibility)
     : "";
@@ -2644,7 +2643,7 @@ function setAppsHtml() {
   return `<div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>`;
 }
 
-/// Other machines; only admins may list them, so for anyone else it stays out.
+/// Other machines; left out when the list could not be read.
 function setMachinesHtml() {
   if (SET.machines === undefined) return setSkeleton(1);
   const list = SET.machines;
@@ -4478,7 +4477,7 @@ function grantKeys(e, cmd) {
 
 // ---------- Machines ----------
 
-// The machines running beep-node (ListMachines), from Settings. Admins only.
+// The machines running beep-node (ListMachines), from Settings.
 const MC = { list: null, error: "" };
 const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
 /// The coding agents Beep can drive on a machine; its other tools follow them.
