@@ -875,6 +875,121 @@ requests! {
     /// terminal. `NotFound` when the caller has no such terminal;
     /// `BadRequest` when its machine is online and refuses to stop it.
     204 CloseTerminal { id: Uuid } => Call<()>
+    /// How the caller's coding agents sign in on their machines, for the
+    /// Agent accounts section of Settings: the Claude Code token and Codex
+    /// API key Beep keeps (never the secrets) and each machine that has
+    /// Claude Code or Codex.
+    213 GetAgentAccounts {} => Call<AgentAccounts>
+    /// Saves the token `agent` (an `AgentAccount` slug: `claude` or
+    /// `codex`) uses on the caller's machines, replacing the one before.
+    /// The machines get it as the agent's env var when they start it.
+    /// `BadRequest` for an unknown agent or a secret that is not a token.
+    214 SaveAgentToken { agent: String, secret: SecretText } => Call<AgentToken>
+    /// Removes `agent`'s token from Beep and the caller's machines; running
+    /// sessions keep it until they end. `NotFound` when there is none.
+    215 RevokeAgentToken { agent: String } => Call<()>
+    /// Starts Codex's device sign-in (`codex login --device-auth`) on one
+    /// of the caller's online machines and answers with the page and code
+    /// it printed. `NotFound` when the machine is not one of the caller's
+    /// online ones; `BadRequest` saying why when Codex cannot start it.
+    216 StartCodexLogin { machine_id: String } => Call<CodexLogin>
+    /// How a sign-in `StartCodexLogin` started stands.
+    217 GetCodexLogin { machine_id: String, task: u32 } => Call<CodexLoginState>
+    /// Stops a sign-in `StartCodexLogin` started, when it still waits.
+    218 CancelCodexLogin { machine_id: String, task: u32 } => Call<()>
+}
+
+/// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentAccounts {
+    /// The Claude Code token the machines get, when there is one.
+    pub claude: Option<AgentToken>,
+    /// The API key Codex uses instead of each machine's own sign-in.
+    pub codex_key: Option<AgentToken>,
+    /// The caller's machines with Claude Code or Codex, by name.
+    pub machines: Vec<AgentMachine>,
+}
+
+/// A token Beep keeps for a coding agent. The secret stays on the server.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentToken {
+    /// The secret's last four characters.
+    pub last4: String,
+    pub created_at: SystemTime,
+    /// The server can no longer open it; the user has to sign in again.
+    pub unreadable: bool,
+}
+
+/// One of the user's machines with Claude Code or Codex.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentMachine {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub online: bool,
+    /// Claude Code is on it, as it last said.
+    pub claude: bool,
+    /// Codex is on it, as it last said.
+    pub codex: bool,
+    /// Claude Code sessions Beep runs on it now.
+    pub claude_sessions: u32,
+    /// Whether Codex is signed in there; `None` when not known, such as
+    /// while it is offline.
+    pub codex_signed_in: Option<bool>,
+}
+
+/// A Codex device sign-in under way on a machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexLogin {
+    /// The node's background task running `codex login`.
+    pub task: u32,
+    /// The page to enter the code on.
+    pub url: String,
+    pub code: String,
+    /// When the code stops working.
+    pub expires_at: SystemTime,
+}
+
+wire_enum! {
+    /// How a Codex device sign-in stands. `Gone` is no longer on its
+    /// machine, such as after a restart, or the machine is offline.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum CodexLoginState {
+        0 Waiting {}
+        1 SignedIn {}
+        2 Failed { message: String }
+        3 Gone {}
+    }
+}
+
+/// The coding agents Beep can keep a token for. On the wire an agent is
+/// its slug, the name the node gives the agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
+pub enum AgentAccount {
+    Claude,
+    Codex,
+}
+
+impl AgentAccount {
+    /// The slug the wire and the database carry, such as `claude`.
+    pub fn slug(self) -> &'static str {
+        self.into()
+    }
+
+    /// The env var the agent reads its token from: Claude Code's
+    /// long-lived OAuth token, or the API key Codex takes in place of a
+    /// sign-in.
+    pub fn env_var(self) -> &'static str {
+        match self {
+            Self::Claude => "CLAUDE_CODE_OAUTH_TOKEN",
+            Self::Codex => "CODEX_API_KEY",
+        }
+    }
 }
 
 /// A command kept running on one of the user's machines for a project.

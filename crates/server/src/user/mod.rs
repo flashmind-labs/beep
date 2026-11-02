@@ -1119,6 +1119,22 @@ impl User {
         self.store.set_default_github(&self.key, id).await
     }
 
+    /// The user's coding agents' tokens, without their secrets.
+    pub(crate) async fn agent_tokens(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::AgentTokenRow>> {
+        self.store.agent_tokens(&self.key, key).await
+    }
+
+    /// `false` when the user has no token for `agent`.
+    pub(crate) async fn remove_agent_token(
+        &self,
+        agent: crate::protocol::AgentAccount,
+    ) -> Result<bool> {
+        self.store.remove_agent_token(&self.key, agent).await
+    }
+
     /// `false` when the user has no credential `id`.
     pub async fn remove_credential(&self, id: &str) -> Result<bool> {
         self.store.remove_credential(&self.key, id).await
