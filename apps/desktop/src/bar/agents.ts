@@ -576,7 +576,12 @@ export function drawAgentBody() {
   const st = $("#agstate");
   if (st) st.innerHTML = stateTag(s.status);
   const mark = (x: string) => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
-  const doing = s.doing && s.status !== "ended" ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${esc(s.doing)}</div>` : "";
+  // What the agent says it is doing now, on one line, unless the log's
+  // last row already shows it (an agent that names its running command).
+  const last = p.entries.at(-1);
+  const shown = last?.kind === "tool" && AG.log?.parseTool(last.text).title.trim() === s.doing?.trim();
+  const doing = s.doing && s.status !== "ended" && !shown
+    ? `<div class="row" style="padding:8px 12px 0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(s.doing)}">${esc(s.doing.split("\n")[0])}</div>` : "";
   const question = q ? questionCard(q) : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
