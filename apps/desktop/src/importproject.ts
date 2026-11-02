@@ -4,7 +4,8 @@
 // browser on another machine; a checkout picked there fills the field and
 // is imported in place. It shows the clone's progress and closes onto the
 // new project. Esc or Cancel closes it, except while cloning, when the
-// clone goes on and the project shows up once it is in.
+// clone goes on and the project shows up once it is in. The Folder field
+// takes a typed path too, offering the machine's folders as it is typed.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
@@ -12,6 +13,8 @@ import type { ImportEvent, MachineFolder, ProjectRow } from "./projects-state.ts
 import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
 import type { BranchPicks, PreviewView } from "./branchwork.ts";
 import type { MachineCard } from "./home.ts";
+import { NO_MENU, completed, isOpen, menuKey, menuOf, splitTyped, suggest } from "./foldercomplete.ts";
+import type { FolderMenu } from "./foldercomplete.ts";
 
 /// A machine the sheet offers, as Home lists it.
 type Machine = Pick<MachineCard, "id" | "name" | "online" | "env">;
@@ -44,6 +47,16 @@ let previewTimer: ReturnType<typeof setTimeout> | undefined;
 const bases = new Map<string, string>();
 /// A folder is being read, so the folder buttons wait.
 let reading = false;
+/// The Folder field's text once the user types in it; null while it shows
+/// the folder chosen or the default.
+let folderText: string | null = null;
+/// The folders offered under the Folder field.
+let menu: FolderMenu = NO_MENU;
+/// The latest folder lookup: an answer to an older one is dropped.
+let lookup = 0;
+let lookupTimer: ReturnType<typeof setTimeout> | undefined;
+/// The folders read while the sheet is open, by machine and folder.
+const listed = new Map<string, readonly string[]>();
 
 /// Opens the sheet. With `options.choose` it goes straight to choosing a
 /// folder.
@@ -68,6 +81,8 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   previewFor = "";
   previewError = "";
   picks = {};
+  resetFolder();
+  listed.clear();
   draw();
   learnBase();
   schedulePreview();
@@ -109,6 +124,8 @@ export function closeImportProject() {
   clearTimeout(previewTimer);
   preview = undefined;
   previewFor = "";
+  resetFolder();
+  listed.clear();
   focusBack(back);
   const then = onDone;
   onDone = null;
@@ -119,13 +136,32 @@ function onKey(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   e.preventDefault();
   e.stopPropagation();
-  closeImportProject();
+  // Esc first closes the folder menu, then the sheet.
+  if (isOpen(menu)) setMenu(NO_MENU);
+  else closeImportProject();
 }
 
 function update(event: ImportEvent) {
+  // Picking a machine or a folder replaces whatever was typed as the folder.
+  if (event.type === "pick" || event.type === "choose" || event.type === "unchoose") resetFolder();
   state = next(state, event);
   if (root && event.type !== "edit") draw();
   else if (root) syncForm();
+}
+
+/// Import, or Enter: a folder typed is read first, as Choose… reads one,
+/// so a checkout there fills the repository; then the import starts.
+async function goImport() {
+  if (folderText != null && state.step === "form") {
+    const typed = folderText.trim();
+    if (!typed) update({ type: "unchoose" });
+    else if (state.machine) {
+      let found = false;
+      await read(typed, listing => { found = true; update({ type: "choose", listing }); });
+      if (!found) return;
+    }
+  }
+  submit();
 }
 
 async function submit() {
@@ -149,17 +185,30 @@ function syncForm() {
   const go = sheet!.querySelector<HTMLButtonElement>(".ip-go");
   if (go) go.disabled = !looksLikeRepo(state.repo);
   if (!state.error) sheet!.querySelector(".am-msg.bad")?.remove();
+  // The default folder follows the repository typed.
+  const dir = sheet!.querySelector<HTMLInputElement>(".ip-dir");
+  if (dir && folderText == null && document.activeElement !== dir) dir.value = dir.title = shownFolder() ?? "";
 }
 
 function draw() {
   const box = sheet!;
+  // A redraw while typing a folder keeps the caret there.
+  const was = document.activeElement;
+  const typing = was instanceof HTMLInputElement && was.classList.contains("ip-dir") ? was.selectionStart ?? was.value.length : null;
+  const keep = menu;
   const head = el("div", "am-head", el("b", "", "Import a project"), el("kbd", "", "esc"));
   box.replaceChildren(head, ...present(body()));
   const field = box.querySelector("input");
   const pick = box.querySelector<HTMLElement>(".ip-browse .dirs button");
-  if (state.browsing && pick) pick.focus();
+  const dir = box.querySelector<HTMLInputElement>(".ip-dir");
+  if (typing != null && dir && !dir.disabled) { dir.focus(); dir.setSelectionRange(typing, typing); }
+  else if (state.browsing && pick) pick.focus();
   else if (field && !state.browsing) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); }
   else box.querySelector<HTMLElement>(".dbtn.pri")?.focus();
+  // The menu is drawn again when the field kept focus, else dropped. The
+  // old field's blur may have dropped it and a lookup on its way: ask again.
+  setMenu(keep);
+  if (typing != null && !isOpen(keep) && folderText != null) lookFolders();
 }
 
 /// Reads a folder on the picked machine (`path` null for where it starts),
@@ -242,13 +291,13 @@ function form() {
   input.setAttribute("aria-label", "Repository");
   input.value = state.repo;
   input.addEventListener("input", () => { update({ type: "edit", repo: input.value }); schedulePreview(); });
-  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); goImport(); } });
   const chips = el("div", "dchips", ...machineChips(machines).map(c => {
     const b = button(c.label, "dchip", () => { update({ type: "pick", machine: c.id }); learnBase(); });
     b.setAttribute("aria-pressed", String(c.id === state.machine));
     return b;
   }));
-  const go = button("Import", "dbtn pri ip-go", submit);
+  const go = button("Import", "dbtn pri ip-go", goImport);
   go.disabled = !looksLikeRepo(state.repo);
   return [
     el("div", "am-label", "Repository"),
@@ -294,18 +343,122 @@ function branchesBlock() {
   ];
 }
 
-/// Where it goes, the default or the folder chosen, and Choose….
-function folderLine() {
+/// The folder the field shows before anything is typed: the one chosen,
+/// else the picked machine's default.
+function shownFolder() {
   const m = machines.find(x => x.id === state.machine);
-  const shown = state.chosen?.path
+  return state.chosen?.path
     ?? (state.machine ? defaultFolder(bases.get(state.machine), m?.env?.os, state.repo) : null);
-  const path = el("div", shown ? "ip-path" : "ip-path dim",
-    shown || (state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks"));
-  if (shown) path.title = shown;
+}
+
+/// Where it goes, the default or the folder chosen or typed, and Choose….
+function folderLine() {
+  const path = el("input", "ip-path ip-dir");
+  path.type = "text";
+  path.spellcheck = false;
+  path.autocapitalize = "off";
+  path.setAttribute("autocorrect", "off");
+  path.setAttribute("aria-label", "Folder");
+  path.setAttribute("role", "combobox");
+  path.setAttribute("aria-autocomplete", "list");
+  path.setAttribute("aria-controls", "ip-menu");
+  path.setAttribute("aria-expanded", "false");
+  path.placeholder = state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks";
+  // On Auto there is no machine to name a folder on.
+  path.disabled = !state.machine;
+  path.value = path.title = state.machine ? folderText ?? shownFolder() ?? "" : "";
+  path.addEventListener("input", () => { folderText = path.title = path.value; lookFolders(); });
+  path.addEventListener("keydown", e => onFolderKey(e, path));
+  path.addEventListener("blur", () => { lookup++; clearTimeout(lookupTimer); setMenu(NO_MENU); });
   const pick = button(reading ? "Reading…" : "Choose…", "dbtn quiet", choose);
   pick.disabled = !machines.length || reading;
   const reset = state.chosen ? button("Default", "dbtn quiet", () => update({ type: "unchoose" })) : null;
-  return el("div", "am-line", path, pick, reset);
+  return el("div", "am-line", el("div", "ip-folder", path), pick, reset);
+}
+
+/// Forgets the folder typed and its menu.
+function resetFolder() {
+  folderText = null;
+  menu = NO_MENU;
+  lookup++;
+  clearTimeout(lookupTimer);
+}
+
+/// Up, Down, Tab and Enter in the Folder field (Esc reaches `onKey`
+/// first). Enter with no menu imports.
+function onFolderKey(e: KeyboardEvent, field: HTMLInputElement) {
+  const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
+  if (act.type === "none") {
+    if (e.key === "Enter") { e.preventDefault(); goImport(); }
+    return;
+  }
+  e.preventDefault();
+  if (act.type === "move") setMenu({ ...menu, index: act.index });
+  else if (act.type === "close") setMenu(NO_MENU);
+  else acceptFolder(field, act.text);
+}
+
+/// Puts a folder picked from the menu in the field, then offers its folders.
+function acceptFolder(field: HTMLInputElement, text: string) {
+  folderText = field.value = field.title = text;
+  field.setSelectionRange(text.length, text.length);
+  lookFolders();
+}
+
+/// Offers the folders matching what the Folder field holds, once typing
+/// pauses; a folder read before answers at once. A failure or an offline
+/// machine just offers nothing.
+function lookFolders() {
+  clearTimeout(lookupTimer);
+  const ask = ++lookup;
+  const machine = state.machine;
+  const typed = folderText == null ? null : splitTyped(folderText);
+  if (!machine || !typed) { setMenu(NO_MENU); return; }
+  if (menu.dir !== typed.dir) setMenu(NO_MENU);
+  const key = `${machine}\n${typed.dir}`;
+  const offer = (folders: readonly string[]) => {
+    if (ask === lookup && state.machine === machine) setMenu(menuOf(typed.dir, suggest(folders, typed.prefix)));
+  };
+  const known = listed.get(key);
+  if (known) { offer(known); return; }
+  lookupTimer = setTimeout(async () => {
+    try {
+      const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path: typed.dir });
+      listed.set(key, listing.folders);
+      offer(listing.folders);
+    } catch {
+      // Nothing to offer: typing goes on as without the menu.
+      if (ask === lookup) setMenu(NO_MENU);
+    }
+  }, 150);
+}
+
+/// Shows `next` under the Folder field, in place, while the field has focus.
+function setMenu(next: FolderMenu) {
+  const field = sheet?.querySelector<HTMLInputElement>(".ip-dir");
+  menu = field && document.activeElement === field ? next : NO_MENU;
+  if (!field) return;
+  const box = field.parentElement!;
+  box.querySelector(".ip-menu")?.remove();
+  field.setAttribute("aria-expanded", String(isOpen(menu)));
+  field.removeAttribute("aria-activedescendant");
+  if (!isOpen(menu)) return;
+  const { dir, index } = menu;
+  const list = el("div", "ip-menu", ...menu.items.map((name, i) => {
+    const row = el("div", i === index ? "on" : "", name);
+    row.id = `ip-menu-${i}`;
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(i === index));
+    // The field keeps focus, so typing goes on after a click.
+    row.addEventListener("mousedown", e => e.preventDefault());
+    row.addEventListener("click", () => acceptFolder(field, completed(dir, name)));
+    return row;
+  }));
+  list.id = "ip-menu";
+  list.setAttribute("role", "listbox");
+  field.setAttribute("aria-activedescendant", `ip-menu-${index}`);
+  box.append(list);
+  list.children[index]?.scrollIntoView({ block: "nearest" });
 }
 
 /// The folder browser for another machine: the folder, its folders, and
@@ -336,7 +489,12 @@ function injectStyle() {
   style.dataset.ip = "";
   style.textContent = ".ip-field { flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--border); background: #0b100e; color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--emerald) } .ip-field:focus { border-color: var(--emerald) } .ip-sheet .am-sub { margin-top: 0 }"
     + " .ip-path { flex: 1; min-width: 0; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border); background: #0b100e; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }"
-    + " .ip-path.dim { color: var(--muted); font-family: inherit }"
+    + " .ip-dir { width: 100%; box-sizing: border-box; color: var(--fg); outline: 0; caret-color: var(--emerald) } .ip-dir:focus { border-color: var(--emerald) }"
+    + " .ip-dir::placeholder { color: var(--muted); font-family: system-ui, sans-serif } .ip-dir:disabled { opacity: 1 }"
+    + " .ip-folder { position: relative; flex: 1; min-width: 0; display: flex }"
+    + " .ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: #0b100e; box-shadow: 0 10px 30px rgba(0,0,0,.45) }"
+    + " .ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }"
+    + " .ip-menu div:hover { background: rgba(255,255,255,.05) } .ip-menu div.on { background: rgba(52, 211, 153, .14) }"
     + " .ip-browse { border: 1px solid var(--border); border-radius: 10px; background: #0b100e; overflow: hidden }"
     + " .ip-browse .at { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px }"
     + " .ip-browse .at span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
