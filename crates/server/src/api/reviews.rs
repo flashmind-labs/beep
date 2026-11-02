@@ -10,7 +10,7 @@ use super::{
     projects::task_view,
 };
 use crate::{
-    nodes::Online,
+    nodes::{Online, StartOn},
     projects::{
         model::{RepoName, WorkerAgent},
         review::{
@@ -139,7 +139,7 @@ pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> R
     for (n, part) in parts.iter().enumerate() {
         let prompt = reviewer_prompt(&subject, &facts.changed, part);
         match node
-            .start_agent(&agent, Some(cwd.clone()), prompt, None)
+            .start_agent(&agent, Some(cwd.clone()), prompt, StartOn::default())
             .await
         {
             Ok(link) => rows.push(ShardRow {

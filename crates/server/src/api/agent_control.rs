@@ -11,7 +11,7 @@ use super::{
     machines::machine_capability,
 };
 use crate::{
-    nodes::{Follower, Online, agent_name},
+    nodes::{Follower, Online, StartOn, agent_name},
     protocol::{
         node::agent::{self, PlanStatus, Request, SessionInfo},
         *,
@@ -194,6 +194,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
         None => auto(hosts, &start, &prompt).await?,
     };
     let agent = live.agent(start.agent.as_deref())?;
+    let effort = picked_effort(&agent, start.effort)?;
     let cwd = start
         .cwd
         .map(|cwd| cwd.trim().to_owned())
@@ -201,7 +202,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
         .or_else(|| live.online.workspace.clone());
     let link = live
         .online
-        .start_agent(&agent, cwd, prompt, model)
+        .start_agent(&agent, cwd, prompt, StartOn { model, effort })
         .await
         .map_err(|e| {
             ApiError::bad_request(format!("Could not start {}: {e:#}", agent_name(&agent)))
@@ -244,6 +245,7 @@ pub(super) async fn preview_agent_machine(
         needs,
         chat: None,
         model: None,
+        effort: None,
     };
     let hosts = live_hosts(&cx).await?;
     let (live, why) = auto(hosts, &start, &prompt).await?;
@@ -666,6 +668,25 @@ fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
         return Err(ApiError::bad_request("That is not a model name."));
     }
     Ok(Some(model.to_owned()))
+}
+
+/// The thinking level a start asks of `agent`: `None` for the agent's
+/// own, and refused when the agent cannot be set to it.
+fn picked_effort(
+    agent: &str,
+    effort: Option<AgentEffort>,
+) -> Result<Option<agent::Effort>, ApiError> {
+    let Some(effort) = effort.map(agent::Effort::from) else {
+        return Ok(None);
+    };
+    if !agent::efforts(agent).contains(&effort) {
+        return Err(ApiError::bad_request(format!(
+            "{} cannot be set to think at {}.",
+            agent_name(agent),
+            effort.as_str()
+        )));
+    }
+    Ok(Some(effort))
 }
 
 /// Whether `key` is what `image_key` makes: 16 lowercase hex digits.

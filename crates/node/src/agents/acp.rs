@@ -11,7 +11,7 @@ use agent_client_protocol::{
             AGENT_METHOD_NAMES, ContentBlock, ImageContent, Implementation, InitializeRequest,
             InitializeResponse, NewSessionRequest, NewSessionResponse, PermissionOptionId,
             PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-            SelectedPermissionOutcome, SessionConfigId, SessionConfigKind,
+            SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
             SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
             SessionId, SetSessionConfigOptionRequest, TextContent,
         },
@@ -20,7 +20,7 @@ use agent_client_protocol::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     ApiError, Upload, check_agent_images,
-    node::agent::{AnswerOption, ModelOption, OptionKind},
+    node::agent::{AnswerOption, Effort, ModelOption, OptionKind},
 };
 use futures::{Sink, Stream, sink, stream};
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,9 @@ pub(super) struct Offered {
     pub(super) current: Option<String>,
     pub(super) models: Vec<ModelOption>,
     pub(super) switch: Option<ModelSwitch>,
+    /// Its config option of category `thought_level`, which sets how hard
+    /// it thinks, when it has one.
+    pub(super) thinking: Option<SessionConfigId>,
 }
 
 /// How an agent switches a session's model.
@@ -134,20 +137,54 @@ pub(super) fn new_session(cwd: &Path) -> Result<UntypedMessage, agent_client_pro
 pub(super) fn session_created(
     answer: Value,
 ) -> Result<(NewSessionResponse, Offered), serde_json::Error> {
-    let offered = offered_models(&answer);
+    let offered = Offered {
+        thinking: thinking_option(&answer),
+        ..offered_models(&answer)
+    };
     Ok((serde_json::from_value(answer)?, offered))
+}
+
+/// The config options in an answer to `session/new`; none when it has
+/// none or they do not read.
+fn config_options(answer: &Value) -> Vec<SessionConfigOption> {
+    answer
+        .get("configOptions")
+        .filter(|options| options.is_array())
+        .and_then(|_| serde_json::from_value::<NewSessionResponse>(answer.clone()).ok())
+        .and_then(|created| created.config_options)
+        .unwrap_or_default()
+}
+
+/// The selector of category `thought_level` in an answer to `session/new`:
+/// Claude Code's `effort`, Codex's `reasoning_effort` and pi's
+/// `thought_level`, which take the values `Effort` names.
+fn thinking_option(answer: &Value) -> Option<SessionConfigId> {
+    config_options(answer).into_iter().find_map(|option| {
+        let thinking = matches!(option.kind, SessionConfigKind::Select(_))
+            && matches!(
+                option.category,
+                Some(SessionConfigOptionCategory::ThoughtLevel)
+            );
+        thinking.then_some(option.id)
+    })
+}
+
+/// The request that sets how hard `session` thinks, on its option `id`.
+pub(super) fn set_effort(
+    session: &SessionId,
+    id: &SessionConfigId,
+    effort: Effort,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    UntypedMessage::new(
+        AGENT_METHOD_NAMES.session_set_config_option,
+        SetSessionConfigOptionRequest::new(session.clone(), id.clone(), effort.as_str()),
+    )
 }
 
 /// The models an answer to `session/new` offers: its config option of
 /// category `model` when it has one, else its unstable `models`.
 pub(super) fn offered_models(answer: &Value) -> Offered {
-    let options = answer
-        .get("configOptions")
-        .filter(|options| options.is_array())
-        .and_then(|_| serde_json::from_value::<NewSessionResponse>(answer.clone()).ok())
-        .and_then(|created| created.config_options)
-        .unwrap_or_default();
-    let selector = options.into_iter().find_map(|option| {
+    let selector = config_options(answer).into_iter().find_map(|option| {
         let SessionConfigKind::Select(select) = option.kind else {
             return None;
         };
@@ -174,6 +211,7 @@ pub(super) fn offered_models(answer: &Value) -> Offered {
                 })
                 .collect(),
             switch: Some(ModelSwitch::ConfigOption(id)),
+            thinking: None,
         };
     }
     let Some(models) = answer
@@ -195,6 +233,7 @@ pub(super) fn offered_models(answer: &Value) -> Offered {
             })
             .collect(),
         switch: Some(ModelSwitch::SetModel),
+        thinking: None,
     }
 }
 
@@ -734,6 +773,29 @@ mod tests {
         assert_eq!(request.method(), "session/set_config_option");
         assert_eq!(request.params()["configId"], "model");
         assert_eq!(request.params()["value"], "gpt-mini");
+    }
+
+    #[test]
+    fn the_thinking_option_is_read_from_session_new() {
+        let answer = serde_json::json!({
+            "sessionId": "s1",
+            "configOptions": [
+                {"id": "model", "name": "Model", "category": "model", "type": "select",
+                 "currentValue": "m", "options": [{"value": "m", "name": "M"}]},
+                {"id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level",
+                 "type": "select", "currentValue": "medium", "options": [
+                    {"value": "low", "name": "Low"}, {"value": "medium", "name": "Medium"}]},
+            ],
+        });
+        let (_, offered) = session_created(answer).unwrap();
+        let id = offered.thinking.expect("a thinking option");
+        assert_eq!(id, SessionConfigId::new("reasoning_effort"));
+        let request = set_effort(&SessionId::new("s1"), &id, Effort::Xhigh).unwrap();
+        assert_eq!(request.method(), "session/set_config_option");
+        assert_eq!(request.params()["configId"], "reasoning_effort");
+        assert_eq!(request.params()["value"], "xhigh");
+        let without = serde_json::json!({"sessionId": "s1"});
+        assert_eq!(session_created(without).unwrap().1.thinking, None);
     }
 
     #[test]
