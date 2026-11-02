@@ -2,7 +2,7 @@
 //! stream; the tasks belong to the node and outlive it.
 
 use super::Online;
-use crate::protocol::node::process::{PROTOCOL, Reply, Request};
+use crate::protocol::node::process::{PROTOCOL, Reply, Request, TaskId};
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -25,5 +25,19 @@ impl Online {
             .await
             .context("the node stopped answering")??
             .context("the node closed the process session")
+    }
+
+    /// Stops the node's task `id` while it still runs `command`; a task
+    /// that ended, or another command under that number, is left alone.
+    pub(crate) async fn stop_task(&self, id: TaskId, command: &str) -> Result<()> {
+        match self.tasks(&Request::Status { id }).await? {
+            Reply::Status { task, .. } if task.command == command && task.state.is_running() => {
+                match self.tasks(&Request::Stop { id }).await? {
+                    Reply::Error { message } => bail!("{message}"),
+                    _ => Ok(()),
+                }
+            }
+            _ => Ok(()),
+        }
     }
 }

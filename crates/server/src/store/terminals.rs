@@ -22,9 +22,10 @@ pub(crate) struct TerminalRow {
     pub(crate) started_at: DateTime<Utc>,
 }
 
-const COLUMNS: &str = "id, project, endpoint_id, task_id, name, command, cwd, started_at";
+pub(super) const COLUMNS: &str =
+    "id, project, endpoint_id, task_id, name, command, cwd, started_at";
 
-fn row_from(row: &PgRow) -> Result<TerminalRow> {
+pub(super) fn row_from(row: &PgRow) -> Result<TerminalRow> {
     let task: i64 = row.try_get(3)?;
     Ok(TerminalRow {
         id: row.try_get(0)?,

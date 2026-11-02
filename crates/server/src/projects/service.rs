@@ -165,6 +165,14 @@ impl Projects {
         self.disarm(&Due::Idle(worker));
     }
 
+    /// Forgets a removed project: its pending check, and its issue
+    /// mirroring once that finished. One still running is left to end, as
+    /// cutting it off could leave an issue half made.
+    pub(crate) fn forget_project(&self, project: ProjectId) {
+        self.disarm(&Due::Check(project));
+        lock(&self.mirrors).retain(|id, mirror| *id != project || !*mirror.done.borrow());
+    }
+
     /// Whether `turn` of `worker`'s is new, noting it handled when it is.
     /// `stored` is how many the store says were heard about.
     pub(crate) fn take_turn(&self, worker: WorkerId, turn: u32, stored: u32) -> bool {

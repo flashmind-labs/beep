@@ -191,12 +191,13 @@ const TASK_COLUMNS: &str = "t.id, t.project_id, t.slug, t.title, t.body, t.state
     t.needs, t.issue_host, t.issue_number, t.issue_url, t.branch, t.pr_url, t.start, t.pr_seen,
     t.created_at, t.updated_at, t.issue_foreign, t.issue_commented";
 
-const WORKER_COLUMNS: &str = "w.id, w.task_id, w.project_id, w.machine, w.agent, w.session,
+pub(super) const WORKER_COLUMNS: &str =
+    "w.id, w.task_id, w.project_id, w.machine, w.agent, w.session,
     w.folder, w.state, w.asking, w.last_output, w.persona, w.persona_commit, w.turns_seen,
     w.started_at, w.last_turn_at, w.ended_at";
 
 /// The live worker states, as the store keeps them.
-fn live_states() -> Vec<&'static str> {
+pub(super) fn live_states() -> Vec<&'static str> {
     WorkerState::LIVE.into_iter().map(Into::into).collect()
 }
 
@@ -280,7 +281,7 @@ fn task_from(row: &PgRow) -> Result<TaskRow> {
     })
 }
 
-fn worker_from(row: &PgRow) -> Result<WorkerRow> {
+pub(super) fn worker_from(row: &PgRow) -> Result<WorkerRow> {
     let machine: String = row.try_get(3)?;
     let agent: String = row.try_get(4)?;
     let folder: String = row.try_get(6)?;

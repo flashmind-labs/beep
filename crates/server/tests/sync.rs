@@ -21,7 +21,7 @@ use beep_server::{
     nodes::{self, Online},
     protocol::{
         ApiError, DeviceKind, GetSyncSkipped, ListProjectSync, PinProject, ProjectSync,
-        RemoveDevice, SetProjectSync, SkipRule, SyncStatus,
+        RemoveDevice, RemoveProject, SetProjectSync, SkipRule, SyncStatus,
     },
     push::Pusher,
     store::{NewKey, SyncRow, TestDb},
@@ -390,4 +390,53 @@ async fn a_removed_machine_stops_being_a_peer() {
     assert!(a.syncs.peers(PROJECT).is_empty());
     let listed = server.phone.call(&ListProjectSync {}).await.unwrap();
     assert_eq!(listed[0].machines.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_a_project_stops_its_sync_everywhere_and_keeps_the_files() {
+    let server = server().await;
+    let a = server.node("render box", async |_, _| {}).await;
+    let b = server.node("laptop", async |_, _| {}).await;
+    server.set(&a, &a.shown(), true).await.unwrap();
+    server.set(&b, &b.shown(), true).await.unwrap();
+    write(a.folder().join("src/main.rs"), "fn main() {}\n");
+    eventually("the file to reach the laptop", async || {
+        fs::read_to_string(b.folder().join("src/main.rs")).is_ok()
+    })
+    .await;
+
+    server
+        .phone
+        .call(&RemoveProject {
+            project: PROJECT.into(),
+        })
+        .await
+        .unwrap();
+    // The server told both nodes before it answered.
+    for node in [&a, &b] {
+        assert!(node.syncs.status().is_empty(), "{:?}", node.syncs.status());
+        assert!(node.syncs.peers(PROJECT).is_empty());
+        assert_eq!(
+            fs::read_to_string(node.folder().join("src/main.rs")).unwrap(),
+            "fn main() {}\n"
+        );
+    }
+    assert!(
+        server
+            .phone
+            .call(&ListProjectSync {})
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let again = server
+        .phone
+        .call(&RemoveProject {
+            project: PROJECT.into(),
+        })
+        .await
+        .unwrap_err()
+        .downcast::<ApiError>()
+        .expect("the server answers with an ApiError");
+    assert_eq!(again, ApiError::NotFound {});
 }
