@@ -116,7 +116,7 @@ export function folderNote(listing, repo) {
 /// The help line under the folder.
 export function folderHelp(state, machines) {
   const tokens = "Private repositories use your tokens from Settings > Credentials.";
-  if (!state.machine) return `Pick a machine to choose its folder. ${tokens}`;
+  if (!state.machine) return `Beep picks a machine and its default folder. ${tokens}`;
   if (state.chosen) return tokens;
   const m = (machines || []).find(x => x.id === state.machine);
   return `The default on ${m ? m.name : "that machine"}. An empty folder takes the clone; one with other files gets it in a subfolder. ${tokens}`;
