@@ -463,7 +463,8 @@ function drawSide() {
   const top = h("div", "cc-grp",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
-  if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { on: () => jump("sec-running") }));
+  // Running opens the coding agents' list, the full view of Home's section.
+  if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
