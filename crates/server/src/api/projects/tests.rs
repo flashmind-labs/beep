@@ -99,6 +99,59 @@ async fn other_users_tasks_are_not_found() {
 }
 
 #[tokio::test]
+async fn other_users_cannot_list_track_or_dismiss_issues() {
+    let h = harness().await;
+    let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
+    let project = ProjectId(agent.project_id);
+    assert!(is_not_found(project_issues(&h.app, &h.bob, project).await));
+    let start = IssueStart {
+        agent: "claude".to_owned(),
+        node_id: None,
+    };
+    let tracked = track_issue(&h.app, &h.bob, project, 12, Some(&start)).await;
+    assert!(is_not_found(tracked));
+    assert!(is_not_found(
+        track_issue(&h.app, &h.bob, project, 12, None).await
+    ));
+    assert!(is_not_found(dismiss_issue(&h.bob, project, 12).await));
+    assert!(h.alice.dismissed_issues(project).await.unwrap().is_empty());
+    assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
+    // Alice's own project without a host lists nothing.
+    assert!(
+        project_issues(&h.app, &h.alice, project)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    dismiss_issue(&h.alice, project, 12).await.unwrap();
+    assert_eq!(h.alice.dismissed_issues(project).await.unwrap(), [12]);
+}
+
+#[tokio::test]
+async fn track_project_issue_checks_the_start() {
+    let h = harness().await;
+    let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
+    let project = ProjectId(agent.project_id);
+    let bad_agent = IssueStart {
+        agent: "vim".to_owned(),
+        node_id: None,
+    };
+    let refused = track_issue(&h.app, &h.alice, project, 1, Some(&bad_agent)).await;
+    assert!(is_bad_request(refused));
+    let bad_machine = IssueStart {
+        agent: "codex".to_owned(),
+        node_id: Some("not-a-key".to_owned()),
+    };
+    let refused = track_issue(&h.app, &h.alice, project, 1, Some(&bad_machine)).await;
+    assert!(is_bad_request(refused));
+    // A project with no issues host cannot track one.
+    assert!(is_bad_request(
+        track_issue(&h.app, &h.alice, project, 1, None).await
+    ));
+    assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn update_project_task_drops_and_reopens() {
     let h = harness().await;
     let (agent, task) = one_task(&h).await;
