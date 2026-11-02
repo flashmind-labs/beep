@@ -29,6 +29,7 @@ pub mod harness;
 pub mod process;
 pub mod shell;
 pub mod sync;
+pub mod terminal;
 pub mod transfer;
 
 pub const NODE_ALPN: &[u8] = b"beep-node/1";

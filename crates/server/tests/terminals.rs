@@ -1,0 +1,220 @@
+//! An interactive terminal end to end: an app opens a shell on a real node
+//! in this process, attaches to it, types, and reads the shell's answer
+//! back through the server, then the shell's exit ends the stream.
+
+use async_trait::async_trait;
+use beep_node::link::Offers;
+use beep_server::{
+    app::{App, ServerTools},
+    client::{Client, Node},
+    models::ModelChoices,
+    nodes,
+    protocol::{
+        AttachTerminal, CloseTerminal, DeviceKind, ListTerminals, OpenTerminal, TerminalEvent,
+        TerminalInput, TerminalState,
+    },
+    push::Pusher,
+    store::{NewKey, TestDb},
+    transport,
+};
+use flashmind::types::{
+    AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
+};
+use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
+use serde_bytes::ByteBuf;
+use std::{sync::Arc, time::Duration};
+use tempfile::TempDir;
+use tokio::time::timeout;
+
+const PROJECT: &str = "acme/widget";
+
+struct NoModel;
+
+#[async_trait]
+impl LlmProvider for NoModel {
+    fn name(&self) -> &str {
+        "none"
+    }
+    fn provider(&self) -> Provider {
+        Provider::OpenAi
+    }
+    fn complete(&self, _request: CompletionRequest) -> CompletionStream {
+        unreachable!("the terminal tests make no model calls")
+    }
+}
+
+async fn endpoint(key: SecretKey) -> Endpoint {
+    Endpoint::builder(presets::N0)
+        .secret_key(key)
+        .bind()
+        .await
+        .expect("a test endpoint binds")
+}
+
+/// A server, a user's node linked to it and the user's app.
+struct Setup {
+    _db: TestDb,
+    router: Router,
+    machine: String,
+    client: Client,
+    _phone: Node,
+    _node: tokio::task::JoinHandle<anyhow::Result<()>>,
+}
+
+async fn setup() -> Setup {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let model = "openai:test".parse().unwrap();
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
+    let app = App::new(
+        store.clone(),
+        Arc::new(NoModel),
+        AgentLlmConfig::new("openai:test".parse().unwrap()),
+        ServerTools::default(),
+        models,
+    );
+    let server = endpoint(SecretKey::generate()).await;
+    let pusher = Pusher::with_retry_waits(server.clone(), Arc::new(store), None, Vec::new());
+    let server_id = server.id();
+    let router = Router::builder(server)
+        .accept(
+            nodes::NODE_ALPN,
+            nodes::NodeHandler::new(app.clone(), server_id),
+        )
+        .accept(
+            transport::ALPN,
+            transport::BeepHandler::new(app.clone(), pusher),
+        )
+        .spawn();
+    let phone_key = SecretKey::generate();
+    let user = app
+        .sign_in(&phone_key.public())
+        .await
+        .unwrap()
+        .expect("a new key is never revoked")
+        .user;
+    let node_key = SecretKey::generate();
+    user.link_key(NewKey {
+        endpoint: node_key.public(),
+        name: "build-box",
+        kind: DeviceKind::Desktop {},
+    })
+    .await
+    .unwrap();
+    let addr = router.endpoint().addr();
+    let node = endpoint(node_key.clone()).await;
+    let task = tokio::spawn(async move {
+        beep_node::link::connect(&node, addr, "build-box", &Offers::default()).await
+    });
+    let machine = node_key.public().to_string();
+    timeout(Duration::from_secs(20), async {
+        while app.nodes.online(&machine).is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node came online");
+    let phone = Node::bind(phone_key, router.endpoint().addr(), Arc::new(|_| true))
+        .await
+        .expect("a phone binds");
+    let client = phone.connect().await.expect("a phone connects");
+    Setup {
+        _db: db,
+        router,
+        machine,
+        client,
+        _phone: phone,
+        _node: task,
+    }
+}
+
+#[tokio::test]
+async fn a_shell_takes_keys_and_answers_through_the_server() {
+    let setup = setup().await;
+    let folder = TempDir::new().expect("a temp folder");
+    let terminal = setup
+        .client
+        .call(&OpenTerminal {
+            project: PROJECT.into(),
+            machine_id: setup.machine.clone(),
+            name: String::new(),
+            command: String::new(),
+            cwd: folder.path().to_string_lossy().into_owned(),
+            cols: 80,
+            rows: 24,
+        })
+        .await
+        .expect("the terminal opens");
+    assert_eq!(terminal.name, "shell");
+    assert_eq!(terminal.state, TerminalState::Running {});
+
+    let (mut keys, mut events) = setup
+        .client
+        .duplex(&AttachTerminal {
+            id: terminal.id,
+            from: 0,
+            cols: 100,
+            rows: 30,
+        })
+        .await
+        .expect("it attaches");
+    // The shell works the sum out, so the answer is not the echo of the keys.
+    keys.send(&TerminalInput::Keys {
+        data: ByteBuf::from(b"echo sum-$((40+2))\r".to_vec()),
+    })
+    .await
+    .unwrap();
+    let mut seen = Vec::new();
+    let mut next = 0;
+    timeout(Duration::from_secs(30), async {
+        while !String::from_utf8_lossy(&seen).contains("sum-42") {
+            match events.next().await.expect("the stream reads") {
+                Some(TerminalEvent::Output { at, data }) => {
+                    assert_eq!(at, next, "output comes in order");
+                    next += data.len() as u64;
+                    seen.extend_from_slice(&data);
+                }
+                other => panic!("expected output, got {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("the shell answered");
+
+    keys.send(&TerminalInput::Keys {
+        data: ByteBuf::from(b"exit 0\r".to_vec()),
+    })
+    .await
+    .unwrap();
+    let ended = timeout(Duration::from_secs(30), async {
+        loop {
+            match events.next().await.expect("the stream reads") {
+                Some(TerminalEvent::Output { .. }) => {}
+                other => return other,
+            }
+        }
+    })
+    .await
+    .expect("the shell ended");
+    assert_eq!(
+        ended,
+        Some(TerminalEvent::Ended {
+            state: TerminalState::Exited { code: Some(0) }
+        })
+    );
+    let listed = setup
+        .client
+        .call(&ListTerminals {
+            project: PROJECT.into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].state, TerminalState::Exited { code: Some(0) });
+    setup
+        .client
+        .call(&CloseTerminal { id: terminal.id })
+        .await
+        .expect("it closes");
+    setup.router.shutdown().await.unwrap();
+}

@@ -11,7 +11,6 @@ use crate::{
         lifecycle::fill_slots,
         review::drive::close_session,
     },
-    protocol::node::process::TaskId,
     store::RemovedProject,
     user::User,
 };
@@ -68,10 +67,7 @@ async fn wind_down(app: &Arc<App>, user: &Arc<User>, removed: &RemovedProject) {
         let Some(node) = online(app, user, &terminal.endpoint) else {
             continue;
         };
-        if let Err(e) = node
-            .stop_task(TaskId(terminal.task), &terminal.command)
-            .await
-        {
+        if let Err(e) = node.stop_terminal(terminal).await {
             log::warn!("project removal: a terminal was not stopped: {e:#}");
         }
     }

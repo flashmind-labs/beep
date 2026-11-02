@@ -38,7 +38,7 @@ pub fn agent_of(protocol: &str) -> Option<&str> {
     (version == VERSION
         && !matches!(
             name,
-            "shell" | "agents" | "desktop" | "files" | "process" | "sync" | "transfer"
+            "shell" | "agents" | "desktop" | "files" | "process" | "sync" | "terminal" | "transfer"
         ))
     .then_some(name)
 }
@@ -832,6 +832,7 @@ mod tests {
         assert_eq!(agent_of("files/1"), None);
         assert_eq!(agent_of("process/1"), None);
         assert_eq!(agent_of(crate::node::sync::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::terminal::PROTOCOL), None);
         assert_eq!(agent_of(crate::node::transfer::PROTOCOL), None);
         assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
         assert_eq!(agent_of("claude/2"), None);

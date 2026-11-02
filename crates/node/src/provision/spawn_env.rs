@@ -81,13 +81,31 @@ pub(super) fn set_vars(vars: Vec<EnvSecret>) {
 
 /// Gives `command` the tools' folders and the credentials `scope` admits.
 pub(crate) fn apply(command: &mut Command, scope: Scope) {
+    for (name, value) in vars(scope) {
+        command.env(name, value);
+    }
+}
+
+/// What `apply` sets, as names and values, for a process started some
+/// other way, such as in a pseudo-terminal.
+pub(crate) fn vars(scope: Scope) -> Vec<(OsString, OsString)> {
     let spawn = SPAWN_ENV.read().unwrap_or_else(PoisonError::into_inner);
-    if let Some(path) = merged_path(&spawn.path, env::var_os("PATH").as_deref()) {
-        command.env("PATH", path);
-    }
-    for var in spawn.vars.iter().filter(|var| scope.admits(var)) {
-        command.env(&var.name, var.value.expose());
-    }
+    let path = merged_path(&spawn.path, env::var_os("PATH").as_deref())
+        .map(|path| (OsString::from("PATH"), path));
+    path.into_iter()
+        .chain(
+            spawn
+                .vars
+                .iter()
+                .filter(|var| scope.admits(var))
+                .map(|var| {
+                    (
+                        OsString::from(&var.name),
+                        OsString::from(var.value.expose()),
+                    )
+                }),
+        )
+        .collect()
 }
 
 /// The `PATH` processes get, for finding a tool as they would.

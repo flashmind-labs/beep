@@ -21,6 +21,18 @@ impl Group {
             .map(Self))
     }
 
+    /// The group a session leader leads, such as a pseudo-terminal's
+    /// child, by the leader's pid.
+    pub(crate) fn led_by(pid: u32) -> Option<Self> {
+        libc::pid_t::try_from(pid).ok().map(Self)
+    }
+
+    /// Tells the group its terminal hung up, with SIGHUP: what ends an
+    /// interactive shell, which ignores SIGTERM.
+    pub(crate) fn hang_up(&self) {
+        killpg(self.0, libc::SIGHUP);
+    }
+
     /// Asks the group to end, with SIGTERM.
     pub(crate) fn terminate(&self) {
         killpg(self.0, libc::SIGTERM);

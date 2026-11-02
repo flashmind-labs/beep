@@ -15,7 +15,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     ActiveRun, AnswerApproval, ApprovalDecision, ApprovalField, Call, Chart, Chat, DeleteTurnsFrom,
-    DeviceAnswer, DeviceQuery, DeviceResult, Event, GetEvents, GetFile, GetSession,
+    DeviceAnswer, DeviceQuery, DeviceResult, Duplex, Event, GetEvents, GetFile, GetSession,
     GetSessionImages, GetToolLabels, HistoryEntry, ImageRef, ListSessions, MAX_UPLOAD, Notice,
     Platform, ReasoningLevel, RemoveDevice, RunEvent, SearchSessions, SentImages, Session,
     SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription, Upload, WebSource,
@@ -690,6 +690,19 @@ impl Beep {
         let client = self.client().await?;
         match client.stream(&request).await {
             Ok(replies) => Ok(replies),
+            Err(e) => Err(self.failed(e).await),
+        }
+    }
+
+    /// Sends a request that keeps sending: what follows goes up the
+    /// returned `Uplink`, and the replies come as they arrive.
+    pub async fn duplex<R: Duplex>(
+        &self,
+        request: R,
+    ) -> Result<(Uplink<R::Up>, Replies<R::Reply>)> {
+        let client = self.client().await?;
+        match client.duplex(&request).await {
+            Ok(opened) => Ok(opened),
             Err(e) => Err(self.failed(e).await),
         }
     }
