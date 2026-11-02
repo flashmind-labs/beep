@@ -26,6 +26,8 @@ export interface TileRow {
   note?: string;
   dot?: string;
   title?: string;
+  /// What the row is about, such as a machine's id, for `TileOptions.menu`.
+  id?: string;
 }
 
 /// A tile's count, its rows, and what it says without any.
@@ -39,6 +41,8 @@ export interface TileData {
 export interface TileOptions {
   rows?: number;
   openUrl?: ((url: string) => unknown) | null;
+  /// Right-clicking a row with an `id` opens this menu.
+  menu?: ((row: TileRow, e: MouseEvent) => void) | null;
 }
 
 /// Rows a tile shows before its full list.
@@ -93,6 +97,7 @@ export function machineTile(rows: readonly Where[] | null | undefined, sync?: re
   return {
     count: list.length ? `${here}/${list.length}` : "",
     rows: list.map(r => ({
+      id: r.id,
       text: r.name,
       dot: r.kind === "here" ? "" : "off",
       note: note(r),
@@ -140,7 +145,7 @@ function icon(svg: string) {
 }
 
 /// One row of a tile: an optional dot, its text, a chip or a muted note.
-function row(r: TileRow, openUrl: TileOptions["openUrl"]) {
+function row(r: TileRow, { openUrl, menu }: TileOptions) {
   const text = el("span", "t", r.code ? el("code", "", r.code) : null, r.code ? " " : null, r.text);
   text.title = String(r.title || r.text);
   const line = el("div", "pb-r", r.dot != null ? el("span", `ddot${r.dot ? " " + r.dot : ""}`) : null, text,
@@ -149,6 +154,7 @@ function row(r: TileRow, openUrl: TileOptions["openUrl"]) {
     line.classList.add("link");
     line.addEventListener("click", () => openUrl(r.url!));
   }
+  if (r.id && menu) line.addEventListener("contextmenu", e => menu(r, e));
   return line;
 }
 
@@ -159,7 +165,7 @@ export function tile(key: string, title: string, data: TileData, open: (key: str
   head.type = "button";
   head.title = `All ${title.toLowerCase()}`;
   head.addEventListener("click", () => open(key));
-  const rows = data.rows.slice(0, shown).map(r => row(r, opts.openUrl));
+  const rows = data.rows.slice(0, shown).map(r => row(r, opts));
   if (!rows.length) rows.push(el("div", "pb-r none", el("span", "t", data.empty)));
   const more = data.rows.length > shown ? el("div", "pb-r more", el("span", "t", `${data.rows.length - shown} more`)) : null;
   const box = el("section", "pb-tile", head, el("div", "pb-rows", ...rows, more));

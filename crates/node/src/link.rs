@@ -13,6 +13,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{
+    client::CLOSE_REVOKED,
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
@@ -358,6 +359,13 @@ fn refusal(reason: &ConnectionError, setting_up: bool) -> String {
         if setting_up && text == "not linked" {
             return "This server does not take setup tokens yet. Update it, or link the \
                     machine with `beep-node link`."
+                .to_owned();
+        }
+        // Never linked, or removed from the account by one of its apps; the
+        // server closes both the same way. Only a new setup token links it.
+        if !setting_up && close.error_code == VarInt::from_u32(CLOSE_REVOKED) {
+            return "This machine is not linked to a Beep account, or was removed from \
+                    one. To use it, link it with `beep-node setup <token>`."
                 .to_owned();
         }
     }

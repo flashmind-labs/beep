@@ -184,6 +184,7 @@ fn main() {
             grants::list_grants,
             grants::revoke_grant,
             machines::list_machines,
+            machines::remove_machine,
             credentials::credential_providers,
             credentials::list_credentials,
             credentials::save_credential,

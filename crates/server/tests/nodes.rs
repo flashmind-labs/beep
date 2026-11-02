@@ -21,7 +21,7 @@ use beep_server::{
         CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
         ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
         ListProjectSessions, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
-        RemoveDevice, RevokeNodeToken, StartAgentSession, SteerAgentSession,
+        RemoveDevice, RemoveMachine, RevokeNodeToken, StartAgentSession, SteerAgentSession,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -770,6 +770,176 @@ async fn a_user_sees_their_machines_and_what_memories_are_about() {
 
     router.shutdown().await.unwrap();
     let _ = timeout(Duration::from_secs(10), served).await;
+}
+
+#[tokio::test]
+async fn any_app_of_the_account_removes_a_machine_online_or_not() {
+    let db = TestDb::new().await.unwrap();
+    let store = db.store().await.unwrap();
+    let model = "openai:test".parse().unwrap();
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
+    let app = App::new(
+        store.clone(),
+        Arc::new(NoModel),
+        AgentLlmConfig::new("openai:test".parse().unwrap()),
+        ServerTools::default(),
+        models,
+    );
+    let server_endpoint = endpoint(SecretKey::generate()).await;
+    let pusher = Pusher::with_retry_waits(
+        server_endpoint.clone(),
+        Arc::new(store),
+        None,
+        vec![Duration::from_millis(200)],
+    );
+    let server_id = server_endpoint.id();
+    let router = Router::builder(server_endpoint)
+        .accept(
+            nodes::NODE_ALPN,
+            nodes::NodeHandler::new(app.clone(), server_id),
+        )
+        .accept(
+            transport::ALPN,
+            transport::BeepHandler::new(app.clone(), pusher),
+        )
+        .spawn();
+    let server = router.endpoint().addr();
+    let sign_in = async |key: &SecretKey| {
+        app.sign_in(&key.public())
+            .await
+            .unwrap()
+            .expect("a new key is never revoked")
+            .user
+    };
+    let link = async |user: &User, key: &SecretKey, name: &str| {
+        user.link_key(NewKey {
+            endpoint: key.public(),
+            name,
+            kind: DeviceKind::Desktop {},
+        })
+        .await
+        .unwrap();
+    };
+    let not_found = |error: anyhow::Error| {
+        matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
+    };
+
+    // Alice's phone made the account; her laptop's app is a linked key and
+    // removes the machines.
+    let user = sign_in(&SecretKey::generate()).await;
+    let laptop = SecretKey::generate();
+    link(&user, &laptop, "laptop").await;
+    // A machine that went away and never came back.
+    let gone = SecretKey::generate();
+    link(&user, &gone, "old box").await;
+    user.node_connected(NewNode {
+        endpoint: gone.public(),
+        name: "old box",
+        version: "0.1.0",
+    })
+    .await
+    .unwrap();
+    // And one that is connected now.
+    let live = SecretKey::generate();
+    link(&user, &live, "build box").await;
+    let node = endpoint(live.clone()).await;
+    let served = tokio::spawn(async move {
+        beep_node::link::connect(&node, server, "build box", &Offers::default()).await
+    });
+    let live_id = live.public().to_string();
+    online(&app, &live_id).await;
+    // Bob's machine, which alice's apps cannot touch.
+    let bob = sign_in(&SecretKey::generate()).await;
+    let bobs = SecretKey::generate();
+    link(&bob, &bobs, "bob box").await;
+    bob.node_connected(NewNode {
+        endpoint: bobs.public(),
+        name: "bob box",
+        version: "0.1.0",
+    })
+    .await
+    .unwrap();
+
+    let (_laptop_node, client) = phone(laptop.clone(), &router).await;
+    assert_eq!(client.call(&ListMachines {}).await.unwrap().len(), 2);
+
+    // The offline machine goes at once and its key is refused from then on.
+    let gone_id = gone.public().to_string();
+    client
+        .call(&RemoveMachine {
+            machine_id: gone_id.clone(),
+        })
+        .await
+        .unwrap();
+    let left = client.call(&ListMachines {}).await.unwrap();
+    assert_eq!(
+        left.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        [live_id.as_str()]
+    );
+    assert!(app.sign_in(&gone.public()).await.unwrap().is_none());
+    let again = client
+        .call(&RemoveMachine {
+            machine_id: gone_id,
+        })
+        .await;
+    assert!(not_found(again.unwrap_err()));
+
+    // The connected one is dropped, and its node told why when it tries
+    // again.
+    client
+        .call(&RemoveMachine {
+            machine_id: live_id.clone(),
+        })
+        .await
+        .unwrap();
+    let dropped = timeout(Duration::from_secs(10), served)
+        .await
+        .expect("the node's connection was dropped")
+        .unwrap()
+        .unwrap_err();
+    assert!(format!("{dropped:#}").contains("code 403"), "{dropped:#}");
+    assert!(app.nodes.online(&live_id).is_none());
+    assert!(client.call(&ListMachines {}).await.unwrap().is_empty());
+    let back = beep_node::link::connect(
+        &endpoint(live).await,
+        server_id.into(),
+        "build box",
+        &Offers::default(),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        format!("{back:#}").contains("was removed from one"),
+        "{back:#}"
+    );
+
+    // Not another account's machine, and not the app's own key.
+    let bobs_id = bobs.public().to_string();
+    let theirs = client
+        .call(&RemoveMachine {
+            machine_id: bobs_id.clone(),
+        })
+        .await;
+    assert!(not_found(theirs.unwrap_err()));
+    assert_eq!(bob.nodes().await.unwrap()[0].endpoint, bobs_id);
+    let own = client
+        .call(&RemoveMachine {
+            machine_id: laptop.public().to_string(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        own.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+    let junk = client
+        .call(&RemoveMachine {
+            machine_id: "not a key".into(),
+        })
+        .await;
+    assert!(not_found(junk.unwrap_err()));
+
+    router.shutdown().await.unwrap();
 }
 
 fn gpu_report() -> EnvReport {

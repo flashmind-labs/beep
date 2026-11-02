@@ -85,7 +85,15 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
     let key: EndpointId = id
         .parse()
         .map_err(|_| ApiError::bad_request("not a device id"))?;
-    found(cx.user.revoke_key(&id).await?)?;
+    unlink(&cx, key).await
+}
+
+/// Revokes one of the account's keys and lets go of it: its push tokens,
+/// its connection if it has one, and the machines that synced projects
+/// with it. `NotFound` when the account has no such key, or it is the
+/// primary one.
+pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
+    found(cx.user.revoke_key(&key.to_string()).await?)?;
     cx.user.changed("");
     cx.pusher.forget(key);
     cx.app.nodes.forget(&key, CLOSE_REVOKED);

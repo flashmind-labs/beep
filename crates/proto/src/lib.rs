@@ -1023,6 +1023,14 @@ requests! {
     /// Forgets one of the caller's project groups; its projects go back
     /// under their orgs. `NotFound` when the caller has no such group.
     250 DeleteProjectGroup { id: Uuid } => Call<()>
+    /// Unlinks one of the caller's machines, by `Machine::id`, online or
+    /// not: the server forgets it and stops syncing with it, drops its
+    /// connection if it has one, and refuses its node until it is set up
+    /// again. Any key of the account may remove a machine, where
+    /// `RemoveDevice` needs the primary key. `NotFound` when no machine of
+    /// the caller's has that id; `BadRequest` for the caller's own key,
+    /// which `RemoveDevice` unlinks.
+    251 RemoveMachine { machine_id: String } => Call<()>
 }
 
 /// Folders the apps list projects under, as `ListProjectGroups` gives
