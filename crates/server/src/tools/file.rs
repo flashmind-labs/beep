@@ -57,10 +57,9 @@ enum Source<'a> {
     /// The research's paper, typeset.
     Paper,
     Url(&'a str),
-    Folder(&'a str),
-    /// A file on the machine `from` names.
-    Machine {
-        from: &'a str,
+    /// A file in the user's home folder, or on the machine `from` names.
+    User {
+        from: Option<&'a str>,
         path: &'a str,
     },
     Fastmail {
@@ -170,9 +169,9 @@ impl SendFileTool {
                 ));
             }
             (Some(url), None, None, None) => Source::Url(url),
-            (None, Some(path), None, None) => match arg("from") {
-                Some(from) => Source::Machine { from, path },
-                None => Source::Folder(path),
+            (None, Some(path), None, None) => Source::User {
+                from: arg("from"),
+                path,
             },
             (None, None, Some(email_id), Some(blob_id)) => Source::Fastmail {
                 account: arg("account"),
@@ -245,30 +244,20 @@ impl SendFileTool {
                     data: fetched.data,
                 })
             }
-            Source::Folder(path) => {
-                let workspace = self
-                    .workspace
-                    .as_ref()
-                    .context("the user has no environment online to keep files in")?;
-                let file = workspace.read(path).await?;
+            Source::User { from, path } => {
+                let file = read_user_file(
+                    UserFiles {
+                        workspace: self.workspace.as_deref(),
+                        machines: self.machines.as_ref(),
+                    },
+                    from,
+                    path,
+                )
+                .await?;
                 Ok(Loaded {
                     name: file.name,
                     mime: None,
                     data: file.data,
-                })
-            }
-            Source::Machine { from, path } => {
-                let machines = self.machines()?;
-                let picked = machines
-                    .pick(Some(from), Need::Files)
-                    .await
-                    .map_err(anyhow::Error::msg)?;
-                let path = copy::picked_path(&picked, path)?;
-                let data = copy::read_all(&picked.online, &path, fetch::MAX_DOWNLOAD).await?;
-                Ok(Loaded {
-                    name: copy::file_name(&path).unwrap_or("file").to_owned(),
-                    mime: None,
-                    data,
                 })
             }
             Source::Fastmail {
@@ -361,6 +350,54 @@ impl SendFileTool {
         }
         Ok(text)
     }
+}
+
+/// Where a tool reads the user's files from.
+#[derive(Clone, Copy)]
+pub(super) struct UserFiles<'a> {
+    /// The user's home folder, their own environment.
+    pub(super) workspace: Option<&'a Workspace>,
+    /// The user's machines, when this turn may use them.
+    pub(super) machines: Option<&'a Machines>,
+}
+
+/// A file read from the user's home folder or one of their machines.
+pub(super) struct UserFile {
+    pub(super) name: String,
+    pub(super) data: Vec<u8>,
+}
+
+/// Reads `path` from the machine `from` names, or from the user's home
+/// folder when `from` is `None`. A file over `fetch::MAX_DOWNLOAD` is
+/// refused before it is read.
+pub(super) async fn read_user_file(
+    files: UserFiles<'_>,
+    from: Option<&str>,
+    path: &str,
+) -> Result<UserFile> {
+    let Some(from) = from else {
+        let workspace = files
+            .workspace
+            .context("the user has no environment online to keep files in")?;
+        let file = workspace.read(path).await?;
+        return Ok(UserFile {
+            name: file.name,
+            data: file.data,
+        });
+    };
+    let machines = files
+        .machines
+        .context("this turn cannot use the user's machines")?;
+    let picked = machines
+        .pick(Some(from), Need::Files)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let path = copy::picked_path(&picked, path)?;
+    let data = copy::read_all(&picked.online, &path, fetch::MAX_DOWNLOAD).await?;
+    Ok(UserFile {
+        name: copy::file_name(&path).unwrap_or("file").to_owned(),
+        data,
+    })
 }
 
 /// Refuses the arguments sending to a machine used to take, so a call

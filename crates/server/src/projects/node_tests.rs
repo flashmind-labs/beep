@@ -17,18 +17,25 @@ use crate::protocol::node::{
     },
 };
 use crate::{
+    fetch,
+    images::Describer,
     nodes::{self, Online},
     protocol::DeviceKind,
     store::{After, CheckoutRow, NewKey, NewTask, ProjectRow, TaskRow},
-    tools::{SendFileTool, machines::Machines},
+    tools::{AttachTool, SendFileTool, machines::Machines},
     watchers::testing::{Harness, Scripted},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_node::{
     agents::{AgentKind, Agents},
     files::Folders,
     link::{Offers, Protocol, Session as LinkSession},
 };
-use flashmind::types::tool::{Tool, ToolContext};
+use flashmind::types::{
+    AgentLlmConfig, CompletionRequest, CompletionStream, ContentPart, LlmProvider, Model,
+    ModelCapabilities, Provider,
+    tool::{Tool, ToolContext, ToolResult},
+};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use serde_json::json;
 use std::{
@@ -558,6 +565,212 @@ async fn copy_outside_the_checkout_is_refused() {
     assert!(!result.is_success(), "{}", result.output());
     assert!(result.output().contains("outside"), "{}", result.output());
     assert!(!node.tmp.join("out/model.glb").exists());
+}
+
+/// A model that accepts what `0` says it does.
+struct Accepts(ModelCapabilities);
+
+#[async_trait::async_trait]
+impl LlmProvider for Accepts {
+    fn name(&self) -> &str {
+        "test"
+    }
+    fn provider(&self) -> Provider {
+        Provider::OpenAi
+    }
+    async fn capabilities(&self, _: &Model) -> ModelCapabilities {
+        self.0
+    }
+    fn complete(&self, _: CompletionRequest) -> CompletionStream {
+        Box::pin(futures::stream::empty())
+    }
+}
+
+fn attach_tool(world: &World, describer: Option<Describer>) -> AttachTool {
+    let alice = &world.harness.alice;
+    AttachTool {
+        workspace: None,
+        machines: Some(Machines {
+            app: world.harness.app.clone(),
+            user: alice.clone(),
+        }),
+        describer,
+    }
+}
+
+/// `tool` called with `args` by a model that accepts `caps`.
+async fn attach(tool: &AttachTool, args: serde_json::Value, caps: ModelCapabilities) -> ToolResult {
+    let cancel = CancellationToken::new();
+    let llm = AgentLlmConfig::new("openai:test".parse().expect("a model"));
+    let ctx = ToolContext::new("attach", args, None, &cancel)
+        .with_llm(&llm)
+        .with_provider(Arc::new(Accepts(caps)));
+    tool.execute(ctx).await.expect("a result")
+}
+
+fn sees_all() -> ModelCapabilities {
+    ModelCapabilities {
+        images: true,
+        documents: true,
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn attach_hands_the_model_an_image_and_a_pdf_from_a_machine() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    fs::write(node.tmp.join("in/photo.png"), b"png bytes").expect("an image");
+    fs::write(node.tmp.join("in/letter.pdf"), b"%PDF-1.7").expect("a pdf");
+    let tool = attach_tool(&world, None);
+    let path = |name: &str| {
+        node.tmp
+            .join("in")
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
+    };
+
+    let image = attach(
+        &tool,
+        json!({ "path": path("photo.png"), "from": "build-box" }),
+        sees_all(),
+    )
+    .await;
+    assert!(image.is_success(), "{}", image.output());
+    assert!(
+        image.content().iter().any(|part| matches!(part,
+            ContentPart::Image { media_type, data } if media_type == "image/png" && *data == STANDARD.encode(b"png bytes"))),
+        "{:?}",
+        image.content()
+    );
+
+    let pdf = attach(
+        &tool,
+        json!({ "path": path("letter.pdf"), "from": "build-box" }),
+        sees_all(),
+    )
+    .await;
+    assert!(pdf.is_success(), "{}", pdf.output());
+    assert!(
+        pdf.content().iter().any(|part| matches!(part,
+            ContentPart::Document { media_type, filename, data }
+                if media_type == "application/pdf" && filename == "letter.pdf" && *data == STANDARD.encode(b"%PDF-1.7"))),
+        "{:?}",
+        pdf.content()
+    );
+}
+
+#[tokio::test]
+async fn attach_refuses_media_the_model_cannot_take_and_files_over_the_cap() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    fs::write(node.tmp.join("in/clip.mp4"), b"video").expect("a video");
+    fs::write(node.tmp.join("in/notes.xyz"), b"notes").expect("a file");
+    let big = fs::File::create(node.tmp.join("in/big.pdf")).expect("a file");
+    big.set_len(fetch::MAX_DOWNLOAD + 1).expect("it grows");
+    let tool = attach_tool(&world, None);
+    let path = |name: &str| {
+        node.tmp
+            .join("in")
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
+    };
+    let only_parts = |result: &ToolResult| {
+        result
+            .content()
+            .iter()
+            .all(|part| matches!(part, ContentPart::Text { .. }))
+    };
+
+    let video = attach(
+        &tool,
+        json!({ "path": path("clip.mp4"), "from": "build-box" }),
+        sees_all(),
+    )
+    .await;
+    assert!(!video.is_success());
+    assert!(
+        video
+            .output()
+            .contains("does not report support for video/mp4"),
+        "{}",
+        video.output()
+    );
+    assert!(only_parts(&video));
+
+    let unknown = attach(
+        &tool,
+        json!({ "path": path("notes.xyz"), "from": "build-box" }),
+        sees_all(),
+    )
+    .await;
+    assert!(!unknown.is_success());
+    assert!(
+        unknown.output().contains("Unknown file type"),
+        "{}",
+        unknown.output()
+    );
+
+    let blind = attach(
+        &tool,
+        json!({ "path": path("photo.png"), "from": "build-box" }),
+        ModelCapabilities::default(),
+    )
+    .await;
+    assert!(!blind.is_success());
+    assert!(
+        blind.output().contains("cannot see images"),
+        "{}",
+        blind.output()
+    );
+
+    let over = attach(
+        &tool,
+        json!({ "path": path("big.pdf"), "from": "build-box" }),
+        sees_all(),
+    )
+    .await;
+    assert!(!over.is_success());
+    assert!(
+        over.output().contains("larger than 20 MiB"),
+        "{}",
+        over.output()
+    );
+    assert!(only_parts(&over));
+}
+
+#[tokio::test]
+async fn attach_has_a_vision_model_describe_an_image_for_a_blind_model() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    fs::write(node.tmp.join("in/photo.png"), b"png bytes").expect("an image");
+    let describer = Describer {
+        provider: Arc::new(Scripted::default().answer("You describe images", "A red bicycle.")),
+        model: "openai:vision".parse().expect("a model"),
+        user: "alice".into(),
+    };
+    let tool = attach_tool(&world, Some(describer));
+    let path = node.tmp.join("in/photo.png").to_string_lossy().into_owned();
+    let result = attach(
+        &tool,
+        json!({ "path": path, "from": "build-box" }),
+        ModelCapabilities::default(),
+    )
+    .await;
+    assert!(result.is_success(), "{}", result.output());
+    assert!(
+        result.output().ends_with("A red bicycle."),
+        "{}",
+        result.output()
+    );
+    assert!(
+        result
+            .content()
+            .iter()
+            .all(|part| matches!(part, ContentPart::Text { .. }))
+    );
 }
 
 /// The labels and texts posted to project chats once `done` holds.
