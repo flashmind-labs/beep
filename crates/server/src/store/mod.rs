@@ -56,7 +56,7 @@ pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
-pub use credentials::{CredentialRow, GitLogin, NewCredential};
+pub use credentials::{CredentialRow, GitHubAccountRow, GitLogin, NewCredential, NewGitHubAccount};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
@@ -77,8 +77,8 @@ pub use profile::{ProfileNote, ProfileRead};
 pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
-    After, CheckoutRow, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused, TaskRow,
-    WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused,
+    TaskRow, TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
@@ -378,6 +378,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         62,
         "checkout checks",
         include_str!("../../migrations/0062_checkout_checks.sql"),
+    ),
+    (
+        63,
+        "github accounts",
+        include_str!("../../migrations/0063_github_accounts.sql"),
+    ),
+    (
+        64,
+        "project issues",
+        include_str!("../../migrations/0064_project_issues.sql"),
     ),
 ];
 

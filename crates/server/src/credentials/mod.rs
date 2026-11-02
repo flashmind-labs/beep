@@ -6,14 +6,15 @@ mod check;
 mod net;
 mod seal;
 
-pub use check::{Checked, Checker, host_client};
+pub use check::{Checked, Checker, MAX_ORGS, host_client};
 pub use seal::{CredentialKey, Owner};
 
 use crate::protocol::{
-    ApiProvider, CredentialKind, GITHUB_ENV_VAR,
+    ApiProvider, CredentialKind, GITHUB_ENV_VAR, SecretText,
     node::{EnvSecret, ForgejoLogin, MachineCredentials},
 };
 use reqwest::Url;
+use secrecy::{ExposeSecret, SecretString};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
@@ -158,20 +159,111 @@ pub fn last4(secret: &str) -> String {
 /// One credential opened for the machines.
 pub struct Opened {
     pub slot: Slot,
-    pub secret: secrecy::SecretString,
+    pub secret: SecretString,
+    /// Which account a GitHub token is; `None` for every other slot.
+    pub github: Option<GitHubLogin>,
+}
+
+/// Who a saved GitHub token signs in as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitHubLogin {
+    pub login: String,
+    /// The orgs the token could see when it was saved.
+    pub orgs: Vec<String>,
+    /// The account machines get as `GH_TOKEN`.
+    pub default: bool,
+}
+
+impl GitHubLogin {
+    /// Whether `owner` is this account or one of its orgs.
+    fn owns(&self, owner: &str) -> bool {
+        self.login.eq_ignore_ascii_case(owner)
+            || self.orgs.iter().any(|org| org.eq_ignore_ascii_case(owner))
+    }
+}
+
+/// The GitHub token for repositories of `owner`: the account that is
+/// `owner`, else the first account with `owner` among its orgs, else the
+/// default. `opened` is in the store's order, default first, then oldest,
+/// so the default wins an org several accounts see.
+pub fn github_for<'a>(opened: &'a [Opened], owner: &str) -> Option<&'a Opened> {
+    let accounts = || {
+        opened
+            .iter()
+            .filter_map(|o| o.github.as_ref().map(|login| (o, login)))
+    };
+    accounts()
+        .find(|(_, login)| login.login.eq_ignore_ascii_case(owner))
+        .or_else(|| accounts().find(|(_, login)| login.owns(owner)))
+        .or_else(|| accounts().find(|(_, login)| login.default))
+        .map(|(opened, _)| opened)
+}
+
+/// What [`github_owner_var`] names start with.
+const GITHUB_OWNER_PREFIX: &str = "BEEP_GH_TOKEN_";
+
+/// The env var a machine holds the token for repositories of `owner` in,
+/// when that is not the default account's: `BEEP_GH_TOKEN_ACME_LABS` for
+/// `acme-labs`. `None` for a name GitHub would not give an owner: those
+/// have only letters, digits and hyphens, so no two owners share a var.
+pub fn github_owner_var(owner: &str) -> Option<String> {
+    let valid = !owner.is_empty()
+        && owner.len() <= 39
+        && owner
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    valid.then(|| {
+        let name: String = owner
+            .chars()
+            .map(|c| match c {
+                '-' => '_',
+                c => c.to_ascii_uppercase(),
+            })
+            .collect();
+        format!("{GITHUB_OWNER_PREFIX}{name}")
+    })
 }
 
 /// What the machines get from `opened`, the credentials marked for them.
+/// The default GitHub account is `GH_TOKEN`. Each owner (login or org) for
+/// which [`github_for`] picks another account gets that account's token
+/// as its [`github_owner_var`], which a project's commands read.
 pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
-    use secrecy::ExposeSecret;
     let mut out = MachineCredentials::default();
-    for Opened { slot, secret } in opened {
-        let value = crate::protocol::SecretText::new(secret.expose_secret());
+    let mut owners: Vec<&str> = Vec::new();
+    for login in opened.iter().filter_map(|o| o.github.as_ref()) {
+        for owner in std::iter::once(&login.login).chain(&login.orgs) {
+            if !owners.iter().any(|seen| seen.eq_ignore_ascii_case(owner)) {
+                owners.push(owner);
+            }
+        }
+    }
+    for owner in owners {
+        let Some(picked) = github_for(&opened, owner) else {
+            continue;
+        };
+        let is_default = picked.github.as_ref().is_some_and(|login| login.default);
+        if let (false, Some(name)) = (is_default, github_owner_var(owner)) {
+            out.env.push(EnvSecret {
+                name,
+                value: SecretText::new(picked.secret.expose_secret()),
+            });
+        }
+    }
+    for Opened {
+        slot,
+        secret,
+        github,
+    } in opened
+    {
+        let value = SecretText::new(secret.expose_secret());
         match slot {
             Slot::Forgejo(url) => out.forgejo.push(ForgejoLogin {
                 url: url.as_str().to_owned(),
                 token: value,
             }),
+            // Only the default account is GH_TOKEN.
+            Slot::GitHub if !github.is_some_and(|login| login.default) => {}
             other => {
                 if let Some(name) = other.env_var() {
                     out.env.push(EnvSecret {
@@ -229,6 +321,71 @@ mod tests {
             .is_err()
         );
         assert_eq!(Slot::GitHub.env_var(), Some("GH_TOKEN"));
+    }
+
+    fn account(login: &str, orgs: &[&str], default: bool, token: &str) -> Opened {
+        Opened {
+            slot: Slot::GitHub,
+            secret: SecretString::from(token),
+            github: Some(GitHubLogin {
+                login: login.into(),
+                orgs: orgs.iter().map(|org| (*org).to_owned()).collect(),
+                default,
+            }),
+        }
+    }
+
+    fn token(opened: Option<&Opened>) -> &str {
+        opened.map_or("", |o| o.secret.expose_secret())
+    }
+
+    #[test]
+    fn a_repository_owner_picks_its_github_account() {
+        let opened = [
+            account("octo-one", &["acme", "shared"], true, "tok-one"),
+            account("octo-two", &["widget-co", "shared"], false, "tok-two"),
+            account("octo-three", &["widget-co"], false, "tok-three"),
+        ];
+        assert_eq!(token(github_for(&opened, "octo-two")), "tok-two");
+        assert_eq!(token(github_for(&opened, "OCTO-THREE")), "tok-three");
+        assert_eq!(token(github_for(&opened, "Widget-Co")), "tok-two");
+        assert_eq!(token(github_for(&opened, "acme")), "tok-one");
+        assert_eq!(token(github_for(&opened, "shared")), "tok-one");
+        assert_eq!(token(github_for(&opened, "someone-else")), "tok-one");
+        assert!(github_for(&[], "acme").is_none());
+    }
+
+    #[test]
+    fn machines_get_the_default_as_gh_token_and_others_by_owner() {
+        let opened = vec![
+            account("octo-one", &["acme"], true, "tok-one"),
+            account("octo-two", &["widget-co", "acme"], false, "tok-two"),
+        ];
+        let out = for_machines(opened);
+        let env: Vec<(&str, &str)> = out
+            .env
+            .iter()
+            .map(|var| (var.name.as_str(), var.value.expose()))
+            .collect();
+        assert_eq!(
+            env,
+            [
+                ("BEEP_GH_TOKEN_OCTO_TWO", "tok-two"),
+                ("BEEP_GH_TOKEN_WIDGET_CO", "tok-two"),
+                ("GH_TOKEN", "tok-one"),
+            ]
+        );
+    }
+
+    #[test]
+    fn owner_vars_take_only_github_names() {
+        assert_eq!(
+            github_owner_var("acme-labs").as_deref(),
+            Some("BEEP_GH_TOKEN_ACME_LABS")
+        );
+        assert_eq!(github_owner_var("my.org"), None);
+        assert_eq!(github_owner_var("a_b"), None);
+        assert_eq!(github_owner_var(""), None);
     }
 
     #[test]

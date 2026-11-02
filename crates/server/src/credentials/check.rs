@@ -9,6 +9,9 @@ use std::{sync::Arc, time::Duration};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const GITHUB_USER: &str = "https://api.github.com/user";
+const GITHUB_ORGS: &str = "https://api.github.com/user/orgs";
+/// The most orgs kept per GitHub account: GitHub's largest page.
+pub const MAX_ORGS: usize = 100;
 const OPENROUTER_KEY: &str = "https://openrouter.ai/api/v1/key";
 
 /// What a host said about a token.
@@ -57,6 +60,45 @@ impl Checker {
     /// `GET https://api.github.com/user` with `token`.
     pub async fn github(&self, token: &SecretString) -> Checked {
         self.user(GITHUB_USER, "GitHub", token).await
+    }
+
+    /// The orgs `token` can see, from `GET https://api.github.com/user/orgs`:
+    /// one page of at most [`MAX_ORGS`]. Empty when GitHub does not say,
+    /// such as for a token without `read:org`; the account then serves
+    /// only its own repositories.
+    pub async fn github_orgs(&self, token: &SecretString) -> Vec<String> {
+        let sent = self
+            .client
+            .get(format!("{GITHUB_ORGS}?per_page={MAX_ORGS}"))
+            .header(header::ACCEPT, "application/vnd.github+json")
+            .header(
+                header::AUTHORIZATION,
+                format!("token {}", token.expose_secret()),
+            )
+            .send()
+            .await;
+        let reply = match sent {
+            Ok(reply) if reply.status().is_success() => reply,
+            Ok(reply) => {
+                log::info!("GitHub did not list the token's orgs: {}", reply.status());
+                return Vec::new();
+            }
+            Err(e) => {
+                log::info!("could not list a token's orgs on GitHub: {e}");
+                return Vec::new();
+            }
+        };
+        match reply.json::<Vec<UserReply>>().await {
+            Ok(orgs) => orgs
+                .into_iter()
+                .filter_map(|org| org.login)
+                .take(MAX_ORGS)
+                .collect(),
+            Err(e) => {
+                log::info!("GitHub's org list did not read: {e}");
+                Vec::new()
+            }
+        }
     }
 
     /// `GET <url>/api/v1/user` with `token`.

@@ -23,6 +23,8 @@ pub(crate) const PROJECT_PROMPT: &str = include_str!("../../prompts/project/agen
 pub(crate) const REPLAN_LABEL: &str = "Project re-plan";
 pub(crate) const CHECK_LABEL: &str = "Project check";
 pub(crate) const WORKER_LABEL: &str = "Project worker";
+/// The user asked for a plan of an issue on the host.
+pub(crate) const ISSUE_LABEL: &str = "Project issue";
 
 /// Most project memories the context lists.
 const MAX_MEMORIES: usize = 30;
@@ -44,7 +46,12 @@ pub(crate) enum TurnKind {
 }
 
 pub(crate) fn turn_kind(message: &Message) -> TurnKind {
-    if message.is_prompt() || message.scheduled.as_deref() == Some(REPLAN_LABEL) {
+    if message.is_prompt()
+        || matches!(
+            message.scheduled.as_deref(),
+            Some(REPLAN_LABEL | ISSUE_LABEL)
+        )
+    {
         TurnKind::Planning
     } else {
         TurnKind::Routine
@@ -456,6 +463,10 @@ mod tests {
         assert_eq!(turn_kind(&message("Fix it", None)), TurnKind::Planning);
         assert_eq!(
             turn_kind(&message("The worker ended", Some(REPLAN_LABEL))),
+            TurnKind::Planning
+        );
+        assert_eq!(
+            turn_kind(&message("Plan issue 12", Some(ISSUE_LABEL))),
             TurnKind::Planning
         );
         assert_eq!(
