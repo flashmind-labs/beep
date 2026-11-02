@@ -1,4 +1,4 @@
-//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh) run over ACP: the
+//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) run over ACP: the
 //! table of agents this node can start, the sessions it runs, and the
 //! streams the server follows them on (`beep_proto::node::agent`).
 
@@ -113,6 +113,11 @@ const KNOWN: &[Known] = &[
         cli: "flsh",
         adapter: Adapter::Flags(&["acp"]),
     },
+    Known {
+        name: "opencode",
+        cli: "opencode",
+        adapter: Adapter::Flags(&["acp"]),
+    },
 ];
 
 /// The agents installed here, from `KNOWN`, then `extra` from `node.toml`
@@ -121,32 +126,38 @@ pub fn detect(extra: &[AgentKind]) -> Vec<AgentKind> {
     let found = |program: &str| which::which(program).is_ok();
     let mut kinds: Vec<AgentKind> = KNOWN
         .iter()
-        .filter(|known| found(known.cli))
-        .filter_map(|known| {
-            let (program, args) = match &known.adapter {
-                Adapter::Npm { bin, .. } if found(bin) => ((*bin).to_owned(), Vec::new()),
-                Adapter::Npm { package, .. } if found("npx") => (
-                    "npx".to_owned(),
-                    vec!["-y".to_owned(), (*package).to_owned()],
-                ),
-                Adapter::Npm { .. } => return None,
-                Adapter::Flags(flags) => (
-                    known.cli.to_owned(),
-                    flags.iter().map(|flag| (*flag).to_owned()).collect(),
-                ),
-            };
-            Some(AgentKind {
-                name: known.name.to_owned(),
-                program,
-                args,
-            })
-        })
+        .filter_map(|known| launch(known, &found))
         .collect();
     for kind in extra {
         kinds.retain(|known| known.name != kind.name);
         kinds.push(kind.clone());
     }
     kinds
+}
+
+/// How the node starts `known`, when `found` says its CLI, and the adapter
+/// or npx it needs, are installed.
+fn launch(known: &Known, found: &dyn Fn(&str) -> bool) -> Option<AgentKind> {
+    if !found(known.cli) {
+        return None;
+    }
+    let (program, args) = match &known.adapter {
+        Adapter::Npm { bin, .. } if found(bin) => ((*bin).to_owned(), Vec::new()),
+        Adapter::Npm { package, .. } if found("npx") => (
+            "npx".to_owned(),
+            vec!["-y".to_owned(), (*package).to_owned()],
+        ),
+        Adapter::Npm { .. } => return None,
+        Adapter::Flags(flags) => (
+            known.cli.to_owned(),
+            flags.iter().map(|flag| (*flag).to_owned()).collect(),
+        ),
+    };
+    Some(AgentKind {
+        name: known.name.to_owned(),
+        program,
+        args,
+    })
 }
 
 /// The agents this node offers and the sessions it runs. Sessions belong
@@ -157,7 +168,7 @@ pub struct Agents {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     /// Claude Code sessions started outside Beep.
     external: External,
-    /// Where Codex, pi and flsh keep their sessions.
+    /// Where Codex, pi, flsh and OpenCode keep their sessions.
     stores: Stores,
 }
 
@@ -700,6 +711,43 @@ mod tests {
             known("flsh").map(|known| &known.adapter),
             Some(Adapter::Flags(["acp"]))
         ));
+    }
+
+    #[test]
+    fn opencode_runs_its_own_acp_server() {
+        let known = KNOWN
+            .iter()
+            .find(|known| known.name == "opencode")
+            .expect("opencode is known");
+        let installed = |program: &str| program == "opencode";
+        assert_eq!(
+            launch(known, &installed),
+            Some(AgentKind {
+                name: "opencode".into(),
+                program: "opencode".into(),
+                args: vec!["acp".into()],
+            })
+        );
+        assert_eq!(launch(known, &|_: &str| false), None);
+        assert_eq!(Agent::from_name("opencode"), Some(Agent::OpenCode));
+    }
+
+    #[test]
+    fn an_npm_adapter_runs_its_binary_else_npx() {
+        let known = KNOWN
+            .iter()
+            .find(|known| known.name == "pi")
+            .expect("pi is known");
+        let launched = |installed: &[&str]| {
+            let installed = |program: &str| installed.contains(&program);
+            launch(known, &installed).map(|kind| (kind.program, kind.args))
+        };
+        assert_eq!(launched(&["pi", "pi-acp"]), Some(("pi-acp".into(), vec![])));
+        assert_eq!(
+            launched(&["pi", "npx"]),
+            Some(("npx".into(), vec!["-y".into(), "pi-acp".into()]))
+        );
+        assert_eq!(launched(&["pi"]), None);
     }
 
     #[test]
