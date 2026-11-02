@@ -280,9 +280,7 @@ pub async fn delete_session(beep: Service<'_>, shown: State<'_, Shown>, id: Stri
     if beep.session().as_deref() == Some(id.as_str()) {
         beep.set_session(None);
     }
-    if shown.get().session.as_deref() == Some(id.as_str()) {
-        shown.set_session(None);
-    }
+    shown.forget_session(&id);
     Ok(())
 }
 
