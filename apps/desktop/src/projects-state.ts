@@ -489,6 +489,18 @@ function homeRelative(path: string) {
   return null;
 }
 
+/// The folder a start form shows once `machine` is picked: the project's
+/// checkout there, else `cwd` under the home folder written `~/...`,
+/// which each machine reads as its own home. Auto is `machine` null.
+export function folderOn(cwd: string, machine: string | null, places: readonly { machine: string; cwd: string }[] | null | undefined) {
+  const own = machine ? places?.find(p => p.machine === machine)?.cwd : null;
+  if (own) return own;
+  const p = String(cwd || "").trim();
+  const rest = p ? homeRelative(p.replace(/\\/g, "/")) : null;
+  if (rest == null) return p;
+  return rest ? `~/${rest.replace(/\/+$/, "")}` : "~";
+}
+
 /// A folder as groups compare it, as the server's `project_group_path`
 /// keeps them: `\` read as `/`, the home folder and then a leading
 /// `Projects/` (any case) left out, with no trailing `/`. So

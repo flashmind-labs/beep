@@ -69,7 +69,7 @@ test("Review starts in the project's folder on an online machine, else on Auto",
   const project = { machines: [{ id: "m1", folder: "/srv/project/widget" }, { id: "m2", folder: "/path/to/work/widget" }] };
   const machines = [{ id: "m1", online: false }, { id: "m2", online: true }];
   const start = reviewStart(pr, project, machines);
-  assert.deepEqual(start.at, { machine: "m2", cwd: "/path/to/work/widget" });
+  assert.deepEqual(start.at, { machine: "m2", cwd: "/path/to/work/widget", places: [{ machine: "m1", cwd: "/srv/project/widget" }, { machine: "m2", cwd: "/path/to/work/widget" }] });
   assert.match(start.prompt, /^Review PR https:\/\/github\.com\/acme\/widget\/pull\/1\. Read the diff with gh,/);
   assert.match(start.prompt, /only after I approve it/);
   assert.equal(reviewStart(pr, null, machines).at, null);

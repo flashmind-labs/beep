@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT } from "../src/projects-state.ts";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderOn } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -341,4 +341,14 @@ test("the remove sheet names the project and says no files are deleted", () => {
   assert.match(s.note, /nothing is deleted on any machine/);
   assert.equal(REMOVE_PROJECT, "Remove project…");
   for (const t of [s.title, s.text, s.note, s.action]) assert.doesNotMatch(t, /[—→⇒←]/);
+});
+
+test("a start form's folder follows the picked machine", () => {
+  const places = [{ machine: "mac", cwd: "/Users/you/Projects/work/tool" }, { machine: "box", cwd: "/home/you/work/tool" }];
+  assert.equal(folderOn("/Users/you/Projects/work/tool", "box", places), "/home/you/work/tool");
+  assert.equal(folderOn("/Users/you/Projects/work/tool", "other", places), "~/Projects/work/tool");
+  assert.equal(folderOn("/Users/you/Projects/work/tool", null, null), "~/Projects/work/tool");
+  assert.equal(folderOn("/home/you/", "other", null), "~");
+  assert.equal(folderOn("/srv/data", "other", null), "/srv/data");
+  assert.equal(folderOn("", "other", null), "");
 });

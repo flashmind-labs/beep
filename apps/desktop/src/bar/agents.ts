@@ -106,6 +106,9 @@ export interface AgentForm {
   machine: string;
   agent: string | null;
   cwd: string;
+  /// The project's checkout on each machine, when the form was opened
+  /// from one, so picking another machine picks its folder.
+  places?: { machine: string; cwd: string }[];
   /// The chat the form was opened from, which hears how the session goes.
   chat: string | null;
 }

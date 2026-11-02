@@ -1904,13 +1904,18 @@ async function loadProjectAgent() {
   if (agentAgain) { agentAgain = false; loadProjectAgent(); }
 }
 
+/// A project's checkout on each machine, for the start form.
+function projectPlaces(p: Project) {
+  return p.machines.filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
+}
+
 /// One machine's row under "Where it lives": its folder and what to do
 /// there, or why there is none.
 function whereRow(p: Project, m: WhereRow) {
   const name = h("span", "nm", h("b", "", m.name));
   if (m.kind === "here") {
     const path = m.folder!;
-    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path } } }));
+    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p) } } }));
     const copy = button("Copy path", "quiet small", async () => {
       try { await navigator.clipboard.writeText(path); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
     });

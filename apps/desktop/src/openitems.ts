@@ -147,7 +147,8 @@ export function reviewStart(
   const prompt = `Review PR ${item.url}. Read the diff with ${tool}, and post your review only after I approve it.`;
   const online = new Set((machines || []).filter(m => m.online).map(m => m.id));
   const at = project?.machines?.find(m => online.has(m.id) && m.folder) || null;
-  return { prompt, at: at ? { machine: at.id, cwd: at.folder } : null };
+  const places = (project?.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
+  return { prompt, at: at ? { machine: at.id, cwd: at.folder, places } : null };
 }
 
 /// The first message of the chat Reply opens.
