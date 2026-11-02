@@ -5068,7 +5068,8 @@ const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.sess
 function agentHints() {
   const s = AG.page?.session, q = s?.question;
   if (q) return hints([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
-  if (s?.external || s?.status === "ended") return hints([["esc", "back"]]);
+  if (s?.external) return hints([["esc", "back"]]);
+  if (s?.status === "ended") return hints([[ICON.ret, "continue"], ["esc", "back"]]);
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
   const stop = AGENT_ACTIVE.has(s?.status) ? [["⌘.", "stop the turn"]] : [];
@@ -5228,7 +5229,11 @@ function drawAgentBody() {
   const hint = bar.querySelector(":scope > .dhints");
   if (hint) hint.replaceWith(h(agentHints()));
   const field = $("#agfield");
-  if (field) field.style.display = s.status === "ended" ? "none" : "";
+  // An ended session goes on from the field: the next message resumes it.
+  const msg = $("#agmsg"), k = agentKind(s.agent);
+  if (msg) msg.placeholder = s.status === "ended" ? `Message ${k.name} to continue` : `Message ${k.name}`;
+  const close = $("#agclose");
+  if (close) close.style.display = s.status === "ended" ? "none" : "";
   // Only a turn that runs can be stopped.
   const stop = $("#agstop");
   if (stop) stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
@@ -5284,6 +5289,7 @@ async function sendAgentMessage() {
   const input = $("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
   if (!text && !images.length) return;
   const o = AG.open;
+  if (AG.page.session.status === "ended") return continueAgent(input, text, images);
   input.value = "";
   if (!images.length) {
     AG.page.entries.push({ kind: "user", text });
@@ -5308,6 +5314,32 @@ async function sendAgentMessage() {
   AG.att = images;
   drawAgentBody();
   drawAgentAttached();
+}
+
+/// Resumes the ended session with `text`, then follows the session that
+/// goes on from it. Images go once it runs again.
+async function continueAgent(input, text, images) {
+  const o = AG.open;
+  if (images.length && !text) { AG.note = "Say something to continue the session, then send the images."; return drawAgentBody(); }
+  input.value = "";
+  input.disabled = true;
+  AG.note = "";
+  AG.page.entries.push({ kind: "user", text });
+  drawAgentBody();
+  try {
+    const started = await invoke("agent_resume", { machineId: o.machine_id, agent: o.agent, session: o.session, prompt: text });
+    if (!isOpen(o)) return;
+    const back = AG.back;
+    openAgent(started.session, { back });
+    if (images.length) { AG.att = images; drawAgentAttached(); }
+  } catch (e) {
+    if (!isOpen(o)) return;
+    AG.page.entries.pop();
+    input.disabled = false;
+    input.value = text;
+    AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
+    drawAgentBody();
+  }
 }
 
 // ----- Every session -----
