@@ -21,6 +21,7 @@ mod gh_sign_in;
 mod git_items;
 mod grants;
 mod groups;
+mod harnesses;
 mod hotkey;
 mod identity;
 mod instructions;
@@ -203,6 +204,9 @@ fn main() {
             gh_sign_in::gh_sign_in,
             gh_sign_in::cancel_gh_sign_in,
             agent_accounts::agent_accounts,
+            harnesses::agent_harnesses,
+            harnesses::harness_settings_save,
+            harnesses::agent_harness_update,
             agent_accounts::save_agent_token,
             agent_accounts::revoke_agent_token,
             agent_accounts::claude_sign_in,

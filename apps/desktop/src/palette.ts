@@ -25,6 +25,8 @@ export interface PaletteDeps {
   /// Home, scrolled to the element with this id.
   jump(id: string): void;
   settings(section: string): void;
+  /// The Coding agents page.
+  providers(): void;
   project(name: string): void;
   /// The project's Branches list.
   branches(name: string): void;
@@ -219,6 +221,7 @@ function pick(hit: Hit) {
     case "action":
       if (hit.id === "new_chat") return go("pane", { chat: { session: null } });
       if (hit.id === "home") return go("home");
+      if (hit.id === "coding_agents") return deps!.providers();
       if (ACTION_VIEWS[hit.id]) return go("pane", ACTION_VIEWS[hit.id]);
       return;
     case "chat": return go("pane", { chat: { session: hit.id } });

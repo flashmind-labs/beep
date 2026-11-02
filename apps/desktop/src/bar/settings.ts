@@ -226,6 +226,7 @@ function bindSettings(el: Element) {
   // Instructions is a view of the window: the sheet closes onto it, and
   // the bar hands it over.
   $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
+  $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
   each("data-remove", b => b.addEventListener("click", () => {
     b.disabled = true;
     thenRedraw(invoke("remove_device", { id: b.dataset.remove }));
@@ -335,7 +336,8 @@ export async function renderSettings(confirm = false, root?: HTMLElement) {
     + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
     + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
     + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
-    + (linked ? sec("agents", "Agent accounts", setAgentsHtml()) : "")
+    // The Coding agents row sits outside #set-agents, which redraws alone.
+    + (linked ? `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat" style="padding-top:6px">Agent accounts</div><div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div><div id="set-agents">${setAgentsHtml()}</div></section>` : "")
     + (linked ? sec("creds", "Credentials", setCredsHtml()) : "")
     + (linked ? sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`) : "")
     + sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`);
