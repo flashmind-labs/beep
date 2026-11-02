@@ -235,6 +235,8 @@ pub async fn agent_sessions(beep: Service<'_>) -> Result<Vec<SessionRow>> {
 /// Starts a session; no `machine_id` lets the server pick. `chat` hears
 /// its turn ends and questions; `model`, from `agent_models`, picks the
 /// agent's model and `effort` how hard it thinks.
+// The arguments are the fields of the window's `invoke` call.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_start(
     beep: Service<'_>,
