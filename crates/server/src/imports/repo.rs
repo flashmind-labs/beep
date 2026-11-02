@@ -169,6 +169,17 @@ impl RepoRef {
     }
 }
 
+/// What two remotes of one repository share, https or ssh: the host and
+/// path, lowercased, without `.git`, such as `github.com/org/repo`. `None`
+/// for a remote that is not a URL, such as a local path.
+pub(crate) fn remote_key(remote: &str) -> Option<String> {
+    let (host, path) = remote_parts(remote.trim())?;
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    (!host.is_empty() && !path.is_empty() && !host.contains('/'))
+        .then(|| format!("{host}/{path}").to_ascii_lowercase())
+}
+
 /// A remote URL's host, without port or user, and its path.
 fn remote_parts(remote: &str) -> Option<(String, String)> {
     if remote.contains("://") {
@@ -293,5 +304,15 @@ mod tests {
         let sub = parse("https://code.example.org/forge/team/app").unwrap();
         assert!(sub.matches_remote("https://code.example.org/forge/team/app.git"));
         assert!(sub.matches_remote("ssh://git@code.example.org:2222/team/app.git"));
+    }
+
+    #[test]
+    fn a_remote_key_is_the_same_in_https_and_ssh() {
+        let key = remote_key("https://github.com/Org/Repo.git");
+        assert_eq!(key.as_deref(), Some("github.com/org/repo"));
+        assert_eq!(remote_key("git@github.com:org/repo"), key);
+        assert_eq!(remote_key("ssh://git@github.com/org/repo/"), key);
+        assert_eq!(remote_key("/srv/repo.git"), None);
+        assert_eq!(remote_key(""), None);
     }
 }

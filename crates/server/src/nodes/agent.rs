@@ -13,8 +13,8 @@ use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
-            self, Entry, Event, ExternalSession, Question, Request, SESSIONS_PROTOCOL, SessionInfo,
-            SessionsReply, SessionsRequest, Status, StopReason,
+            self, Entry, Event, ExternalSession, Question, Request, SESSIONS_PROTOCOL,
+            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Status, StopReason,
         },
         link,
     },
@@ -293,6 +293,36 @@ impl Online {
             Ok(SessionsReply::Error { message }) => bail!("{message}"),
             Ok(other) => bail!("the node answered {other:?}"),
             // An older node closes the stream on a request it cannot read.
+            Err(e) => Err(e.context("the node may need an update to list them")),
+        }
+    }
+
+    /// The git checkouts coding agents worked in on the node, newest
+    /// activity first, at most `limit`.
+    pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
+        match self
+            .sessions_request(SessionsRequest::Folders { limit })
+            .await
+        {
+            Ok(SessionsReply::Folders { folders }) => Ok(folders),
+            Ok(SessionsReply::Error { message }) => bail!("{message}"),
+            Ok(other) => bail!("the node answered {other:?}"),
+            Err(e) => Err(e.context("the node may need an update to find them")),
+        }
+    }
+
+    /// The sessions coding agents ran in `folders` or below, newest first,
+    /// at most `limit`.
+    pub async fn sessions_in(
+        &self,
+        folders: Vec<String>,
+        limit: u32,
+    ) -> Result<Vec<ExternalSession>> {
+        let request = SessionsRequest::InFolders { folders, limit };
+        match self.sessions_request(request).await {
+            Ok(SessionsReply::External { sessions }) => Ok(sessions),
+            Ok(SessionsReply::Error { message }) => bail!("{message}"),
+            Ok(other) => bail!("the node answered {other:?}"),
             Err(e) => Err(e.context("the node may need an update to list them")),
         }
     }

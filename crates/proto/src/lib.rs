@@ -734,6 +734,30 @@ requests! {
     /// is offline or runs no commands, or the path is malformed or not a
     /// folder. Admins only.
     168 ListMachineFolder { machine_id: String, path: Option<String> } => Call<MachineFolder>
+    /// Git checkouts the caller's coding agents worked in that are not
+    /// imported yet, for the Add a project sheet: one row per repository,
+    /// newest activity first, with its folder on each machine that has it
+    /// and how many Claude Code, Codex, pi and flsh sessions ran there.
+    /// Sessions in a subfolder or a worktree count for the checkout's main
+    /// folder; the home folder and folders that are not checkouts are left
+    /// out. A folder already imported on its machine, or a repository
+    /// imported anywhere, is left out too, and so is a machine that is
+    /// offline or does not answer in time. Admins only.
+    169 ListFoundFolders {} => Call<Vec<FoundProject>>
+    /// The coding-agent sessions that ran in `project`'s folders on the
+    /// caller's online machines, newest activity first, at most 50: those
+    /// started outside Beep, such as Claude Code in a terminal. `title` is
+    /// the session's title, else its first prompt. One nothing runs any
+    /// more has status `Ended`; `ResumeAgentSession` picks it up. `NotFound`
+    /// when the caller has not imported `project`. Admins only.
+    170 ListProjectSessions { project: String } => Call<Vec<MachineSession>>
+    /// Resumes a session started outside Beep, by the agent's own id, as
+    /// `ListProjectSessions` lists it: it then runs as a session Beep
+    /// started, in its folder, on `prompt` when given. `NotFound` when the
+    /// machine is not one of the caller's online ones; `BadRequest` saying
+    /// why when the node refuses, such as when the session still runs in a
+    /// terminal. Admins only.
+    171 ResumeAgentSession { machine_id: String, agent: String, session: String, prompt: Option<String> } => Call<StartedAgent>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -788,6 +812,41 @@ pub struct MachineFolder {
     pub empty: bool,
     /// It is a git checkout: its `origin` remote, empty when it has none.
     pub origin: Option<String>,
+}
+
+/// A git checkout the caller's coding agents worked in, as
+/// `ListFoundFolders` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FoundProject {
+    /// `org/repo` from its remote, else the remote as it is.
+    pub project: String,
+    /// Its `origin` remote, what `ImportProject::repo` takes.
+    pub remote: String,
+    /// Where it is, one folder per machine.
+    pub places: Vec<FoundPlace>,
+    /// Sessions per agent, on all of its machines, most first.
+    pub agents: Vec<FoundAgent>,
+    pub last_activity: SystemTime,
+}
+
+/// One machine's checkout of a `FoundProject`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FoundPlace {
+    pub machine_id: String,
+    pub machine_name: String,
+    /// Its absolute folder on that machine.
+    pub folder: String,
+}
+
+/// How many sessions of one agent ran in a found folder.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FoundAgent {
+    /// Such as `claude`, `codex`, `pi` or `flsh`.
+    pub agent: String,
+    pub sessions: u32,
 }
 
 /// One project's sync across the caller's machines.
