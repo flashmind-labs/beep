@@ -352,6 +352,14 @@ pub enum SessionsRequest {
         #[serde(default)]
         limit: u32,
     },
+    /// The picture of the `[image: image-<key>]` line in `session`'s
+    /// transcript, `key` being its `image_key`. Answered with `Image`, or
+    /// `Error` when the node no longer has it. A node from before it
+    /// closes the stream.
+    Image {
+        session: String,
+        key: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -380,6 +388,12 @@ pub enum SessionsReply {
     },
     Folders {
         folders: Vec<SessionFolder>,
+    },
+    /// The answer to `Image`.
+    Image {
+        mime: String,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
     },
 }
 

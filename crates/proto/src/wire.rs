@@ -1,14 +1,15 @@
 //! Framing over iroh bi streams.
 //!
 //! Frames are length-delimited: one tag byte, then a msgpack body. A request
-//! frame's tag is its `Op`; a reply frame's tag says whether the body is the
-//! reply or an `ApiError`.
+//! frame's tag is its `Op`, or `WIDE` followed by the op as two bytes, big
+//! endian, for an op past 254; a reply frame's tag says whether the body is
+//! the reply or an `ApiError`.
 //!
 //! The client's iroh key is its identity, so there is no login. Each request
 //! gets its own bi stream: one request frame in, reply frames out until the
 //! server finishes the stream.
 
-use crate::{ApiError, Rpc};
+use crate::{ApiError, Op, Rpc};
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
@@ -29,6 +30,11 @@ const MAX_FRAME: usize = 8 * 1024 * 1024;
 /// Reply frame tags.
 const OK: u8 = 0;
 const ERR: u8 = 1;
+
+/// The request frame tag for an op that does not fit one byte: the op's
+/// two bytes follow it. Servers from before it answer that the op is
+/// unknown.
+pub const WIDE: u8 = 255;
 
 fn codec() -> LengthDelimitedCodec {
     LengthDelimitedCodec::builder()
@@ -53,10 +59,25 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// The op of a request frame. An unknown one is the client's fault.
+    pub fn op(&self) -> Result<Op, ApiError> {
+        if self.tag != WIDE {
+            return Op::try_from(u16::from(self.tag));
+        }
+        match self.body.get(..2) {
+            Some(&[high, low]) => Op::try_from(u16::from_be_bytes([high, low])),
+            _ => Err(ApiError::bad_request("a wide op without its number")),
+        }
+    }
+
     /// The body as a request the server got. A body that does not decode is
     /// the client's fault, so it becomes `BadRequest`.
     pub fn decode<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
-        rmp_serde::from_slice(&self.body).map_err(|e| ApiError::bad_request(e.to_string()))
+        let body = match self.tag {
+            WIDE => self.body.get(2..).unwrap_or_default(),
+            _ => &self.body[..],
+        };
+        rmp_serde::from_slice(body).map_err(|e| ApiError::bad_request(e.to_string()))
     }
 
     /// The body as a reply frame. A body that does not decode is a transport
@@ -84,7 +105,8 @@ impl Tx {
     }
 
     pub async fn request<R: Rpc>(&mut self, request: &R) -> Result<()> {
-        self.send(R::OP as u8, request).await
+        self.0.send(request_frame(request)?.into()).await?;
+        Ok(())
     }
 
     pub async fn ok<T: Serialize>(&mut self, reply: &T) -> Result<()> {
@@ -99,6 +121,20 @@ impl Tx {
         self.0.get_mut().finish()?;
         Ok(())
     }
+}
+
+/// A request's frame: its tag, then its body.
+fn request_frame<R: Rpc>(request: &R) -> Result<Vec<u8>> {
+    let op = R::OP as u16;
+    let mut buf = match u8::try_from(op) {
+        Ok(tag) => vec![tag],
+        Err(_) => {
+            let [high, low] = op.to_be_bytes();
+            vec![WIDE, high, low]
+        }
+    };
+    rmp_serde::encode::write(&mut buf, request)?;
+    Ok(buf)
 }
 
 impl Rx {
@@ -142,6 +178,33 @@ mod tests {
         assert!(error.downcast_ref::<ApiError>().is_none(), "{error:#}");
         let error = frame(ERR, &[0xc1]).into_reply::<u64>().unwrap_err();
         assert!(error.downcast_ref::<ApiError>().is_none(), "{error:#}");
+    }
+
+    /// The frame `Rx::frame` reads from `bytes`.
+    fn read(bytes: Vec<u8>) -> Frame {
+        let (&tag, body) = bytes.split_first().unwrap();
+        frame(tag, body)
+    }
+
+    #[test]
+    fn a_wide_op_round_trips_and_a_narrow_one_keeps_its_byte() {
+        let wide = crate::GetAgentImage {
+            machine_id: "m".into(),
+            session: "s".into(),
+            key: "k".into(),
+        };
+        let bytes = request_frame(&wide).unwrap();
+        assert_eq!(bytes[..3], [WIDE, 1, 4]);
+        let got = read(bytes);
+        assert_eq!(got.op(), Ok(Op::GetAgentImage));
+        assert_eq!(got.decode::<crate::GetAgentImage>(), Ok(wide));
+        let narrow = crate::Health {};
+        let bytes = request_frame(&narrow).unwrap();
+        assert_eq!(bytes[0], crate::Health::OP as u8);
+        let got = read(bytes);
+        assert_eq!(got.op(), Ok(Op::Health));
+        assert_eq!(got.decode::<crate::Health>(), Ok(narrow));
+        assert!(frame(WIDE, &[1]).op().is_err(), "a cut wide op");
     }
 
     #[test]

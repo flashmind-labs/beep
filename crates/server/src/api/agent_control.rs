@@ -17,7 +17,6 @@ use crate::{
         *,
     },
     router::Cx,
-    store::{AgentSessionOf, NewAgentImage},
     tools::machines::command_name,
 };
 use futures::{StreamExt, stream};
@@ -164,18 +163,6 @@ pub(super) async fn resume_agent_session(
         .follows
         .unfollow(&cx.app, &live.host.machine_id, &resume.session);
     let info = link.now().info;
-    let from = AgentSessionOf {
-        machine_id: &resume.machine_id,
-        session: &resume.session,
-    };
-    let to = AgentSessionOf {
-        session: &info.id,
-        ..from
-    };
-    // The session runs either way; only its log would miss the pictures.
-    if let Err(e) = cx.user.carry_agent_images(from, to).await {
-        log::warn!("agent images not carried; session={} error={e:#}", info.id);
-    }
     Ok(StartedAgent {
         session: beep_session(&live.host(), info),
         why: String::new(),
@@ -550,10 +537,7 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     // Refused before the machine is looked up, so an oversized message
     // costs nothing more.
     let request = node_request(steer.steer)?;
-    let images = match &request {
-        Request::PromptImages { images, .. } => Some(images.clone()),
-        _ => None,
-    };
+    let images = matches!(request, Request::PromptImages { .. });
     let live = live_host(&cx, &steer.machine_id).await?;
     let listed = limited(live.online.agent_sessions()).await?;
     if !listed
@@ -570,7 +554,7 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     link.send(request).await.map_err(|e| {
         let error = format!("{e:#}");
         // A node from before images does not know the request.
-        if images.is_some() && error.contains("unknown request") {
+        if images && error.contains("unknown request") {
             ApiError::bad_request(
                 "beep-node on that machine is too old to send images. Update it, or send text.",
             )
@@ -578,33 +562,51 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
             ApiError::bad_request(error)
         }
     })?;
-    let of = AgentSessionOf {
-        machine_id: &steer.machine_id,
-        session: &steer.session,
-    };
-    for image in images.iter().flatten() {
-        let new = NewAgentImage {
-            name: &image.name,
-            mime: &image.mime,
-            data: &image.data,
-        };
-        // The agent has the image already; only its log would miss it.
-        if let Err(e) = cx.user.save_agent_image(of, new).await {
-            log::warn!(
-                "agent image not kept; session={} error={e:#}",
-                steer.session
-            );
-        }
-    }
     Ok(())
 }
 
-pub(super) async fn list_agent_images(cx: Cx, list: ListAgentImages) -> Reply<Vec<AgentImage>> {
-    let of = AgentSessionOf {
-        machine_id: &list.machine_id,
-        session: &list.session,
-    };
-    Ok(cx.user.agent_images(of).await?)
+/// The server keeps no images of agent sessions; the apps read each from
+/// the node with `GetAgentImage`.
+pub(super) async fn list_agent_images(_: Cx, _: ListAgentImages) -> Reply<Vec<AgentImage>> {
+    Ok(Vec::new())
+}
+
+/// Passes the node's picture through; nothing is kept.
+pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentImageData> {
+    if !is_image_key(&get.key) {
+        return Err(ApiError::bad_request("That is not an image key."));
+    }
+    let live = live_host(&cx, &get.machine_id).await?;
+    let image = live
+        .online
+        .agent_image(&get.session, &get.key)
+        .await
+        .map_err(|e| {
+            // A node from before images by key closes the stream.
+            ApiError::bad_request(format!(
+                "Could not read the image from {}: {e:#}. Updating beep-node there may help.",
+                live.host.machine_name
+            ))
+        })?
+        .ok_or(ApiError::NotFound {})?;
+    if image_key(&image.data) != get.key {
+        log::warn!(
+            "node gave another image; session={} key={}",
+            get.session,
+            get.key
+        );
+        return Err(ApiError::NotFound {});
+    }
+    Ok(AgentImageData {
+        key: get.key,
+        mime: image.mime,
+        data: image.data,
+    })
+}
+
+/// Whether `key` is what `image_key` makes: 16 lowercase hex digits.
+fn is_image_key(key: &str) -> bool {
+    key.len() == 16 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// What the node is asked for `steer`; an empty message or images over the
@@ -694,6 +696,14 @@ mod tests {
             images: Vec::new(),
         });
         assert!(empty.is_err(), "nothing to send");
+    }
+
+    #[test]
+    fn only_image_keys_are_asked_for() {
+        assert!(is_image_key(&image_key(b"\x89PNG")));
+        assert!(!is_image_key("shot.png"));
+        assert!(!is_image_key("0123456789ABCDEF"));
+        assert!(!is_image_key("0123456789abcde"));
     }
 
     #[test]
