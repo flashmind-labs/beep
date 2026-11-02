@@ -1,9 +1,11 @@
 //! "Let Beep use this Mac": while on, the app is a node like `beep-node`
-//! on a server, signed in with this Mac's own key, offering a shell and
-//! desktop control. On for a fresh install.
+//! on a server, signed in with this Mac's own key, offering a shell,
+//! desktop control and the coding agents installed here, with the sessions
+//! they ran. On for a fresh install.
 
 use crate::{beep::Beep, desktop, state::LinkState};
 use beep_node::{
+    agents::{self, Agents},
     link::{self, Offers},
     provision::Provision,
 };
@@ -165,7 +167,8 @@ async fn stay_linked(
     // the server sends; the work stops with this task.
     let _provision = provision.start();
     let offers = Offers {
-        agents: Arc::default(),
+        // Found on the login shell's PATH, which the app adopts at start.
+        agents: Arc::new(Agents::new(agents::detect(&[]))),
         extra: vec![Arc::new(desktop::Desktop)],
         provision: Some(provision),
     };
