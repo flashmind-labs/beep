@@ -5485,7 +5485,7 @@ function agentKeys(e, cmd) {
 
 /// Esc from an agent view.
 function agentBack() {
-  if (AG.back?.project && window.beepOpenProject) return window.beepOpenProject(AG.back.project);
+  if (AG.back?.view && window.beepGoBack) return window.beepGoBack(AG.back);
   if (S.view === "agent" && AG.back === "agents") return renderAgents();
   if (S.view === "agentnew" && AG.back === "agents") return renderAgents();
   return S.session ? openSession(S.session) : renderChat();
@@ -6439,7 +6439,7 @@ if (PANE) {
       if (target && typeof target === "object" && "group" in target) return renderGroup(target.group.id);
       // Agent views are not a CenterTarget either: Home and the sidebar open them.
       if (target && typeof target === "object" && "agent" in target) return openAgent(target.agent, { back: target.from ?? "agents" });
-      if (target && typeof target === "object" && "agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", "agents", target.agentnew.at ?? null);
+      if (target && typeof target === "object" && "agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
       if (target === "agents") return renderAgents();
       if (VIEWS[target]) return VIEWS[target]();
       if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();
