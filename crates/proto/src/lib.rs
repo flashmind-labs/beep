@@ -657,7 +657,9 @@ requests! {
     /// caller's online ones or `chat` is not theirs; `BadRequest` saying
     /// why when no machine fits or the node refuses. `model`, an id from
     /// `ListAgentModels`, picks the agent's model; the agent's own default
-    /// when `None`. Older apps send none.
+    /// when `None`. `effort` sets how hard it thinks, one of
+    /// `node::agent::efforts(agent)`; `BadRequest` for another. Older apps send
+    /// neither.
     141 StartAgentSession {
         machine_id: Option<String>,
         agent: Option<String>,
@@ -667,6 +669,8 @@ requests! {
         chat: Option<Uuid>,
         #[serde(default)]
         model: Option<String>,
+        #[serde(default)]
+        effort: Option<AgentEffort>,
     } => Call<StartedAgent>
     /// One session as `ListAgentSessions` lists it, with its plan, the
     /// files it changed and the last `last` entries of its transcript (at
@@ -1218,6 +1222,23 @@ wire_enum! {
         0 Fixed {}
         1 Listed {}
         2 Named {}
+    }
+}
+
+wire_enum! {
+    /// How hard a coding agent thinks, as `StartAgentSession::effort`
+    /// asks. Which levels an agent takes is `node::agent::efforts`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentEffort {
+        0 Off {}
+        1 Minimal {}
+        2 Low {}
+        3 Medium {}
+        4 High {}
+        5 Xhigh {}
+        6 Max {}
     }
 }
 

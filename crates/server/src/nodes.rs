@@ -49,7 +49,7 @@ pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
     sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
-pub use agent::{AgentLink, Mark, Watched};
+pub use agent::{AgentLink, Mark, StartOn, Watched};
 pub(crate) use agent::{News, SessionRefused};
 pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
