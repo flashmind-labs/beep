@@ -367,3 +367,11 @@ test("a start form's folder follows the picked machine", () => {
   assert.equal(folderOn("/srv/data", "other", null), "/srv/data");
   assert.equal(folderOn("", "other", null), "");
 });
+
+test("Where it lives keeps the same order whatever order machines arrive in", () => {
+  const m = (id: string, name: string, folder: string | null) => ({ id, name, folder, online: true, checking: false });
+  const a = [m("2", "devbox", "/srv/project"), m("1", "Laptop", null), m("3", "build-box", "/srv/project")];
+  const names = (rows: { name: string }[]) => rows.map(r => r.name);
+  assert.deepEqual(names(whereRows({ machines: [] }, a as any, null)), ["build-box", "devbox", "Laptop"]);
+  assert.deepEqual(names(whereRows({ machines: [] }, [...a].reverse() as any, null)), ["build-box", "devbox", "Laptop"]);
+});

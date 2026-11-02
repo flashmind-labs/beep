@@ -655,14 +655,20 @@ export interface WhereRow {
 /// the imported folders are listed).
 export function whereRows(project: { machines?: readonly ProjectPlace[] } | null | undefined, machines: readonly ProjectMachineRow[] | null | undefined, macId: string | null | undefined): WhereRow[] {
   const here = (id: string, name: string, folder: string): WhereRow => ({ kind: "here", id, name, folder, mac: !!macId && id === macId });
-  if (!machines) return (project?.machines || []).map(m => here(m.id, m.name, m.folder));
-  return machines.map((m): WhereRow => {
+  if (!machines) return sortWhere((project?.machines || []).map(m => here(m.id, m.name, m.folder)));
+  return sortWhere(machines.map((m): WhereRow => {
     if (m.folder) return { ...here(m.id, m.name, m.folder), syncthing: m.syncthing || null };
     const one = { id: m.id, name: m.name, folder: null, mac: false, checked_at: m.checked_at || null };
     if (m.checking) return { ...one, kind: "checking", text: "Checking…" };
     if (m.online) return { ...one, kind: "none", text: `Not on ${m.name}` };
     return { ...one, kind: "offline", text: `Checks when ${m.name} is online` };
-  });
+  }));
+}
+
+/// The same order every time: this Mac, other checkouts, then the rest, each by name.
+function sortWhere(rows: WhereRow[]) {
+  const rank = (r: WhereRow) => r.mac ? 0 : r.kind === "here" ? 1 : 2;
+  return rows.sort((a, b) => (rank(a) - rank(b)) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
 /// "2 of 5 machines" for the section's heading, or "2 machines" while
