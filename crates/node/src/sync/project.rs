@@ -13,8 +13,8 @@ use super::{
     disk::{self, Found as OnDisk, same},
     map::{Changes, Entry, FileMeta, Map, Replica, Version, is_conflict, valid_path},
     peer,
-    root::{self, RootId},
-    rules::Rules,
+    root::{self, Checked, RootId},
+    rules::{MARKER, Rules},
     scan::{self, Found, MAX_BYTES, MAX_FILES, Stat},
     watch::{Key, Mode, RESCAN, Watcher},
 };
@@ -32,7 +32,7 @@ use iroh_blobs::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     ffi::OsString,
     fs,
     io::{SeekFrom, Write as _},
@@ -52,6 +52,14 @@ use tokio_util::sync::CancellationToken;
 
 /// How long the folder must be quiet after a change before it is scanned.
 const SETTLE: Duration = Duration::from_millis(300);
+/// How long the folder must be quiet before files a scan found missing are
+/// sent as deletes. Deleting the whole folder (`rm -rf`, Finder) removes
+/// its files first, and the folder itself last; the watcher reports each
+/// removal as it happens, so the window only has to outlast a pause in
+/// that stream (a slow disk, a descheduled `rm`), not the whole deletion.
+/// Five seconds is well past such pauses and still sends an ordinary
+/// delete within seconds.
+const DELETE_SETTLE: Duration = Duration::from_secs(5);
 /// How often a watched folder is scanned anyway, for changes a watcher
 /// missed.
 const FULL_RESCAN: Duration = Duration::from_secs(10 * 60);
@@ -381,6 +389,34 @@ struct Task {
     /// The last scan failed, so nothing on disk is recorded.
     scan_failed: bool,
     saved_at: Instant,
+    /// Files the last scan found missing: still seen, and not deleted in
+    /// the list until `send_deletes`.
+    held: BTreeSet<String>,
+}
+
+/// When held deletes are due: once the folder was quiet for
+/// `DELETE_SETTLE`. Times are passed in, so it runs on any clock.
+#[derive(Debug, Default)]
+struct DeleteTimer {
+    due: Option<Instant>,
+}
+
+impl DeleteTimer {
+    /// The folder changed at `now`: held deletes wait again.
+    fn changed(&mut self, now: Instant) {
+        if let Some(due) = &mut self.due {
+            *due = now + DELETE_SETTLE;
+        }
+    }
+
+    /// A scan ended at `now`, holding deletes or not.
+    fn scanned(&mut self, holds: bool, now: Instant) {
+        if !holds {
+            self.due = None;
+        } else if self.due.is_none() {
+            self.due = Some(now + DELETE_SETTLE);
+        }
+    }
 }
 
 /// Runs the project until it stops.
@@ -392,19 +428,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
     let first_mode = watcher
         .set_dirs(shared.key, vec![shared.root().to_owned()])
         .await;
-    let mut task = Task {
-        shared: shared.clone(),
-        parts,
-        watcher: watcher.clone(),
-        mode: first_mode,
-        first: true,
-        protected: None,
-        blobs: HashMap::new(),
-        pending: 0,
-        error: None,
-        scan_failed: false,
-        saved_at: Instant::now(),
-    };
+    let mut task = Task::new(shared.clone(), parts, watcher.clone(), first_mode);
     let mut peers = shared.peers.subscribe();
     let mut pulls = JoinSet::new();
     // Scanned before anything is pulled, so edits made while the node was
@@ -414,6 +438,8 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
     task.save(true).await;
     start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
     let mut settle: Option<Instant> = None;
+    let mut deletes = DeleteTimer::default();
+    deletes.scanned(!task.held.is_empty(), Instant::now());
     let mut last_scan = Instant::now();
     loop {
         let every = match task.mode {
@@ -426,12 +452,27 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         tokio::select! {
             () = shared.stop.cancelled() => break,
             Some(()) = woken.recv() => {
-                settle.get_or_insert_with(|| Instant::now() + SETTLE);
+                let now = Instant::now();
+                settle.get_or_insert(now + SETTLE);
+                deletes.changed(now);
             }
             () = sleep_until(settle.unwrap_or_else(Instant::now)), if settle.is_some() => {
                 settle = None;
                 task.scan().await;
                 last_scan = Instant::now();
+                apply = true;
+            }
+            () = sleep_until(deletes.due.unwrap_or_else(Instant::now)), if deletes.due.is_some() => {
+                deletes.due = None;
+                // Quiet long enough: scanned again, and what is still
+                // missing is sent unless the folder changed meanwhile.
+                task.scan().await;
+                last_scan = Instant::now();
+                if woken.try_recv().is_ok() {
+                    settle.get_or_insert(last_scan + SETTLE);
+                } else {
+                    task.send_deletes().await;
+                }
                 apply = true;
             }
             () = sleep_until(last_scan + every) => {
@@ -453,6 +494,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
                 log::warn!("a pull of {} failed: {e}", shared.name);
             },
         }
+        deletes.scanned(!task.held.is_empty(), Instant::now());
         if apply && settle.is_none() {
             task.apply().await;
         }
@@ -478,6 +520,23 @@ fn start_pulls(
 }
 
 impl Task {
+    fn new(shared: Arc<Shared>, parts: Parts, watcher: Watcher, mode: Mode) -> Self {
+        Self {
+            shared,
+            parts,
+            watcher,
+            mode,
+            first: true,
+            protected: None,
+            blobs: HashMap::new(),
+            pending: 0,
+            error: None,
+            scan_failed: false,
+            saved_at: Instant::now(),
+            held: BTreeSet::new(),
+        }
+    }
+
     fn fail(&mut self, what: &str, e: &anyhow::Error) {
         let message = format!("{what}: {e:#}");
         log::warn!("{}: {message}", self.shared.name);
@@ -489,6 +548,10 @@ impl Task {
         self.shared.publish(|s| s.state = SyncState::Scanning);
         let result = self.try_scan().await;
         self.scan_failed = result.is_err();
+        if self.scan_failed {
+            // Not trusted until a scan succeeds again.
+            self.held.clear();
+        }
         match result {
             Ok(()) => self.error = None,
             Err(e) => self.fail("scanning failed", &e),
@@ -497,7 +560,7 @@ impl Task {
     }
 
     async fn try_scan(&mut self) -> Result<()> {
-        self.check_root().await?;
+        let checked = self.check_root().await?;
         let root = self.shared.root().to_owned();
         let rules = {
             let root = root.clone();
@@ -556,7 +619,7 @@ impl Task {
                 Err(e) => log::debug!("{}: {e:#}", self.shared.name),
             }
         }
-        let first = mem::replace(&mut self.first, false);
+        let first = self.first;
         let kept: HashSet<&str> = walked.files.iter().map(|f| f.path.as_str()).collect();
         let (gone, seen_count): (Vec<String>, usize) = {
             let state = self.shared.lock();
@@ -583,6 +646,18 @@ impl Task {
             })
             .await?
         };
+        if let Checked::Unmarked(saved) = checked {
+            // Files gone with the marker: the folder is being deleted.
+            if deleted.iter().any(|(_, missing)| *missing) {
+                bail!(
+                    "{} lost its {MARKER} along with files; nothing is synced until it \
+                     is back",
+                    root.display()
+                );
+            }
+            let folder = self.shared.root.clone();
+            spawn_blocking(move || root::restore(&folder, &saved)).await??;
+        }
         let baseline = has_baseline(first, seen_count, &deleted);
         if !baseline {
             log::warn!(
@@ -592,6 +667,7 @@ impl Task {
                 self.shared.root().display()
             );
         }
+        let mut held = BTreeSet::new();
         let (before, seq) = {
             let mut state = self.shared.lock();
             let before = state.saved.map.seq();
@@ -599,15 +675,18 @@ impl Task {
                 record(&mut state, found, hash, prior);
             }
             for (path, missing) in deleted {
-                let Some(old) = state.remove_seen(&path) else {
-                    continue;
-                };
+                // Kept as seen, and sent by `send_deletes` once the
+                // folder settled and is still the one synced.
                 if missing && baseline {
-                    state.saved.map.edit(&path, &old.version, None);
+                    held.insert(path);
+                } else {
+                    state.remove_seen(&path);
                 }
             }
             (before, state.saved.map.seq())
         };
+        self.held = held;
+        self.first = false;
         if seq != before {
             self.shared.seq.send_replace(seq);
         }
@@ -616,28 +695,107 @@ impl Task {
         Ok(())
     }
 
-    /// Checks the folder is the one synced before; until it is, nothing
-    /// is scanned or written.
-    async fn check_root(&self) -> Result<()> {
-        let (saved, seen_any) = {
-            let state = self.shared.lock();
-            (state.saved.root.clone(), !state.saved.seen.is_empty())
-        };
-        let folder = self.shared.root.clone();
-        let id = spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await??;
-        let mut state = self.shared.lock();
-        if state.saved.root.as_ref() != Some(&id) {
-            state.saved.root = Some(id);
-            state.unsaved = true;
+    /// Records the deletes the last scan held, once the folder is still
+    /// the one synced before, marker and all. Called after the folder was
+    /// quiet for `DELETE_SETTLE` and scanned again; a folder that went
+    /// away or changed meanwhile sends none and stops syncing.
+    async fn send_deletes(&mut self) {
+        let held = mem::take(&mut self.held);
+        if held.is_empty() {
+            return;
         }
-        Ok(())
+        if let Err(e) = self.try_send_deletes(held).await {
+            self.scan_failed = true;
+            self.fail("not syncing", &e);
+            self.publish_status(None);
+        }
+    }
+
+    async fn try_send_deletes(&mut self, held: BTreeSet<String>) -> Result<()> {
+        let (saved, seen_any) = self.saved_root();
+        let folder = self.shared.root.clone();
+        let checked = {
+            let saved = saved.clone();
+            spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await??
+        };
+        match (checked, saved) {
+            (Checked::Same(id), Some(saved)) if id == saved => {}
+            _ => bail!(
+                "{} is not the folder synced before, or lost its {MARKER}; no file is \
+                 deleted elsewhere",
+                self.shared.root().display()
+            ),
+        }
+        let missing = {
+            let root = self.shared.root.clone();
+            spawn_blocking(move || {
+                held.into_iter()
+                    .filter(|path| matches!(disk::look(&root, path), Ok(OnDisk::Missing)))
+                    .collect::<Vec<_>>()
+            })
+            .await?
+        };
+        let (before, seq) = {
+            let mut state = self.shared.lock();
+            let before = state.saved.map.seq();
+            for path in missing {
+                if let Some(old) = state.remove_seen(&path) {
+                    state.saved.map.edit(&path, &old.version, None);
+                }
+            }
+            (before, state.saved.map.seq())
+        };
+        if seq != before {
+            self.shared.seq.send_replace(seq);
+        }
+        self.protect().await
+    }
+
+    /// The folder the state belongs to, and whether any file was seen.
+    fn saved_root(&self) -> (Option<RootId>, bool) {
+        let state = self.shared.lock();
+        (state.saved.root.clone(), !state.saved.seen.is_empty())
+    }
+
+    /// Checks the folder is the one synced before; until it is, nothing
+    /// is scanned or written. One that lost its marker is left to the
+    /// scan, which writes it again only if no file is missing.
+    async fn check_root(&self) -> Result<Checked> {
+        let (saved, seen_any) = self.saved_root();
+        let folder = self.shared.root.clone();
+        let checked =
+            spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await??;
+        if let Checked::Same(id) = &checked {
+            let mut state = self.shared.lock();
+            if state.saved.root.as_ref() != Some(id) {
+                state.saved.root = Some(id.clone());
+                state.unsaved = true;
+            }
+        }
+        Ok(checked)
     }
 
     /// Brings the folder in line with the list.
     async fn apply(&mut self) {
         // A merge may set this off long after the last scan; the folder
         // may have been swapped or unmounted since.
-        if let Err(e) = self.check_root().await {
+        let checked = match self.check_root().await {
+            // A scan writes the marker again if the folder is whole.
+            Ok(Checked::Unmarked(_)) => {
+                self.scan().await;
+                self.check_root().await
+            }
+            checked => checked,
+        };
+        let error = match checked {
+            Ok(Checked::Same(_)) => None,
+            Ok(Checked::Unmarked(_)) => Some(anyhow!(
+                "{} lost its {MARKER}",
+                self.shared.root().display()
+            )),
+            Err(e) => Some(e),
+        };
+        if let Some(e) = error {
             self.scan_failed = true;
             self.fail("not syncing", &e);
             self.publish_status(None);
@@ -1262,6 +1420,193 @@ fn plan(state: &State, rules: &Rules) -> Vec<Work> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        files::Folders,
+        transfer::place::{Journal, open_target},
+    };
+    use iroh::{Endpoint, endpoint::presets};
+    use iroh_blobs::store::fs::FsStore;
+    use tempfile::TempDir;
+
+    /// A project task over a folder of files, scanned once, driven by
+    /// hand: no watcher wakes it and no timer runs.
+    struct Project {
+        _dir: TempDir,
+        base: PathBuf,
+        folder: PathBuf,
+        task: Task,
+    }
+
+    impl Project {
+        async fn new(files: &[&str]) -> Self {
+            let dir = TempDir::new().unwrap();
+            let base = dir.path().canonicalize().unwrap();
+            let folder = base.join("game");
+            for file in files {
+                let path = folder.join(file);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, file).unwrap();
+            }
+            let folders = Folders::new(std::slice::from_ref(&base));
+            let root = open_target(&folders, &folder.to_string_lossy()).unwrap();
+            let parts = Parts {
+                endpoint: Endpoint::builder(presets::Minimal).bind().await.unwrap(),
+                store: FsStore::load(base.join("store")).await.unwrap(),
+                store_dir: base.join("store"),
+                journal: Journal::open(base.join("partial")).unwrap(),
+                room: Arc::default(),
+            };
+            let shared = Shared::load(Start {
+                name: "game".into(),
+                key: 1,
+                root: Arc::new(root),
+                peers: Vec::new(),
+                file: base.join("state"),
+            })
+            .unwrap();
+            let watcher = Watcher::with_budget(None, None);
+            let mut task = Task::new(shared, parts, watcher, Mode::Watching);
+            task.scan().await;
+            assert_eq!(task.error, None);
+            Self {
+                _dir: dir,
+                base,
+                folder,
+                task,
+            }
+        }
+
+        fn path(&self, path: &str) -> PathBuf {
+            self.folder.join(path)
+        }
+
+        /// The paths the list holds as deleted: what peers would delete.
+        fn deleted(&self) -> Vec<String> {
+            self.task
+                .shared
+                .lock()
+                .saved
+                .map
+                .entries()
+                .filter(|entry| entry.file.is_none())
+                .map(|entry| entry.path.clone())
+                .collect()
+        }
+
+        fn held(&self) -> Vec<&str> {
+            self.task.held.iter().map(String::as_str).collect()
+        }
+
+        async fn stop(self) {
+            self.task.parts.store.shutdown().await.ok();
+            self.task.parts.endpoint.close().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn files_deleted_then_the_folder_removed_send_no_deletes() {
+        let mut project = Project::new(&["a.txt", "src/b.rs"]).await;
+        // `rm -rf` midway: the files are gone, the folder and marker not yet.
+        fs::remove_file(project.path("a.txt")).unwrap();
+        fs::remove_dir_all(project.path("src")).unwrap();
+        project.task.scan().await;
+        assert_eq!(project.deleted(), Vec::<String>::new(), "held, not sent");
+        assert_eq!(project.held(), ["a.txt", "src/b.rs"]);
+
+        // Then the folder goes, within the settle window.
+        fs::remove_dir_all(&project.folder).unwrap();
+        project.task.send_deletes().await;
+        assert_eq!(project.deleted(), Vec::<String>::new());
+        let error = project.task.error.clone().unwrap_or_default();
+        assert!(error.contains("not syncing"), "{error}");
+        project.task.scan().await;
+        project.task.send_deletes().await;
+        assert_eq!(project.deleted(), Vec::<String>::new());
+        project.stop().await;
+    }
+
+    #[tokio::test]
+    async fn the_marker_removed_with_the_files_sends_no_deletes() {
+        let mut project = Project::new(&["a.txt", "b.txt"]).await;
+        let marker = project.path(MARKER);
+        fs::remove_file(project.path("a.txt")).unwrap();
+        project.task.scan().await;
+        assert_eq!(project.held(), ["a.txt"]);
+        fs::remove_file(&marker).unwrap();
+        fs::remove_file(project.path("b.txt")).unwrap();
+
+        // Held deletes found the marker gone.
+        project.task.send_deletes().await;
+        assert_eq!(project.deleted(), Vec::<String>::new());
+        assert!(project.task.scan_failed);
+        // A scan does not trust the folder or mark it again.
+        project.task.scan().await;
+        project.task.send_deletes().await;
+        assert_eq!(project.deleted(), Vec::<String>::new());
+        assert!(project.task.scan_failed);
+        assert!(!marker.exists(), "the marker is not written into it");
+        project.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_subfolder_deleted_in_a_live_project_sends_its_deletes() {
+        let mut project = Project::new(&["a.txt", "sub/x.txt", "sub/deep/y.txt"]).await;
+        // The marker alone removed comes back, with no file missing.
+        fs::remove_file(project.path(MARKER)).unwrap();
+        project.task.scan().await;
+        assert_eq!(project.task.error, None);
+        assert!(project.path(MARKER).exists());
+
+        fs::remove_dir_all(project.path("sub")).unwrap();
+        project.task.scan().await;
+        assert_eq!(project.deleted(), Vec::<String>::new(), "held first");
+        // Quiet for the window: scanned again, then sent.
+        project.task.scan().await;
+        project.task.send_deletes().await;
+        assert_eq!(project.task.error, None);
+        assert_eq!(project.deleted(), ["sub/deep/y.txt", "sub/x.txt"]);
+        assert!(project.held().is_empty());
+        project.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_folder_moved_to_the_trash_sends_no_deletes() {
+        let mut project = Project::new(&["a.txt", "b.txt"]).await;
+        fs::remove_file(project.path("a.txt")).unwrap();
+        project.task.scan().await;
+        assert_eq!(project.held(), ["a.txt"]);
+        let trash = project.base.join("Trash");
+        fs::create_dir(&trash).unwrap();
+        fs::rename(&project.folder, trash.join("game")).unwrap();
+
+        project.task.send_deletes().await;
+        assert_eq!(project.deleted(), Vec::<String>::new());
+        assert!(project.task.scan_failed);
+        project.task.scan().await;
+        project.task.send_deletes().await;
+        assert_eq!(project.deleted(), Vec::<String>::new());
+        project.stop().await;
+    }
+
+    #[test]
+    fn held_deletes_wait_until_the_folder_is_quiet() {
+        let start = Instant::now();
+        let mut timer = DeleteTimer::default();
+        // A change with nothing held starts no wait.
+        timer.changed(start);
+        assert_eq!(timer.due, None);
+        timer.scanned(true, start);
+        assert_eq!(timer.due, Some(start + DELETE_SETTLE));
+        // Another scan still holding them keeps the time; a change moves it.
+        let later = start + Duration::from_secs(3);
+        timer.scanned(true, later);
+        assert_eq!(timer.due, Some(start + DELETE_SETTLE));
+        timer.changed(later);
+        assert_eq!(timer.due, Some(later + DELETE_SETTLE));
+        // Nothing missing any more: nothing is due.
+        timer.scanned(false, later);
+        assert_eq!(timer.due, None);
+    }
 
     #[test]
     fn the_tag_name_is_stable() {
