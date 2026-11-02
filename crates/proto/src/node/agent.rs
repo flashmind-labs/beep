@@ -336,6 +336,22 @@ pub enum SessionsRequest {
     Watch {
         sessions: Vec<String>,
     },
+    /// The git checkouts coding agents worked in, from the sessions Claude
+    /// Code, Codex, pi and flsh keep: at most `limit`, newest activity
+    /// first. Answered with `Folders`. A node from before it answers
+    /// `Error` or closes the stream.
+    Folders {
+        #[serde(default)]
+        limit: u32,
+    },
+    /// The sessions those agents ran in any of `folders` (or a subfolder or
+    /// worktree of one), newest first, at most `limit`. Answered with
+    /// `External`, `title` falling back to the first prompt.
+    InFolders {
+        folders: Vec<String>,
+        #[serde(default)]
+        limit: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -362,6 +378,33 @@ pub enum SessionsReply {
     Activity {
         activity: Activity,
     },
+    Folders {
+        folders: Vec<SessionFolder>,
+    },
+}
+
+/// A git checkout coding agents worked in, as `SessionsRequest::Folders`
+/// finds it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionFolder {
+    /// The checkout's main folder, absolute.
+    pub path: String,
+    /// Its `origin` remote; empty when it has none.
+    pub origin: String,
+    /// Sessions per agent, most first.
+    pub agents: Vec<AgentSessions>,
+    /// When a session there last changed, Unix seconds.
+    pub last_activity: u64,
+}
+
+/// How many sessions one agent ran in a folder.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentSessions {
+    /// Such as `claude` or `codex`.
+    pub agent: String,
+    pub sessions: u32,
 }
 
 /// A session the user started on the machine outside Beep, such as Claude

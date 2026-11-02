@@ -3,13 +3,19 @@
 //! following them. Taking one over runs it through the ACP adapter like a
 //! session Beep started (see `crate::agents`).
 
+use crate::found::Seen as Sighting;
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{Entry, ExternalSession},
 };
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 use tokio::task::spawn_blocking;
+
+pub(crate) use transcript::unix_seconds;
 
 mod discover;
 pub mod hooks;
@@ -66,6 +72,49 @@ impl External {
         })
         .await?
         .context("reading Claude Code's sessions")
+    }
+
+    /// Every session with the folder it ran in, for `crate::found`.
+    pub(crate) async fn sightings(&self) -> Result<Vec<Sighting>> {
+        let Some(store) = self.store.clone() else {
+            return Ok(Vec::new());
+        };
+        spawn_blocking(move || discover::sightings(&store))
+            .await?
+            .context("reading Claude Code's sessions")
+    }
+
+    /// The sessions named in `ids`, newest first, each with its title, else
+    /// its last prompt. `owned` is as for `list`.
+    pub(crate) async fn named(
+        &self,
+        ids: HashSet<String>,
+        owned: HashMap<String, String>,
+    ) -> Result<Vec<ExternalSession>> {
+        let Some(store) = self.store.clone() else {
+            return Ok(Vec::new());
+        };
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let processes = procs::claude_processes().await;
+        let mut sessions = spawn_blocking(move || {
+            let snapshot = discover::Snapshot {
+                processes,
+                pid_files: store.pid_files(),
+                owned,
+                now: None,
+            };
+            discover::list_ids(&store, &snapshot, &ids)
+        })
+        .await?
+        .context("reading Claude Code's sessions")?;
+        for session in &mut sessions {
+            if session.title.is_none() && !session.last_prompt.is_empty() {
+                session.title = Some(session.last_prompt.clone());
+            }
+        }
+        Ok(sessions)
     }
 
     /// The last `last` entries of session `id`'s transcript and how many
