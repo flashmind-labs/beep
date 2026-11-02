@@ -4,7 +4,7 @@
 // Plan, Discuss and Not now; a thread of the user's gets Let the agent
 // reply when someone wrote after them, and Discuss. center.js draws the
 // page; this file keeps the state.
-import { agentLabel } from "./projects-state.js";
+import { agentLabel } from "./projects-state.ts";
 
 /// "#52", "PR #41".
 export function threadCode(t) {

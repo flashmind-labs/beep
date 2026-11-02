@@ -17,6 +17,8 @@ config.toml
 __pycache__/
 /apps/android/keystore.properties
 /apps/desktop/src-tauri/target/
+/apps/desktop/node_modules/
+/apps/desktop/dist/*.js
 /apps/desktop/src-tauri/gen/
 /apps/ios/Generated/
 /apps/ios/Beep.xcodeproj/

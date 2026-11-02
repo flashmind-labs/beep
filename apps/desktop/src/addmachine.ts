@@ -4,8 +4,8 @@
 // claims it with `beep-node setup <token>` and links itself to this
 // account. The sheet waits, asking which machine claimed the token, and flips to Linked
 // by itself. Esc or Cancel closes it and revokes a token nobody used.
-import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.js";
-import { present } from "./projects-state.js";
+import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.ts";
+import { present } from "./projects-state.ts";
 
 const { invoke } = window.__TAURI__.core;
 

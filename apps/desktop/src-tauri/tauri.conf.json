@@ -3,7 +3,9 @@
   "productName": "Beep",
   "identifier": "com.flashmind.beep.desktop",
   "build": {
-    "frontendDist": "../dist"
+    "frontendDist": "../dist",
+    "beforeDevCommand": { "script": "npm run watch", "wait": false },
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,

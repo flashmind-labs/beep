@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, outsideTitle, checkoutNote } from "../dist/branchwork.js";
+import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, outsideTitle, checkoutNote } from "../src/branchwork.ts";
 
 const preview = {
   project: "tools-org/uploader",

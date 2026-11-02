@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, agentName, mineLayer } from "../dist/instructions-state.js";
+import { sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, agentName, mineLayer } from "../src/instructions-state.ts";
 
 test("an agent file loses Beep's own block when imported", () => {
   const file = "# Mine\n- Run the checks.\n\n<!-- beep:start -->\n- Write plainly.\n<!-- beep:end -->\n\n## After\n";

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clampWidth, stepWidth, SIDE_MIN, SIDE_MAX, SIDE_DEFAULT, SIDE_STEP } from "../dist/sidewidth.js";
+import { clampWidth, stepWidth, SIDE_MIN, SIDE_MAX, SIDE_DEFAULT, SIDE_STEP } from "../src/sidewidth.ts";
 
 test("a width stays between the limits", () => {
   assert.equal(clampWidth(100), SIDE_MIN);

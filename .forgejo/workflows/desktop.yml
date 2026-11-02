@@ -4,8 +4,8 @@
 # the tag, and the DMG is attached to a Forgejo release for the tag and
 # uploaded to R2 with the archive installed apps update themselves from.
 #
-# Runs on a Mac registered with the `macos` label, with Rust, tauri-cli and uv
-# installed for the runner's user. The server's node id is the repository
+# Runs on a Mac registered with the `macos` label, with Rust, tauri-cli, Node
+# and uv installed for the runner's user. The server's node id is the repository
 # variable BEEP_NODE_ID.
 #
 # Every build requires the Developer ID certificate and App Store Connect API
@@ -62,6 +62,14 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           # Kept between runs, so a build only recompiles what changed.
           echo "CARGO_TARGET_DIR=$HOME/Library/Caches/beep-desktop-target" >> "$GITHUB_ENV"
+
+      - name: Check the web UI
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          npm run check
 
       - name: Check
         working-directory: apps/desktop/src-tauri

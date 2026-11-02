@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { taskTile, prTile, machineTile, agentTile } from "../dist/board.js";
-import { importedWhen, projectLine } from "../dist/projects-state.js";
-import { machineSync } from "../dist/home.js";
+import { taskTile, prTile, machineTile, agentTile } from "../src/board.ts";
+import { importedWhen, projectLine } from "../src/projects-state.ts";
+import { machineSync } from "../src/home.ts";
 
 test("the tasks tile lists open tasks, running first, and chips what waits on you", () => {
   const tile = taskTile([

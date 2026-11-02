@@ -2,8 +2,8 @@
 // cards its chat waits on. The chat itself opens in the pane from the
 // page's prompt bar. center.js owns the page and its refreshes; this file
 // draws these sections and holds the pure pieces the tests check.
-import { agentOf } from "./home.js";
-import { agentLabel } from "./projects-state.js";
+import { agentOf } from "./home.ts";
+import { agentLabel } from "./projects-state.ts";
 
 /// The project agent for project `name`, or null.
 export function agentFor(agents, name) {

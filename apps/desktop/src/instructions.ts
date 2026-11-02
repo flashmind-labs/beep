@@ -2,7 +2,7 @@
 // editor over the saved versions, the agent files on each machine to import
 // from, writing the rules into those files, and the history. center.js
 // registers it; instructions-state.js holds the words and sums.
-import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.js";
+import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.ts";
 
 const TABS = [["editor", "Editor"], ["import", "Import"], ["sync", "Sync"], ["history", "History"]];
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitPinned } from "../dist/pinned.js";
+import { splitPinned } from "../src/pinned.ts";
 
 const rows = [
   { id: "a", title: "A", kind: "chat", pinned: false },

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadCode, issueTile, threadTile, issueMeta, threadMeta, workChoices } from "../dist/threads.js";
+import { threadCode, issueTile, threadTile, issueMeta, threadMeta, workChoices } from "../src/threads.ts";
 
 const ago = () => "2 h ago";
 

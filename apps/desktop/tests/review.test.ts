@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../dist/review.js";
+import { openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../src/review.ts";
 
 const ago = () => "12 min";
 

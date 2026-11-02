@@ -3,8 +3,8 @@
 // view: its facts, the reviewers' shards, the verified findings and the
 // actions (fix with a worker, post the review, merge), polled while the
 // reviewers read. center.js draws the page; this file keeps the state.
-import { agentLabel } from "./projects-state.js";
-import { worktreeMachines, worktreeName } from "./branchwork.js";
+import { agentLabel } from "./projects-state.ts";
+import { worktreeMachines, worktreeName } from "./branchwork.ts";
 
 /// How often a running review is read again.
 const POLL_MS = 4000;
