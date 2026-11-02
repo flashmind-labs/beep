@@ -106,6 +106,7 @@ pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
         read("PROJECT_PLAN"),
         read("PROJECT_TASKS"),
         read("PROJECT_WORKER"),
+        read("PROJECT_REPLY"),
         read("EXEC"),
         read("PROCESS"),
         read("PROJECT_SETUP_CHECKOUT"),

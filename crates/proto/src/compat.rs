@@ -107,6 +107,8 @@ sample_struct! {
     AgentMachine { machine_id, machine_name, online, claude, codex, claude_sessions, codex_signed_in }
     CodexLogin { task, url, code, expires_at }
     IssueStart { agent, node_id }
+    ProjectThread { kind, repo, number, title, url, last_other, needs_reply, updated_at }
+    ThreadChat { chat_id, kind, repo, number, title }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }

@@ -693,3 +693,145 @@ async fn after_cycles_are_refused() {
     assert!(cycle.output().contains("wait"), "{}", cycle.output());
     assert_eq!(h.rows().await[0].depends_on, None);
 }
+
+fn reply_tool(h: &Harness, level: PermissionLevel, approved: Option<&str>) -> reply::ReplyTool {
+    reply::ReplyTool {
+        tools: h.tools(level, approved),
+    }
+}
+
+fn pr_41(last: &str) -> String {
+    crate::projects::threads::tests::pr_41(last)
+}
+
+#[tokio::test]
+async fn reply_tool_asks_and_posts_after_approval() {
+    let h = harness(github(), Visibility::Public).await;
+    h.shell.answer("pr view 41", 0, &pr_41("Shorter?"));
+    h.shell.answer("api user", 0, "alice-dev\n");
+    let args = json!({"repo": "acme/widget", "number": 41, "body": "Shortened it in 3f2c1a0."});
+    // Even under Allow, a reply asks.
+    let asked = call(
+        &reply_tool(&h, PermissionLevel::Allow {}, None),
+        "c1",
+        args.clone(),
+    )
+    .await;
+    let card = approval(&asked);
+    assert_eq!(card.app, "Project");
+    assert_eq!(card.action, "Post reply");
+    let value = |label: &str| {
+        card.fields
+            .iter()
+            .find(|field| field.label == label)
+            .map(|field| field.value.clone())
+    };
+    assert_eq!(value("Reply").as_deref(), Some("Shortened it in 3f2c1a0."));
+    assert_eq!(
+        value("Thread").as_deref(),
+        Some("PR #41: Login screen copy")
+    );
+    assert_eq!(value("Last from them").as_deref(), Some("sam: Shorter?"));
+    assert!(h.shell.ran_with(" comment ").is_empty());
+    // Approved, it posts once on the pull request.
+    let posted = call(
+        &reply_tool(&h, PermissionLevel::Ask {}, Some("c1")),
+        "c1",
+        args.clone(),
+    )
+    .await;
+    assert!(posted.is_success(), "{}", posted.output());
+    let ran = h.shell.ran_with(" comment ");
+    assert_eq!(ran.len(), 1, "{ran:?}");
+    assert!(ran[0].contains("gh pr comment 41 "), "{}", ran[0]);
+    // The user's own PR takes more replies.
+    let again = call(
+        &reply_tool(&h, PermissionLevel::Ask {}, Some("c2")),
+        "c2",
+        args,
+    )
+    .await;
+    assert!(again.is_success(), "{}", again.output());
+    // Never saved as Always.
+    assert_eq!(saved_as(reply::REPLY, &json!({}), &h.project), None);
+}
+
+#[tokio::test]
+async fn reply_tool_refuses_leaky_text() {
+    let h = harness(github(), Visibility::Public).await;
+    h.shell.answer("pr view 41", 0, &pr_41("Logs?"));
+    let args =
+        json!({"repo": "acme/widget", "number": 41, "body": "The log is at /home/sam/run.log"});
+    let result = call(
+        &reply_tool(&h, PermissionLevel::Allow {}, Some("c1")),
+        "c1",
+        args,
+    )
+    .await;
+    assert!(!result.is_success());
+    assert!(result.output().contains("/home/sam"), "{}", result.output());
+    assert!(h.shell.ran().is_empty(), "{:?}", h.shell.ran());
+    // Another repository is refused too.
+    let elsewhere = json!({"repo": "acme/other", "number": 41, "body": "Done."});
+    let result = call(
+        &reply_tool(&h, PermissionLevel::Allow {}, Some("c2")),
+        "c2",
+        elsewhere,
+    )
+    .await;
+    assert!(!result.is_success());
+    assert!(h.shell.ran().is_empty());
+}
+
+#[tokio::test]
+async fn someone_elses_thread_gets_one_reply() {
+    let h = harness(github(), Visibility::Public).await;
+    // The PR's author is alice-dev; the CLI is signed in as someone else.
+    h.shell.answer("pr view 41", 0, &pr_41("Logs?"));
+    h.shell.answer("api user", 0, "bea\n");
+    let args = json!({"repo": "acme/widget", "number": 41, "body": "Here they are."});
+    let first = call(
+        &reply_tool(&h, PermissionLevel::Ask {}, Some("c1")),
+        "c1",
+        args.clone(),
+    )
+    .await;
+    assert!(first.is_success(), "{}", first.output());
+    let second = call(
+        &reply_tool(&h, PermissionLevel::Ask {}, Some("c2")),
+        "c2",
+        args,
+    )
+    .await;
+    assert!(!second.is_success());
+    assert!(
+        second.output().contains("one reply at most"),
+        "{}",
+        second.output()
+    );
+    assert_eq!(h.shell.ran_with(" comment ").len(), 1);
+}
+
+#[tokio::test]
+async fn thread_chat_reply_asks_first() {
+    let h = harness(github(), Visibility::Private).await;
+    h.shell.answer("pr view 41", 0, &pr_41("Shorter?"));
+    let chat = crate::projects::threads::open_chat(
+        h.fleet.as_ref(),
+        &h.user,
+        &h.project,
+        "acme/widget",
+        41,
+    )
+    .await
+    .unwrap();
+    // The thread chat is the project's, so it gets the project tools and gate.
+    assert_eq!(
+        h.user.project_in(chat.chat).await.unwrap().map(|p| p.id),
+        Some(h.project.id)
+    );
+    let args = json!({"repo": "acme/widget", "number": 41, "body": "Done."});
+    let asked = call(&reply_tool(&h, PermissionLevel::Allow {}, None), "c1", args).await;
+    assert_eq!(approval(&asked).action, "Post reply");
+    assert!(h.shell.ran_with(" comment ").is_empty());
+}

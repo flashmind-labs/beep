@@ -204,7 +204,7 @@ fn remote_host(url: &str, name: &RepoName) -> Option<String> {
 /// account's token in the owner's var when it is not the default one
 /// (see `credentials::for_machines`), and `GH_TOKEN` otherwise. Only the
 /// variable's name is in the command, never the token.
-fn gh_account(repo: &str) -> String {
+pub(crate) fn gh_account(repo: &str) -> String {
     repo.split_once('/')
         .and_then(|(owner, _)| github_owner_var(owner))
         .map(|var| format!("GH_TOKEN=\"${{{var}:-$GH_TOKEN}}\" "))

@@ -7,11 +7,12 @@ use super::{
     issues,
     model::{IssueHost, MachinePath, Visibility},
     personas::{self, PersonaFileError, ProjectPersona},
+    threads,
 };
 use crate::{
     app::{App, Message},
     protocol::node::files::{FileKind, Reply, Request},
-    store::{CheckoutRow, ProjectRow, TaskRow},
+    store::{CheckoutRow, ProjectRow, TaskRow, ThreadChatRow},
     user::User,
 };
 use std::{fmt::Write, sync::Arc, time::Duration};
@@ -27,6 +28,8 @@ pub(crate) const WORKER_LABEL: &str = "Project worker";
 pub(crate) const ISSUE_LABEL: &str = "Project issue";
 /// The user asked for something about a branch review.
 pub(crate) const REVIEW_LABEL: &str = "Project review";
+/// The user asked for a reply on a pull request or issue.
+pub(crate) const REPLY_LABEL: &str = "Project reply";
 
 /// Most project memories the context lists.
 const MAX_MEMORIES: usize = 30;
@@ -99,6 +102,21 @@ pub(crate) async fn start_with(
         );
     }
     context_with(fleet.as_ref(), user, project).await
+}
+
+/// What the agent is told each turn of a chat about one thread: the thread
+/// read again now.
+pub(crate) async fn thread_context(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    project: &ProjectRow,
+    chat: &ThreadChatRow,
+) -> String {
+    let fleet = NodeFleet {
+        app: app.clone(),
+        user: user.clone(),
+    };
+    threads::chat_context(&fleet, user, project, chat).await
 }
 
 /// What the agent is told about its project each turn.

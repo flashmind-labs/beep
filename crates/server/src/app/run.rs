@@ -554,12 +554,25 @@ impl App {
             });
         }
         if let Some(project) = &project {
-            let Some(block) = cancel
+            let Some(mut block) = cancel
                 .run_until_cancelled(project_turn::start(self, user, project))
                 .await
             else {
                 return self.stopped_early(user, run, live).await;
             };
+            // A chat about one thread reads it again each turn.
+            let thread = user.thread_in(chat).await.unwrap_or_else(|error| {
+                log::warn!("projects: unable to read the chat's thread: {error:#}");
+                None
+            });
+            if let Some(thread) = thread {
+                let reading = project_turn::thread_context(self, user, project, &thread);
+                let Some(read) = cancel.run_until_cancelled(reading).await else {
+                    return self.stopped_early(user, run, live).await;
+                };
+                block.push('\n');
+                block.push_str(&read);
+            }
             context = Some(match context {
                 Some(context) => format!("{context}\n{block}"),
                 None => block,

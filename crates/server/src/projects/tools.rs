@@ -159,6 +159,9 @@ pub(crate) fn register(
         tools: tools.clone(),
         app: app.clone(),
     }));
+    registry.register(Arc::new(reply::ReplyTool {
+        tools: tools.clone(),
+    }));
     let machines = Machines {
         app: app.clone(),
         user: user.clone(),
@@ -1345,6 +1348,7 @@ pub(crate) async fn reopen_task(
     Ok(text)
 }
 
+mod reply;
 mod worker;
 
 #[cfg(test)]
