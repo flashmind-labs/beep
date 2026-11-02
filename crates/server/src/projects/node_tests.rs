@@ -359,7 +359,12 @@ async fn a_worker_starts_in_its_own_worktree() {
     let Started::Running(worker) = world.start(&project, &tasks[0], &claude()).await else {
         panic!("the worker did not start");
     };
-    assert_eq!(worker.state, WorkerState::Running);
+    // The echo agent can finish its first turn before the worker is read.
+    assert!(
+        matches!(worker.state, WorkerState::Running | WorkerState::Waiting),
+        "{:?}",
+        worker.state
+    );
     let session = worker.session.clone().expect("a session");
     let worktree = node.widget.join(".worktrees/spin-it");
     assert_eq!(worker.folder, path(&worktree));
