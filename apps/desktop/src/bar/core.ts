@@ -207,6 +207,10 @@ export interface WindowHooks {
   newChat(): void;
   /// Esc from an agent view goes back to the view that opened it.
   goBack(from: BackTo): void;
+  /// What shows atop chat `session`, such as the card of the pull request
+  /// or issue it is about; null for nothing. The window keeps the element
+  /// and fills it in as it loads.
+  chatTop?(session: string): HTMLElement | null;
 }
 
 /// A window view to go back to, as the window opened an agent view from it.

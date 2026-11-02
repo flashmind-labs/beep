@@ -490,3 +490,19 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-ag.gemini { font-size: 0; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%238E9CF5%22%20d%3D%22M11.04%2019.32Q12%2021.51%2012%2024q0-2.49.93-4.68.96-2.19%202.58-3.81t3.81-2.55Q21.51%2012%2024%2012q-2.49%200-4.68-.93a12.3%2012.3%200%200%201-3.81-2.58%2012.3%2012.3%200%200%201-2.58-3.81Q12%202.49%2012%200q0%202.49-.96%204.68-.93%202.19-2.55%203.81a12.3%2012.3%200%200%201-3.81%202.58Q2.49%2012%200%2012q2.49%200%204.68.96%202.19.93%203.81%202.55t2.55%203.81%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: center; background-size: 58% }
 .cc-ag.pi { font-size: 0; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%23E4EEE8%22%20fill-rule%3D%22evenodd%22%20d%3D%22M3%202h13v3h3v8h-3v3H9v6H3zM9%207v4h5V7zM17%2018h4v4h-4z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: center; background-size: 58% }
 .cc-ag.flsh { font-size: 0; background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2028%2028%22%3E%3Cpath%20fill%3D%22%23E4EEE8%22%20d%3D%22M14%201%2027%2027h-3.1L15.4%2010v17h-2.8V10L4.1%2027H1Z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: center; background-size: 58% }
+/* A chat still answering: a spinner where the pin button was. */
+.cc-chat > .cc-run { flex: none; width: 10px; height: 10px; margin: 0 10px 0 8px }
+/* Chats about one pull request or issue, under their project. */
+.cc-pjthreads { display: contents }
+.cc-si.cc-chat.cc-thread .open { padding-left: 30px }
+.cc-chat.cc-thread .open .tt { color: var(--muted) }
+.cc-chat.cc-thread:has(.open[aria-current="true"]) .open .tt { color: var(--fg) }
+/* The thread a chat is about, atop it, and its header's tags. */
+.th-scope { display: inline-flex; align-items: center; gap: 6px }
+.th-card { flex: none; display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--elev); font-size: 12.5px; line-height: 18px; user-select: text }
+.th-card[hidden] { display: none }
+.th-card .who { color: var(--muted); font-size: 11.5px; display: inline-flex; align-items: center; gap: 6px }
+.th-card .who .dspin { width: 9px; height: 9px }
+.th-card .c + .c { border-top: 1px solid var(--border); padding-top: 6px }
+.th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
+.th-card > .dbtn { justify-self: start }
