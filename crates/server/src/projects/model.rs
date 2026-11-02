@@ -441,11 +441,12 @@ pub(crate) enum WorkerAgent {
     Gemini,
     Pi,
     Flsh,
+    OpenCode,
 }
 
 impl WorkerAgent {
-    /// Whether it puts each action to Beep before it runs it. flsh does
-    /// not, so a flsh worker runs commands nobody judged.
+    /// Whether it puts each action to Beep before it runs it. flsh and
+    /// OpenCode do not, so their workers run commands nobody judged.
     pub(crate) fn asks_permission(self) -> bool {
         super::policy::agent_asks(self.into())
     }
@@ -469,16 +470,23 @@ mod tests {
 
     #[test]
     fn every_agent_a_node_knows_can_work() {
-        for name in ["claude", "codex", "gemini", "pi", "flsh"] {
+        for name in ["claude", "codex", "gemini", "pi", "flsh", "opencode"] {
             let agent: WorkerAgent = name.parse().expect("a worker agent");
             assert_eq!(agent.to_string(), name);
         }
         assert_eq!(
             WorkerAgent::VARIANTS,
-            ["claude", "codex", "gemini", "pi", "flsh"]
+            ["claude", "codex", "gemini", "pi", "flsh", "opencode"]
         );
-        // flsh runs its tools without asking, so nothing can judge them.
+        assert_eq!(
+            serde_json::to_value(WorkerAgent::OpenCode).ok(),
+            Some(serde_json::json!("opencode"))
+        );
+        assert_eq!(WorkerAgent::OpenCode.protocol(), "opencode/1");
+        // flsh and OpenCode run their tools without asking, so nothing can
+        // judge them.
         assert!(!WorkerAgent::Flsh.asks_permission());
+        assert!(!WorkerAgent::OpenCode.asks_permission());
         assert!(WorkerAgent::Claude.asks_permission());
         assert!(WorkerAgent::Pi.asks_permission());
     }

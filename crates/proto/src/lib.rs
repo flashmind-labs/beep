@@ -733,7 +733,8 @@ requests! {
     /// Git checkouts the caller's coding agents worked in that are not
     /// imported yet, for the Add a project sheet: one row per repository,
     /// newest activity first, with its folder on each machine that has it
-    /// and how many Claude Code, Codex, pi and flsh sessions ran there.
+    /// and how many Claude Code, Codex, pi, flsh and OpenCode sessions ran
+    /// there.
     /// Sessions in a subfolder or a worktree count for the checkout's main
     /// folder; the home folder and folders that are not checkouts are left
     /// out. A folder already imported on its machine, or a repository
@@ -1014,7 +1015,7 @@ pub struct ProjectMachine {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FoundAgent {
-    /// Such as `claude`, `codex`, `pi` or `flsh`.
+    /// Such as `claude`, `codex`, `pi`, `flsh` or `opencode`.
     pub agent: String,
     pub sessions: u32,
 }

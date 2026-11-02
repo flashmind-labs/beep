@@ -1442,7 +1442,7 @@ function sessionsSection(p, running) {
     const past = pastSessions(sessions, running);
     body = past.length
       ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
-      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi or flsh in these folders yet."));
+      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
   const el = section("sec-sessions", "Sessions", sessions?.length || "", null, body);
   el.querySelector("h4").append(h("small", "", "from your coding agents in its folders on every machine, newest first"));

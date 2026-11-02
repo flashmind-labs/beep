@@ -4567,8 +4567,9 @@ const AGENT_KINDS = {
   gemini: { ini: "GE", name: "Gemini CLI", cls: "gemini" },
   pi: { ini: "PI", name: "pi", cls: "pi" },
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
+  opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
 };
-const AGENT_ORDER = ["claude", "codex", "gemini", "pi", "flsh"];
+const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 const CAP_NAMES = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
 const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
@@ -4640,7 +4641,7 @@ function drawAgentNew() {
   const machines = [chip("data-agm", "auto", f.machine === "auto", "Auto", "Beep picks from what each machine has"),
     ...hosts.map(m => chip("data-agm", m.machine_id, f.machine === m.machine_id, esc(m.machine_name), caps(m).join(", ")))].join("");
   const machineNote = !AG.hosts ? '<span class="dspin"></span> Looking for machines…'
-    : !hosts.length ? "None of your machines online offers a coding agent. Run beep-node on one with Claude Code, Codex, Gemini CLI, pi or flsh."
+    : !hosts.length ? "None of your machines online offers a coding agent. Run beep-node on one with Claude Code, Codex, Gemini CLI, pi, flsh or OpenCode."
     : host ? (caps(host).length ? `Has ${esc(caps(host).join(", "))}` : "No special hardware or apps reported")
     : "Beep picks the machine with what the task needs, such as Xcode, a GPU or Blender, else your environment or the least busy one.";
   const agentChips = [chip("data-aga", "", !f.agent, "Any"), ...agents.map(a => chip("data-aga", a, f.agent === a, esc(agentKind(a).name)))].join("");
