@@ -1,0 +1,21 @@
+{
+  "id": "018a210d-8ba4-705c-b111-1f1776f7f579",
+  "type": "text-to-3d-refine",
+  "model_urls": {
+    "glb": "https://assets.meshy.example/018a210d/refined.glb",
+    "fbx": "https://assets.meshy.example/018a210d/refined.fbx",
+    "usdz": ""
+  },
+  "thumbnail_url": "https://assets.meshy.example/018a210d/refined.png",
+  "prompt": "a low-poly wooden chair",
+  "progress": 100,
+  "started_at": 1767225670000,
+  "created_at": 1767225665000,
+  "finished_at": 1767225760000,
+  "status": "SUCCEEDED",
+  "texture_urls": [
+    { "base_color": "https://assets.meshy.example/018a210d/base_color.png" }
+  ],
+  "preceding_tasks": 0,
+  "task_error": { "message": "" }
+}

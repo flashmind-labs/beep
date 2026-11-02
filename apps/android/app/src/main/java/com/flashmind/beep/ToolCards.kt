@@ -171,7 +171,7 @@ fun cardFor(call: ToolCall): ToolCard? {
         "open_app" -> json.text("app")?.let { ToolCard.OpenedApp(it, json.optString("uri"), json.optString("fallback_url")) }
         "open_browser" -> json.text("url")?.let { ToolCard.Link(it) }
         "set_alarm" -> AlarmRequest.from(json)?.let { ToolCard.Alarm(it) }
-        "send_image" -> {
+        "send_image", "image_gen" -> {
             val list = json.optJSONArray("images") ?: return null
             val images = (0 until list.length()).mapNotNull { i ->
                 val image = list.optJSONObject(i) ?: return@mapNotNull null
@@ -185,7 +185,7 @@ fun cardFor(call: ToolCall): ToolCard? {
         "show_products" -> shownProducts(json).takeIf { it.isNotEmpty() }?.let { ToolCard.Products(it) }
         "show_cards" -> shownRecCards(json).takeIf { it.isNotEmpty() }?.let { ToolCard.Recs(it) }
         "place_save" -> savedPlaceOf(json)
-        "send_file" -> json.optJSONObject("file")?.let { f ->
+        "send_file", "video_gen", "3d_gen" -> json.optJSONObject("file")?.let { f ->
             val id = f.text("id") ?: return null
             val name = f.text("name") ?: "file"
             val mime = f.text("mime") ?: "application/octet-stream"

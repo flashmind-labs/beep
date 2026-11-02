@@ -89,7 +89,7 @@ enum ToolCard: Equatable {
         case "set_alarm":
             guard let alarm = AlarmRequest(json) else { return nil }
             self = .alarm(alarm)
-        case "send_image":
+        case "send_image", "image_gen":
             let images: [ReplyPicture] = (json["images"] as? [[String: Any]] ?? []).compactMap { image in
                 let url = field(image, "url") ?? (image["file"] as? [String: Any]).flatMap { file in
                     field(file, "id").map { SentFileCache.imageURL(id: $0, name: field(file, "name") ?? "image") }
@@ -109,7 +109,7 @@ enum ToolCard: Equatable {
         case "place_save":
             guard let place = SavedPlace(toolOutput: output) else { return nil }
             self = .savedPlace(place)
-        case "send_file":
+        case "send_file", "video_gen", "3d_gen":
             guard let file = json["file"] as? [String: Any], let id = field(file, "id") else { return nil }
             let name = field(file, "name") ?? "file"
             let mime = field(file, "mime") ?? "application/octet-stream"

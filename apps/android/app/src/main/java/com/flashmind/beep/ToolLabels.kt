@@ -68,6 +68,9 @@ private val toolLabels = mapOf(
     "show_stock_chart" to "Charting the price",
     "show_chart" to "Drawing a chart",
     "send_image" to "Sending images",
+    "image_gen" to "Making an image",
+    "video_gen" to "Making a video",
+    "3d_gen" to "Making a 3D model",
     "execute_code" to "Running code",
     // Commands stay out of the chat: every one reads the same.
     "exec" to "Running code",
@@ -188,4 +191,5 @@ private val pastTense = mapOf(
     "ending" to "Ended", "asking" to "Asked", "adding" to "Added", "researching" to "Researched", "typesetting" to "Typeset",
     "copying" to "Copied", "following" to "Followed", "unfollowing" to "Unfollowed", "answering" to "Answered",
     "clicking" to "Clicked", "typing" to "Typed", "pressing" to "Pressed", "scrolling" to "Scrolled",
+    "making" to "Made",
 )
