@@ -23,7 +23,7 @@ let root = null, input = null, list = null;
 let hits = [], sel = 0, query = "";
 let sent = 0, timer = null, ready = null, back = null;
 
-/// `go(view, arg)`, `jump(id)`, `settings(section)` and `project(name)` from the window, `pane()` for the bar's page, `findIcon` markup.
+/// `go(view, arg)`, `jump(id)`, `settings(section)` and `project(name)` from the window, `pane` for the bar's page, `findIcon` markup.
 export function initPalette(window_) { deps = window_; }
 
 export function paletteOpen() { return root != null; }
@@ -179,7 +179,7 @@ function ask_(q) {
   if (!text) return;
   close();
   deps.go("pane", { chat: { session: null } });
-  deps.pane()?.compose(text).catch(e => console.warn("asking from the palette:", e));
+  deps.pane.compose(text).catch(e => console.warn("asking from the palette:", e));
 }
 
 function pick(hit) {

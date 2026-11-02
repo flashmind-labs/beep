@@ -7,6 +7,7 @@ import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
 import { connectProblem } from "./connect.ts";
+import { pane } from "./bar/pane.ts";
 import { withoutDismissed } from "./updates.ts";
 import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
@@ -99,7 +100,7 @@ function whenOf(iso) {
 /// so a one-off is just "Once".
 function scheduleText(s) {
   if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
-  return pane()?.when?.(s) ?? s;
+  return pane.when(s) ?? s;
 }
 
 // ---------- Pieces ----------
@@ -350,7 +351,7 @@ async function openUpdate(u) {
   dismissUpdates([u.id]);
   go("pane", { chat: { session: null } });
   try {
-    await pane()?.draft(u.summary);
+    await pane.draft(u.summary);
   } catch (e) {
     console.warn("opening an update:", e);
   }
@@ -392,7 +393,7 @@ function reviewItem(item, project) {
 async function replyItem(item) {
   go("pane", { chat: { session: null } });
   try {
-    await pane()?.compose(replyPrompt(item));
+    await pane.compose(replyPrompt(item));
   } catch (e) {
     console.warn("starting a reply:", e);
   }
@@ -468,7 +469,6 @@ async function refreshGit() {
 
 // ---------- Views ----------
 
-const pane = () => window.beepPane;
 const views = new Map();
 let shown = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
@@ -581,7 +581,7 @@ function applyScroll() {
 
 /// What the pane shows, for the sidebar's highlight.
 function paneOn() {
-  return shown === "pane" && pane() ? pane().current() : { view: null, session: null, group: null };
+  return shown === "pane" ? pane.current() : { view: null, session: null, group: null };
 }
 
 function drawSide() {
@@ -662,7 +662,7 @@ let chatFetch = null;
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
   if (chatFetch) return chatFetch;
-  const mine = pane().chatRows().then(rows => {
+  const mine = pane.chatRows().then(rows => {
     if (chatFetch === mine) chatList = rows;
     return rows;
   }).finally(() => { if (chatFetch === mine) chatFetch = null; });
@@ -774,7 +774,6 @@ registerSidebarGroup("pinned", {
   order: 2,
   title: "Pinned",
   async load() {
-    if (!pane()) return [];
     return [...splitPinned(await fetchChats(), SIDE_CHATS).pinned, ...pinnedProjects()];
   },
   row: chatRow,
@@ -794,7 +793,6 @@ registerSidebarGroup("chats", {
     return b;
   },
   async load() {
-    if (!pane()) return [];
     return splitPinned(await fetchChats(), SIDE_CHATS).recent;
   },
   row: chatRow,
@@ -1463,7 +1461,7 @@ function drawProjectComp(name) {
 async function sendToProject(input, note) {
   const name = state.picked;
   const text = input.value.trim();
-  if (!name || !text || pa.starting || !pane()) return;
+  if (!name || !text || pa.starting) return;
   note.textContent = "";
   let agent = agentFor(state.agents, name);
   if (!agent) {
@@ -1483,7 +1481,7 @@ async function sendToProject(input, note) {
   input.value = "";
   go("pane", { chat: { session: agent.chat_id } });
   try {
-    await pane().ask(agent.chat_id, text);
+    await pane.ask(agent.chat_id, text);
   } catch (e) {
     // Back on the project with the prompt as typed, where the error shows.
     openProjects(name);
@@ -1802,7 +1800,7 @@ function paneTitle() {
   if (on.view === "chat") {
     const c = chatList.find(x => x.id === on.session);
     // A chat just started is not in the list until the server has it.
-    const at = pane().startedAt?.();
+    const at = pane.startedAt();
     return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [], scope: scopeTag(on.session) };
   }
   if (on.group) {
@@ -1849,20 +1847,20 @@ registerView("pane", {
   el: $("#pane-box"),
   title: paneTitle,
   mount(el, arg) {
-    pane()?.mounted(true);
-    pane()?.open(arg);
+    pane.mounted(true);
+    pane.open(arg);
   },
   unmount() {
-    pane()?.mounted(false);
-    pane()?.leave();
+    pane.mounted(false);
+    pane.leave();
   },
 });
 
 /// The window stops showing a chat or group when the pane moves off it, so
 /// a focused window no longer keeps their notices quiet.
 let last = { view: null, session: null };
-$("#bar").dataset.view = pane()?.current().view ?? "";
-pane()?.onChange(now => {
+$("#bar").dataset.view = pane.current().view ?? "";
+pane.onChange(now => {
   if (shown === "pane") {
     if (last.view === "chat" && now.view !== "chat" && now.view !== "group") invoke("new_chat").catch(() => {});
     if (last.group && !now.group) invoke("close_group").catch(() => {});
@@ -1920,7 +1918,7 @@ export function openSettings(section) {
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
   sheet.focus();
-  pane()?.settings(sheet)
+  pane.settings(sheet)
     .then(() => { if (section) showSection(scrim, section); })
     .catch(e => console.warn("settings:", e));
 }
@@ -1958,22 +1956,8 @@ function trapTab(e, sheet) {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
-window.beepOpenSettings = openSettings;
-/// Settings' Instructions row: the sheet closes and the view shows.
-window.beepOpenInstructions = () => {
-  closeSettings();
-  go("instructions");
-};
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
-/// A page Settings leads to, such as Apps: the sheet closes and the pane
-/// shows it; null only closes.
-/// Esc from an agent view goes back to the view that opened it.
-window.beepGoBack = from => go(from.view, from.arg);
-window.beepSettingsAway = view => {
-  closeSettings();
-  if (view) go("pane", view);
-};
 
 // ---------- Keys ----------
 
@@ -2008,7 +1992,19 @@ function newChatHere() {
   if (name && shown === "projects" && projectComp.form.isConnected) return projectComp.input.focus();
   go("pane", { chat: { session: null } });
 }
-window.beepNewChat = newChatHere;
+pane.connect({
+  openSettings,
+  openInstructions() {
+    closeSettings();
+    go("instructions");
+  },
+  settingsAway(view) {
+    closeSettings();
+    if (view) go("pane", view);
+  },
+  newChat: newChatHere,
+  goBack: from => go(from.view, from.arg),
+});
 
 // ---------- Refresh ----------
 
@@ -2076,12 +2072,12 @@ for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
 $("#home-comp").addEventListener("submit", async e => {
   e.preventDefault();
   const input = $("#home-ask"), note = $("#home-err"), prompt = input.value.trim();
-  if (!prompt || !pane()) return;
+  if (!prompt) return;
   note.textContent = "";
   input.value = "";
   go("pane", { chat: { session: null } });
   try {
-    await pane().compose(prompt);
+    await pane.compose(prompt);
   } catch (err) {
     // Back on Home with the prompt as typed, where the error shows.
     input.value = prompt;
