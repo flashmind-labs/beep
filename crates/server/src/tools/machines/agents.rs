@@ -111,7 +111,7 @@ pub(crate) async fn run(
     match order {
         Order::Start { cwd, prompt, wait } => {
             let link = online
-                .start_agent(agent, cwd, prompt)
+                .start_agent(agent, cwd, prompt, None)
                 .await
                 .map_err(|e| format!("Could not start {agent}: {e:#}"))?;
             let now = link.now();

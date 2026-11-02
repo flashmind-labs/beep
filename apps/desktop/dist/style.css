@@ -219,7 +219,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dg.beep .b { white-space: normal }
 .dhead .tt { border: 0; background: transparent; color: inherit; text-align: left; padding: 0 }
 .dfield input { min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0; caret-color: var(--emerald) }
-.dfield input:focus, .dfield textarea:focus { border-color: var(--emerald) }
+.dfield select { min-height: 34px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0 }
+.dfield input:focus, .dfield textarea:focus, .dfield select:focus { border-color: var(--emerald) }
 .dfield.err input, .dfield.err textarea { border-color: var(--err) }
 .dfield input.mono { font-family: var(--mono); letter-spacing: .12em; font-size: 15px; text-transform: uppercase }
 .dfield .note { font-size: 12px; color: var(--muted) } .dfield .note.why { color: var(--fg) } .dfield .note.why:empty { display: none } .dfield.err .note { color: var(--err) }

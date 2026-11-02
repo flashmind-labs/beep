@@ -176,6 +176,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
     if prompt.is_empty() {
         return Err(ApiError::bad_request("Say what the agent should do."));
     }
+    let model = picked_model(start.model.as_deref())?;
     let hosts = live_hosts(&cx).await?;
     if let Some(chat) = start.chat
         && !cx.user.owns_session(chat).await?
@@ -200,7 +201,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
         .or_else(|| live.online.workspace.clone());
     let link = live
         .online
-        .start_agent(&agent, cwd, prompt)
+        .start_agent(&agent, cwd, prompt, model)
         .await
         .map_err(|e| {
             ApiError::bad_request(format!("Could not start {}: {e:#}", agent_name(&agent)))
@@ -242,6 +243,7 @@ pub(super) async fn preview_agent_machine(
         prompt: prompt.clone(),
         needs,
         chat: None,
+        model: None,
     };
     let hosts = live_hosts(&cx).await?;
     let (live, why) = auto(hosts, &start, &prompt).await?;
@@ -602,6 +604,68 @@ pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentIm
         mime: image.mime,
         data: image.data,
     })
+}
+
+/// The models `list.agent` can run on `list.machine_id`, as its node finds
+/// them. A node too old to say gives `Fixed`, so the form hides the field.
+pub(super) async fn list_agent_models(cx: Cx, list: ListAgentModels) -> Reply<AgentModels> {
+    let live = live_host(&cx, &list.machine_id).await?;
+    if !live.offers(&list.agent) {
+        return Err(ApiError::bad_request(format!(
+            "{} does not offer {}.",
+            live.host.machine_name,
+            agent_name(&list.agent)
+        )));
+    }
+    let found = live.online.agent_models(&list.agent).await.map_err(|e| {
+        ApiError::bad_request(format!(
+            "Could not list the models of {} on {}: {e:#}",
+            agent_name(&list.agent),
+            live.host.machine_name
+        ))
+    })?;
+    Ok(found.map_or(
+        AgentModels {
+            pick: AgentModelPick::Fixed {},
+            current: None,
+            models: Vec::new(),
+        },
+        agent_models,
+    ))
+}
+
+/// What the app sees of the models a node found.
+fn agent_models(list: agent::ModelList) -> AgentModels {
+    let pick = match list.pick {
+        agent::ModelPick::Listed => AgentModelPick::Listed {},
+        agent::ModelPick::Named => AgentModelPick::Named {},
+        _ => AgentModelPick::Fixed {},
+    };
+    AgentModels {
+        pick,
+        current: list.current,
+        models: list
+            .models
+            .into_iter()
+            .map(|model| AgentModel {
+                id: model.id,
+                name: model.name,
+                description: model.description,
+            })
+            .collect(),
+    }
+}
+
+/// The model a start asks for: `None` for the agent's own, and refused
+/// when it cannot be a model's name.
+fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
+    let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
+        return Ok(None);
+    };
+    if !agent::valid_model(model) {
+        return Err(ApiError::bad_request("That is not a model name."));
+    }
+    Ok(Some(model.to_owned()))
 }
 
 /// Whether `key` is what `image_key` makes: 16 lowercase hex digits.

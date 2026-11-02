@@ -526,6 +526,7 @@ impl OnNode<'_> {
                 placement.agent.into(),
                 Some(self.worktree.to_string()),
                 prompt,
+                None,
             )
             .await
             .map_err(|error| format!("Could not start {}: {error:#}", placement.agent))?;
