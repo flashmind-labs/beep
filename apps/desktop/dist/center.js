@@ -1230,7 +1230,8 @@ function whereSection(p, rows, known) {
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
   for (const m of rows) where.append(...whereRow(p, m));
-  const el = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
+  // Once every machine answered, the note says the count instead.
+  const el = section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where);
   if (known) el.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
   return el;
 }
