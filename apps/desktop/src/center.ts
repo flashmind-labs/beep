@@ -255,7 +255,7 @@ function machineTable(machines: MachineCard[]) {
     name.title = m.name;
     const caps = machineCaps(m);
     const can = h("span", `caps${off}`, caps.join(" · ") || "–");
-    if (caps.length) can.title = caps.join(", ");
+    if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
     const sync = m.online ? machineSync(m.id, state.sync) : null;
     const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;

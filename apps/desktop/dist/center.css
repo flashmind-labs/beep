@@ -232,6 +232,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-grp h3 button.cc-gt:hover { color: var(--fg) }
 /* The Projects page's table: the machine table's look, four columns. */
 .cc-mt.cc-pt { grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) 60px 100px }
+.cc-mt.cc-pt .acts { display: flex; gap: 6px; align-items: center; justify-content: flex-end }
 .cc-mt.cc-pt .nm b button { padding: 0; font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left }
 .cc-mt.cc-pt .nm b button:hover { color: var(--emerald) }
 .cc-mt.cc-pt .nm .os b { font-weight: 500; color: var(--fg); font-size: 10.5px }
