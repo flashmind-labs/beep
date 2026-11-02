@@ -14,7 +14,7 @@ use beep_proto::{
     ListProjectMachines, ListProjectSessions, ListProjectTasks, ListProjectWorkers, ListProjects,
     ListProjectsOnTop, MachineFolder, PendingApproval, PinProjectToTop, ProjectAgent,
     ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
-    StopProjectWorker, UpdateProjectTask,
+    RemoveProject, StopProjectWorker, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -322,6 +322,22 @@ pub async fn pin_project_to_top(beep: Service<'_>, project: String, pinned: bool
                 e
             }
         })
+}
+
+/// Removes `project` (`org/repo`) from Beep: the server forgets it, stops
+/// syncing it and its workers, and deletes its chat and tasks. No files are
+/// deleted on any machine.
+#[tauri::command]
+pub async fn remove_project(beep: Service<'_>, project: String) -> Result<()> {
+    beep.call(RemoveProject { project }).await.map_err(|e| {
+        if unknown_op(&e) {
+            DesktopError::BadRequest(
+                "The server needs an update before projects can be removed.".into(),
+            )
+        } else {
+            e
+        }
+    })
 }
 
 /// The project agent of `name` (`org/repo`), made with its chat on the

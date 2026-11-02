@@ -410,6 +410,19 @@ export function openOnLabel(url: string) {
   return host === "github.com" ? "Open on GitHub" : `Open on ${host}`;
 }
 
+/// The menu line and button that remove a project from Beep.
+export const REMOVE_PROJECT = "Remove project…";
+
+/// What the sheet that asks before removing project `name` says.
+export function removeProjectSheet(name: string) {
+  return {
+    title: `Remove ${name}?`,
+    text: "Beep forgets this project, stops syncing it and its workers on every machine, and deletes its chat and tasks in Beep.",
+    note: "Its files stay on your machines: nothing is deleted on any machine. Importing it again starts it afresh.",
+    action: "Remove project",
+  };
+}
+
 /// When a project was first imported, in words: "today", "yesterday",
 /// "3 days ago", "5 weeks ago". `at` and `now` are in milliseconds.
 export function importedWhen(at: number, now: number) {

@@ -252,6 +252,7 @@ fn main() {
             reviews::review_post,
             reviews::review_merge,
             projects::pin_project_to_top,
+            projects::remove_project,
             projects::center_open_project,
             projects::center_project,
             projects::center_project_send,

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches } from "../src/projects-state.ts";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -330,4 +330,15 @@ test("the group sheet keeps each folder once, as groups compare it", () => {
   assert.equal(groupMatches(rows, ["work"]), 1);
   assert.equal(groupMatches(rows, ["work", "/srv"]), 2);
   assert.equal(groupMatches(null, ["x"]), 0);
+});
+
+test("the remove sheet names the project and says no files are deleted", () => {
+  const s = removeProjectSheet("org/app");
+  assert.equal(s.title, "Remove org/app?");
+  assert.equal(s.action, "Remove project");
+  assert.match(s.text, /stops syncing it and its workers/);
+  assert.match(s.text, /deletes its chat and tasks/);
+  assert.match(s.note, /nothing is deleted on any machine/);
+  assert.equal(REMOVE_PROJECT, "Remove project…");
+  for (const t of [s.title, s.text, s.note, s.action]) assert.doesNotMatch(t, /[—→⇒←]/);
 });
