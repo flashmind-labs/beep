@@ -10,24 +10,18 @@ const imported = [
 ];
 const agent = (machine_id: string, cwd: string, last_activity: number) => ({ kind: "agent", machine_id, machine_name: machine_id, cwd, started_at: 1, last_activity }) as RunningAgent;
 
-test("agents in an imported checkout count for it; others make their own project", () => {
+test("agents in an imported checkout count for it; others are no project", () => {
   const rows = mergeProjects(imported, [
     agent("m1", "/srv/work/projects/org/app", 50),
     agent("m1", "/srv/work/projects/org/app/.worktrees/fix", 80),
     agent("m2", "/Users/u/code/notes", 30),
+    agent("m9", "/home/x/app", 5),
     { kind: "research", topic: "x" } as RunningRow,
   ]);
-  assert.deepEqual(rows.map(r => r.name), ["org/app", "notes"]);
+  assert.deepEqual(rows.map(r => r.name), ["org/app"]);
   assert.equal(rows[0].agents, 2);
   assert.equal(rows[0].last, 80);
   assert.equal(rows[0].machines.length, 2);
-  assert.equal(rows[1].imported, false);
-  assert.deepEqual(rows[1].machines, [{ id: "m2", name: "m2", folder: "/Users/u/code/notes" }]);
-});
-
-test("an agent on another machine with the same folder name is not the imported one", () => {
-  const rows = mergeProjects(imported.slice(0, 1), [agent("m9", "/home/x/app", 5)]);
-  assert.deepEqual(rows.map(r => [r.name, r.agents]), [["org/app", 0], ["app", 1]]);
   assert.deepEqual(mergeProjects(null, null), []);
 });
 
@@ -261,11 +255,4 @@ test("a card's bar, counts and status line", () => {
   assert.equal(latestLine({ slug: "x", title: "Login copy", state: "review", pr_url: "https://example.com/pr/1" }), "Login copy: its PR waits for your review");
   assert.equal(latestLine(null), "No tasks yet");
   assert.deepEqual([0, 1, 2].map(workersLabel), ["idle", "1 worker", "2 workers"]);
-});
-
-test("a running folder takes org/repo from the found checkout's remote", () => {
-  const run = { kind: "agent", machine_id: "m1", machine_name: "build-box", cwd: "/srv/work/widget-fix/src", started_at: 1 } as RunningAgent;
-  const found = [{ remote: "git@github.com:org/widget.git", places: [{ machine_id: "m1", machine_name: "build-box", folder: "/srv/work/widget-fix" }] }];
-  assert.deepEqual(mergeProjects([], [run], found).map(r => r.name), ["org/widget"]);
-  assert.deepEqual(mergeProjects([], [run], []).map(r => r.name), ["src"]);
 });

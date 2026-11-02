@@ -958,7 +958,7 @@ registerSidebarGroup("views", {
 function projectRows() {
   const home = state.home;
   if (!home || (!home.running && !home.projects)) return null;
-  return mergeProjects(home.projects, home.running, state.found);
+  return mergeProjects(home.projects, home.running);
 }
 
 /// A small + button for a group's heading or the footer.
@@ -1030,8 +1030,6 @@ const loadFound = single(async () => {
     state.found = state.found || [];
   }
   if (!state.picked) redrawProjects();
-  // Their remotes name the folders agents run in as org/repo.
-  reloadGroup("projects");
 });
 
 /// Imports a found row from the Projects page and opens it.
@@ -2104,8 +2102,6 @@ registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
-// The sidebar names running folders by their remote, which the found list gives.
-loadFound();
 
 initPalette({ go, jump, pane, settings: openSettings, project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 
