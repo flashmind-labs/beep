@@ -554,7 +554,7 @@ mod tests {
         let start = task.start.clone().expect("a start request");
         assert_eq!(start.agent, Some(WorkerAgent::Codex));
         assert_eq!(start.machine.as_deref(), Some("build-box"));
-        assert_eq!(fleet.starts(), [task.slug.clone()]);
+        assert_eq!(fleet.starts(), std::slice::from_ref(&task.slug));
         assert!(shell.ran_with("issue create").is_empty());
         // No plan request: the worker does the work.
         assert!(fleet.posts().iter().all(|(label, _)| label != ISSUE_LABEL));

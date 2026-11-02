@@ -235,6 +235,7 @@ pub fn router() -> Router {
         .call(project_import::import_project)
         .call(project_import::list_imported_projects)
         .call(project_import::list_machine_folder)
+        .call(project_import::list_project_machines)
         .call(agent_found::list_found_folders)
         .call(agent_found::list_project_sessions)
         .call(agent_control::resume_agent_session)

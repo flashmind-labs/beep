@@ -9,7 +9,8 @@ use crate::{
 };
 use beep_proto::{
     ApiError, FoundAgent, FoundPlace, FoundProject, ImportProject, ImportedProject,
-    ListFoundFolders, ListMachineFolder, ListProjectSessions, MachineFolder,
+    ListFoundFolders, ListMachineFolder, ListProjectMachines, ListProjectSessions, MachineFolder,
+    ProjectMachine,
 };
 use serde::Serialize;
 use std::{
@@ -101,6 +102,50 @@ pub async fn project_sessions(beep: Service<'_>, project: String) -> Result<Vec<
     match beep.call(ListProjectSessions { project }).await {
         Ok(sessions) => Ok(sessions.into_iter().map(SessionRow::from).collect()),
         Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// One of the user's machines as a project's page lists it.
+#[derive(Debug, Serialize)]
+pub struct ProjectMachineRow {
+    id: String,
+    name: String,
+    online: bool,
+    /// The project's folder there; `None` without a checkout.
+    folder: Option<String>,
+    /// The server is looking through it for a checkout now.
+    checking: bool,
+    /// In milliseconds since the Unix epoch.
+    checked_at: Option<u64>,
+}
+
+impl From<ProjectMachine> for ProjectMachineRow {
+    fn from(m: ProjectMachine) -> Self {
+        Self {
+            id: m.machine_id,
+            name: m.machine_name,
+            online: m.online,
+            folder: m.folder,
+            checking: m.checking,
+            checked_at: m.checked_at.map(epoch_ms),
+        }
+    }
+}
+
+/// Every machine of the user's for `project`'s page: its folder there, or
+/// whether the server is looking for one. `None` from a server too old to
+/// say, and the page lists the imported folders as before.
+#[tauri::command]
+pub async fn project_machines(
+    beep: Service<'_>,
+    project: String,
+) -> Result<Option<Vec<ProjectMachineRow>>> {
+    match beep.call(ListProjectMachines { project }).await {
+        Ok(machines) => Ok(Some(
+            machines.into_iter().map(ProjectMachineRow::from).collect(),
+        )),
+        Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
     }
 }
