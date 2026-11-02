@@ -159,6 +159,10 @@ pub(crate) fn register(
         tools: tools.clone(),
         app: app.clone(),
     }));
+    registry.register(Arc::new(review::ReviewTool {
+        tools: tools.clone(),
+        app: app.clone(),
+    }));
     let machines = Machines {
         app: app.clone(),
         user: user.clone(),
@@ -1345,6 +1349,7 @@ pub(crate) async fn reopen_task(
     Ok(text)
 }
 
+mod review;
 mod worker;
 
 #[cfg(test)]

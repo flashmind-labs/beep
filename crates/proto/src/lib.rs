@@ -951,6 +951,12 @@ requests! {
     /// start form shows under Auto. `BadRequest` saying why when no machine
     /// fits, as the start would.
     219 PreviewAgentMachine { agent: Option<String>, cwd: Option<String>, prompt: String, needs: Vec<MachineCapability> } => Call<MachinePick>
+    /// Where a reviewed branch is now: fetches it on the review's machine
+    /// and says whether it moved since the review (a new local commit, or
+    /// a push the review did not read). Merging a stale review is refused.
+    /// `NotFound` when the caller has no such review; `BadRequest` saying
+    /// why when the machine is offline or git fails.
+    240 CheckBranchReview { id: Uuid } => Call<ReviewHead>
 }
 
 /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
@@ -1088,6 +1094,17 @@ pub struct ProjectBranch {
     pub local: bool,
     /// It is on `origin`.
     pub pushed: bool,
+}
+
+/// Where a reviewed branch is now, as `CheckBranchReview` reads it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviewHead {
+    /// The local branch's head, else `origin`'s; `None` when the branch is
+    /// gone.
+    pub head: Option<String>,
+    /// It moved since the review, so its findings may be out of date.
+    pub stale: bool,
 }
 
 /// A review of a branch against its base, as it stands.
