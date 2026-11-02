@@ -20,8 +20,8 @@ use beep_server::{
         AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
         CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
         ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        MachineCapability, MemoryScope, MemorySource, RemoveDevice, RevokeNodeToken,
-        StartAgentSession, SteerAgentSession,
+        MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, RemoveDevice,
+        RevokeNodeToken, StartAgentSession, SteerAgentSession,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1562,6 +1562,57 @@ async fn auto_starts_on_the_least_busy_machine_and_refuses_what_none_has() {
         refused,
         format!("There is no folder {missing} on busy-box and idle-box.")
     );
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn auto_preview_names_the_machine_without_starting() {
+    let mut center = CommandCenter::new(1).await;
+    let (orders, mut received) = mpsc::unbounded_channel();
+    center
+        .node(
+            0,
+            "busy-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let idle = center
+        .node(
+            0,
+            "idle-box",
+            FakeAgents {
+                orders: Some(orders),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let here = std::env::temp_dir().to_string_lossy().into_owned();
+    let preview = |needs: Vec<MachineCapability>| PreviewAgentMachine {
+        agent: None,
+        cwd: Some(here.clone()),
+        prompt: "Fix the iOS widget".into(),
+        needs,
+    };
+    let pick = client.call(&preview(Vec::new())).await.unwrap();
+    assert_eq!(pick.machine_id, idle);
+    assert_eq!(pick.machine_name, "idle-box");
+    assert_eq!(
+        pick.why,
+        "It runs the fewest sessions. No machine has Xcode, which the task mentions."
+    );
+    let refused = client
+        .call(&preview(vec![MachineCapability::Xcode {}]))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+    assert!(received.try_recv().is_err(), "nothing was started");
     center.shutdown().await;
 }
 

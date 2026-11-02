@@ -211,6 +211,7 @@ pub fn router() -> Router {
         .call(agent_sessions::answer_agent_question)
         .call(agent_control::list_agent_hosts)
         .call(agent_control::start_agent_session)
+        .call(agent_control::preview_agent_machine)
         .call(agent_control::get_agent_session)
         .call(agent_control::steer_agent_session)
         .call(work::list_pending_approvals)

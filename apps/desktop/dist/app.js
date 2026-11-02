@@ -4656,7 +4656,7 @@ function drawAgentNew() {
     <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none;align-content:start">
       <label class="dfield${missing ? " err" : ""}"><span>${missing ? "Say what the agent should do" : "What should it do?"}</span>
         <textarea id="agprompt" rows="3" placeholder="Fix the failing login test">${esc(f.prompt)}</textarea></label>
-      <div class="dfield"><span>Machine</span><div class="dchips">${machines}</div><span class="note">${machineNote}</span></div>
+      <div class="dfield"><span>Machine</span><div class="dchips">${machines}</div><span class="note">${machineNote}</span><span class="note why" id="agwhy"${hosts.length && !host ? "" : " hidden"}>${pickNote()}</span></div>
       <label class="dfield"><span>Folder</span><input id="agcwd" list="agfolders" spellcheck="false" placeholder="${esc(place)}" value="${esc(f.cwd)}" style="font-family:var(--mono);font-size:13px"><datalist id="agfolders"></datalist></label>
       <div class="dfield"><span>Agent</span><div class="dchips">${agentChips}</div></div>
       ${AG.error && !missing ? `<div class="derr">${esc(AG.error)}</div>` : ""}
@@ -4664,8 +4664,9 @@ function drawAgentNew() {
         <span class="dmuted" style="margin-left:auto">Or ask Beep in a chat to start one</span></div>
     </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "start"], ["esc", "cancel"]])}`;
   drawFolders();
-  $("#agprompt").addEventListener("input", e => { f.prompt = e.target.value; });
-  $("#agcwd").addEventListener("input", e => { f.cwd = e.target.value; });
+  $("#agprompt").addEventListener("input", e => { f.prompt = e.target.value; previewAuto(); });
+  $("#agcwd").addEventListener("input", e => { f.cwd = e.target.value; previewAuto(); });
+  previewAuto();
   bar.onclick = e => {
     if (S.view !== "agentnew") return;
     const m = e.target.closest("[data-agm]"), a = e.target.closest("[data-aga]");
@@ -4675,6 +4676,52 @@ function drawAgentNew() {
     else if (e.target.closest("#agno")) back();
     else if (e.target.closest("#agList")) renderAgents();
   };
+}
+
+/// What Auto would pick for the form as it stands: the server's answer for
+/// `key`, else nothing while it is asked.
+const PICK = { key: "", pick: null, error: "", timer: 0 };
+
+/// The line under the machines when Auto is on: where it would start now.
+function pickNote() {
+  const f = AG.form;
+  if (!f?.prompt.trim()) return "";
+  if (PICK.key !== pickKey()) return '<span class="dspin"></span> Choosing a machine…';
+  if (PICK.error) return esc(PICK.error);
+  if (!PICK.pick) return "";
+  return `Auto would pick <b>${esc(PICK.pick.machine_name)}</b>. ${esc(PICK.pick.why)}`;
+}
+
+function pickKey() {
+  const f = AG.form;
+  return JSON.stringify([f.prompt.trim(), f.cwd.trim(), f.agent]);
+}
+
+/// Asks the server where Auto would start the form, once typing pauses.
+/// Starting nothing; the answer only fills the note.
+function previewAuto() {
+  clearTimeout(PICK.timer);
+  const f = AG.form, note = () => $("#agwhy");
+  const auto = S.view === "agentnew" && f.machine === "auto" && AG.hosts?.length;
+  if (!auto) return;
+  if (note()) note().innerHTML = pickNote();
+  if (!f.prompt.trim() || PICK.key === pickKey()) return;
+  PICK.timer = setTimeout(async () => {
+    const key = pickKey();
+    let pick = null, error = "";
+    try {
+      pick = await invoke("agent_preview", { agent: f.agent, cwd: f.cwd.trim() || null, prompt: f.prompt.trim() });
+    } catch (e) {
+      error = String(e).replace(/^bad request: /, "");
+    }
+    if (key !== pickKey()) return;
+    Object.assign(PICK, { key, pick, error });
+    if (S.view !== "agentnew") return;
+    if (note()) {
+      note().innerHTML = pickNote();
+      note().hidden = !pick && !error;
+    }
+  }, 450);
 }
 
 /// Folder suggestions: the machine's workspace and home, then where its sessions ran.
