@@ -44,6 +44,7 @@ mod shell;
 mod stats;
 mod sync;
 mod tasks;
+mod terminals;
 pub mod transfer;
 
 pub use crate::protocol::node::{

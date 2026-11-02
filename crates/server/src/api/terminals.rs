@@ -1,12 +1,17 @@
 //! A project's terminals: commands a node keeps running in the background
-//! (`process/1`), named and listed per project. The node owns the command
-//! and its output; the store only says which task on which node.
+//! (`process/1`) or in a pseudo-terminal (`terminal/1`), named and listed
+//! per project. The node owns the command and its output; the store only
+//! says which task or terminal on which node. `attach` follows an
+//! interactive one live.
 
 use super::{Reply, agent_sessions::linked_keys};
 use crate::{
     nodes::Online,
     protocol::{
-        node::process::{Reply as TaskReply, Request as TaskRequest, Task, TaskId, TaskState},
+        node::{
+            process::{Reply as TaskReply, Request as TaskRequest, Task, TaskId, TaskState},
+            terminal::{Reply as PtyReply, Request as PtyRequest, Size},
+        },
         *,
     },
     router::Cx,
@@ -17,33 +22,28 @@ use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+pub(super) mod attach;
+
 /// The longest name, command or folder.
 const MAX_FIELD: usize = 1000;
 
 pub(super) async fn list_terminals(cx: Cx, request: ListTerminals) -> Reply<Vec<Terminal>> {
     let rows = cx.user.terminals(&request.project).await?;
     let names = machine_names(&cx).await?;
-    // Each machine is asked once for all its tasks.
-    let mut tasks: HashMap<String, Option<Vec<Task>>> = HashMap::new();
-    for endpoint in rows
-        .iter()
-        .map(|row| row.endpoint.clone())
-        .collect::<HashSet<_>>()
-    {
-        let listed = match online(&cx, &endpoint) {
-            Some(node) => match node.tasks(&TaskRequest::List {}).await {
-                Ok(TaskReply::Tasks { tasks }) => Some(tasks),
-                // A node that cannot list its tasks shows its terminals as offline.
-                Ok(_) | Err(_) => None,
-            },
+    // Each machine is asked once for all its tasks, and once for all its
+    // interactive terminals.
+    let mut tasks: HashMap<Place, Option<Vec<Task>>> = HashMap::new();
+    for place in rows.iter().map(Place::of).collect::<HashSet<_>>() {
+        let listed = match online(&cx, &place.endpoint) {
+            Some(node) => listed(&node, place.pty).await,
             None => None,
         };
-        tasks.insert(endpoint, listed);
+        tasks.insert(place, listed);
     }
     Ok(rows
         .into_iter()
         .map(|row| {
-            let state = match tasks.get(&row.endpoint) {
+            let state = match tasks.get(&Place::of(&row)) {
                 Some(Some(listed)) => state_of(&row, listed),
                 _ => TerminalState::Offline {},
             };
@@ -81,12 +81,65 @@ pub(super) async fn start_terminal(cx: Cx, request: StartTerminal) -> Reply<Term
         project: project.to_owned(),
         endpoint: request.machine_id.clone(),
         task: started.0,
+        pty: false,
         name,
         command: command.to_owned(),
         cwd: cwd.to_owned(),
         started_at: Utc::now(),
     };
     cx.user.add_terminal(&row).await?;
+    let names = HashMap::from([(request.machine_id, node.name.clone())]);
+    Ok(view(row, &names, TerminalState::Running {}))
+}
+
+pub(super) async fn open_terminal(cx: Cx, request: OpenTerminal) -> Reply<Terminal> {
+    let command = match request.command.trim() {
+        "" => None,
+        command => Some(field("command", command)?),
+    };
+    let cwd = field("folder", &request.cwd)?;
+    let project = field("project", &request.project)?;
+    let name = match request.name.trim() {
+        "" => command.unwrap_or("shell").to_owned(),
+        name => field("name", name)?.to_owned(),
+    };
+    if !linked_keys(&cx).await?.contains(&request.machine_id) {
+        return Err(ApiError::NotFound {});
+    }
+    let node = online(&cx, &request.machine_id).ok_or(ApiError::NotFound {})?;
+    let started = node
+        .terminals(&PtyRequest::Start {
+            command: command.map(str::to_owned),
+            cwd: Some(cwd.to_owned()),
+            size: Size::clamped(request.cols, request.rows),
+        })
+        .await
+        .and_then(|reply| match reply {
+            PtyReply::Started { task } => Ok(task),
+            PtyReply::Error { message } => bail!("{message}"),
+            other => bail!("the node answered {other:?}"),
+        })
+        .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
+    let row = TerminalRow {
+        id: Uuid::new_v4(),
+        project: project.to_owned(),
+        endpoint: request.machine_id.clone(),
+        task: started.id.0,
+        pty: true,
+        name,
+        // What the node calls it, such as the shell's name, so a restarted
+        // node's terminal under the same number is told apart.
+        command: started.command,
+        cwd: cwd.to_owned(),
+        started_at: Utc::now(),
+    };
+    if let Err(e) = cx.user.add_terminal(&row).await {
+        // Not kept, so nobody could stop it later.
+        if let Err(stop) = node.stop_terminal(&row).await {
+            log::warn!("an unsaved terminal was not stopped: {stop:#}");
+        }
+        return Err(e.into());
+    }
     let names = HashMap::from([(request.machine_id, node.name.clone())]);
     Ok(view(row, &names, TerminalState::Running {}))
 }
@@ -105,6 +158,19 @@ pub(super) async fn get_terminal(cx: Cx, request: GetTerminal) -> Reply<Terminal
             earlier: false,
         });
     };
+    if row.pty {
+        // Its output streams through `AttachTerminal`; this only says how
+        // it stands.
+        let state = match listed(&node, true).await {
+            Some(tasks) => state_of(&row, &tasks),
+            None => TerminalState::Offline {},
+        };
+        return Ok(TerminalOutput {
+            terminal: view(row, &names, state),
+            lines: Vec::new(),
+            earlier: false,
+        });
+    }
     let status = node
         .tasks(&TaskRequest::Status {
             id: TaskId(row.task),
@@ -136,12 +202,45 @@ pub(super) async fn close_terminal(cx: Cx, request: CloseTerminal) -> Reply<()> 
         .await?
         .ok_or(ApiError::NotFound {})?;
     if let Some(node) = online(&cx, &row.endpoint) {
-        node.stop_task(TaskId(row.task), &row.command)
+        node.stop_terminal(&row)
             .await
             .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
     }
     cx.user.remove_terminal(request.id).await?;
     Ok(())
+}
+
+/// Which listing a terminal's state comes from: its node's background
+/// tasks, or its interactive terminals.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct Place {
+    endpoint: String,
+    pty: bool,
+}
+
+impl Place {
+    fn of(row: &TerminalRow) -> Self {
+        Self {
+            endpoint: row.endpoint.clone(),
+            pty: row.pty,
+        }
+    }
+}
+
+/// `node`'s background tasks, or its interactive terminals when `pty`;
+/// `None` when it cannot list them, so its terminals show as offline.
+async fn listed(node: &Online, pty: bool) -> Option<Vec<Task>> {
+    if pty {
+        match node.terminals(&PtyRequest::List {}).await {
+            Ok(PtyReply::Terminals { terminals }) => Some(terminals),
+            Ok(_) | Err(_) => None,
+        }
+    } else {
+        match node.tasks(&TaskRequest::List {}).await {
+            Ok(TaskReply::Tasks { tasks }) => Some(tasks),
+            Ok(_) | Err(_) => None,
+        }
+    }
 }
 
 /// `text` trimmed, refused when empty, too long or on several lines.
@@ -156,7 +255,7 @@ fn field<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
 }
 
 /// The caller's machine `endpoint` when it is online now.
-fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
+pub(super) fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
     cx.app
         .nodes
         .online(endpoint)
@@ -183,7 +282,7 @@ fn state_of(row: &TerminalRow, tasks: &[Task]) -> TerminalState {
         .map_or(TerminalState::Gone {}, |task| state(task.state))
 }
 
-fn state(state: TaskState) -> TerminalState {
+pub(super) fn state(state: TaskState) -> TerminalState {
     match state {
         TaskState::Running => TerminalState::Running {},
         TaskState::Exited { code } => TerminalState::Exited { code },
@@ -216,6 +315,7 @@ mod tests {
             project: "acme/widget".into(),
             endpoint: "node".into(),
             task: 3,
+            pty: false,
             name: "dev-server".into(),
             command: "npm run dev".into(),
             cwd: "/srv/project".into(),

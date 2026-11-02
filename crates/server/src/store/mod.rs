@@ -476,6 +476,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "paused syncs",
         include_str!("../../migrations/0077_paused_syncs.sql"),
     ),
+    (
+        78,
+        "terminal ptys",
+        include_str!("../../migrations/0078_terminal_ptys.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

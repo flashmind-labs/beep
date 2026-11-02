@@ -27,8 +27,15 @@ mod stats;
 pub mod sync;
 pub mod syncthing;
 mod tasks;
+mod terminal;
 pub mod transfer;
 
-pub use tasks::kill_all as kill_tasks;
+/// Kills every background task and terminal still running, at once. For
+/// a host about to exit, such as the Mac app: a process exit drops nothing,
+/// so they would outlive it.
+pub fn kill_tasks() {
+    tasks::kill_all();
+    terminal::kill_all();
+}
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;

@@ -24,6 +24,7 @@ import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPl
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { makeTerminals, terminalTile } from "./terminals.ts";
+import { makeScreen } from "./termview.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
@@ -1787,7 +1788,7 @@ function layoutSwitch() {
 const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), starting: null as string | null, tile: null as string | null };
 
 /// The project's terminals; the board's tile and its full view.
-const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjects() });
+const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects() });
 
 /// The project's file sync; the board's tile and its full view.
 const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects() });

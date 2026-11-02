@@ -31,6 +31,8 @@ iroh-blobs = { version = "0.104", default-features = false, features = ["fs-stor
 log = "0.4"
 logforth = { version = "0.30", features = ["starter-log"], optional = true }
 notify = "8"
+# Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
+portable-pty = "0.9"
 rmp-serde = "1"
 roxmltree = "0.20"
 # flsh keeps its sessions in SQLite; the same version flashmind uses.

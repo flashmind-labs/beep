@@ -364,6 +364,7 @@ mod tests {
                     project: name.into(),
                     endpoint: endpoint.clone(),
                     task: 4,
+                    pty: false,
                     name: "dev".into(),
                     command: "npm run dev".into(),
                     cwd: "/srv/code".into(),
