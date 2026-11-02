@@ -1,4 +1,4 @@
-//! An app with an admin and a user for the watchers' tests, on a model
+//! An app with two users for the watchers' tests, on a model
 //! that answers each system prompt as a test tells it to.
 
 use crate::{
@@ -12,7 +12,7 @@ use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider,
     StreamEvent,
 };
-use iroh::SecretKey;
+
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicI64, Ordering},
@@ -77,9 +77,7 @@ pub(crate) struct Harness {
     pub _db: TestDb,
     pub app: Arc<App>,
     pub model: Arc<Scripted>,
-    /// An admin, whose chats are watched.
     pub alice: Arc<User>,
-    /// Not an admin.
     pub bob: Arc<User>,
 }
 
@@ -88,9 +86,8 @@ impl Harness {
         let db = TestDb::new().await.expect("a test database");
         let store = db.store().await.expect("a store");
         let model = Arc::new(model);
-        let admin = SecretKey::generate().public();
         let default = "openai:test".parse().expect("a model name");
-        let models = ModelChoices::resolve(model.as_ref(), default, Vec::new(), &[admin]).await;
+        let models = ModelChoices::resolve(model.as_ref(), default, Vec::new()).await;
         let app = App::new(
             store,
             model.clone(),
@@ -98,7 +95,6 @@ impl Harness {
             ServerTools::default(),
             models,
         );
-        app.models.admit("alice", &admin.to_string());
         let start = |id: &str| {
             app.user_for(&Account {
                 id: id.to_owned(),
