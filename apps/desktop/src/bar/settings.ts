@@ -1,7 +1,7 @@
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, renderApps } from "./apps.ts";
 import { toWindow } from "./chat.ts";
-import { $, bar, esc, ICON, invoke, S, windowHooks } from "./core.ts";
+import { bar, esc, ICON, invoke, S, windowHooks } from "./core.ts";
 import { hints, refreshHints } from "./hints.ts";
 import { renderInvitePhone, renderLink } from "./link.ts";
 import { type Machine, MC, renderMachines } from "./machines.ts";
@@ -125,9 +125,10 @@ export const setShown = () => SET.root ? SET.root.isConnected : S.view === "sett
 
 // Permissions are granted in System Settings; coming back shows them.
 // Not while a token is typed in Credentials: the redraw would drop it.
+// In the window the fields are in the sheet, not the pane.
 window.addEventListener("focus", () => {
-  const typed = (sel: string) => $<HTMLInputElement>(sel)?.value;
-  if (setShown() && !$("#unlinkYes") && !typed("#credSecret") && !typed("#agSecret")) renderSettings();
+  const $set = (sel: string) => setRoot().querySelector<HTMLInputElement>(sel);
+  if (setShown() && !$set("#unlinkYes") && !$set("#credSecret")?.value && !$set("#agSecret")?.value) renderSettings();
 });
 
 /// Rows that stand in for a section until the server answers.
