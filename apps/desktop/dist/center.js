@@ -301,6 +301,13 @@ function updateTime(ms) {
   return at.toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
+/// When a chat started, for its title line: "09:12" today, then as an
+/// update's time reads.
+function startedWhen(ms) {
+  const t = updateTime(ms);
+  return t === "Yesterday" ? "yesterday" : t;
+}
+
 /// Updates dismissed here that a list may still carry, by id.
 const dismissedUpdates = new Set();
 
@@ -1496,7 +1503,8 @@ function paneTitle() {
   if (on.view === "chat") {
     const c = chatList.find(x => x.id === on.session);
     // A chat just started is not in the list until the server has it.
-    return { title: c?.title ?? "New chat", tools: c ? [pinButton(c)] : [] };
+    const at = pane().startedAt?.();
+    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [] };
   }
   if (on.group) {
     const g = chatList.find(x => x.id === on.group);
