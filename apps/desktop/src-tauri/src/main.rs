@@ -235,6 +235,11 @@ fn main() {
             terminals::terminal_start,
             terminals::terminal_output,
             terminals::terminal_close,
+            terminals::terminal_open,
+            terminals::terminal_attach,
+            terminals::terminal_input,
+            terminals::terminal_resize,
+            terminals::terminal_detach,
             threads::center_project_issues,
             threads::center_track_issue,
             threads::center_dismiss_issue,
@@ -414,6 +419,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(center::Shown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());
+    app.manage(terminals::Attached::default());
     app.state::<machine::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
