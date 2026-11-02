@@ -260,3 +260,10 @@ test("a card's bar, counts and status line", () => {
   assert.equal(latestLine(null), "No tasks yet");
   assert.deepEqual([0, 1, 2].map(workersLabel), ["idle", "1 worker", "2 workers"]);
 });
+
+test("a running folder takes org/repo from the found checkout's remote", () => {
+  const run = { kind: "agent", machine_id: "m1", machine_name: "build-box", cwd: "/srv/work/widget-fix/src", started_at: 1 };
+  const found = [{ remote: "git@github.com:org/widget.git", places: [{ machine_id: "m1", folder: "/srv/work/widget-fix" }] }];
+  assert.deepEqual(mergeProjects([], [run], found).map(r => r.name), ["org/widget"]);
+  assert.deepEqual(mergeProjects([], [run], []).map(r => r.name), ["src"]);
+});
