@@ -2424,8 +2424,9 @@ const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Ma
 /// until the server answers and null when it failed; `edit` is the row
 /// whose token is being typed.
 /// `cli` is what gh and teacli on this Mac are signed in to, `cliBusy` the
-/// sign-in being saved and `cliError` why one was refused.
-const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null };
+/// sign-in being saved and `cliError` why one was refused. `ghFlow` is gh's
+/// browser sign-in under way: { code, url, copied }.
+const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null };
 const credModule = () => import("./credentials.js").then(m => (CRED.mod = m));
 
 function setCredsHtml() {
@@ -2460,6 +2461,34 @@ async function loadCreds() {
     CRED.list ??= null;
   }
   if (setShown()) fillSection("creds", setCredsHtml());
+}
+
+/// Runs gh's browser sign-in: Beep shows the code gh prints (and copies
+/// it), GitHub opens in the browser, and once the code is entered there the
+/// token is saved with no further click. Cancel or a failure shows why.
+async function signInGh(redraw) {
+  if (CRED.ghFlow) return;
+  CRED.ghFlow = { code: "", url: "", copied: false };
+  CRED.cliError = null;
+  redraw();
+  const onCode = new Channel();
+  onCode.onmessage = async ({ code, url }) => {
+    if (!CRED.ghFlow) return;
+    CRED.ghFlow = { code, url, copied: false };
+    redraw();
+    await copy(code);
+    if (CRED.ghFlow?.code === code) {
+      CRED.ghFlow.copied = true;
+      redraw();
+    }
+  };
+  try {
+    await invoke("gh_sign_in", { onCode });
+  } catch (e) {
+    CRED.cliError = { key: "github", message: String(e) };
+  }
+  CRED.ghFlow = null;
+  await loadCreds();
 }
 
 /// Binds the Credentials controls inside `el`.
@@ -2497,9 +2526,10 @@ function bindCreds(el) {
     CRED.cliBusy = "";
     await loadCreds();
   }));
-  el.querySelectorAll("[data-cred-recheck]").forEach(b => b.addEventListener("click", () => {
+  el.querySelectorAll("[data-cred-gh]").forEach(b => b.addEventListener("click", () => signInGh(redraw)));
+  el.querySelectorAll("[data-cred-gh-cancel]").forEach(b => b.addEventListener("click", () => {
     b.disabled = true;
-    loadCliLogins();
+    invoke("cancel_gh_sign_in").catch(console.warn);
   }));
   el.querySelectorAll("[data-cred-open]").forEach(a => a.addEventListener("click", e => {
     e.preventDefault();

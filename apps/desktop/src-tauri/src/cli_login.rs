@@ -90,11 +90,7 @@ pub async fn cli_logins() -> Result<CliLogins> {
 #[tauri::command]
 pub async fn use_cli_login(beep: State<'_, Arc<Beep>>, host: Kind) -> Result<CredentialView> {
     let token = match &host {
-        Kind::Github => match gh_login(false).await? {
-            Login::SignedIn { token, .. } => token,
-            Login::SignedOut => return Err(refused("gh is not signed in on this Mac")),
-            Login::Missing => return Err(refused("gh is not installed on this Mac")),
-        },
+        Kind::Github => gh_token().await?,
         Kind::Forgejo { url } => tea_logins()
             .await?
             .into_iter()
@@ -106,7 +102,21 @@ pub async fn use_cli_login(beep: State<'_, Arc<Beep>>, host: Kind) -> Result<Cre
     credentials::save(&beep, host, token, true).await
 }
 
-fn refused(reason: &str) -> DesktopError {
+/// Saves the token `gh` holds for github.com, checked by the server.
+pub(crate) async fn save_gh_login(beep: &Beep) -> Result<CredentialView> {
+    credentials::save(beep, Kind::Github, gh_token().await?, true).await
+}
+
+/// The token `gh` holds for github.com, or why there is none.
+async fn gh_token() -> Result<SecretText> {
+    match gh_login(false).await? {
+        Login::SignedIn { token, .. } => Ok(token),
+        Login::SignedOut => Err(refused("gh is not signed in on this Mac")),
+        Login::Missing => Err(refused("gh is not installed on this Mac")),
+    }
+}
+
+pub(crate) fn refused(reason: &str) -> DesktopError {
     DesktopError::BadRequest(reason.into())
 }
 
@@ -173,7 +183,7 @@ fn parse_login(out: &str) -> Option<String> {
 }
 
 /// The first `name` on `PATH`, then in the usual tool folders.
-fn find_tool(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH").unwrap_or_default();
     let home = env::var_os("HOME").map(PathBuf::from);
     tool_dirs(&path, home.as_deref())
