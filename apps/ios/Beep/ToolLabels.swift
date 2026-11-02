@@ -44,7 +44,7 @@ private func memoryLabel(_ output: String) -> String? {
 /// Tools whose words from the server say more than the name: the action ones, and those that
 /// name the machine, file or app they work on. Other tools' server words just list arguments.
 private let describedTools: Set<String> = [
-    "memory", "background", "skill", "habit", "reminder", "node", "mac_files",
+    "memory", "background", "skill", "habit", "reminder", "node",
     "desktop", "code_agent", "send_file",
 ]
 
@@ -74,7 +74,6 @@ private let toolLabels: [String: String] = [
     "open_browser": "Opening a page",
     "browser": "Browsing",
     "node": "Using your machines",
-    "mac_files": "Looking at your Mac's files",
     "event_topics": "Checking which updates you get",
     "hold_events": "Holding updates for later",
     "recent_events": "Checking recent updates",
