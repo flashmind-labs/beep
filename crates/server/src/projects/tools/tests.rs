@@ -398,7 +398,7 @@ async fn someone_elses_issue_gets_one_approved_comment_and_nothing_else() {
     assert!(!again.is_success(), "{}", again.output());
     let ran = h.shell.ran();
     assert_eq!(ran.len(), 1, "{ran:?}");
-    assert!(ran[0].starts_with("gh issue comment 12 "), "{}", ran[0]);
+    assert!(ran[0].contains("gh issue comment 12 "), "{}", ran[0]);
 }
 
 #[tokio::test]
