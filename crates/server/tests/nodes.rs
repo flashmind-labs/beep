@@ -17,19 +17,21 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online},
     protocol::{
-        AgentEntryKind, AgentImageData, AgentPlanStatus, AgentStatus, AgentSteer,
-        AnswerAgentQuestion, ApiError, CreateNodeToken, DeviceKind, GetAgentImage, GetAgentSession,
-        GetNodeToken, ListAgentHosts, ListAgentImages, ListAgentSessions, ListMachineDetails,
-        ListMachineStats, ListMachines, ListMemoryScopes, ListProjectSessions, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, StartAgentSession, SteerAgentSession, Upload, image_key,
+        AgentEntryKind, AgentImageData, AgentModel, AgentModelPick, AgentModels, AgentPlanStatus,
+        AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError, CreateNodeToken, DeviceKind,
+        GetAgentImage, GetAgentSession, GetNodeToken, ListAgentHosts, ListAgentImages,
+        ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
+        ListMemoryScopes, ListProjectSessions, MachineCapability, MemoryScope, MemorySource,
+        PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken, StartAgentSession,
+        SteerAgentSession, Upload, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
             agent::{
-                AnswerOption, Entry, EntryKind, Event, ExternalSession, OptionKind, PlanEntry,
-                PlanStatus, Presence, Question, Request, SESSIONS_PROTOCOL, SessionInfo,
-                SessionsReply, SessionsRequest, State, Status, StopReason,
+                AnswerOption, Entry, EntryKind, Event, ExternalSession, ModelList, ModelOption,
+                ModelPick, OptionKind, PlanEntry, PlanStatus, Presence, Question, Request,
+                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
+                StopReason,
             },
         },
         setup::SetupToken,
@@ -358,6 +360,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
             "fake",
             Some(cwd.display().to_string()),
             "please pick the notes".into(),
+            None,
         )
         .await
         .unwrap();
@@ -476,7 +479,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     assert_eq!(closed.ended.as_deref(), Some("closed"));
 
     let refused = live
-        .start_agent("fake", Some("/no/such/folder".into()), "hi".into())
+        .start_agent("fake", Some("/no/such/folder".into()), "hi".into(), None)
         .await
         .err()
         .expect("a missing folder is refused");
@@ -592,6 +595,7 @@ async fn a_real_claude_session_writes_a_file() {
             Some(cwd.display().to_string()),
             "Create a file named hello.txt containing the word hi. Then reply with just: done"
                 .into(),
+            None,
         )
         .await
         .unwrap();
@@ -1078,6 +1082,9 @@ struct FakeAgents {
     orders: Option<mpsc::UnboundedSender<Request>>,
     /// The PNGs `Image` finds, by session.
     images: Vec<(String, Vec<u8>)>,
+    /// What `Models` answers; `None` closes the stream unanswered, as a
+    /// node from before it does.
+    models: Option<ModelList>,
 }
 
 impl FakeAgents {
@@ -1111,6 +1118,19 @@ impl Protocol for FakeSessions {
                 // Holds the stream until the server drops it.
                 while rx.recv::<SessionsRequest>().await?.is_some() {}
                 return Ok(());
+            }
+            if let SessionsRequest::Models { agent } = &request {
+                let Some(models) = fake.models.clone() else {
+                    return Ok(());
+                };
+                let reply = if agent == "claude" {
+                    SessionsReply::Models { models }
+                } else {
+                    SessionsReply::Error {
+                        message: format!("no agent {agent}"),
+                    }
+                };
+                return tx.send(&reply).await;
             }
             let reply = match (request, &fake.external) {
                 (SessionsRequest::List {}, _) => SessionsReply::Sessions {
@@ -1168,7 +1188,7 @@ impl Protocol for FakeClaude {
         let fake = self.0.clone();
         Box::pin(async move {
             let first = rx.recv::<Request>().await?;
-            if let Some(Request::Start { cwd, prompt }) = &first {
+            if let Some(Request::Start { cwd, prompt, .. }) = &first {
                 if let Some(orders) = &fake.orders {
                     orders
                         .send(first.clone().expect("a start"))
@@ -1688,6 +1708,7 @@ fn start(machine_id: Option<String>, prompt: &str) -> StartAgentSession {
         prompt: prompt.into(),
         needs: Vec::new(),
         chat: None,
+        model: None,
     }
 }
 
@@ -1722,7 +1743,8 @@ async fn start_agent_session_on_a_named_machine() {
         order,
         Request::Start {
             cwd: Some("/srv/project".into()),
-            prompt: "Fix the tests".into()
+            prompt: "Fix the tests".into(),
+            model: None,
         }
     );
     let refused = client.call(&start(Some(build), "   ")).await.unwrap_err();
@@ -2437,4 +2459,86 @@ async fn only_the_maker_revokes_a_token() {
         .unwrap_err();
     assert!(format!("{refused:#}").contains("unknown"), "{refused:#}");
     server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn agent_models_come_from_the_node_and_reach_the_start() {
+    let mut center = CommandCenter::new(1).await;
+    let (orders, mut received) = mpsc::unbounded_channel();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                orders: Some(orders),
+                models: Some(ModelList {
+                    pick: ModelPick::Listed,
+                    current: Some("fast".into()),
+                    models: vec![ModelOption {
+                        id: "deep".into(),
+                        name: "Deep".into(),
+                        description: Some("Slower, more careful".into()),
+                    }],
+                }),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let older = center.node(0, "old-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let list = |machine_id: &str, agent: &str| ListAgentModels {
+        machine_id: machine_id.into(),
+        agent: agent.into(),
+    };
+    let listed = client.call(&list(&build, "claude")).await.unwrap();
+    assert_eq!(
+        listed,
+        AgentModels {
+            pick: AgentModelPick::Listed {},
+            current: Some("fast".into()),
+            models: vec![AgentModel {
+                id: "deep".into(),
+                name: "Deep".into(),
+                description: Some("Slower, more careful".into()),
+            }],
+        }
+    );
+    // A node from before models closes the stream: the form hides the field.
+    let fixed = client.call(&list(&older, "claude")).await.unwrap();
+    assert_eq!(fixed.pick, AgentModelPick::Fixed {});
+    assert!(fixed.models.is_empty());
+    let bad_request = |error: anyhow::Error| {
+        matches!(
+            error.downcast::<ApiError>().unwrap(),
+            ApiError::BadRequest { .. }
+        )
+    };
+    let unknown = client.call(&list(&build, "codex")).await.unwrap_err();
+    assert!(bad_request(unknown), "the machine offers no codex");
+    let elsewhere = client.call(&list("nope", "claude")).await.unwrap_err();
+    assert!(matches!(
+        elsewhere.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+
+    let on_model = |model: &str| StartAgentSession {
+        model: Some(model.into()),
+        ..start(Some(build.clone()), "Fix the tests")
+    };
+    client.call(&on_model(" deep ")).await.unwrap();
+    let order = timeout(Duration::from_secs(5), received.recv())
+        .await
+        .expect("the node got the start")
+        .expect("the fake still runs");
+    assert_eq!(
+        order,
+        Request::Start {
+            cwd: Some("/srv/project".into()),
+            prompt: "Fix the tests".into(),
+            model: Some("deep".into()),
+        }
+    );
+    let refused = client.call(&on_model("deep\nrm")).await.unwrap_err();
+    assert!(bad_request(refused));
+    center.shutdown().await;
 }

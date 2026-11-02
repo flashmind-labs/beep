@@ -13,7 +13,7 @@ use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
-            self, Entry, Event, ExternalSession, Question, Request, SESSIONS_PROTOCOL,
+            self, Entry, Event, ExternalSession, ModelList, Question, Request, SESSIONS_PROTOCOL,
             SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Status, StopReason,
         },
         link,
@@ -53,6 +53,10 @@ pub(crate) struct NodeImage {
     pub(crate) mime: String,
     pub(crate) data: Vec<u8>,
 }
+
+/// How long a node has to list an agent's models: it may start the agent
+/// to ask, and npx may first download its adapter.
+const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Unreadable messages in a row before a link gives up.
 const MAX_BAD_MESSAGES: u32 = 8;
@@ -249,14 +253,40 @@ impl Online {
         self.agents.set_owner(session, owner);
     }
 
-    /// Starts a session of `agent` in `cwd` on `prompt` and follows it.
+    /// Starts a session of `agent` in `cwd` on `prompt` and follows it, on
+    /// `model` when given.
     pub async fn start_agent(
         &self,
         agent: &str,
         cwd: Option<String>,
         prompt: String,
+        model: Option<String>,
     ) -> Result<Arc<AgentLink>> {
-        self.open_agent(agent, Request::Start { cwd, prompt }).await
+        self.open_agent(agent, Request::Start { cwd, prompt, model })
+            .await
+    }
+
+    /// The models `agent` can run on here, as the node finds them; `None`
+    /// from a node too old to say, which closes the stream.
+    pub(crate) async fn agent_models(&self, agent: &str) -> Result<Option<ModelList>> {
+        let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
+        tx.send(&SessionsRequest::Models {
+            agent: agent.to_owned(),
+        })
+        .await?;
+        let reply = timeout(MODELS_TIMEOUT, rx.recv::<SessionsReply>())
+            .await
+            .context("the node did not answer")?;
+        match reply {
+            Ok(Some(SessionsReply::Models { models })) => Ok(Some(models)),
+            Ok(Some(SessionsReply::Error { message })) => bail!("{message}"),
+            Ok(Some(other)) => bail!("the node answered {other:?}"),
+            Ok(None) => Ok(None),
+            Err(e) => {
+                log::debug!("node did not list models; agent={agent} error={e:#}");
+                Ok(None)
+            }
+        }
     }
 
     /// Follows `session`, attaching to it when no stream does yet.

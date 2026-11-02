@@ -655,8 +655,19 @@ requests! {
     /// of the caller's chats, then hears when a turn ends or the agent
     /// asks something. `NotFound` when the machine is not one of the
     /// caller's online ones or `chat` is not theirs; `BadRequest` saying
-    /// why when no machine fits or the node refuses.
-    141 StartAgentSession { machine_id: Option<String>, agent: Option<String>, cwd: Option<String>, prompt: String, needs: Vec<MachineCapability>, chat: Option<Uuid> } => Call<StartedAgent>
+    /// why when no machine fits or the node refuses. `model`, an id from
+    /// `ListAgentModels`, picks the agent's model; the agent's own default
+    /// when `None`. Older apps send none.
+    141 StartAgentSession {
+        machine_id: Option<String>,
+        agent: Option<String>,
+        cwd: Option<String>,
+        prompt: String,
+        needs: Vec<MachineCapability>,
+        chat: Option<Uuid>,
+        #[serde(default)]
+        model: Option<String>,
+    } => Call<StartedAgent>
     /// One session as `ListAgentSessions` lists it, with its plan, the
     /// files it changed and the last `last` entries of its transcript (at
     /// most 200). An outside session has no plan or files. `NotFound` when
@@ -1042,6 +1053,13 @@ requests! {
     /// and pull requests on its host stay as they are. Importing it again
     /// starts it afresh. `NotFound` when the caller has no such project.
     252 RemoveProject { project: String } => Call<()>
+    /// The models the coding agent `agent` can run on `machine_id`, for
+    /// `StartAgentSession`'s `model`, read from the node, which keeps them
+    /// a few minutes. `AgentModelPick::Fixed` when its beep-node is too old
+    /// to pick one. `NotFound` when the machine is not one of the caller's
+    /// online ones; `BadRequest` saying why when it has no such agent or
+    /// does not answer.
+    253 ListAgentModels { machine_id: String, agent: String } => Call<AgentModels>
     /// The picture of a `[image: image-<key>]` line in the log of the
     /// coding agent session `session` on `machine_id`, read from the node
     /// on each call; the server keeps nothing. `NotFound` when the caller
@@ -1155,6 +1173,43 @@ impl AgentAccount {
             Self::Codex => "CODEX_API_KEY",
         }
     }
+}
+
+/// The models a coding agent can run on a machine, as `ListAgentModels`
+/// gives them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentModels {
+    pub pick: AgentModelPick,
+    /// The model the agent runs when none is picked, when it says.
+    pub current: Option<String>,
+    /// The models to pick from, for `AgentModelPick::Listed`.
+    pub models: Vec<AgentModel>,
+}
+
+wire_enum! {
+    /// How the start form picks a coding agent's model: `Fixed` when none
+    /// can be picked (the agent runs its own, or the machine's beep-node is
+    /// too old to pick one), `Listed` from `AgentModels::models`, `Named`
+    /// by any name the agent takes when it lists none.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum AgentModelPick {
+        0 Fixed {}
+        1 Listed {}
+        2 Named {}
+    }
+}
+
+/// One model a coding agent offers.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentModel {
+    /// What `StartAgentSession::model` names it by.
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
 }
 
 /// The machine Auto would start a coding agent on, as

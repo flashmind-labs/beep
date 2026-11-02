@@ -111,6 +111,10 @@ export interface AgentForm {
   places?: { machine: string; cwd: string }[];
   /// The chat the form was opened from, which hears how the session goes.
   chat: string | null;
+  /// The model picked or typed; empty for the agent's own.
+  model?: string;
+  /// The machine and agent `model` was picked for, as `machine/agent`.
+  modelFor?: string;
 }
 
 /// What `agent_steer` sends: a message, or stop the turn, or close the session.

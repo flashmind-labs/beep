@@ -138,7 +138,10 @@ pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> R
     let mut rows: Vec<ShardRow> = Vec::with_capacity(parts.len());
     for (n, part) in parts.iter().enumerate() {
         let prompt = reviewer_prompt(&subject, &facts.changed, part);
-        match node.start_agent(&agent, Some(cwd.clone()), prompt).await {
+        match node
+            .start_agent(&agent, Some(cwd.clone()), prompt, None)
+            .await
+        {
             Ok(link) => rows.push(ShardRow {
                 shard: u32::try_from(n).map_err(anyhow::Error::from)?,
                 area: part.area.clone(),
