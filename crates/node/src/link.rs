@@ -320,6 +320,7 @@ async fn open_as(
         workspace: hello.workspace.map(str::to_owned),
         setup: hello.setup.cloned(),
         credentials: offers.provision.is_some(),
+        agent_settings: true,
     })
     .await?;
     let mut claimed = None;
@@ -391,6 +392,9 @@ impl Linked {
         if let Some(provision) = &offers.provision {
             provision.forget().await;
         }
+        // The harnesses' env vars may be secrets too; the server sends the
+        // settings again on reconnecting.
+        offers.agents.set_settings(Default::default());
         served
     }
 }
@@ -434,6 +438,7 @@ async fn serve_linked(
                     Some(provision) => provision.apply(credentials).await,
                     None => log::debug!("credentials came to a node that does not take them"),
                 },
+                Ok(Some(Down::AgentSettings(settings))) => offers.agents.set_settings(settings),
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
