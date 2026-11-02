@@ -11,7 +11,6 @@ use super::{
     machines::machine_capability,
 };
 use crate::{
-    instance::Privilege,
     nodes::{Follower, Online, agent_name},
     protocol::{
         node::agent::{self, PlanStatus, Request, SessionInfo},
@@ -77,9 +76,6 @@ impl Live {
 /// The caller's online machines that offer an agent, in the order the
 /// store lists them. A machine whose key was unlinked is left out.
 pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
-    if !cx.app.allows(Privilege::Nodes, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
     let keys = linked_keys(cx).await?;
     Ok(cx
         .user
@@ -129,7 +125,7 @@ async fn live_host(cx: &Cx, machine_id: &str) -> Result<Live, ApiError> {
         .ok_or(ApiError::NotFound {})
 }
 
-/// Admins only, like `ListMachines`.
+/// The caller's own machines, like `ListMachines`.
 pub(super) async fn list_agent_hosts(cx: Cx, _: ListAgentHosts) -> Reply<Vec<AgentHost>> {
     Ok(live_hosts(&cx)
         .await?
@@ -138,8 +134,8 @@ pub(super) async fn list_agent_hosts(cx: Cx, _: ListAgentHosts) -> Reply<Vec<Age
         .collect())
 }
 
-/// Admins only. Takes over the session on its machine; the node refuses one
-/// that still runs in a terminal or whose folder is gone.
+/// Takes over the session on its machine; the node refuses one that
+/// still runs in a terminal or whose folder is gone.
 pub(super) async fn resume_agent_session(
     cx: Cx,
     resume: ResumeAgentSession,
@@ -171,8 +167,8 @@ pub(super) async fn resume_agent_session(
     })
 }
 
-/// Admins only. Auto reads what the prompt and folder call for and picks
-/// among the machines that have it.
+/// Auto reads what the prompt and folder call for and picks among the
+/// machines that have it.
 pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Reply<StartedAgent> {
     let prompt = start.prompt.trim().to_owned();
     if prompt.is_empty() {
@@ -385,8 +381,8 @@ async fn running(online: &Online) -> u32 {
     }
 }
 
-/// Admins only. A transcript that cannot be read leaves `entries` empty,
-/// so the rest still shows.
+/// A transcript that cannot be read leaves `entries` empty, so the rest
+/// still shows.
 pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<AgentSessionView> {
     let live = live_host(&cx, &get.machine_id).await?;
     let host = live.host();
@@ -486,8 +482,8 @@ fn entry(entry: agent::Entry) -> AgentEntry {
     }
 }
 
-/// Admins only. Only sessions Beep runs take orders; one started outside
-/// Beep is not found.
+/// Only sessions Beep runs take orders; one started outside Beep is not
+/// found.
 pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Reply<()> {
     // Refused before the machine is looked up, so an oversized message
     // costs nothing more.

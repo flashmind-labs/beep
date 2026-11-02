@@ -19,8 +19,6 @@ use tokio::time::sleep;
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
-/// How long to wait after the server turned this Mac away before asking again.
-const REFUSED_RETRY: Duration = Duration::from_secs(30 * 60);
 
 /// Where the link stands, as Settings shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -30,9 +28,7 @@ pub enum Status {
     Off,
     Connecting,
     Connected,
-    /// The server lets only admins use their computers this way for now.
-    NotAllowed,
-    /// The last try failed for another reason; `View::error` says why.
+    /// The last try failed; `View::error` says why.
     /// The link tries again on its own.
     Failed,
     /// This Mac is not linked to an account.
@@ -180,8 +176,8 @@ async fn stay_linked(
             set(Status::Unlinked);
             return;
         }
-        // After a refusal or a failure, it says so until a try works.
-        if !matches!(lock(&shared).status, Status::Failed | Status::NotAllowed) {
+        // After a failure, it says so until a try works.
+        if lock(&shared).status != Status::Failed {
             set(Status::Connecting);
         }
         log::info!("opening this Mac's node link as {name:?}");
@@ -194,15 +190,6 @@ async fn stay_linked(
                     Ok(()) => log::info!("the server closed this Mac's node link"),
                     Err(e) => log::warn!("node link lost: {e:#}"),
                 }
-            }
-            Err(e) if format!("{e:#}").contains("admins") => {
-                log::info!(
-                    "the server does not let this account add machines, asking again in {} minutes: {e:#}",
-                    REFUSED_RETRY.as_secs() / 60
-                );
-                set(Status::NotAllowed);
-                sleep(REFUSED_RETRY).await;
-                continue;
             }
             Err(e) => {
                 log::info!(
