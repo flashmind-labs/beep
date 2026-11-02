@@ -138,7 +138,10 @@ pub(crate) async fn prepare(
         app: app.clone(),
         user: user.clone(),
     };
-    let mut base = project.default_branch.clone();
+    let mut base = request
+        .base
+        .clone()
+        .unwrap_or_else(|| project.default_branch.clone());
     if let Some(after) = task.depends_on {
         let after = user
             .project_task(after)

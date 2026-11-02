@@ -47,7 +47,7 @@ impl Live {
     }
 
     /// `named`, or the one this machine prefers when the call names none.
-    fn agent(&self, named: Option<&str>) -> Result<String, ApiError> {
+    pub(super) fn agent(&self, named: Option<&str>) -> Result<String, ApiError> {
         if let Some(named) = named {
             return if self.offers(named) {
                 Ok(named.to_owned())

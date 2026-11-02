@@ -380,3 +380,54 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .tm-f input { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: rgba(0,0,0,.25); color: var(--fg); font: 12.5px var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
 .tm-f input:focus { border-color: rgba(59,155,122,.6) }
 .tm-chips { display: flex; gap: 6px; flex-wrap: wrap }
+
+/* Review before merge: facts, findings, the reviewers' shards, the actions. */
+.rv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
+.rv-head h3 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.rv-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 0 9px; line-height: 21px; border-radius: 999px; border: 1px solid; white-space: nowrap }
+.rv-pill.changes { color: #E9B949; border-color: rgba(233,185,73,.5); background: rgba(233,185,73,.08) }
+.rv-pill.ready { color: var(--emerald); border-color: rgba(59,155,122,.55); background: rgba(59,155,122,.1) }
+.rv-pill.blocked { color: var(--err); border-color: rgba(232,104,90,.5); background: rgba(232,104,90,.08) }
+.rv-pill.running { color: var(--muted); border-color: var(--border) }
+.rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin { width: 9px; height: 9px }
+.rv-facts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px }
+.rv-fact { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); font-size: 12px; white-space: nowrap }
+.rv-fact b { font-weight: 600 }
+.rv-fact code { font-family: var(--mono); font-size: 11.5px }
+.rv-fact.bad { border-color: rgba(232,104,90,.5); color: #F4AFA5 }
+.rv-fact .ddot.bad { background: var(--err) }
+.rv-tools { margin-left: auto; display: flex; gap: 6px }
+.rv-cfl { align-items: flex-start; margin-bottom: 12px }
+.rv-cfl .ddot { margin-top: 6px; background: var(--err) }
+.rv-cfl-t { display: grid; gap: 2px }
+.rv-cfl-t span { color: var(--muted) }
+.rv-cfl-t code { font-family: var(--mono); font-size: 11.5px }
+.rv-find { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 11px; align-items: start }
+.rv-find + .rv-find { border-top: 1px solid var(--border) }
+.rv-find.gone { opacity: .7 }
+.rv-sev { justify-self: start; font-size: 10.5px; font-weight: 600; line-height: 17px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted) }
+.rv-sev.high { color: var(--err); border-color: rgba(232,104,90,.5) }
+.rv-sev.medium { color: #E9B949; border-color: rgba(233,185,73,.45) }
+.rv-find .t { display: grid; gap: 2px; min-width: 0 }
+.rv-find .t b { font-size: 13px; font-weight: 500; line-height: 18px }
+.rv-find .t code { font-family: var(--mono); font-size: 11.5px; color: #9DC3F0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.rv-find .t span { font-size: 11.5px; color: var(--muted) }
+.rv-side { display: grid; justify-items: end; gap: 4px }
+.rv-side .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
+.rv-ver { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--emerald); white-space: nowrap }
+.rv-ver.wait { color: var(--muted) }
+.rv-more { padding: 14px; border-top: 1px solid var(--border) }
+.rv-sum { max-width: 50ch }
+.rv-sum-row { padding: 9px 11px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted) }
+.rv-shard { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 2px 10px; padding: 9px 11px; align-items: center }
+.rv-shard + .rv-shard { border-top: 1px solid var(--border) }
+.rv-shard .t { display: grid; line-height: 17px; min-width: 0 }
+.rv-shard .t b { font-size: 12.5px; font-weight: 500; font-family: var(--mono) }
+.rv-shard .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.rv-shard .pj-st { max-width: 180px; overflow: hidden; text-overflow: ellipsis }
+.pj-st.done { color: var(--emerald); border-color: rgba(59,155,122,.45) }
+.pj-st.bad { color: var(--err); border-color: rgba(232,104,90,.5) }
+.pj-task .acts.rv-acts .dbtn { margin-left: 0 }
+.rv-hint { font-size: 11.5px; color: var(--muted); padding: 7px 2px 0; line-height: 16px }
+.rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--border); background: var(--ink) }
+.rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--muted) }

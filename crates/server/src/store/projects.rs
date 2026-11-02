@@ -1560,6 +1560,7 @@ mod tests {
             .await
             .unwrap();
         let start = StartRequest {
+            base: None,
             machine: Some("gpu-box".into()),
             agent: Some(WorkerAgent::Codex),
             persona: None,
@@ -1645,6 +1646,7 @@ mod tests {
             .await
             .unwrap();
         let request = StartRequest {
+            base: None,
             machine: Some("gpu-box".into()),
             agent: Some(WorkerAgent::Codex),
             persona: None,

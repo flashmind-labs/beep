@@ -17,6 +17,7 @@ import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, revie
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted } from "./project.js";
 import { registerInstructions } from "./instructions.js";
 import { makeTerminals, terminalTile } from "./terminals.js";
+import { makeReviews, branchTile } from "./review.js";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
@@ -1248,6 +1249,7 @@ function boardOn(p) {
 function openTile(key) {
   pa.tile = key;
   if (key !== "terminals") terms.stop();
+  if (key !== "review") revs.stop();
   redrawProjects();
   $("#main .cc-view")?.scrollTo({ top: 0 });
 }
@@ -1269,6 +1271,8 @@ function projectBoard(p, rows, known, running) {
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
+    branches: () => revs.branchesPanel(p.name),
+    review: () => revs.reviewPanel(p.name),
   };
   if (pa.tile && full[pa.tile]) {
     out.push(backRow(() => openTile(null)), ...full[pa.tile]());
@@ -1277,12 +1281,14 @@ function projectBoard(p, rows, known, running) {
   const past = sessions ? pastSessions(sessions, running) : [];
   const openUrl = agentActs.openUrl;
   if (terms.list(p.name) === undefined) terms.load(p.name);
+  if (revs.branches(p.name) === undefined) revs.load(p.name);
   out.push(h("div", "pb-grid",
     tile("tasks", "Tasks", taskTile(view.tasks), openTile),
     tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
     tile("agents", "Agents", agentTile(running, past), openTile),
-    tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile)));
+    tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
+    tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile)));
   return out;
 }
 
@@ -1316,6 +1322,15 @@ const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), starting: 
 /// The project's terminals; the board's tile and its full view.
 const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjects() });
 
+/// The project's branches and their reviews; the Branches tile, its full
+/// list and the review view.
+const revs = makeReviews({
+  invoke, h, button, ago,
+  redraw: () => redrawProjects(),
+  openUrl: url => agentActs.openUrl(url),
+  openTile: key => openTile(key),
+});
+
 function redrawProjects() {
   if (shown === "projects") drawProjects(views.get("projects").el);
 }
@@ -1325,6 +1340,7 @@ const agentActs = {
   error: id => pa.errors.get(id),
   outcome: id => pa.outcomes.get(id),
   openUrl: url => invoke("open_url", { url }).catch(e => console.warn("open url:", e)),
+  review: branch => { if (state.picked) revs.openBranch(state.picked, branch); },
   async change(task, change) {
     await act(task.id, () => invoke("center_update_task", { task: task.id, change }));
   },
@@ -1685,6 +1701,7 @@ registerView("projects", {
   },
   unmount() {
     terms.stop();
+    revs.stop();
   },
 });
 

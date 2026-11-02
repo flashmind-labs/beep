@@ -35,6 +35,7 @@ mod presence;
 mod products;
 mod projects;
 mod research;
+mod reviews;
 mod state;
 mod sync;
 mod terminals;
@@ -208,6 +209,14 @@ fn main() {
             terminals::terminal_start,
             terminals::terminal_output,
             terminals::terminal_close,
+            reviews::project_branches,
+            reviews::reviews_list,
+            reviews::review_start,
+            reviews::review_get,
+            reviews::review_dismiss,
+            reviews::review_fix,
+            reviews::review_post,
+            reviews::review_merge,
             projects::pin_project_to_top,
             projects::center_open_project,
             projects::center_project,

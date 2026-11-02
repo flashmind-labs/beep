@@ -205,6 +205,7 @@ impl WorkerTool {
             .collect();
         if let Action::Start = args.action {
             let request = StartRequest {
+                base: None,
                 machine: args.machine,
                 agent: args.agent,
                 persona: args.persona,

@@ -1047,6 +1047,95 @@ impl User {
         self.store.remove_terminal(&self.key, id).await
     }
 
+    pub(crate) async fn add_review(
+        &self,
+        review: &crate::store::ReviewRow,
+        shards: &[crate::store::ShardRow],
+    ) -> Result<()> {
+        self.store.add_review(&self.key, review, shards).await
+    }
+
+    pub(crate) async fn review(&self, id: Uuid) -> Result<Option<crate::store::ReviewRow>> {
+        self.store.review(&self.key, id).await
+    }
+
+    /// `project`'s newest review of each branch, newest first.
+    pub(crate) async fn reviews(
+        &self,
+        project: &str,
+        limit: u32,
+    ) -> Result<Vec<crate::store::ReviewRow>> {
+        self.store.reviews(&self.key, project, limit).await
+    }
+
+    /// The shards of one of the user's reviews, read through `review`.
+    pub(crate) async fn review_shards(
+        &self,
+        review: &crate::store::ReviewRow,
+    ) -> Result<Vec<crate::store::ShardRow>> {
+        self.store.review_shards(review.id).await
+    }
+
+    pub(crate) async fn review_findings(
+        &self,
+        review: &crate::store::ReviewRow,
+    ) -> Result<Vec<crate::store::ReviewFindingRow>> {
+        self.store.review_findings(review.id).await
+    }
+
+    pub(crate) async fn report_shard(
+        &self,
+        review: &crate::store::ReviewRow,
+        shard: u32,
+        findings: &[crate::store::ReviewFindingRow],
+        next: crate::store::ShardState,
+    ) -> Result<bool> {
+        self.store
+            .report_shard(review.id, shard, findings, next)
+            .await
+    }
+
+    pub(crate) async fn set_review_verifier(
+        &self,
+        review: &crate::store::ReviewRow,
+        shard: u32,
+        session: &str,
+    ) -> Result<()> {
+        self.store
+            .set_review_verifier(review.id, shard, session)
+            .await
+    }
+
+    pub(crate) async fn judge_shard(
+        &self,
+        review: &crate::store::ReviewRow,
+        shard: u32,
+        judged: &[crate::store::Judged],
+    ) -> Result<bool> {
+        self.store.judge_shard(review.id, shard, judged).await
+    }
+
+    pub(crate) async fn fail_shard(
+        &self,
+        review: &crate::store::ReviewRow,
+        shard: u32,
+        from: crate::store::ShardState,
+        why: &str,
+    ) -> Result<bool> {
+        self.store.fail_shard(review.id, shard, from, why).await
+    }
+
+    pub(crate) async fn dismiss_finding(
+        &self,
+        review: Uuid,
+        finding: u32,
+        dismissed: bool,
+    ) -> Result<bool> {
+        self.store
+            .dismiss_finding(&self.key, review, finding, dismissed)
+            .await
+    }
+
     /// The newest `limit` versions of the user's instructions, newest
     /// first.
     pub(crate) async fn instructions_versions(

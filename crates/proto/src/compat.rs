@@ -96,6 +96,12 @@ sample_struct! {
     AgentFile { agent, path, text, synced }
     Terminal { id, project, machine_id, machine_name, name, command, cwd, state, started_at }
     TerminalOutput { terminal, lines, earlier }
+    ProjectBranches { machine_id, machine_name, default_branch, branches }
+    ProjectBranch { name, worktree, ahead, behind, head, subject, committed_at, local, pushed }
+    BranchReview { id, project, branch, base, head, head_at, started_at, machine_name, changed_lines, files, merge, pr, shards, findings }
+    ReviewPr { number, url, checks }
+    ReviewShard { area, files, lines, agent, state, found }
+    ReviewFinding { id, area, severity, title, file, line, why, verdict, dismissed }
     IssueStart { agent, node_id }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }

@@ -257,6 +257,7 @@ async fn merged_pr_finishes_the_task() {
         .set_task_start(
             queued.id,
             Some(&StartRequest {
+                base: None,
                 machine: None,
                 agent: None,
                 persona: None,
