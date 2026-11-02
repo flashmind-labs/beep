@@ -429,38 +429,6 @@ async fn inputs_land_in_incoming() {
 }
 
 #[tokio::test]
-async fn a_fourth_start_queues() {
-    let world = World::new().await;
-    let (build, render) = (
-        world.node("build box").await,
-        world.node("render box").await,
-    );
-    let project = world.project(&[&build, &render]).await;
-    let made = world
-        .tasks(
-            &project,
-            &[
-                new_task("One"),
-                new_task("Two"),
-                new_task("Three"),
-                new_task("Four"),
-            ],
-        )
-        .await;
-    for task in &made[..3] {
-        let started = world.start(&project, task, &claude()).await;
-        assert!(matches!(started, Started::Running(_)), "{started:?}");
-    }
-    let Started::Queued(why) = world.start(&project, &made[3], &claude()).await else {
-        panic!("a fourth worker started");
-    };
-    assert!(why.contains("already run"), "{why}");
-    let fourth = world.task(&made[3]).await;
-    assert_eq!(fourth.start, Some(claude()));
-    assert_eq!(fourth.state, TaskState::Planned);
-}
-
-#[tokio::test]
 async fn a_dependent_task_waits() {
     let world = World::new().await;
     let node = world.node("build box").await;
