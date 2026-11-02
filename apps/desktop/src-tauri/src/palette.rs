@@ -95,6 +95,7 @@ pub(crate) enum HitKind {
 #[strum(serialize_all = "snake_case")]
 enum SettingsSection {
     Devices,
+    Models,
     Apps,
     Mac,
     Machines,
@@ -105,7 +106,8 @@ enum SettingsSection {
 impl SettingsSection {
     fn title(self) -> &'static str {
         match self {
-            Self::Devices => "Devices",
+            Self::Devices => "Account",
+            Self::Models => "Models",
             Self::Apps => "Apps",
             Self::Mac => "This Mac",
             Self::Machines => "Machines",
@@ -125,7 +127,12 @@ struct Setting {
 fn settings() -> Vec<Setting> {
     use SettingsSection::*;
     let fixed = [
+        ("Account", Devices),
         ("Devices", Devices),
+        ("Unlink this Mac", Devices),
+        ("Model", Models),
+        ("Thinking", Models),
+        ("Auto thinking", Models),
         ("Apps", Apps),
         ("Let Beep use this Mac", Mac),
         ("Machines", Machines),
@@ -603,6 +610,14 @@ mod tests {
         assert_eq!(settings[0].title, "ElevenLabs API key");
         assert_eq!(settings[0].id, "creds");
         assert_eq!(settings[0].detail, "Settings · Credentials");
+        let hits = rank("thinking", &PaletteLists::default(), &none());
+        let models = of_kind(&hits, HitKind::Setting);
+        assert!(
+            models.iter().all(|hit| hit.id == "models"),
+            "{:?}",
+            models.iter().map(|hit| &hit.title).collect::<Vec<_>>()
+        );
+        assert_eq!(models[0].detail, "Settings · Models");
     }
 
     #[test]
