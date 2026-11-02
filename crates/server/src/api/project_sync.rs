@@ -12,7 +12,7 @@ use crate::{
         *,
     },
     router::Cx,
-    store::{NodeRow, SyncRow},
+    store::{ImportRow, NodeRow, SyncRow},
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
@@ -262,6 +262,56 @@ pub(super) async fn list_project_sync(cx: Cx, _: ListProjectSync) -> Reply<Vec<P
     projects(&cx, None).await
 }
 
+pub(super) async fn list_project_syncthing(
+    cx: Cx,
+    request: ListProjectSyncthing,
+) -> Reply<Vec<SyncthingPlace>> {
+    let name = project_name(&request.project)?;
+    let machines = machines(&cx).await?;
+    let imports = cx.user.imports().await?;
+    let syncs = cx.user.project_syncs().await?;
+    Ok(syncthing_places(name, &imports, &syncs, &machines))
+}
+
+/// The folders of `project`, imported or synced, that the machine they are
+/// on reported as kept in step by Syncthing.
+fn syncthing_places(
+    project: &str,
+    imports: &[ImportRow],
+    syncs: &[SyncRow],
+    machines: &HashMap<String, NodeRow>,
+) -> Vec<SyncthingPlace> {
+    let imported = imports
+        .iter()
+        .filter(|row| row.project.eq_ignore_ascii_case(project))
+        .map(|row| (&row.endpoint, &row.folder));
+    let synced = syncs
+        .iter()
+        .filter(|row| row.project == project)
+        .map(|row| (&row.endpoint, &row.folder));
+    let mut out: Vec<SyncthingPlace> = Vec::new();
+    for (endpoint, folder) in imported.chain(synced) {
+        let Some(env) = machines.get(endpoint).and_then(|node| node.env.as_ref()) else {
+            continue;
+        };
+        let Some(synced) = env.syncthing_folder(folder) else {
+            continue;
+        };
+        if out
+            .iter()
+            .any(|place| &place.machine_id == endpoint && &place.folder == folder)
+        {
+            continue;
+        }
+        out.push(SyncthingPlace {
+            machine_id: endpoint.clone(),
+            folder: folder.clone(),
+            label: synced.name().to_owned(),
+        });
+    }
+    out
+}
+
 pub(super) async fn get_sync_skipped(cx: Cx, request: GetSyncSkipped) -> Reply<SyncSkipped> {
     let name = project_name(&request.project)?;
     let synced = cx
@@ -385,6 +435,65 @@ mod tests {
             })
         );
         assert_eq!(skipped_file(path(Rule::Other, None)), None);
+    }
+
+    #[test]
+    fn syncthing_places_are_the_project_folders_a_machine_reported() {
+        use crate::protocol::node::{EnvReport, SyncthingFolder};
+        let node = |endpoint: &str, folders: Vec<SyncthingFolder>| NodeRow {
+            endpoint: endpoint.into(),
+            name: endpoint.into(),
+            version: "0.1.0".into(),
+            env: Some(EnvReport {
+                syncthing: folders,
+                ..EnvReport::default()
+            }),
+            seen_at: chrono::Utc::now(),
+        };
+        let machines: HashMap<String, NodeRow> = [
+            node(
+                "laptop",
+                vec![SyncthingFolder {
+                    id: "work-1".into(),
+                    label: "Work".into(),
+                    path: "/srv/work".into(),
+                }],
+            ),
+            node("build", Vec::new()),
+        ]
+        .into_iter()
+        .map(|node| (node.endpoint.clone(), node))
+        .collect();
+        let import = |endpoint: &str, folder: &str| ImportRow {
+            project: "acme/game".into(),
+            endpoint: endpoint.into(),
+            folder: folder.into(),
+            url: "https://example.com/acme/game".into(),
+            imported_at: chrono::Utc::now(),
+        };
+        let synced = SyncRow {
+            project: "acme/game".into(),
+            endpoint: "laptop".into(),
+            folder: "/srv/work/game".into(),
+        };
+        let places = syncthing_places(
+            "acme/game",
+            &[
+                import("laptop", "/srv/work/game"),
+                import("build", "/srv/work/game"),
+            ],
+            &[synced],
+            &machines,
+        );
+        assert_eq!(
+            places,
+            [SyncthingPlace {
+                machine_id: "laptop".into(),
+                folder: "/srv/work/game".into(),
+                label: "Work".into(),
+            }]
+        );
+        assert!(syncthing_places("acme/other", &[], &[], &machines).is_empty());
     }
 
     #[test]

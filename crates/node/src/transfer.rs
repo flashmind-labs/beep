@@ -7,6 +7,7 @@ use crate::{
     files::Folders,
     link::{Protocol, Session},
     sync::{self, PeerHandler, Syncs},
+    syncthing::Syncthing,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
@@ -136,8 +137,19 @@ impl Transfers {
     /// Opens the store in `dir`, removes partial transfers a stopped node
     /// left, starts the synced projects kept in `dir/sync`, and serves the
     /// blobs and sync protocols on `endpoint`, which must not serve other
-    /// protocols through a router of its own.
+    /// protocols through a router of its own. Folders the machine's
+    /// Syncthing keeps in step are not synced.
     pub async fn start(endpoint: &Endpoint, dir: &Path, folders: Folders) -> Result<Self> {
+        Self::start_with(endpoint, dir, folders, Syncthing::local()).await
+    }
+
+    /// `start`, asking `syncthing` which folders it keeps in step.
+    pub async fn start_with(
+        endpoint: &Endpoint,
+        dir: &Path,
+        folders: Folders,
+        syncthing: Syncthing,
+    ) -> Result<Self> {
         let collect = Arc::new(Notify::new());
         let mut options = Options::new(dir);
         options.gc = Some(GcConfig {
@@ -163,6 +175,7 @@ impl Transfers {
             },
             folders.clone(),
             dir.join("sync"),
+            syncthing,
         )
         .await?;
         let grants = Arc::new(Grants::default());

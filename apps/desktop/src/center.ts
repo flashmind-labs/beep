@@ -13,8 +13,8 @@ import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyn
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, el as h } from "./projects-state.ts";
-import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
+import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, el as h } from "./projects-state.ts";
+import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
@@ -1922,6 +1922,12 @@ function whereRow(p: Project, m: WhereRow) {
     const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
     const folder = h("span", "nm", h("span", "os", path));
     folder.title = path;
+    if (m.syncthing) {
+      // Syncthing keeps it in step, so Beep's own sync stays off here.
+      const note = h("small", "", "Synced by Syncthing");
+      note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it here.`;
+      folder.append(" ", note);
+    }
     return [name, folder, h("span", "acts", finder, copy, start)];
   }
   const said = h("span", "os", m.text);
@@ -1942,7 +1948,11 @@ async function loadWhere(name: string) {
   const before = state.where.get(name);
   let got: ProjectMachineRow[] | null = null;
   try {
-    got = await invoke<ProjectMachineRow[] | null>("project_machines", { project: name });
+    const [machines, places] = await Promise.all([
+      invoke<ProjectMachineRow[] | null>("project_machines", { project: name }),
+      invoke<SyncthingPlace[]>("project_syncthing", { project: name }).catch(e => { console.warn("project syncthing:", e); return []; }),
+    ]);
+    got = withSyncthing(machines, places);
   } catch (e) {
     console.warn("project machines:", e);
   } finally {

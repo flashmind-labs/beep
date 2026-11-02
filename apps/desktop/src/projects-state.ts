@@ -73,6 +73,26 @@ export interface ProjectMachineRow {
   /// The server is looking through it for a checkout now.
   checking: boolean;
   checked_at: number | null;
+  /// The Syncthing folder that keeps it in step there, by label; Beep
+  /// does not sync such a folder (from `project_syncthing`).
+  syncthing?: string | null;
+}
+
+/// A machine whose folder of a project Syncthing keeps in step
+/// (SyncthingPlace).
+export interface SyncthingPlace {
+  machine_id: string;
+  folder: string;
+  label: string;
+}
+
+/// `machines` with each folder Syncthing keeps in step marked.
+export function withSyncthing(machines: ProjectMachineRow[] | null, places: readonly SyncthingPlace[]): ProjectMachineRow[] | null {
+  if (!machines) return machines;
+  return machines.map(m => {
+    const place = places.find(p => p.machine_id === m.id && p.folder === m.folder);
+    return place ? { ...m, syncthing: place.label } : m;
+  });
 }
 
 /// A coding agent's session, as `project_sessions` lists them (SessionRow).
@@ -626,6 +646,8 @@ export interface WhereRow {
   checked_at?: number | null;
   /// What the row says when there is no checkout.
   text?: string;
+  /// The Syncthing folder's label when Syncthing keeps the folder in step.
+  syncthing?: string | null;
 }
 
 /// The rows of a project's "Where it lives": every machine, as
@@ -635,7 +657,7 @@ export function whereRows(project: { machines?: readonly ProjectPlace[] } | null
   const here = (id: string, name: string, folder: string): WhereRow => ({ kind: "here", id, name, folder, mac: !!macId && id === macId });
   if (!machines) return (project?.machines || []).map(m => here(m.id, m.name, m.folder));
   return machines.map((m): WhereRow => {
-    if (m.folder) return here(m.id, m.name, m.folder);
+    if (m.folder) return { ...here(m.id, m.name, m.folder), syncthing: m.syncthing || null };
     const one = { id: m.id, name: m.name, folder: null, mac: false, checked_at: m.checked_at || null };
     if (m.checking) return { ...one, kind: "checking", text: "Checking…" };
     if (m.online) return { ...one, kind: "none", text: `Not on ${m.name}` };
