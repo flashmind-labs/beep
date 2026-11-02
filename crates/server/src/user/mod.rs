@@ -25,8 +25,8 @@ use crate::{
         TaskState, Visibility, WorkerId, WorkerState,
     },
     protocol::{
-        AgentImage, Cron, FilePart, ImageRef, Memory, PendingApproval, RouteCard, Run, SentFiles,
-        SentImages, Session, ToolLabel, TurnSources, UpdatePage, Upload, WebSource,
+        AgentImage, Cron, FilePart, ImageRef, Memory, PendingApproval, ProjectGroup, RouteCard,
+        Run, SentFiles, SentImages, Session, ToolLabel, TurnSources, UpdatePage, Upload, WebSource,
         node::EnvReport,
     },
     research::pdf::{self, Paper, Pdf},
@@ -39,9 +39,9 @@ use crate::{
         NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode, NewPicture, NewPlace,
         NewPlaceRoutine, NewTask, NewThreadChat, NewWorker, NodeRow, OpenCounts, PicturesOf,
         PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
-        RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
-        Store, StoredContext, StoredMessage, SyncRow, TaskRow, ThreadChatRow, TrackedIssue,
-        TurnRecord, TurnsToDelete, WorkerRow,
+        RunStatus, SaveGroup, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow,
+        StartRefused, Store, StoredContext, StoredMessage, SyncRow, TaskRow, ThreadChatRow,
+        TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -1195,6 +1195,25 @@ impl User {
         self.store
             .pin_project_to_top(&self.key, project, pinned)
             .await
+    }
+
+    /// The user's project groups, oldest first.
+    pub async fn project_groups(&self) -> Result<Vec<ProjectGroup>> {
+        self.store.project_groups(&self.key).await
+    }
+
+    /// Makes a project group, or changes the user's group `group.id`.
+    /// `None` when there is no such group.
+    pub(crate) async fn save_project_group(
+        &self,
+        group: SaveGroup<'_>,
+    ) -> Result<Option<ProjectGroup>> {
+        self.store.save_project_group(&self.key, group).await
+    }
+
+    /// Forgets the user's project group `id`; false when there is none.
+    pub async fn delete_project_group(&self, id: Uuid) -> Result<bool> {
+        self.store.delete_project_group(&self.key, id).await
     }
 
     /// The user's credentials, without their secrets.

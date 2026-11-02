@@ -13,8 +13,10 @@ import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyn
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, el as h } from "./projects-state.ts";
-import type { FoundRow, Kid, OverviewCard, OverviewCardRow, Placed, Project, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, el as h } from "./projects-state.ts";
+import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
+import { openGroupSheet } from "./groupsheet.ts";
+import { openMenu } from "./menu.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads, outsideTitle } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
@@ -87,6 +89,7 @@ const IC = {
   pr: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V10a3 3 0 00-3-3h-4M13 4.5L10.5 7 13 9.5"/></svg>',
   issue: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
   rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  folder: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 014.5 5H10l2 2.5h7.5A1.5 1.5 0 0121 9v9.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/></svg>',
 };
 
 const PROJECT_COLORS = ["#F07A6A", "#6FA8DC", "#B18CE0", "#E9B949", "#3B9B7A"];
@@ -105,6 +108,9 @@ const CONNECT_RETRY_MS = 3000;
 /// without them) and `pview` each one's tasks, workers and chat, by name.
 /// `git` is what `git_items` last gave (null before, or from an old
 /// server), and `gitAll` the projects whose open items show in full.
+/// `groups` are the project groups (undefined before, null from a server
+/// without them), `renaming` the group whose name is being edited, with
+/// what is typed so far.
 const state = {
   home: null as HomeView | null,
   mac: null as MacControl | null,
@@ -124,6 +130,8 @@ const state = {
   gitAll: new Set<string>(),
   top: [] as string[],
   overview: undefined as OverviewCard[] | null | undefined,
+  groups: undefined as ProjectGroup[] | null | undefined,
+  renaming: null as { id: string; draft: string } | null,
 };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
@@ -1054,17 +1062,91 @@ registerSidebarGroup("projects", {
   load: async () => {
     const rows = projectRows();
     // Those pinned to the top show under Pinned instead.
-    return rows ? sideProjects(splitOnTop(rows, state.top).rest) : null;
+    return rows ? sideProjects(splitOnTop(rows, state.top).rest, state.groups) : null;
   },
   row(p) {
-    // An org's heading; under it only the repo name shows.
+    // A group's heading, under it the projects' whole names; an org's,
+    // under it only the repo names.
+    if (p.group) return groupHeading(p.group);
     if (p.org !== undefined) return h("div", "cc-org", `${p.org}/`);
     const row = projectRow(p, p.repo ?? p.name, false);
     if (!p.repo) row.classList.remove("pj-repo");
     return row;
   },
-  onPick: p => { if (!p.org) openProjects(p.name); },
+  onPick: p => { if (!p.org && !p.group) openProjects(p.name); },
 });
+
+// ---------- Project groups ----------
+
+/// A group's heading in the sidebar; right-click for its menu.
+function groupHeading(g: ProjectGroup) {
+  const head = h("div", "cc-org gp", icon(IC.folder), g.name);
+  head.title = `${g.paths.join(", ")} on every machine`;
+  head.addEventListener("contextmenu", e => groupMenu(e, g));
+  return head;
+}
+
+function groupMenu(e: MouseEvent, g: ProjectGroup) {
+  openMenu(e, g.name, [
+    { label: "Rename…", on: () => startRename(g) },
+    { label: "Folders…", on: () => editGroup(g) },
+    { label: "Remove group", warn: true, on: () => removeGroup(g) },
+  ]);
+}
+
+/// Opens the group sheet: a new group, or `g`'s folders.
+function editGroup(g: ProjectGroup | null = null) {
+  openGroupSheet({
+    group: g,
+    matches: paths => groupMatches(projectRows(), paths),
+    onSaved: saved => {
+      const list = state.groups || [];
+      state.groups = list.some(x => x.id === saved.id) ? list.map(x => (x.id === saved.id ? saved : x)) : [...list, saved];
+      redrawGroups();
+    },
+  });
+}
+
+/// Edits `g`'s name in place on the Projects overview.
+function startRename(g: ProjectGroup) {
+  state.renaming = { id: g.id, draft: g.name };
+  if (shown !== "projects" || state.picked) openProjects();
+  else redrawProjects();
+}
+
+async function renameGroup(g: ProjectGroup, name: string) {
+  state.renaming = null;
+  const to = name.trim();
+  if (!to || to === g.name) return redrawProjects();
+  const before = state.groups;
+  state.groups = (before || []).map(x => (x.id === g.id ? { ...x, name: to } : x));
+  redrawGroups();
+  try {
+    await invoke("project_group_save", { id: g.id, name: to, paths: g.paths });
+  } catch (e) {
+    console.warn("renaming a group:", e);
+    state.groups = before;
+    redrawGroups();
+  }
+}
+
+async function removeGroup(g: ProjectGroup) {
+  const before = state.groups;
+  state.groups = (before || []).filter(x => x.id !== g.id);
+  redrawGroups();
+  try {
+    await invoke("project_group_delete", { id: g.id });
+  } catch (e) {
+    console.warn("removing a group:", e);
+    state.groups = before;
+    redrawGroups();
+  }
+}
+
+function redrawGroups() {
+  reloadGroup("projects");
+  redrawProjectsPage();
+}
 
 // The machines Home lists, each with its online dot. It shows once Home has
 // loaded, empty or not, unless the server is too old to list machines.
@@ -1272,14 +1354,59 @@ function projectTable(rows: Project[]) {
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
 function overviewSection(rows: Project[]) {
-  const groups = overviewGroups(rows, state.overview, state.top);
-  const out = groups.map(g => h("section", "pj-org",
-    h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", `${g.cards.length} ${g.cards.length === 1 ? "repo" : "repos"}`)),
-    h("div", "pj-grid", ...g.cards.map(projectCard))));
+  const groups = overviewGroups(rows, state.overview, state.top, state.groups);
+  const repos = (n: number) => `${n} ${n === 1 ? "repo" : "repos"}`;
+  const out = groups.map(g => g.group ? groupSection(g.group, g)
+    : h("section", "pj-org",
+      h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", repos(g.cards.length))),
+      h("div", "pj-grid", ...g.cards.map(projectCard))));
   const add = h("div", "cc-panel cc-row pj-add",
     h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder your agents worked in, any folder, or a repository to clone.")),
     button("Add", "", addProject));
   return [...out, add];
+}
+
+/// A group's section of the overview: its name (or the field renaming it),
+/// how many repos, its folders and its buttons, then its cards.
+function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewCard>) {
+  const n = section.cards.length;
+  const head = h("h3", "gp", icon(IC.folder));
+  const editing = state.renaming?.id === g.id ? state.renaming : null;
+  if (editing) {
+    // What is typed lives in `state.renaming`, so a refresh that draws the
+    // page again keeps it.
+    const input = h("input");
+    input.value = editing.draft;
+    input.setAttribute("aria-label", "Group name");
+    input.addEventListener("input", () => { editing.draft = input.value; });
+    const finish = (save: boolean) => {
+      if (state.renaming !== editing) return;
+      if (save) renameGroup(g, input.value);
+      else { state.renaming = null; redrawProjects(); }
+    };
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+    });
+    head.append(input, h("span", "gp-acts", button("Save", "pri", () => finish(true)), button("Cancel", "quiet", () => finish(false))));
+    // Focused once it is on the page.
+    requestAnimationFrame(() => {
+      if (!input.isConnected || document.activeElement === input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  } else {
+    const paths = h("span", "gp-paths", g.paths.map(p => (p.startsWith("/") ? p : `~/${p}`)).join(", "));
+    paths.title = "Matched on every machine";
+    head.append(g.name, h("small", "", `${n} ${n === 1 ? "repo" : "repos"}`), paths,
+      h("span", "gp-acts",
+        button("Rename", "quiet", () => startRename(g)),
+        button("Folders…", "quiet", () => editGroup(g)),
+        button("Remove", "quiet warn", () => removeGroup(g))));
+    head.addEventListener("contextmenu", e => groupMenu(e, g));
+  }
+  const body = n ? h("div", "pj-grid", ...section.cards.map(projectCard)) : h("span", "gp-none", "No projects in these folders yet.");
+  return h("section", "pj-org", head, body);
 }
 
 function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
@@ -1865,8 +1992,11 @@ registerView("projects", {
   title() {
     if (!state.picked) {
       const rows = projectRows();
-      const sub = state.overview && rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top)) : "Repositories on your machines";
-      return { title: "Projects", sub, tools: [importButton("small")] };
+      const sub = state.overview && rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top, state.groups)) : "Repositories on your machines";
+      // Groups show on the overview, from a server that keeps them.
+      const tools = state.overview && state.groups ? [button("", "small", () => editGroup())] : [];
+      if (tools.length) tools[0].append(icon(IC.folder)!, " New group");
+      return { title: "Projects", sub, tools: [...tools, importButton("small")] };
     }
     const p = filterProjects(projectRows() || [], state.picked)[0];
     const tools = [];
@@ -2148,15 +2278,17 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    const [home, mac, sync, top] = await Promise.all([
+    const [home, mac, sync, top, projectGroups] = await Promise.all([
       invoke<HomeView>("center_home"),
       invoke<MacControl>("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
       // Sync progress only adds to the Now column; Home draws without it.
       invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
       invoke<string[]>("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
+      invoke<ProjectGroup[] | null>("project_groups").catch(e => { console.warn("project groups:", e); return state.groups; }),
     ]);
     state.mac = mac;
     state.top = top || [];
+    state.groups = projectGroups;
     state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;

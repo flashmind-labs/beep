@@ -35,6 +35,7 @@ mod live;
 mod location;
 mod machines;
 mod memories;
+mod project_groups;
 mod project_import;
 mod project_sync;
 mod projects;
@@ -259,6 +260,9 @@ pub fn router() -> Router {
         .call(project_sync::pin_project)
         .call(project_sync::pin_project_to_top)
         .call(project_sync::list_projects_on_top)
+        .call(project_groups::list_project_groups)
+        .call(project_groups::save_project_group)
+        .call(project_groups::delete_project_group)
         .call(updates::list_updates)
         .call(updates::dismiss_updates)
         .call(create_node_token)

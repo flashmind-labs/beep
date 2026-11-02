@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../src/projects-state.ts";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -268,4 +268,79 @@ test("a running folder takes org/repo from the found checkout's remote", () => {
   const found = [{ remote: "git@github.com:org/widget.git", places: [{ machine_id: "m1", machine_name: "build-box", folder: "/srv/work/widget-fix" }] }];
   assert.deepEqual(mergeProjects([], [run], found).map(r => r.name), ["org/widget"]);
   assert.deepEqual(mergeProjects([], [run], []).map(r => r.name), ["src"]);
+});
+
+test("group folders leave out the home folder and a leading Projects", () => {
+  for (const path of ["~/work", "~/Projects/work", "~/projects/work/", "/home/user/work",
+    "/home/user/Projects/work", "/Users/someone/Projects/work", "C:\\Users\\someone\\Projects\\work", "  ~/work  "]) {
+    assert.equal(groupPath(path), "work", path);
+  }
+  assert.equal(groupPath("~/Projects/acme/widget"), "acme/widget");
+  assert.equal(groupPath("~/work/Projects/x"), "work/Projects/x");
+  for (const path of ["~", "~/", "/home/user", "/Users/someone/", "~/Projects", "", null]) assert.equal(groupPath(path), "", String(path));
+  assert.equal(groupPath("/srv/project/"), "/srv/project");
+  assert.equal(groupPath("/"), "/");
+});
+
+test("a folder is in a group at or under its folder, on any machine", () => {
+  assert.ok(inGroupPath("/home/user/work/relay", "work"));
+  assert.ok(inGroupPath("/Users/someone/Projects/work", "work"));
+  assert.ok(!inGroupPath("/home/user/works/relay", "work"));
+  assert.ok(!inGroupPath("/home/user/x", ""));
+  assert.ok(inGroupPath("/srv/project/app", "/srv/project"));
+  assert.ok(!inGroupPath("/home/user/srv/project/app", "/srv/project"));
+});
+
+const field = { id: "g1", name: "work", paths: ["work"] };
+const games = { id: "g2", name: "games", paths: ["work/games", "/srv/games"] };
+
+test("a project goes in the group with the deepest folder holding it", () => {
+  const at = (...folders: string[]) => ({ machines: folders.map(folder => ({ folder })) });
+  assert.equal(groupOf(at("/home/user/work/relay"), [field, games]), field);
+  assert.equal(groupOf(at("/Users/u/Projects/work/games/pines"), [field, games]), games);
+  assert.equal(groupOf(at("/srv/work/x", "/srv/games/y"), [field, games]), games);
+  assert.equal(groupOf(at("/home/user/other"), [field, games]), null);
+  assert.equal(groupOf(at("/home/user/work"), null), null);
+  const twin = { id: "g3", name: "twin", paths: ["work"] };
+  assert.equal(groupOf(at("~/work/a"), [field, twin]), field, "the older group wins a tie");
+});
+
+test("the sidebar lists groups before orgs, their projects by full name", () => {
+  const rows = [
+    { name: "acme/widget", machines: [{ folder: "/Users/u/Projects/work/widget" }] },
+    { name: "acme/relay", machines: [{ folder: "/srv/relay" }] },
+    { name: "notes", machines: [{ folder: "/home/user/work/notes" }] },
+    { name: "scratch", machines: [{ folder: "/srv/scratch" }] },
+  ];
+  const side = sideProjects(rows, [games, field]);
+  assert.deepEqual(side.map(r => r.group?.name ?? r.org ?? [r.repo ?? r.name, r.i]),
+    ["work", ["acme/widget", 0], ["notes", 2], "acme", ["relay", 1], ["scratch", 3]]);
+  assert.deepEqual(sideProjects(rows).map(r => r.org ?? r.repo ?? r.name), ["acme", "widget", "relay", "notes", "scratch"]);
+});
+
+test("the overview shows every group first, then orgs, then the rest", () => {
+  const rows = [
+    { name: "acme/widget", machines: [{ folder: "~/work/widget" }] },
+    { name: "acme/relay", machines: [{ folder: "/srv/relay" }] },
+    { name: "notes", machines: [{ folder: "/srv/notes" }] },
+  ];
+  const sums = [{ name: "acme/widget", workers: 2, tasks: { planned: 0, running: 2, blocked: 0, review: 0, done: 0 } }];
+  const groups = overviewGroups(rows, sums, [], [field, games]);
+  assert.deepEqual(groups.map(g => g.group?.name ?? g.org), ["work", "games", "acme", null]);
+  assert.deepEqual(groups[0].cards.map(c => [c.repo, c.i, !!c.sum]), [["acme/widget", 0, true]]);
+  assert.deepEqual(groups[1].cards, []);
+  assert.deepEqual(groups[2].cards.map(c => c.repo), ["relay"]);
+  assert.equal(overviewSub(groups), "3 projects in 2 groups and 1 org, 2 workers running");
+});
+
+test("the group sheet keeps each folder once, as groups compare it", () => {
+  assert.deepEqual(addGroupFolder([], "~/Projects/work"), { paths: ["work"], error: null });
+  assert.deepEqual(addGroupFolder(["work"], "/home/user/work").error, "That folder is in the group already.");
+  assert.match(addGroupFolder([], "~/Projects").error || "", /holds every project/);
+  assert.match(addGroupFolder([], "/").error || "", /holds every project/);
+  assert.deepEqual(addGroupFolder(["a"], "  "), { paths: ["a"], error: null });
+  const rows = [{ machines: [{ folder: "/home/user/work/x" }] }, { machines: [{ folder: "/srv/y" }] }, { machines: null }];
+  assert.equal(groupMatches(rows, ["work"]), 1);
+  assert.equal(groupMatches(rows, ["work", "/srv"]), 2);
+  assert.equal(groupMatches(null, ["x"]), 0);
 });

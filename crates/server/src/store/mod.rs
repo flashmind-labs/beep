@@ -44,6 +44,7 @@ mod node_tokens;
 mod nodes;
 mod places;
 mod profile;
+mod project_groups;
 mod project_imports;
 mod project_sync;
 mod projects;
@@ -91,6 +92,7 @@ pub use node_tokens::{Claim, ClaimNode, ClaimedNode};
 pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
+pub(crate) use project_groups::SaveGroup;
 pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
@@ -445,6 +447,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         72,
         "agent images",
         include_str!("../../migrations/0072_agent_images.sql"),
+    ),
+    (
+        73,
+        "project groups",
+        include_str!("../../migrations/0073_project_groups.sql"),
     ),
 ];
 

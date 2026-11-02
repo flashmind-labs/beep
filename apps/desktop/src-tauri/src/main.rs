@@ -35,6 +35,7 @@ mod overview;
 mod palette;
 mod presence;
 mod products;
+mod project_groups;
 mod projects;
 mod research;
 mod reviews;
@@ -213,6 +214,9 @@ fn main() {
             projects::open_folder,
             projects::center_projects,
             projects::projects_on_top,
+            project_groups::project_groups,
+            project_groups::project_group_save,
+            project_groups::project_group_delete,
             overview::project_overview,
             instructions::instructions_get,
             instructions::instructions_save,

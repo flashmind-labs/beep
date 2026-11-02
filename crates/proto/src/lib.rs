@@ -9,6 +9,7 @@
 //! bindings.
 
 pub mod client;
+pub mod groups;
 pub mod link;
 pub mod names;
 pub mod node;
@@ -1007,6 +1008,35 @@ requests! {
     /// is kept 30 days and read like any file; a resumed session keeps the
     /// images of the one it goes on from. Empty for a session with none.
     247 ListAgentImages { machine_id: String, session: String } => Call<Vec<AgentImage>>
+    /// The caller's project groups, oldest first: folders the apps list
+    /// projects under, in place of their org, on every machine.
+    248 ListProjectGroups {} => Call<Vec<ProjectGroup>>
+    /// Saves a project group: a new one without `id`, else the caller's
+    /// group `id` with its new name and folders. Each folder is kept as
+    /// `groups::project_group_path` gives it, so `~/Projects/work`
+    /// and `/home/user/work` are one folder, and repeats are
+    /// dropped. An empty `name` takes the first folder's. `BadRequest`
+    /// saying why when there is no folder or more than 16, one is a home
+    /// folder or the root, or a field is too long; `NotFound` when the
+    /// caller has no group `id`.
+    249 SaveProjectGroup { id: Option<Uuid>, name: String, paths: Vec<String> } => Call<ProjectGroup>
+    /// Forgets one of the caller's project groups; its projects go back
+    /// under their orgs. `NotFound` when the caller has no such group.
+    250 DeleteProjectGroup { id: Uuid } => Call<()>
+}
+
+/// Folders the apps list projects under, as `ListProjectGroups` gives
+/// them. A project is in a group when its folder on any machine is one of
+/// `paths` or inside one, both compared as `groups::project_group_path`
+/// gives them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectGroup {
+    pub id: Uuid,
+    /// What the group is called: its first folder until renamed.
+    pub name: String,
+    /// The folders, such as `work`, oldest first.
+    pub paths: Vec<String>,
 }
 
 /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.

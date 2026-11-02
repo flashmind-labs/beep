@@ -475,33 +475,139 @@ export function splitOnTop<T extends { name: string }>(rows: readonly T[] | null
   };
 }
 
+/// A project group (ProjectGroup): folders the user lists projects under,
+/// in place of their org.
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  /// As `groupPath` gives them, such as `work`.
+  paths: string[];
+}
+
+/// What follows the home folder in `path` (`~/`, `/home/<user>/`,
+/// `/Users/<user>/`, `C:/Users/<user>/`), or null outside it.
+function homeRelative(path: string) {
+  if (path === "~") return "";
+  if (path.startsWith("~/")) return path.slice(2);
+  const unrooted = /^[A-Za-z]:\//.test(path) ? path.slice(2) : path;
+  for (const root of ["/home/", "/Users/"]) {
+    if (!unrooted.startsWith(root)) continue;
+    const rest = unrooted.slice(root.length);
+    const cut = rest.indexOf("/");
+    if (cut < 0) return rest ? "" : null;
+    return cut > 0 ? rest.slice(cut + 1) : null;
+  }
+  return null;
+}
+
+/// A folder as groups compare it, as the server's `project_group_path`
+/// keeps them: `\` read as `/`, the home folder and then a leading
+/// `Projects/` (any case) left out, with no trailing `/`. So
+/// `~/Projects/work` on a Mac and `/home/user/work` on
+/// Linux are both `work`. A folder outside the home folder stays
+/// absolute; the home folder itself is empty.
+export function groupPath(path: string | null | undefined) {
+  const p = String(path || "").trim().replace(/\\/g, "/");
+  const rest = homeRelative(p);
+  if (rest == null) {
+    const trimmed = p.replace(/\/+$/, "");
+    return !trimmed && p.startsWith("/") ? "/" : trimmed;
+  }
+  const inner = rest.replace(/^\/+|\/+$/g, "");
+  const cut = inner.indexOf("/");
+  const first = cut < 0 ? inner : inner.slice(0, cut);
+  const after = first.toLowerCase() === "projects" ? (cut < 0 ? "" : inner.slice(cut + 1)) : inner;
+  return after.replace(/^\/+|\/+$/g, "");
+}
+
+/// Whether `folder`, on any machine, is the group folder `path` (as
+/// `groupPath` gives it) or inside it.
+export function inGroupPath(folder: string | null | undefined, path: string) {
+  if (!path) return false;
+  const f = groupPath(folder);
+  if (f === path) return true;
+  return f.startsWith(path.endsWith("/") ? path : path + "/");
+}
+
+/// The group a project is listed under: the one with the deepest folder
+/// that holds one of its folders, the older group on a tie; null for none.
+export function groupOf(project: { machines?: readonly { folder: string }[] | null }, groups: readonly ProjectGroup[] | null | undefined) {
+  let best: ProjectGroup | null = null, depth = -1;
+  for (const g of groups || []) {
+    for (const path of g.paths) {
+      if (path.length > depth && (project.machines || []).some(m => inGroupPath(m.folder, path))) {
+        best = g;
+        depth = path.length;
+      }
+    }
+  }
+  return best;
+}
+
+/// The group sheet's folders after adding `text`, or why it is not added.
+/// A folder is kept as `groupPath` gives it, once.
+export function addGroupFolder(paths: readonly string[], text: string): { paths: string[]; error: string | null } {
+  const path = groupPath(text);
+  if (!text.trim()) return { paths: [...paths], error: null };
+  if (!path || path === "/") return { paths: [...paths], error: `${text.trim()} holds every project; pick a folder inside it.` };
+  if (paths.includes(path)) return { paths: [...paths], error: "That folder is in the group already." };
+  return { paths: [...paths, path], error: null };
+}
+
+/// How many of `rows` a group of `paths` would hold.
+export function groupMatches(rows: readonly { machines?: readonly { folder: string }[] | null }[] | null | undefined, paths: readonly string[]) {
+  return (rows || []).filter(p => (p.machines || []).some(m => paths.some(path => inGroupPath(m.folder, path)))).length;
+}
+
 /// An org's heading among the sidebar's projects.
 export interface OrgHeading {
   org: string;
+  group?: undefined;
   name?: undefined;
   repo?: undefined;
   i?: undefined;
 }
 
-/// A project row in the sidebar: `repo` is the name after the org's slash.
-export type SideProject<T> = Placed<T> & { repo?: string; org?: undefined };
+/// A group's heading among the sidebar's projects.
+export interface GroupHeading {
+  group: ProjectGroup;
+  org?: undefined;
+  name?: undefined;
+  repo?: undefined;
+  i?: undefined;
+}
 
-/// The sidebar's project rows grouped by GitHub org or user: an `{ org }`
-/// heading, then that org's projects with `repo` set to the name after the
-/// slash. Projects without an org come last, under no heading. Each keeps
-/// `i`, its place in `rows` (or the `i` it has), so its colour does not
-/// change with grouping.
-export function sideProjects<T extends { name: string; i?: number }>(rows: readonly T[] | null | undefined): (OrgHeading | SideProject<T>)[] {
-  const orgs = new Map<string, SideProject<T>[]>(), loose: SideProject<T>[] = [];
+/// A project row in the sidebar: `repo` is what shows under its heading,
+/// the name after the org's slash, or the whole name under a group's.
+export type SideProject<T> = Placed<T> & { repo?: string; org?: undefined; group?: undefined };
+
+/// A project row that groups can place: its name and where it is.
+type Groupable = { name: string; i?: number; machines?: readonly { folder: string }[] | null };
+
+/// The sidebar's project rows: each group with projects in it, as a
+/// `{ group }` heading then its projects by full name, then by GitHub org
+/// or user, an `{ org }` heading then that org's projects with `repo` set
+/// to the name after the slash. A group's heading takes the place of the
+/// org's. Projects in neither come last, under no heading. Each keeps `i`,
+/// its place in `rows` (or the `i` it has), so its colour does not change
+/// with grouping.
+export function sideProjects<T extends Groupable>(rows: readonly T[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = []): (OrgHeading | GroupHeading | SideProject<T>)[] {
+  const inGroup = new Map<string, SideProject<T>[]>(), orgs = new Map<string, SideProject<T>[]>(), loose: SideProject<T>[] = [];
   (rows || []).forEach((p, at) => {
     const i = p.i ?? at;
+    const group = groupOf(p, groups);
+    if (group) {
+      if (!inGroup.has(group.id)) inGroup.set(group.id, []);
+      return inGroup.get(group.id)!.push({ ...p, i, repo: p.name });
+    }
     const cut = p.name.indexOf("/");
     if (cut <= 0) return loose.push({ ...p, i });
     const org = p.name.slice(0, cut);
     if (!orgs.has(org)) orgs.set(org, []);
     orgs.get(org)!.push({ ...p, i, repo: p.name.slice(cut + 1) });
   });
-  return [...[...orgs].flatMap(([org, list]) => [{ org }, ...list]), ...loose];
+  const grouped = (groups || []).filter(g => inGroup.has(g.id)).flatMap(group => [{ group }, ...inGroup.get(group.id)!]);
+  return [...grouped, ...[...orgs].flatMap(([org, list]) => [{ org }, ...list]), ...loose];
 }
 
 /// A row of a project's "Where it lives". `kind` is:
@@ -550,25 +656,41 @@ export function whereCount(rows: readonly Pick<WhereRow, "kind">[], known: boole
 export const BAR_STATES = ["running", "review", "blocked", "planned", "done"] as const;
 
 /// A card of the overview: the project row with `i` for its colour, its
-/// repo name, whether it is pinned, and `sum`, the server's overview of it
-/// (null when it has no project agent yet).
+/// repo name (the whole name under a group), whether it is pinned, and
+/// `sum`, the server's overview of it (null when it has no project agent
+/// yet).
 export type OverviewCardRow<T, S> = Placed<T> & { repo: string; pinned: boolean; sum: S | null };
 
-/// The overview's cards grouped by org, as the sidebar groups projects:
-/// `[{ org, cards }]`, projects without an org last under `org: null`.
-/// Pinned projects come first in their org.
-export function overviewGroups<T extends { name: string }, S extends { name: string } = OverviewCard>(rows: readonly T[] | null | undefined, overview: readonly S[] | null | undefined, top: readonly string[] | null | undefined) {
+/// A section of the overview: a group's, an org's, or (both null) the
+/// projects in neither.
+export interface OverviewGroup<T, S> {
+  group: ProjectGroup | null;
+  org: string | null;
+  cards: OverviewCardRow<T, S>[];
+}
+
+/// The overview's cards grouped as the sidebar groups projects: every
+/// group first, in order, even one with no projects yet, then by org, then
+/// projects in neither under `org: null`. Pinned projects come first in
+/// their section.
+export function overviewGroups<T extends Groupable, S extends { name: string } = OverviewCard>(rows: readonly T[] | null | undefined, overview: readonly S[] | null | undefined, top: readonly string[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = []): OverviewGroup<T, S>[] {
   const sums = new Map((overview || []).map(o => [o.name, o]));
   const pins = new Set(top || []);
-  const groups = new Map<string | null, OverviewCardRow<T, S>[]>();
+  const byGroup = new Map<string, OverviewCardRow<T, S>[]>((groups || []).map(g => [g.id, []]));
+  const byOrg = new Map<string | null, OverviewCardRow<T, S>[]>();
   (rows || []).forEach((p, i) => {
+    const card = { ...p, i, pinned: pins.has(p.name), sum: sums.get(p.name) || null };
+    const group = groupOf(p, groups);
+    if (group) return byGroup.get(group.id)!.push({ ...card, repo: p.name });
     const cut = p.name.indexOf("/");
     const org = cut > 0 ? p.name.slice(0, cut) : null;
-    if (!groups.has(org)) groups.set(org, []);
-    groups.get(org)!.push({ ...p, i, repo: cut > 0 ? p.name.slice(cut + 1) : p.name, pinned: pins.has(p.name), sum: sums.get(p.name) || null });
+    if (!byOrg.has(org)) byOrg.set(org, []);
+    byOrg.get(org)!.push({ ...card, repo: cut > 0 ? p.name.slice(cut + 1) : p.name });
   });
-  const out = [...groups].map(([org, cards]) => ({ org, cards: cards.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (a.i - b.i)) }));
-  return [...out.filter(g => g.org), ...out.filter(g => !g.org)];
+  const order = (cards: OverviewCardRow<T, S>[]) => cards.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (a.i - b.i));
+  const inGroups = (groups || []).map(group => ({ group, org: null, cards: order(byGroup.get(group.id)!) }));
+  const inOrgs = [...byOrg].map(([org, cards]) => ({ group: null, org, cards: order(cards) }));
+  return [...inGroups, ...inOrgs.filter(g => g.org), ...inOrgs.filter(g => !g.org)];
 }
 
 /// Tasks not done or dropped.
@@ -615,14 +737,17 @@ export function workersLabel(n: number) {
   return n ? `${n} ${n === 1 ? "worker" : "workers"}` : "idle";
 }
 
-/// The heading's line: "3 projects in 2 orgs, 3 workers running".
-export function overviewSub(groups: readonly { org: string | null; cards: readonly { sum: { workers?: number } | null }[] }[]) {
+/// The heading's line: "3 projects in 2 orgs, 3 workers running", or
+/// "4 projects in 1 group and 2 orgs, ..." with groups.
+export function overviewSub(groups: readonly { group?: unknown; org: string | null; cards: readonly { sum: { workers?: number } | null }[] }[]) {
   const cards = groups.flatMap(g => g.cards);
   const orgs = groups.filter(g => g.org).length;
+  const named = groups.filter(g => g.group).length;
   const workers = cards.reduce((n, c) => n + (c.sum?.workers || 0), 0);
   const projects = `${cards.length} ${cards.length === 1 ? "project" : "projects"}`;
-  const inOrgs = orgs ? ` in ${orgs} ${orgs === 1 ? "org" : "orgs"}` : "";
-  return `${projects}${inOrgs}, ${workers ? `${workers} ${workers === 1 ? "worker" : "workers"} running` : "no workers running"}`;
+  const parts = [named && `${named} ${named === 1 ? "group" : "groups"}`, orgs && `${orgs} ${orgs === 1 ? "org" : "orgs"}`].filter(Boolean);
+  const where = parts.length ? ` in ${parts.join(" and ")}` : "";
+  return `${projects}${where}, ${workers ? `${workers} ${workers === 1 ? "worker" : "workers"} running` : "no workers running"}`;
 }
 
 // ---------- Drawing ----------

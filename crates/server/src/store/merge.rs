@@ -82,6 +82,7 @@ const MOVED: &[(&str, &[&str])] = &[
     ("nodes", &[]),
     ("project_sync", &["project", "endpoint_id"]),
     ("pinned_projects", &["project"]),
+    ("project_groups", &[]),
     ("credentials", &["kind", "provider", "host_url"]),
 ];
 
