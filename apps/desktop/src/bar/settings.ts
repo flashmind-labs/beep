@@ -1,7 +1,7 @@
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, renderApps } from "./apps.ts";
 import { toWindow } from "./chat.ts";
-import { $, $$, bar, esc, ICON, invoke, S, windowHooks } from "./core.ts";
+import { $, bar, esc, ICON, invoke, S, windowHooks } from "./core.ts";
 import { hints, refreshHints } from "./hints.ts";
 import { renderInvitePhone, renderLink } from "./link.ts";
 import { type Machine, MC, renderMachines } from "./machines.ts";
@@ -240,7 +240,9 @@ function bindSettings(el: Element) {
       if (SET.root) windowHooks?.settingsAway(null);
       show(null);
     } catch (e) {
-      $$("#unlinkErr").textContent = String(e);
+      // In the window it is the sheet, not the pane, that holds the error.
+      const err = setRoot().querySelector("#unlinkErr");
+      if (err) err.textContent = String(e);
     }
   });
   $in("#usemac")?.addEventListener("click", e => {
