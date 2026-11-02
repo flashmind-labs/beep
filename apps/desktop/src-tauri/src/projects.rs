@@ -67,9 +67,9 @@ pub async fn import_project(
         },
         IMPORT_TIMEOUT,
     )
-        .await
-        .map(ProjectRow::from)
-        .map_err(outdated)
+    .await
+    .map(ProjectRow::from)
+    .map_err(outdated)
 }
 
 /// One folder on `machine_id`, for the sheet's folder browser and to see
