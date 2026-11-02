@@ -4762,7 +4762,11 @@ const AG = {
   // Images pasted or dropped into the session's field, the error from the
   // last one, and the session the server turned images down for.
   att: [], attError: "", noImages: null,
+  // The tool entries opened to their full output, by place in the session,
+  // and the module that reads tool entries, once loaded.
+  opened: new Set(), log: null,
 };
+const agentLog = () => import("./agentlog.js").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
 const AGENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const AGENT_MAX_IMAGES = 5;
@@ -4997,6 +5001,7 @@ function openAgent(s, { why = "", back: from } = {}) {
   AG.attError = "";
   AG.noImages = null;
   AG.images = new Map();
+  AG.opened = new Set();
   drawAgentFrame();
   pollAgent();
   loadAgentImages(AG.open);
@@ -5191,6 +5196,12 @@ function drawAgentFrame() {
     if (S.view !== "agent") return;
     const opt = e.target.closest("[data-agopt]");
     if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+    const tool = e.target.closest("#agbody .dcoderen.tool[data-at]");
+    if (tool && !getSelection().toString()) {
+      const at = Number(tool.dataset.at);
+      if (!AG.opened.delete(at)) AG.opened.add(at);
+      return drawAgentBody();
+    }
     const pic = e.target.closest("#agbody img.pic");
     if (pic) {
       const all = [...pic.parentElement.querySelectorAll("img.pic")];
@@ -5219,7 +5230,27 @@ function userImages(text) {
   return { text: lines.join("\n"), names };
 }
 
-function entryRow(en) {
+/// A tool entry as a row: a mark for how it went, its title in mono and
+/// the first lines of its output. `at` is its place in the session, which
+/// keeps it open across redraws.
+function toolRow(en, at) {
+  const { title, status, output } = AG.log.parseTool(en.text);
+  const open = AG.opened.has(at), { shown, more } = AG.log.toolLines(output, open);
+  const running = AGENT_ACTIVE.has(AG.page?.session.status);
+  const mark = status === "completed" ? `<span class="dok" title="Done">${ICON.check}</span>`
+    : status === "failed" ? `<span class="dbad" title="Failed">${ICON.x}</span>`
+    : status && running ? `<span class="dspin" title="Running"></span>`
+    : status ? '<span class="ddot off" title="Did not finish"></span>' : "";
+  const long = title.length > 140 || title.includes("\n");
+  const opens = more > 0 || open || long;
+  const toggle = more > 0 ? `<span class="more">${more === 1 ? "1 more line" : `${more} more lines`}</span>`
+    : open && (output.includes("\n") || long) ? '<span class="more">Show less</span>' : "";
+  return `<div class="dcoderen tool${status === "failed" ? " failed" : ""}${open ? " open" : ""}"${opens ? ` data-at="${at}"` : ""}>`
+    + `<span class="mk">${mark}</span><code class="tt">${esc(title)}</code>`
+    + (shown ? `<pre class="out">${esc(shown)}</pre>` : "") + toggle + "</div>";
+}
+
+function entryRow(en, at) {
   const text = esc(en.text);
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
@@ -5235,8 +5266,9 @@ function entryRow(en) {
     }).join("");
     return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
   }
-  if (en.kind === "agent") return `<div class="dcoderen agent">${text}</div>`;
-  if (en.kind === "tool") return `<div class="dcoderen tool">${text}</div>`;
+  // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}</div>` : `<div class="dcoderen agent">${text}</div>`;
+  if (en.kind === "tool") return AG.log ? toolRow(en, at) : `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other">${text}</div>`;
 }
 
@@ -5257,7 +5289,8 @@ function drawAgentBody() {
     ? `<div class="dcard dcoder">${doing}${question}${plan}${files}${queued}<div style="height:12px"></div></div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
-  const entries = p.entries.length ? `<div class="dcoderlog">${earlier}${p.entries.map(entryRow).join("")}</div>`
+  if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
+  const entries = p.entries.length ? `<div class="dcoderlog">${earlier}${p.entries.map((en, i) => entryRow(en, p.earlier + i)).join("")}</div>`
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
