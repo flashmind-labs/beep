@@ -174,6 +174,9 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
             );
         }
     }
+    for line in syncthing_lines(&project.name.to_string(), &machines, &checkouts) {
+        let _ = writeln!(ctx, "{line}");
+    }
     if let Some(pin) = &project.pin {
         let _ = writeln!(ctx, "Pinned to: {}", fleet::name_of(&machines, pin));
     }
@@ -253,6 +256,46 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
         owned_issues(&mut ctx, fleet, user, project, host).await;
     }
     ctx
+}
+
+/// For each checkout Syncthing keeps in step, a line saying so and with
+/// which machines, the others sharing its Syncthing folder.
+fn syncthing_lines(project: &str, machines: &[Machine], checkouts: &[CheckoutRow]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for checkout in checkouts {
+        let Some(machine) = machines.iter().find(|m| m.id == checkout.machine) else {
+            continue;
+        };
+        let path = checkout.path.as_str();
+        let Some(folder) = machine
+            .syncthing
+            .iter()
+            .filter(|synced| synced.holds(path))
+            .max_by_key(|synced| synced.path.len())
+        else {
+            continue;
+        };
+        let others: Vec<String> = machines
+            .iter()
+            .filter(|other| other.id != machine.id)
+            .filter(|other| other.syncthing.iter().any(|synced| synced.id == folder.id))
+            .map(|other| fleet::name_of(machines, &other.id))
+            .collect();
+        let name = fleet::name_of(machines, &machine.id);
+        lines.push(if others.is_empty() {
+            format!(
+                "{project} on {name} is kept in step by Syncthing with its other devices; \
+                 edits there reach them on their own, so don't copy files to them."
+            )
+        } else {
+            format!(
+                "{project} on {name} is kept in step by Syncthing with {}; edits there \
+                 reach those machines on their own, so don't copy files between them.",
+                others.join(", ")
+            )
+        });
+    }
+    lines
 }
 
 /// `gpu-box (cuda, blender): online, running fix-it`.
@@ -569,6 +612,60 @@ mod tests {
         );
         assert!(ctx.contains("- gpu-box: /srv/widget (home)"), "{ctx}");
         assert_eq!(shell.ran_with("issue list").len(), 1);
+    }
+
+    #[test]
+    fn a_checkout_syncthing_keeps_says_so_with_the_other_machines() {
+        use crate::protocol::node::SyncthingFolder;
+        let mut fleet = FakeFleet::default();
+        let (laptop, _) = fleet.add(1, "laptop", &[], "/srv");
+        let (build, _) = fleet.add(2, "build-box", &[], "/srv");
+        let (plain, _) = fleet.add(3, "gpu-box", &[], "/srv");
+        let synced = |id: &str, path: &str| SyncthingFolder {
+            id: id.into(),
+            label: "Work".into(),
+            path: path.into(),
+        };
+        fleet.machines[0].syncthing = vec![synced("work-1", "/srv/work")];
+        fleet.machines[1].syncthing = vec![synced("work-1", "/data/work")];
+        let checkout = |machine, path| CheckoutRow {
+            machine,
+            path: MachinePath::parse(path).unwrap(),
+            home: false,
+        };
+        let lines = syncthing_lines(
+            "acme/widget",
+            &fleet.machines,
+            &[
+                checkout(laptop, "/srv/work/widget"),
+                checkout(plain, "/srv/widget"),
+                checkout(build, "/srv/widget"),
+            ],
+        );
+        assert_eq!(
+            lines,
+            [
+                "acme/widget on laptop is kept in step by Syncthing with build-box; edits there \
+              reach those machines on their own, so don't copy files between them."
+            ]
+        );
+
+        fleet.machines[1].syncthing.clear();
+        let alone = syncthing_lines(
+            "acme/widget",
+            &fleet.machines,
+            &[checkout(laptop, "/srv/work/widget")],
+        );
+        assert_eq!(alone.len(), 1);
+        assert!(alone[0].contains("with its other devices"), "{alone:?}");
+        assert!(
+            syncthing_lines(
+                "acme/widget",
+                &fleet.machines,
+                &[checkout(plain, "/srv/widget")]
+            )
+            .is_empty()
+        );
     }
 
     #[tokio::test]

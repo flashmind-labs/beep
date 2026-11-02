@@ -11,10 +11,10 @@ use crate::{
 use beep_proto::{
     ApiError, BranchPlace, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent,
     ImportProject, ImportedProject, ListFoundFolders, ListMachineFolder, ListPendingApprovals,
-    ListProjectMachines, ListProjectSessions, ListProjectTasks, ListProjectWorkers, ListProjects,
+    ListProjectMachines, ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers, ListProjects,
     ListProjectsOnTop, MachineFolder, PendingApproval, PinProjectToTop, ProjectAgent,
     ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
-    RemoveProject, StopProjectWorker, UpdateProjectTask,
+    RemoveProject, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -160,6 +160,17 @@ pub async fn project_machines(
             machines.into_iter().map(ProjectMachineRow::from).collect(),
         )),
         Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The machines on which Syncthing keeps `project`'s folder in step. Empty
+/// from a server too old to say.
+#[tauri::command]
+pub async fn project_syncthing(beep: Service<'_>, project: String) -> Result<Vec<SyncthingPlace>> {
+    match beep.call(ListProjectSyncthing { project }).await {
+        Ok(places) => Ok(places),
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
         Err(e) => Err(e),
     }
 }
