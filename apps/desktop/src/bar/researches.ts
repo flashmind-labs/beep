@@ -96,8 +96,8 @@ export function drawResearches() {
   const empty = RL.loaded && !RL.list.length;
   let list, keys;
   if (empty) {
-    // There is no browser icon, so this draws "undefined" (left as it was).
-    list = `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${(ICON as Record<string, string>).browser}</span>
+    // A paper's icon, as a research shows in the window's sidebar.
+    list = `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${ICON.doc}</span>
       <b style="font-size:14px">No research yet.</b><span class="dmuted" style="display:block">A team of agents digs into a question and writes it up as a paper.</span></div>`;
     keys = [[ICON.ret, "research"], ["esc", "back"]];
   } else {
