@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../dist/home.js";
+import { agentOf, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../dist/home.js";
 
 const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,
@@ -101,4 +101,10 @@ test("This Mac gets a row until the server lists it", () => {
   assert.equal(failed.state, "connect timed out");
   assert.match(failed.title, /connect timed out/);
   assert.equal(thisMacRow(mac({ status: "connected" }), []).state, "Connecting");
+});
+
+test("each coding agent has its badge, and an unknown one its initials", () => {
+  assert.deepEqual(agentOf("opencode"), { cls: "opencode", ini: "OC", name: "OpenCode" });
+  assert.equal(agentOf("claude").ini, "CC");
+  assert.deepEqual(agentOf("amp"), { cls: "", ini: "AM", name: "amp" });
 });

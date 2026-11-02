@@ -160,6 +160,7 @@ test("a found row imports each place in place and counts its sessions", () => {
   assert.equal(foundSessions(found), 5);
   assert.deepEqual(importPlan(null), []);
   assert.equal(agentLabel("claude"), "Claude Code");
+  assert.equal(agentLabel("opencode"), "OpenCode");
   assert.equal(agentLabel("other"), "other");
 });
 
