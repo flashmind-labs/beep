@@ -5,7 +5,7 @@
 use super::{
     Reply,
     agent_control::{Live, live_hosts},
-    agent_sessions::{Host, IN_FLIGHT},
+    agent_sessions::{Host, IN_FLIGHT, limited},
 };
 use crate::{
     imports::{self, MachineFound},
@@ -18,13 +18,15 @@ use crate::{
 use futures::{StreamExt, stream};
 use std::{
     cmp::Reverse,
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 /// The most checkouts one machine names.
 const FOLDERS_PER_MACHINE: u32 = 100;
 /// The most sessions a project lists.
 const MAX_SESSIONS: usize = 50;
+/// A node slower than this to list a project's sessions is logged.
+const SLOW_NODE: Duration = Duration::from_secs(1);
 
 /// The caller's own machines, like `ListMachines`. A machine that cannot
 /// say is left out.
@@ -60,7 +62,9 @@ async fn machine_found(live: Live) -> Option<MachineFound> {
     }
 }
 
-/// `NotFound` unless the caller imported `project`.
+/// `NotFound` unless the caller imported `project`. The machines are asked
+/// side by side, `IN_FLIGHT` at a time, each for at most `NODE_LIMIT`; one
+/// that is slower is left out, so it does not hold up the rest.
 pub(super) async fn list_project_sessions(
     cx: Cx,
     request: ListProjectSessions,
@@ -102,7 +106,17 @@ pub(super) async fn list_project_sessions(
 
 async fn machine_sessions(live: Live, folders: Vec<String>) -> Vec<MachineSession> {
     let limit = u32::try_from(MAX_SESSIONS).unwrap_or(u32::MAX);
-    match live.online.sessions_in(folders, limit).await {
+    let started = Instant::now();
+    let listed = limited(live.online.sessions_in(folders, limit)).await;
+    let took = started.elapsed();
+    if took >= SLOW_NODE {
+        log::info!(
+            "project sessions listed slowly; node={} ms={}",
+            live.host.machine_id,
+            took.as_millis()
+        );
+    }
+    match listed {
         Ok(sessions) => {
             let host = live.host();
             sessions
