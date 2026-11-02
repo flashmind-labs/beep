@@ -140,10 +140,10 @@ function addMachineButton(cls) {
   return b;
 }
 
-/// One machine per row: name and OS, agents, what it can run, free disk,
-/// memory in use and what it is doing now.
+/// One machine per row: name and OS, agents, free disk, memory in use,
+/// what it can run and what it is doing now.
 function machineTable(machines) {
-  const table = h("div", "cc-mt", ...["Machine", "Agents", "Can run", "Disk", "Memory", "Now"].map(t => h("span", "th", t)));
+  const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Can run", "Now"].map(t => h("span", "th", t)));
   for (const m of machines) {
     const off = m.online ? "" : " off";
     const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", machineOs(m)));
@@ -159,7 +159,7 @@ function machineTable(machines) {
     if (d.title) disk.title = d.title;
     const memory = h("span", `num${off}`, mem.text);
     if (mem.title) memory.title = mem.title;
-    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), can, disk, memory, now);
+    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), disk, memory, can, now);
   }
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
