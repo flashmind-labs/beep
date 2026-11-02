@@ -2644,8 +2644,10 @@ function redrawAgents() {
 
 async function loadAgents() {
   try {
-    const [, data] = await Promise.all([agModule(), invoke("agent_accounts")]);
+    const [, data, machines] = await Promise.all([agModule(), invoke("agent_accounts"), invoke("list_machines").catch(() => [])]);
     ACC.data = data ?? false;
+    // Each machine's own Claude Code sign-in, as it last reported it.
+    if (data) data.claude_logins = new Map(machines.map(m => [m.id, m.env?.logins?.find(l => l.tool === "claude")]).filter(([, l]) => l));
   } catch (e) {
     console.warn(e);
     ACC.data ??= null;

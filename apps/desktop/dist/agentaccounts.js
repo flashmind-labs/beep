@@ -15,6 +15,14 @@ export function usedOn(machine) {
   return n === 1 ? "1 session now" : `${n} sessions now`;
 }
 
+/// How a machine's own Claude Code sign-in stands: "signed in as you@example.com",
+/// "not signed in", or "not checked" when it never said.
+export function ownLogin(login) {
+  if (!login) return "not checked";
+  if (!login.signed_in) return "not signed in";
+  return login.account ? `signed in as ${login.account}` : "signed in";
+}
+
 /// "14:32 left" until `expiresAt` (ms), or "expired".
 export function timeLeft(expiresAt, now) {
   const s = Math.floor((expiresAt - now) / 1000);
@@ -61,10 +69,11 @@ function claudeHtml(state, esc, ago) {
       <div style="font-size:12px;color:var(--muted);margin-top:8px;display:flex;gap:8px;align-items:center"><span class="dspin"></span>Approve in your browser. Beep saves the token once you do.</div>`);
   }
   if (!token || token.unreadable) {
-    const why = token?.unreadable ? "Beep can no longer read the saved token. Sign in again." : "Sign in once here. Beep keeps the token encrypted and gives it to your machines when they start Claude Code. It is not written to their disks.";
+    const why = token?.unreadable ? "Beep can no longer read the saved token. Sign in again." : "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks.";
     const edit = state.edit === "claude" ? form(state, esc, "claude") : "";
-    return box(`${head("")}<span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn pri" data-ag-claude-sign>Sign in</button>${edit ? "" : `<button class="dbtn quiet" data-ag-edit="claude">Paste a token</button>`}</span></div>
-      <div style="font-size:12px;color:var(--muted);margin-top:8px">${why}</div>${edit}${err}`);
+    const rows = on.map(m => row(esc(m.name), !m.online, esc(ownLogin(state.data.claude_logins?.get(m.id))))).join("");
+    return box(`${head(on.length ? "signs in on each machine" : "")}<span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn${on.length ? "" : " pri"}" data-ag-claude-sign>${on.length ? "Sign in for all" : "Sign in"}</button>${edit ? "" : `<button class="dbtn quiet" data-ag-edit="claude">Paste a token</button>`}</span></div>
+      ${rows ? `<div style="margin-top:6px">${rows}</div>` : ""}<div style="font-size:12px;color:var(--muted);margin-top:6px">${why}</div>${edit}${err}`);
   }
   const sub = `signed in ${esc(ago(token.created_at))} · <code style="font-size:11px">…${esc(token.last4)}</code>`;
   const edit = state.edit === "claude" ? form(state, esc, "claude") : "";
