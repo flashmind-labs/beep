@@ -39,8 +39,12 @@ export interface TaskRow {
 export interface WorkerRow {
   id: string;
   task_id: string;
+  /// The machine it runs on.
+  machine_id: string;
   machine_name: string;
   agent: string;
+  /// The node's id for its coding-agent session, once it has started.
+  session: string | null;
   folder: string;
   state: string;
   /// Not ended or failed, so it can be stopped.
@@ -82,6 +86,10 @@ export interface ProjectActs {
   openUrl(url: string): unknown;
   /// Opens a branch's review; absent where there is none.
   review?: (branch: string) => void;
+  /// Asks the project agent to merge a task's branch; absent where there is none.
+  merge?: (task: TaskRow) => unknown;
+  /// Opens a worker's coding-agent session; absent where there is none.
+  openWorker?: (worker: WorkerRow, title: string | null) => void;
   change(task: TaskRow, change: TaskChange): unknown;
   stop(worker: WorkerRow): unknown;
   answer(card: ChatApproval, decision: CardDecision, said: string): unknown;
@@ -196,6 +204,26 @@ export function workerLine(w: Pick<WorkerRow, "agent" | "machine_name" | "folder
   return [agentLabel(w.agent), w.machine_name, workerFolder(w.folder), w.state, took].filter(Boolean).join(" · ");
 }
 
+/// The session a worker row opens, as the agent view takes it, or null
+/// before its session has started. `title` is its task's title.
+export function workerSession(w: Pick<WorkerRow, "machine_id" | "machine_name" | "session" | "agent" | "folder" | "state">, title: string | null) {
+  if (!w.session || !w.machine_id) return null;
+  return {
+    kind: "agent",
+    machine_id: w.machine_id,
+    machine_name: w.machine_name,
+    id: w.session,
+    agent: w.agent,
+    title,
+    cwd: w.folder,
+    status: WORKER_STATUS[w.state] || "ended",
+    external: false,
+  };
+}
+
+/// A worker's state as the agent view words a session's.
+const WORKER_STATUS: Record<string, string> = { starting: "starting", running: "working", waiting: "idle" };
+
 /// What the prompt bar under project `name` asks for.
 export function barPlaceholder(name: string) {
   return `Ask the project agent about ${name}`;
@@ -210,7 +238,7 @@ export function chatStarted<T extends { role: string }>(turns: readonly T[] | nu
 // ---------- Drawing ----------
 
 /// A `dbtn` button with `cls`.
-function dbtn(label: string, cls: string, on: () => void) {
+function dbtn(label: string, cls: string, on: (e: MouseEvent) => void) {
   return button(label, `dbtn${cls ? " " + cls : ""}`, on);
 }
 
@@ -256,13 +284,33 @@ export function tasksSection(view: ProjectView, act: RowActs) {
     const err = act.error(t.id);
     const title = el("span", "t", t.title);
     title.title = t.title;
-    return el("div", "pj-task", title, chip(t.state), meta, acts(b, err));
+    const row = el("div", "pj-task", title, chip(t.state), meta, acts(b, err));
+    row.dataset.task = t.id;
+    const review = reviewActs(t, act);
+    if (review.length) row.querySelector(".acts")!.prepend(...review);
+    return row;
   });
   return section("sec-tasks", "Tasks", taskSummary(tasks), el("div", "cc-panel", ...rows));
 }
 
-/// The Workers tree: the project agent, then each worker under it. Worker
-/// rows open nothing yet; a live one offers Stop.
+/// A task in review: Review its branch, Merge… (which asks first) and
+/// Open PR, as far as it has a branch and a PR.
+function reviewActs(t: TaskRow, act: RowActs) {
+  if (t.state !== "review") return [];
+  const out: HTMLButtonElement[] = [];
+  if (t.branch && act.review) out.push(dbtn("Review", "pri small", () => act.review!(t.branch!)));
+  if (t.branch && t.pr_url && act.merge) {
+    const m = dbtn(act.busy(t.id) ? "Asking…" : "Merge…", "small", () => act.merge!(t));
+    m.disabled = !!act.busy(t.id);
+    m.title = "Merge always asks first";
+    out.push(m);
+  }
+  if (t.pr_url) out.push(dbtn("Open PR", "small", () => act.openUrl(t.pr_url!)));
+  return out;
+}
+
+/// The Workers tree: the project agent, then each worker under it. A
+/// worker whose session has started opens it; a live one offers Stop.
 export function workersSection(view: ProjectView, act: RowActs, chatIcon: string) {
   const titles = new Map(view.tasks.map(t => [t.id, t.title]));
   const now = Date.now();
@@ -277,9 +325,14 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
     const sub = el("span", "", workerLine(w, now));
     sub.title = w.folder;
     const node = el("div", "pj-node child", lead(ag.cls, ag.ini), el("span", "t", el("b", "", name), sub));
+    if (w.session && act.openWorker) {
+      node.classList.add("link");
+      node.title = "Open its session";
+      node.addEventListener("click", () => act.openWorker!(w, titles.get(w.task_id) ?? null));
+    }
     if (w.live) {
       const busy = act.busy(w.id);
-      const stop = dbtn(busy ? "Stopping…" : "Stop", "quiet small", () => act.stop(w));
+      const stop = dbtn(busy ? "Stopping…" : "Stop", "quiet small", e => { e.stopPropagation(); act.stop(w); });
       stop.disabled = !!busy;
       node.append(acts(stop, act.error(w.id)));
     }

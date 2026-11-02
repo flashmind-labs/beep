@@ -4,7 +4,7 @@
 // the board shows; this file holds the tiles' rows, as pure functions the
 // tests check, and draws the grid.
 import { prLabel } from "./project.ts";
-import type { TaskRow } from "./project.ts";
+import type { TaskRow, WorkerRow } from "./project.ts";
 import { machineSync } from "./home.ts";
 import type { RunningAgent, SyncRow } from "./home.ts";
 import { el } from "./projects-state.ts";
@@ -43,6 +43,8 @@ export interface TileOptions {
   openUrl?: ((url: string) => unknown) | null;
   /// Right-clicking a row with an `id` opens this menu.
   menu?: ((row: TileRow, e: MouseEvent) => void) | null;
+  /// Clicking a row with an `id` and no `url` opens it with this.
+  open?: ((row: TileRow) => void) | null;
 }
 
 /// Rows a tile shows before its full list.
@@ -51,16 +53,42 @@ export const TILE_ROWS = 4;
 /// Open task states, in the order the tile lists them.
 const OPEN: Record<string, number> = { running: 0, blocked: 1, review: 2, planned: 3 };
 
+/// A coding-agent session's key in `askingSessions`.
+export function sessionKey(machineId: string, session: string) { return `${machineId}\n${session}`; }
+
+/// The sessions that wait on the user: running agents that ask, and the
+/// agent questions Home lists.
+export function askingSessions(
+  running: readonly Partial<Pick<RunningAgent, "machine_id" | "id" | "status">>[] | null | undefined,
+  needs?: readonly { kind: string; machine_id?: string; session?: string }[] | null,
+) {
+  const out = new Set<string>();
+  for (const r of running || []) if (r.status === "asking" && r.machine_id && r.id) out.add(sessionKey(r.machine_id, r.id));
+  for (const n of needs || []) if (n.kind === "agent" && n.machine_id && n.session) out.add(sessionKey(n.machine_id, n.session));
+  return out;
+}
+
+type TileTask = Pick<TaskRow, "title" | "state"> & Partial<Pick<TaskRow, "id" | "worker">>;
+type TileWorker = Pick<WorkerRow, "id" | "machine_id" | "session">;
+
 /// The Tasks tile: open tasks, running ones first. A chip marks only what
-/// waits on the user.
-export function taskTile(tasks: readonly Pick<TaskRow, "title" | "state">[] | null | undefined): TileData {
+/// waits on the user: a worker that asks (its session is in `asking`, from
+/// `askingSessions`), a task in review or a blocked one. A row's `id` is
+/// its task's.
+export function taskTile(tasks: readonly TileTask[] | null | undefined, workers?: readonly TileWorker[] | null, asking?: ReadonlySet<string> | null): TileData {
   const list = tasks || [];
   const open = list.filter(t => t.state in OPEN).sort((a, b) => OPEN[a.state] - OPEN[b.state]);
   const running = list.filter(t => t.state === "running").length;
   const count = running ? `${running} running` : open.length ? `${open.length} open` : list.length ? "all done" : "";
+  const asks = (t: TileTask) => {
+    const w = t.worker && (workers || []).find(x => x.id === t.worker);
+    return !!(w && w.session && asking?.has(sessionKey(w.machine_id, w.session)));
+  };
   const rows = open.map(t => ({
+    id: t.id,
     text: t.title,
-    chip: t.state === "review" ? { cls: "wait", text: "review" } : t.state === "blocked" ? { cls: "wait", text: "blocked" } : null,
+    chip: asks(t) ? { cls: "wait", text: "asks" }
+      : t.state === "review" ? { cls: "wait", text: "review" } : t.state === "blocked" ? { cls: "wait", text: "blocked" } : null,
   }));
   return { count, rows, empty: list.length ? "Nothing open" : "No tasks yet" };
 }
@@ -145,7 +173,7 @@ function icon(svg: string) {
 }
 
 /// One row of a tile: an optional dot, its text, a chip or a muted note.
-function row(r: TileRow, { openUrl, menu }: TileOptions) {
+function row(r: TileRow, { openUrl, menu, open }: TileOptions) {
   const text = el("span", "t", r.code ? el("code", "", r.code) : null, r.code ? " " : null, r.text);
   text.title = String(r.title || r.text);
   const line = el("div", "pb-r", r.dot != null ? el("span", `ddot${r.dot ? " " + r.dot : ""}`) : null, text,
@@ -153,6 +181,9 @@ function row(r: TileRow, { openUrl, menu }: TileOptions) {
   if (r.url && openUrl) {
     line.classList.add("link");
     line.addEventListener("click", () => openUrl(r.url!));
+  } else if (r.id && open) {
+    line.classList.add("link");
+    line.addEventListener("click", () => open(r));
   }
   if (r.id && menu) line.addEventListener("contextmenu", e => menu(r, e));
   return line;
