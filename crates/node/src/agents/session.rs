@@ -4,7 +4,7 @@
 
 use super::{
     AgentKind,
-    acp::{self, Line, LineReader, Prompt, ResumeMethod},
+    acp::{self, Line, LineReader, Offered, Prompt, ResumeMethod},
     images::Images,
     live::{Live, cut},
 };
@@ -16,9 +16,9 @@ use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
     on_receive_request,
     schema::v1::{
-        CancelNotification, InitializeResponse, LoadSessionRequest, NewSessionRequest,
-        NewSessionResponse, PromptResponse, RequestPermissionRequest, RequestPermissionResponse,
-        ResumeSessionRequest, SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest,
+        CancelNotification, InitializeResponse, LoadSessionRequest, PromptResponse,
+        RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SessionId,
+        SessionNotification, SessionUpdate, SetSessionModeRequest,
     },
 };
 use anyhow::{Context, Result};
@@ -85,6 +85,8 @@ pub(super) struct Start<'a> {
     pub(super) prompt: Option<String>,
     /// The agent's id of an earlier session to resume instead of a new one.
     pub(super) resume: Option<String>,
+    /// The model to run a new session on, rather than the agent's own.
+    pub(super) model: Option<String>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
 }
@@ -97,8 +99,17 @@ impl Session {
             cwd,
             prompt,
             resume,
+            model,
             images,
         } = start;
+        // Only a new session takes a model; a resumed one keeps its own.
+        let model = model.filter(|_| resume.is_none());
+        // An agent whose command line picks the model starts on it; the
+        // others switch once the session exists.
+        let flag = acp::model_flag(&kind.name)
+            .zip(model.as_deref())
+            .map(|(flag, model)| format!("{flag}={model}"));
+        let model = model.filter(|_| flag.is_none());
         let mut process = command(&kind.program);
         // The token Beep keeps for this agent, such as Claude Code's, when
         // there is one.
@@ -106,6 +117,7 @@ impl Session {
         spawn_env::apply(&mut process, Scope::Agent(account));
         process
             .args(&kind.args)
+            .args(flag)
             .envs(&kind.env)
             .current_dir(cwd)
             .stdin(Stdio::piped())
@@ -138,6 +150,7 @@ impl Session {
             takes_images: None,
             queued: prompt.map(Prompt::from).into_iter().collect(),
             resume,
+            model,
             bypass_mode: acp::bypass_mode(&kind.name),
             asked: VecDeque::new(),
             next_question: 1,
@@ -193,7 +206,13 @@ enum Event {
 enum Reply {
     /// Boxed: the answer to `initialize` is far larger than the others.
     Initialized(Result<Box<InitializeResponse>, agent_client_protocol::Error>),
-    NewSession(Result<NewSessionResponse, agent_client_protocol::Error>),
+    /// The answer to `session/new`, untyped to keep the models it offers.
+    NewSession(Result<serde_json::Value, agent_client_protocol::Error>),
+    /// The answer to switching the new session to `model`.
+    ModelSet {
+        model: String,
+        result: Result<(), agent_client_protocol::Error>,
+    },
     /// The answer to `session/resume` or `session/load` of this session.
     Resumed(SessionId, Result<(), agent_client_protocol::Error>),
     /// The answer to `session/set_mode` to the mode that asks no permission.
@@ -218,6 +237,8 @@ struct Actor {
     takes_images: Option<bool>,
     /// The agent's id of an earlier session to resume.
     resume: Option<String>,
+    /// The model a new session switches to before its first prompt.
+    model: Option<String>,
     /// The session mode that turns the agent's permission prompts off, set
     /// before the first prompt: Claude Code's `bypassPermissions`. Every
     /// agent runs without prompts, and a permission request that comes
@@ -439,8 +460,26 @@ impl Actor {
                     return Ok(Some(end));
                 }
             }
-            Reply::NewSession(Ok(created)) => self.ready(cx, created.session_id),
-            Reply::Resumed(session, Ok(())) => self.ready(cx, session),
+            Reply::NewSession(Ok(answer)) => match acp::session_created(answer) {
+                Ok((created, offered)) => return Ok(self.ready(cx, created.session_id, offered)),
+                Err(e) => {
+                    return Ok(Some(End::Failed(format!(
+                        "the agent did not start: it answered session/new with {e}"
+                    ))));
+                }
+            },
+            Reply::Resumed(session, Ok(())) => {
+                return Ok(self.ready(cx, session, Offered::default()));
+            }
+            Reply::ModelSet { result: Ok(()), .. } => self.unprompted(cx),
+            Reply::ModelSet {
+                model,
+                result: Err(e),
+            } => {
+                return Ok(Some(End::Failed(format!(
+                    "the agent could not switch to {model}: {e}"
+                ))));
+            }
             Reply::Bypass(result) => {
                 if let Err(e) = result {
                     // Requests that still come are allowed in `ask`.
@@ -478,8 +517,10 @@ impl Actor {
         initialized: &InitializeResponse,
     ) -> Option<End> {
         let Some(session) = self.resume.take() else {
-            let request = NewSessionRequest::new(self.cwd.clone());
-            self.send(cx, request, Reply::NewSession);
+            match acp::new_session(&self.cwd) {
+                Ok(request) => self.send(cx, request, Reply::NewSession),
+                Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
+            }
             return None;
         };
         let session = SessionId::from(session);
@@ -501,11 +542,54 @@ impl Actor {
         None
     }
 
-    /// The agent made or resumed its session `session`: prompts may go.
-    fn ready(&mut self, cx: &ConnectionTo<Agent>, session: SessionId) {
+    /// The agent made or resumed its session `session`, which offers the
+    /// models in `offered`: switches it to the model asked for, then lets
+    /// prompts go. Gives why the session ends when it cannot.
+    fn ready(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        session: SessionId,
+        offered: Offered,
+    ) -> Option<End> {
         self.acp_session = Some(session.clone());
         self.live
             .send_modify(|live| live.agent_session = Some(session.to_string()));
+        let Some(model) = self.model.take() else {
+            self.unprompted(cx);
+            return None;
+        };
+        let Some(switch) = offered.switch else {
+            let note = format!(
+                "{} here cannot switch models, so it runs its own rather than {model}",
+                agent_title(&self.agent)
+            );
+            log::info!("{note}");
+            self.live
+                .send_modify(|live| live.push(EntryKind::Other, &note));
+            self.unprompted(cx);
+            return None;
+        };
+        match acp::switch_model(&session, &switch, &model) {
+            Ok(request) => {
+                // The first prompt waits for the model.
+                self.send(cx, request, move |result| Reply::ModelSet {
+                    model,
+                    result: result.map(drop),
+                });
+                None
+            }
+            Err(e) => Some(End::Failed(format!(
+                "the agent could not switch to {model}: {e}"
+            ))),
+        }
+    }
+
+    /// The session runs on its model: turns permission prompts off, then
+    /// lets prompts go.
+    fn unprompted(&mut self, cx: &ConnectionTo<Agent>) {
+        let Some(session) = self.acp_session.clone() else {
+            return;
+        };
         if let Some(mode) = self.bypass_mode {
             // The first prompt waits for the mode, so it never asks.
             let request = SetSessionModeRequest::new(session, mode);
@@ -892,6 +976,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("carry on".into()),
             resume: Some(id.into()),
+            model: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -956,6 +1041,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("go".into()),
             resume: None,
+            model: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -996,6 +1082,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("go".into()),
             resume: None,
+            model: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1038,6 +1125,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("y".repeat(4 * 1024 * 1024)),
             resume: None,
+            model: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1070,6 +1158,7 @@ read -r line
             cwd: dir,
             prompt: Some("go".into()),
             resume: None,
+            model: None,
             images: Arc::default(),
         })
         .unwrap()
@@ -1178,6 +1267,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             cwd: dir,
             prompt: None,
             resume: None,
+            model: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1294,5 +1384,133 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
         assert_eq!(pick("no"), Some("reject"));
         assert_eq!(pick("4"), None);
         assert_eq!(pick("use the other folder instead"), None);
+    }
+
+    /// An adapter that writes its arguments after `$1` to `$1.args`, offers
+    /// two models on `session/new`, answers a switch with
+    /// `$BEEP_FAKE_SWITCH` as its error (an empty result when unset), then
+    /// ends a turn.
+    const MODEL_ADAPTER: &str = r#"
+out="$1"; shift; printf '%s\n' "$@" > "$out.args"; set -- "$out"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"fast"},{"modelId":"deep"}],"currentModelId":"fast"}}'
+read -r line; log "$1"
+case "$line" in
+  *session/prompt*) ;;
+  *) if [ -n "$BEEP_FAKE_SWITCH" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":%s}\n' "$(id)" "$BEEP_FAKE_SWITCH"; else reply '{}'; fi
+     read -r line; log "$1";;
+esac
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+cat > /dev/null
+"#;
+
+    fn sent(log: &Path) -> Vec<Value> {
+        std::fs::read_to_string(log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Start<'a> {
+        Start {
+            id: "c0ffee".into(),
+            kind,
+            cwd: dir,
+            prompt: Some("go".into()),
+            resume: None,
+            model: model.map(str::to_owned),
+            images: Arc::default(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_new_session_switches_to_its_model_before_the_first_prompt() {
+        let dir = temp("model-switch");
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", MODEL_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, &dir, Some("deep"))).unwrap();
+        settle(&session).await;
+        let info = session.info();
+        assert_eq!(info.turns, 1, "{:?}", info.state.error);
+        let sent = sent(&log);
+        assert_eq!(sent[1]["method"], "session/new");
+        assert_eq!(sent[2]["method"], "session/set_model");
+        assert_eq!(sent[2]["params"]["sessionId"], "s");
+        assert_eq!(sent[2]["params"]["modelId"], "deep");
+        assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
+        let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
+        assert_eq!(args.trim(), "", "no flag on the command line");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_session_without_a_model_asked_for_keeps_the_agents_own() {
+        let dir = temp("model-none");
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", MODEL_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, &dir, None)).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1);
+        assert_eq!(sent(&log)[2]["method"], "session/prompt");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_model_the_agent_refuses_ends_the_session() {
+        let dir = temp("model-refused");
+        let log = dir.join("sent.jsonl");
+        let mut kind = script("codex", MODEL_ADAPTER, &log);
+        kind.env.insert(
+            "BEEP_FAKE_SWITCH".into(),
+            r#"{"code":-32602,"message":"unknown model"}"#.into(),
+        );
+        let session = Session::start(start_on(&kind, &dir, Some("huge"))).unwrap();
+        settle(&session).await;
+        let info = session.info();
+        assert_eq!(info.state.status, Status::Ended);
+        let error = info.state.error.unwrap_or_default();
+        assert!(error.contains("could not switch to huge"), "{error}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn flsh_starts_on_its_model_from_the_command_line() {
+        let dir = temp("model-flag");
+        let log = dir.join("sent.jsonl");
+        let kind = script("flsh", MODEL_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, &dir, Some("openai:gpt-test"))).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1);
+        let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
+        assert_eq!(args.trim(), "--model=openai:gpt-test");
+        assert_eq!(sent(&log)[2]["method"], "session/prompt", "no switch");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_agent_that_cannot_switch_runs_its_own_and_says_so() {
+        let dir = temp("model-fixed");
+        let log = dir.join("sent.jsonl");
+        let kind = script("pi", ALLOWING_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, &dir, Some("deep"))).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1);
+        assert_eq!(sent(&log)[2]["method"], "session/prompt");
+        let (entries, _) = session.live.borrow().transcript(10);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.text.contains("runs its own rather than deep")),
+            "{entries:?}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

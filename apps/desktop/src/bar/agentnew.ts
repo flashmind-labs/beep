@@ -1,4 +1,5 @@
 import { AG, type AgentHost, agentKind, type AgentSession, byPreference, CAP_NAMES, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
+import { type AgentModels, MODELS_KEPT_MS, modelField, modelMachine } from "./agentmodels.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, S } from "./core.ts";
 import { folderOn } from "../projects-state.ts";
 import { hints } from "./hints.ts";
@@ -70,11 +71,13 @@ export function drawAgentNew() {
       <div class="dfield"><span>Machine</span><div class="dchips">${machines}</div><span class="note">${machineNote}</span><span class="note why" id="agwhy"${hosts.length && !host ? "" : " hidden"}>${pickNote()}</span></div>
       <label class="dfield"><span>Folder</span><input id="agcwd" list="agfolders" spellcheck="false" placeholder="${esc(place)}" value="${esc(f.cwd)}" style="font-family:var(--mono);font-size:13px"><datalist id="agfolders"></datalist></label>
       <div class="dfield"><span>Agent</span><div class="dchips">${agentChips}</div></div>
+      <div class="dfield" id="agmodelf" hidden></div>
       ${AG.error && !missing ? `<div class="derr">${esc(AG.error)}</div>` : ""}
       <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="aggo"${AG.busy || !hosts.length ? " disabled" : ""}>${AG.busy ? '<span class="dspin"></span>Starting' : "Start"}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="agno">Cancel</button>
         <span class="dmuted" style="margin-left:auto">Or ask Beep in a chat to start one</span></div>
     </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "start"], ["esc", "cancel"]])}`;
   drawFolders();
+  drawModel();
   $$("#agprompt").addEventListener("input", e => { f.prompt = (e.target as HTMLTextAreaElement).value; previewAuto(); });
   $$("#agcwd").addEventListener("input", e => { f.cwd = (e.target as HTMLInputElement).value; previewAuto(); });
   previewAuto();
@@ -138,7 +141,62 @@ export function previewAuto() {
       el.innerHTML = pickNote();
       el.hidden = !pick && !error;
     }
+    drawModel();
   }, 450);
+}
+
+/// The models each machine's agents offer, by `machine/agent`: `null` when
+/// it could not say, `undefined` in `list` while it is asked.
+const MODELS = new Map<string, { list: AgentModels | null | undefined; at: number }>();
+
+/// The machine the Model field lists models on: the one picked, else the
+/// one Auto would pick for the form as it stands.
+function formModelMachine() {
+  const f = AG.form;
+  const auto = PICK.key === pickKey() ? PICK.pick?.machine_id ?? null : null;
+  return modelMachine(f.machine, auto);
+}
+
+/// The Model field, after Agent: hidden for Any, before Auto has picked a
+/// machine, and when the agent offers no choice.
+export function drawModel() {
+  const el = $("#agmodelf");
+  if (!el) return;
+  const f = AG.form, machine = formModelMachine();
+  const key = machine && f.agent ? `${machine}/${f.agent}` : "";
+  if (f.modelFor !== key) { f.model = ""; f.modelFor = key; }
+  if (!key) { el.hidden = true; el.innerHTML = ""; return; }
+  const known = MODELS.get(key);
+  if (!known || (known.list !== undefined && Date.now() - known.at > MODELS_KEPT_MS)) loadModels(machine!, f.agent!, key);
+  const field = modelField(MODELS.get(key)?.list);
+  el.hidden = field.kind === "hidden";
+  if (field.kind === "hidden") { el.innerHTML = ""; return; }
+  if (field.kind === "loading") {
+    el.innerHTML = '<span>Model</span><span class="note"><span class="dspin"></span> Asking the machine which models it has…</span>';
+    return;
+  }
+  if (field.kind === "list") {
+    const options = field.choices.map(c => `<option value="${esc(c.value)}"${c.value === f.model ? " selected" : ""}${c.title ? ` title="${esc(c.title)}"` : ""}>${esc(c.label)}</option>`).join("");
+    el.innerHTML = `<span>Model</span><select id="agmodel">${options}</select>`;
+    $$("#agmodel").addEventListener("change", e => { f.model = (e.target as HTMLSelectElement).value; });
+    return;
+  }
+  el.innerHTML = `<label style="display:contents"><span>Model</span><input id="agmodel" spellcheck="false" placeholder="${esc(field.placeholder)}" value="${esc(f.model ?? "")}" style="font-family:var(--mono);font-size:13px"></label>`;
+  $$("#agmodel").addEventListener("input", e => { f.model = (e.target as HTMLInputElement).value; });
+}
+
+/// Asks `machine` which models `agent` offers, then redraws the field when
+/// the form still shows them.
+async function loadModels(machine: string, agent: string, key: string) {
+  MODELS.set(key, { list: undefined, at: Date.now() });
+  let list: AgentModels | null = null;
+  try {
+    list = await invoke<AgentModels | null>("agent_models", { machineId: machine, agent });
+  } catch {
+    list = null;
+  }
+  MODELS.set(key, { list, at: Date.now() });
+  if (S.view === "agentnew" && AG.form.modelFor === key) drawModel();
 }
 
 /// Folder suggestions: the machine's workspace and home, then where its sessions ran.
@@ -160,12 +218,16 @@ export async function startAgent() {
   AG.error = "";
   drawAgentNew();
   try {
+    // A model is for the machine it was listed on, which Auto then keeps.
+    const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
+    const machine = f.machine === "auto" ? (model ? formModelMachine() : null) : f.machine;
     const started = await invoke<Started>("agent_start", {
-      machineId: f.machine === "auto" ? null : f.machine,
+      machineId: machine,
       agent: f.agent,
       cwd: f.cwd.trim() || null,
       prompt: f.prompt.trim(),
       chat: f.chat,
+      model,
     });
     AG.busy = false;
     if (S.view !== "agentnew") return;

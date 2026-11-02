@@ -48,8 +48,14 @@ pub fn agent_of(protocol: &str) -> Option<&str> {
 #[non_exhaustive]
 pub enum Request {
     /// The first message: starts a session in `cwd` (the home folder when
-    /// `None`) on `prompt`.
-    Start { cwd: Option<String>, prompt: String },
+    /// `None`) on `prompt`, on `model` when given (an id from
+    /// `SessionsRequest::Models`). A node from before `model` ignores it.
+    Start {
+        cwd: Option<String>,
+        prompt: String,
+        #[serde(default)]
+        model: Option<String>,
+    },
     /// The first message: follows a session that already runs.
     Attach { session: String },
     /// The first message: takes over a session started outside Beep, by its
@@ -360,6 +366,12 @@ pub enum SessionsRequest {
         session: String,
         key: String,
     },
+    /// The models the agent `agent` can run on here, for `Start`'s
+    /// `model`. Answered with `Models`, or `Error` for an agent the node
+    /// does not have. A node from before it closes the stream.
+    Models {
+        agent: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -395,6 +407,56 @@ pub enum SessionsReply {
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
+    /// The answer to `Models`.
+    Models {
+        models: ModelList,
+    },
+}
+
+/// The models an agent can run on a node, as `SessionsRequest::Models`
+/// finds them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelList {
+    pub pick: ModelPick,
+    /// The model the agent runs when none is picked, when it says.
+    pub current: Option<String>,
+    /// The models to pick from, for `ModelPick::Listed`.
+    pub models: Vec<ModelOption>,
+}
+
+/// The longest model id a start may name.
+pub const MAX_MODEL: usize = 200;
+
+/// Whether `model` may name a model to start an agent on: short, and no
+/// control characters, since it may go on the agent's command line.
+pub fn valid_model(model: &str) -> bool {
+    !model.is_empty() && model.len() <= MAX_MODEL && !model.chars().any(char::is_control)
+}
+
+/// How a model is picked for an agent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ModelPick {
+    /// One of `ModelList::models`.
+    Listed,
+    /// Any name the agent takes; it lists none.
+    Named,
+    /// None can be picked: the agent runs its own.
+    #[default]
+    #[serde(other)]
+    Fixed,
+}
+
+/// One model an agent offers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelOption {
+    /// What `Start`'s `model` names it by.
+    pub id: String,
+    /// What people call it; the id when the agent gives no name.
+    pub name: String,
+    pub description: Option<String>,
 }
 
 /// A git checkout coding agents worked in, as `SessionsRequest::Folders`
@@ -646,6 +708,101 @@ mod tests {
         let session: ExternalSession = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(session.id, "s1");
         assert_eq!(session.presence, Presence::Unknown);
+    }
+
+    #[test]
+    fn model_requests_and_replies_round_trip() {
+        let request = SessionsRequest::Models {
+            agent: "flsh".into(),
+        };
+        let body = rmp_serde::to_vec_named(&request).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
+            request
+        );
+        let reply = SessionsReply::Models {
+            models: ModelList {
+                pick: ModelPick::Listed,
+                current: Some("openai:gpt-test".into()),
+                models: vec![ModelOption {
+                    id: "openai:gpt-test".into(),
+                    name: "GPT Test".into(),
+                    description: None,
+                }],
+            },
+        };
+        let body = rmp_serde::to_vec_named(&reply).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
+            reply
+        );
+        let start = Request::Start {
+            cwd: None,
+            prompt: "go".into(),
+            model: Some("openai:gpt-test".into()),
+        };
+        let body = rmp_serde::to_vec_named(&start).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);
+    }
+
+    #[test]
+    fn a_start_with_a_model_reads_on_an_older_node_and_an_older_start_here() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        enum Older {
+            Start { cwd: Option<String>, prompt: String },
+        }
+        let newer = Request::Start {
+            cwd: Some("/srv/project".into()),
+            prompt: "go".into(),
+            model: Some("m".into()),
+        };
+        let body = rmp_serde::to_vec_named(&newer).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<Older>(&body).unwrap(),
+            Older::Start {
+                cwd: Some("/srv/project".into()),
+                prompt: "go".into()
+            }
+        );
+        let body = rmp_serde::to_vec_named(&Older::Start {
+            cwd: None,
+            prompt: "go".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<Request>(&body).unwrap(),
+            Request::Start {
+                cwd: None,
+                prompt: "go".into(),
+                model: None
+            }
+        );
+    }
+
+    #[test]
+    fn model_ids_are_short_and_plain() {
+        assert!(valid_model("openrouter:anthropic/claude-sonnet-4"));
+        assert!(valid_model("gpt-5.1-codex[high]"));
+        assert!(!valid_model(""));
+        assert!(!valid_model("a\nb"));
+        assert!(!valid_model(&"m".repeat(MAX_MODEL + 1)));
+    }
+
+    #[test]
+    fn a_newer_model_pick_reads_as_fixed() {
+        #[derive(Serialize)]
+        struct Newer {
+            pick: &'static str,
+            current: &'static str,
+        }
+        let body = rmp_serde::to_vec_named(&Newer {
+            pick: "Searched",
+            current: "m",
+        })
+        .unwrap();
+        let list: ModelList = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(list.pick, ModelPick::Fixed);
+        assert_eq!(list.current.as_deref(), Some("m"));
     }
 
     #[test]

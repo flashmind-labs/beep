@@ -142,6 +142,8 @@ sample_struct! {
     AgentHost { machine_id, machine_name, agents, workspace, home, capabilities }
     StartedAgent { session, why }
     MachinePick { machine_id, machine_name, why }
+    AgentModels { pick, current, models }
+    AgentModel { id, name, description }
     AgentSessionView { session, plan, files, last_message, error, queued, turns, entries, earlier }
     AgentPlanStep { content, status }
     AgentEntry { kind, text }

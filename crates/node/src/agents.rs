@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        self, Event, ExternalSession, Request, SESSIONS_PROTOCOL, SessionFolder, SessionInfo,
-        SessionsReply, SessionsRequest, State, Status,
+        self, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL, SessionFolder,
+        SessionInfo, SessionsReply, SessionsRequest, State, Status,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,7 @@ use tokio::task::spawn_blocking;
 mod acp;
 mod images;
 mod live;
+mod models;
 mod session;
 
 pub(crate) use images::{Picture, block_picture};
@@ -35,6 +36,7 @@ pub(crate) use live::cut;
 
 use acp::Prompt;
 use images::Images;
+use models::ModelCache;
 use session::{Command, Session, Start};
 
 /// The most sessions running at once.
@@ -205,6 +207,8 @@ pub struct Agents {
     stores: Stores,
     /// The pictures sessions' transcripts show, by session.
     images: Arc<Images>,
+    /// The models each agent offers, found lately.
+    models: ModelCache,
 }
 
 impl Agents {
@@ -215,7 +219,15 @@ impl Agents {
             external: External::locate(),
             stores: Stores::locate(),
             images: Arc::default(),
+            models: ModelCache::default(),
         }
+    }
+
+    /// The models the agent `name` can run on here; `None` when this node
+    /// has no such agent.
+    async fn models(&self, name: &str) -> Option<ModelList> {
+        let kind = self.kinds.iter().find(|kind| kind.name == name)?.clone();
+        Some(self.models.get(name, models::find(kind)).await)
     }
 
     /// The Claude Code sessions started outside Beep.
@@ -370,6 +382,7 @@ impl Agents {
             Begin {
                 prompt,
                 resume: Some(id.to_owned()),
+                model: None,
             },
         )
     }
@@ -509,6 +522,7 @@ impl Agents {
             cwd: &cwd,
             prompt: begin.prompt,
             resume: begin.resume,
+            model: begin.model,
             images: self.images.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
@@ -518,11 +532,12 @@ impl Agents {
     }
 }
 
-/// How a session begins: on a prompt, and as a new session or an earlier
-/// one resumed by the agent's id.
+/// How a session begins: on a prompt, and as a new session (on a model
+/// when given) or an earlier one resumed by the agent's id.
 struct Begin {
     prompt: Option<String>,
     resume: Option<String>,
+    model: Option<String>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or
@@ -599,13 +614,17 @@ pub async fn serve_session(
         .await?
         .context("the stream closed before its first request")?;
     let session = match first {
-        Request::Start { cwd, prompt } => agents
+        Request::Start {
+            model: Some(model), ..
+        } if !agent::valid_model(&model) => Err(format!("{model:?} is not a model name")),
+        Request::Start { cwd, prompt, model } => agents
             .start(
                 &kind,
                 cwd.as_deref(),
                 Begin {
                     prompt: Some(prompt),
                     resume: None,
+                    model,
                 },
             )
             .map_err(|e| format!("{e:#}")),
@@ -830,6 +849,12 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 message: format!("could not read session {session}: {e:#}"),
             },
         },
+        SessionsRequest::Models { agent } => match agents.models(&agent).await {
+            Some(models) => SessionsReply::Models { models },
+            None => SessionsReply::Error {
+                message: format!("this node has no agent {agent}"),
+            },
+        },
         other => SessionsReply::Error {
             message: format!("this node does not serve {other:?}"),
         },
@@ -911,6 +936,7 @@ while read -r line; do reply '{}'; done
         let begin = Begin {
             prompt: None,
             resume: Some(CLAUDE_ID.into()),
+            model: None,
         };
         let session = agents
             .start(&kind, Some(dir.to_str().unwrap()), begin)
@@ -1145,6 +1171,7 @@ while read -r line; do reply '{}'; done
         let begin = || Begin {
             prompt: None,
             resume: Some(id.to_owned()),
+            model: None,
         };
         let first = agents.start(&kind, Some("/"), begin()).unwrap();
         let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
@@ -1171,6 +1198,7 @@ while read -r line; do reply '{}'; done
         let begin = Begin {
             prompt: None,
             resume: Some(id.to_owned()),
+            model: None,
         };
         let first = agents.start(&kind, Some("/"), begin).unwrap();
         first.close().await;
@@ -1178,6 +1206,42 @@ while read -r line; do reply '{}'; done
         // agent's id that the node looks for, not its own.
         let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
         assert!(err.to_string().contains(id), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn models_are_listed_for_the_agents_this_node_has() {
+        // Answers one `session/new` with a model; a second start would
+        // fail, so a second listing must come from the cache.
+        let script = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+[ -e "$1" ] && exit 1
+: > "$1"
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"deep"}],"currentModelId":"deep"}}'
+cat > /dev/null
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let kind = AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec![
+                "-c".into(),
+                script.into(),
+                "fake-adapter".into(),
+                dir.path().join("started").display().to_string(),
+            ],
+            env: BTreeMap::new(),
+        };
+        let agents = Agents::new(vec![kind]);
+        let first = agents.models("codex").await.expect("a known agent");
+        assert_eq!(first.pick, agent::ModelPick::Listed);
+        assert_eq!(first.current.as_deref(), Some("deep"));
+        assert_eq!(agents.models("codex").await, Some(first));
+        assert_eq!(agents.models("claude").await, None);
     }
 
     #[test]
