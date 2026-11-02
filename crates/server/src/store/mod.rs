@@ -9,6 +9,7 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
 mod actions;
+mod agent_images;
 mod apps;
 mod backfill;
 mod blobs;
@@ -65,6 +66,7 @@ mod users;
 mod watchers;
 
 pub use actions::ActionRow;
+pub(crate) use agent_images::{AgentSessionOf, NewAgentImage};
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
@@ -438,6 +440,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         71,
         "review worktrees",
         include_str!("../../migrations/0071_review_worktrees.sql"),
+    ),
+    (
+        72,
+        "agent images",
+        include_str!("../../migrations/0072_agent_images.sql"),
     ),
 ];
 

@@ -4752,6 +4752,7 @@ function drawMachines() {
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike.
 const AG = {
+  images: new Map(),
   hosts: null, sessions: [], error: "", busy: false,
   form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
   open: null, page: null, why: "", back: "chat", timer: 0, inflight: null, note: "", sel: 0,
@@ -4995,8 +4996,10 @@ function openAgent(s, { why = "", back: from } = {}) {
   AG.att = [];
   AG.attError = "";
   AG.noImages = null;
+  AG.images = new Map();
   drawAgentFrame();
   pollAgent();
+  loadAgentImages(AG.open);
 }
 
 const isOpen = o => S.view === "agent" && AG.open && o === AG.open;
@@ -5134,6 +5137,25 @@ function drawAgentAttached() {
   if (hint && S.view === "agent") hint.replaceWith(h(agentHints()));
 }
 
+/// Reads the images the server kept for the open session, by the name its
+/// log gives each and by its key, for an agent that replays it without one.
+async function loadAgentImages(o) {
+  let got = [];
+  try { got = await invoke("agent_images", { machineId: o.machine_id, session: o.session }); } catch { return; }
+  if (!isOpen(o)) return;
+  AG.images = new Map();
+  for (const i of got) { AG.images.set(i.name, i); AG.images.set(`image-${i.key}`, i); }
+  if (AG.page) drawAgentBody();
+}
+
+/// Fills the session pictures drawn before their bytes were here.
+function fillAgentPics(b) {
+  for (const img of b.querySelectorAll("img.pic[data-file]")) {
+    const id = img.dataset.file;
+    loadPic(id, img.dataset.mime).then(url => { if (url) img.src = url; });
+  }
+}
+
 /// Keeps the thumbnails of images just sent, for the transcript.
 function keepAgentPics(o, images) {
   for (const a of images) {
@@ -5192,8 +5214,12 @@ function entryRow(en) {
     const { text: said, names } = userImages(en.text);
     if (!names.length) return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
     const pics = names.map(n => {
-      const url = AG.open && agentPics.get(`${AG.open.session}\n${n}`);
-      return url ? `<img class="pic" src="${esc(url)}" alt="${esc(n)}" title="${esc(n)}">` : `<span class="pic none" title="${esc(n)}">${ICON.image}${esc(n)}</span>`;
+      const kept = AG.images.get(n), label = kept?.name || (/^image-[0-9a-f]{16}$/.test(n) ? "Image" : n);
+      const loaded = kept && pictures.get(kept.file_id);
+      const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof loaded === "string" ? loaded : "");
+      if (url) return `<img class="pic" src="${esc(url)}" alt="${esc(label)}" title="${esc(label)}">`;
+      if (kept) return `<img class="pic" data-file="${esc(kept.file_id)}" data-mime="${esc(kept.mime)}" alt="${esc(label)}" title="${esc(label)}">`;
+      return `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
     }).join("");
     return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
   }
@@ -5226,6 +5252,7 @@ function drawAgentBody() {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   b.innerHTML = why + card + entries + err + note + paused;
+  fillAgentPics(b);
   const hint = bar.querySelector(":scope > .dhints");
   if (hint) hint.replaceWith(h(agentHints()));
   const field = $("#agfield");
