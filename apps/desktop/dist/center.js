@@ -1652,7 +1652,7 @@ window.beepSettingsAway = view => {
 
 initSideResize($(".cwin"), $("#side-grip"));
 
-initPalette({ go, jump, pane, findIcon: IC.find });
+initPalette({ go, jump, pane, settings: openSettings, project: openProjects, findIcon: IC.find });
 
 document.addEventListener("keydown", e => {
   // Esc on an opened board tile goes back to the board.
