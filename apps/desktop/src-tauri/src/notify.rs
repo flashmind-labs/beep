@@ -168,7 +168,7 @@ mod mac {
         },
         thread,
     };
-    use tauri::{AppHandle, Manager};
+    use tauri::AppHandle;
 
     /// Notifications waiting for a click at once. Each holds a thread until
     /// it is clicked or cleared from Notification Center; past this many a
@@ -183,7 +183,7 @@ mod mac {
     impl Slot {
         fn take() -> Option<Self> {
             WAITING
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                     (n < WAITERS).then_some(n + 1)
                 })
                 .ok()

@@ -217,7 +217,7 @@ pub(crate) enum CenterTarget {
         id: String,
     },
     /// A coding agent's session, as a Running now row names it.
-    Agent(AgentTarget),
+    Agent(Box<AgentTarget>),
 }
 
 /// A coding agent's session to open, shaped as the window's Running now
@@ -240,15 +240,15 @@ pub(crate) struct AgentTarget {
 
 impl AgentTarget {
     /// Agent `agent`'s session `session` on machine `machine_id`, which
-    /// waits on a question.
+    /// waits on a question, boxed as `CenterTarget::Agent` holds it.
     pub(crate) fn asking(
         machine_id: &str,
         machine_name: &str,
         agent: &str,
         session: &str,
         title: Option<&str>,
-    ) -> Self {
-        Self {
+    ) -> Box<Self> {
+        Box::new(Self {
             kind: "agent".into(),
             machine_id: machine_id.to_owned(),
             machine_name: machine_name.to_owned(),
@@ -261,7 +261,7 @@ impl AgentTarget {
             started_at: 0,
             last_activity: 0,
             external: false,
-        }
+        })
     }
 }
 
