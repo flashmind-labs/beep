@@ -3,12 +3,21 @@
 //! list.
 
 use crate::{
+    agents::SessionRow,
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
 };
-use beep_proto::{ApiError, ImportProject, ImportedProject, ListMachineFolder, MachineFolder};
+use beep_proto::{
+    ApiError, FoundAgent, FoundPlace, FoundProject, ImportProject, ImportedProject,
+    ListFoundFolders, ListMachineFolder, ListProjectSessions, MachineFolder,
+};
 use serde::Serialize;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Arc,
+    time::Duration,
+};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
@@ -46,6 +55,79 @@ impl From<ImportedProject> for ProjectRow {
             imported_at: epoch_ms(p.imported_at),
         }
     }
+}
+
+/// A git checkout the user's coding agents worked in, as the Add a project
+/// sheet lists it.
+#[derive(Debug, Serialize)]
+pub struct FoundRow {
+    /// `org/repo`.
+    name: String,
+    /// What `import_project` takes as the repository.
+    remote: String,
+    places: Vec<FoundPlace>,
+    agents: Vec<FoundAgent>,
+    /// In milliseconds since the Unix epoch.
+    last_activity: u64,
+}
+
+impl From<FoundProject> for FoundRow {
+    fn from(p: FoundProject) -> Self {
+        Self {
+            name: p.project,
+            remote: p.remote,
+            places: p.places,
+            agents: p.agents,
+            last_activity: epoch_ms(p.last_activity),
+        }
+    }
+}
+
+/// The checkouts the user's coding agents worked in that are not projects
+/// yet; none from a server too old to look.
+#[tauri::command]
+pub async fn found_projects(beep: Service<'_>) -> Result<Vec<FoundRow>> {
+    match beep.call(ListFoundFolders {}).await {
+        Ok(found) => Ok(found.into_iter().map(FoundRow::from).collect()),
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// The sessions coding agents ran in `project`'s folders, newest first;
+/// none from a server too old to list them.
+#[tauri::command]
+pub async fn project_sessions(beep: Service<'_>, project: String) -> Result<Vec<SessionRow>> {
+    match beep.call(ListProjectSessions { project }).await {
+        Ok(sessions) => Ok(sessions.into_iter().map(SessionRow::from).collect()),
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Shows a project's folder on this Mac in Finder.
+#[tauri::command]
+pub fn open_folder(path: PathBuf) -> Result<()> {
+    if !openable(&path) {
+        return Err(DesktopError::BadRequest(
+            "That folder is not on this Mac.".into(),
+        ));
+    }
+    Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(anyhow::Error::from)?;
+    Ok(())
+}
+
+/// Only an absolute folder that is there opens.
+fn openable(path: &Path) -> bool {
+    path.is_absolute() && path.is_dir()
+}
+
+/// The server did not know the request.
+fn unknown_op(e: &DesktopError) -> bool {
+    matches!(e, DesktopError::Api(ApiError::BadRequest { message }) if message.starts_with(UNKNOWN_OP))
 }
 
 /// Clones `repo` onto `machine_id`, or the machine the server picks, into
@@ -136,6 +218,24 @@ fn outdated(e: DesktopError) -> DesktopError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_folder_that_is_there_opens() {
+        let dir = std::env::temp_dir();
+        assert!(openable(&dir));
+        assert!(!openable(Path::new("relative/folder")));
+        assert!(!openable(&dir.join("no-such-folder-for-beep")));
+    }
+
+    #[test]
+    fn an_old_server_finds_nothing() {
+        assert!(unknown_op(&DesktopError::Api(ApiError::bad_request(
+            "unknown op 169"
+        ))));
+        assert!(!unknown_op(&DesktopError::Api(ApiError::bad_request(
+            "offline"
+        ))));
+    }
 
     #[test]
     fn refusals_read_as_the_servers_sentence() {

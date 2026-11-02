@@ -11,7 +11,8 @@ import { withoutDismissed } from "./updates.js";
 import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
-import { mergeProjects, filterProjects } from "./projects-state.js";
+import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions } from "./projects-state.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -55,7 +56,10 @@ const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
 /// `picked` is the project the Projects page shows, null for all.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null };
+/// `found` is what `found_projects` last gave (null before), `importing` the
+/// found row being imported and `foundError` why one failed, and
+/// `sessions` each project's past sessions once read, by name.
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map() };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -662,17 +666,68 @@ export function openProjects(name) {
   go("projects", { project: name || null });
 }
 
-/// Opens the Import a project sheet; the project is selected once it is in.
-export function addProject() {
+/// Opens a project once it is in: Home and the found folders load again.
+function landed(p) {
+  state.picked = p.name;
+  state.sessions.delete(p.name);
+  loadFound();
+  refresh();
+  openProjects(p.name);
+}
+
+/// Opens the Import a project sheet, at the folder choice with `choose`;
+/// the project is selected once it is in.
+function importSheet(choose = false) {
   openImportProject({
     machines: state.home?.machines || [],
     macId: state.mac?.id || null,
-    onDone: p => {
-      state.picked = p.name;
-      refresh();
-      openProjects(p.name);
-    },
+    choose,
+    onDone: landed,
   });
+}
+
+/// Opens the Add a project sheet: found folders, a folder, or a clone.
+export function addProject() {
+  openAddProject({
+    machines: state.home?.machines || [],
+    onImported: landed,
+    onChoose: () => importSheet(true),
+    onClone: () => importSheet(false),
+  });
+}
+
+/// Asks the machines for the checkouts their agents worked in, for the
+/// Projects page; it redraws once they answer.
+let finding = false;
+async function loadFound() {
+  if (finding) return;
+  finding = true;
+  try {
+    state.found = await invoke("found_projects");
+  } catch (e) {
+    console.warn("found projects:", e);
+    state.found = state.found || [];
+  } finally {
+    finding = false;
+  }
+  if (shown === "projects" && !state.picked) drawProjects(views.get("projects").el);
+}
+
+/// Imports a found row from the Projects page and opens it.
+async function importFromPage(row) {
+  if (state.importing) return;
+  state.importing = row.name;
+  state.foundError = null;
+  drawProjects(views.get("projects").el);
+  try {
+    const project = await importFound(row);
+    state.importing = null;
+    landed(project);
+  } catch (e) {
+    state.importing = null;
+    state.foundError = { name: row.name, message: String(e).replace(/^(bad request|error):\s*/i, "") };
+    if (shown === "projects") drawProjects(views.get("projects").el);
+  }
 }
 
 // Imported projects and the folders agents run in. It shows once Home has
@@ -681,7 +736,7 @@ registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
   onTitle: () => openProjects(),
-  action: () => plusButton("Import a project", addProject),
+  action: () => plusButton("Add a project", addProject),
   empty: () => emptyRow("No projects yet"),
   load: async () => projectRows()?.map((p, i) => ({ ...p, i })) ?? null,
   row(p) {
@@ -866,7 +921,7 @@ registerView("home", {
 
 function importButton(cls) {
   const b = button("", cls, addProject);
-  b.append(icon(IC.plus), " Import a project");
+  b.append(icon(IC.plus), " Add a project");
   return b;
 }
 
@@ -900,9 +955,14 @@ function projectDetail(p) {
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
   for (const m of p.machines) {
     const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: m.folder } } }));
+    const copy = button("Copy path", "quiet small", async () => {
+      try { await navigator.clipboard.writeText(m.folder); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
+    });
+    const mac = state.mac?.id && m.id === state.mac.id;
+    const finder = mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path: m.folder }).catch(e => console.warn("open folder:", e))) : null;
     const folder = h("span", "nm", h("span", "os", m.folder));
     folder.title = m.folder;
-    where.append(h("span", "nm", h("b", "", m.name)), folder, start);
+    where.append(h("span", "nm", h("b", "", m.name)), folder, h("span", "acts", finder, copy, start));
   }
   const out = [section("sec-where", "Where it lives", p.machines.length, null, where)];
   const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
@@ -911,7 +971,83 @@ function projectDetail(p) {
     ? h("div", "cc-panel", ...running.map(runningRow))
     : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
   out.push(section("sec-project-agents", "Agents", running.length || "", null, list));
+  out.push(sessionsSection(p, running));
   return out;
+}
+
+/// The sessions your coding agents ran in the project's folders, newest
+/// first, each resumable; those running now are under Agents.
+function sessionsSection(p, running) {
+  const sessions = state.sessions.get(p.name);
+  if (sessions === undefined && p.imported) loadSessions(p.name);
+  let body;
+  if (!p.imported) body = h("div", "cc-panel cc-empty", h("span", "", "Import this project to see the sessions your agents ran in it."));
+  else if (sessions === undefined) body = h("div", "cc-panel cc-empty", h("span", "", "Reading sessions…"));
+  else {
+    const past = pastSessions(sessions, running);
+    body = past.length
+      ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
+      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi or flsh in these folders yet."));
+  }
+  const el = section("sec-sessions", "Sessions", sessions?.length || "", null, body);
+  el.querySelector("h4").append(h("small", "", "from your coding agents in these folders, newest first"));
+  return el;
+}
+
+/// The agent view for a session row.
+function openAgentRow(r) { go("pane", { agent: { kind: "agent", ...r } }); }
+
+function sessionRow(s) {
+  const ended = s.status === "ended";
+  const said = h("span", "bad");
+  const act = ended
+    ? button("Resume", "small", async () => {
+      act.disabled = true;
+      act.textContent = "Resuming…";
+      said.textContent = "";
+      try {
+        const started = await invoke("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: null });
+        state.sessions.delete(state.picked);
+        openAgentRow(started.session);
+      } catch (e) {
+        act.disabled = false;
+        act.textContent = "Resume";
+        said.textContent = String(e).replace(/^(bad request|error):\s*/i, "");
+      }
+    })
+    : button("Open", "small", () => openAgentRow(s));
+  const meta = [h("span", "ap-ag", agentLabel(s.agent)), ended ? "ended" : s.status, s.machine_name, base(s.cwd), s.last_activity ? ago(s.last_activity) : ""]
+    .filter(Boolean).map(x => typeof x === "string" ? h("span", "", x) : x);
+  return h("div", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta), h("span", "acts", said, act));
+}
+
+let readingSessions = null;
+async function loadSessions(name) {
+  if (readingSessions === name) return;
+  readingSessions = name;
+  let got = [];
+  try {
+    got = await invoke("project_sessions", { project: name });
+  } catch (e) {
+    console.warn("project sessions:", e);
+  } finally {
+    readingSessions = null;
+  }
+  state.sessions.set(name, got);
+  if (shown === "projects" && state.picked === name) drawProjects(views.get("projects").el);
+}
+
+/// The checkouts the machines found that are not projects yet: the first
+/// three, each with Import; the sheet lists them all.
+function foundSection() {
+  if (!state.found?.length) return null;
+  injectAddProjectStyle();
+  const list = state.found.slice(0, 3).map(row => foundRow(row,
+    { busy: state.importing, error: state.foundError?.name === row.name ? state.foundError.message : null }, importFromPage));
+  const more = state.found.length > 3 ? button(`All ${state.found.length}`, "quiet small", addProject) : null;
+  const el = section("sec-found", "Found on your machines", "", more, h("div", "cc-panel ap-list", ...list));
+  el.querySelector("h4").append(h("small", "", "folders your coding agents worked in, without a project"));
+  return el;
 }
 
 /// "github.com" from a project's web page.
@@ -927,13 +1063,15 @@ function drawProjects(el) {
   } else if (!rows || !rows.length) {
     view.append(h("div", "cc-panel cc-empty",
       h("b", "", "No projects yet"),
-      h("span", "", "Import a repository from GitHub or your Forgejo server onto one of your machines."),
+      h("span", "", "Add a folder your coding agents worked in, any folder, or a repository to clone."),
       importButton("pri")));
   } else {
     const shownRows = filterProjects(rows, state.picked);
     const one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     if (one) view.append(...projectDetail(one));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
+    const found = one ? null : foundSection();
+    if (found) view.append(found);
   }
   el.replaceChildren(view);
 }
@@ -950,7 +1088,9 @@ registerView("projects", {
   },
   mount(el, arg) {
     state.picked = arg?.project || null;
+    if (state.picked) state.sessions.delete(state.picked);
     drawProjects(el);
+    if (!state.picked) loadFound();
     refresh();
   },
 });

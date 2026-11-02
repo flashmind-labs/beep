@@ -32,7 +32,7 @@ function button(label, cls, onClick) {
 /// Opens the sheet. `options.machines` are the machines Home lists and
 /// `options.macId` this Mac's machine id, when it is one;
 /// `options.onDone(project)` runs once a project is in, as when the window
-/// selects it.
+/// selects it. With `options.choose` it goes straight to choosing a folder.
 export function openImportProject(options = {}) {
   if (root) return;
   machines = options.machines || [];
@@ -54,6 +54,7 @@ export function openImportProject(options = {}) {
   document.addEventListener("keydown", onKey, true);
   draw();
   learnBase();
+  if (options.choose) choose();
 }
 
 export function closeImportProject() {

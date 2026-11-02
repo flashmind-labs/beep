@@ -196,3 +196,53 @@ export function doneText(project) {
   const how = project.cloned ? "Cloned" : "Already there, now listed";
   return `${how} on ${project.machine_name} in ${project.folder}`;
 }
+
+// ---------- Add a project, and one project's view ----------
+
+/// What each coding agent is called on screen.
+const AGENT_NAMES = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", gemini: "Gemini CLI" };
+
+/// "Claude Code" for `claude`; an agent Beep does not know reads as named.
+export function agentLabel(agent) { return AGENT_NAMES[agent] || String(agent || ""); }
+
+/// How many sessions a found row's agents ran, together.
+export function foundSessions(row) {
+  return (row?.agents || []).reduce((n, a) => n + (a.sessions || 0), 0);
+}
+
+/// The imports a found row makes: its folder on each machine, in place.
+export function importPlan(row) {
+  return (row?.places || []).map(p => ({ repo: row.remote, machineId: p.machine_id, folder: p.folder }));
+}
+
+/// The line while the Add a project sheet waits on the machines.
+export function lookingText(machines) {
+  const n = (machines || []).filter(m => m.online).length;
+  const on = n === 1 ? "1 machine" : n ? `${n} machines` : "your machines";
+  return `Looking through Claude Code, Codex, pi and flsh sessions on ${on}…`;
+}
+
+/// The coding agents running now in one of `project`'s folders, or below one,
+/// on the machine that folder is on.
+export function runningIn(project, running) {
+  const places = project?.machines || [];
+  return (running || []).filter(r => r.kind === "agent"
+    && places.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
+}
+
+/// A project's past sessions without those running now (they show under
+/// Agents), newest first.
+export function pastSessions(sessions, running) {
+  const live = new Set((running || []).map(r => `${r.machine_id} ${r.id}`));
+  return [...(sessions || [])]
+    .filter(s => !live.has(`${s.machine_id} ${s.id}`))
+    .sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
+}
+
+/// "Open on GitHub", or "Open on <host>" for another host's web page; null
+/// without one.
+export function openOnLabel(url) {
+  let host = "";
+  try { host = new URL(url).host; } catch { return null; }
+  return host === "github.com" ? "Open on GitHub" : `Open on ${host}`;
+}
