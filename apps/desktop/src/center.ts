@@ -471,6 +471,8 @@ async function refreshGit() {
 const pane = () => window.beepPane;
 const views = new Map();
 let shown = null;
+/// The argument `shown` was opened with, so Esc from an agent view can return to it.
+let shownArg;
 
 /// Adds a view the window can show. `mount(el, arg)` draws it into its own
 /// element, `unmount()` runs when another view takes over. `title` is a
@@ -494,6 +496,11 @@ export function go(name, arg) {
     if (!shown) go("home");
     return openSettings();
   }
+  // An agent view opened from another view goes back there on Esc.
+  if (name === "pane" && arg && (arg.agent || arg.agentnew) && !arg.from && shown && shown !== "pane") {
+    arg = { ...arg, from: { view: shown, arg: shown === "projects" ? { project: state.picked } : shownArg } };
+  }
+  shownArg = arg;
   const view = views.get(name);
   if (!view) return;
   if (shown && shown !== name) views.get(shown).unmount?.();
@@ -1961,6 +1968,8 @@ window.beepOpenInstructions = () => {
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 /// A page Settings leads to, such as Apps: the sheet closes and the pane
 /// shows it; null only closes.
+/// Esc from an agent view goes back to the view that opened it.
+window.beepGoBack = from => go(from.view, from.arg);
 window.beepSettingsAway = view => {
   closeSettings();
   if (view) go("pane", view);
