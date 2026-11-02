@@ -2,7 +2,7 @@
 // editor over the saved versions, the agent files on each machine to import
 // from, writing the rules into those files, and the history. center.js
 // registers it; instructions-state.js holds the words and sums.
-import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine } from "./instructions-state.js";
+import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.js";
 
 const TABS = [["editor", "Editor"], ["import", "Import"], ["sync", "Sync"], ["history", "History"]];
 
@@ -140,7 +140,21 @@ export function registerInstructions(deps) {
       button("Sync", "", () => setTab("sync")));
     return h("div", "in-cols",
       sec("For all agents", sizeLabel(text()), h("div", "cc-panel in-ed", ver, area, acts, err)),
-      h("div", "in-sidecol", sec("Agent files", "", files)));
+      h("div", "in-sidecol", layers(summary), sec("Agent files", "", files)));
+  }
+
+  /// How agents see it: what a coding agent on a machine reads, first to
+  /// last, with this text's place among them.
+  function layers(summary) {
+    const li = (title, note, me) => h("li", me ? "me" : "", h("b", "", title), h("small", "", note));
+    return sec("How agents see it", "first to last", h("div", "cc-panel",
+      h("ol", "in-layers",
+        li("The agent's own rules", "Built into Claude Code, Codex, Gemini CLI or pi"),
+        li("Your text in its file", "What else is in ~/.claude/CLAUDE.md and the like. Beep leaves it as it is"),
+        li("Your instructions", mineLayer(st.newest, summary), true),
+        li("Project", "The repository's own CLAUDE.md or AGENTS.md, when the agent works in one"),
+        li("Task", "The prompt Beep starts the agent with, from the chat or PR")),
+      h("div", "in-foot", "Agents read these in order, so later layers can narrow earlier ones. Beep's own chat does not read this text.")));
   }
 
   function fileRow(m, f, acts) {
