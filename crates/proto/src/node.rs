@@ -25,6 +25,7 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 pub mod agent;
 pub mod desktop;
 pub mod files;
+pub mod harness;
 pub mod process;
 pub mod shell;
 pub mod sync;
@@ -66,6 +67,10 @@ pub struct NodeHello {
     /// gets the user's credentials.
     #[serde(default)]
     pub credentials: bool,
+    /// The node takes `Down::AgentSettings`. A node from before it starts
+    /// its harnesses as it finds them.
+    #[serde(default)]
+    pub agent_settings: bool,
 }
 
 /// What `NodeHello::setup` carries.
@@ -119,6 +124,10 @@ pub enum Down {
     /// a node whose hello says it takes them. The node keeps them in
     /// memory.
     Credentials(MachineCredentials),
+    /// The user's settings for the coding agent harnesses on this machine,
+    /// sent after the welcome and again whenever they change, each time in
+    /// full. Only to a node whose hello says it takes them.
+    AgentSettings(harness::AgentSettings),
 }
 
 /// What a node uses on the user's behalf.
@@ -534,6 +543,7 @@ mod tests {
             workspace: None,
             setup: None,
             credentials: true,
+            agent_settings: true,
         };
         let body = rmp_serde::to_vec_named(&hello).unwrap();
         assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), hello);

@@ -1081,6 +1081,104 @@ requests! {
     /// the project has no GitHub or Forgejo host; `BadRequest` saying why
     /// when no machine of the project can read it or the host refuses.
     262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
+    /// The coding agent harnesses on the caller's machine `machine_id`, for
+    /// the Coding agents page: what its node finds of each (version, the
+    /// newest one, where it is, its sign-in) with the caller's settings for
+    /// it. `refresh` looks the newest versions up again. `NotFound` when
+    /// the machine is not one of the caller's online ones; `BadRequest`
+    /// saying why when its beep-node is too old or does not answer.
+    264 ListAgentHarnesses { machine_id: String, refresh: bool } => Call<AgentHarnesses>
+    /// Saves the caller's settings for the harness `agent` on `machine_id`,
+    /// replacing the ones before, and sends them to the machine when it is
+    /// online. An env var whose `value` is `None` keeps the value saved
+    /// before, and is dropped when there was none. A harness turned off is
+    /// not offered on that machine, by Auto or by name. `NotFound` when the
+    /// machine is not one of the caller's; `BadRequest` saying why for an
+    /// unknown agent or a field that is too long or malformed.
+    265 SaveHarnessSettings { machine_id: String, agent: String, settings: HarnessSettings } => Call<()>
+    /// Installs the harness `agent` on `machine_id`, or updates it to the
+    /// newest version, with the command its node names, and gives the
+    /// harnesses as they stand after. It can take a few minutes. `NotFound`
+    /// when the machine is not one of the caller's online ones;
+    /// `BadRequest` saying why when the node knows no way to install it or
+    /// the command fails.
+    266 UpdateAgentHarness { machine_id: String, agent: String } => Call<AgentHarnesses>
+}
+
+/// The coding agent harnesses on one machine, as `ListAgentHarnesses`
+/// gives them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentHarnesses {
+    pub machine_id: String,
+    pub machine_name: String,
+    /// When the machine last looked the newest versions up; `None` when it
+    /// never did.
+    pub checked_at: Option<SystemTime>,
+    /// Every harness Beep knows, installed or not, then any other the
+    /// machine runs.
+    pub harnesses: Vec<AgentHarness>,
+}
+
+/// One harness on a machine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentHarness {
+    /// Its slug, such as `claude`.
+    pub agent: String,
+    /// Its CLI is on the machine.
+    pub installed: bool,
+    /// The machine can start it; only these are offered.
+    pub runnable: bool,
+    /// Its version, such as `2.1.312`.
+    pub version: Option<String>,
+    /// The newest version, when it could be looked up.
+    pub latest: Option<String>,
+    /// What the machine starts for it when no binary path is set.
+    pub program: Option<String>,
+    /// The variable its home folder is set with, such as `CODEX_HOME`.
+    pub home_var: Option<String>,
+    /// Its home folder when that variable is not set, such as `~/.codex`.
+    pub home_default: Option<String>,
+    pub sign_in: HarnessSignIn,
+    /// The command Install or Update runs there; `None` when there is none.
+    pub install: Option<String>,
+    pub settings: HarnessSettings,
+}
+
+wire_enum! {
+    /// How a harness signs in on a machine. `BeepToken` is the token Beep
+    /// keeps for it (Agent accounts), handed to every session it starts.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum HarnessSignIn {
+        0 Unknown {}
+        1 SignedIn { account: Option<String>, plan: Option<String> }
+        2 SignedOut {}
+        3 BeepToken { last4: String }
+    }
+}
+
+/// The caller's settings for one harness on one machine. Empty text means
+/// what the machine finds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HarnessSettings {
+    /// Off: not offered on that machine.
+    pub enabled: bool,
+    /// The program to start in place of the one the machine finds.
+    pub program: String,
+    /// Its home folder, set with its home variable.
+    pub home: String,
+    /// Added to every session it starts.
+    pub args: Vec<String>,
+    pub env: Vec<HarnessEnv>,
+}
+
+/// An env var a harness gets. The server never sends a value back: in
+/// replies `value` is always `None`. Not for the phone app, which has no
+/// `SecretText` type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HarnessEnv {
+    pub name: String,
+    pub value: Option<SecretText>,
 }
 
 /// A machine whose folder of a project Syncthing keeps in step, as
