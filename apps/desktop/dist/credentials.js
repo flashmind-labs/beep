@@ -186,10 +186,107 @@ function keyRow(esc, ago, p, cred) {
     <span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn" ${sm} data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
 }
 
+/// The GitHub accounts: from `ListGitHubAccounts` when the server answered
+/// it, else the one GitHub row of the credentials list, as the default.
+export function githubAccounts(state) {
+  if (Array.isArray(state.github)) return state.github;
+  const row = (state.list ?? []).find(c => c.kind === "github");
+  return row ? [{ id: row.id, login: row.account ?? "", orgs: [], default: true, last4: row.last4, created_at: row.created_at, unreadable: !!row.unreadable }] : [];
+}
+
+const sameLogin = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+
+/// The accounts gh on this Mac has that Beep does not.
+export function ghChoices(cli, accounts) {
+  return (cli?.github_accounts ?? []).filter(g => !accounts.some(a => !a.unreadable && sameLogin(a.login, g.login)));
+}
+
+/// "Use" for one gh account, or "Checking…" while it is being saved.
+const ghUse = (esc, login, busy) =>
+  `<button class="dbtn pri" ${sm} data-cred-gh-use="${esc(login)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : "Use"}</button>`;
+
+/// The gh accounts on this Mac, one line each with Use.
+function ghChoiceRows(esc, choices, cliBusy) {
+  return choices.map(g => `<div style="display:flex;align-items:center;gap:8px;padding-left:15px;font-size:12.5px"><span style="color:var(--muted)">gh on this Mac as @${esc(g.login)}</span>${g.active ? `<span style="font-size:10.5px;color:var(--dim)">active</span>` : ""}<span style="margin-left:auto">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
+}
+
+/// One saved GitHub account: login, default tag, orgs, last 4, and Make
+/// default, Replace and Remove.
+function accountRow(esc, acc, { machines, cli, busy, error }) {
+  const usable = !acc.unreadable;
+  const orgs = acc.orgs?.length ? `orgs ${acc.orgs.map(esc).join(", ")}` : "";
+  const role = acc.default ? "GH_TOKEN on your machines" : "projects of its login and orgs";
+  const line = [shown(esc, acc, "token"), orgs, role, esc(toolLine("gh", machines))].filter(Boolean).join(" · ");
+  const ghHere = (cli?.github_accounts ?? []).some(g => sameLogin(g.login, acc.login)) || cli?.github?.state === "signed_in";
+  const use = !usable && ghHere ? useButton(esc, "github", "Use gh sign-in", busy) : "";
+  const make = acc.default ? "" : `<button class="dbtn" ${sm} data-cred-gh-default="${esc(acc.id)}">Make default</button>`;
+  const tag = acc.default ? `<span style="font-size:10.5px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);color:var(--muted);flex:none">default</span>` : "";
+  const err = error ? `<span class="derr" style="padding-left:15px">${esc(error)}</span>` : "";
+  return `<div style="padding:9px 0;border-bottom:1px solid var(--border);display:grid;gap:3px;font-size:13px">
+    <div style="display:flex;align-items:center;gap:8px;min-width:0"><span class="ddot${usable ? "" : " off"}"></span><b style="font-weight:600">GitHub</b>${acc.login ? `<span style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${esc(acc.login)}</span>` : ""}${tag}<span style="margin-left:auto;display:flex;gap:6px;flex:none">${use}${make}<button class="dbtn" ${sm} data-cred-edit="github:${esc(acc.id)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(acc.id)}" aria-label="Remove @${esc(acc.login)}">Remove</button></span></div>
+    <span style="font-size:11.5px;color:var(--muted);padding-left:15px">${line}</span>${err}</div>`;
+}
+
+/// Adding another GitHub account: gh's accounts here, gh's browser
+/// sign-in, which adds one to gh too, or a pasted token.
+function addAccount(esc, state, accounts) {
+  const cli = state.cli;
+  const flow = state.ghFlow;
+  const err = state.cliError?.key === "github" ? `<span class="derr" style="padding-left:15px">${esc(state.cliError.message)}</span>` : "";
+  const top = `<div style="display:flex;align-items:center;gap:8px"><b style="font-weight:600">Add another GitHub account</b><span style="margin-left:auto">${flow ? `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>` : `<button class="dbtn quiet" ${sm} data-cred-gh-add="">Cancel</button>`}</span></div>`;
+  if (flow) return `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:6px;font-size:13px">${top}${ghWaiting(esc, flow)}${err}</div>`;
+  const choices = ghChoices(cli, accounts);
+  const ghState = cli?.github?.state;
+  const signIn = ghState === "signed_in" || ghState === "signed_out" ? `<button class="dbtn" ${sm} data-cred-gh>Sign in with GitHub</button>` : "";
+  const paste = `<button class="dbtn${signIn ? " quiet" : ""}" ${sm} data-cred-edit="github:new">Paste a token</button>`;
+  const saved = accounts.filter(a => (cli?.github_accounts ?? []).some(g => sameLogin(g.login, a.login))).map(a => `@${esc(a.login)}`);
+  const help = ghState === "missing"
+    ? `Make a token on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} while signed in as the other account, then paste it`
+    : signIn ? `Sign in adds the account to gh here too.${saved.length ? ` ${saved.join(", ")} ${saved.length > 1 ? "are" : "is"} in Beep already.` : ""}` : "";
+  return `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:6px;font-size:13px">${top}
+    ${ghChoiceRows(esc, choices, state.cliBusy)}
+    <div style="display:flex;gap:6px;padding-left:15px">${signIn}${paste}</div>
+    ${help ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${help}</span>` : ""}${err}</div>`;
+}
+
+/// The GitHub part of Git hosts: each saved account, then a way to add
+/// another; with none saved, what this Mac's gh offers.
+function githubHtml(state, machines, esc, rowState) {
+  const e = state.edit;
+  const cli = state.cli;
+  const accounts = githubAccounts(state);
+  const pasteForm = id => form(state, esc, { title: "GitHub", url: id === "new" ? "Another account" : "Replace the token", noteHtml: `Make one on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} with repo access, or run ${code("gh auth login")} in Terminal and use that sign-in instead.` });
+  if (!accounts.length) {
+    if (e?.kind === "github") return pasteForm(e.id ?? "new");
+    const choices = ghChoices(cli, accounts);
+    const offer = ghOffer(esc, cli?.github, state.cliBusy === "github", state.ghFlow);
+    // Several accounts in gh here: one Use each.
+    if (choices.length > 1 && !state.ghFlow) {
+      offer.account = `gh on this Mac has ${choices.length} accounts`;
+      offer.acts = `<button class="dbtn quiet" ${sm} data-cred-edit="github">Paste a token</button>`;
+      offer.help = "";
+      offer.body = ghChoiceRows(esc, choices, state.cliBusy);
+    }
+    return hostRow(esc, { name: "GitHub", cli: "gh", machines, editKey: "github", ...rowState("github"), offer });
+  }
+  let html = "";
+  for (const acc of accounts) {
+    html += e?.kind === "github" && e.id === acc.id
+      ? pasteForm(acc.id)
+      : accountRow(esc, acc, { machines, cli, ...(acc.unreadable ? rowState("github") : { busy: false, error: "" }) });
+  }
+  if (e?.kind === "github" && (!e.id || e.id === "new")) html += pasteForm("new");
+  else if (state.ghAdd || state.ghFlow) html += addAccount(esc, state, accounts);
+  else html += `<button class="dbtn" style="font-size:11.5px;padding:3px 9px;margin-top:8px;justify-self:start" data-cred-gh-add="1">+ Add another GitHub account</button>`;
+  return html;
+}
+
 const head = (text, top) => `<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:${top}px 0 2px">${text}</div>`;
 
-/// The whole section. `state`: { list, providers, edit, busy, error, cli,
-/// cliBusy, cliError, ghFlow }. `cli` is what gh and teacli on this Mac are
+/// The whole section. `state`: { list, github, providers, edit, busy,
+/// error, cli, cliBusy, cliError, ghFlow, ghAdd }. `github` is the GitHub
+/// accounts (undefined when the server could not list them) and `ghAdd`
+/// whether "Add another GitHub account" is open. `cli` is what gh and teacli on this Mac are
 /// signed in to (undefined until checked, null when the check failed);
 /// `cliBusy` the `data-cred-cli` key being saved and `cliError` { key,
 /// message } its refusal; `ghFlow` gh's browser sign-in under way. `machines`: the machines list, or null when it is not known.
@@ -197,18 +294,11 @@ export function credentialsHtml(state, machines, esc, ago) {
   const list = state.list ?? [];
   const e = state.edit;
   const cli = state.cli;
-  const github = list.find(c => c.kind === "github");
   const forgejo = list.filter(c => c.kind === "forgejo");
   // The sign-in being saved for one row, or why it was refused.
   const rowState = key => ({ busy: state.cliBusy === key, error: state.cliError?.key === key ? state.cliError.message : "" });
   let html = head("Git hosts", 4);
-  html += e?.kind === "github"
-    ? form(state, esc, { title: "GitHub", noteHtml: `Make one on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} with repo access, or run ${code("gh auth login")} in Terminal and use that sign-in instead.` })
-    : hostRow(esc, {
-      name: "GitHub", cred: github, cli: "gh", machines, editKey: "github", ...rowState("github"),
-      cliKey: cli?.github?.state === "signed_in" ? "github" : "",
-      offer: github ? null : ghOffer(esc, cli?.github, state.cliBusy === "github", state.ghFlow),
-    });
+  html += githubHtml(state, machines, esc, rowState);
   for (const c of forgejo) {
     const page = forgejoTokenPage(c.url);
     const key = `forgejo:${c.url}`;
@@ -242,6 +332,7 @@ export function credentialsHtml(state, machines, esc, ago) {
 /// The edit a `data-cred-edit` value names, with what the form starts with.
 export function editFor(key, list) {
   if (key === "github") return { kind: "github" };
+  if (key.startsWith("github:")) return { kind: "github", id: key.slice("github:".length) };
   if (key === "forgejo") return { kind: "forgejo" };
   if (key.startsWith("forgejo:")) {
     const id = key.slice("forgejo:".length);
