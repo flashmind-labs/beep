@@ -8,7 +8,7 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "./home.js";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
@@ -63,7 +63,7 @@ const CONNECT_RETRY_MS = 3000;
 /// `sessions` each project's past sessions once read, by name.
 /// `agents` lists the project agents (undefined before, null from a server
 /// without them) and `pview` each one's tasks, workers and chat, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map() };
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [] };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -152,7 +152,8 @@ function machineTable(machines) {
     const caps = machineCaps(m);
     const can = h("span", `caps${off}`, caps.join(" · ") || "–");
     if (caps.length) can.title = caps.join(", ");
-    const now = h("span", `num${off}`, machineNow(m));
+    const sync = m.online ? machineSync(m.id, state.sync) : null;
+    const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
     const d = machineDisk(m), mem = machineMemory(m);
     const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
@@ -164,6 +165,15 @@ function machineTable(machines) {
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
   return table;
+}
+
+/// The Now cell of a machine fetching a synced project: a bar and how far.
+function syncCell(sync) {
+  const bar = h("span", "bar", sync.pct == null ? null : h("i"));
+  if (sync.pct != null) bar.firstChild.style.width = `${sync.pct}%`;
+  const cell = h("span", "num sync", bar, h("small", "", sync.text));
+  cell.title = [`${sync.text.split(",")[0]} ${sync.project}`, sync.files].filter(Boolean).join(": ");
+  return cell;
 }
 
 /// This Mac's row while the server does not list it: its state across the
@@ -1063,7 +1073,7 @@ function projectBoard(p, rows, known, running) {
   out.push(h("div", "pb-grid",
     tile("tasks", "Tasks", taskTile(view.tasks), openTile),
     tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
-    tile("machines", "Machines", machineTile(rows), openTile),
+    tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
     tile("agents", "Agents", agentTile(running, past), openTile),
     chatTile(recentTurns(view.turns, pa.sending?.name === p.name ? pa.sending.text : null), openTile)));
   return out;
@@ -1669,11 +1679,14 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    const [home, mac] = await Promise.all([
+    const [home, mac, sync] = await Promise.all([
       invoke("center_home"),
       invoke("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
+      // Sync progress only adds to the Now column; Home draws without it.
+      invoke("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
     ]);
     state.mac = mac;
+    state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;
     state.error = null;
