@@ -19,11 +19,11 @@ use beep_server::{
     protocol::{
         AgentEffort, AgentEntryKind, AgentImageData, AgentModel, AgentModelPick, AgentModels,
         AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError, CreateNodeToken,
-        DeviceKind, GetAgentImage, GetAgentSession, GetNodeToken, ListAgentHosts, ListAgentImages,
-        ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
-        ListMemoryScopes, ListProjectSessions, MachineCapability, MemoryScope, MemorySource,
-        PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken, StartAgentSession,
-        SteerAgentSession, Upload, image_key,
+        DeviceKind, GetAgentImage, GetAgentSession, GetNodeToken, HarnessSettings, ListAgentHosts,
+        ListAgentImages, ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, ListProjectSessions, MachineCapability, MemoryScope,
+        MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken,
+        SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1701,6 +1701,44 @@ async fn agent_hosts_list_machines_with_agents() {
     assert_eq!(hosts.len(), 1, "{hosts:?}");
     assert_eq!(hosts[0].machine_id, build);
     assert_eq!(hosts[0].machine_name, "build-box");
+    assert_eq!(hosts[0].agents, ["claude"]);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_harness_turned_off_is_not_offered() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center.node(0, "build-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let off = HarnessSettings {
+        enabled: false,
+        program: String::new(),
+        home: String::new(),
+        args: Vec::new(),
+        env: Vec::new(),
+    };
+    client
+        .call(&SaveHarnessSettings {
+            machine_id: build.clone(),
+            agent: "claude".into(),
+            settings: off.clone(),
+        })
+        .await
+        .unwrap();
+    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
+    assert!(hosts.is_empty(), "{hosts:?}");
+    client
+        .call(&SaveHarnessSettings {
+            machine_id: build,
+            agent: "claude".into(),
+            settings: HarnessSettings {
+                enabled: true,
+                ..off
+            },
+        })
+        .await
+        .unwrap();
+    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
     assert_eq!(hosts[0].agents, ["claude"]);
     center.shutdown().await;
 }
