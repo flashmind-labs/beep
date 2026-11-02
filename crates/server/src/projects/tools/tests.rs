@@ -533,6 +533,11 @@ async fn always_is_saved_per_action() {
         saved_as("exec", &json!({"command": "gh pr merge 5"}), project),
         None
     );
+    // Workers run without permission prompts, so every start asks.
+    for agent in ["claude", "flsh"] {
+        let start = json!({"action": "start", "task": "build", "agent": agent});
+        assert_eq!(saved_as("project_worker", &start, project), None);
+    }
     let public = harness(github(), Visibility::Public).await;
     assert_eq!(
         saved_as("project_plan", &plan_of(&["Build"]), &public.project),

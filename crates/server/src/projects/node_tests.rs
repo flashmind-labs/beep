@@ -52,6 +52,7 @@ fn fake_claude() -> AgentKind {
         name: "claude".into(),
         program: "python3".into(),
         args: vec!["-I".into(), script.into()],
+        env: Default::default(),
     }
 }
 

@@ -318,6 +318,7 @@ fn fake_agent() -> AgentKind {
         name: "fake".into(),
         program: "python3".into(),
         args: vec!["-I".into(), script.into()],
+        env: Default::default(),
     }
 }
 
@@ -350,12 +351,12 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     std::fs::create_dir_all(&cwd).unwrap();
     let wait = Duration::from_secs(20);
 
-    // A start that asks permission comes back with the question.
+    // A start that puts a choice to the user comes back with the question.
     let link = live
         .start_agent(
             "fake",
             Some(cwd.display().to_string()),
-            "please edit the notes".into(),
+            "please pick the notes".into(),
         )
         .await
         .unwrap();
@@ -364,7 +365,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     let id = asked.info.id.clone();
     assert_eq!(asked.info.state.status, Status::Asking);
     let question = asked.info.question.clone().expect("the agent asked");
-    assert_eq!(question.text, "Edit notes.txt");
+    assert_eq!(question.text, "Which file?");
     assert_eq!(question.options.len(), 2);
     assert_eq!(asked.info.state.plan.len(), 2);
 
@@ -394,7 +395,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
 
     // Text that is no option declines, then goes to the agent as a prompt.
     link.send(Request::Prompt {
-        text: "edit again".into(),
+        text: "pick again".into(),
     })
     .await
     .unwrap();
@@ -433,6 +434,17 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     assert_eq!(cancelled.last_stop, Some(StopReason::Cancelled));
     assert_eq!(cancelled.info.turns, 4);
 
+    // A permission request is allowed on the node, never asked.
+    link.send(Request::Prompt {
+        text: "edit the notes".into(),
+    })
+    .await
+    .unwrap();
+    let edited = link.wait(cancelled.mark(), wait).await;
+    assert_eq!(edited.info.turns, 5, "{edited:?}");
+    assert!(edited.info.question.is_none());
+    assert_eq!(edited.info.last_message, "Edited notes.txt");
+
     let sessions = live.agent_sessions().await.unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
@@ -440,11 +452,18 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     let (entries, earlier) = live.transcript(&id, 100).await.unwrap();
     assert_eq!(earlier, 0);
     assert_eq!(entries[0].kind, EntryKind::User);
-    assert_eq!(entries[0].text, "please edit the notes");
+    assert_eq!(entries[0].text, "please pick the notes");
     assert!(
         entries
             .iter()
-            .any(|entry| entry.kind == EntryKind::Question && entry.text == "Answered: Allow"),
+            .any(|entry| entry.kind == EntryKind::Question && entry.text == "Answered: notes.txt"),
+        "{entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.kind == EntryKind::Question
+                && entry.text == "Allowed: Edit notes.txt"),
         "{entries:?}"
     );
     let (last, earlier) = live.transcript(&id, 2).await.unwrap();
@@ -452,7 +471,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     assert_eq!(earlier as usize, entries.len() - 2);
 
     link.send(Request::Close {}).await.unwrap();
-    let closed = link.wait(cancelled.mark(), wait).await;
+    let closed = link.wait(edited.mark(), wait).await;
     assert_eq!(closed.ended.as_deref(), Some("closed"));
 
     let refused = live
@@ -549,6 +568,7 @@ async fn a_real_claude_session_writes_a_file() {
         name: "claude".into(),
         program: "env".into(),
         args,
+        env: claude.env,
     }]));
     let served = tokio::spawn({
         let addr = server.addr.clone();
