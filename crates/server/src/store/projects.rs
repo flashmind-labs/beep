@@ -323,7 +323,11 @@ fn lock_refusal(error: &sqlx::Error) -> Option<StartRefused> {
 /// when its connection is next used, and holds its locks until then. When
 /// `done` already failed, a failed rollback is logged and `done`'s error
 /// returned.
-async fn end<T>(tx: Transaction<'_, Postgres>, keep: bool, done: Result<T>) -> Result<T> {
+pub(super) async fn end<T>(
+    tx: Transaction<'_, Postgres>,
+    keep: bool,
+    done: Result<T>,
+) -> Result<T> {
     if keep {
         tx.commit().await?;
         return done;
@@ -640,7 +644,8 @@ impl Store {
         row.as_ref().map(project_from).transpose()
     }
 
-    /// The project whose agent talks in `chat`, if it is one.
+    /// The project whose agent talks in `chat`, if it is one: its own chat
+    /// or a chat about one of its pull requests or issues.
     pub(crate) async fn project_in(
         &self,
         user: &UserKey,
@@ -648,8 +653,10 @@ impl Store {
     ) -> Result<Option<ProjectRow>> {
         let row = sqlx::query(&format!(
             "SELECT {PROJECT_COLUMNS} FROM projects p
-             JOIN project_agents a ON a.project_id = p.id
-             WHERE a.chat_id=$1 AND p.user_id=$2"
+             WHERE p.user_id=$2 AND (
+                 EXISTS (SELECT 1 FROM project_agents a WHERE a.project_id = p.id AND a.chat_id=$1)
+                 OR EXISTS (SELECT 1 FROM project_thread_chats t
+                            WHERE t.project_id = p.id AND t.chat_id=$1))"
         ))
         .bind(chat)
         .bind(user.as_str())

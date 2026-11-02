@@ -55,6 +55,8 @@ mod shares;
 mod skills;
 mod sources;
 mod terminals;
+mod thread_chats;
+pub(crate) use thread_chats::{NewThreadChat, ThreadChatRow};
 mod test_db;
 mod updates;
 mod usage;
@@ -426,6 +428,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         69,
         "chat allows",
         include_str!("../../migrations/0069_chat_allows.sql"),
+    ),
+    (
+        70,
+        "thread chats",
+        include_str!("../../migrations/0070_thread_chats.sql"),
     ),
 ];
 
