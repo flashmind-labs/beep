@@ -1677,7 +1677,7 @@ function closeViewer() {
 function drawViewer() {
   const p = V.pics[V.at], many = V.pics.length > 1;
   const name = p.file ? p.file.name : p.name || hostOf(p.url);
-  const about = [many ? `${V.at + 1} of ${V.pics.length}` : "", p.file ? [fileKind(p.file), fileSize(p.file.size)].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
+  const about = [many ? `${V.at + 1} of ${V.pics.length}` : "", p.file ? [fileKind(p.file), p.file.size ? fileSize(p.file.size) : ""].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
   const acts = p.file
     ? `<button class="dbtn" data-v="copy">${COPY_ICON}Copy<kbd>⌘C</kbd></button><button class="dbtn pri" data-v="save">${ICON.save}Save<kbd>⌘S</kbd></button>`
     : p.url.startsWith("data:") ? "" : `<button class="dbtn" data-v="open">Open in browser</button>`;
@@ -5150,7 +5150,7 @@ async function loadAgentImages(o) {
 
 /// Fills the session pictures drawn before their bytes were here.
 function fillAgentPics(b) {
-  for (const img of b.querySelectorAll("img.pic[data-file]")) {
+  for (const img of b.querySelectorAll("img.pic[data-file]:not([src])")) {
     const id = img.dataset.file;
     loadPic(id, img.dataset.mime).then(url => { if (url) img.src = url; });
   }
@@ -5187,7 +5187,11 @@ function drawAgentFrame() {
     const pic = e.target.closest("#agbody img.pic");
     if (pic) {
       const all = [...pic.parentElement.querySelectorAll("img.pic")];
-      return openViewer(all.map(i => ({ url: i.src, name: i.alt, caption: "" })), all.indexOf(pic));
+      // A kept one opens as the file it is, to save or copy.
+      const shown = all.map(i => i.dataset.file
+        ? { file: { id: i.dataset.file, name: i.alt, mime: i.dataset.mime }, caption: "" }
+        : { url: i.src, name: i.alt, caption: "" });
+      return openViewer(shown, all.indexOf(pic));
     }
     if (e.target.closest("#agresume")) return resumeAgent();
     if (e.target.closest("#agstop")) return steerAgent({ cancel: null });
@@ -5217,8 +5221,9 @@ function entryRow(en) {
       const kept = AG.images.get(n), label = kept?.name || (/^image-[0-9a-f]{16}$/.test(n) ? "Image" : n);
       const loaded = kept && pictures.get(kept.file_id);
       const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof loaded === "string" ? loaded : "");
-      if (url) return `<img class="pic" src="${esc(url)}" alt="${esc(label)}" title="${esc(label)}">`;
-      if (kept) return `<img class="pic" data-file="${esc(kept.file_id)}" data-mime="${esc(kept.mime)}" alt="${esc(label)}" title="${esc(label)}">`;
+      const file = kept ? ` data-file="${esc(kept.file_id)}" data-mime="${esc(kept.mime)}"` : "";
+      if (url) return `<img class="pic" src="${esc(url)}"${file} alt="${esc(label)}" title="${esc(label)}">`;
+      if (kept) return `<img class="pic"${file} alt="${esc(label)}" title="${esc(label)}">`;
       return `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
     }).join("");
     return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
