@@ -11,10 +11,10 @@ use crate::{
 use beep_proto::{
     ApiError, BranchPlace, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent,
     ImportProject, ImportedProject, ListFoundFolders, ListMachineFolder, ListPendingApprovals,
-    ListProjectMachines, ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers, ListProjects,
-    ListProjectsOnTop, MachineFolder, PendingApproval, PinProjectToTop, ProjectAgent,
-    ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
-    RemoveProject, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
+    ListProjectMachines, ListProjectSessions, ListProjectSyncthing, ListProjectTasks,
+    ListProjectWorkers, ListProjects, ListProjectsOnTop, MachineFolder, PendingApproval,
+    PinProjectToTop, ProjectAgent, ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker,
+    ProjectWorkerState, RemoveProject, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::{
