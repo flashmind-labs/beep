@@ -5204,6 +5204,13 @@ function drawAgentFrame() {
       if (!AG.opened.delete(at)) AG.opened.add(at);
       return drawAgentBody();
     }
+    // A pasted block opens by itself; remember it so a redraw keeps it open.
+    const paste = e.target.closest("#agbody .dcoderen.user[data-at] details.paste > summary");
+    if (paste) {
+      const key = `${paste.closest("[data-at]").dataset.at}:${paste.parentElement.dataset.paste}`;
+      if (!AG.opened.delete(key)) AG.opened.add(key);
+      return;
+    }
     const pic = e.target.closest("#agbody img.pic");
     if (pic) {
       const all = [...pic.parentElement.querySelectorAll("img.pic")];
@@ -5256,7 +5263,7 @@ function entryRow(en, at) {
   const text = esc(en.text);
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
-    if (!names.length) return `<div class="dcoderen user"><b>You</b><span>${text}</span></div>`;
+    if (!names.length) return `<div class="dcoderen user" data-at="${at}"><b>You</b><span>${AG.log ? AG.log.userHtml(en.text, esc, i => AG.opened.has(`${at}:${i}`)) : text}</span></div>`;
     const pics = names.map(n => {
       const kept = AG.images.get(n), label = kept?.name || (/^image-[0-9a-f]{16}$/.test(n) ? "Image" : n);
       const loaded = kept && pictures.get(kept.file_id);
@@ -5266,7 +5273,7 @@ function entryRow(en, at) {
       if (kept) return `<img class="pic"${file} alt="${esc(label)}" title="${esc(label)}">`;
       return `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
     }).join("");
-    return `<div class="dcoderen user"><b>You</b>${said ? `<span>${esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
+    return `<div class="dcoderen user" data-at="${at}"><b>You</b>${said ? `<span>${AG.log ? AG.log.userHtml(said, esc, i => AG.opened.has(`${at}:${i}`)) : esc(said)}</span>` : ""}<span class="pics">${pics}</span></div>`;
   }
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}</div>` : `<div class="dcoderen agent">${text}</div>`;

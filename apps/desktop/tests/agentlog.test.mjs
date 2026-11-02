@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseTool, toolLines, TOOL_LINES } from "../dist/agentlog.js";
+import { parseTool, toolLines, TOOL_LINES, userHtml } from "../dist/agentlog.js";
 
 test("a live tool entry splits into title, status and output", () => {
   assert.deepEqual(parseTool("cargo test -p beep-node [completed]\nrunning 12 tests\nok"), {
@@ -47,4 +47,11 @@ test("long output folds to its first lines until opened", () => {
   assert.deepEqual(toolLines(out, true), { shown: out, more: 0 });
   assert.deepEqual(toolLines("a\nb"), { shown: "a\nb", more: 0 });
   assert.deepEqual(toolLines(""), { shown: "", more: 0 });
+});
+
+test("a pasted block folds into a Pasted text line", () => {
+  const esc = s => s.replace(/</g, "&lt;");
+  const html = userHtml('look:\n<pasted_content id="295e">\na <b>\nb\n</pasted_content id="295e">\nfix it', esc);
+  assert.match(html, /^look:\n<details class="paste" data-paste="0"><summary>Pasted text · 2 lines<\/summary><pre>a &lt;b>\nb<\/pre><\/details>\nfix it$/);
+  assert.equal(userHtml("plain <x>", esc), "plain &lt;x>");
 });
