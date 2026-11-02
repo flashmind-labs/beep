@@ -5,8 +5,8 @@ use crate::{
     beep::Beep, center::section, commands::MemoryView, error::Result, machines::MachineView,
 };
 use beep_proto::{
-    ApiProvider, Cron, ImportedProject, ListCrons, ListImportedProjects, ListMachines,
-    ListMemories, Session, SessionMatch,
+    ApiProvider, Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems,
+    ListImportedProjects, ListMachines, ListMemories, Session, SessionMatch,
 };
 use serde::Serialize;
 use std::{
@@ -35,6 +35,37 @@ pub(crate) struct PaletteLists {
     routines: Option<Vec<Cron>>,
     machines: Option<Vec<MachineView>>,
     projects: Option<Vec<ImportedProject>>,
+    prs: Option<Vec<PrRow>>,
+}
+
+/// An open pull request of the user's, as the palette finds it.
+pub(crate) struct PrRow {
+    repo: String,
+    number: u64,
+    title: String,
+    url: String,
+    /// Why it is the user's, such as "PR · asks for your review".
+    detail: String,
+}
+
+impl From<GitItem> for PrRow {
+    fn from(item: GitItem) -> Self {
+        let why = if item.review_requested {
+            "asks for your review"
+        } else if item.authored {
+            "yours"
+        } else {
+            "assigned to you"
+        };
+        let draft = if item.draft { ", draft" } else { "" };
+        Self {
+            detail: format!("PR · {why}{draft} · {}", item.host),
+            repo: item.repo,
+            number: item.number,
+            title: item.title,
+            url: item.url,
+        }
+    }
 }
 
 /// The lists `center_palette` fetched last.
@@ -83,6 +114,8 @@ impl PaletteAction {
 pub(crate) enum HitKind {
     Action,
     Setting,
+    /// Pull requests, under "Projects and code".
+    Code,
     Project,
     Chat,
     Memory,
@@ -161,6 +194,8 @@ pub(crate) struct Hit {
     id: String,
     title: String,
     detail: String,
+    /// The one best hit, listed first under Top hit instead of its group.
+    top: bool,
 }
 
 /// How well a text matches, best first.
@@ -195,10 +230,50 @@ fn tier(query: &str, text: &str) -> Option<Tier> {
 }
 
 /// Keeps the best `PER_KIND` of the matching hits, ties in list order.
-fn best(mut matched: Vec<(Tier, Hit)>) -> impl Iterator<Item = Hit> {
+fn best(mut matched: Vec<(Tier, Hit)>) -> Vec<(Tier, Hit)> {
     matched.sort_by_key(|(tier, _)| *tier);
-    matched.into_iter().map(|(_, hit)| hit).take(PER_KIND)
+    matched.truncate(PER_KIND);
+    matched
 }
+
+/// The groups in the order the palette lists them, with the top hit
+/// first: the best hit that starts with what was typed, when hits come
+/// from more than one group. Groups earlier in `TOP_ORDER` win a tie.
+fn with_top(mut groups: Vec<Vec<(Tier, Hit)>>) -> Vec<Hit> {
+    let filled = groups.iter().filter(|group| !group.is_empty()).count();
+    let top = (filled > 1)
+        .then(|| {
+            TOP_ORDER.iter().find_map(|kind| {
+                groups.iter().position(|group| {
+                    group
+                        .first()
+                        .is_some_and(|(tier, hit)| *tier == Tier::Prefix && hit.kind == *kind)
+                })
+            })
+        })
+        .flatten();
+    let mut out = Vec::new();
+    if let Some(at) = top {
+        let (_, mut hit) = groups[at].remove(0);
+        hit.top = true;
+        out.push(hit);
+    }
+    out.extend(groups.into_iter().flatten().map(|(_, hit)| hit));
+    out
+}
+
+/// Which group's best hit becomes the top hit on a tie: the things a
+/// search most often means first.
+const TOP_ORDER: [HitKind; 8] = [
+    HitKind::Project,
+    HitKind::Machine,
+    HitKind::Code,
+    HitKind::Setting,
+    HitKind::Chat,
+    HitKind::Routine,
+    HitKind::Memory,
+    HitKind::Action,
+];
 
 fn chat_hit(session: &Session, snippet: &str) -> Hit {
     Hit {
@@ -206,6 +281,7 @@ fn chat_hit(session: &Session, snippet: &str) -> Hit {
         id: session.id.clone(),
         title: session.title.clone(),
         detail: snippet.to_owned(),
+        top: false,
     }
 }
 
@@ -215,11 +291,12 @@ fn action_hit(action: PaletteAction) -> Hit {
         id: <&'static str>::from(action).to_owned(),
         title: action.title().to_owned(),
         detail: String::new(),
+        top: false,
     }
 }
 
 /// A chat found by title and by text is one hit, with the snippet.
-fn chat_hits(query: &str, chats: &ChatHits) -> Vec<Hit> {
+fn chat_hits(query: &str, chats: &ChatHits) -> Vec<(Tier, Hit)> {
     struct Found<'a> {
         tier: Tier,
         session: &'a Session,
@@ -258,7 +335,7 @@ fn chat_hits(query: &str, chats: &ChatHits) -> Vec<Hit> {
     found
         .into_iter()
         .take(PER_KIND)
-        .map(|f| chat_hit(f.session, f.snippet))
+        .map(|f| (f.tier, chat_hit(f.session, f.snippet)))
         .collect()
 }
 
@@ -288,6 +365,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             id: m.id().to_owned(),
             title: m.content().to_owned(),
             detail: m.category().to_owned(),
+            top: false,
         };
         Some((tier(&query, m.content())?, hit))
     });
@@ -297,6 +375,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             id: r.id.clone(),
             title: r.label.clone(),
             detail: r.schedule.clone(),
+            top: false,
         };
         Some((tier(&query, &r.label)?, hit))
     });
@@ -306,6 +385,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             id: m.id().to_owned(),
             title: m.name().to_owned(),
             detail: if m.online() { "online" } else { "offline" }.to_owned(),
+            top: false,
         };
         Some((tier(&query, m.name())?, hit))
     });
@@ -318,6 +398,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
                 id: <&'static str>::from(section).to_owned(),
                 detail: format!("Settings · {}", section.title()),
                 title,
+                top: false,
             };
             Some((tier, hit))
         });
@@ -333,28 +414,46 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             id: p.project.clone(),
             title: p.project.clone(),
             detail: p.machine_name.clone(),
+            top: false,
         };
         Some((tier, hit))
     });
-    best(actions)
-        .chain(best(settings.collect()))
-        .chain(best(projects.collect()))
-        .chain(chat_hits(&query, chats))
-        .chain(best(memories.collect()))
-        .chain(best(routines.collect()))
-        .chain(best(machines.collect()))
-        .collect()
+    let code = lists.prs.iter().flatten().filter_map(|pr| {
+        let title = format!("{} · PR #{} {}", pr.repo, pr.number, pr.title);
+        let tier = tier(&query, &pr.title)
+            .or_else(|| tier(&query, &pr.repo))
+            .or_else(|| tier(&query, &format!("#{}", pr.number)))?;
+        let hit = Hit {
+            kind: HitKind::Code,
+            id: pr.url.clone(),
+            title,
+            detail: pr.detail.clone(),
+            top: false,
+        };
+        Some((tier, hit))
+    });
+    with_top(vec![
+        best(actions),
+        best(settings.collect()),
+        best(code.collect()),
+        best(projects.collect()),
+        chat_hits(&query, chats),
+        best(memories.collect()),
+        best(routines.collect()),
+        best(machines.collect()),
+    ])
 }
 
 /// Fetches what the palette searches, when it opens. A list the server
 /// cannot give hides its group.
 #[tauri::command]
 pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -> Result<()> {
-    let (memories, routines, machines, projects) = join!(
+    let (memories, routines, machines, projects, git) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListMachines {}),
         beep.call(ListImportedProjects {}),
+        beep.call(ListGitItems {}),
     );
     let lists = PaletteLists {
         memories: section("memories", memories)
@@ -363,6 +462,13 @@ pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -
         machines: section("machines", machines)
             .map(|all| all.into_iter().map(MachineView::from).collect()),
         projects: section("projects", projects),
+        prs: section("pull requests", git).map(|git| {
+            git.items
+                .into_iter()
+                .filter(|item| item.kind == (GitItemKind::PullRequest {}))
+                .map(PrRow::from)
+                .collect()
+        }),
     };
     *cache.0.lock().unwrap_or_else(PoisonError::into_inner) = lists;
     Ok(())
@@ -635,5 +741,61 @@ mod tests {
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, "acme/widget");
         assert_eq!(projects[0].detail, "build-box");
+    }
+
+    fn pr(repo: &str, number: u64, title: &str) -> PrRow {
+        PrRow {
+            repo: repo.to_owned(),
+            number,
+            title: title.to_owned(),
+            url: format!("https://example.com/{repo}/pull/{number}"),
+            detail: "PR · yours · example.com".to_owned(),
+        }
+    }
+
+    #[test]
+    fn pull_requests_are_found_by_title_repo_or_number() {
+        let lists = PaletteLists {
+            prs: Some(vec![
+                pr("acme/widget", 42, "Fix the login loop"),
+                pr("acme/relay", 7, "Bump deps"),
+            ]),
+            ..PaletteLists::default()
+        };
+        for query in ["login", "widget", "#42"] {
+            let hits = rank(query, &lists, &none());
+            let code = of_kind(&hits, HitKind::Code);
+            assert_eq!(code.len(), 1, "{query}");
+            assert_eq!(code[0].id, "https://example.com/acme/widget/pull/42");
+            assert_eq!(code[0].title, "acme/widget · PR #42 Fix the login loop");
+        }
+    }
+
+    #[test]
+    fn top_hit_leads_when_several_groups_match() {
+        let lists = PaletteLists {
+            projects: Some(vec![imported("acme/widget", "build-box")]),
+            prs: Some(vec![pr("acme/widget", 42, "Widget polish")]),
+            ..PaletteLists::default()
+        };
+        let chats = ChatHits {
+            titles: vec![session("a", "Widget ideas", 1)],
+            text: Vec::new(),
+        };
+        let hits = rank("acme", &lists, &chats);
+        assert!(hits[0].top);
+        assert_eq!(hits[0].kind, HitKind::Project);
+        assert_eq!(hits.iter().filter(|h| h.top).count(), 1);
+        assert_eq!(of_kind(&hits, HitKind::Project).len(), 1);
+    }
+
+    #[test]
+    fn no_top_hit_from_a_single_group() {
+        let lists = PaletteLists {
+            routines: Some(vec![routine("Morning brief")]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("morning", &lists, &none());
+        assert!(hits.iter().all(|h| !h.top));
     }
 }

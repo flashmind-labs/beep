@@ -1,11 +1,12 @@
-// The Cmd+K palette: one search over actions, settings, projects, chats,
-// memories, routines and machines. The ranking is in the app (center_find); this draws and picks.
+// The Cmd+K palette: one search over actions, settings, projects, pull
+// requests, chats, memories, routines and machines. The ranking is in the app (center_find); this draws and picks.
 const { invoke } = window.__TAURI__.core;
 
 const DEBOUNCE_MS = 120;
 
 const ICONS = {
   setting: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+  code: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a3 3 0 00-3-3h-4"/><path d="M13 4l-2 2 2 2"/></svg>',
   project: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>',
   action: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
@@ -13,7 +14,7 @@ const ICONS = {
   routine: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
 };
 
-const GROUPS = { action: "Actions", setting: "Settings", project: "Projects", chat: "Chats", memory: "Memories", routine: "Routines", machine: "Machines" };
+const GROUPS = { action: "Actions", setting: "Settings", project: "Projects", code: "Projects and code", chat: "Chats", memory: "Memories", routine: "Routines", machine: "Machines" };
 /// Where each action goes: a pane view, or Home.
 const ACTION_VIEWS = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
@@ -56,7 +57,7 @@ export function openPalette() {
   sel = 0;
   input = el("input");
   input.type = "text";
-  input.placeholder = "Search anything: chats, machines, settings, projects, memories…";
+  input.placeholder = "Search anything: chats, machines, settings, projects, PRs, memories…";
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "Search");
@@ -120,11 +121,12 @@ async function search(q) {
 
 function draw(q) {
   const rows = [];
-  let kind = null;
+  let group = null;
   hits.forEach((hit, i) => {
-    if (hit.kind !== kind) {
-      kind = hit.kind;
-      rows.push(el("h5", "", kind === "chat" && !q ? "Recent chats" : GROUPS[kind]));
+    const next = hit.top ? "top" : hit.kind;
+    if (next !== group) {
+      group = next;
+      rows.push(el("h5", "", hit.top ? "Top hit" : group === "chat" && !q ? "Recent chats" : GROUPS[group]));
     }
     rows.push(row(hit, i, q));
   });
@@ -134,7 +136,7 @@ function draw(q) {
 }
 
 function row(hit, i, q) {
-  const note = hit.detail && ["chat", "routine", "setting", "project"].includes(hit.kind) ? el("small", "", hit.detail) : null;
+  const note = hit.detail && ["chat", "routine", "setting", "project", "code"].includes(hit.kind) ? el("small", "", hit.detail) : null;
   const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
   const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(ICONS[hit.kind]);
   const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note), side);
@@ -190,6 +192,7 @@ function pick(hit) {
     case "machine": return jump(`m-${hit.id}`);
     case "setting": return settings(hit.id);
     case "project": return project(hit.id);
+    case "code": return invoke("open_url", { url: hit.id }).catch(e => console.warn("opening a pull request:", e));
   }
 }
 
