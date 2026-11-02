@@ -15,11 +15,11 @@ use beep_server::{
     app::{App, ServerTools},
     client::{Client, Node},
     models::ModelChoices,
-    nodes::{self, Online},
+    nodes::{self, Online, StartOn},
     protocol::{
-        AgentEntryKind, AgentImageData, AgentModel, AgentModelPick, AgentModels, AgentPlanStatus,
-        AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError, CreateNodeToken, DeviceKind,
-        GetAgentImage, GetAgentSession, GetNodeToken, ListAgentHosts, ListAgentImages,
+        AgentEffort, AgentEntryKind, AgentImageData, AgentModel, AgentModelPick, AgentModels,
+        AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError, CreateNodeToken,
+        DeviceKind, GetAgentImage, GetAgentSession, GetNodeToken, ListAgentHosts, ListAgentImages,
         ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
         ListMemoryScopes, ListProjectSessions, MachineCapability, MemoryScope, MemorySource,
         PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken, StartAgentSession,
@@ -28,10 +28,10 @@ use beep_server::{
         node::{
             EnvReport, NodeSetup,
             agent::{
-                AnswerOption, Entry, EntryKind, Event, ExternalSession, ModelList, ModelOption,
-                ModelPick, OptionKind, PlanEntry, PlanStatus, Presence, Question, Request,
-                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
-                StopReason,
+                AnswerOption, Effort, Entry, EntryKind, Event, ExternalSession, ModelList,
+                ModelOption, ModelPick, OptionKind, PlanEntry, PlanStatus, Presence, Question,
+                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
+                Status, StopReason,
             },
         },
         setup::SetupToken,
@@ -360,7 +360,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
             "fake",
             Some(cwd.display().to_string()),
             "please pick the notes".into(),
-            None,
+            StartOn::default(),
         )
         .await
         .unwrap();
@@ -479,7 +479,12 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     assert_eq!(closed.ended.as_deref(), Some("closed"));
 
     let refused = live
-        .start_agent("fake", Some("/no/such/folder".into()), "hi".into(), None)
+        .start_agent(
+            "fake",
+            Some("/no/such/folder".into()),
+            "hi".into(),
+            StartOn::default(),
+        )
         .await
         .err()
         .expect("a missing folder is refused");
@@ -595,7 +600,7 @@ async fn a_real_claude_session_writes_a_file() {
             Some(cwd.display().to_string()),
             "Create a file named hello.txt containing the word hi. Then reply with just: done"
                 .into(),
-            None,
+            StartOn::default(),
         )
         .await
         .unwrap();
@@ -1709,6 +1714,7 @@ fn start(machine_id: Option<String>, prompt: &str) -> StartAgentSession {
         needs: Vec::new(),
         chat: None,
         model: None,
+        effort: None,
     }
 }
 
@@ -1745,6 +1751,7 @@ async fn start_agent_session_on_a_named_machine() {
             cwd: Some("/srv/project".into()),
             prompt: "Fix the tests".into(),
             model: None,
+            effort: None,
         }
     );
     let refused = client.call(&start(Some(build), "   ")).await.unwrap_err();
@@ -2536,9 +2543,37 @@ async fn agent_models_come_from_the_node_and_reach_the_start() {
             cwd: Some("/srv/project".into()),
             prompt: "Fix the tests".into(),
             model: Some("deep".into()),
+            effort: None,
         }
     );
     let refused = client.call(&on_model("deep\nrm")).await.unwrap_err();
     assert!(bad_request(refused));
+
+    // Thinking goes to the node for a level the agent takes, and is
+    // refused for one it does not.
+    let thinking = |effort: AgentEffort| StartAgentSession {
+        agent: Some("claude".into()),
+        effort: Some(effort),
+        ..start(Some(build.clone()), "Fix the tests")
+    };
+    client.call(&thinking(AgentEffort::Xhigh {})).await.unwrap();
+    let order = timeout(Duration::from_secs(5), received.recv())
+        .await
+        .expect("the node got the start")
+        .expect("the fake still runs");
+    assert_eq!(
+        order,
+        Request::Start {
+            cwd: Some("/srv/project".into()),
+            prompt: "Fix the tests".into(),
+            model: None,
+            effort: Some(Effort::Xhigh),
+        }
+    );
+    let refused = client
+        .call(&thinking(AgentEffort::Minimal {}))
+        .await
+        .unwrap_err();
+    assert!(bad_request(refused), "Claude Code has no minimal level");
     center.shutdown().await;
 }

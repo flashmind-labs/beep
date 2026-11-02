@@ -383,6 +383,7 @@ impl Agents {
                 prompt,
                 resume: Some(id.to_owned()),
                 model: None,
+                effort: None,
             },
         )
     }
@@ -523,6 +524,7 @@ impl Agents {
             prompt: begin.prompt,
             resume: begin.resume,
             model: begin.model,
+            effort: begin.effort,
             images: self.images.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
@@ -533,11 +535,13 @@ impl Agents {
 }
 
 /// How a session begins: on a prompt, and as a new session (on a model
-/// when given) or an earlier one resumed by the agent's id.
+/// and thinking level when given) or an earlier one resumed by the agent's
+/// id.
 struct Begin {
     prompt: Option<String>,
     resume: Option<String>,
     model: Option<String>,
+    effort: Option<agent::Effort>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or
@@ -617,7 +621,12 @@ pub async fn serve_session(
         Request::Start {
             model: Some(model), ..
         } if !agent::valid_model(&model) => Err(format!("{model:?} is not a model name")),
-        Request::Start { cwd, prompt, model } => agents
+        Request::Start {
+            cwd,
+            prompt,
+            model,
+            effort,
+        } => agents
             .start(
                 &kind,
                 cwd.as_deref(),
@@ -625,6 +634,7 @@ pub async fn serve_session(
                     prompt: Some(prompt),
                     resume: None,
                     model,
+                    effort,
                 },
             )
             .map_err(|e| format!("{e:#}")),
@@ -937,6 +947,7 @@ while read -r line; do reply '{}'; done
             prompt: None,
             resume: Some(CLAUDE_ID.into()),
             model: None,
+            effort: None,
         };
         let session = agents
             .start(&kind, Some(dir.to_str().unwrap()), begin)
@@ -1172,6 +1183,7 @@ while read -r line; do reply '{}'; done
             prompt: None,
             resume: Some(id.to_owned()),
             model: None,
+            effort: None,
         };
         let first = agents.start(&kind, Some("/"), begin()).unwrap();
         let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
@@ -1199,6 +1211,7 @@ while read -r line; do reply '{}'; done
             prompt: None,
             resume: Some(id.to_owned()),
             model: None,
+            effort: None,
         };
         let first = agents.start(&kind, Some("/"), begin).unwrap();
         first.close().await;

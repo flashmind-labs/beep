@@ -658,3 +658,79 @@ button.dachip:hover { border-color: #3A4A41 }
 .dskel { height: 10px; border-radius: 5px; background: var(--elev); animation: dskel 1.4s ease-in-out infinite }
 @keyframes dskel { 50% { opacity: .45 } }
 @media (prefers-reduced-motion: reduce) { .dskel { animation: none } }
+
+/* Start a coding agent: a composer with one pill for harness, model and thinking */
+.agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 14px 14px 16px }
+.agc { max-width: 760px; margin: 0 auto; display: grid; gap: 10px }
+.dbar[data-mode="window"] .agc { margin-top: 48px }
+.agc h3 { margin: 0 0 14px; text-align: center; font-size: 22px; font-weight: 500; letter-spacing: -.01em }
+.dbar[data-mode="window"] .agc h3 { font-size: 26px }
+.agc h3 b { font-weight: 600 }
+.agc-box { position: relative; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 14px 14px 10px }
+.agc-box:focus-within { border-color: rgba(59,155,122,.6) }
+.agc-box.err { border-color: var(--err) }
+.agc-box textarea { display: block; width: 100%; min-height: 58px; max-height: 40vh; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14.5px; line-height: 21px; resize: none; padding: 0; caret-color: var(--emerald); field-sizing: content }
+.agc-box textarea::placeholder { color: var(--dim) }
+.agc-box.err textarea::placeholder { color: var(--err) }
+.agc-row { display: flex; align-items: center; gap: 8px; margin-top: 6px }
+.agc-row .sp { flex: 1 }
+.agc-pill { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 9px; font-size: 13px; color: var(--fg); min-width: 0; white-space: nowrap }
+.agc-pill:hover, .agc-pill[aria-expanded="true"] { background: rgba(228,238,232,.06) }
+.agc-pill:focus-visible { outline: 2px solid var(--emerald); outline-offset: 1px }
+.agc-pill[disabled] { color: var(--dim); cursor: default; background: transparent }
+.agc-pill small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis }
+.agc-pill svg { color: var(--muted); flex: none }
+.agc-pill .mono, .agc-menu .mono, .agc-list .mono { font-family: var(--mono); font-size: 12px }
+.agc .cc-ag { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 9.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev); flex: none }
+.agc .cc-ag.claude { color: #F2A27A } .agc .cc-ag.codex { color: #9DC3F0 }
+.agc-send { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--emerald); color: var(--ink); flex: none }
+.agc-send[disabled] { background: var(--elev); color: var(--dim); cursor: default }
+.agc-send:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px }
+.agc-under { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 0 6px; font-size: 12.5px; color: var(--muted); position: relative }
+.agc-under .agc-pill { font-size: 12.5px; color: var(--muted); padding: 4px 8px; max-width: 100% }
+.agc-under .agc-pill small { color: var(--dim); font-size: 11.5px }
+.agc-under .bar { width: 1px; height: 14px; background: var(--border) }
+.agc-type { position: relative; flex: 1; min-width: 200px }
+.agc-type input { width: 100%; box-sizing: border-box; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--emerald); background: var(--surface); color: var(--fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--emerald) }
+.agc-type .agc-menu { left: 0; right: 0 }
+.agc-why { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
+.agc-why[hidden] { display: none }
+.agc-why b { color: var(--fg); font-weight: 500 }
+.agc-note { display: flex; gap: 8px; align-items: center; padding: 0 6px; font-size: 12.5px; color: var(--muted) }
+.agc-help { border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; display: grid; gap: 8px; font-size: 13px }
+.agc-help ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px }
+.agc-help code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+.agc-pick { position: absolute; right: 8px; bottom: 52px; z-index: 8; width: min(600px, calc(100% - 16px)); display: grid; grid-template-columns: 52px minmax(0, 1fr) 160px; border: 1px solid var(--border); border-radius: 14px; background: #0b100e; box-shadow: 0 18px 50px rgba(0,0,0,.5); overflow: hidden }
+.agc-rail { display: grid; align-content: start; gap: 6px; padding: 10px 8px; border-right: 1px solid var(--border) }
+.agc-rail button { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; position: relative }
+.agc-rail button[aria-pressed="true"] { background: rgba(59,155,122,.14) }
+.agc-rail button[aria-pressed="true"]::after { content: ""; position: absolute; right: -9px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--emerald) }
+.agc-rail button[disabled] { opacity: .35; cursor: default }
+.agc-rail .cc-ag { width: 26px; height: 26px; font-size: 10px }
+.agc-list { display: grid; align-content: start; max-height: 300px; overflow-y: auto; scrollbar-width: thin; min-width: 0 }
+.agc-search { position: sticky; top: 0; z-index: 1; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--emerald); background: #0b100e; color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--emerald) }
+.agc-search::placeholder { color: var(--dim) }
+#agmodels { display: grid }
+.agc-list button { all: unset; cursor: pointer; display: flex; align-items: baseline; gap: 8px; padding: 7px 12px; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agc-list button:hover { background: rgba(255,255,255,.04) }
+.agc-list button.on { background: rgba(59,155,122,.14) }
+.agc-list button small { color: var(--muted); font-size: 11.5px; margin-left: auto; overflow: hidden; text-overflow: ellipsis }
+.agc-list .none, .agc-think .none { margin: 8px 12px; font-size: 12px; color: var(--dim); line-height: 17px; display: flex; gap: 6px; align-items: center }
+.agc-think { border-left: 1px solid var(--border); padding: 10px 0; display: grid; align-content: start }
+.agc-think h5 { margin: 0 12px 6px; font-size: 12px; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; gap: 6px }
+.agc-think button { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; font-size: 13px }
+.agc-think button:hover { background: rgba(255,255,255,.04) }
+.agc-think button.on { background: rgba(59,155,122,.14) }
+.agc-think button svg { color: var(--emerald) }
+.agc-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 8; min-width: 240px; max-width: calc(100vw - 32px); max-height: 320px; overflow-y: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: 10px; background: #0b100e; box-shadow: 0 14px 40px rgba(0,0,0,.45) }
+.agc-menu.folder { left: 90px }
+.agc-menu button { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 7px 12px; font-size: 13px; color: var(--fg) }
+.agc-menu button > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agc-menu button:hover { background: rgba(255,255,255,.04) }
+.agc-menu button small { color: var(--muted); font-size: 11.5px }
+.agc-menu button.on { background: rgba(59,155,122,.14) }
+.agc-menu button[disabled] { color: var(--dim); cursor: default; background: transparent }
+.agc-menu .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald) }
+.agc-menu .dot.off { background: var(--dim) }
+.agc-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0 }
+@media (max-width: 520px) { .agc-pick { grid-template-columns: 48px minmax(0, 1fr) } .agc-think { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border) } .agc-menu.folder { left: 0 } }

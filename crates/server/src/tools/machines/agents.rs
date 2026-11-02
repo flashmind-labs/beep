@@ -3,7 +3,7 @@
 use super::agent_call;
 use crate::{
     app::App,
-    nodes::{Follower, Online, Watched},
+    nodes::{Follower, Online, StartOn, Watched},
     protocol::node::agent::{EntryKind, ExternalSession, PlanStatus, Request, SessionInfo, Status},
     user::User,
 };
@@ -111,7 +111,7 @@ pub(crate) async fn run(
     match order {
         Order::Start { cwd, prompt, wait } => {
             let link = online
-                .start_agent(agent, cwd, prompt, None)
+                .start_agent(agent, cwd, prompt, StartOn::default())
                 .await
                 .map_err(|e| format!("Could not start {agent}: {e:#}"))?;
             let now = link.now();

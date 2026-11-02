@@ -54,6 +54,16 @@ pub(crate) struct NodeImage {
     pub(crate) data: Vec<u8>,
 }
 
+/// What a session starts on besides its folder and prompt; the agent's
+/// own for each left `None`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartOn {
+    /// An id from the agent's model list.
+    pub model: Option<String>,
+    /// One of `agent::efforts` for the agent.
+    pub effort: Option<agent::Effort>,
+}
+
 /// How long a node has to list an agent's models: it may start the agent
 /// to ask, and npx may first download its adapter.
 const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
@@ -254,16 +264,22 @@ impl Online {
     }
 
     /// Starts a session of `agent` in `cwd` on `prompt` and follows it, on
-    /// `model` when given.
+    /// the model and thinking `on` names.
     pub async fn start_agent(
         &self,
         agent: &str,
         cwd: Option<String>,
         prompt: String,
-        model: Option<String>,
+        on: StartOn,
     ) -> Result<Arc<AgentLink>> {
-        self.open_agent(agent, Request::Start { cwd, prompt, model })
-            .await
+        let StartOn { model, effort } = on;
+        let start = Request::Start {
+            cwd,
+            prompt,
+            model,
+            effort,
+        };
+        self.open_agent(agent, start).await
     }
 
     /// The models `agent` can run on here, as the node finds them; `None`

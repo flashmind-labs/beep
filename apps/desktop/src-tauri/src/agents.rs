@@ -16,7 +16,7 @@ use beep_proto::{
     AgentSessionView, AgentSteer, ApiError, GetAgentImage, GetAgentSession, ListAgentHosts,
     ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
     ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
-    image_key,
+    image_key, node::agent::Effort,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -234,7 +234,7 @@ pub async fn agent_sessions(beep: Service<'_>) -> Result<Vec<SessionRow>> {
 
 /// Starts a session; no `machine_id` lets the server pick. `chat` hears
 /// its turn ends and questions; `model`, from `agent_models`, picks the
-/// agent's model.
+/// agent's model and `effort` how hard it thinks.
 #[tauri::command]
 pub async fn agent_start(
     beep: Service<'_>,
@@ -244,6 +244,7 @@ pub async fn agent_start(
     prompt: String,
     chat: Option<Uuid>,
     model: Option<String>,
+    effort: Option<Effort>,
 ) -> Result<Started> {
     let started = beep
         .call(StartAgentSession {
@@ -254,6 +255,7 @@ pub async fn agent_start(
             needs: Vec::new(),
             chat,
             model,
+            effort: effort.map(Into::into),
         })
         .await?;
     Ok(Started {
