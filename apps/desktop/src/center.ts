@@ -1846,8 +1846,15 @@ function drawProjects(el: HTMLElement) {
   // focus, and the view keeps its scroll.
   const old = el.querySelector(":scope > .cc-view");
   if (old) {
+    // Read before the swap: a detached element scrolls to 0.
+    const top = old.scrollTop;
+    const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
     old.replaceWith(view);
-    view.scrollTop = old.scrollTop;
+    view.scrollTop = top;
+    for (const [id, at] of inner) {
+      const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
+      if (s) s.scrollTop = at;
+    }
   } else {
     el.prepend(view);
   }
