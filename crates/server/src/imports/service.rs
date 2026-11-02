@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     app::App,
-    credentials::{ForgejoUrl, Opened, Slot},
+    credentials::{ForgejoUrl, Opened, Slot, github_for},
     nodes::{Online, SHELL},
     protocol::{FoundProject, ImportedProject, MachineFolder},
     store::{ImportRow, NewImport, NodeRow},
@@ -116,7 +116,7 @@ pub(crate) async fn import(
                 .ok_or_else(|| ImportError::NoHome(row.name.clone()))?
         }
     };
-    let token = token_for(&credentials, &repo.host);
+    let token = token_for(&credentials, &repo);
     let cloned = run_clone(&node, &row, &repo, &folder, token).await?;
     let saved = user
         .save_import(NewImport {
@@ -191,17 +191,17 @@ async fn look(
     }
 }
 
-/// The user's token for `host`, when they saved one.
-fn token_for<'a>(credentials: &'a [Opened], host: &Host) -> Option<&'a SecretString> {
-    credentials
-        .iter()
-        .find(|opened| match (&opened.slot, host) {
-            (Slot::GitHub, Host::GitHub) => true,
-            (Slot::Forgejo(saved), Host::Forgejo(url)) => saved == url,
-            _ => false,
-        })
-        .map(|opened| &opened.secret)
-        .filter(|secret| !secret.expose_secret().is_empty())
+/// The user's token for `repo`'s host, when they saved one: on GitHub, the
+/// account for the repository's owner.
+fn token_for<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<&'a SecretString> {
+    match &repo.host {
+        Host::GitHub => github_for(credentials, repo.org()),
+        Host::Forgejo(url) => credentials
+            .iter()
+            .find(|opened| matches!(&opened.slot, Slot::Forgejo(saved) if saved == url)),
+    }
+    .map(|opened| &opened.secret)
+    .filter(|secret| !secret.expose_secret().is_empty())
 }
 
 /// Clones on `node`; `true` when it cloned, `false` when the checkout was

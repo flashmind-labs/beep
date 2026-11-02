@@ -56,7 +56,7 @@ pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
-pub use credentials::{CredentialRow, NewCredential};
+pub use credentials::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
@@ -371,6 +371,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         61,
         "project imports",
         include_str!("../../migrations/0061_project_imports.sql"),
+    ),
+    (
+        62,
+        "github accounts",
+        include_str!("../../migrations/0062_github_accounts.sql"),
     ),
 ];
 
