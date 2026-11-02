@@ -2,13 +2,17 @@
 //!
 //! 1. `.git` never does; in a git repository only files git ignores do,
 //!    since git carries the rest between machines.
-//! 2. The project's `.gitignore`, in a folder that is not a git repository.
-//! 3. Defaults for the kinds of project its marker files show, such as
-//!    `target/` beside `Cargo.toml`. A plain folder gets them only when it
-//!    has no `.gitignore`; a git repository always does, since what git
-//!    ignores is mostly build output.
-//! 4. `.beepignore`, in `.gitignore` syntax, adds rules, and a `!` rule
+//! 2. Defaults for the kinds of project its marker files show, such as
+//!    `target/` beside `Cargo.toml`. Every project gets them, git or not:
+//!    everything syncs except regenerable build output, caches and
+//!    dependency folders. A `.gitignore` outside git is not read, since it
+//!    would also leave out `.env` and other files worth keeping.
+//! 3. `.beepignore`, in `.gitignore` syntax, adds rules, and a `!` rule
 //!    keeps a path the rules above leave out.
+//!
+//! Markers are looked for in the project folder and its first-level
+//! folders only, so a marker deeper down (a `.csproj` two folders in)
+//! brings no defaults.
 //!
 //! Everything here blocks.
 
@@ -27,7 +31,6 @@ use std::{
 
 /// The project's own ignore file.
 pub(super) const BEEPIGNORE: &str = ".beepignore";
-const GITIGNORE: &str = ".gitignore";
 
 /// What a kind of project leaves out, found by a marker file.
 struct Defaults {
@@ -36,8 +39,8 @@ struct Defaults {
     rules: &'static [&'static str],
 }
 
-/// The defaults by marker, as the issue lists them, then Gradle, Xcode and
-/// Godot.
+/// The defaults by marker: build output, caches and dependency folders,
+/// never env files, local config or user content.
 const DEFAULTS: &[Defaults] = &[
     Defaults {
         markers: &["Cargo.toml"],
@@ -45,11 +48,36 @@ const DEFAULTS: &[Defaults] = &[
     },
     Defaults {
         markers: &["package.json"],
-        rules: &["node_modules/", ".next/", "dist/", ".turbo/"],
+        rules: &[
+            "node_modules/",
+            ".next/",
+            "dist/",
+            ".turbo/",
+            ".nuxt/",
+            ".svelte-kit/",
+            ".output/",
+            ".parcel-cache/",
+            ".vite/",
+            "coverage/",
+            ".angular/",
+        ],
     },
     Defaults {
         markers: &["pyproject.toml", "requirements.txt"],
-        rules: &[".venv/", "__pycache__/", ".pytest_cache/", "*.pyc"],
+        rules: &[
+            ".venv/",
+            "__pycache__/",
+            ".pytest_cache/",
+            "*.pyc",
+            ".mypy_cache/",
+            ".ruff_cache/",
+            ".tox/",
+            "*.egg-info/",
+        ],
+    },
+    Defaults {
+        markers: &["pyproject.toml"],
+        rules: &["build/"],
     },
     Defaults {
         markers: &["*.uproject"],
@@ -88,6 +116,56 @@ const DEFAULTS: &[Defaults] = &[
     Defaults {
         markers: &["project.godot"],
         rules: &[".godot/", ".import/"],
+    },
+    // `ProjectSettings/` sits one folder down. `UserSettings/` is the
+    // user's preferences and keeps syncing.
+    Defaults {
+        markers: &["ProjectVersion.txt"],
+        rules: &["Library/", "Temp/", "Obj/", "Logs/", "Build/", "Builds/"],
+    },
+    Defaults {
+        markers: &["*.csproj", "*.fsproj", "*.sln"],
+        rules: &["bin/", "obj/"],
+    },
+    Defaults {
+        markers: &["pom.xml"],
+        rules: &["target/"],
+    },
+    Defaults {
+        markers: &["CMakeLists.txt"],
+        rules: &["build/", "cmake-build-*/"],
+    },
+    Defaults {
+        markers: &["mix.exs"],
+        rules: &["_build/", "deps/"],
+    },
+    Defaults {
+        markers: &["Gemfile"],
+        rules: &["vendor/bundle/"],
+    },
+    Defaults {
+        markers: &["composer.json"],
+        rules: &["vendor/"],
+    },
+    Defaults {
+        markers: &["pubspec.yaml"],
+        rules: &[".dart_tool/", "build/"],
+    },
+    Defaults {
+        markers: &["build.zig"],
+        rules: &["zig-cache/", ".zig-cache/", "zig-out/"],
+    },
+    Defaults {
+        markers: &["*.cabal", "stack.yaml"],
+        rules: &["dist-newstyle/", ".stack-work/"],
+    },
+    Defaults {
+        markers: &["*.tf"],
+        rules: &[".terraform/"],
+    },
+    Defaults {
+        markers: &["build.sbt"],
+        rules: &["target/", "project/target/", ".bloop/", ".metals/"],
     },
 ];
 
@@ -129,7 +207,6 @@ struct Found {
 pub(super) struct Rules {
     /// The folder is a git repository.
     git: bool,
-    gitignore: Option<Gitignore>,
     defaults: Vec<Found>,
     beepignore: Option<Gitignore>,
 }
@@ -145,25 +222,14 @@ pub(super) fn is_own(name: &str) -> bool {
 }
 
 impl Rules {
-    /// Reads the rules of the project in `root`: its `.gitignore` and
-    /// `.beepignore`, and the marker files in it and its first-level
-    /// folders.
+    /// Reads the rules of the project in `root`: the defaults for the
+    /// marker files in it and its first-level folders, and its
+    /// `.beepignore`.
     pub(super) fn load(root: &Path) -> Result<Self> {
         let git = root.join(".git").exists();
-        let gitignore = if git {
-            None
-        } else {
-            read_ignore(root, GITIGNORE)?
-        };
-        let defaults = if gitignore.is_some() {
-            Vec::new()
-        } else {
-            defaults(root)?
-        };
         Ok(Self {
             git,
-            gitignore,
-            defaults,
+            defaults: defaults(root)?,
             beepignore: read_ignore(root, BEEPIGNORE)?,
         })
     }
@@ -195,11 +261,6 @@ impl Rules {
                 Match::Whitelist(_) => return None,
                 Match::None => {}
             }
-        }
-        if let Some(gitignore) = &self.gitignore
-            && gitignore.matched(path, is_dir).is_ignore()
-        {
-            return Some(Skip::rule(Rule::GitIgnore));
         }
         self.defaults
             .iter()
@@ -411,8 +472,15 @@ mod tests {
                     ("dist", true),
                     (".turbo", true),
                     ("web/node_modules", true),
+                    (".nuxt", true),
+                    (".svelte-kit", true),
+                    (".output", true),
+                    (".parcel-cache", true),
+                    (".vite", true),
+                    ("coverage", true),
+                    (".angular", true),
                 ],
-                &["index.js"],
+                &["index.js", ".env"],
             ),
             case(
                 "pyproject.toml",
@@ -421,13 +489,18 @@ mod tests {
                     ("__pycache__", true),
                     (".pytest_cache", true),
                     ("pkg/mod.pyc", false),
+                    (".mypy_cache", true),
+                    (".ruff_cache", true),
+                    (".tox", true),
+                    ("pkg.egg-info", true),
+                    ("build", true),
                 ],
-                &["pkg/mod.py"],
+                &["pkg/mod.py", ".env"],
             ),
             case(
                 "requirements.txt",
                 &[(".venv", true), ("a.pyc", false)],
-                &["a.py"],
+                &["a.py", "build/x.py"],
             ),
             case(
                 "Game.uproject",
@@ -474,6 +547,63 @@ mod tests {
                 &[(".godot", true), (".import", true)],
                 &["scenes/main.tscn"],
             ),
+            case(
+                "ProjectSettings/ProjectVersion.txt",
+                &[
+                    ("Library", true),
+                    ("Temp", true),
+                    ("Obj", true),
+                    ("Logs", true),
+                    ("Build", true),
+                    ("Builds", true),
+                ],
+                &["Assets", "UserSettings/EditorUserSettings.asset"],
+            ),
+            case(
+                "App.csproj",
+                &[("bin", true), ("obj", true)],
+                &["Program.cs"],
+            ),
+            case("App.sln", &[("bin", true), ("obj", true)], &["Program.cs"]),
+            case("pom.xml", &[("target", true)], &["src/Main.java"]),
+            case(
+                "CMakeLists.txt",
+                &[("build", true), ("cmake-build-debug", true)],
+                &["src/main.cpp", "Makefile"],
+            ),
+            case(
+                "mix.exs",
+                &[("_build", true), ("deps", true)],
+                &["lib/app.ex"],
+            ),
+            case("Gemfile", &[("vendor/bundle", true)], &[".bundle/config"]),
+            case("composer.json", &[("vendor", true)], &["src/App.php"]),
+            case(
+                "pubspec.yaml",
+                &[(".dart_tool", true), ("build", true)],
+                &["lib/main.dart"],
+            ),
+            case(
+                "build.zig",
+                &[("zig-cache", true), (".zig-cache", true), ("zig-out", true)],
+                &["src/main.zig"],
+            ),
+            case(
+                "app.cabal",
+                &[("dist-newstyle", true), (".stack-work", true)],
+                &["app/Main.hs"],
+            ),
+            case("main.tf", &[(".terraform", true)], &["vars.tfvars"]),
+            case(
+                "build.sbt",
+                &[
+                    ("target", true),
+                    ("project/target", true),
+                    (".bloop", true),
+                    (".metals", true),
+                ],
+                &["src/main/scala/A.scala"],
+            ),
         ];
         for Case {
             marker,
@@ -483,7 +613,12 @@ mod tests {
         {
             let dir = project(&[marker]);
             let rules = Rules::load(dir.path()).unwrap();
-            assert_eq!(rules.markers(), [marker.trim_end_matches('/')], "{marker}");
+            assert!(
+                rules
+                    .markers()
+                    .contains(&marker.trim_end_matches('/').rsplit('/').next().unwrap()),
+                "{marker}"
+            );
             for (path, is_dir) in left_out {
                 assert_eq!(
                     skipped(&rules, path, *is_dir),
@@ -540,15 +675,42 @@ mod tests {
     }
 
     #[test]
-    fn a_gitignore_replaces_the_defaults_outside_git() {
-        let dir = project(&["Cargo.toml"]);
-        fs::write(dir.path().join(".gitignore"), "*.log\nout/\n").unwrap();
+    fn a_gitignore_outside_git_is_not_read() {
+        let dir = project(&["Cargo.toml", ".env", "run.log"]);
+        fs::write(dir.path().join(".gitignore"), ".env\n*.log\ntarget/\n").unwrap();
         let rules = Rules::load(dir.path()).unwrap();
         assert!(!rules.is_git());
-        assert!(rules.markers().is_empty());
-        assert_eq!(skipped(&rules, "run.log", false), Some(Rule::GitIgnore));
-        assert_eq!(skipped(&rules, "out", true), Some(Rule::GitIgnore));
-        assert_eq!(skipped(&rules, "target", true), None);
+        assert_eq!(skipped(&rules, ".env", false), None);
+        assert_eq!(skipped(&rules, "run.log", false), None);
+        assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
+    }
+
+    #[test]
+    fn a_unity_project_leaves_out_library_and_keeps_assets() {
+        let dir = project(&[
+            "ProjectSettings/ProjectVersion.txt",
+            "Assets/Scene.unity",
+            "Library/cache.bin",
+            "UserSettings/Layout.json",
+        ]);
+        let rules = Rules::load(dir.path()).unwrap();
+        assert!(rules.skips_any(Path::new("Library/cache.bin"), false));
+        assert!(!rules.skips_any(Path::new("Assets/Scene.unity"), false));
+        assert!(!rules.skips_any(Path::new("UserSettings/Layout.json"), false));
+    }
+
+    #[test]
+    fn a_dotnet_project_leaves_out_bin_and_obj() {
+        let dir = project(&[
+            "App.csproj",
+            "Program.cs",
+            "bin/Debug/App.dll",
+            "obj/x.json",
+        ]);
+        let rules = Rules::load(dir.path()).unwrap();
+        assert!(rules.skips_any(Path::new("bin/Debug/App.dll"), false));
+        assert!(rules.skips_any(Path::new("obj/x.json"), false));
+        assert!(!rules.skips_any(Path::new("Program.cs"), false));
     }
 
     #[test]
@@ -562,11 +724,9 @@ mod tests {
         assert_eq!(skipped(&rules, "dist", true), None);
         assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
 
-        fs::write(dir.path().join(".gitignore"), "*.tmp\nnotes.txt\n").unwrap();
-        fs::write(dir.path().join(".beepignore"), "!notes.txt\n").unwrap();
+        fs::write(dir.path().join(".beepignore"), "!target/\n").unwrap();
         let rules = Rules::load(dir.path()).unwrap();
-        assert_eq!(skipped(&rules, "notes.txt", false), None);
-        assert_eq!(skipped(&rules, "a.tmp", false), Some(Rule::GitIgnore));
+        assert_eq!(skipped(&rules, "target", true), None);
     }
 
     #[test]
