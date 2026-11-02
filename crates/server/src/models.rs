@@ -49,6 +49,21 @@ struct Choice {
     sees_images: bool,
 }
 
+#[cfg(test)]
+impl ModelChoices {
+    /// Offers `model` besides the ones already offered.
+    pub(crate) fn offering(mut self, model: Model) -> Self {
+        self.choices.push(Choice {
+            name: model.name().to_owned(),
+            model,
+            input_price: None,
+            output_price: None,
+            sees_images: false,
+        });
+        self
+    }
+}
+
 impl ModelChoices {
     /// Only the default, with no admins.
     pub fn only(default: Model) -> Self {
@@ -256,6 +271,11 @@ impl ModelChoices {
             .write()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(user.to_owned());
+    }
+
+    /// Every offered model.
+    pub fn all(&self) -> impl Iterator<Item = &Model> {
+        self.choices.iter().map(|choice| &choice.model)
     }
 
     pub fn default_model(&self) -> &Model {

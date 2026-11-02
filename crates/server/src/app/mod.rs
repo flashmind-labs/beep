@@ -76,8 +76,6 @@ pub struct App {
     tools: RunTools,
     /// Describes images; without it only a model that sees them can.
     vision_model: Option<Model>,
-    /// Summarizes long sessions; see `Config::compaction_model`.
-    compaction_model: Option<Model>,
     /// What users may run their own turns on.
     pub models: ModelChoices,
     /// What a new `User` is built from.
@@ -132,8 +130,6 @@ pub struct ServerTools {
     pub composio: Option<ComposioSettings>,
     /// Describes images; see `Config::vision_model`.
     pub vision_model: Option<Model>,
-    /// Summarizes long sessions; see `Config::compaction_model`.
-    pub compaction_model: Option<Model>,
     /// Transit routes for `get_route`.
     pub transitous: Option<Arc<Transitous>>,
     /// The models voice notes use.
@@ -309,7 +305,6 @@ impl App {
             decision,
             composio,
             vision_model,
-            compaction_model,
             transitous,
             voice,
             realtime,
@@ -337,7 +332,6 @@ impl App {
             provider,
             llm,
             vision_model,
-            compaction_model,
             models,
             tools: RunTools {
                 search,
@@ -816,14 +810,7 @@ impl App {
 
     /// Summarizes sessions that are long and have gone quiet.
     pub async fn compact_idle_sessions(&self) {
-        // The limit follows the model the sessions run on, not the summarizer.
-        let window = self.provider.context_window(&self.llm.model).await;
-        compaction::compact_idle(
-            &self.store,
-            self.summarizer(),
-            compaction::compact_at(window),
-        )
-        .await;
+        compaction::compact_idle(&self.store, self.summarizer()).await;
     }
 
     /// Compacts `session` in the background when the last prompt of its turn
@@ -840,7 +827,8 @@ impl App {
             if prompt_tokens < limit {
                 return;
             }
-            compaction::compact_session(&app.store, &app.summarizer(), &session, limit).await;
+            compaction::compact_session(&app.store, app.provider.as_ref(), &model, &session, limit)
+                .await;
         });
     }
 
@@ -864,11 +852,12 @@ impl App {
         self.tools.decision.as_deref()
     }
 
-    /// Summarizes sessions on the compaction model, else the assistant's.
+    /// Summarizes each session on the model its chat ran on.
     fn summarizer(&self) -> Summarizer<'_> {
         Summarizer {
             provider: self.provider.as_ref(),
-            model: self.compaction_model.as_ref().unwrap_or(&self.llm.model),
+            models: &self.models,
+            default: &self.llm.model,
         }
     }
 
