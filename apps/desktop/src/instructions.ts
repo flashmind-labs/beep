@@ -295,7 +295,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     const old = el.querySelector(":scope > .cc-view");
     const active = document.activeElement;
     const caret = active instanceof HTMLTextAreaElement && el.contains(active) ? active.selectionStart : null;
-    if (old) { old.replaceWith(view); view.scrollTop = old.scrollTop; } else el.append(view);
+    if (old) { const top = old.scrollTop; old.replaceWith(view); view.scrollTop = top; } else el.append(view);
     if (caret != null) {
       const area = view.querySelector("textarea");
       area?.focus();

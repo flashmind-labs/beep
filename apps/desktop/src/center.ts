@@ -263,7 +263,7 @@ function machineTable(machines: MachineCard[]) {
     name.title = m.name;
     const caps = machineCaps(m);
     const can = h("span", `caps${off}`, caps.join(" · ") || "–");
-    if (caps.length) can.title = caps.join(", ");
+    if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
     const sync = m.online ? machineSync(m.id, state.sync) : null;
     const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
@@ -747,7 +747,7 @@ function drawSide() {
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
-  const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
+  const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
     if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
@@ -775,7 +775,15 @@ function drawSide() {
     foot.append(add);
   }
   side.push(foot);
-  $("#side").replaceChildren(...side);
+  // The head stays put under the window buttons; only the list below it
+  // scrolls, and a redraw keeps where it was.
+  const el = $("#side");
+  let list = el.querySelector<HTMLElement>(":scope > .cc-side-list");
+  if (!list) {
+    list = h("div", "cc-side-list");
+    el.replaceChildren(head, list);
+  }
+  list.replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }
@@ -958,7 +966,7 @@ registerSidebarGroup("views", {
 function projectRows() {
   const home = state.home;
   if (!home || (!home.running && !home.projects)) return null;
-  return mergeProjects(home.projects, home.running, state.found);
+  return mergeProjects(home.projects, home.running);
 }
 
 /// A small + button for a group's heading or the footer.
@@ -1030,8 +1038,6 @@ const loadFound = single(async () => {
     state.found = state.found || [];
   }
   if (!state.picked) redrawProjects();
-  // Their remotes name the folders agents run in as org/repo.
-  reloadGroup("projects");
 });
 
 /// Imports a found row from the Projects page and opens it.
@@ -1973,8 +1979,15 @@ function drawProjects(el: HTMLElement) {
   // focus, and the view keeps its scroll.
   const old = el.querySelector(":scope > .cc-view");
   if (old) {
+    // Read before the swap: a detached element scrolls to 0.
+    const top = old.scrollTop;
+    const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
     old.replaceWith(view);
-    view.scrollTop = old.scrollTop;
+    view.scrollTop = top;
+    for (const [id, at] of inner) {
+      const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
+      if (s) s.scrollTop = at;
+    }
   } else {
     el.prepend(view);
   }
@@ -2219,8 +2232,6 @@ registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
-// The sidebar names running folders by their remote, which the found list gives.
-loadFound();
 
 initPalette({ go, jump, pane, settings: openSettings, project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 

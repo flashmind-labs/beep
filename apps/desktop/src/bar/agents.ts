@@ -712,8 +712,8 @@ function sessionRow(s: AgentSession, i: number) {
   const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run"><span class="dspin"></span>${esc(s.doing || "Working")}</span>`
     : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
-  return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">${agentAvatar(s.agent)}
-      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(`${folder ? folder + ", " : ""}${k.name} on ${s.machine_name}`)}</small></span>${tail}</button>`;
+  return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
+      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc([k.name, folder, s.machine_name].filter(Boolean).join(" · "))}</small></span>${tail}</button>`;
 }
 
 export function drawAgents(loading: boolean) {
