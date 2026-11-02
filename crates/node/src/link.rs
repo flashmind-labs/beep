@@ -8,7 +8,7 @@ use crate::{
     provision::Provision,
     shell,
     state::State,
-    stats, tasks,
+    stats, tasks, terminal,
     transfer::Transfers,
 };
 use anyhow::{Context, Result, bail};
@@ -265,11 +265,15 @@ impl Offers {
     }
 
     fn names(&self) -> Vec<String> {
-        [shell::PROTOCOL.to_owned(), tasks::PROTOCOL.to_owned()]
-            .into_iter()
-            .chain(self.agents.offers())
-            .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
-            .collect()
+        [
+            shell::PROTOCOL.to_owned(),
+            tasks::PROTOCOL.to_owned(),
+            terminal::PROTOCOL.to_owned(),
+        ]
+        .into_iter()
+        .chain(self.agents.offers())
+        .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
+        .collect()
     }
 }
 
@@ -486,6 +490,10 @@ async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<(
         tasks::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             tasks::serve(tx, rx).await
+        }
+        terminal::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            terminal::serve(tx, rx).await
         }
         agent::SESSIONS_PROTOCOL if !offers.agents.offers().is_empty() => {
             tx.send(&Opened::Ready {}).await?;
