@@ -1053,7 +1053,7 @@ class ChatRepository(private val storage: LocalStorage) {
         if (settings.value != config) return
         updateChat(id) { chat -> chat.copy(messages = syncQuestions(chat.messages, waiting)) }
     }
-    /** The machines running beep-node on the account. Admins only. */
+    /** The machines running beep-node on the account. */
     suspend fun listMachines(): List<Machine> = api().listMachines()
     /** Live disk, memory and load by machine id, online machines only. Empty on servers from before stats. */
     suspend fun machineStats(): Map<String, MachineStats> =

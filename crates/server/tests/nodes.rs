@@ -151,7 +151,7 @@ async fn online(app: &App, node: &str) -> Online {
     online_after(app, node, None).await
 }
 
-/// A server with one admin user, listening for nodes.
+/// A server with one user, listening for nodes.
 struct Server {
     _db: TestDb,
     app: Arc<App>,
@@ -165,7 +165,7 @@ async fn server() -> Server {
     let store = db.store().await.unwrap();
     let alice = SecretKey::generate();
     let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     let app = App::new(
         store,
         Arc::new(NoModel),
@@ -601,12 +601,12 @@ async fn a_real_claude_session_writes_a_file() {
 }
 
 #[tokio::test]
-async fn an_admin_sees_their_machines_and_what_memories_are_about() {
+async fn a_user_sees_their_machines_and_what_memories_are_about() {
     let db = TestDb::new().await.unwrap();
     let store = db.store().await.unwrap();
     let alice = SecretKey::generate();
     let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     let app = App::new(
         store.clone(),
         Arc::new(NoModel),
@@ -739,13 +739,9 @@ async fn an_admin_sees_their_machines_and_what_memories_are_about() {
         ]
     );
 
-    // Someone who is not an admin gets no machines.
+    // Someone else sees none of alice's machines.
     let (_bob_node, bob_app) = phone(SecretKey::generate(), &router).await;
-    let refused = bob_app.call(&ListMachines {}).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
-    ));
+    assert!(bob_app.call(&ListMachines {}).await.unwrap().is_empty());
     assert!(bob_app.call(&ListMemoryScopes {}).await.unwrap().is_empty());
 
     // An unlinked machine leaves the list.
@@ -795,7 +791,7 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
     let store = db.store().await.unwrap();
     let alice = SecretKey::generate();
     let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     let app = App::new(
         store.clone(),
         Arc::new(NoModel),
@@ -859,12 +855,11 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
 }
 
 #[tokio::test]
-async fn machine_details_needs_nodes_privilege() {
+async fn machine_details_of_a_user_without_machines_are_empty() {
     let db = TestDb::new().await.unwrap();
     let store = db.store().await.unwrap();
-    let alice = SecretKey::generate();
     let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     let app = App::new(
         store.clone(),
         Arc::new(NoModel),
@@ -874,16 +869,8 @@ async fn machine_details_needs_nodes_privilege() {
     );
     let router = phone_router(&app, store).await;
     let (_node, bob) = phone(SecretKey::generate(), &router).await;
-    let refused = bob.call(&ListMachineDetails {}).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
-    ));
-    let refused = bob.call(&ListMachineStats {}).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
-    ));
+    assert!(bob.call(&ListMachineDetails {}).await.unwrap().is_empty());
+    assert!(bob.call(&ListMachineStats {}).await.unwrap().is_empty());
     router.shutdown().await.unwrap();
 }
 
@@ -1065,7 +1052,7 @@ fn external_session(id: &str, presence: Presence) -> ExternalSession {
     }
 }
 
-/// A server that takes nodes and phones, with `admins` admin users.
+/// A server that takes nodes and phones, with `users` users.
 struct CommandCenter {
     _db: TestDb,
     app: Arc<App>,
@@ -1076,13 +1063,12 @@ struct CommandCenter {
 }
 
 impl CommandCenter {
-    async fn new(admins: usize) -> Self {
+    async fn new(users: usize) -> Self {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
-        let keys: Vec<SecretKey> = (0..admins).map(|_| SecretKey::generate()).collect();
-        let publics: Vec<_> = keys.iter().map(SecretKey::public).collect();
+        let keys: Vec<SecretKey> = (0..users).map(|_| SecretKey::generate()).collect();
         let model = "openai:test".parse().unwrap();
-        let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &publics).await;
+        let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
         let app = App::new(
             store.clone(),
             Arc::new(NoModel),
@@ -1424,14 +1410,11 @@ async fn answer_agent_question_other_users_machine() {
 }
 
 #[tokio::test]
-async fn agent_sessions_need_nodes_privilege() {
-    let center = CommandCenter::new(0).await;
+async fn agent_sessions_list_none_of_another_users_machines() {
+    let mut center = CommandCenter::new(1).await;
+    center.node(0, "build-box", FakeAgents::default()).await;
     let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
-    let refused = bob.call(&ListAgentSessions {}).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
-    ));
+    assert!(bob.call(&ListAgentSessions {}).await.unwrap().is_empty());
     center.shutdown().await;
 }
 
@@ -1738,24 +1721,21 @@ async fn agent_control_keeps_to_the_callers_machines_and_chats() {
 }
 
 #[tokio::test]
-async fn agent_control_needs_nodes_privilege() {
-    let center = CommandCenter::new(0).await;
+async fn agent_control_never_reaches_another_users_machines() {
+    let mut center = CommandCenter::new(1).await;
+    center.node(0, "build-box", FakeAgents::default()).await;
     let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
-    let refused = bob.call(&ListAgentHosts {}).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
-    ));
+    assert!(bob.call(&ListAgentHosts {}).await.unwrap().is_empty());
     let refused = bob.call(&start(None, "Fix the tests")).await.unwrap_err();
     assert!(matches!(
         refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
+        ApiError::BadRequest { .. }
     ));
     center.shutdown().await;
 }
 
 /// A server taking both phones and nodes on one endpoint, as the real one
-/// does, with alice as its admin.
+/// does, with alice as a user.
 struct OneEndpoint {
     db: TestDb,
     app: Arc<App>,
@@ -1768,7 +1748,7 @@ async fn one_endpoint() -> OneEndpoint {
     let store = db.store().await.unwrap();
     let alice = SecretKey::generate();
     let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     let app = App::new(
         store.clone(),
         Arc::new(NoModel),
@@ -1917,6 +1897,49 @@ async fn a_machine_sets_itself_up_with_a_token_once() {
 }
 
 #[tokio::test]
+async fn every_user_links_a_machine_that_only_they_see() {
+    let server = one_endpoint().await;
+    let addr = server.router.endpoint().addr();
+    let (_alice_phone, alice) = phone(server.alice.clone(), &server.router).await;
+    let bob_key = SecretKey::generate();
+    let (_bob_phone, bob) = phone(bob_key.clone(), &server.router).await;
+    let made = bob
+        .call(&CreateNodeToken {
+            name: Some("bobs box".into()),
+        })
+        .await
+        .unwrap();
+    let key = SecretKey::generate();
+    let machine = endpoint(key.clone()).await;
+    beep_node::link::claim(&machine, addr.clone(), "host", &setup_of(&made.token))
+        .await
+        .unwrap();
+    let served = tokio::spawn(async move {
+        beep_node::link::connect(&machine, addr, "bobs box", &Offers::default()).await
+    });
+    let live = online(&server.app, &key.public().to_string()).await;
+    let bob_id = server
+        .app
+        .sign_in(&bob_key.public())
+        .await
+        .unwrap()
+        .expect("bob signs in")
+        .user
+        .id()
+        .to_owned();
+    assert_eq!(live.user, bob_id);
+
+    let his = bob.call(&ListMachines {}).await.unwrap();
+    assert_eq!(his.len(), 1);
+    assert_eq!(his[0].name, "bobs box");
+    assert!(alice.call(&ListMachines {}).await.unwrap().is_empty());
+    assert!(alice.call(&ListMachineDetails {}).await.unwrap().is_empty());
+    assert!(alice.call(&ListAgentSessions {}).await.unwrap().is_empty());
+    served.abort();
+    server.router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn an_expired_unknown_or_foreign_token_is_refused() {
     let server = one_endpoint().await;
     let addr = server.router.endpoint().addr();
@@ -2007,12 +2030,8 @@ async fn only_the_maker_revokes_a_token() {
     let addr = server.router.endpoint().addr();
     let (_alice_phone, alice) = phone(server.alice.clone(), &server.router).await;
     let (_bob_phone, bob) = phone(SecretKey::generate(), &server.router).await;
-    // Bob is no admin, so he gets no token of his own.
-    let refused = bob.call(&CreateNodeToken { name: None }).await.unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Unauthorized {}
-    ));
+    // Bob gets a token of his own too.
+    bob.call(&CreateNodeToken { name: None }).await.unwrap();
 
     let made = alice.call(&CreateNodeToken { name: None }).await.unwrap();
     let revoke = RevokeNodeToken {

@@ -17,7 +17,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
-use iroh::{EndpointId, SecretKey};
+use iroh::SecretKey;
 use secrecy::SecretString;
 use serde::{Deserialize, de::IgnoredAny};
 
@@ -45,10 +45,10 @@ pub struct Config {
     /// The model project chats plan on. Without it they plan on the chat's
     /// default.
     pub project: Option<ProjectConfig>,
-    /// Endpoint ids of the users who get operator features: machines,
-    /// account events and watchers.
-    #[serde(default)]
-    pub admins: Vec<EndpointId>,
+    /// The removed admin list: every user gets every feature now. Ignored;
+    /// kept so configs that still name admins load.
+    #[serde(default, rename = "admins")]
+    _admins: Option<IgnoredAny>,
     /// Describes images for models without vision, and for the saved
     /// conversation. Defaults to `model` when that one sees images.
     pub vision_model: Option<String>,
@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_admins_and_model_choices() {
+    fn ignores_admins_and_reads_model_choices() {
         let admin = SecretKey::generate().public();
         let config: Config = toml::from_str(&format!(
             r#"
@@ -269,8 +269,7 @@ mod tests {
             admins = ["{admin}"]
             "#
         ))
-        .expect("the config is valid");
-        assert_eq!(config.admins, [admin]);
+        .expect("old admin lists are ignored");
         assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
     }
 

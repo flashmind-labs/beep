@@ -2,7 +2,7 @@
 //! each with its own job. The memory watcher stores, updates and forgets
 //! memories, each filed under what it is about. The skills watcher turns
 //! steps the user repeats into skills. The improvement watcher notes where
-//! Beep failed the user, as findings an admin resolves or dismisses; it
+//! Beep failed the user, as findings the user resolves or dismisses; it
 //! never changes anything itself.
 //!
 //! A chat is ready for them once it has new messages and has been quiet for
@@ -16,7 +16,7 @@
 //! metered to the chat's user. Skills and improvement skip a stretch with
 //! too little in it and just move their place past it (see [`gate`]).
 //!
-//! Admins only for now, like account events.
+//! Every user's chats are read, each for its own user.
 
 mod config;
 mod gate;
@@ -34,7 +34,6 @@ pub use improvement::{Cause, FindingKind, FindingStatus};
 pub use runner::{Hub, Settings, TimingSettings, WatcherSettings, start};
 pub(crate) use trigger::{ChatActivity, WatcherState};
 
-use crate::{app::App, user::User};
 use strum::{EnumString, IntoStaticStr};
 
 /// Each watcher, by the name its place is kept under.
@@ -48,14 +47,4 @@ pub enum WatcherKind {
 
 impl WatcherKind {
     pub const ALL: [WatcherKind; 3] = [Self::Memory, Self::Skills, Self::Improvement];
-}
-
-/// Whether watchers read `user`'s chats.
-pub fn enabled(app: &App, user: &User) -> bool {
-    enabled_for(app, user.id())
-}
-
-/// [`enabled`] by user id.
-pub(crate) fn enabled_for(app: &App, user: &str) -> bool {
-    app.models.is_admin(user)
 }

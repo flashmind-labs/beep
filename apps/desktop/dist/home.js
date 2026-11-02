@@ -114,9 +114,6 @@ export function homeColumns(home) {
   return left.length && right.length ? { left, right } : null;
 }
 
-/// What This Mac shows when the server turns it away for this account.
-export const MAC_NOT_ALLOWED = "This account can't add machines on this server";
-
 /// Home's "This Mac" row while this Mac is not one of `machines`: its state
 /// and, while it is off, the button that turns it on. `mac` is the app's
 /// mac_control view. Null once the server lists this Mac, or when there is
@@ -126,7 +123,6 @@ export function thisMacRow(mac, machines) {
   if (machines.some(m => m.id === mac.id)) return null;
   const row = { name: "This Mac", sub: mac.name || "", action: null };
   if (!mac.enabled) return { ...row, state: "Off", title: "Let Beep use this Mac is off. Add turns it on.", action: "Add" };
-  if (mac.status === "not_allowed") return { ...row, state: "Not allowed", title: MAC_NOT_ALLOWED, bad: true };
   if (mac.status === "failed") {
     const error = mac.error || "Could not connect";
     return { ...row, state: error, title: `${error}. Beep tries again on its own.`, bad: true };

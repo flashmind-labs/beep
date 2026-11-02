@@ -11,7 +11,6 @@
 //! is opened again with backoff.
 
 use super::{
-    enabled,
     normalize::{self, TriggerMessage},
     submit,
 };
@@ -325,9 +324,6 @@ pub async fn deliver(app: &App, payload: &Value) {
         log::debug!("events: trigger for a user this server does not have");
         return;
     };
-    if !enabled(app, &user) {
-        return;
-    }
     match normalize::from_trigger(&message) {
         Some(event) => submit(app, user.id(), event).await,
         None => log::debug!(
