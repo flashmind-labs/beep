@@ -5,6 +5,7 @@
 // account. The sheet waits, asking which machine claimed the token, and flips to Linked
 // by itself. Esc or Cancel closes it and revokes a token nobody used.
 import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.js";
+import { present } from "./projects-state.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -197,7 +198,7 @@ function draw() {
   const head = el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc"));
   const mine = macBlock();
   const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
-  sheet.replaceChildren(head, ...[mine, other].filter(Boolean), ...body());
+  sheet.replaceChildren(head, ...present([mine, other, ...body()]));
   const first = sheet.querySelector("button");
   if (first && !sheet.contains(document.activeElement)) first.focus();
 }
