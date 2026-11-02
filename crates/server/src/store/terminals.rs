@@ -14,8 +14,11 @@ pub(crate) struct TerminalRow {
     pub(crate) project: String,
     /// The node's key.
     pub(crate) endpoint: String,
-    /// The node's number for the task.
+    /// The node's number for the task, or for the terminal when `pty`.
     pub(crate) task: u32,
+    /// An interactive terminal (`terminal/1`) rather than a background
+    /// task (`process/1`).
+    pub(crate) pty: bool,
     pub(crate) name: String,
     pub(crate) command: String,
     pub(crate) cwd: String,
@@ -23,7 +26,7 @@ pub(crate) struct TerminalRow {
 }
 
 pub(super) const COLUMNS: &str =
-    "id, project, endpoint_id, task_id, name, command, cwd, started_at";
+    "id, project, endpoint_id, task_id, name, command, cwd, started_at, pty";
 
 pub(super) fn row_from(row: &PgRow) -> Result<TerminalRow> {
     let task: i64 = row.try_get(3)?;
@@ -36,14 +39,15 @@ pub(super) fn row_from(row: &PgRow) -> Result<TerminalRow> {
         command: row.try_get(5)?,
         cwd: row.try_get(6)?,
         started_at: row.try_get(7)?,
+        pty: row.try_get(8)?,
     })
 }
 
 impl Store {
     pub(crate) async fn add_terminal(&self, user: &UserKey, row: &TerminalRow) -> Result<()> {
         sqlx::query(
-            "INSERT INTO terminals (id, user_id, project, endpoint_id, task_id, name, command, cwd, started_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            "INSERT INTO terminals (id, user_id, project, endpoint_id, task_id, name, command, cwd, started_at, pty)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(row.id)
         .bind(user.as_str())
@@ -54,6 +58,7 @@ impl Store {
         .bind(&row.command)
         .bind(&row.cwd)
         .bind(row.started_at)
+        .bind(row.pty)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -108,6 +113,7 @@ mod tests {
             project: project.into(),
             endpoint: "node".into(),
             task,
+            pty: false,
             name: "dev-server".into(),
             command: "npm run dev".into(),
             cwd: "/srv/project".into(),
@@ -131,6 +137,15 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].task, 3);
         assert_eq!(listed[0].command, "npm run dev");
+        assert!(!listed[0].pty);
+        let shell = TerminalRow {
+            pty: true,
+            ..terminal("acme/widget", 7)
+        };
+        store.add_terminal(&user, &shell).await.unwrap();
+        let read = store.terminal(&user, shell.id).await.unwrap();
+        assert_eq!(read.map(|row| (row.task, row.pty)), Some((7, true)));
+        assert!(store.remove_terminal(&user, shell.id).await.unwrap());
         assert!(store.terminal(&bob, one.id).await.unwrap().is_none());
         assert!(!store.remove_terminal(&bob, one.id).await.unwrap());
         assert!(store.remove_terminal(&user, one.id).await.unwrap());
