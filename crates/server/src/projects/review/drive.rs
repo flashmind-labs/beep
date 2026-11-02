@@ -245,7 +245,8 @@ pub(crate) async fn advance(app: &Arc<App>, user: &Arc<User>, review: &ReviewRow
                 CONTEXT_LIMIT,
             )
             .await?;
-        if removed.code == Some(0) {
+        // 3: the checkout itself is gone, and the worktree with it.
+        if matches!(removed.code, Some(0 | 3)) {
             app.store.clear_review_worktree(review.id).await?;
         }
     }
