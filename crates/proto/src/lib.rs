@@ -1048,6 +1048,25 @@ requests! {
     /// has no such online machine or the node no longer has the image;
     /// `BadRequest` saying why when the node cannot be asked.
     260 GetAgentImage { machine_id: String, session: String, key: String } => Call<AgentImageData>
+    /// The caller's machines on which `project`'s folder is kept in step by
+    /// Syncthing, as each machine last reported its Syncthing folders. Beep
+    /// does not sync such a folder: `SetProjectSync` refuses it, and a
+    /// machine already syncing it stops. Empty when there is none or the
+    /// caller has not imported `project`.
+    261 ListProjectSyncthing { project: String } => Call<Vec<SyncthingPlace>>
+}
+
+/// A machine whose folder of a project Syncthing keeps in step, as
+/// `ListProjectSyncthing` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncthingPlace {
+    /// The `Machine::id` it is.
+    pub machine_id: String,
+    /// The project's folder there.
+    pub folder: String,
+    /// The Syncthing folder's label there, or its ID without one.
+    pub label: String,
 }
 
 /// Folders the apps list projects under, as `ListProjectGroups` gives

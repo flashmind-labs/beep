@@ -12,6 +12,7 @@ use beep_node::{
     files::Folders,
     link::{Offers, Protocol},
     sync::Syncs,
+    syncthing::Syncthing,
     transfer::Transfers,
 };
 use beep_server::{
@@ -177,7 +178,10 @@ impl Server {
         before(&id, &folder).await;
         let node = endpoint(key).await;
         let folders = Folders::new(&[shared.path().to_owned()]);
-        let transfers = Transfers::start(&node, state.path(), folders.clone())
+        // No Syncthing config: a marker in the shared folder is what says
+        // Syncthing keeps the project in step.
+        let syncthing = Syncthing::at(Vec::new(), Some(shared.path().to_owned()));
+        let transfers = Transfers::start_with(&node, state.path(), folders.clone(), syncthing)
             .await
             .expect("the transfers start");
         let syncs = transfers.syncs();
@@ -439,4 +443,21 @@ async fn removing_a_project_stops_its_sync_everywhere_and_keeps_the_files() {
         .downcast::<ApiError>()
         .expect("the server answers with an ApiError");
     assert_eq!(again, ApiError::NotFound {});
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn turning_sync_on_where_syncthing_syncs_is_refused() {
+    let server = server().await;
+    let a = server.node("render box", async |_, _| {}).await;
+    fs::create_dir(a.shared.path().join(".stfolder")).unwrap();
+    let refused = server.set(&a, &a.shown(), true).await.unwrap_err();
+    let ApiError::BadRequest { message } = refused else {
+        panic!("{refused:?}");
+    };
+    assert!(
+        message.contains("Already synced by Syncthing ("),
+        "{message}"
+    );
+    let listed = server.phone.call(&ListProjectSync {}).await.unwrap();
+    assert!(listed.is_empty(), "{listed:?}");
 }

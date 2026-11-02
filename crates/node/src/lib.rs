@@ -25,6 +25,7 @@ mod shell;
 pub mod state;
 mod stats;
 pub mod sync;
+pub mod syncthing;
 mod tasks;
 pub mod transfer;
 

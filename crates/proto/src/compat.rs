@@ -219,6 +219,7 @@ sample_struct! {
     FoundPlace { machine_id, machine_name, folder }
     FoundAgent { agent, sessions }
     ProjectMachine { machine_id, machine_name, online, folder, checking, checked_at }
+    SyncthingPlace { machine_id, folder, label }
     GitItems { items, hosts }
     GitHost { host, kind, account, error }
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }

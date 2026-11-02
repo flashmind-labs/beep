@@ -91,6 +91,8 @@ impl fmt::Debug for NodeSetup {
 /// What a node sends on the control stream after its hello.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+// Sent a few times an hour, never kept in bulk: the size does not matter.
+#[allow(clippy::large_enum_variant)]
 pub enum Up {
     /// What the machine has. Sent after the hello and again when it changes.
     Env(EnvReport),
@@ -184,9 +186,60 @@ pub struct EnvReport {
     /// The graphics cards the machine has.
     #[serde(default)]
     pub gpus: Vec<GpuInfo>,
+    /// The folders the machine's Syncthing keeps in step, as its REST API
+    /// lists them; empty when Syncthing is not running.
+    #[serde(default)]
+    pub syncthing: Vec<SyncthingFolder>,
+}
+
+/// A folder Syncthing keeps in step with the user's other devices.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncthingFolder {
+    /// Its folder ID, the same on every device that shares it.
+    pub id: String,
+    /// Its label on this machine; may be empty.
+    pub label: String,
+    /// Its absolute path, `~` expanded and symlinks resolved.
+    pub path: String,
+}
+
+impl SyncthingFolder {
+    /// The label, or the ID when it has none.
+    pub fn name(&self) -> &str {
+        if self.label.is_empty() {
+            &self.id
+        } else {
+            &self.label
+        }
+    }
+
+    /// Whether `folder` is this folder or lies inside it.
+    pub fn holds(&self, folder: &str) -> bool {
+        let separator = |c: char| c == '/' || c == '\\';
+        if self.path.is_empty() || folder.is_empty() {
+            return false;
+        }
+        let root = self.path.trim_end_matches(separator);
+        let folder = folder.trim_end_matches(separator);
+        match folder.strip_prefix(root) {
+            Some("") => true,
+            Some(rest) => rest.starts_with(separator),
+            None => false,
+        }
+    }
 }
 
 impl EnvReport {
+    /// The Syncthing folder that holds `folder`, the innermost when they
+    /// nest.
+    pub fn syncthing_folder(&self, folder: &str) -> Option<&SyncthingFolder> {
+        self.syncthing
+            .iter()
+            .filter(|synced| synced.holds(folder))
+            .max_by_key(|synced| synced.path.len())
+    }
+
     /// What the machine can be asked to do, sorted and without repeats.
     pub fn capabilities(&self) -> Vec<Capability> {
         let has_tool = |name: &str| self.tools.iter().any(|tool| tool.name == name);
@@ -555,6 +608,31 @@ mod tests {
         let name: &'static str = Capability::Cuda.into();
         assert_eq!(name, "cuda");
         assert_eq!(AppName::UnrealEngine.to_string(), "Unreal Engine");
+    }
+
+    #[test]
+    fn a_syncthing_folder_holds_itself_and_what_is_inside() {
+        let folder = |id: &str, path: &str| SyncthingFolder {
+            id: id.into(),
+            label: String::new(),
+            path: path.into(),
+        };
+        let report = EnvReport {
+            syncthing: vec![
+                folder("work", "/srv/work/"),
+                folder("game", "/srv/work/game"),
+            ],
+            ..EnvReport::default()
+        };
+        let found = |path| report.syncthing_folder(path).map(|f| f.id.as_str());
+        assert_eq!(found("/srv/work"), Some("work"));
+        assert_eq!(found("/srv/work/notes"), Some("work"));
+        assert_eq!(found("/srv/work/game/src"), Some("game"));
+        assert_eq!(found("/srv/workshop"), None);
+        assert_eq!(found(""), None);
+        let windows = folder("w", r"C:\Users\sam\work");
+        assert!(windows.holds(r"C:\Users\sam\work\game"));
+        assert_eq!(windows.name(), "w");
     }
 
     #[test]

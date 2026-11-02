@@ -6,8 +6,8 @@
 //! tasks, with nothing to wait on from outside, so the tests poll the
 //! folders with a time limit.
 
-use beep_node::{files::Folders, transfer::Transfers};
-use beep_proto::node::sync::{Project, Rule, State};
+use beep_node::{files::Folders, syncthing::Syncthing, transfer::Transfers};
+use beep_proto::node::sync::{Project, ProjectStatus, Refused, Rule, State};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{
     fs,
@@ -56,7 +56,10 @@ impl Node {
             .await
             .expect("a test endpoint binds");
         let folders = Folders::new(&[self.shared.path().to_owned()]);
-        let transfers = Transfers::start(&endpoint, self.state.path(), folders)
+        // No Syncthing config: only a marker in the shared folder says
+        // Syncthing keeps the project in step.
+        let syncthing = Syncthing::at(Vec::new(), Some(self.shared.path().to_owned()));
+        let transfers = Transfers::start_with(&endpoint, self.state.path(), folders, syncthing)
             .await
             .expect("the transfers start");
         self.running = Some(Running {
@@ -94,17 +97,37 @@ impl Node {
 
     /// Syncs the project with `peer`.
     async fn sync_with(&self, peer: &Node) {
-        let refused = self
-            .running()
+        let refused = self.configure(vec![peer.addr()]).await;
+        assert!(refused.is_empty(), "{refused:?}");
+    }
+
+    /// Sets the project as the server would, with `peers`.
+    async fn configure(&self, peers: Vec<EndpointAddr>) -> Vec<Refused> {
+        self.running()
             .transfers
             .syncs()
             .configure(vec![Project {
                 name: PROJECT.into(),
                 folder: self.folder().to_string_lossy().into_owned(),
-                peers: vec![peer.addr()],
+                peers,
             }])
-            .await;
-        assert!(refused.is_empty(), "{refused:?}");
+            .await
+    }
+
+    /// Marks the shared folder, above the project, as Syncthing's.
+    fn mark_syncthing(&self, on: bool) {
+        let marker = self.shared.path().join(".stfolder");
+        if on {
+            fs::create_dir_all(marker).unwrap();
+        } else {
+            fs::remove_dir_all(marker).unwrap();
+        }
+    }
+
+    fn status(&self) -> ProjectStatus {
+        let mut status = self.running().transfers.syncs().status();
+        assert_eq!(status.len(), 1, "{status:?}");
+        status.remove(0)
     }
 }
 
@@ -438,4 +461,63 @@ async fn a_folder_emptied_while_the_node_is_down_deletes_nothing() {
     a.start().await;
 
     nothing_deleted(&a, &b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_syncthing_keeps_is_refused() {
+    let a = Node::new().await;
+    a.mark_syncthing(true);
+    let refused = a.configure(Vec::new()).await;
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    let shared = a.shared.path().canonicalize().unwrap();
+    let label = shared.file_name().unwrap().to_string_lossy();
+    assert_eq!(
+        refused[0].message,
+        format!("Already synced by Syncthing ({label})")
+    );
+    assert!(a.running().transfers.syncs().status().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_synced_folder_syncthing_takes_over_stops_and_deletes_nothing() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    a.mark_syncthing(true);
+    a.running().transfers.syncs().check_syncthing().await;
+    let held = a.status();
+    assert_eq!(held.state, State::Failed);
+    assert!(
+        held.error
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("Already synced by Syncthing"),
+        "{held:?}"
+    );
+    // The server sets it again, as it does on every connect: still held.
+    assert!(a.configure(vec![b.addr()]).await.is_empty());
+    assert_eq!(a.status().state, State::Failed);
+
+    // What changes while Syncthing has it is not Beep's to carry.
+    empty_folder(&a);
+    a.mark_syncthing(false);
+    a.running().transfers.syncs().check_syncthing().await;
+    nothing_deleted(&a, &b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_node_restarting_on_a_folder_syncthing_took_holds_it() {
+    let (mut a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    a.stop().await;
+    a.mark_syncthing(true);
+    a.start().await;
+    let held = a.status();
+    assert_eq!(held.state, State::Failed, "{held:?}");
+    assert!(held.error.is_some());
+    assert_eq!(
+        read(&b.path("notes.txt")).as_deref(),
+        Some(b"keep me".as_slice())
+    );
 }
