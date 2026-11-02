@@ -103,7 +103,7 @@ export function appLogo(app: App) {
 }
 /// A logo that does not load becomes the app's first letter.
 export function logoFallbacks(root: ParentNode) {
-  root.querySelectorAll<HTMLImageElement>("img.dalogo").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${img.dataset.letter}</span>`)), { once: true }));
+  root.querySelectorAll<HTMLImageElement>("img.dalogo").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${esc(img.dataset.letter)}</span>`)), { once: true }));
 }
 
 /// The top of a list in Apps: the error, or a spinner until `loaded`.
