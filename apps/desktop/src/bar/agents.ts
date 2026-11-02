@@ -1,4 +1,5 @@
 import { drawAgentNew, renderAgentNew, startAgent } from "./agentnew.ts";
+import { clock, folded, heading, span, splitTurns, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
@@ -478,6 +479,13 @@ function agentClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+  // A finished turn's heading or folded line opens its steps; the heading folds them again.
+  const turn = target.closest<HTMLElement>("#agbody [data-turn]");
+  if (turn && AG.open) {
+    const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
+    if (!opened.delete(key)) opened.add(key);
+    return drawAgentBody();
+  }
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
   if (tool && !getSelection()!.toString()) {
     const at = Number(tool.dataset.at);
@@ -564,6 +572,86 @@ export function entryRow(en: AgentEntry, at: number) {
   return `<div class="dcoderen other">${text}</div>`;
 }
 
+/// What this window knows of a session's turns: the ones it has seen,
+/// when it saw a turn start or end (entries carry no times), the turn
+/// running at the last draw, and the finished turns opened to their steps.
+/// Kept in memory only, by session.
+interface TurnMemory {
+  known: Set<number>;
+  starts: Map<number, number>;
+  ends: Map<number, number>;
+  running: number | null;
+  opened: Set<number>;
+}
+
+const turnMemory = new Map<string, TurnMemory>();
+
+function turnsOf(session: string) {
+  let m = turnMemory.get(session);
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set() });
+  return m;
+}
+
+/// Notes the turns that started or ended since the last draw. The turns
+/// there at the first draw started before this window looked.
+function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
+  const now = Date.now(), first = !m.known.size;
+  for (const t of turns) {
+    if (!m.known.has(t.key) && !first) m.starts.set(t.key, now);
+    m.known.add(t.key);
+  }
+  if (m.running != null && m.running !== running && !m.ends.has(m.running)) m.ends.set(m.running, now);
+  m.running = running;
+}
+
+const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
+
+/// The log in turns: each message, then a heading with how long the agent
+/// worked, then its steps (one line once the turn is done, unless opened)
+/// and its answer.
+function turnsHtml(p: AgentPage) {
+  const s = p.session, active = AGENT_ACTIVE.has(s.status);
+  const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
+  const m = turnsOf(AG.open?.session ?? s.id);
+  noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
+  const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
+  return turns.map(t => {
+    const last = t === lastTurn, running = active && last;
+    const user = t.user == null ? "" : row(t.user);
+    if (!running && !t.steps.length && !t.answer.length) return user;
+    const { start, end } = span({
+      first: p.earlier === 0 && t.key === 0, last, running,
+      seenStart: m.starts.get(t.key), seenEnd: m.ends.get(t.key),
+      sessionStart: s.started_at, lastActivity: s.last_activity,
+    });
+    const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
+    const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
+    const fold = folded(t, running, m.opened.has(t.key));
+    const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`;
+    const head = `<div class="dcoderturn">`
+      + (running || !t.steps.length ? `<span class="hd">${label}</span>`
+        : `<button class="hd${fold ? "" : " open"}" data-turn="${t.key}" aria-expanded="${!fold}">${label}${ICON.chev}</button>`)
+      + (start != null ? `<span class="when">${clock(start)}</span>` : "") + "</div>";
+    const steps = fold
+      ? `<button class="dcoderfold" data-turn="${t.key}"><span class="mk">${FOLD_ICON}</span><span>${esc(summary(p.entries, t, p.earlier))}</span><span class="go">${ICON.chev}</span></button>`
+      : t.steps.map(row).join("");
+    return user + head + steps + t.answer.map(row).join("");
+  }).join("");
+}
+
+let turnTick: ReturnType<typeof setInterval> | undefined;
+
+/// Moves the running turn's clock on between polls, and stops once no
+/// turn runs on screen.
+function tickTurns() {
+  const tick = () => {
+    const els = S.view === "agent" ? bar.querySelectorAll<HTMLElement>("#agbody [data-since]") : null;
+    if (!els?.length) { clearInterval(turnTick); turnTick = undefined; return; }
+    for (const el of els) el.textContent = heading(el.dataset.state as TurnState, Date.now() - Number(el.dataset.since));
+  };
+  if (!turnTick && bar.querySelector("#agbody [data-since]")) turnTick = setInterval(tick, 1000);
+}
+
 /// The question's answers; the first that allows and the first that does
 /// not take ⌘Return and ⌘D.
 function questionCard(q: AgentQuestion) {
@@ -595,7 +683,7 @@ export function drawAgentBody() {
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
   if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
-  const entries = p.entries.length ? `<div class="dcoderlog">${earlier}${p.entries.map((en, i) => entryRow(en, p.earlier + i)).join("")}</div>`
+  const entries = p.entries.length ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
@@ -604,6 +692,7 @@ export function drawAgentBody() {
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   b.innerHTML = why + card + entries + err + note + paused;
   fillAgentPics(b);
+  tickTurns();
   redrawAgentHints();
   // An ended session goes on from the field: the next message resumes it.
   const msg = $<HTMLInputElement>("#agmsg"), k = agentKind(s.agent);
