@@ -15,6 +15,7 @@ import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectS
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
 import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
 import { registerInstructions } from "./instructions.js";
+import { makeTerminals, terminalTile } from "./terminals.js";
 import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
@@ -1147,6 +1148,7 @@ function boardOn(p) {
 /// Opens tile `key` in place of the board, or goes back with null.
 function openTile(key) {
   pa.tile = key;
+  if (key !== "terminals") terms.stop();
   redrawProjects();
   $("#main .cc-view")?.scrollTo({ top: 0 });
 }
@@ -1170,6 +1172,7 @@ function projectBoard(p, rows, known, running) {
     prs: () => [prsSection(view, agentActs)],
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
+    terminals: () => terms.panel(p.name, rows),
     chat: () => [chat],
   };
   if (pa.tile && full[pa.tile]) {
@@ -1178,11 +1181,13 @@ function projectBoard(p, rows, known, running) {
   }
   const past = sessions ? pastSessions(sessions, running) : [];
   const openUrl = agentActs.openUrl;
+  if (terms.list(p.name) === undefined) terms.load(p.name);
   out.push(h("div", "pb-grid",
     tile("tasks", "Tasks", taskTile(view.tasks), openTile),
     tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
     tile("agents", "Agents", agentTile(running, past), openTile),
+    tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
     chatTile(recentTurns(view.turns, pa.sending?.name === p.name ? pa.sending.text : null), openTile)));
   return out;
 }
@@ -1214,6 +1219,9 @@ function layoutSwitch() {
 /// and `startError` why that failed. `remembered` is set once the window
 /// made the project chat its current chat.
 /// `tile` is the board tile opened in place of the board, null for the board.
+/// The project's terminals; the board's tile and its full view.
+const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjects() });
+
 const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false, tile: null };
 
 function redrawProjects() {
@@ -1586,6 +1594,7 @@ registerView("projects", {
     refresh();
   },
   unmount() {
+    terms.stop();
     // The project chat stops being this window's chat, so its notices show.
     if (pa.remembered) { pa.remembered = false; invoke("new_chat").catch(() => {}); }
   },
@@ -1812,7 +1821,7 @@ async function refresh() {
       invoke("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
     ]);
     state.mac = mac;
-    state.top = top;
+    state.top = top || [];
     state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;
@@ -1829,6 +1838,7 @@ async function refresh() {
   // A project's agent refreshes with Home: on focus, on notices and every
   // 10 seconds while the window shows.
   if (shown === "projects" && state.picked) loadProjectAgent();
+  if (shown === "projects" && state.picked && boardOn(filterProjects(projectRows() || [], state.picked)[0] || {})) terms.load(state.picked);
   if (shown === "projects" && !state.picked) loadOverview();
   reloadGroup("projects");
   reloadGroup("pinned");

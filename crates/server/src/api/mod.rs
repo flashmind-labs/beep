@@ -38,6 +38,7 @@ mod projects;
 mod research;
 mod sessions;
 mod settings;
+mod terminals;
 mod transcribe;
 mod updates;
 mod work;
@@ -224,6 +225,10 @@ pub fn router() -> Router {
         .call(instructions::list_instructions_versions)
         .call(instructions::read_agent_files)
         .call(instructions::sync_agent_files)
+        .call(terminals::list_terminals)
+        .call(terminals::start_terminal)
+        .call(terminals::get_terminal)
+        .call(terminals::close_terminal)
         .call(projects::list_project_issues)
         .call(projects::track_project_issue)
         .call(projects::dismiss_project_issue)

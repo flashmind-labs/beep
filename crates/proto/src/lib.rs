@@ -850,6 +850,68 @@ requests! {
     /// of the caller's online ones; `BadRequest` before the first save or
     /// when the machine refuses.
     200 SyncAgentFiles { machine_id: String } => Call<MachineAgentFiles>
+    /// The terminals of `project` (`org/repo`): commands kept running in
+    /// the background on the caller's machines, apart from any chat or
+    /// app, oldest first, with how each stands now.
+    201 ListTerminals { project: String } => Call<Vec<Terminal>>
+    /// Starts `command` in `cwd` on one of the caller's online machines as
+    /// a terminal of `project`, named `name` (the command when empty).
+    /// `NotFound` when the machine is not one of the caller's online ones;
+    /// `BadRequest` saying why when a field is malformed or the node
+    /// refuses, such as a node from before background commands.
+    202 StartTerminal { project: String, machine_id: String, name: String, command: String, cwd: String } => Call<Terminal>
+    /// One terminal with the last of its output, at most 100 lines.
+    /// `NotFound` when the caller has no such terminal.
+    203 GetTerminal { id: Uuid } => Call<TerminalOutput>
+    /// Stops a terminal's command when it still runs, then forgets the
+    /// terminal. `NotFound` when the caller has no such terminal;
+    /// `BadRequest` when its machine is online and refuses to stop it.
+    204 CloseTerminal { id: Uuid } => Call<()>
+}
+
+/// A command kept running on one of the user's machines for a project.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Terminal {
+    pub id: Uuid,
+    /// `org/repo`.
+    pub project: String,
+    pub machine_id: String,
+    pub machine_name: String,
+    pub name: String,
+    pub command: String,
+    /// The folder it runs in.
+    pub cwd: String,
+    pub state: TerminalState,
+    pub started_at: SystemTime,
+}
+
+wire_enum! {
+    /// How a terminal stands. `Exited` ended on its own (`code` is `None`
+    /// when a signal ended it); `Offline` is not known while its machine
+    /// is offline; `Gone` is no longer on its machine, such as after a
+    /// restart.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum TerminalState {
+        0 Running {}
+        1 Exited { code: Option<i32> }
+        2 Stopped {}
+        3 Offline {}
+        4 Gone {}
+    }
+}
+
+/// A terminal and the last of its output, as `GetTerminal` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalOutput {
+    pub terminal: Terminal,
+    /// Oldest first.
+    pub lines: Vec<String>,
+    /// Lines were dropped before these.
+    pub earlier: bool,
 }
 
 /// One saved version of the user's instructions.
