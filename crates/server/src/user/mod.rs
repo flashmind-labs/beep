@@ -1109,17 +1109,6 @@ impl User {
             .await
     }
 
-    pub(crate) async fn set_review_verifier(
-        &self,
-        review: &crate::store::ReviewRow,
-        shard: u32,
-        session: &str,
-    ) -> Result<()> {
-        self.store
-            .set_review_verifier(review.id, shard, session)
-            .await
-    }
-
     pub(crate) async fn judge_shard(
         &self,
         review: &crate::store::ReviewRow,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openFindings, reviewState, mergeBlock, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../dist/review.js";
+import { openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../dist/review.js";
 
 const ago = () => "12 min";
 
@@ -99,4 +99,14 @@ test("the Branches tile puts branches with work first", () => {
   assert.equal(tile.rows[1].note, "+2 · worktree · not pushed");
   assert.equal(tile.rows[2].note, "default");
   assert.equal(tile.rows[3].note, "merged · 12 min");
+});
+
+test("a review whose branch moved is stale and cannot merge", () => {
+  const r = { branch: "login-copy", head: "3f2c1a0aaaa", findings: [], shards: [], pr: { number: 41, url: "", checks: "passing" }, merge: "clean", conflicts: [] };
+  assert.equal(staleText(r, null), "");
+  assert.equal(staleText(r, { head: "3f2c1a0aaaa", stale: false }), "");
+  assert.equal(staleText(r, { head: "9e1b2c4dddd", stale: true }), "login-copy moved to 9e1b2c4 since this review.");
+  assert.equal(staleText(r, { head: null, stale: true }), "login-copy is gone since this review.");
+  assert.equal(mergeBlock(r, { head: "9e1b2c4dddd", stale: true }), "Merge is off: the branch moved since this review");
+  assert.equal(mergeBlock(r, { head: "3f2c1a0aaaa", stale: false }), "Merge always asks first. It never runs on its own.");
 });

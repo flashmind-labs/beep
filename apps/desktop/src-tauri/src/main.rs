@@ -7,6 +7,7 @@ mod apps;
 mod audio;
 mod bar;
 mod beep;
+mod branches;
 mod cards;
 mod center;
 mod cli_login;
@@ -229,9 +230,12 @@ fn main() {
             threads::center_open_thread_chat,
             threads::center_thread_chats,
             reviews::project_branches,
+            branches::preview_import,
+            branches::add_branch_worktree,
             reviews::reviews_list,
             reviews::review_start,
             reviews::review_get,
+            reviews::review_check,
             reviews::review_dismiss,
             reviews::review_fix,
             reviews::review_post,

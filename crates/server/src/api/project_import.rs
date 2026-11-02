@@ -2,12 +2,12 @@
 //! imported, and browsing a machine's folders to pick where one goes (see
 //! `crate::imports`).
 
-use super::Reply;
+use super::{Reply, branch_work::add_import_worktrees};
 use crate::{
     imports::{self, Import, ImportError},
     protocol::{
-        ApiError, ImportProject, ImportedProject, ListImportedProjects, ListMachineFolder,
-        ListProjectMachines, MachineFolder, ProjectMachine,
+        ApiError, ImportPreview, ImportProject, ImportedProject, ListImportedProjects,
+        ListMachineFolder, ListProjectMachines, MachineFolder, PreviewImport, ProjectMachine,
     },
     router::Cx,
 };
@@ -25,7 +25,15 @@ pub(super) async fn import_project(cx: Cx, request: ImportProject) -> Reply<Impo
         machine_id: request.machine_id.as_deref(),
         folder: request.folder.as_deref(),
     };
-    imports::import(&cx.app, &cx.user, job)
+    let imported = imports::import(&cx.app, &cx.user, job)
+        .await
+        .map_err(refusal)?;
+    add_import_worktrees(&cx, &imported, &request.worktrees).await;
+    Ok(imported)
+}
+
+pub(super) async fn preview_import(cx: Cx, request: PreviewImport) -> Reply<ImportPreview> {
+    imports::preview(&cx.app, &cx.user, &request.repo)
         .await
         .map_err(refusal)
 }
