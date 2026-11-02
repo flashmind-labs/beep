@@ -17,6 +17,7 @@ import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, 
 import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
 import { confirmSheet, openMenu } from "./menu.ts";
+import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads, outsideTitle } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
@@ -951,7 +952,31 @@ function projectRow(p: Placed<Project>, label: string, pinned: boolean) {
   if (shown === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
   if (p.agents) openBtn.append(h("span", "n", String(p.agents)));
   const toggle = pinToggle(p.name, pinned, () => setProjectOnTop(p.name, !pinned));
-  return h("div", `cc-si cc-chat${pinned ? "" : " pj-repo"}`, openBtn, toggle);
+  const row = h("div", `cc-si cc-chat${pinned ? "" : " pj-repo"}`, openBtn, toggle);
+  newWindowOn(openBtn, row, p.name);
+  return row;
+}
+
+/// Opens project `name` in a window of its own, or brings up the one it
+/// already has.
+function openProjectWindow(name: string) {
+  invoke("center_open_project_window", { project: name }).catch(e => console.warn("opening a project window:", e));
+}
+
+/// Lets project `name` open in a window of its own: ⌘-click or
+/// middle-click on `clicks`, or "Open in New Window" from a right-click
+/// on `menu`. A ⌘-click is caught first, so the row's own click does not
+/// also run.
+function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string) {
+  const open = (e: MouseEvent) => {
+    if (!opensNewWindow(e)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openProjectWindow(name);
+  };
+  clicks.addEventListener("click", open, true);
+  clicks.addEventListener("auxclick", open);
+  menu.addEventListener("contextmenu", e => openMenu(e, name, [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }]));
 }
 
 function pickChat(c: SideChat) {
@@ -1387,6 +1412,7 @@ function projectTable(rows: Project[]) {
     open.addEventListener("click", () => openProjects(p.name));
     const name = h("span", "nm", h("b", "", open), h("span", "os", p.imported ? hostOf(p.url) : "From running agents"));
     name.id = `p-${p.name}`;
+    newWindowOn(open, name, p.name);
     const where = h("span", "nm", ...p.machines.map(m => {
       const one = h("span", "os", h("b", "", m.name), ` ${m.folder}`);
       one.title = `${m.name}: ${m.folder}`;
@@ -1484,6 +1510,7 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   const on = c.machines.map(m => m.name);
   card.append(h("span", "line", on.length ? `On ${[...new Set(on)].join(", ")}` : "On no machine yet"));
   const open = () => openProjects(c.name);
+  newWindowOn(card, card, c.name);
   card.addEventListener("click", open);
   card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   return card;
@@ -2093,12 +2120,16 @@ registerView("projects", {
 /// Home's short list of projects: the page has the table.
 function projectsSection(rows: Project[]) {
   const more = button("All projects", "quiet small", () => openProjects());
-  const list = rows.slice(0, 6).map((p, i) => line(
-    projectDot(i),
-    p.name,
-    [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
-    [p.last ? ago(p.last) : ""],
-    () => openProjects(p.name)));
+  const list = rows.slice(0, 6).map((p, i) => {
+    const row = line(
+      projectDot(i),
+      p.name,
+      [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
+      [p.last ? ago(p.last) : ""],
+      () => openProjects(p.name));
+    newWindowOn(row, row, p.name);
+    return row;
+  });
   return section("sec-projects-home", "Projects", rows.length, more, h("div", "cc-panel", ...list));
 }
 
@@ -2426,6 +2457,17 @@ $("#home-agent")?.addEventListener("click", () => {
   go("pane", { agentnew: { prompt } });
 });
 
+/// The first view. A project's own window starts on that project and
+/// never reads what the bar or tray left for the main window, so each
+/// window keeps its own history from there.
+async function start() {
+  const project = await invoke<string | null>("center_window_project").catch(() => null);
+  document.title = windowTitle(project);
+  const first = startView(project);
+  if (!first) return takePending("home");
+  go(first.view, first.arg);
+}
+
 // A reload starts with no chat open, as the window just opened does.
-invoke("new_chat").catch(() => {}).then(() => takePending("home"));
+invoke("new_chat").catch(() => {}).then(start);
 loadAgents();

@@ -36,6 +36,10 @@ const MIN_WIDTH: f64 = 1000.0;
 const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
 const SHARE: f64 = 0.82;
+/// Labels of the windows that each show one project.
+const PROJECT_PREFIX: &str = "project-";
+/// How far each project window opens down and right of the one before.
+const CASCADE: f64 = 28.0;
 
 /// Where the window opens: most of the screen under the mouse, centered.
 fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
@@ -59,23 +63,25 @@ fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, Logica
     ))
 }
 
-/// Shows the window, opening it if needed. While it is open Beep sits in
-/// the Dock, as with research windows.
-pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
-    bar::hide(app);
-    if let Some(window) = app.get_webview_window(LABEL) {
-        if window.is_minimized()? {
-            window.unminimize()?;
-        }
-        window.show()?;
-        window.set_focus()?;
-        return Ok(());
+/// Shows `window`, unminimized, and focuses it.
+fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
+    if window.is_minimized()? {
+        window.unminimize()?;
     }
+    window.show()?;
+    window.set_focus()?;
+    Ok(())
+}
+
+/// Builds command center window `label` titled `title`, moved down and
+/// right by `offset` from where the main window opens. While it is open
+/// Beep sits in the Dock, as with research windows.
+fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
     if let Err(e) = app.set_activation_policy(ActivationPolicy::Regular) {
         log::warn!("joining the Dock: {e}");
     }
-    let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("center.html".into()))
-        .title("Beep")
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("center.html".into()))
+        .title(title)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         .resizable(true)
         .maximizable(true)
@@ -83,7 +89,7 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         .hidden_title(true);
     builder = match frame(app) {
         Some((position, size)) => builder
-            .position(position.x, position.y)
+            .position(position.x + offset, position.y + offset)
             .inner_size(size.width, size.height),
         None => builder.inner_size(MIN_WIDTH, MIN_HEIGHT).center(),
     };
@@ -91,9 +97,103 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     Ok(())
 }
 
+/// Shows the window, opening it if needed.
+pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
+    bar::hide(app);
+    match app.get_webview_window(LABEL) {
+        Some(window) => bring_up(&window),
+        None => build(app, LABEL, "Beep", 0.0),
+    }
+}
+
 #[tauri::command]
 pub fn open_center(app: AppHandle) -> Result<()> {
     open(&app)
+}
+
+/// Whether `label` is a command center window: the main one or a project's.
+pub(crate) fn is_center(label: &str) -> bool {
+    label == LABEL || label.starts_with(PROJECT_PREFIX)
+}
+
+/// The label of project `name`'s window: the prefix, then the name in hex,
+/// since a label takes only letters, digits and a few signs.
+fn project_label(name: &str) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut label = String::from(PROJECT_PREFIX);
+    for byte in name.bytes() {
+        label.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        label.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+    }
+    label
+}
+
+/// The project a window label names, `None` for any other window.
+fn label_project(label: &str) -> Option<String> {
+    let hex = label.strip_prefix(PROJECT_PREFIX)?;
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok()
+}
+
+/// What opening a project in its own window does.
+#[derive(Debug, PartialEq, Eq)]
+enum Pick {
+    /// Its window is open already: bring that one up.
+    Focus(String),
+    /// A new window, `cascade` project windows being open already, so it
+    /// opens a step further down than the last and none hides another.
+    Open { label: String, cascade: u32 },
+}
+
+/// What to do for project `name`, given the labels of the windows open.
+fn pick<'a>(name: &str, open: impl IntoIterator<Item = &'a str>) -> Pick {
+    let label = project_label(name);
+    let mut cascade: u32 = 0;
+    for open in open {
+        if open == label {
+            return Pick::Focus(label);
+        }
+        if open.starts_with(PROJECT_PREFIX) {
+            cascade = cascade.saturating_add(1);
+        }
+    }
+    Pick::Open { label, cascade }
+}
+
+/// Opens project `name` in a window of its own, or brings up the one it
+/// has. The window keeps its own history, and closing it leaves the rest.
+pub fn open_project<R: Runtime>(app: &AppHandle<R>, name: &str) -> Result<()> {
+    bar::hide(app);
+    let labels: Vec<String> = app.webview_windows().into_keys().collect();
+    match pick(name, labels.iter().map(String::as_str)) {
+        Pick::Focus(label) => match app.get_webview_window(&label) {
+            Some(window) => bring_up(&window),
+            None => build(app, &label, name, CASCADE),
+        },
+        Pick::Open { label, cascade } => {
+            // The first step is already one in, off the main window.
+            let steps = f64::from(cascade % 8 + 1);
+            build(app, &label, name, CASCADE * steps)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn center_open_project_window(app: AppHandle, project: String) -> Result<()> {
+    open_project(&app, &project)
+}
+
+/// The project the calling window was opened on, `None` in the main
+/// window.
+#[tauri::command]
+pub fn center_window_project(window: WebviewWindow) -> Option<String> {
+    label_project(window.label())
 }
 
 /// A view of the window that the bar, the tray or another window can hand
@@ -609,56 +709,71 @@ pub(crate) enum Holder {
     Center,
 }
 
-/// The holder for a webview label: the command center window, or the bar
-/// for anything else.
+/// The holder for a webview label: a command center window, the main one
+/// or a project's, or the bar for anything else.
 pub(crate) fn holder(label: &str) -> Holder {
-    if label == LABEL {
+    if is_center(label) {
         Holder::Center
     } else {
         Holder::Bar
     }
 }
 
-/// What the command center window shows.
+/// What a command center window shows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Showing {
     pub(crate) session: Option<String>,
     pub(crate) group: Option<String>,
 }
 
-/// The command center's current chat, apart from the bar's.
+/// Each command center window's current chat, by window label, apart from
+/// the bar's.
 #[derive(Debug, Default)]
-pub(crate) struct Shown(Mutex<Showing>);
+pub(crate) struct Shown(Mutex<HashMap<String, Showing>>);
 
 impl Shown {
-    fn showing(&self) -> MutexGuard<'_, Showing> {
+    fn windows(&self) -> MutexGuard<'_, HashMap<String, Showing>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn set_session(&self, session: Option<String>) {
-        self.showing().session = session;
+    /// Window `label`'s entry, to change its chat.
+    pub(crate) fn window<'a>(&'a self, label: &'a str) -> ShownIn<'a> {
+        ShownIn { shown: self, label }
     }
 
-    pub(crate) fn set_group(&self, group: Option<String>) {
-        self.showing().group = group;
+    /// What window `label` shows; nothing for a window that never said.
+    pub(crate) fn get(&self, label: &str) -> Showing {
+        self.windows().get(label).cloned().unwrap_or_default()
     }
 
-    pub(crate) fn get(&self) -> Showing {
-        self.showing().clone()
+    /// Forgets window `label`'s chat and group, when it closes.
+    pub(crate) fn clear(&self, label: &str) {
+        self.windows().remove(label);
     }
 
-    /// Forgets the chat and group, when the window closes.
-    pub(crate) fn clear(&self) {
-        *self.showing() = Showing::default();
-    }
-
-    /// Leaves group `id` if the window shows it.
+    /// Leaves group `id` in every window that shows it.
     pub(crate) fn leave_group(&self, id: &str) {
-        let mut showing = self.showing();
-        if showing.group.as_deref() == Some(id) {
-            showing.group = None;
+        for showing in self.windows().values_mut() {
+            if showing.group.as_deref() == Some(id) {
+                showing.group = None;
+            }
         }
     }
+
+    /// Leaves session `id` in every window that shows it.
+    pub(crate) fn forget_session(&self, id: &str) {
+        for showing in self.windows().values_mut() {
+            if showing.session.as_deref() == Some(id) {
+                showing.session = None;
+            }
+        }
+    }
+}
+
+/// One window's current chat in `Shown`.
+pub(crate) struct ShownIn<'a> {
+    shown: &'a Shown,
+    label: &'a str,
 }
 
 /// A chat a webview opened or left: a session or a group, `None` for none.
@@ -684,32 +799,35 @@ impl Current for Beep {
     }
 }
 
-impl Current for Shown {
+impl Current for ShownIn<'_> {
     fn set_session(&self, session: Option<String>) {
-        Shown::set_session(self, session);
+        let mut windows = self.shown.windows();
+        windows.entry(self.label.to_owned()).or_default().session = session;
     }
 
     fn set_group(&self, group: Option<String>) {
-        Shown::set_group(self, group);
+        let mut windows = self.shown.windows();
+        windows.entry(self.label.to_owned()).or_default().group = group;
     }
 }
 
 /// Makes `chat` the holder's current chat. A session, or none, also leaves
 /// the holder's group. In the bar a group keeps the session: the bar leaves
-/// a group on every view change and reopens its last chat after. The window
+/// a group on every view change and reopens its last chat after. A window
 /// keeps no such chat, so a group it opens replaces its session.
-pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &Shown, chat: Chat) {
+pub(crate) fn remember(holder: Holder, beep: &Beep, shown: &ShownIn<'_>, chat: Chat) {
     remember_in(holder, beep, shown, chat);
 }
 
-/// `remember` for the webview a command came from, with the window's
-/// `Shown` from the app's state.
+/// `remember` for the webview a command came from, with that window's
+/// entry in `Shown` from the app's state.
 pub(crate) fn remember_for<R: Runtime>(window: &WebviewWindow<R>, beep: &Beep, chat: Chat) {
     let shown = window.state::<Shown>();
-    remember(holder(window.label()), beep, &shown, chat);
+    let label = window.label();
+    remember(holder(label), beep, &shown.window(label), chat);
 }
 
-fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
+fn remember_in(holder: Holder, bar: &impl Current, shown: &ShownIn<'_>, chat: Chat) {
     let current: &dyn Current = match holder {
         Holder::Bar => bar,
         Holder::Center => shown,
@@ -729,7 +847,7 @@ fn remember_in(holder: Holder, bar: &impl Current, shown: &Shown, chat: Chat) {
 }
 
 /// The chat on screen in each place: the bar's only while the bar is open,
-/// the window's only while the window has focus.
+/// a command center window's only while that window has focus.
 #[derive(Debug, Default)]
 pub(crate) struct Seen {
     pub(crate) bar: Option<String>,
@@ -1012,117 +1130,230 @@ mod tests {
         assert!(matches!(view.needs_you[1], NeedsYou::Chat { .. }));
     }
 
-    /// A stand-in for the bar's current chat in `Beep`, which needs a
-    /// network node to build.
-    fn bar_on(session: &str) -> Shown {
-        let bar = Shown::default();
-        bar.set_session(Some(session.into()));
-        bar
+    /// The bar's current chat stands in as one more window of `Shown`:
+    /// the real one lives in `Beep`, which needs a network node to build.
+    const BAR: &str = "bar";
+
+    fn bar_on(shown: &Shown, session: &str) {
+        shown.window(BAR).set_session(Some(session.into()));
     }
 
     #[test]
     fn closing_the_window_forgets_its_chat() {
         let shown = Shown::default();
-        shown.set_session(Some("a".into()));
-        shown.set_group(Some("g".into()));
-        shown.clear();
-        assert_eq!(shown.get(), Showing::default());
+        shown.window(LABEL).set_session(Some("a".into()));
+        shown.window(LABEL).set_group(Some("g".into()));
+        shown.clear(LABEL);
+        assert_eq!(shown.get(LABEL), Showing::default());
+    }
+
+    #[test]
+    fn closing_one_window_keeps_the_others_chats() {
+        let shown = Shown::default();
+        let project = project_label("site");
+        shown.window(LABEL).set_session(Some("a".into()));
+        shown.window(&project).set_session(Some("b".into()));
+        shown.clear(&project);
+        assert_eq!(shown.get(&project), Showing::default());
+        assert_eq!(shown.get(LABEL).session.as_deref(), Some("a"));
     }
 
     #[test]
     fn leaving_a_group_clears_only_that_group() {
         let shown = Shown::default();
-        shown.set_group(Some("g".into()));
+        let project = project_label("site");
+        shown.window(LABEL).set_group(Some("g".into()));
+        shown.window(&project).set_group(Some("g".into()));
         shown.leave_group("other");
-        assert_eq!(shown.get().group.as_deref(), Some("g"));
+        assert_eq!(shown.get(LABEL).group.as_deref(), Some("g"));
         shown.leave_group("g");
-        assert_eq!(shown.get().group, None);
+        assert_eq!(shown.get(LABEL).group, None);
+        assert_eq!(shown.get(&project).group, None);
+    }
+
+    #[test]
+    fn a_deleted_chat_leaves_every_window() {
+        let shown = Shown::default();
+        let project = project_label("site");
+        shown.window(LABEL).set_session(Some("a".into()));
+        shown.window(&project).set_session(Some("a".into()));
+        bar_on(&shown, "b");
+        shown.forget_session("a");
+        assert_eq!(shown.get(LABEL).session, None);
+        assert_eq!(shown.get(&project).session, None);
+        assert_eq!(shown.get(BAR).session.as_deref(), Some("b"));
     }
 
     #[test]
     fn center_label_leaves_bar_chat() {
-        let bar = bar_on("a");
         let shown = Shown::default();
+        bar_on(&shown, "a");
+        remember_in(
+            Holder::Center,
+            &shown.window(BAR),
+            &shown.window(LABEL),
+            Chat::Session(Some("b".into())),
+        );
+        assert_eq!(shown.get(BAR).session.as_deref(), Some("a"));
+        assert_eq!(shown.get(LABEL).session.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn each_window_keeps_its_own_chat() {
+        let shown = Shown::default();
+        let project = project_label("site");
+        let bar = shown.window(BAR);
         remember_in(
             Holder::Center,
             &bar,
-            &shown,
+            &shown.window(LABEL),
+            Chat::Session(Some("a".into())),
+        );
+        remember_in(
+            Holder::Center,
+            &bar,
+            &shown.window(&project),
             Chat::Session(Some("b".into())),
         );
-        assert_eq!(bar.get().session.as_deref(), Some("a"));
-        assert_eq!(shown.get().session.as_deref(), Some("b"));
+        assert_eq!(shown.get(LABEL).session.as_deref(), Some("a"));
+        assert_eq!(shown.get(&project).session.as_deref(), Some("b"));
     }
 
     #[test]
     fn bar_label_moves_bar_chat() {
-        let bar = bar_on("a");
         let shown = Shown::default();
-        remember_in(Holder::Bar, &bar, &shown, Chat::Session(Some("b".into())));
-        assert_eq!(bar.get().session.as_deref(), Some("b"));
-        assert_eq!(shown.get(), Showing::default());
+        bar_on(&shown, "a");
+        remember_in(
+            Holder::Bar,
+            &shown.window(BAR),
+            &shown.window(LABEL),
+            Chat::Session(Some("b".into())),
+        );
+        assert_eq!(shown.get(BAR).session.as_deref(), Some("b"));
+        assert_eq!(shown.get(LABEL), Showing::default());
     }
 
     #[test]
     fn bar_session_leaves_group_and_group_keeps_session() {
-        let bar = bar_on("a");
         let shown = Shown::default();
-        remember_in(Holder::Bar, &bar, &shown, Chat::Group(Some("g".into())));
+        bar_on(&shown, "a");
+        let bar = shown.window(BAR);
+        let window = shown.window(LABEL);
+        remember_in(Holder::Bar, &bar, &window, Chat::Group(Some("g".into())));
         assert_eq!(
-            bar.get(),
+            shown.get(BAR),
             Showing {
                 session: Some("a".into()),
                 group: Some("g".into()),
             }
         );
-        remember_in(Holder::Bar, &bar, &shown, Chat::Group(None));
-        assert_eq!(bar.get().session.as_deref(), Some("a"));
-        remember_in(Holder::Bar, &bar, &shown, Chat::Session(None));
-        assert_eq!(bar.get(), Showing::default());
+        remember_in(Holder::Bar, &bar, &window, Chat::Group(None));
+        assert_eq!(shown.get(BAR).session.as_deref(), Some("a"));
+        remember_in(Holder::Bar, &bar, &window, Chat::Session(None));
+        assert_eq!(shown.get(BAR), Showing::default());
     }
 
     #[test]
     fn center_group_replaces_its_session() {
-        let bar = Shown::default();
         let shown = Shown::default();
+        let bar = shown.window(BAR);
+        let window = shown.window(LABEL);
         remember_in(
             Holder::Center,
             &bar,
-            &shown,
+            &window,
             Chat::Session(Some("a".into())),
         );
-        remember_in(Holder::Center, &bar, &shown, Chat::Group(Some("g".into())));
+        remember_in(Holder::Center, &bar, &window, Chat::Group(Some("g".into())));
         assert_eq!(
-            shown.get(),
+            shown.get(LABEL),
             Showing {
                 session: None,
                 group: Some("g".into()),
             }
         );
-        remember_in(Holder::Center, &bar, &shown, Chat::Group(None));
-        assert_eq!(shown.get(), Showing::default());
-        assert_eq!(bar.get(), Showing::default());
+        remember_in(Holder::Center, &bar, &window, Chat::Group(None));
+        assert_eq!(shown.get(LABEL), Showing::default());
+        assert_eq!(shown.get(BAR), Showing::default());
     }
 
     #[test]
     fn center_send_leaves_bar_session() {
-        let bar = bar_on("a");
         let shown = Shown::default();
+        bar_on(&shown, "a");
         let sent_to = Uuid::new_v4().to_string();
         remember_in(
             Holder::Center,
-            &bar,
-            &shown,
+            &shown.window(BAR),
+            &shown.window(LABEL),
             Chat::Session(Some(sent_to.clone())),
         );
-        assert_eq!(bar.get().session.as_deref(), Some("a"));
-        assert_eq!(shown.get().session, Some(sent_to));
+        assert_eq!(shown.get(BAR).session.as_deref(), Some("a"));
+        assert_eq!(shown.get(LABEL).session, Some(sent_to));
     }
 
     #[test]
     fn holder_reads_labels() {
         assert_eq!(holder("center"), Holder::Center);
+        assert_eq!(holder(&project_label("site")), Holder::Center);
         assert_eq!(holder("bar"), Holder::Bar);
         assert_eq!(holder("research-1"), Holder::Bar);
+    }
+
+    #[test]
+    fn a_project_label_reads_back_as_its_name() {
+        for name in ["site", "org/repo", "my project", "café.rs", "a-b_c:d"] {
+            let label = project_label(name);
+            let hex = label
+                .strip_prefix(PROJECT_PREFIX)
+                .expect("it has the prefix");
+            assert!(hex.bytes().all(|b| b.is_ascii_hexdigit()), "{label}");
+            assert_eq!(label_project(&label).as_deref(), Some(name));
+        }
+        assert_eq!(label_project(LABEL), None);
+        assert_eq!(label_project("research-1"), None);
+        assert_eq!(label_project("project-"), None);
+        assert_eq!(label_project("project-abc"), None);
+        assert_eq!(label_project("project-zz"), None);
+    }
+
+    #[test]
+    fn a_project_open_in_a_window_is_focused() {
+        let site = project_label("site");
+        let open = [LABEL, "bar", site.as_str(), "research-1"];
+        assert_eq!(pick("site", open), Pick::Focus(site));
+    }
+
+    #[test]
+    fn a_project_without_a_window_gets_a_new_one() {
+        assert_eq!(
+            pick("site", [LABEL, "bar"]),
+            Pick::Open {
+                label: project_label("site"),
+                cascade: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn a_new_window_steps_past_the_other_project_windows() {
+        let docs = project_label("docs");
+        let api = project_label("api");
+        let open = [LABEL, docs.as_str(), "research-1", api.as_str()];
+        assert_eq!(
+            pick("site", open),
+            Pick::Open {
+                label: project_label("site"),
+                cascade: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn similar_names_get_their_own_windows() {
+        let site = project_label("site");
+        assert!(matches!(pick("site2", [site.as_str()]), Pick::Open { .. }));
+        assert!(matches!(pick("sit", [site.as_str()]), Pick::Open { .. }));
     }
 
     #[test]
