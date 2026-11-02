@@ -17,7 +17,7 @@
 //! server closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 
-use crate::Upload;
+use crate::{AgentEffort, Upload};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -49,12 +49,15 @@ pub fn agent_of(protocol: &str) -> Option<&str> {
 pub enum Request {
     /// The first message: starts a session in `cwd` (the home folder when
     /// `None`) on `prompt`, on `model` when given (an id from
-    /// `SessionsRequest::Models`). A node from before `model` ignores it.
+    /// `SessionsRequest::Models`) and thinking at `effort` when given. A
+    /// node from before either ignores it.
     Start {
         cwd: Option<String>,
         prompt: String,
         #[serde(default)]
         model: Option<String>,
+        #[serde(default)]
+        effort: Option<Effort>,
     },
     /// The first message: follows a session that already runs.
     Attach { session: String },
@@ -428,6 +431,77 @@ pub struct ModelList {
 /// The longest model id a start may name.
 pub const MAX_MODEL: usize = 200;
 
+/// How hard a coding agent thinks. Its name is the value each agent's ACP
+/// adapter takes on its config option of category `thought_level`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+#[non_exhaustive]
+pub enum Effort {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl Effort {
+    /// The value an agent's `thought_level` option takes.
+    pub fn as_str(self) -> &'static str {
+        self.into()
+    }
+}
+
+impl From<AgentEffort> for Effort {
+    fn from(effort: AgentEffort) -> Self {
+        match effort {
+            AgentEffort::Off {} => Self::Off,
+            AgentEffort::Minimal {} => Self::Minimal,
+            AgentEffort::Low {} => Self::Low,
+            AgentEffort::Medium {} => Self::Medium,
+            AgentEffort::High {} => Self::High,
+            AgentEffort::Xhigh {} => Self::Xhigh,
+            AgentEffort::Max {} => Self::Max,
+        }
+    }
+}
+
+impl From<Effort> for AgentEffort {
+    fn from(effort: Effort) -> Self {
+        match effort {
+            Effort::Off => Self::Off {},
+            Effort::Minimal => Self::Minimal {},
+            Effort::Low => Self::Low {},
+            Effort::Medium => Self::Medium {},
+            Effort::High => Self::High {},
+            Effort::Xhigh => Self::Xhigh {},
+            Effort::Max => Self::Max {},
+        }
+    }
+}
+
+/// The thinking levels the agent `agent` takes at start; none for an agent
+/// whose thinking cannot be set from here. Each mirrors its CLI, whose
+/// ACP adapter offers the same levels as a `thought_level` option:
+///
+/// - `claude`: `claude --effort` (low, medium, high, xhigh, max).
+/// - `codex`: `codex -c model_reasoning_effort=` (low, medium, high).
+/// - `pi`: `pi --thinking` (off, minimal, low, medium, high, xhigh, max).
+///
+/// Gemini CLI, flsh and OpenCode have no such flag: flsh keeps it in its
+/// own config.
+pub fn efforts(agent: &str) -> &'static [Effort] {
+    use Effort::*;
+    match agent {
+        "claude" => &[Low, Medium, High, Xhigh, Max],
+        "codex" => &[Low, Medium, High],
+        "pi" => &[Off, Minimal, Low, Medium, High, Xhigh, Max],
+        _ => &[],
+    }
+}
+
 /// Whether `model` may name a model to start an agent on: short, and no
 /// control characters, since it may go on the agent's command line.
 pub fn valid_model(model: &str) -> bool {
@@ -740,6 +814,7 @@ mod tests {
             cwd: None,
             prompt: "go".into(),
             model: Some("openai:gpt-test".into()),
+            effort: Some(Effort::Xhigh),
         };
         let body = rmp_serde::to_vec_named(&start).unwrap();
         assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);
@@ -755,6 +830,7 @@ mod tests {
             cwd: Some("/srv/project".into()),
             prompt: "go".into(),
             model: Some("m".into()),
+            effort: Some(Effort::High),
         };
         let body = rmp_serde::to_vec_named(&newer).unwrap();
         assert_eq!(
@@ -774,9 +850,31 @@ mod tests {
             Request::Start {
                 cwd: None,
                 prompt: "go".into(),
-                model: None
+                model: None,
+                effort: None,
             }
         );
+    }
+
+    #[test]
+    fn each_agent_takes_the_thinking_levels_its_cli_does() {
+        use Effort::*;
+        assert_eq!(efforts("claude"), [Low, Medium, High, Xhigh, Max]);
+        assert_eq!(efforts("codex"), [Low, Medium, High]);
+        assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
+        for agent in ["gemini", "flsh", "opencode", "other"] {
+            assert!(efforts(agent).is_empty(), "{agent}");
+        }
+        let names: Vec<&str> = efforts("pi").iter().map(|e| e.as_str()).collect();
+        assert_eq!(
+            names,
+            ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+        );
+        let body = rmp_serde::to_vec_named(&Xhigh).unwrap();
+        assert_eq!(rmp_serde::from_slice::<String>(&body).unwrap(), "xhigh");
+        for effort in efforts("pi") {
+            assert_eq!(Effort::from(AgentEffort::from(*effort)), *effort);
+        }
     }
 
     #[test]

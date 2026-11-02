@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     app::App,
-    nodes::{Follower, Online, SHELL},
+    nodes::{Follower, Online, SHELL, StartOn},
     protocol::node::{
         Capability,
         files::{FileKind, Reply, Request},
@@ -526,7 +526,7 @@ impl OnNode<'_> {
                 placement.agent.into(),
                 Some(self.worktree.to_string()),
                 prompt,
-                None,
+                StartOn::default(),
             )
             .await
             .map_err(|error| format!("Could not start {}: {error:#}", placement.agent))?;

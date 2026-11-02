@@ -17,14 +17,14 @@ use agent_client_protocol::{
     on_receive_request,
     schema::v1::{
         CancelNotification, InitializeResponse, LoadSessionRequest, PromptResponse,
-        RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SessionId,
-        SessionNotification, SessionUpdate, SetSessionModeRequest,
+        RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SessionConfigId,
+        SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest,
     },
 };
 use anyhow::{Context, Result};
 use beep_proto::AgentAccount;
 use beep_proto::node::agent::{
-    AnswerOption, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
+    AnswerOption, Effort, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
 };
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
@@ -87,6 +87,8 @@ pub(super) struct Start<'a> {
     pub(super) resume: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<String>,
+    /// How hard a new session thinks, rather than the agent's own level.
+    pub(super) effort: Option<Effort>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
 }
@@ -100,10 +102,13 @@ impl Session {
             prompt,
             resume,
             model,
+            effort,
             images,
         } = start;
-        // Only a new session takes a model; a resumed one keeps its own.
+        // Only a new session takes a model and thinking level; a resumed
+        // one keeps its own.
         let model = model.filter(|_| resume.is_none());
+        let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
         let flag = acp::model_flag(&kind.name)
@@ -151,6 +156,8 @@ impl Session {
             queued: prompt.map(Prompt::from).into_iter().collect(),
             resume,
             model,
+            effort,
+            thinking: None,
             bypass_mode: acp::bypass_mode(&kind.name),
             asked: VecDeque::new(),
             next_question: 1,
@@ -213,6 +220,11 @@ enum Reply {
         model: String,
         result: Result<(), agent_client_protocol::Error>,
     },
+    /// The answer to setting how hard the new session thinks.
+    EffortSet {
+        effort: Effort,
+        result: Result<(), agent_client_protocol::Error>,
+    },
     /// The answer to `session/resume` or `session/load` of this session.
     Resumed(SessionId, Result<(), agent_client_protocol::Error>),
     /// The answer to `session/set_mode` to the mode that asks no permission.
@@ -239,6 +251,10 @@ struct Actor {
     resume: Option<String>,
     /// The model a new session switches to before its first prompt.
     model: Option<String>,
+    /// How hard a new session thinks, set before its first prompt.
+    effort: Option<Effort>,
+    /// The session's option that sets how hard it thinks, once it said.
+    thinking: Option<SessionConfigId>,
     /// The session mode that turns the agent's permission prompts off, set
     /// before the first prompt: Claude Code's `bypassPermissions`. Every
     /// agent runs without prompts, and a permission request that comes
@@ -471,7 +487,17 @@ impl Actor {
             Reply::Resumed(session, Ok(())) => {
                 return Ok(self.ready(cx, session, Offered::default()));
             }
-            Reply::ModelSet { result: Ok(()), .. } => self.unprompted(cx),
+            Reply::ModelSet { result: Ok(()), .. } => self.think(cx),
+            Reply::EffortSet { effort, result } => {
+                if let Err(e) = result {
+                    self.note(&format!(
+                        "{} could not be set to think at {}, so it thinks at its own level: {e}",
+                        agent_title(&self.agent),
+                        effort.as_str()
+                    ));
+                }
+                self.unprompted(cx);
+            }
             Reply::ModelSet {
                 model,
                 result: Err(e),
@@ -552,21 +578,19 @@ impl Actor {
         offered: Offered,
     ) -> Option<End> {
         self.acp_session = Some(session.clone());
+        self.thinking = offered.thinking;
         self.live
             .send_modify(|live| live.agent_session = Some(session.to_string()));
         let Some(model) = self.model.take() else {
-            self.unprompted(cx);
+            self.think(cx);
             return None;
         };
         let Some(switch) = offered.switch else {
-            let note = format!(
+            self.note(&format!(
                 "{} here cannot switch models, so it runs its own rather than {model}",
                 agent_title(&self.agent)
-            );
-            log::info!("{note}");
-            self.live
-                .send_modify(|live| live.push(EntryKind::Other, &note));
-            self.unprompted(cx);
+            ));
+            self.think(cx);
             return None;
         };
         match acp::switch_model(&session, &switch, &model) {
@@ -584,8 +608,49 @@ impl Actor {
         }
     }
 
-    /// The session runs on its model: turns permission prompts off, then
-    /// lets prompts go.
+    /// Shows `note` in the transcript, for what the session does other
+    /// than asked.
+    fn note(&mut self, note: &str) {
+        log::info!("{note}");
+        self.live
+            .send_modify(|live| live.push(EntryKind::Other, note));
+    }
+
+    /// The session runs on its model: sets how hard it thinks when asked,
+    /// then turns permission prompts off. An agent that cannot think at
+    /// that level runs at its own and says so.
+    fn think(&mut self, cx: &ConnectionTo<Agent>) {
+        let (Some(effort), Some(session)) = (self.effort.take(), self.acp_session.clone()) else {
+            self.unprompted(cx);
+            return;
+        };
+        let cannot = |agent: &str| {
+            format!(
+                "{} here cannot be set to think at {}, so it thinks at its own level",
+                agent_title(agent),
+                effort.as_str()
+            )
+        };
+        let Some(id) = self.thinking.clone() else {
+            self.note(&cannot(&self.agent));
+            self.unprompted(cx);
+            return;
+        };
+        match acp::set_effort(&session, &id, effort) {
+            // The first prompt waits for the level.
+            Ok(request) => self.send(cx, request, move |result| Reply::EffortSet {
+                effort,
+                result: result.map(drop),
+            }),
+            Err(e) => {
+                self.note(&format!("{}: {e}", cannot(&self.agent)));
+                self.unprompted(cx);
+            }
+        }
+    }
+
+    /// The session runs on its model and thinking level: turns permission
+    /// prompts off, then lets prompts go.
     fn unprompted(&mut self, cx: &ConnectionTo<Agent>) {
         let Some(session) = self.acp_session.clone() else {
             return;
@@ -977,6 +1042,7 @@ cat > /dev/null
             prompt: Some("carry on".into()),
             resume: Some(id.into()),
             model: None,
+            effort: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1042,6 +1108,7 @@ cat > /dev/null
             prompt: Some("go".into()),
             resume: None,
             model: None,
+            effort: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1083,6 +1150,7 @@ cat > /dev/null
             prompt: Some("go".into()),
             resume: None,
             model: None,
+            effort: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1126,6 +1194,7 @@ cat > /dev/null
             prompt: Some("y".repeat(4 * 1024 * 1024)),
             resume: None,
             model: None,
+            effort: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1159,6 +1228,7 @@ read -r line
             prompt: Some("go".into()),
             resume: None,
             model: None,
+            effort: None,
             images: Arc::default(),
         })
         .unwrap()
@@ -1268,6 +1338,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             prompt: None,
             resume: None,
             model: None,
+            effort: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1422,6 +1493,7 @@ cat > /dev/null
             prompt: Some("go".into()),
             resume: None,
             model: model.map(str::to_owned),
+            effort: None,
             images: Arc::default(),
         }
     }
@@ -1511,6 +1583,84 @@ cat > /dev/null
                 .any(|entry| entry.text.contains("runs its own rather than deep")),
             "{entries:?}"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter whose `session/new` offers a thinking option, answers
+    /// setting it with `$BEEP_FAKE_SET` as its error (an empty result when
+    /// unset), then ends a turn.
+    const THINKING_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","configOptions":[{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"medium","name":"Medium"},{"value":"max","name":"Max"}]}]}'
+read -r line; log "$1"
+case "$line" in
+  *session/prompt*) ;;
+  *) if [ -n "$BEEP_FAKE_SET" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":%s}\n' "$(id)" "$BEEP_FAKE_SET"; else reply '{"configOptions":[]}'; fi
+     read -r line; log "$1";;
+esac
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+cat > /dev/null
+"#;
+
+    fn thinking_at<'a>(kind: &'a AgentKind, dir: &'a Path, effort: Effort) -> Start<'a> {
+        Start {
+            effort: Some(effort),
+            ..start_on(kind, dir, None)
+        }
+    }
+
+    fn noted(session: &Session, text: &str) -> bool {
+        let (entries, _) = session.live.borrow().transcript(10);
+        entries.iter().any(|entry| entry.text.contains(text))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
+        let dir = temp("effort-set");
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", THINKING_ADAPTER, &log);
+        let session = Session::start(thinking_at(&kind, &dir, Effort::Max)).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1);
+        let sent = sent(&log);
+        assert_eq!(sent[2]["method"], "session/set_config_option");
+        assert_eq!(sent[2]["params"]["configId"], "effort");
+        assert_eq!(sent[2]["params"]["value"], "max");
+        assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_thinking_level_the_agent_refuses_runs_at_its_own_and_says_so() {
+        let dir = temp("effort-refused");
+        let log = dir.join("sent.jsonl");
+        let mut kind = script("codex", THINKING_ADAPTER, &log);
+        kind.env.insert(
+            "BEEP_FAKE_SET".into(),
+            r#"{"code":-32602,"message":"unknown value"}"#.into(),
+        );
+        let session = Session::start(thinking_at(&kind, &dir, Effort::Max)).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1, "the session goes on");
+        assert!(noted(&session, "could not be set to think at max"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_agent_without_a_thinking_option_runs_at_its_own_and_says_so() {
+        let dir = temp("effort-none");
+        let log = dir.join("sent.jsonl");
+        let kind = script("pi", ALLOWING_ADAPTER, &log);
+        let session = Session::start(thinking_at(&kind, &dir, Effort::High)).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1);
+        assert_eq!(sent(&log)[2]["method"], "session/prompt");
+        assert!(noted(&session, "cannot be set to think at high"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
