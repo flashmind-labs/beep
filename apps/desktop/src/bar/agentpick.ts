@@ -138,9 +138,10 @@ export function machineRows(
   return [...able, ...rest];
 }
 
-/// Which checkout a session starts in: Auto, the checkout itself, a new
-/// worktree branched from the prompt, or an existing worktree by folder.
-export type CheckoutPick = "auto" | "current" | "new" | { worktree: string };
+/// Which checkout a session starts in: Auto, the checkout as it is, a new
+/// branch in the checkout, a new worktree on a new branch (both named from
+/// the prompt), or an existing worktree by folder.
+export type CheckoutPick = "auto" | "current" | "branch" | "new" | { worktree: string };
 
 /// What Auto resolves to: the checkout, unless a session of ours already
 /// runs in it on that machine, then a new worktree. A pick other than
@@ -185,6 +186,57 @@ export function knownWorktrees(sessions: readonly (SessionAt & { last_activity?:
 /// What the checkout row of the Folder button says.
 export function checkoutLabel(pick: CheckoutPick, busy: boolean): string {
   const on = checkoutFor(pick, busy);
-  const what = on === "current" ? "Current checkout" : on === "new" ? "New worktree" : `Worktree ${on.worktree.split("/").pop()}`;
+  const what = on === "current" ? "Current checkout" : on === "branch" ? "New branch" : on === "new" ? "New worktree" : `Worktree ${on.worktree.split("/").pop()}`;
   return pick === "auto" ? `Auto: ${what}` : what;
+}
+
+/// What `agent_start` sends as `checkout`: the node makes a `beep/<slug>`
+/// branch from `base` (the checkout's HEAD when null), in the checkout or
+/// in a new worktree under `.worktrees/`.
+export type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
+
+/// Whether the pick makes a new branch, so the form asks for its base.
+export function makesBranch(pick: CheckoutPick, busy: boolean): boolean {
+  const on = checkoutFor(pick, busy);
+  return on === "branch" || on === "new";
+}
+
+/// The folder and checkout plan a start sends for `pick` in the checkout
+/// `cwd`: an existing worktree is a folder to start in, a new branch or
+/// worktree is a plan the node carries out in `cwd`.
+export function startPlace(pick: CheckoutPick, busy: boolean, cwd: string, base: string | null): { cwd: string; checkout: CheckoutPlan | null } {
+  const on = checkoutFor(pick, busy);
+  const from = base?.trim() || null;
+  if (typeof on === "object") return { cwd: on.worktree, checkout: null };
+  if (on === "branch") return { cwd, checkout: { new_branch: { base: from } } };
+  if (on === "new") return { cwd, checkout: { new_worktree: { base: from } } };
+  return { cwd, checkout: null };
+}
+
+/// A project's branches as `project_branches` reads them, the fields the
+/// Base menu needs.
+export interface BaseBranches {
+  default_branch: string;
+  branches: readonly { name: string; local: boolean; committed_at: number }[];
+}
+
+/// The most branches the Base menu lists.
+export const MAX_BASES = 30;
+
+/// The Base menu's branches: the default branch first, then the others
+/// matching `query`, newest commit first, at most `MAX_BASES`.
+export function baseRows(list: BaseBranches | null | undefined, query = ""): string[] {
+  const q = query.trim().toLowerCase();
+  const rest = [...(list?.branches ?? [])]
+    .filter(b => b.name !== list?.default_branch)
+    .sort((a, b) => b.committed_at - a.committed_at)
+    .map(b => b.name);
+  const all = [...new Set([list?.default_branch || "", ...rest])].filter(Boolean);
+  return all.filter(name => !q || name.toLowerCase().includes(q)).slice(0, MAX_BASES);
+}
+
+/// The base a start sends: the one picked, else the project's default
+/// branch, else none (the checkout's HEAD).
+export function baseFor(picked: string | null | undefined, list: BaseBranches | null | undefined): string | null {
+  return picked?.trim() || list?.default_branch || null;
 }

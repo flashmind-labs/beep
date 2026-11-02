@@ -320,6 +320,7 @@ async fn open_as(
         workspace: hello.workspace.map(str::to_owned),
         setup: hello.setup.cloned(),
         credentials: offers.provision.is_some(),
+        checkouts: true,
     })
     .await?;
     let mut claimed = None;

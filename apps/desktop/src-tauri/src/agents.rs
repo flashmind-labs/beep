@@ -16,7 +16,8 @@ use beep_proto::{
     AgentSessionView, AgentSteer, ApiError, GetAgentImage, GetAgentSession, ListAgentHosts,
     ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
     ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
-    image_key, node::agent::Effort,
+    image_key,
+    node::agent::{CheckoutPlan, Effort},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -234,7 +235,8 @@ pub async fn agent_sessions(beep: Service<'_>) -> Result<Vec<SessionRow>> {
 
 /// Starts a session; no `machine_id` lets the server pick. `chat` hears
 /// its turn ends and questions; `model`, from `agent_models`, picks the
-/// agent's model and `effort` how hard it thinks.
+/// agent's model, `effort` how hard it thinks and `checkout` the new
+/// branch or worktree it starts on.
 // The arguments are the fields of the window's `invoke` call.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -247,6 +249,7 @@ pub async fn agent_start(
     chat: Option<Uuid>,
     model: Option<String>,
     effort: Option<Effort>,
+    checkout: Option<CheckoutPlan>,
 ) -> Result<Started> {
     let started = beep
         .call(StartAgentSession {
@@ -258,6 +261,7 @@ pub async fn agent_start(
             chat,
             model,
             effort: effort.map(Into::into),
+            checkout: checkout.map(Into::into),
         })
         .await?;
     Ok(Started {

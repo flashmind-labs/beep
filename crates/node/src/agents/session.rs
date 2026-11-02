@@ -89,6 +89,8 @@ pub(super) struct Start<'a> {
     pub(super) model: Option<String>,
     /// How hard a new session thinks, rather than the agent's own level.
     pub(super) effort: Option<Effort>,
+    /// A first line for its transcript, such as the branch it started on.
+    pub(super) note: Option<String>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
 }
@@ -103,6 +105,7 @@ impl Session {
             resume,
             model,
             effort,
+            note,
             images,
         } = start;
         // Only a new session takes a model and thinking level; a resumed
@@ -143,6 +146,9 @@ impl Session {
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images);
+        if let Some(note) = note {
+            first.push(EntryKind::Other, &note);
+        }
         // Known from the start, so a second takeover of it is refused.
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
@@ -1043,6 +1049,7 @@ cat > /dev/null
             resume: Some(id.into()),
             model: None,
             effort: None,
+            note: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1109,6 +1116,7 @@ cat > /dev/null
             resume: None,
             model: None,
             effort: None,
+            note: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1151,6 +1159,7 @@ cat > /dev/null
             resume: None,
             model: None,
             effort: None,
+            note: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1195,6 +1204,7 @@ cat > /dev/null
             resume: None,
             model: None,
             effort: None,
+            note: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1229,6 +1239,7 @@ read -r line
             resume: None,
             model: None,
             effort: None,
+            note: None,
             images: Arc::default(),
         })
         .unwrap()
@@ -1339,6 +1350,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             resume: None,
             model: None,
             effort: None,
+            note: None,
             images: Arc::default(),
         })
         .unwrap();
@@ -1494,6 +1506,7 @@ cat > /dev/null
             resume: None,
             model: model.map(str::to_owned),
             effort: None,
+            note: None,
             images: Arc::default(),
         }
     }
@@ -1661,6 +1674,26 @@ cat > /dev/null
         assert_eq!(session.info().turns, 1);
         assert_eq!(sent(&log)[2]["method"], "session/prompt");
         assert!(noted(&session, "cannot be set to think at high"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_session_opens_its_transcript_with_its_note() {
+        let dir = temp("note");
+        let log = dir.join("sent.jsonl");
+        let kind = script("pi", ALLOWING_ADAPTER, &log);
+        let start = Start {
+            note: Some("Started on a new branch beep/go from HEAD.".into()),
+            ..start_on(&kind, &dir, None)
+        };
+        let session = Session::start(start).unwrap();
+        let (entries, _) = session.live.borrow().transcript(100);
+        assert_eq!(
+            entries[0].text,
+            "Started on a new branch beep/go from HEAD."
+        );
+        settle(&session).await;
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

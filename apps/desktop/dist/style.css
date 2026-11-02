@@ -693,6 +693,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .agc-type { position: relative; flex: 1; min-width: 200px }
 .agc-type input { width: 100%; box-sizing: border-box; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--emerald); background: var(--surface); color: var(--fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--emerald) }
 .agc-type .agc-menu { left: 0; right: 0 }
+.agc-type.base { flex: 0 1 220px; min-width: 160px }
 .agc-why { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
 .agc-why[hidden] { display: none }
 .agc-why b { color: var(--fg); font-weight: 500 }
@@ -724,6 +725,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .agc-think button svg { color: var(--emerald) }
 .agc-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 8; min-width: 240px; max-width: calc(100vw - 32px); max-height: 320px; overflow-y: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: 10px; background: #0b100e; box-shadow: 0 14px 40px rgba(0,0,0,.45) }
 .agc-menu.folder { left: 90px }
+.agc-menu.base { left: auto; right: 0 }
 .agc-menu button { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 7px 12px; font-size: 13px; color: var(--fg) }
 .agc-menu button > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .agc-menu button:hover { background: rgba(255,255,255,.04) }
