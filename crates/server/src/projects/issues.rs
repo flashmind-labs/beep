@@ -443,6 +443,7 @@ pub(crate) async fn track(
                 }
             };
             Some(StartRequest {
+                base: None,
                 machine,
                 agent: Some(work.agent),
                 persona: None,

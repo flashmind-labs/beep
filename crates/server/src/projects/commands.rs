@@ -57,7 +57,7 @@ fn push_capped(out: &mut String, text: &str) {
 }
 
 /// `text` as one shell word.
-fn quote(text: &str) -> String {
+pub(crate) fn quote(text: &str) -> String {
     // Only a NUL byte cannot be quoted, and no command can carry one.
     shlex::try_quote(&text.replace('\0', ""))
         .map(|quoted| quoted.into_owned())

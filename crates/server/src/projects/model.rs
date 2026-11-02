@@ -408,6 +408,10 @@ pub(crate) struct StartRequest {
     pub(crate) persona: Option<String>,
     #[serde(default)]
     pub(crate) inputs: Vec<InputFile>,
+    /// The branch the worktree starts from, in place of the default
+    /// branch, such as a reviewed branch whose findings it fixes.
+    #[serde(default)]
+    pub(crate) base: Option<String>,
 }
 
 /// A file to copy into the worktree before the worker starts.
@@ -460,6 +464,15 @@ mod tests {
         assert_eq!("claude".parse(), Ok(WorkerAgent::Claude));
         assert_eq!(WorkerAgent::Codex.to_string(), "codex");
         assert_eq!(WorkerAgent::Codex.protocol(), agent::protocol("codex"));
+    }
+
+    #[test]
+    fn a_start_kept_before_bases_reads_from_the_default_branch() {
+        let kept: StartRequest =
+            serde_json::from_str(r#"{"machine":null,"agent":"claude","persona":null,"inputs":[]}"#)
+                .expect("a start kept before bases");
+        assert_eq!(kept.base, None);
+        assert_eq!(kept.agent, Some(WorkerAgent::Claude));
     }
 
     #[test]
