@@ -52,10 +52,10 @@ pub struct Config {
     /// Describes images for models without vision, and for the saved
     /// conversation. Defaults to `model` when that one sees images.
     pub vision_model: Option<String>,
-    /// Writes the summary when a long session is compacted. A cheap model
-    /// with a large window fits, as it reads the whole session and writes
-    /// little. Defaults to `model`.
-    pub compaction_model: Option<Model>,
+    /// Removed: sessions are summarized on the model their chat ran on.
+    /// Ignored; kept so configs that still set it load.
+    #[serde(default, rename = "compaction_model")]
+    _compaction_model: Option<IgnoredAny>,
     /// How much the assistant thinks before answering: off, low, medium or high.
     #[serde(default = "default_reasoning")]
     pub reasoning: ReasoningLevel,
