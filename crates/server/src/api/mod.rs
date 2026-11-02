@@ -284,6 +284,7 @@ pub fn router() -> Router {
         .call(threads::reply_to_thread)
         .call(threads::open_thread_chat)
         .call(threads::list_thread_chats)
+        .call(agent_control::list_agent_images)
 }
 
 type Reply<T> = Result<T, ApiError>;

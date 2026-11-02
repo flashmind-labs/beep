@@ -10,9 +10,9 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentEntry, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentSession,
+    AgentEntry, AgentHost, AgentImage, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentSession,
     ListAgentHosts, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
-    ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
+    ListAgentImages, ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -331,6 +331,21 @@ pub async fn agent_view(
         })
         .await?;
     Ok(view.into())
+}
+
+/// The images sent to `session`, for its log's `[image: ...]` lines.
+#[tauri::command]
+pub async fn agent_images(
+    beep: Service<'_>,
+    machine_id: String,
+    session: String,
+) -> Result<Vec<AgentImage>> {
+    Ok(beep
+        .call(ListAgentImages {
+            machine_id,
+            session,
+        })
+        .await?)
 }
 
 #[tauri::command]

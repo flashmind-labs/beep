@@ -134,6 +134,7 @@ fn main() {
             agents::agent_start,
             agents::agent_preview,
             agents::agent_view,
+            agents::agent_images,
             agents::agent_steer,
             center::open_center,
             center::center_home,

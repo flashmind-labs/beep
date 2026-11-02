@@ -17,6 +17,7 @@ use crate::{
         *,
     },
     router::Cx,
+    store::{AgentSessionOf, NewAgentImage},
     tools::machines::command_name,
 };
 use futures::{StreamExt, stream};
@@ -161,8 +162,21 @@ pub(super) async fn resume_agent_session(
         .nodes
         .follows
         .unfollow(&cx.app, &live.host.machine_id, &resume.session);
+    let info = link.now().info;
+    let from = AgentSessionOf {
+        machine_id: &resume.machine_id,
+        session: &resume.session,
+    };
+    let to = AgentSessionOf {
+        session: &info.id,
+        ..from
+    };
+    // The session runs either way; only its log would miss the pictures.
+    if let Err(e) = cx.user.carry_agent_images(from, to).await {
+        log::warn!("agent images not carried; session={} error={e:#}", info.id);
+    }
     Ok(StartedAgent {
-        session: beep_session(&live.host(), link.now().info),
+        session: beep_session(&live.host(), info),
         why: String::new(),
     })
 }
@@ -517,7 +531,10 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     // Refused before the machine is looked up, so an oversized message
     // costs nothing more.
     let request = node_request(steer.steer)?;
-    let images = matches!(request, Request::PromptImages { .. });
+    let images = match &request {
+        Request::PromptImages { images, .. } => Some(images.clone()),
+        _ => None,
+    };
     let live = live_host(&cx, &steer.machine_id).await?;
     let listed = limited(live.online.agent_sessions()).await?;
     if !listed
@@ -534,7 +551,7 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     link.send(request).await.map_err(|e| {
         let error = format!("{e:#}");
         // A node from before images does not know the request.
-        if images && error.contains("unknown request") {
+        if images.is_some() && error.contains("unknown request") {
             ApiError::bad_request(
                 "beep-node on that machine is too old to send images. Update it, or send text.",
             )
@@ -542,7 +559,33 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
             ApiError::bad_request(error)
         }
     })?;
+    let of = AgentSessionOf {
+        machine_id: &steer.machine_id,
+        session: &steer.session,
+    };
+    for image in images.iter().flatten() {
+        let new = NewAgentImage {
+            name: &image.name,
+            mime: &image.mime,
+            data: &image.data,
+        };
+        // The agent has the image already; only its log would miss it.
+        if let Err(e) = cx.user.save_agent_image(of, new).await {
+            log::warn!(
+                "agent image not kept; session={} error={e:#}",
+                steer.session
+            );
+        }
+    }
     Ok(())
+}
+
+pub(super) async fn list_agent_images(cx: Cx, list: ListAgentImages) -> Reply<Vec<AgentImage>> {
+    let of = AgentSessionOf {
+        machine_id: &list.machine_id,
+        session: &list.session,
+    };
+    Ok(cx.user.agent_images(of).await?)
 }
 
 /// What the node is asked for `steer`; an empty message or images over the

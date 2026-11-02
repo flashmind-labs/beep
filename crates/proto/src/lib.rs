@@ -1002,6 +1002,11 @@ requests! {
     /// the machine is offline or has no checkout of it, the branch already
     /// has a worktree or is not found, or git fails.
     246 AddBranchWorktree { project: String, branch: String, machine_id: String } => Call<ProjectBranch>
+    /// The images the caller sent to the coding agent session `session` on
+    /// `machine_id`, oldest first, for its log's `[image: name]` lines. Each
+    /// is kept 30 days and read like any file; a resumed session keeps the
+    /// images of the one it goes on from. Empty for a session with none.
+    247 ListAgentImages { machine_id: String, session: String } => Call<Vec<AgentImage>>
 }
 
 /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
@@ -1918,6 +1923,26 @@ pub struct ProjectThread {
     /// last comment or review.
     pub needs_reply: bool,
     pub updated_at: SystemTime,
+}
+
+/// An image sent to a coding agent, as `ListAgentImages` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentImage {
+    /// As the session's log names it.
+    pub name: String,
+    /// The file to download.
+    pub file_id: String,
+    pub mime: String,
+    /// [`image_key`] of its bytes: an agent that replays the session
+    /// gives the image back without its name, and the node logs it as
+    /// `[image: image-<key>]`.
+    pub key: String,
+}
+
+/// A short name for an image's bytes, the same on the node and the server.
+pub fn image_key(data: &[u8]) -> String {
+    blake3::hash(data).to_hex()[..16].to_owned()
 }
 
 /// The chat about one pull request or issue, as `OpenThreadChat` gives it.

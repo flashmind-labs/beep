@@ -11,6 +11,8 @@ use agent_client_protocol::schema::{
         ToolCallUpdate, ToolKind,
     },
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_proto::image_key;
 use beep_proto::node::agent::{
     AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question, SessionInfo,
     Status, StopReason,
@@ -164,8 +166,14 @@ impl Live {
             SessionUpdate::UserMessageChunk(chunk)
                 if self.info.state.status == Status::Starting =>
             {
-                if let ContentBlock::Text(text) = &chunk.content {
-                    self.user_chunk(&text.text);
+                match &chunk.content {
+                    ContentBlock::Text(text) => self.user_chunk(&replayed(&text.text)),
+                    ContentBlock::Image(image) => {
+                        if let Ok(data) = STANDARD.decode(&image.data) {
+                            self.user_image(&data);
+                        }
+                    }
+                    _ => {}
                 }
             }
             SessionUpdate::AgentThoughtChunk(_) => {
@@ -210,6 +218,16 @@ impl Live {
             self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
             self.in_message = true;
         }
+    }
+
+    /// An image the agent replays with a prompt, on its own line.
+    fn user_image(&mut self, data: &[u8]) {
+        let line = image_line(data);
+        let joined = match self.transcript.back() {
+            Some(last) if self.in_message && last.kind == EntryKind::User => format!("\n{line}"),
+            _ => line,
+        };
+        self.user_chunk(&joined);
     }
 
     fn message_chunk(&mut self, text: &str) {
@@ -373,6 +391,46 @@ fn push_cut(out: &mut String, text: &str, max: usize) {
     out.push_str(&text[..end]);
 }
 
+/// How the transcript shows an image the agent gave back without its name:
+/// by its bytes' key, which the server keeps for the images Beep sent.
+fn image_line(data: &[u8]) -> String {
+    format!("[image: image-{}]", image_key(data))
+}
+
+/// `text` as an agent replays it, with each image it inlined as a markdown
+/// link to a data URL, `[@name](data:image/png;base64,...)`, made an image
+/// line of its own.
+fn replayed(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("](data:image/") {
+        let url_at = at + 2;
+        let (Some(open), Some(len)) = (rest[..at].rfind('['), rest[url_at..].find(')')) else {
+            break;
+        };
+        let data = rest[url_at..url_at + len]
+            .split_once(";base64,")
+            .and_then(|(_, data)| STANDARD.decode(data).ok());
+        let end = url_at + len + 1;
+        match data {
+            Some(data) => {
+                out.push_str(rest[..open].trim_end_matches(' '));
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                out.push_str(&image_line(&data));
+                if !rest[end..].is_empty() && !rest[end..].starts_with('\n') {
+                    out.push('\n');
+                }
+            }
+            None => out.push_str(&rest[..end]),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +491,23 @@ mod tests {
         live.prompted("again");
         live.apply(&chunk("user_message_chunk", "again"));
         assert_eq!(live.transcript(10).0.len(), 3);
+    }
+
+    #[test]
+    fn a_replayed_image_becomes_an_image_line() {
+        let mut live = live();
+        let data = STANDARD.encode(b"\x89PNG");
+        let line = format!("[image: image-{}]", image_key(b"\x89PNG"));
+        live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
+            "content": {"type": "text", "text": format!("what is this[@image](data:image/png;base64,{data})")}})));
+        live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
+            "content": {"type": "image", "mimeType": "image/png", "data": data}})));
+        let (entries, _) = live.transcript(10);
+        assert_eq!(entries[0].text, format!("what is this\n{line}\n{line}"));
+        assert_eq!(
+            replayed("a [link](https://x.dev) stays"),
+            "a [link](https://x.dev) stays"
+        );
     }
 
     #[test]

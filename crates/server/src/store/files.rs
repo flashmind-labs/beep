@@ -240,7 +240,7 @@ impl Store {
 
     /// Stores the bytes of file `id`, dropping its row when that fails so
     /// no file is listed without them.
-    async fn put_blob(&self, id: &str, data: &[u8]) -> Result<()> {
+    pub(super) async fn put_blob(&self, id: &str, data: &[u8]) -> Result<()> {
         if let Err(error) = self.blobs.put(id, data).await {
             sqlx::query("DELETE FROM files WHERE id=$1")
                 .bind(id)
