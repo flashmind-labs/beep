@@ -27,6 +27,7 @@ import { makeTerminals, terminalTile } from "./terminals.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
+import { makeFileSync, fileSyncTile } from "./filesync.ts";
 import { makeThreads, issueTile, threadTile } from "./threads.ts";
 import type { ThreadChatRow } from "./threads.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
@@ -1677,6 +1678,7 @@ function boardOn(p: Project) {
 function openTile(key: string | null) {
   pa.tile = key;
   if (key !== "terminals") terms.stop();
+  if (key !== "sync") fsync.stop();
   if (key !== "review") revs.stop();
   redrawProjects();
   document.querySelector("#main .cc-view")?.scrollTo({ top: 0 });
@@ -1706,6 +1708,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
+    sync: () => fsync.panel(p.name),
     branches: () => revs.branchesPanel(p.name),
     review: () => revs.reviewPanel(p.name),
   };
@@ -1735,7 +1738,8 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
           if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
         },
       }),
-      tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile)));
+      tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
+      tile("sync", "File sync", fileSyncTile(fsync.forTile(p.name), state.sync.filter(s => s.project === p.name), new Map(rows.map(w => [w.id, w.name]))), openTile)));
   return out;
 }
 
@@ -1784,6 +1788,9 @@ const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcome
 
 /// The project's terminals; the board's tile and its full view.
 const terms = makeTerminals({ invoke, h, button, ago, redraw: () => redrawProjects() });
+
+/// The project's file sync; the board's tile and its full view.
+const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects() });
 
 /// The project's branches and their reviews; the Branches tile, its full
 /// list and the review view.

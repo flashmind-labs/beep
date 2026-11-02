@@ -156,6 +156,21 @@ pub(super) fn is_conflict(path: &str) -> bool {
     name.contains(" (conflict ")
 }
 
+/// The file conflict copy `path` stands beside: `notes.txt` for
+/// `notes (conflict 1a2b3c4d).txt`. `None` when `path` is not a copy.
+pub(super) fn original_of(path: &str) -> Option<String> {
+    const MARK: &str = " (conflict ";
+    let name_at = path.rfind('/').map_or(0, |at| at + 1);
+    let at = name_at + path[name_at..].rfind(MARK)?;
+    let tag_at = at + MARK.len();
+    let tag = path.get(tag_at..tag_at + 8)?;
+    if !tag.bytes().all(|b| b.is_ascii_hexdigit()) || path.get(tag_at + 8..tag_at + 9)? != ")" {
+        return None;
+    }
+    let original = format!("{}{}", &path[..at], &path[tag_at + 9..]);
+    (original.len() > name_at).then_some(original)
+}
+
 /// Merges `incoming` into `local`, the entry the list has for its path.
 pub(super) fn merge(local: Option<&Entry>, incoming: &Entry) -> Merge {
     let Some(local) = local else {
@@ -497,6 +512,15 @@ mod tests {
         );
         assert_eq!(conflict_path(".env", &hash), ".env (conflict abababab)");
         assert!(is_conflict("d/a (conflict abababab).txt"));
+        for path in ["a.txt", "d.v2/Makefile", ".env", "d/x (1).tar.gz"] {
+            assert_eq!(
+                original_of(&conflict_path(path, &hash)).as_deref(),
+                Some(path)
+            );
+        }
+        assert_eq!(original_of("a.txt"), None);
+        assert_eq!(original_of("a (conflict zz).txt"), None);
+        assert_eq!(original_of(" (conflict abababab)"), None);
         assert!(!is_conflict("a.txt"));
     }
 }

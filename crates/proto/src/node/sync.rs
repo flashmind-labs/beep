@@ -13,6 +13,15 @@ use strum::IntoStaticStr;
 
 pub const PROTOCOL: &str = "sync/1";
 
+/// Offered beside `PROTOCOL` by a node that also pauses a project
+/// (`Project::paused`), settles conflicts (`Request::Resolve`) and reports
+/// progress. Sessions still open with `PROTOCOL`; an older node refuses
+/// what it does not know.
+pub const CONTROLS: &str = "sync-controls/1";
+
+/// The most paths `ProjectStatus::waiting` lists.
+pub const MAX_WAITING: usize = 50;
+
 /// The most paths one `Skipped` reply lists.
 pub const MAX_SKIPPED: u32 = 1000;
 
@@ -27,6 +36,23 @@ pub enum Request {
     Status {},
     /// The paths a project's sync leaves out, at most `limit`.
     Skipped { project: String, limit: u32 },
+    /// Settles the conflict copy at `path`: keeps it in place of the file
+    /// it stands beside, or deletes it. Only a node offering `CONTROLS`.
+    Resolve {
+        project: String,
+        path: String,
+        keep: Keep,
+    },
+}
+
+/// Which side of a conflict `Request::Resolve` keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Keep {
+    /// The file the copy stands beside; the copy is deleted.
+    Original,
+    /// The copy, which replaces that file.
+    Copy,
 }
 
 /// One project a node syncs.
@@ -38,6 +64,10 @@ pub struct Project {
     pub folder: String,
     /// The other nodes that sync it.
     pub peers: Vec<EndpointAddr>,
+    /// Kept on the list but not synced: no scans, fetches or pulls until
+    /// it is resumed.
+    #[serde(default)]
+    pub paused: bool,
 }
 
 /// What the node answers.
@@ -56,6 +86,8 @@ pub enum Reply {
     Skipped {
         skipped: Skipped,
     },
+    /// The conflict is settled; the next scan syncs the result.
+    Resolved {},
     Error {
         message: String,
     },
@@ -88,6 +120,27 @@ pub struct ProjectStatus {
     pub hint: Option<String>,
     /// Why the last scan or fetch failed.
     pub error: Option<String>,
+    /// Paused by the server: nothing moves until it is resumed.
+    pub paused: bool,
+    /// How far it is through what it brings in line now, while it syncs.
+    pub progress: Option<Progress>,
+    /// Some paths it still has to bring, or that failed and wait to be
+    /// tried again, at most `MAX_WAITING`.
+    pub waiting: Vec<String>,
+}
+
+/// How far a node is through one round of bringing files in line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Progress {
+    pub files_done: u64,
+    pub files_total: u64,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    /// Bytes a second over the last few seconds; 0 before it can tell.
+    pub rate: u64,
+    /// Seconds left at that rate; `None` before it can tell.
+    pub eta_secs: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, IntoStaticStr)]
@@ -103,6 +156,8 @@ pub enum State {
     Idle,
     /// It stopped; `error` says why.
     Failed,
+    /// Paused by the server.
+    Paused,
     /// A state a newer node reports.
     #[serde(other)]
     Other,
@@ -168,9 +223,17 @@ mod tests {
                 name: "game".into(),
                 folder: "/srv/project".into(),
                 peers: vec![EndpointAddr::new(SecretKey::generate().public())],
+                paused: true,
             }],
         };
         assert_eq!(round_trip(&configure), configure);
+        let resolve = Request::Resolve {
+            project: "game".into(),
+            path: "notes (conflict 1a2b3c4d).txt".into(),
+            keep: Keep::Copy,
+        };
+        assert_eq!(round_trip(&resolve), resolve);
+        assert_eq!(round_trip(&Reply::Resolved {}), Reply::Resolved {});
         let status = Reply::Status {
             projects: vec![ProjectStatus {
                 name: "game".into(),
@@ -178,6 +241,15 @@ mod tests {
                 files: 3,
                 conflicts: vec!["notes (conflict 1a2b3c4d).txt".into()],
                 rescan_secs: Some(45),
+                progress: Some(Progress {
+                    files_done: 1,
+                    files_total: 4,
+                    bytes_done: 10,
+                    bytes_total: 40,
+                    rate: 5,
+                    eta_secs: Some(6),
+                }),
+                waiting: vec!["src/main.rs".into()],
                 ..ProjectStatus::default()
             }],
         };
@@ -204,9 +276,9 @@ mod tests {
         #[derive(Serialize)]
         #[serde(rename_all = "snake_case")]
         enum Newer {
-            Paused,
+            Frozen,
         }
-        let bytes = rmp_serde::to_vec_named(&Newer::Paused).expect("encodes");
+        let bytes = rmp_serde::to_vec_named(&Newer::Frozen).expect("encodes");
         assert_eq!(
             rmp_serde::from_slice::<State>(&bytes).expect("decodes"),
             State::Other
@@ -215,5 +287,50 @@ mod tests {
             rmp_serde::from_slice::<Rule>(&bytes).expect("decodes"),
             Rule::Other
         );
+    }
+
+    #[test]
+    fn an_older_node_reads_a_paused_project_and_a_newer_status() {
+        /// `Project` and `ProjectStatus` as a node before pausing read them.
+        #[derive(Deserialize)]
+        struct OldProject {
+            name: String,
+        }
+        #[derive(Deserialize)]
+        struct OldStatus {
+            files: u64,
+        }
+        let project = Project {
+            name: "game".into(),
+            folder: "/srv/project".into(),
+            peers: Vec::new(),
+            paused: true,
+        };
+        let bytes = rmp_serde::to_vec_named(&project).expect("encodes");
+        let old: OldProject = rmp_serde::from_slice(&bytes).expect("decodes");
+        assert_eq!(old.name, "game");
+        let status = ProjectStatus {
+            files: 3,
+            paused: true,
+            waiting: vec!["a".into()],
+            ..ProjectStatus::default()
+        };
+        let bytes = rmp_serde::to_vec_named(&status).expect("encodes");
+        let old: OldStatus = rmp_serde::from_slice(&bytes).expect("decodes");
+        assert_eq!(old.files, 3);
+        // And a newer server reads an older node's status.
+        #[derive(Serialize)]
+        struct Before {
+            name: String,
+            files: u64,
+        }
+        let before = Before {
+            name: "game".into(),
+            files: 2,
+        };
+        let bytes = rmp_serde::to_vec_named(&before).expect("encodes");
+        let now: ProjectStatus = rmp_serde::from_slice(&bytes).expect("decodes");
+        assert_eq!(now.files, 2);
+        assert!(!now.paused && now.progress.is_none());
     }
 }
