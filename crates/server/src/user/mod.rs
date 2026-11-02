@@ -988,6 +988,32 @@ impl User {
         self.store.imports(&self.key).await
     }
 
+    /// Deletes every row of the project `name`, the user's chats about it
+    /// included; `None` when the user has no such project. See
+    /// `crate::imports::remove_project`, which also stops what runs.
+    pub(crate) async fn remove_project_rows(
+        &self,
+        name: &str,
+    ) -> Result<Option<crate::store::RemovedProject>> {
+        let removed = self.store.remove_project(&self.key, name).await?;
+        if removed.is_some() {
+            self.changed("");
+        }
+        Ok(removed)
+    }
+
+    /// Forgets `folder` on `endpoint` as a place of the project `name`.
+    pub(crate) async fn drop_project_folder(
+        &self,
+        name: &str,
+        endpoint: &str,
+        folder: &str,
+    ) -> Result<crate::store::DroppedMachine> {
+        self.store
+            .drop_project_folder(&self.key, name, endpoint, folder)
+            .await
+    }
+
     /// Records a checkout found on a machine as the project's folder there,
     /// unless the project has one there already; `true` when recorded.
     pub(crate) async fn link_import(&self, import: crate::store::NewImport<'_>) -> Result<bool> {

@@ -20,6 +20,7 @@ use crate::{
     store::{ImportRow, NewImport, NodeRow},
     user::User,
 };
+use chrono::Utc;
 use secrecy::{ExposeSecret, SecretString};
 use std::{
     collections::{HashMap, HashSet},
@@ -336,8 +337,10 @@ pub(crate) async fn project_machines(
             }
         })
         .collect();
+    let stale = checks::stale(&rows, &listed, Utc::now());
     let Page { machines, to_check } = checks::machines(&rows, &listed);
     app.checkouts.check_all(app, user, &to_check);
+    app.checkouts.check_all(app, user, &stale);
     Ok(Some(machines))
 }
 

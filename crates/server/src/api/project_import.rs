@@ -8,6 +8,7 @@ use crate::{
     protocol::{
         ApiError, ImportPreview, ImportProject, ImportedProject, ListImportedProjects,
         ListMachineFolder, ListProjectMachines, MachineFolder, PreviewImport, ProjectMachine,
+        RemoveProject,
     },
     router::Cx,
 };
@@ -43,6 +44,19 @@ pub(super) async fn list_imported_projects(
     _: ListImportedProjects,
 ) -> Reply<Vec<ImportedProject>> {
     Ok(imports::imported(&cx.user).await?)
+}
+
+/// Removes one of the caller's projects; no machine's files are deleted.
+pub(super) async fn remove_project(cx: Cx, request: RemoveProject) -> Reply<()> {
+    let name = request.project.trim();
+    if name.is_empty() {
+        return Err(ApiError::NotFound {});
+    }
+    if imports::remove_project(&cx.app, &cx.user, name).await? {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound {})
+    }
 }
 
 pub(super) async fn list_machine_folder(

@@ -8,7 +8,7 @@
 //! Looks run in the background, owned by [`Checkouts`]: one per machine at a
 //! time, a few at once server-wide, and a bounded number waiting.
 
-use super::repo::same_repo;
+use super::{remove, repo::same_repo};
 use crate::{
     app::App,
     credentials::{ForgejoUrl, Slot},
@@ -20,7 +20,7 @@ use crate::{
     user::User,
 };
 use anyhow::Context;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
@@ -32,6 +32,9 @@ use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
 const FOLDERS_PER_MACHINE: u32 = 200;
 /// The longest one machine's look may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(60);
+/// How long a look at a machine that has a project's folder stands before
+/// the project's page asks for another.
+const RECHECK: TimeDelta = TimeDelta::minutes(10);
 /// Machines looked through at once, server-wide.
 const AT_ONCE: usize = 4;
 /// Machines looked through or waiting their turn; past it, a look is
@@ -153,6 +156,13 @@ impl Checkouts {
         true
     }
 
+    /// Waits for every look under way to end.
+    #[cfg(test)]
+    pub(crate) async fn wait_idle(&self) {
+        let mut tasks = std::mem::take(&mut *lock(&self.tasks));
+        while tasks.join_next().await.is_some() {}
+    }
+
     /// Looks through each of `endpoints`, as after an import.
     pub(crate) fn check_all(&self, app: &Arc<App>, user: &Arc<User>, endpoints: &[String]) {
         for endpoint in endpoints {
@@ -163,7 +173,7 @@ impl Checkouts {
 
 /// One look, its failure logged: nothing is recorded, and the machine is
 /// looked through again when it next connects or the page asks.
-async fn look(app: &Weak<App>, user: &User, endpoint: &str) {
+async fn look(app: &Weak<App>, user: &Arc<User>, endpoint: &str) {
     let Some(app) = app.upgrade() else {
         return;
     };
@@ -177,9 +187,10 @@ async fn look(app: &Weak<App>, user: &User, endpoint: &str) {
     }
 }
 
-/// Asks the machine for its checkouts and records those of the user's
-/// projects. Gives how many it recorded.
-async fn look_through(app: &App, user: &User, endpoint: &str) -> anyhow::Result<usize> {
+/// Drops the machine from projects whose folder it no longer has, then
+/// asks it for its checkouts and records those of the user's projects.
+/// Gives how many it recorded.
+async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyhow::Result<usize> {
     let Some(online) = app
         .nodes
         .online(endpoint)
@@ -187,6 +198,15 @@ async fn look_through(app: &App, user: &User, endpoint: &str) -> anyhow::Result<
     else {
         return Ok(0);
     };
+    match remove::drop_missing(app, user, &online, endpoint).await {
+        Ok(0) => {}
+        Ok(dropped) => log::info!(
+            "checkouts gone; user={} node={endpoint} dropped={dropped}",
+            user.id()
+        ),
+        // A look that failed proves nothing is gone.
+        Err(e) => log::info!("checkouts not looked at; node={endpoint} error={e:#}"),
+    }
     if !online.offers(SESSIONS_PROTOCOL) {
         return Ok(0);
     }
@@ -351,6 +371,26 @@ pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
         machines: listed,
         to_check,
     }
+}
+
+/// Online machines that have a folder of the project and were not looked
+/// through for `RECHECK`, by key: looking again finds a folder deleted
+/// since.
+pub(crate) fn stale(
+    rows: &[ImportRow],
+    machines: &[Machine<'_>],
+    now: DateTime<Utc>,
+) -> Vec<String> {
+    machines
+        .iter()
+        .filter(|machine| {
+            machine.lookable
+                && !machine.checking
+                && rows.iter().any(|row| row.endpoint == machine.row.endpoint)
+                && machine.checked_at.is_none_or(|at| at + RECHECK < now)
+        })
+        .map(|machine| machine.row.endpoint.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -594,5 +634,38 @@ mod tests {
         assert_eq!(tasks.len(), 1, "one task for the machine");
         while tasks.join_next().await.is_some() {}
         assert!(!checks.is_checking("alice", "build"));
+    }
+
+    #[test]
+    fn a_machine_with_the_folder_is_looked_at_again_after_a_while() {
+        let now = Utc::now();
+        let rows = [
+            import("acme/widget", "mac", "/Users/user/widget"),
+            import("acme/widget", "build", "/srv/widget"),
+            import("acme/widget", "old", "/srv/widget"),
+            import("acme/widget", "busy", "/srv/widget"),
+        ];
+        let (mac, build, old, busy, gpu) = (
+            node("mac", "MacBook Air"),
+            node("build", "build-box"),
+            node("old", "old-box"),
+            node("busy", "busy-box"),
+            node("gpu", "gpu-box"),
+        );
+        let at = |row, online, checked_at, checking| Machine {
+            row,
+            online,
+            lookable: online,
+            checking,
+            checked_at,
+        };
+        let listed = [
+            at(&mac, true, Some(now - TimeDelta::minutes(1)), false),
+            at(&build, true, Some(now - TimeDelta::hours(1)), false),
+            at(&old, false, None, false),
+            at(&busy, true, None, true),
+            at(&gpu, true, None, false),
+        ];
+        assert_eq!(stale(&rows, &listed, now), ["build"]);
     }
 }

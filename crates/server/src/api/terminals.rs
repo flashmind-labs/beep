@@ -136,28 +136,12 @@ pub(super) async fn close_terminal(cx: Cx, request: CloseTerminal) -> Reply<()> 
         .await?
         .ok_or(ApiError::NotFound {})?;
     if let Some(node) = online(&cx, &row.endpoint) {
-        stop(&node, &row)
+        node.stop_task(TaskId(row.task), &row.command)
             .await
             .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
     }
     cx.user.remove_terminal(request.id).await?;
     Ok(())
-}
-
-/// Stops the row's task when the node still runs it.
-async fn stop(node: &Online, row: &TerminalRow) -> Result<()> {
-    let id = TaskId(row.task);
-    match node.tasks(&TaskRequest::Status { id }).await? {
-        TaskReply::Status { task, .. }
-            if task.command == row.command && task.state.is_running() =>
-        {
-            match node.tasks(&TaskRequest::Stop { id }).await? {
-                TaskReply::Error { message } => bail!("{message}"),
-                _ => Ok(()),
-            }
-        }
-        _ => Ok(()),
-    }
 }
 
 /// `text` trimmed, refused when empty, too long or on several lines.

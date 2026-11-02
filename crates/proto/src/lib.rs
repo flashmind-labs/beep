@@ -1034,6 +1034,14 @@ requests! {
     /// the caller's has that id; `BadRequest` for the caller's own key,
     /// which `RemoveDevice` unlinks.
     251 RemoveMachine { machine_id: String } => Call<()>
+    /// Removes `project` (`org/repo`) from Beep for the caller, deleting no
+    /// files on any machine: its imports go, every machine stops syncing it
+    /// (as `SetProjectSync` with `on` false does), its live workers and
+    /// terminals are stopped, and its agent chat, thread chats, tasks,
+    /// workers, branch reviews, pins and hidden issues are deleted. Issues
+    /// and pull requests on its host stay as they are. Importing it again
+    /// starts it afresh. `NotFound` when the caller has no such project.
+    252 RemoveProject { project: String } => Call<()>
     /// The picture of a `[image: image-<key>]` line in the log of the
     /// coding agent session `session` on `machine_id`, read from the node
     /// on each call; the server keeps nothing. `NotFound` when the caller
