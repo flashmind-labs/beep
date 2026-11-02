@@ -62,7 +62,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The machines running beep-node on the account, for admins. A machine shows
+ * The machines running beep-node on the account. A machine shows
  * here once it has connected; linking one is the same as linking a computer,
  * with the link `beep-node link` prints pasted as a code.
  */

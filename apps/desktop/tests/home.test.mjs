@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAC_NOT_ALLOWED, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../dist/home.js";
+import { bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../dist/home.js";
 
 const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,
@@ -97,10 +97,6 @@ test("This Mac gets a row until the server lists it", () => {
   assert.equal(off.action, "Add");
   assert.equal(off.name, "This Mac");
   assert.equal(off.sub, "Studio");
-  const refused = thisMacRow(mac({ status: "not_allowed" }), []);
-  assert.equal(refused.state, "Not allowed");
-  assert.equal(refused.title, MAC_NOT_ALLOWED);
-  assert.equal(refused.action, null);
   const failed = thisMacRow(mac({ status: "failed", error: "connect timed out" }), []);
   assert.equal(failed.state, "connect timed out");
   assert.match(failed.title, /connect timed out/);
