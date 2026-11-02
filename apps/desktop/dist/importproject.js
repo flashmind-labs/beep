@@ -40,7 +40,9 @@ export function openImportProject(options = {}) {
   onDone = options.onDone || null;
   back = document.activeElement;
   injectStyle();
-  state = START;
+  // Start on this Mac when it is one of the machines: Choose… then opens the
+  // macOS folder picker straight away.
+  state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   root = el("div", "am-scrim");
   root.addEventListener("mousedown", e => { if (e.target === root && state.step !== "cloning") closeImportProject(); });
   sheet = el("div", "am-sheet ip-sheet");
@@ -51,6 +53,7 @@ export function openImportProject(options = {}) {
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   draw();
+  learnBase();
 }
 
 export function closeImportProject() {
@@ -136,7 +139,13 @@ function learnBase() {
 
 /// Choose…: the macOS picker on this Mac, the folder browser elsewhere.
 async function choose() {
-  if (!state.machine || reading) return;
+  if (reading) return;
+  // On Auto, Choose… picks this Mac, or else the first machine listed.
+  if (!state.machine) {
+    const id = macId && machines.some(m => m.id === macId) ? macId : machines[0]?.id;
+    if (!id) return;
+    update({ type: "pick", machine: id });
+  }
   if (state.machine !== macId) {
     read(state.chosen?.path ?? null, listing => update({ type: "browse", listing }));
     return;
@@ -210,7 +219,7 @@ function folderLine() {
     shown || (state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks"));
   if (shown) path.title = shown;
   const pick = button(reading ? "Reading…" : "Choose…", "dbtn quiet", choose);
-  pick.disabled = !state.machine || reading;
+  pick.disabled = !machines.length || reading;
   const reset = state.chosen ? button("Default", "dbtn quiet", () => update({ type: "unchoose" })) : null;
   return el("div", "am-line", path, pick, reset);
 }
