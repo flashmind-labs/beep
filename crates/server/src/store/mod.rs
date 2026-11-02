@@ -12,6 +12,8 @@ mod actions;
 mod apps;
 mod backfill;
 mod blobs;
+mod chat_allows;
+pub(crate) use chat_allows::ChatAllow;
 mod chats;
 mod credentials;
 mod cron_jobs;
@@ -408,6 +410,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         67,
         "terminals",
         include_str!("../../migrations/0067_terminals.sql"),
+    ),
+    (
+        70,
+        "chat allows",
+        include_str!("../../migrations/0070_chat_allows.sql"),
     ),
 ];
 

@@ -1345,6 +1345,7 @@ impl BeepClient {
             session_id,
             query_id,
             decision,
+            for_session: false,
         })
         .await
     }

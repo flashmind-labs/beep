@@ -174,6 +174,16 @@ async fn put(app: Weak<App>, ask: Ask) {
         agent,
         ..
     } = &ask.follower;
+    // Allow for this session on an earlier card lets the agent's later
+    // permission questions in this chat through without one. A choice,
+    // with nothing to reject, is still asked.
+    if is_permission(&ask.question) && allowed_in_chat(user, *chat).await {
+        drop(strong);
+        if let Some(request) = reply(&ask.question, &GateAnswer::Allow) {
+            (ask.answer)(request).await;
+        }
+        return;
+    }
     let answered = strong.subagents.approvals.ask(
         user.id(),
         *chat,
@@ -192,6 +202,29 @@ async fn put(app: Weak<App>, ask: Ask) {
         return;
     };
     (ask.answer)(request).await;
+}
+
+/// Whether `question` asks permission: it can be allowed and rejected.
+fn is_permission(question: &Question) -> bool {
+    let has = |kinds: &[OptionKind]| {
+        question
+            .options
+            .iter()
+            .any(|option| kinds.contains(&option.kind))
+    };
+    has(&[OptionKind::AllowOnce, OptionKind::AllowAlways])
+        && has(&[OptionKind::RejectOnce, OptionKind::RejectAlways])
+}
+
+/// Whether the user allowed agents' questions for the rest of `chat`.
+async fn allowed_in_chat(user: &User, chat: Uuid) -> bool {
+    match user.chat_allows(chat).await {
+        Ok(allows) => allows.iter().any(|allow| allow.tool == QUESTION_TOOL),
+        Err(error) => {
+            log::warn!("nodes: could not read the chat's allows: {error:#}");
+            false
+        }
+    }
 }
 
 /// The card for an agent's permission question.
@@ -327,6 +360,17 @@ mod tests {
             ..question
         };
         assert_eq!(reply(&only_allow, &GateAnswer::Deny("no".into())), None);
+    }
+
+    #[test]
+    fn only_a_question_that_can_be_refused_asks_permission() {
+        let question = question();
+        assert!(is_permission(&question));
+        let choice = Question {
+            options: question.options[..2].to_vec(),
+            ..question
+        };
+        assert!(!is_permission(&choice));
     }
 
     #[test]

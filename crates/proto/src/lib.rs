@@ -326,8 +326,12 @@ requests! {
     39 SetAppPermissions { slug: String, level: PermissionLevel, allowed: Vec<String> } => Call<()>
     /// Answers a tool call the session stopped on to ask the user, and
     /// resumes the session in a new run. Resending the same answer returns
-    /// the same run.
-    40 AnswerApproval { session_id: Uuid, query_id: String, decision: ApprovalDecision } => Call<Run>
+    /// the same run. `for_session` with `Allow` also lets the same action
+    /// run without asking for the rest of this chat ("Allow for this
+    /// session"); for a card of background work in the chat, such as a
+    /// coding agent's question, its later cards of the same kind are
+    /// allowed too. Servers from before it allow once.
+    40 AnswerApproval { session_id: Uuid, query_id: String, decision: ApprovalDecision, #[serde(default)] for_session: bool } => Call<Run>
     /// The models the caller can pick for their own turns.
     41 GetModels {} => Call<Models>
     /// Picks the model for the caller's turns.

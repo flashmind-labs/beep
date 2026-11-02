@@ -212,12 +212,21 @@ pub enum Decision {
     Allow,
     Always,
     Deny,
+    /// Allow, and the same action for the rest of the chat.
+    Session,
+}
+
+impl Decision {
+    /// Whether it also allows the action for the rest of the chat.
+    pub fn for_session(self) -> bool {
+        matches!(self, Self::Session)
+    }
 }
 
 impl From<Decision> for ApprovalDecision {
     fn from(d: Decision) -> Self {
         match d {
-            Decision::Allow => Self::Allow {},
+            Decision::Allow | Decision::Session => Self::Allow {},
             Decision::Always => Self::Always {},
             Decision::Deny => Self::Deny {},
         }
@@ -841,7 +850,7 @@ impl Beep {
         &self,
         session: &str,
         query_id: String,
-        decision: ApprovalDecision,
+        decision: Decision,
     ) -> Result<String> {
         let session_id =
             Uuid::parse_str(session).map_err(|_| DesktopError::BadRequest("bad session".into()))?;
@@ -849,7 +858,8 @@ impl Beep {
             .call(AnswerApproval {
                 session_id,
                 query_id,
-                decision,
+                decision: decision.into(),
+                for_session: decision.for_session(),
             })
             .await?;
         Ok(run.id)

@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         AppAction, AppKind, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel,
     },
-    store::AppPermissionRow,
+    store::{AppPermissionRow, ChatAllow},
     user::User,
 };
 use anyhow::Result;
@@ -31,6 +31,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+use uuid::Uuid;
 
 /// Most argument fields shown on an approval, and the longest value.
 const MAX_FIELDS: usize = 8;
@@ -345,6 +346,15 @@ impl Rules {
     /// Whether `app` may only read.
     pub(crate) fn read_only(&self, app: &str) -> bool {
         self.level(app) == PermissionLevel::ReadOnly {}
+    }
+
+    /// Adds what the user allowed for the rest of one chat: those actions
+    /// run without asking under ask first. An app's level stays as it is,
+    /// so read only still refuses.
+    pub(crate) fn allow_in_chat(&mut self, allows: Vec<ChatAllow>) {
+        for ChatAllow { app, tool } in allows {
+            self.0.entry(app).or_default().allowed.insert(tool);
+        }
     }
 }
 
@@ -1035,6 +1045,24 @@ pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -
     user.save_app_permissions(&row).await
 }
 
+/// Stops asking for `tool` in `chat` only, for "Allow for this session".
+/// `is_project` as for [`allow_always_in`].
+pub(crate) async fn allow_in_chat(
+    user: &User,
+    chat: Uuid,
+    tool: &str,
+    is_project: bool,
+) -> Result<()> {
+    let Some((app, _)) = lookup_in(tool, is_project) else {
+        return Ok(());
+    };
+    let allow = ChatAllow {
+        app: app.slug().to_owned(),
+        tool: ToolSlug::new(tool).0,
+    };
+    user.allow_in_chat(chat, &allow).await
+}
+
 /// The call's arguments as the user reads them.
 fn fields(args: &Value) -> Vec<ApprovalField> {
     let Value::Object(args) = args else {
@@ -1304,6 +1332,43 @@ mod tests {
         );
         assert!(call_acts("MCP_MY-NOTES_SEARCH_PAGES", &Value::Null).is_none());
         assert!(lookup("MCP_").is_none());
+    }
+
+    #[test]
+    fn a_chat_allow_runs_without_asking_but_never_past_read_only() {
+        let mut rules = Rules::from_rows(vec![AppPermissionRow {
+            app: "notion".into(),
+            level: PermissionLevel::ReadOnly {},
+            allowed: Vec::new(),
+        }]);
+        let args = Value::Null;
+        let gmail = lookup("GMAIL_SEND_EMAIL").unwrap().0;
+        assert!(matches!(
+            check(&rules, &gmail, "GMAIL_SEND_EMAIL", &args),
+            Check::Ask(_)
+        ));
+        let allow = |app: &str, tool: &str| ChatAllow {
+            app: app.into(),
+            tool: tool.into(),
+        };
+        rules.allow_in_chat(vec![
+            allow("gmail", "GMAIL_SEND_EMAIL"),
+            allow("notion", "NOTION_CREATE_NOTION_PAGE"),
+        ]);
+        assert!(matches!(
+            check(&rules, &gmail, "GMAIL_SEND_EMAIL", &args),
+            Check::Run
+        ));
+        // Only the action allowed.
+        assert!(matches!(
+            check(&rules, &gmail, "GMAIL_MOVE_TO_TRASH", &args),
+            Check::Ask(_)
+        ));
+        let notion = lookup("NOTION_CREATE_NOTION_PAGE").unwrap().0;
+        assert!(matches!(
+            check(&rules, &notion, "NOTION_CREATE_NOTION_PAGE", &args),
+            Check::Refuse(_)
+        ));
     }
 
     #[test]

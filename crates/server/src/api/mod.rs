@@ -515,13 +515,14 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         session_id,
         query_id,
         decision,
+        for_session,
     } = req;
     // A call of background work waits on its own; nothing resumes.
     if cx
         .app
         .subagents
         .approvals
-        .answer(&cx.user, &query_id, decision)
+        .answer(&cx.user, &query_id, decision, for_session)
         .await?
     {
         return Err(ApiError::Conflict {
@@ -541,6 +542,7 @@ async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         answer: Some(Answer {
             call_id: query_id.clone(),
             decision,
+            for_session,
         }),
         model: None,
         thinking: None,

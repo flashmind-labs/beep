@@ -271,7 +271,7 @@ function chatHints() {
   const asking = e?.approval ?? (!e?.run && waitingQuestion(S.session));
   if (asking) {
     const grant = e?.approval ? e.approval.grant : forRoutine(asking.action);
-    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], chip);
+    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⇧⌘${ICON.ret}`, "this session"], [`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], chip);
   }
   if (e?.run) return hints([[ICON.ret, "queue"], ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
@@ -671,7 +671,7 @@ function approvalCard(id, turn, { query_id, app, action, fields }) {
   const card = h(`<div class="dcard">
     <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
+    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
   card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d)));
   turn.append(card);
@@ -914,7 +914,7 @@ function settle(id, e, pending, decision) {
   e.approval = null;
   const said = pending.grant
     ? { allow: "Allowed for this routine", deny: "Denied" }[decision]
-    : { allow: "Allowed once", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
+    : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
@@ -926,7 +926,7 @@ function settle(id, e, pending, decision) {
 async function answer(decision) {
   const id = S.session, e = live.get(id), pending = e?.approval;
   if (!pending) return;
-  if (pending.grant && decision === "always") decision = "allow";
+  if (pending.grant && (decision === "always" || decision === "session")) decision = "allow";
   const turn = settle(id, e, pending, decision);
   await stopping.get(id);
   try {
@@ -1774,7 +1774,7 @@ const SHORTCUTS = [
   ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
   ["Talking", [["tap ⌥", "Live mode, with Beep open"], ["hold ⌥", "Talk while held, with Beep open"], ...LIVE_TALK]],
   ["Say in live mode", LIVE_SAY],
-  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⇧⌘${ICON.ret}`, "Allow for this session"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 
@@ -5543,14 +5543,14 @@ function drawWorkQuestions() {
   b.querySelector(".dworkq")?.remove();
   const qs = WORK.get(S.session)?.questions ?? [];
   if (!qs.length) return;
-  const said = { allow: "Allowed once. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it.", grant: "Allowed for this routine. The work goes on." };
+  const said = { allow: "Allowed once. The work goes on.", session: "Allowed for the rest of this chat. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it.", grant: "Allowed for this routine. The work goes on." };
   const first = waitingQuestion(S.session);
   const card = q => q.withdrawn || q.answer
     ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : said[forRoutine(q.action) && q.answer === "allow" ? "grant" : q.answer])}</div>`
     : `<div class="dcard" data-q="${esc(q.query_id)}">
     <div class="head"><span class="dapp">${esc((q.app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
     ${q.fields.length ? `<div class="kv">${q.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].filter(([d]) => d !== "always" || !forRoutine(q.action)).map(([d, t, cls, k]) =>
+    <div class="acts">${[["allow", "Allow", "pri", `⌘${ICON.ret}`], ["session", "Allow for this session", "", `⇧⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]].filter(([d]) => (d !== "always" && d !== "session") || !forRoutine(q.action)).map(([d, t, cls, k]) =>
       `<button class="dbtn ${cls}" data-d="${d}">${t}${q === first && !here()?.approval ? `<kbd>${k}</kbd>` : ""}</button>`).join("")}</div></div>`;
   const box = h(`<div class="dworkq" style="display:grid;gap:8px"><div class="dmuted" style="justify-content:center;font-size:11.5px;color:var(--dim)">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
   box.querySelectorAll(".dcard").forEach(c => c.querySelectorAll("[data-d]").forEach(btn => btn.addEventListener("click", () =>
@@ -5561,7 +5561,7 @@ function drawWorkQuestions() {
 
 async function answerWork(id, q, decision) {
   if (!q || q.answer || q.withdrawn) return;
-  if (decision === "always" && forRoutine(q.action)) decision = "allow";
+  if ((decision === "always" || decision === "session") && forRoutine(q.action)) decision = "allow";
   q.answer = decision;
   if (id === S.session) { drawWorkQuestions(); refreshHints(); }
   try {
@@ -5967,10 +5967,10 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "e" && canPickModel()) { e.preventDefault(); return S.view === "model" ? back() : renderModel(); }
   if (S.view === "model") return modelKeys(e);
   if (S.view === "chat") {
-    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : "allow"); }
+    if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(e.altKey ? "always" : e.shiftKey ? "session" : "allow"); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
     const asked = !here()?.approval && S.view === "chat" && waitingQuestion(S.session);
-    if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : "allow"); }
+    if (cmd && e.key === "Enter" && asked) { e.preventDefault(); return answerWork(S.session, asked, e.altKey ? "always" : e.shiftKey ? "session" : "allow"); }
     if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }

@@ -9,6 +9,7 @@ use crate::{
     app::UserNotice,
     permissions,
     protocol::{Approval, ApprovalDecision, Notice, PendingApproval},
+    store::ChatAllow,
     user::User,
 };
 use anyhow::Result;
@@ -177,11 +178,14 @@ impl Approvals {
 
     /// Answers the question `query_id` that `user` was asked. `false` when
     /// nothing of theirs waits under it, such as a turn's own card.
+    /// `for_session` with Allow also allows later cards of the same tool in
+    /// that chat.
     pub(crate) async fn answer(
         &self,
         user: &User,
         query_id: &str,
         decision: ApprovalDecision,
+        for_session: bool,
     ) -> Result<bool> {
         let waiting = {
             let mut waiting = self.waiting();
@@ -199,6 +203,7 @@ impl Approvals {
         else {
             return Ok(false);
         };
+        let chat = question.chat;
         self.resolved(query_id.to_owned(), question);
         let answer_is = match decision {
             ApprovalDecision::Deny {} => GateAnswer::Deny(permissions::DENIED.to_owned()),
@@ -213,6 +218,17 @@ impl Approvals {
             && let Err(error) = permissions::allow_always(user, &tool).await
         {
             log::warn!("permissions: unable to save Always; user={user} error={error:#}");
+        }
+        if for_session && decision == (ApprovalDecision::Allow {}) {
+            let allow = ChatAllow {
+                app: permissions::MACHINES_APP.to_owned(),
+                tool,
+            };
+            if let Err(error) = user.allow_in_chat(chat, &allow).await {
+                log::warn!(
+                    "permissions: unable to allow for the chat; user={user} error={error:#}"
+                );
+            }
         }
         Ok(true)
     }

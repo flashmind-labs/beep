@@ -369,6 +369,23 @@ impl App {
                 run.id
             );
         }
+        // Allow for this session saves the same action for this chat only.
+        let for_chat = answer
+            .filter(|answer| answer.for_session && answer.decision == (ApprovalDecision::Allow {}))
+            .and_then(|answer| open.iter().find(|call| call.id == answer.call_id))
+            .and_then(|call| match &project {
+                Some(project) => projects::tools::saved_as(&call.name, &call.arguments, project),
+                None => Some(call.name.clone()),
+            });
+        if let Some(slug) = for_chat
+            && let Err(error) =
+                permissions::allow_in_chat(user, chat, &slug, project.is_some()).await
+        {
+            log::warn!(
+                "permissions: unable to allow for the chat; run_id={} error={error:#}",
+                run.id
+            );
+        }
         let approved = Approved(
             answer
                 .filter(|answer| answer.decision != (ApprovalDecision::Deny {}))
@@ -387,10 +404,16 @@ impl App {
         let Some((composio, mcp, apps)) = cancel.run_until_cancelled(loading).await else {
             return self.stopped_early(user, run, live).await;
         };
-        let rules = user.app_rules().await.unwrap_or_else(|error| {
+        let mut rules = user.app_rules().await.unwrap_or_else(|error| {
             log::warn!("permissions: unable to load, asking for everything: {error:#}");
             Rules::default()
         });
+        match user.chat_allows(chat).await {
+            Ok(allows) => rules.allow_in_chat(allows),
+            Err(error) => {
+                log::warn!("permissions: unable to load the chat's allows: {error:#}");
+            }
+        }
         let app_tools: Vec<_> = composio.tools.into_iter().chain(mcp).collect();
         let app_tools = if untrusted {
             permissions::read_tools_only(app_tools, &composio.hinted)
