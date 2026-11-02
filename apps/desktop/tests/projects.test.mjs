@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount, sideProjects } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -218,4 +218,13 @@ test("the sidebar groups projects by org and keeps each one's colour index", () 
   assert.deepEqual(rows.map(r => r.org ?? r.repo ?? r.name), ["acme", "widget", "relay", "north", "pines", "scratch"]);
   assert.deepEqual(rows.filter(r => !r.org).map(r => r.i), [0, 3, 2, 1]);
   assert.deepEqual(sideProjects(null), []);
+});
+
+test("pinned projects come out in pin order and keep their colour", () => {
+  const rows = [{ name: "acme/relay" }, { name: "acme/widget" }, { name: "northwind/pines" }];
+  const { onTop, rest } = splitOnTop(rows, ["northwind/pines", "acme/relay", "gone/repo"]);
+  assert.deepEqual(onTop.map(p => [p.name, p.i]), [["northwind/pines", 2], ["acme/relay", 0]]);
+  assert.deepEqual(rest.map(p => [p.name, p.i]), [["acme/widget", 1]]);
+  assert.deepEqual(sideProjects(rest).map(p => p.org ?? [p.repo, p.i]), ["acme", ["widget", 1]]);
+  assert.deepEqual(splitOnTop(null, null), { onTop: [], rest: [] });
 });

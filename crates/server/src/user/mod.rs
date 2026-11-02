@@ -1030,6 +1030,18 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// The projects pinned to the top of the sidebar, oldest pin first.
+    pub async fn projects_on_top(&self) -> Result<Vec<String>> {
+        self.store.projects_on_top(&self.key).await
+    }
+
+    /// Pins `project` to the top of the sidebar, or unpins it.
+    pub async fn pin_project_to_top(&self, project: &str, pinned: bool) -> Result<()> {
+        self.store
+            .pin_project_to_top(&self.key, project, pinned)
+            .await
+    }
+
     /// The user's credentials, without their secrets.
     pub async fn credentials(
         &self,

@@ -12,8 +12,9 @@ use beep_proto::{
     ApiError, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent, ImportProject,
     ImportedProject, ListFoundFolders, ListMachineFolder, ListPendingApprovals,
     ListProjectMachines, ListProjectSessions, ListProjectTasks, ListProjectWorkers, ListProjects,
-    MachineFolder, PendingApproval, ProjectAgent, ProjectMachine, ProjectTask, ProjectTaskState,
-    ProjectWorker, ProjectWorkerState, StopProjectWorker, UpdateProjectTask,
+    ListProjectsOnTop, MachineFolder, PendingApproval, PinProjectToTop, ProjectAgent,
+    ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
+    StopProjectWorker, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -274,6 +275,34 @@ pub async fn center_projects(beep: Service<'_>) -> Result<Option<Vec<ProjectAgen
         Err(e) if center::is_unsupported(&e) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// The projects pinned to the top of the sidebar, oldest pin first; none
+/// from a server too old to pin them.
+#[tauri::command]
+pub async fn projects_on_top(beep: Service<'_>) -> Result<Vec<String>> {
+    match beep.call(ListProjectsOnTop {}).await {
+        Ok(names) => Ok(names),
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Pins `project` (`org/repo`) to the top of the sidebar, or unpins it.
+/// Not `PinProject`, which keeps a project off sync.
+#[tauri::command]
+pub async fn pin_project_to_top(beep: Service<'_>, project: String, pinned: bool) -> Result<()> {
+    beep.call(PinProjectToTop { project, pinned })
+        .await
+        .map_err(|e| {
+            if unknown_op(&e) {
+                DesktopError::BadRequest(
+                    "The server needs an update before projects can be pinned.".into(),
+                )
+            } else {
+                e
+            }
+        })
 }
 
 /// The project agent of `name` (`org/repo`), made with its chat on the

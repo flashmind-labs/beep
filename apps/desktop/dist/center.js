@@ -12,7 +12,7 @@ import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machin
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects } from "./projects-state.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop } from "./projects-state.js";
 import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
 import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
@@ -63,7 +63,7 @@ const CONNECT_RETRY_MS = 3000;
 /// `sessions` each project's past sessions once read, by name.
 /// `agents` lists the project agents (undefined before, null from a server
 /// without them) and `pview` each one's tasks, workers and chat, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [] };
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [], top: [] };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -564,10 +564,44 @@ function reloadChats() {
   return Promise.all([reloadGroup("pinned"), reloadGroup("chats")]);
 }
 
-/// Pinned projects join the Pinned group here once projects can be pinned:
-/// return items shaped like chat rows ({ kind: "project", id, title }) and
-/// give `chatRow` and the group's `onPick` a branch for them.
-async function pinnedProjects() { return []; }
+/// The projects pinned to the top, as rows of the Pinned group shaped like
+/// chat rows.
+function pinnedProjects() {
+  const rows = projectRows();
+  if (!rows) return [];
+  return splitOnTop(rows, state.top).onTop.map(p => ({ kind: "project", id: p.name, title: p.name, pinned: true, project: p }));
+}
+
+/// Pins project `name` to the top of the sidebar, or unpins it. Not the
+/// file sync pin, which keeps a project on the machines it is on.
+async function setProjectOnTop(name, pinned) {
+  const before = state.top;
+  state.top = pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name);
+  redrawProjectPins();
+  try {
+    await invoke("pin_project_to_top", { project: name, pinned });
+  } catch (e) {
+    console.warn("pinning a project:", e);
+    state.top = before;
+    redrawProjectPins();
+  }
+}
+
+function redrawProjectPins() {
+  reloadGroup("pinned");
+  reloadGroup("projects");
+  if (shown === "projects") { drawProjects(views.get("projects").el); drawTop(); }
+}
+
+/// The pin button of a sidebar row: pins it to the top, or unpins it.
+function pinToggle(id, pinned, on) {
+  const toggle = h("button", "pa", icon(IC.pin));
+  toggle.type = "button";
+  toggle.dataset.id = id;
+  toggle.setAttribute("aria-label", pinned ? "Unpin" : "Pin to top");
+  toggle.addEventListener("click", e => { e.stopPropagation(); on(); });
+  return toggle;
+}
 
 /// Gives the pin button of chat `id` the focus again, unless focus has gone
 /// elsewhere meanwhile (a redraw leaves it on the page body).
@@ -578,6 +612,7 @@ function restorePinFocus(id) {
 }
 
 async function setPinned(c, pinned) {
+  if (c.kind === "project") return setProjectOnTop(c.id, pinned);
   const active = document.activeElement;
   const hadFocus = active?.classList.contains("pa") && active.dataset.id === c.id;
   try {
@@ -590,14 +625,11 @@ async function setPinned(c, pinned) {
 }
 
 function chatRow(c) {
+  if (c.kind === "project") return projectRow(c.project, c.title, true);
   const on = paneOn();
   const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
   const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
-  const toggle = h("button", "pa", icon(IC.pin));
-  toggle.type = "button";
-  toggle.dataset.id = c.id;
-  toggle.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
-  toggle.addEventListener("click", e => { e.stopPropagation(); setPinned(c, !c.pinned); });
+  const toggle = pinToggle(c.id, c.pinned, () => setPinned(c, !c.pinned));
   // Two real buttons in one row, never one inside the other.
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
@@ -606,7 +638,21 @@ function chatRow(c) {
   return h("div", "cc-si cc-chat", openBtn, toggle);
 }
 
+/// A project's sidebar row, `label` beside its colour, with its pin button.
+function projectRow(p, label, pinned) {
+  const sw = h("span", "cc-pdot");
+  sw.style.background = PROJECT_COLORS[p.i % PROJECT_COLORS.length];
+  const openBtn = h("button", "open", sw, h("span", "tt", label));
+  openBtn.type = "button";
+  openBtn.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
+  if (shown === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
+  if (p.agents) openBtn.append(h("span", "n", String(p.agents)));
+  const toggle = pinToggle(p.name, pinned, () => setProjectOnTop(p.name, !pinned));
+  return h("div", `cc-si cc-chat${pinned ? "" : " pj-repo"}`, openBtn, toggle);
+}
+
 function pickChat(c) {
+  if (c.kind === "project") return openProjects(c.id);
   if (c.kind === "group") return go("pane", { group: { id: c.id } });
   // A research opens in its own window, as from the bar's list.
   if (c.research) return invoke("open_research", { session: c.id }).catch(() => go("pane", { chat: { session: c.id } }));
@@ -618,7 +664,7 @@ registerSidebarGroup("pinned", {
   title: "Pinned",
   async load() {
     if (!pane()) return [];
-    return [...splitPinned(await fetchChats(), SIDE_CHATS).pinned, ...await pinnedProjects()];
+    return [...splitPinned(await fetchChats(), SIDE_CHATS).pinned, ...pinnedProjects()];
   },
   row: chatRow,
   onPick: pickChat,
@@ -766,17 +812,15 @@ registerSidebarGroup("projects", {
   empty: () => emptyRow("No projects yet"),
   load: async () => {
     const rows = projectRows();
-    return rows ? sideProjects(rows) : null;
+    // Those pinned to the top show under Pinned instead.
+    return rows ? sideProjects(splitOnTop(rows, state.top).rest) : null;
   },
   row(p) {
     // An org's heading; under it only the repo name shows.
     if (p.org) return h("div", "cc-org", `${p.org}/`);
-    const b = sideItem(null, p.repo ?? p.name, p.agents, { cls: p.repo ? "pj-repo" : "", current: shown === "projects" && state.picked === p.name });
-    b.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
-    const sw = h("span", "cc-pdot");
-    sw.style.background = PROJECT_COLORS[p.i % PROJECT_COLORS.length];
-    b.prepend(sw);
-    return b;
+    const row = projectRow(p, p.repo ?? p.name, false);
+    if (!p.repo) row.classList.remove("pj-repo");
+    return row;
   },
   onPick: p => { if (!p.org) openProjects(p.name); },
   foot() {
@@ -1456,6 +1500,10 @@ registerView("projects", {
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
     const label = p?.url ? openOnLabel(p.url) : null;
     if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+    if (p) {
+      const on = state.top.includes(p.name);
+      tools.push(button(on ? "Unpin" : "Pin", "quiet small", () => setProjectOnTop(p.name, !on)));
+    }
     tools.push(button("All projects", "quiet small", () => openProjects()));
     return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
@@ -1679,13 +1727,15 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    const [home, mac, sync] = await Promise.all([
+    const [home, mac, sync, top] = await Promise.all([
       invoke("center_home"),
       invoke("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
       // Sync progress only adds to the Now column; Home draws without it.
       invoke("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
+      invoke("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
     ]);
     state.mac = mac;
+    state.top = top;
     state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;
@@ -1703,6 +1753,7 @@ async function refresh() {
   // 10 seconds while the window shows.
   if (shown === "projects" && state.picked) loadProjectAgent();
   reloadGroup("projects");
+  reloadGroup("pinned");
   reloadGroup("machines");
   if (again) { again = false; refresh(); }
   // Until Home first loads, a failed try is made again soon, seen or not,

@@ -111,6 +111,39 @@ impl Store {
         tx.commit().await?;
         Ok(())
     }
+
+    /// The projects pinned to the top of the sidebar, oldest pin first.
+    pub(crate) async fn projects_on_top(&self, user: &UserKey) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT project FROM projects_on_top WHERE user_id=$1
+             ORDER BY pinned_at, project",
+        )
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Pins `project` to the top of the sidebar, or unpins it. Pinning it
+    /// again keeps its place.
+    pub(crate) async fn pin_project_to_top(
+        &self,
+        user: &UserKey,
+        project: &str,
+        pinned: bool,
+    ) -> Result<()> {
+        let sql = if pinned {
+            "INSERT INTO projects_on_top (user_id, project) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING"
+        } else {
+            "DELETE FROM projects_on_top WHERE user_id=$1 AND project=$2"
+        };
+        sqlx::query(sql)
+            .bind(user.as_str())
+            .bind(project)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -169,5 +202,41 @@ mod tests {
         assert_eq!(store.project_syncs(&other).await.unwrap().len(), 1);
         store.pin_project(&user, "game", false).await.unwrap();
         assert!(store.pinned_projects(&user).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn projects_on_top_keep_their_order_and_leave_sync_alone() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let other = UserKey::for_test("bob");
+        store
+            .set_project_sync(&user, &row("acme/widget", "a", "/srv/widget"))
+            .await
+            .unwrap();
+        store
+            .pin_project_to_top(&user, "acme/widget", true)
+            .await
+            .unwrap();
+        store
+            .pin_project_to_top(&user, "acme/relay", true)
+            .await
+            .unwrap();
+        store
+            .pin_project_to_top(&user, "acme/widget", true)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.projects_on_top(&user).await.unwrap(),
+            ["acme/widget", "acme/relay"]
+        );
+        assert_eq!(store.project_syncs(&user).await.unwrap().len(), 1);
+        assert!(store.pinned_projects(&user).await.unwrap().is_empty());
+        assert!(store.projects_on_top(&other).await.unwrap().is_empty());
+        store
+            .pin_project_to_top(&user, "acme/widget", false)
+            .await
+            .unwrap();
+        assert_eq!(store.projects_on_top(&user).await.unwrap(), ["acme/relay"]);
     }
 }
