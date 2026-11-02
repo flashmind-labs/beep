@@ -8,7 +8,7 @@ use crate::{
     instance::Privilege,
     protocol::{
         ApiError, ImportProject, ImportedProject, ListImportedProjects, ListMachineFolder,
-        MachineFolder,
+        ListProjectMachines, MachineFolder, ProjectMachine,
     },
     router::Cx,
 };
@@ -61,4 +61,14 @@ pub(super) async fn list_machine_folder(
     )
     .await
     .map_err(refusal)
+}
+
+pub(super) async fn list_project_machines(
+    cx: Cx,
+    request: ListProjectMachines,
+) -> Reply<Vec<ProjectMachine>> {
+    admin(&cx)?;
+    imports::project_machines(&cx.app, &cx.user, &request.project)
+        .await?
+        .ok_or(ApiError::NotFound {})
 }

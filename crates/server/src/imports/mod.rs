@@ -5,6 +5,7 @@
 //! Projects are named `org/repo`, as the projects store names them, so the
 //! two can be folded together.
 
+mod checks;
 mod clone;
 mod folder;
 mod found;
@@ -13,8 +14,9 @@ mod repo;
 mod service;
 mod tool;
 
+pub use checks::Checkouts;
 pub(crate) use found::MachineFound;
-pub(crate) use service::{Import, browse, found_projects, import, imported};
+pub(crate) use service::{Import, browse, found_projects, import, imported, project_machines};
 pub(crate) use tool::ImportProjectTool;
 
 use thiserror::Error;
