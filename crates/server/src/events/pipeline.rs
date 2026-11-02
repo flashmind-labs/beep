@@ -3,7 +3,7 @@
 //! whether the main agent hears about it (see [`super::triage`]).
 
 use super::{
-    AppEvent, EventApp, enabled,
+    AppEvent, EventApp,
     limit::{Limits, RateLimiter},
     poll, realtime, triage, triggers,
 };
@@ -229,8 +229,6 @@ pub enum Accepted {
     Duplicate,
     /// The user turned its topic off.
     Unsubscribed,
-    /// The user does not get account events.
-    Off,
     /// Too old to be news.
     Stale,
     /// Past the user's hourly limit.
@@ -240,9 +238,6 @@ pub enum Accepted {
 /// Stores `event` for `user` unless it is dropped, and queues the user's
 /// next wake.
 pub async fn accept(app: &App, user: &User, event: AppEvent) -> Result<Accepted> {
-    if !enabled(app, user) {
-        return Ok(Accepted::Off);
-    }
     if !user.event_topics().await?.is_on(event.kind.topic()) {
         return Ok(Accepted::Unsubscribed);
     }
@@ -505,11 +500,7 @@ async fn sweep(app: Arc<App>, settings: Settings) {
             _ = app.events.stop.cancelled() => break,
             _ = ticks.tick() => {}
         }
-        let users: Vec<Arc<User>> = app
-            .users()
-            .into_iter()
-            .filter(|user| enabled(&app, user))
-            .collect();
+        let users: Vec<Arc<User>> = app.users();
         let sweeping = stream::iter(users).for_each_concurrent(SWEEP_CONCURRENCY, |user| {
             let (app, settings) = (&app, &settings);
             async move {

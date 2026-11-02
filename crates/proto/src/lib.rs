@@ -229,7 +229,7 @@ requests! {
     /// `images` are `data:image/...;base64,` URIs; the server keeps them with
     /// the chat, and `GetSessionImages` lists them. `model` is a `ModelChoice::id` to run this
     /// one turn on instead of the picked model, and `thinking` how long it
-    /// reasons; only admins may set either. `platform` is the app sending it,
+    /// reasons. `platform` is the app sending it,
     /// missing from apps older than the field. `files` are other files sent
     /// with the message, which the model reads and `GetSessionFiles` lists;
     /// older apps send none. `research` starts a research in a new chat:
@@ -328,9 +328,9 @@ requests! {
     /// resumes the session in a new run. Resending the same answer returns
     /// the same run.
     40 AnswerApproval { session_id: Uuid, query_id: String, decision: ApprovalDecision } => Call<Run>
-    /// The models an admin can pick for their own turns. Empty for everyone else.
+    /// The models the caller can pick for their own turns.
     41 GetModels {} => Call<Models>
-    /// Picks the model for the caller's turns. Admins only.
+    /// Picks the model for the caller's turns.
     42 SetModel { id: String } => Call<Models>
     /// The ones of `ids` the server still has, so a phone can drop the
     /// chats another phone deleted.
@@ -339,7 +339,7 @@ requests! {
     /// gives it, with the reply and tool calls that followed it, from both
     /// the history and what the model sees. Fails while the chat has a run.
     44 DeleteTurn { session_id: String, timestamp: i64 } => Call<()>
-    /// Picks how long the model reasons on the caller's turns. Admins only.
+    /// Picks how long the model reasons on the caller's turns.
     45 SetThinking { level: ReasoningLevel } => Call<Models>
     /// Like `DeleteTurn`, and also removes every turn after it, so the chat
     /// ends before that prompt. A rerun sends the prompt again after this.
@@ -348,7 +348,7 @@ requests! {
     /// most recently changed first.
     47 SearchSessions { query: String } => Call<Vec<SessionMatch>>
     /// Turns Auto on or off for the caller: Jev then picks the model and
-    /// thinking of each prompt from the server's Auto models. Admins only.
+    /// thinking of each prompt from the server's Auto models.
     48 SetAutoModel { enabled: bool } => Call<Models>
     /// Lets the device that made `offer` sign into the caller's account.
     /// Any key of the account may link, and only a key with no account.
@@ -453,9 +453,10 @@ requests! {
     83 DeleteSkill { id: String } => Call<()>
     /// Puts back the version before the skill's last change.
     84 UndoSkill { id: String } => Call<Skill>
-    /// Whether agents are on, and the agents Jev picks from. Admins only.
+    /// Whether agents are on, and the agents Jev picks from.
     85 GetAgents {} => Call<Agents>
-    /// Turns agents on or off for every user. Admins only.
+    /// Turns agents on or off for every user. Ignored now: there are no
+    /// agents to turn on.
     86 SetAgents { enabled: bool } => Call<Agents>
     /// The price chart of `symbol` over `range`, as `show_stock_chart`
     /// draws it, for a chart's range buttons.
@@ -532,8 +533,8 @@ requests! {
     /// `title` and `body` of a `Notice` it got, or a reply to read out with
     /// an empty `title`.
     110 SpeakNotice { title: String, body: String } => Call<VoiceNote>
-    /// The machines running beep-node on the account, by name. Admins only,
-    /// like nodes. A linked machine shows once it has connected.
+    /// The machines running beep-node on the account, by name. A linked
+    /// machine shows once it has connected.
     111 ListMachines {} => Call<Vec<Machine>>
     /// What each memory that is not about the user is about. Ids are the
     /// ones `ListMemories` gives; a memory missing here is about the user.
@@ -585,13 +586,14 @@ requests! {
     /// left out, as are steps that had none. `NotFound` when the caller has
     /// no such session.
     126 GetToolLabels { session_id: Uuid } => Call<Vec<ToolLabel>>
-    /// Where Beep failed users, as the improvement watcher found it after
-    /// their chats, most recently seen first: only those with `status` when
-    /// given. Admins only; anyone else gets `Unauthorized`.
+    /// Where Beep failed the caller, as the improvement watcher found it
+    /// after their chats, most recently seen first: only those with `status`
+    /// when given. Servers from before every user got findings answer
+    /// `Unauthorized` to anyone but an admin.
     127 ListFindings { status: Option<FindingStatus> } => Call<Vec<Finding>>
     /// Resolves or dismisses a finding, by `Finding::id`, or opens it again.
-    /// Nothing in Beep changes by itself. Admins only; `NotFound` when there
-    /// is no such finding.
+    /// Nothing in Beep changes by itself. `NotFound` when the caller has no
+    /// such finding.
     128 UpdateFinding { id: String, status: FindingStatus } => Call<Finding>
     /// The web pages each turn of a session used, by the `timestamp` of the
     /// `HistoryEntry::User` that started it, for the source chips under its
@@ -599,44 +601,42 @@ requests! {
     /// has no such session.
     129 GetSessionSources { session_id: Uuid } => Call<Vec<TurnSources>>
     /// What each machine has installed and can be asked to do, for the
-    /// command center. Admins only, like `ListMachines`; a machine that has
-    /// not reported yet has empty lists.
+    /// command center. A machine that has not reported yet has empty lists.
     130 ListMachineDetails {} => Call<Vec<MachineDetails>>
     /// The coding-agent sessions on the caller's online machines, newest
     /// activity first: those Beep started, and those started outside Beep
     /// that something runs now. A machine that does not answer in time is
-    /// left out. Admins only, like `ListMachines`.
+    /// left out.
     131 ListAgentSessions {} => Call<Vec<MachineSession>>
     /// Answers the question a session Beep started asks, by
     /// `AgentQuestion::id`. `reply` is one of its options, by id or name;
     /// anything else declines and goes to the agent as its next prompt.
     /// `NotFound` when the machine is not one of the caller's online ones
     /// or has no such session, `Conflict` when the session no longer asks
-    /// `question`. Admins only.
+    /// `question`.
     132 AnswerAgentQuestion { machine_id: String, agent: String, session: String, question: u32, reply: String } => Call<()>
     /// The approvals background work waits on in any of the caller's chats,
     /// oldest first. Answer one with `AnswerApproval`.
     133 ListPendingApprovals {} => Call<Vec<ChatApproval>>
     /// The project agent for `project` (`org/repo`), made with its chat on
-    /// the first ask. `BadRequest` for a malformed name. Admins only.
+    /// the first ask. `BadRequest` for a malformed name.
     134 GetProjectAgent { project: String } => Call<ProjectAgent>
     /// The tasks of a project, oldest first. `NotFound` when there is no
-    /// such project. Admins only.
+    /// such project.
     135 ListProjectTasks { project: Uuid } => Call<Vec<ProjectTask>>
     /// The workers of a project, including those that ended in the last
-    /// day. `NotFound` when there is no such project. Admins only.
+    /// day. `NotFound` when there is no such project.
     136 ListProjectWorkers { project: Uuid } => Call<Vec<ProjectWorker>>
     /// Moves a task to `Dropped`, or back to `Planned` to reopen it; any
     /// other state is a `BadRequest`. `NotFound` when there is no such
-    /// task. Admins only.
+    /// task.
     137 UpdateProjectTask { task: Uuid, state: ProjectTaskState } => Call<ProjectTask>
     /// Stops a running worker. `NotFound` when there is no such worker.
-    /// Admins only.
     138 StopProjectWorker { worker: Uuid } => Call<()>
-    /// Every project agent, for the command center. Admins only.
+    /// Every project agent, for the command center.
     139 ListProjects {} => Call<Vec<ProjectAgent>>
     /// The caller's online machines that offer a coding agent, for
-    /// starting one from the app. Admins only, like `ListMachines`.
+    /// starting one from the app.
     140 ListAgentHosts {} => Call<Vec<AgentHost>>
     /// Starts a coding-agent session on `prompt` in `cwd` (the machine's
     /// workspace or home folder when `None`). `machine_id` names the
@@ -646,18 +646,17 @@ requests! {
     /// of the caller's chats, then hears when a turn ends or the agent
     /// asks something. `NotFound` when the machine is not one of the
     /// caller's online ones or `chat` is not theirs; `BadRequest` saying
-    /// why when no machine fits or the node refuses. Admins only.
+    /// why when no machine fits or the node refuses.
     141 StartAgentSession { machine_id: Option<String>, agent: Option<String>, cwd: Option<String>, prompt: String, needs: Vec<MachineCapability>, chat: Option<Uuid> } => Call<StartedAgent>
     /// One session as `ListAgentSessions` lists it, with its plan, the
     /// files it changed and the last `last` entries of its transcript (at
     /// most 200). An outside session has no plan or files. `NotFound` when
     /// the machine is not one of the caller's online ones or has no such
-    /// session. Admins only.
+    /// session.
     142 GetAgentSession { machine_id: String, agent: String, session: String, last: u32 } => Call<AgentSessionView>
     /// Sends a session Beep started a message, stops its turn or ends it.
     /// A message waits for a running turn to end. `NotFound` as for
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.
-    /// Admins only.
     143 SteerAgentSession { machine_id: String, agent: String, session: String, steer: AgentSteer } => Call<()>
     /// Turns syncing `project` on or off on one machine. On, `folder` is
     /// its absolute folder there, inside the machine's shared folders;
@@ -665,20 +664,19 @@ requests! {
     /// sync it, node to node. Off, the machine stops and its files stay.
     /// `NotFound` when the machine is not one of the caller's,
     /// `BadRequest` when `folder` is missing, the project is pinned, or the
-    /// machine refuses the folder. Admins only.
+    /// machine refuses the folder.
     150 SetProjectSync { project: String, machine_id: String, folder: Option<String>, on: bool } => Call<ProjectSync>
     /// Every project the caller syncs, with how each machine stands; an
     /// offline machine or one that does not answer in time shows
-    /// `SyncStatus::Offline`. Admins only.
+    /// `SyncStatus::Offline`.
     151 ListProjectSync {} => Call<Vec<ProjectSync>>
     /// What `project`'s sync leaves out on one machine (build output,
     /// ignored files, links), for the file viewer. `NotFound` when the
-    /// machine does not sync it or is offline. Admins only.
+    /// machine does not sync it or is offline.
     152 GetSyncSkipped { project: String, machine_id: String } => Call<SyncSkipped>
     /// Pins a project to the machines it is on, or unpins it. A pinned
     /// project, such as a large game or video project, never syncs: every
-    /// machine stops, and `SetProjectSync` refuses to turn it on. Admins
-    /// only.
+    /// machine stops, and `SetProjectSync` refuses to turn it on.
     153 PinProject { project: String, pinned: bool } => Call<ProjectSync>
     /// What the event triage agent found worth telling the user and that
     /// they have not seen or dismissed yet, from the last two days, newest
@@ -703,8 +701,7 @@ requests! {
     164 RemoveCredential { id: String } => Call<()>
     /// What each of the caller's online machines last said it has free:
     /// disk, memory and load, sampled about once a minute. A machine that
-    /// is offline or has not sent any yet is left out. Admins only, like
-    /// `ListMachines`.
+    /// is offline or has not sent any yet is left out.
     165 ListMachineStats {} => Call<Vec<MachineStats>>
     /// Clones a repository onto one of the caller's machines and lists it
     /// as a project. `repo` is `org/repo` (GitHub), a GitHub URL, or a URL
@@ -720,11 +717,10 @@ requests! {
     /// `<folder>/<repo>`. Apps from before it send no `folder`.
     /// `BadRequest` saying why: the repo is malformed or on an unknown host,
     /// the folder is not one Beep takes, it is not found or the token has
-    /// no access, the machine is offline, or the clone failed. Admins only.
+    /// no access, the machine is offline, or the clone failed.
     166 ImportProject { repo: String, machine_id: Option<String>, #[serde(default)] folder: Option<String> } => Call<ImportedProject>
     /// The projects the caller imported, by name, then machine; those on
     /// machines no longer linked are left out. `cloned` is always false.
-    /// Admins only.
     167 ListImportedProjects {} => Call<Vec<ImportedProject>>
     /// One folder on one of the caller's machines, for choosing where
     /// `ImportProject` puts a project: the folders in it and whether it is
@@ -732,7 +728,7 @@ requests! {
     /// (`~/code`); without it, the machine's workspace, else its home.
     /// `BadRequest` saying why: the machine is not one of the caller's, it
     /// is offline or runs no commands, or the path is malformed or not a
-    /// folder. Admins only.
+    /// folder.
     168 ListMachineFolder { machine_id: String, path: Option<String> } => Call<MachineFolder>
     /// Git checkouts the caller's coding agents worked in that are not
     /// imported yet, for the Add a project sheet: one row per repository,
@@ -742,21 +738,21 @@ requests! {
     /// folder; the home folder and folders that are not checkouts are left
     /// out. A folder already imported on its machine, or a repository
     /// imported anywhere, is left out too, and so is a machine that is
-    /// offline or does not answer in time. Admins only.
+    /// offline or does not answer in time.
     169 ListFoundFolders {} => Call<Vec<FoundProject>>
     /// The coding-agent sessions that ran in `project`'s folders on the
     /// caller's online machines, newest activity first, at most 50: those
     /// started outside Beep, such as Claude Code in a terminal. `title` is
     /// the session's title, else its first prompt. One nothing runs any
     /// more has status `Ended`; `ResumeAgentSession` picks it up. `NotFound`
-    /// when the caller has not imported `project`. Admins only.
+    /// when the caller has not imported `project`.
     170 ListProjectSessions { project: String } => Call<Vec<MachineSession>>
     /// Resumes a session started outside Beep, by the agent's own id, as
     /// `ListProjectSessions` lists it: it then runs as a session Beep
     /// started, in its folder, on `prompt` when given. `NotFound` when the
     /// machine is not one of the caller's online ones; `BadRequest` saying
     /// why when the node refuses, such as when the session still runs in a
-    /// terminal. Admins only.
+    /// terminal.
     171 ResumeAgentSession { machine_id: String, agent: String, session: String, prompt: Option<String> } => Call<StartedAgent>
     /// Every machine of the caller's, as `project`'s page lists it: its
     /// folder there, whether Beep is looking through it for a checkout now,
@@ -793,7 +789,7 @@ requests! {
     /// It works for ten minutes. `name` is what the machine is called once
     /// linked; without it, the name `setup` is given, else the machine's
     /// host name. `BadRequest` when the name is empty or too long or the
-    /// server takes no machines. Admins only, like `ListMachines`.
+    /// server takes no machines.
     180 CreateNodeToken { name: Option<String> } => Call<NodeToken>
     /// Stops a token `CreateNodeToken` gave from working. `NotFound` when
     /// the caller made no such token or it was already used; `BadRequest`
@@ -1602,7 +1598,7 @@ pub struct Finding {
 }
 
 wire_enum! {
-    /// Where an admin left a finding.
+    /// Where the user left a finding.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum FindingStatus {
@@ -2583,11 +2579,11 @@ impl PermissionLevel {
     }
 }
 
-/// The models an admin can pick from and the one their turns use.
+/// The models the caller can pick from and the one their turns use.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Models {
-    /// Empty when the caller is not an admin.
+    /// Empty on servers from before every user could pick.
     pub choices: Vec<ModelChoice>,
     /// The `id` of the model the caller's turns use.
     pub selected: String,

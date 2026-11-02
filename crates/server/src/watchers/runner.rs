@@ -157,11 +157,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Hub {
     /// Asks for `user`'s `chat` to be read now that a task in it ended.
-    /// Does nothing before `start` or for a user watchers leave alone.
-    pub fn task_ended(&self, app: &App, user: &str, chat: Uuid) {
-        if !super::enabled_for(app, user) {
-            return;
-        }
+    /// Does nothing before `start`.
+    pub fn task_ended(&self, user: &str, chat: Uuid) {
         let Some(wakes) = lock(&self.wakes).clone() else {
             return;
         };
@@ -175,8 +172,8 @@ impl Hub {
     }
 
     /// Whether the watcher `kind` runs, for `user`'s chats.
-    pub fn watches(&self, app: &App, user: &str, kind: WatcherKind) -> bool {
-        super::enabled_for(app, user) && lock(&self.kinds).contains(&kind)
+    pub fn watches(&self, kind: WatcherKind) -> bool {
+        lock(&self.kinds).contains(&kind)
     }
 
     /// Stops the watchers; reviews under way are dropped and run again
@@ -339,19 +336,15 @@ impl Runner {
         self.woken.retain(|chat, _| waiting.contains(chat));
     }
 
-    /// The reviews ready at `now`: the quiet chats of admins, and the chats
-    /// tasks ended in.
+    /// The reviews ready at `now`: the quiet chats of every user, and the
+    /// chats tasks ended in.
     async fn plan(&self, app: &Arc<App>, now: DateTime<Utc>) -> Result<Vec<Job>> {
-        let admins = app.models.admins();
         let since = now - delta(self.settings.lookback);
-        let mut chats = app.store.watched_chats(&admins, since).await?;
+        let mut chats = app.store.watched_chats(since).await?;
         let mut causes: HashMap<Uuid, Cause> = HashMap::new();
         for (chat, user) in &self.woken {
             causes.insert(*chat, Cause::TaskEnded);
             if chats.iter().any(|found| found.chat == *chat) {
-                continue;
-            }
-            if !super::enabled_for(app, user) {
                 continue;
             }
             if let Some(found) = app.store.watched_chat(user, *chat).await? {

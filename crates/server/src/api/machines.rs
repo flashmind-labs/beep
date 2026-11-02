@@ -2,7 +2,6 @@
 
 use super::Reply;
 use crate::{
-    instance::Privilege,
     nodes::{self, Sampled, TokenRefusal},
     protocol::{
         node::{AppInfo, AppName, Capability, DiskUsage, EnvReport, GpuInfo},
@@ -14,12 +13,9 @@ use crate::{
 };
 use std::collections::HashSet;
 
-/// Admins only, like nodes themselves. A machine whose key was unlinked
-/// is left out.
+/// The caller's own machines. A machine whose key was unlinked is left
+/// out.
 pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>> {
-    if !cx.app.allows(Privilege::Nodes, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
     let keys: HashSet<String> = cx
         .user
         .account_keys()
@@ -40,15 +36,12 @@ pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>
         .collect())
 }
 
-/// Admins only, like `list_machines`. A machine that has not reported
-/// yet is listed with nothing in it.
+/// The caller's own machines, like `list_machines`. A machine that has
+/// not reported yet is listed with nothing in it.
 pub(super) async fn list_machine_details(
     cx: Cx,
     _: ListMachineDetails,
 ) -> Reply<Vec<MachineDetails>> {
-    if !cx.app.allows(Privilege::Nodes, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
     let keys: HashSet<String> = cx
         .user
         .account_keys()
@@ -66,12 +59,9 @@ pub(super) async fn list_machine_details(
         .collect())
 }
 
-/// Admins only, like `list_machines`. Only machines online now that sent
-/// stats on this connection.
+/// The caller's own machines online now that sent stats on this
+/// connection.
 pub(super) async fn list_machine_stats(cx: Cx, _: ListMachineStats) -> Reply<Vec<MachineStats>> {
-    if !cx.app.allows(Privilege::Nodes, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
     Ok(cx
         .app
         .nodes
@@ -84,7 +74,7 @@ pub(super) async fn list_machine_stats(cx: Cx, _: ListMachineStats) -> Reply<Vec
         .collect())
 }
 
-/// A setup token for a new machine. Admins only, like `list_machines`.
+/// A setup token that links a new machine to the caller.
 pub(super) async fn create_node_token(
     cx: Cx,
     CreateNodeToken { name }: CreateNodeToken,
@@ -94,7 +84,6 @@ pub(super) async fn create_node_token(
             token: made.token.to_string(),
             expires_at: made.expires_at.into(),
         }),
-        Err(TokenRefusal::NotAllowed) => Err(ApiError::Unauthorized {}),
         Err(TokenRefusal::Failed(e)) => Err(e.into()),
         Err(refusal) => Err(ApiError::bad_request(refusal.to_string())),
     }

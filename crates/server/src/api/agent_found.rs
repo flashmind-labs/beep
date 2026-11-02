@@ -26,7 +26,8 @@ const FOLDERS_PER_MACHINE: u32 = 100;
 /// The most sessions a project lists.
 const MAX_SESSIONS: usize = 50;
 
-/// Admins only, like `ListMachines`. A machine that cannot say is left out.
+/// The caller's own machines, like `ListMachines`. A machine that cannot
+/// say is left out.
 pub(super) async fn list_found_folders(cx: Cx, _: ListFoundFolders) -> Reply<Vec<FoundProject>> {
     let asks: Vec<_> = live_hosts(&cx)
         .await?
@@ -59,7 +60,7 @@ async fn machine_found(live: Live) -> Option<MachineFound> {
     }
 }
 
-/// Admins only. `NotFound` unless the caller imported `project`.
+/// `NotFound` unless the caller imported `project`.
 pub(super) async fn list_project_sessions(
     cx: Cx,
     request: ListProjectSessions,

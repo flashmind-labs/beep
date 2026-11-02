@@ -70,10 +70,14 @@ async fn get_project_agent_refuses_bad_names() {
 }
 
 #[tokio::test]
-async fn project_requests_need_nodes_privilege() {
+async fn every_user_gets_projects_of_their_own() {
     let h = harness().await;
-    assert_eq!(admin(&h.app, &h.alice), Ok(()));
-    assert_eq!(admin(&h.app, &h.bob), Err(ApiError::Unauthorized {}));
+    let alices = project_agent(&h.alice, "acme/widget").await.unwrap();
+    let bobs = project_agent(&h.bob, "acme/widget").await.unwrap();
+    assert_ne!(alices.project_id, bobs.project_id);
+    assert_ne!(alices.chat_id, bobs.chat_id);
+    assert_eq!(projects(&h.bob).await.unwrap(), vec![bobs]);
+    assert_eq!(projects(&h.alice).await.unwrap(), vec![alices]);
 }
 
 #[tokio::test]
