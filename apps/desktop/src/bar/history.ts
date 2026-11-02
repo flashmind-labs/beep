@@ -1,4 +1,3 @@
-import { loadAgentAccounts } from "./accounts.ts";
 import { askFiles } from "./attach.ts";
 import { approvalCard, body, drawLatest, drawSteps, failed, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -114,7 +113,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   if (last) suggestions(last.turn, last.replies);
   scrollDown();
   loadAskFiles(id, b);
-  loadAgentAccounts();
+  loadAgents(id, b);
   loadSources(id, b);
   keepWaitingQuestions(id);
 }
@@ -135,6 +134,16 @@ export function loadAskFiles(id: string, b: ChatBody) {
   return eachTurn(id, b, invoke<{ message: number; files: SentFile[] }[]>("session_files", { id }), (turn, { files }) => {
     if (turn.querySelector(".dachips")) return;
     (turn.querySelector(".dpics") ?? turn.querySelector(".ask"))?.after(askFiles(files));
+  });
+}
+
+/// Names the agent that answered each turn of session `id`. General and
+/// turns without agents show nothing.
+function loadAgents(id: string, b: ChatBody) {
+  return eachTurn(id, b, invoke<TurnAgent[]>("session_agents", { id }), (turn, { agent }) => {
+    if (!agent) return;
+    turn.agent = agent;
+    replyActs(turn);
   });
 }
 
@@ -169,10 +178,13 @@ export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
   anchor ? anchor.after(row) : turn.append(row);
 }
 
+/// The agent that answered one turn (`session_agents`).
+type TurnAgent = { message: number; agent: string | null };
+
 /// Names the agent that answered a turn that just finished live: it is the
 /// newest one the server lists.
 export async function loadTurnAgent(id: string | null, turn: Turn) {
-  const agents = await invoke<{ message: number; agent: string | null }[]>("session_agents", { id }).catch(() => []);
+  const agents = await invoke<TurnAgent[]>("session_agents", { id }).catch(() => []);
   const agent = agents.at(-1)?.agent;
   if (!agent || !turn.isConnected || turn !== [...body()!.querySelectorAll<Turn>(".turn")].findLast(t => t.user)) return;
   turn.agent = agent;
