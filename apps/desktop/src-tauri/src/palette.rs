@@ -6,7 +6,7 @@ use crate::{
 };
 use beep_proto::{
     ApiProvider, Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems,
-    ListImportedProjects, ListMachines, ListMemories, Session, SessionMatch,
+    ListImportedProjects, ListMachines, ListMemories, ListProjectBranches, Session, SessionMatch,
 };
 use serde::Serialize;
 use std::{
@@ -16,7 +16,7 @@ use std::{
 };
 use strum::IntoEnumIterator;
 use tauri::State;
-use tokio::join;
+use tokio::{join, task::JoinSet};
 
 type Service<'a> = State<'a, Arc<Beep>>;
 
@@ -36,6 +36,16 @@ pub(crate) struct PaletteLists {
     machines: Option<Vec<MachineView>>,
     projects: Option<Vec<ImportedProject>>,
     prs: Option<Vec<PrRow>>,
+    /// Read after the rest, since each project's are read on a machine.
+    branches: Option<Vec<BranchRow>>,
+}
+
+/// A branch with commits its project's default branch does not have.
+pub(crate) struct BranchRow {
+    project: String,
+    name: String,
+    ahead: u32,
+    subject: String,
 }
 
 /// An open pull request of the user's, as the palette finds it.
@@ -116,6 +126,9 @@ pub(crate) enum HitKind {
     Setting,
     /// Pull requests, under "Projects and code".
     Code,
+    /// Branches with work, also under "Projects and code". The id is the
+    /// project and the branch, split by a space.
+    Branch,
     Project,
     Chat,
     Memory,
@@ -269,10 +282,11 @@ fn with_top(mut groups: Vec<Vec<(Tier, Hit)>>) -> Vec<Hit> {
 
 /// Which group's best hit becomes the top hit on a tie: the things a
 /// search most often means first.
-const TOP_ORDER: [HitKind; 8] = [
+const TOP_ORDER: [HitKind; 9] = [
     HitKind::Project,
     HitKind::Machine,
     HitKind::Code,
+    HitKind::Branch,
     HitKind::Setting,
     HitKind::Chat,
     HitKind::Routine,
@@ -437,6 +451,18 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
         };
         Some((tier, hit))
     });
+    let branches = lists.branches.iter().flatten().filter_map(|b| {
+        let tier = tier(&query, &b.name).or_else(|| tier(&query, &b.project))?;
+        let hit = Hit {
+            kind: HitKind::Branch,
+            id: format!("{} {}", b.project, b.name),
+            title: format!("{} · {}", b.project, b.name),
+            detail: format!("Branch · {} ahead · {}", b.ahead, b.subject),
+            top: false,
+        };
+        Some((tier, hit))
+    });
+    let code = code.chain(branches);
     with_top(vec![
         best(actions),
         best(settings.collect()),
@@ -474,8 +500,78 @@ pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -
                 .map(PrRow::from)
                 .collect()
         }),
+        branches: None,
     };
     *cache.0.lock().unwrap_or_else(PoisonError::into_inner) = lists;
+    Ok(())
+}
+
+/// The most projects whose branches the palette reads when it opens.
+const BRANCH_PROJECTS: usize = 8;
+
+/// Reads the branches with work of the projects `center_palette` listed,
+/// for the palette to find. Called after it, without holding up the
+/// first search.
+#[tauri::command]
+pub async fn center_palette_branches(
+    beep: Service<'_>,
+    cache: State<'_, PaletteCache>,
+) -> Result<()> {
+    let projects: Vec<String> = {
+        let lists = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut seen = HashSet::new();
+        lists
+            .projects
+            .iter()
+            .flatten()
+            .filter(|p| seen.insert(p.project.clone()))
+            .map(|p| p.project.clone())
+            .take(BRANCH_PROJECTS)
+            .collect()
+    };
+    let mut reads = JoinSet::new();
+    for project in projects {
+        let beep = Arc::clone(beep.inner());
+        reads.spawn(async move {
+            let read = beep
+                .call(ListProjectBranches {
+                    project: project.clone(),
+                })
+                .await;
+            (project, read)
+        });
+    }
+    let mut rows = Vec::new();
+    while let Some(done) = reads.join_next().await {
+        let (project, read) = match done {
+            Ok(done) => done,
+            Err(e) => {
+                log::warn!("reading branches for the palette: {e}");
+                continue;
+            }
+        };
+        let Some(found) = section("branches", read) else {
+            continue;
+        };
+        rows.extend(
+            found
+                .branches
+                .into_iter()
+                .filter(|b| b.ahead > 0 && b.name != found.default_branch)
+                .map(|b| BranchRow {
+                    project: project.clone(),
+                    name: b.name,
+                    ahead: b.ahead,
+                    subject: b.subject,
+                }),
+        );
+    }
+    rows.sort_by(|a, b| (&a.project, &a.name).cmp(&(&b.project, &b.name)));
+    cache
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .branches = Some(rows);
     Ok(())
 }
 
@@ -774,6 +870,34 @@ mod tests {
             assert_eq!(code[0].id, "https://example.com/acme/widget/pull/42");
             assert_eq!(code[0].title, "acme/widget · PR #42 Fix the login loop");
         }
+    }
+
+    #[test]
+    fn branches_are_found_with_pull_requests() {
+        let lists = PaletteLists {
+            prs: Some(vec![pr("acme/widget", 42, "Fix the login loop")]),
+            branches: Some(vec![BranchRow {
+                project: "acme/widget".to_owned(),
+                name: "fix-login".to_owned(),
+                ahead: 3,
+                subject: "Retry the token once".to_owned(),
+            }]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("fix", &lists, &none());
+        let branch = of_kind(&hits, HitKind::Branch);
+        assert_eq!(branch.len(), 1);
+        assert_eq!(branch[0].id, "acme/widget fix-login");
+        assert_eq!(branch[0].detail, "Branch · 3 ahead · Retry the token once");
+        let code = hits
+            .iter()
+            .position(|h| h.kind == HitKind::Code)
+            .expect("the PR matches");
+        let at = hits
+            .iter()
+            .position(|h| h.kind == HitKind::Branch)
+            .expect("the branch matches");
+        assert_eq!(at, code + 1, "branches follow pull requests in one group");
     }
 
     #[test]

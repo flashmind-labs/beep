@@ -140,6 +140,7 @@ fn main() {
             center::center_open,
             center::center_pending,
             palette::center_palette,
+            palette::center_palette_branches,
             palette::center_find,
             commands::status,
             commands::link_offer,
