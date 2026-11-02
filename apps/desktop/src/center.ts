@@ -1915,7 +1915,7 @@ function whereRow(p: Project, m: WhereRow) {
   const name = h("span", "nm", h("b", "", m.name));
   if (m.kind === "here") {
     const path = m.folder!;
-    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p) } } }));
+    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }));
     const copy = button("Copy path", "quiet small", async () => {
       try { await navigator.clipboard.writeText(path); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
     });
@@ -2203,7 +2203,7 @@ const PANE_TITLES: Record<string, [string, string]> = {
   machines: SETTINGS_TITLE,
   research: ["Research", ""],
   agents: ["Coding agents", "On your machines"],
-  agentnew: ["Coding agents", "Start one on a machine"],
+  agentnew: ["Start a coding agent", "It runs on your machine; follow it and answer it here"],
   agent: ["Coding agents", "Follow it and answer it here"],
 };
 
@@ -2220,6 +2220,7 @@ function paneTitle(): ViewHead {
     return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
   }
   const [title, sub] = PANE_TITLES[on.view ?? ""] ?? ["Beep", ""];
+  if (on.view === "agentnew") return { title, sub, tools: [button("All sessions", "small", () => go("pane", "agents"))] };
   return { title, sub };
 }
 
@@ -2382,7 +2383,8 @@ document.addEventListener("keydown", e => {
   if (key === "k") { e.preventDefault(); return openPalette(); }
   if (key === ",") { e.preventDefault(); return openSettings(); }
   const to = PANE_KEYS[key];
-  if (to) { e.preventDefault(); return go("pane", to); }
+  // ⌘M on the start form picks the model there.
+  if (to && !(key === "m" && shown === "pane" && paneOn().view === "agentnew")) { e.preventDefault(); return go("pane", to); }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
