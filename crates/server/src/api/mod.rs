@@ -294,6 +294,7 @@ pub fn router() -> Router {
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
+        .call(projects::list_project_pull_requests)
 }
 
 type Reply<T> = Result<T, ApiError>;

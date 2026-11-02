@@ -37,6 +37,21 @@ export interface ThreadRow {
   updated_at: number;
 }
 
+/// An open pull request of the project's, anyone's (PullRequestRow).
+export interface PullRequestRow {
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  draft: boolean;
+  /// Opened by the account the host's CLI is signed in as.
+  mine: boolean;
+  /// In milliseconds since the Unix epoch.
+  created_at: number;
+  /// In milliseconds since the Unix epoch.
+  updated_at: number;
+}
+
 /// A chat about one thread (ThreadChatRow).
 export interface ThreadChatRow {
   chat_id: string;
@@ -85,10 +100,45 @@ export function issueTile(list: readonly Pick<IssueRow, "number" | "title" | "ur
   };
 }
 
-/// The Pull requests tile from the user's threads: their open PRs, those
-/// waiting on a reply first; `fallback` (the tasks' PRs) while they load or
-/// on a server too old to list them.
-export function threadTile(list: readonly (Pick<ThreadRow, "kind" | "number" | "title" | "needs_reply"> & Partial<Pick<ThreadRow, "url">>)[] | null | undefined, fallback: TileData): TileData {
+/// An open PR as `threadTile` reads it.
+type OpenPr = Pick<PullRequestRow, "number" | "title" | "url" | "author" | "draft" | "mine" | "created_at">;
+
+/// The Pull requests tile. With the project's open PRs (`open`): the threads
+/// waiting on the user's reply first, then every other open PR newest
+/// first, someone else's noting its author. Without them (loading, or a
+/// server too old to list them), the user's threads: their open PRs, those
+/// waiting on a reply first; `fallback` (the tasks' PRs) while those load
+/// or on a server too old to list them.
+export function threadTile(
+  list: readonly (Pick<ThreadRow, "kind" | "number" | "title" | "needs_reply"> & Partial<Pick<ThreadRow, "url">>)[] | null | undefined,
+  fallback: TileData,
+  open?: readonly OpenPr[] | null,
+): TileData {
+  if (Array.isArray(open)) {
+    const threads = Array.isArray(list) ? list : [];
+    const waiting = threads.filter(t => t.needs_reply);
+    const waitingPrs = new Set(waiting.filter(t => t.kind === "pr").map(t => t.number));
+    const mine = new Set(threads.filter(t => t.kind === "pr").map(t => t.number));
+    const byNumber = new Map(open.map(p => [p.number, p]));
+    const rest = open.filter(p => !waitingPrs.has(p.number)).sort((a, b) => b.created_at - a.created_at || b.number - a.number);
+    /// The author of someone else's PR; a draft of the user's says so.
+    const note = (p: OpenPr | undefined) => !p ? "" : p.mine || mine.has(p.number) ? (p.draft ? "draft" : "") : p.author;
+    const count = rest.length + waitingPrs.size;
+    return {
+      count: count ? `${count} open` : "",
+      rows: [
+        ...waiting.map(t => ({
+          code: threadCode(t).replace(/^PR /, ""),
+          text: t.title,
+          url: t.url,
+          chip: { cls: "wait", text: "reply" },
+          note: t.kind === "pr" ? note(byNumber.get(t.number)) : "",
+        })),
+        ...rest.map(p => ({ code: `#${p.number}`, text: p.title, url: p.url, chip: null, note: note(p) })),
+      ],
+      empty: "No open pull requests",
+    };
+  }
   if (!Array.isArray(list)) return fallback;
   const prs = list.filter(t => t.kind === "pr");
   const waiting = list.filter(t => t.needs_reply).length;
@@ -159,6 +209,7 @@ interface IssuePick {
 interface ProjectThreads {
   issues: IssueRow[] | null | undefined;
   threads: ThreadRow[] | null | undefined;
+  prs: PullRequestRow[] | null | undefined;
   chats: ThreadChatRow[] | null | undefined;
   error: string;
   busy: Set<string>;
@@ -175,16 +226,17 @@ export function makeThreads(deps: ThreadDeps) {
 
   const of = (id: string) => {
     let s = all.get(id);
-    if (!s) all.set(id, s = { issues: undefined, threads: undefined, chats: undefined, error: "", busy: new Set(), pick: null });
+    if (!s) all.set(id, s = { issues: undefined, threads: undefined, prs: undefined, chats: undefined, error: "", busy: new Set(), pick: null });
     return s;
   };
 
   async function load(id: string) {
     const s = of(id);
-    const [issues, threads, chats] = await Promise.allSettled([
+    const [issues, threads, chats, prs] = await Promise.allSettled([
       invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
       invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
       invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
+      invoke<PullRequestRow[] | null>("center_project_pull_requests", { projectId: id }),
     ]);
     s.error = "";
     /// What a list becomes: what came back, else what it had or none.
@@ -196,6 +248,10 @@ export function makeThreads(deps: ThreadDeps) {
     s.issues = settle(issues, s.issues);
     s.threads = settle(threads, s.threads);
     s.chats = settle(chats, s.chats);
+    // The host's error shows with the issues; without the list the tile
+    // shows the user's own threads as before.
+    if (prs.status === "fulfilled") s.prs = prs.value;
+    else { console.warn("pull requests:", prs.reason); s.prs ??= null; }
     redraw();
   }
 
@@ -371,6 +427,7 @@ export function makeThreads(deps: ThreadDeps) {
     load,
     issues: (id: string) => of(id).issues,
     threads: (id: string) => of(id).threads,
+    prs: (id: string) => of(id).prs,
     issuesPanel,
     threadsPanel,
   };

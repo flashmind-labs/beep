@@ -239,6 +239,7 @@ fn main() {
             threads::center_track_issue,
             threads::center_dismiss_issue,
             threads::center_project_threads,
+            threads::center_project_pull_requests,
             threads::center_reply_thread,
             threads::center_open_thread_chat,
             threads::center_thread_chats,
