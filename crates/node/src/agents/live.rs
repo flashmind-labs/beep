@@ -159,6 +159,15 @@ impl Live {
                     self.message_chunk(&text.text);
                 }
             }
+            // Only a loaded session replays its prompts; a live one has
+            // them from `prompted` already.
+            SessionUpdate::UserMessageChunk(chunk)
+                if self.info.state.status == Status::Starting =>
+            {
+                if let ContentBlock::Text(text) = &chunk.content {
+                    self.user_chunk(&text.text);
+                }
+            }
             SessionUpdate::AgentThoughtChunk(_) => {
                 if self.info.state.summary.is_empty() {
                     self.info.state.summary = "Thinking".into();
@@ -189,6 +198,18 @@ impl Live {
             _ => {}
         }
         self.info.state != before || self.info.title != title
+    }
+
+    fn user_chunk(&mut self, text: &str) {
+        if self.in_message
+            && let Some(last) = self.transcript.back_mut()
+            && last.kind == EntryKind::User
+        {
+            push_cut(&mut last.text, text, MAX_ENTRY);
+        } else {
+            self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+            self.in_message = true;
+        }
     }
 
     fn message_chunk(&mut self, text: &str) {
@@ -392,6 +413,26 @@ mod tests {
         live.apply(&chunk("New"));
         assert_eq!(live.info.last_message, "New", "a new message starts over");
         assert_eq!(live.transcript(1).1, 3);
+    }
+
+    #[test]
+    fn a_loaded_session_replays_its_prompts_and_answers() {
+        let mut live = live();
+        let chunk = |kind: &str, text: &str| {
+            update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}))
+        };
+        live.apply(&chunk("user_message_chunk", "Fix the "));
+        live.apply(&chunk("user_message_chunk", "build"));
+        live.apply(&chunk("agent_message_chunk", "Fixed."));
+        let (entries, _) = live.transcript(10);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].kind, EntryKind::User);
+        assert_eq!(entries[0].text, "Fix the build");
+        assert_eq!(entries[1].text, "Fixed.");
+        // Once running, prompts come from `prompted`, not the agent's echo.
+        live.prompted("again");
+        live.apply(&chunk("user_message_chunk", "again"));
+        assert_eq!(live.transcript(10).0.len(), 3);
     }
 
     #[test]
