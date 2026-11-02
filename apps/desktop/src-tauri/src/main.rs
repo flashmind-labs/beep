@@ -40,6 +40,7 @@ mod reviews;
 mod state;
 mod sync;
 mod terminals;
+mod threads;
 mod tool_labels;
 mod update;
 mod voice;
@@ -220,6 +221,13 @@ fn main() {
             terminals::terminal_start,
             terminals::terminal_output,
             terminals::terminal_close,
+            threads::center_project_issues,
+            threads::center_track_issue,
+            threads::center_dismiss_issue,
+            threads::center_project_threads,
+            threads::center_reply_thread,
+            threads::center_open_thread_chat,
+            threads::center_thread_chats,
             reviews::project_branches,
             reviews::reviews_list,
             reviews::review_start,

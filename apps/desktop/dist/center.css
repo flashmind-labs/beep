@@ -439,3 +439,10 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .rv-hint { font-size: 11.5px; color: var(--muted); padding: 7px 2px 0; line-height: 16px }
 .rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--border); background: var(--ink) }
 .rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--muted) }
+
+/* An open issue being started: the agent and machine to pick. */
+.pj-task.ask { background: rgba(233,185,73,.05) }
+.pj-task .t a { color: #9DC3F0; text-decoration: none; font-weight: 600 }
+.pj-start { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding-top: 4px }
+.pj-start .lbl { font-size: 11.5px; color: var(--muted) }
+.pj-start .acts { display: flex; gap: 6px; flex-basis: 100% }

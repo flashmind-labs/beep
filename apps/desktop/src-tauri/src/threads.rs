@@ -1,0 +1,220 @@
+//! A project's open issues and the user's pull requests and issues there:
+//! starting work on an issue or hiding it, asking the agent for a reply,
+//! and the chats about one thread.
+
+use crate::{
+    beep::{Beep, epoch_ms},
+    error::{DesktopError, Result},
+    projects::unknown_op,
+};
+use beep_proto::{
+    DismissProjectIssue, GitItemKind, IssueStart, ListProjectIssues, ListProjectThreads,
+    ListThreadChats, OpenThreadChat, ProjectIssue, ProjectThread, ReplyToThread, ThreadChat,
+    TrackProjectIssue,
+};
+use serde::Serialize;
+use std::sync::Arc;
+use tauri::State;
+use uuid::Uuid;
+
+type Service<'a> = State<'a, Arc<Beep>>;
+
+fn outdated(e: DesktopError) -> DesktopError {
+    if unknown_op(&e) {
+        DesktopError::BadRequest("The server needs an update for this.".into())
+    } else {
+        e
+    }
+}
+
+/// An open issue no task tracks yet.
+#[derive(Debug, Serialize)]
+pub struct IssueRow {
+    number: u64,
+    title: String,
+    labels: Vec<String>,
+    author: String,
+    /// In milliseconds since the Unix epoch.
+    opened_at: u64,
+    comments: u32,
+    url: String,
+}
+
+impl From<ProjectIssue> for IssueRow {
+    fn from(i: ProjectIssue) -> Self {
+        Self {
+            number: i.number,
+            title: i.title,
+            labels: i.labels,
+            author: i.author,
+            opened_at: epoch_ms(i.opened_at),
+            comments: i.comments,
+            url: i.url,
+        }
+    }
+}
+
+/// `pr` or `issue`.
+fn kind_name(kind: GitItemKind) -> &'static str {
+    match kind {
+        GitItemKind::PullRequest {} => "pr",
+        GitItemKind::Issue {} => "issue",
+    }
+}
+
+/// One of the user's open pull requests or issues.
+#[derive(Debug, Serialize)]
+pub struct ThreadRow {
+    kind: &'static str,
+    repo: String,
+    number: u64,
+    title: String,
+    url: String,
+    last_other: String,
+    needs_reply: bool,
+    /// In milliseconds since the Unix epoch.
+    updated_at: u64,
+}
+
+impl From<ProjectThread> for ThreadRow {
+    fn from(t: ProjectThread) -> Self {
+        Self {
+            kind: kind_name(t.kind),
+            repo: t.repo,
+            number: t.number,
+            title: t.title,
+            url: t.url,
+            last_other: t.last_other,
+            needs_reply: t.needs_reply,
+            updated_at: epoch_ms(t.updated_at),
+        }
+    }
+}
+
+/// A chat about one thread.
+#[derive(Debug, Serialize)]
+pub struct ThreadChatRow {
+    chat_id: Uuid,
+    kind: &'static str,
+    repo: String,
+    number: u64,
+    title: String,
+}
+
+impl From<ThreadChat> for ThreadChatRow {
+    fn from(c: ThreadChat) -> Self {
+        Self {
+            chat_id: c.chat_id,
+            kind: kind_name(c.kind),
+            repo: c.repo,
+            number: c.number,
+            title: c.title,
+        }
+    }
+}
+
+/// The project's open issues no task tracks; `None` from a server too old
+/// to list them.
+#[tauri::command]
+pub async fn center_project_issues(
+    beep: Service<'_>,
+    project_id: Uuid,
+) -> Result<Option<Vec<IssueRow>>> {
+    match beep.call(ListProjectIssues { project_id }).await {
+        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Makes a task of issue `number`: with `agent`, a worker starts on it on
+/// `node_id` (or a machine picked at start); without, the project agent
+/// plans it.
+#[tauri::command]
+pub async fn center_track_issue(
+    beep: Service<'_>,
+    project_id: Uuid,
+    number: u64,
+    agent: Option<String>,
+    node_id: Option<String>,
+) -> Result<Uuid> {
+    let start = agent.map(|agent| IssueStart { agent, node_id });
+    let task = beep
+        .call(TrackProjectIssue {
+            project_id,
+            number,
+            start,
+        })
+        .await
+        .map_err(outdated)?;
+    Ok(task.id)
+}
+
+#[tauri::command]
+pub async fn center_dismiss_issue(beep: Service<'_>, project_id: Uuid, number: u64) -> Result<()> {
+    beep.call(DismissProjectIssue { project_id, number })
+        .await
+        .map_err(outdated)
+}
+
+/// The user's open pull requests and issues in the project; `None` from a
+/// server too old to list them.
+#[tauri::command]
+pub async fn center_project_threads(
+    beep: Service<'_>,
+    project_id: Uuid,
+) -> Result<Option<Vec<ThreadRow>>> {
+    match beep.call(ListProjectThreads { project_id }).await {
+        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Asks the project agent to draft a reply; gives the project chat.
+#[tauri::command]
+pub async fn center_reply_thread(
+    beep: Service<'_>,
+    project_id: Uuid,
+    repo: String,
+    number: u64,
+) -> Result<Uuid> {
+    beep.call(ReplyToThread {
+        project_id,
+        repo,
+        number,
+    })
+    .await
+    .map_err(outdated)
+}
+
+#[tauri::command]
+pub async fn center_open_thread_chat(
+    beep: Service<'_>,
+    project_id: Uuid,
+    repo: String,
+    number: u64,
+) -> Result<ThreadChatRow> {
+    let chat = beep
+        .call(OpenThreadChat {
+            project_id,
+            repo,
+            number,
+        })
+        .await
+        .map_err(outdated)?;
+    Ok(chat.into())
+}
+
+/// The project's thread chats; `None` from a server too old to keep them.
+#[tauri::command]
+pub async fn center_thread_chats(
+    beep: Service<'_>,
+    project_id: Uuid,
+) -> Result<Option<Vec<ThreadChatRow>>> {
+    match beep.call(ListThreadChats { project_id }).await {
+        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
