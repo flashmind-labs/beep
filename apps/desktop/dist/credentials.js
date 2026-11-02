@@ -35,10 +35,53 @@ export function draft(edit, url, secret, toMachines) {
   return { credential: { kind: "api_key", provider: edit.provider, secret, to_machines: !!toMachines } };
 }
 
+/// GitHub's page for a new token with what gh and Beep need.
+export const GITHUB_TOKEN_PAGE = "https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=Beep";
+
+/// Whether two server URLs name the same server (scheme, host and port).
+export function sameServer(a, b) {
+  try {
+    const x = new URL(String(a).trim()), y = new URL(String(b).trim());
+    return /^https?:$/.test(x.protocol) && x.origin === y.origin;
+  } catch {
+    return false;
+  }
+}
+
+/// A Forgejo server's page for new access tokens, or null for a URL that
+/// is not one.
+export function forgejoTokenPage(url) {
+  try {
+    const u = new URL(String(url || "").trim());
+    if (!/^https?:$/.test(u.protocol)) return null;
+    return `${u.origin}${u.pathname.replace(/\/+$/, "")}/user/settings/applications`;
+  } catch {
+    return null;
+  }
+}
+
+/// The servers teacli on this Mac has a token for that Beep does not.
+export function teaOffers(cli, list) {
+  const saved = (list ?? []).filter(c => c.kind === "forgejo");
+  return (cli?.forgejo ?? []).filter(s => !saved.some(c => sameServer(c.url, s.url)));
+}
+
+/// Whether teacli on this Mac has a token for `url`.
+export function teaHas(cli, url) {
+  return (cli?.forgejo ?? []).some(s => sameServer(s.url, url));
+}
+
+/// The host a `data-cred-cli` value names, as `use_cli_login` takes it.
+export function cliHost(key) {
+  if (key === "github") return { kind: "github" };
+  if (String(key).startsWith("forgejo:")) return { kind: "forgejo", url: key.slice("forgejo:".length) };
+  return null;
+}
+
 const sm = 'style="font-size:11.5px;padding:2px 8px;min-height:24px"';
 
 /// The inline form for adding or replacing one credential.
-function form(state, esc, { title, note, env, url }) {
+function form(state, esc, { title, note, noteHtml, env, url }) {
   const e = state.edit;
   const urlField = e.kind === "forgejo" && !e.id
     ? `<input id="credUrl" class="url" type="url" placeholder="https://git.example.com" autocomplete="off" spellcheck="false" value="${esc(e.url ?? "")}" aria-label="Server URL">`
@@ -52,7 +95,7 @@ function form(state, esc, { title, note, env, url }) {
     <div class="dfield${state.error ? " err" : ""}" style="gap:8px">${urlField}
       <div style="display:flex;gap:8px"><input id="credSecret" type="password" style="flex:1;font-family:var(--mono);font-size:12.5px" placeholder="Paste the token" autocomplete="off" spellcheck="false" aria-label="Token">
       <button class="dbtn pri" id="credSave"${state.busy ? " disabled" : ""}>${state.busy ? "Checking…" : label}</button><button class="dbtn quiet" id="credCancel">Cancel</button></div></div>
-    ${check}${note ? `<span style="font-size:11.5px;color:var(--muted)">${esc(note)}</span>` : ""}
+    ${check}${note || noteHtml ? `<span style="font-size:11.5px;color:var(--muted)">${noteHtml ?? esc(note)}</span>` : ""}
     <div class="derr" id="credErr">${esc(state.error || "")}</div></div>`;
 }
 
@@ -64,16 +107,59 @@ function shown(esc, cred, what) {
     : `<code style="font-size:11px">…${esc(cred.last4)}</code>`;
 }
 
-/// One saved git host: name, login, last 4 and where its CLI is.
-function hostRow(esc, { name, cred, cli, machines, editKey }) {
+/// A link that opens in the browser.
+const link = (esc, href, text) => `<a href="${esc(href)}" data-cred-open="${esc(href)}" style="color:var(--emerald)">${esc(text)}</a>`;
+const code = text => `<code style="font-size:11px">${text}</code>`;
+
+/// "Use gh sign-in", or "Checking…" while it is being saved.
+const useButton = (esc, key, label, busy) =>
+  `<button class="dbtn pri" ${sm} data-cred-cli="${esc(key)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : esc(label)}</button>`;
+
+/// What the GitHub row offers when no usable token is saved, from this
+/// Mac's gh: its sign-in, help to sign in, or a link to make a token.
+/// `gh` is undefined until checked and null when the check failed.
+export function ghOffer(esc, gh, busy) {
+  const paste = quiet => `<button class="dbtn${quiet ? " quiet" : ""}" ${sm} data-cred-edit="github">Paste a token</button>`;
+  switch (gh?.state) {
+    case "signed_in":
+      return {
+        account: gh.account ? `gh on this Mac as @${gh.account}` : "gh signed in on this Mac",
+        acts: useButton(esc, "github", "Use gh sign-in", busy) + paste(true),
+        help: "",
+      };
+    case "signed_out":
+      return {
+        acts: `<button class="dbtn" ${sm} data-cred-recheck>Check again</button>${paste(true)}`,
+        help: `Run ${code("gh auth login")} in Terminal, then press Check again`,
+      };
+    case "missing":
+      return {
+        acts: paste(true),
+        help: `Make a token on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")}, then paste it. Or install gh and run ${code("gh auth login")}`,
+      };
+    default:
+      return { acts: paste(false), help: "" };
+  }
+}
+
+/// One git host: name, login, last 4 and where its CLI is. `offer` takes
+/// the place of Add when nothing usable is saved; `cliKey` adds "Use
+/// <cli> sign-in" to a saved row the server can no longer open.
+function hostRow(esc, { name, cred, cli, machines, editKey, offer, cliKey, busy, error }) {
+  const usable = cred && !cred.unreadable;
   const line = [cred ? shown(esc, cred, "token") : "", esc(toolLine(cli, machines))].filter(Boolean).join(" · ");
-  const account = cred?.unreadable ? "" : cred?.account ? `@${cred.account}` : cred ? "not checked: the server could not reach it" : "";
+  const account = usable
+    ? cred.account ? `@${cred.account}` : "not checked: the server could not reach it"
+    : offer?.account ?? "";
+  const use = cliKey && !usable ? useButton(esc, cliKey, `Use ${cli} sign-in`, busy) : "";
   const acts = cred
-    ? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove ${esc(name)}">Remove</button>`
-    : `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
+    ? `${use}<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove ${esc(name)}">Remove</button>`
+    : offer?.acts ?? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
+  const help = !usable && offer?.help ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${offer.help}</span>` : "";
+  const err = error ? `<span class="derr" style="padding-left:15px">${esc(error)}</span>` : "";
   return `<div style="padding:9px 0;border-bottom:1px solid var(--border);display:grid;gap:3px;font-size:13px">
     <div style="display:flex;align-items:center;gap:8px;min-width:0"><span class="ddot${cred ? "" : " off"}"></span><b style="font-weight:600">${esc(name)}</b>${account ? `<span style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(account)}</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px;flex:none">${acts}</span></div>
-    ${line ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${line}</span>` : ""}</div>`;
+    ${line ? `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${line}</span>` : ""}${help}${err}</div>`;
 }
 
 /// One provider's API key row.
@@ -89,24 +175,45 @@ function keyRow(esc, ago, p, cred) {
 
 const head = (text, top) => `<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:${top}px 0 2px">${text}</div>`;
 
-/// The whole section. `state`: { list, providers, edit, busy, error };
-/// `machines`: the machines list, or null when it is not known.
+/// The whole section. `state`: { list, providers, edit, busy, error, cli,
+/// cliBusy, cliError }. `cli` is what gh and teacli on this Mac are signed
+/// in to (undefined until checked, null when the check failed); `cliBusy`
+/// the `data-cred-cli` key being saved and `cliError` { key, message } its
+/// refusal. `machines`: the machines list, or null when it is not known.
 export function credentialsHtml(state, machines, esc, ago) {
   const list = state.list ?? [];
   const e = state.edit;
+  const cli = state.cli;
   const github = list.find(c => c.kind === "github");
   const forgejo = list.filter(c => c.kind === "forgejo");
+  // The sign-in being saved for one row, or why it was refused.
+  const rowState = key => ({ busy: state.cliBusy === key, error: state.cliError?.key === key ? state.cliError.message : "" });
   let html = head("Git hosts", 4);
   html += e?.kind === "github"
-    ? form(state, esc, { title: "GitHub", note: "Make one on GitHub: Settings, Developer settings, Personal access tokens, with repo access." })
-    : hostRow(esc, { name: "GitHub", cred: github, cli: "gh", machines, editKey: "github" });
+    ? form(state, esc, { title: "GitHub", noteHtml: `Make one on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} with repo access, or run ${code("gh auth login")} in Terminal and use that sign-in instead.` })
+    : hostRow(esc, {
+      name: "GitHub", cred: github, cli: "gh", machines, editKey: "github", ...rowState("github"),
+      cliKey: cli?.github?.state === "signed_in" ? "github" : "",
+      offer: github ? null : ghOffer(esc, cli?.github, state.cliBusy === "github"),
+    });
   for (const c of forgejo) {
+    const page = forgejoTokenPage(c.url);
+    const key = `forgejo:${c.url}`;
     html += e?.kind === "forgejo" && e.id === c.id
-      ? form(state, esc, { title: hostOf(c.url), url: "Replace the token" })
-      : hostRow(esc, { name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}` });
+      ? form(state, esc, { title: hostOf(c.url), url: "Replace the token", noteHtml: page ? `Make one at ${link(esc, page, hostOf(page))}, with repository and issue access.` : undefined })
+      : hostRow(esc, { name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}`, cliKey: teaHas(cli, c.url) ? key : "", ...rowState(key) });
+  }
+  // Servers teacli here has a token for that Beep does not have yet.
+  for (const s of teaOffers(cli, list)) {
+    const key = `forgejo:${s.url}`;
+    const { busy, error } = rowState(key);
+    html += hostRow(esc, {
+      name: hostOf(s.url), cli: "teacli", machines: null, editKey: "forgejo", error,
+      offer: { account: "teacli on this Mac", acts: useButton(esc, key, "Use teacli sign-in", busy), help: "Signed in with teacli here, not in Beep yet" },
+    });
   }
   html += e?.kind === "forgejo" && !e.id
-    ? form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", note: "Make one in Forgejo: Settings, Applications, Access tokens, with repository and issue access." })
+    ? form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login")} on this Mac and use that sign-in.` })
     : `<button class="dbtn" style="font-size:11.5px;padding:3px 9px;margin-top:8px;justify-self:start" data-cred-edit="forgejo">+ Add a Forgejo server</button>`;
   html += head("API keys", 14);
   html += `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;max-width:60ch">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and, when you choose, gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
