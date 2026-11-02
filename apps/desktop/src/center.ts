@@ -22,6 +22,7 @@ import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, revie
 import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { registerInstructions } from "./instructions.ts";
+import { registerProviders } from "./providers.ts";
 import { makeTerminals, terminalTile } from "./terminals.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
@@ -39,7 +40,7 @@ interface Started {
 }
 
 /// What the bar or tray asked the window to show (CenterTarget).
-type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | { chat: { session: string | null } };
+type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers" | { chat: { session: string | null } };
 
 // ---------- Window state ----------
 
@@ -2321,6 +2322,7 @@ async function takePending(fallback: string | null) {
   if (target == null) return fallback && go(fallback);
   if (target === "home") return go("home");
   if (target === "instructions") return go("instructions");
+  if (target === "providers") return go("providers");
   go("pane", target);
   // Home is not on screen, but the sidebar counts come from it.
   refresh();
@@ -2393,12 +2395,13 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
+registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => { if (shown === "providers") drawTop(); } });
 
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
 
-initPalette({ go, jump, pane, settings: openSettings, project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
+initPalette({ go, jump, pane, settings: openSettings, providers: () => go("providers"), project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 
 /// ⌘ and a letter: the pane page it opens.
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
@@ -2438,6 +2441,10 @@ pane.connect({
   openInstructions() {
     closeSettings();
     go("instructions");
+  },
+  openProviders() {
+    closeSettings();
+    go("providers");
   },
   settingsAway(view) {
     closeSettings();
