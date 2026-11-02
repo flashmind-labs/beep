@@ -799,7 +799,7 @@ pub fn open_log() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApprovalAnswered, file_name, free_name, image_mime};
+    use super::{ApprovalAnswered, file_name, free_name, image_mime, picture_name};
     use std::{env, fs};
     use uuid::Uuid;
 
