@@ -134,6 +134,13 @@ impl Describer {
         .await
     }
 
+    /// Describes the image file `name` a tool read, for a model that cannot
+    /// see it.
+    pub(crate) async fn describe_file(&self, image: &ContentPart, name: &str) -> Result<String> {
+        let prompt = format!("This image is the file {name}. Describe the whole image.");
+        self.describe(image, prompt).await
+    }
+
     async fn describe(&self, image: &ContentPart, prompt: String) -> Result<String> {
         let request = CompletionRequest {
             model: self.model.clone(),
