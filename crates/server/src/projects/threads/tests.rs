@@ -236,3 +236,52 @@ async fn asking_for_a_reply_posts_the_thread_to_the_project_chat() {
     assert!(posts[0].1.contains("Can we cut it down?"), "{}", posts[0].1);
     assert!(shell.ran_with(" comment ").is_empty(), "nothing posts");
 }
+
+#[tokio::test]
+async fn a_thread_card_shows_the_post_and_newest_comments() {
+    let db = TestDb::new().await.unwrap();
+    let user = User::for_test(db.store().await.unwrap(), "alice");
+    let mut fleet = FakeFleet::default();
+    let (project, shell) = github_project(&user, &mut fleet).await;
+    shell.answer("api user", 0, "alice-dev\n");
+    shell.answer("pr view 41", 0, &pr_41(&"x".repeat(5000)));
+    let card = view(&fleet, &user, &project, "Acme/Widget", 41)
+        .await
+        .unwrap();
+    assert_eq!(card.number, 41);
+    assert_eq!(card.kind, GitItemKind::PullRequest {});
+    assert_eq!(card.title, "Login screen copy");
+    assert_eq!(card.url, "https://github.com/acme/widget/pull/41");
+    assert_eq!(card.author, "alice-dev");
+    assert!(card.needs_reply, "sam wrote last");
+    let authors: Vec<&str> = card.comments.iter().map(|c| c.author.as_str()).collect();
+    assert_eq!(authors, ["alice-dev", "sam", "ci-bot"]);
+    assert_eq!(card.earlier, 0);
+    // A long comment is cut short.
+    assert!(card.comments[1].body.len() <= CARD_TEXT + 3);
+    assert!(card.comments[1].body.ends_with("..."));
+    // Another repository is refused before anything is read.
+    let before = shell.ran_with("pr view").len();
+    let other = view(&fleet, &user, &project, "acme/other", 41).await;
+    assert!(matches!(other, Err(IssueError::Refused(_))), "{other:?}");
+    assert_eq!(shell.ran_with("pr view").len(), before);
+}
+
+#[test]
+fn a_thread_card_keeps_the_newest_comments() {
+    let thread = Thread {
+        kind: ThreadKind::Issue,
+        number: 7,
+        title: " Crash ".into(),
+        body: "It crashes.".into(),
+        url: "https://github.com/acme/widget/issues/7".into(),
+        author: "sam".into(),
+        updated_at: None,
+        comments: (0..23).map(|n| said("sam", n)).collect(),
+    };
+    let shown = card(&thread, "alice");
+    assert_eq!(shown.comments.len(), CARD_COMMENTS);
+    assert_eq!(shown.earlier, 3);
+    assert_eq!(shown.title, "Crash");
+    assert_eq!(shown.comments[0].body, thread.comments[3].body);
+}

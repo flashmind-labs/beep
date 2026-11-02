@@ -115,6 +115,8 @@ sample_struct! {
     ProjectThread { kind, repo, number, title, url, last_other, needs_reply, updated_at }
     ProjectPullRequest { number, title, url, author, draft, mine, created_at, updated_at }
     ThreadChat { chat_id, kind, repo, number, title }
+    ThreadView { kind, number, title, url, author, body, needs_reply, comments, earlier }
+    ThreadPost { author, at, body }
     AgentImage { name, file_id, mime, key }
     ProjectGroup { id, name, paths }
     AgentImageData { key, mime, data }

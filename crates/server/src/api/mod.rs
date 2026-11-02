@@ -295,6 +295,8 @@ pub fn router() -> Router {
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
         .call(projects::list_project_pull_requests)
+        .call(list_active_runs)
+        .call(threads::get_project_thread)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -464,6 +466,10 @@ async fn get_run(cx: Cx, GetRun { id }: GetRun) -> Reply<Run> {
 
 async fn active_run(cx: Cx, ActiveRun { session_id }: ActiveRun) -> Reply<Option<Run>> {
     Ok(cx.user.active_run(session_id).await?)
+}
+
+async fn list_active_runs(cx: Cx, _: ListActiveRuns) -> Reply<Vec<Run>> {
+    Ok(cx.user.active_runs().await?)
 }
 
 async fn cancel_run(cx: Cx, CancelRun { id }: CancelRun) -> Reply<()> {

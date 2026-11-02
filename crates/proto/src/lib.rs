@@ -1081,6 +1081,16 @@ requests! {
     /// the project has no GitHub or Forgejo host; `BadRequest` saying why
     /// when no machine of the project can read it or the host refuses.
     262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
+    /// The runs going on in any of the caller's sessions, started from any
+    /// of their devices, so a chat list can mark the chats still
+    /// answering. Empty when none runs.
+    285 ListActiveRuns {} => Call<Vec<Run>>
+    /// One pull request or issue of `project_id` read from its host now:
+    /// its opening post, its newest comments and reviews, and whether it
+    /// waits on the caller's reply, for the card atop a chat about it.
+    /// `NotFound` when the caller has no such project; `BadRequest` saying
+    /// why when `repo` is not the project's or the thread cannot be read.
+    286 GetProjectThread { project_id: Uuid, repo: String, number: u64 } => Call<ThreadView>
 }
 
 /// A machine whose folder of a project Syncthing keeps in step, as
@@ -2148,6 +2158,38 @@ pub struct ThreadChat {
     pub repo: String,
     pub number: u64,
     pub title: String,
+}
+
+/// A pull request or issue as `GetProjectThread` reads it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThreadView {
+    pub kind: GitItemKind,
+    pub number: u64,
+    pub title: String,
+    /// Its web page.
+    pub url: String,
+    /// The login of who opened it.
+    pub author: String,
+    /// The opening post, cut short when long.
+    pub body: String,
+    /// Someone other than the caller, bots aside, wrote after the caller.
+    pub needs_reply: bool,
+    /// The newest comments and reviews, oldest first.
+    pub comments: Vec<ThreadPost>,
+    /// How many older comments and reviews `comments` leaves out.
+    pub earlier: u32,
+}
+
+/// A comment or review on a pull request or issue.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThreadPost {
+    /// The writer's login.
+    pub author: String,
+    pub at: SystemTime,
+    /// Cut short when long.
+    pub body: String,
 }
 
 /// How `TrackProjectIssue` starts a worker on the issue.
