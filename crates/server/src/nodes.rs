@@ -1,12 +1,10 @@
 //! Nodes: machines running `beep-node` that Beep runs work on (see
 //! `beep_proto::node`). Each keeps one connection open on `NODE_ALPN`; the
 //! server notes what it reports and keeps the connection so sessions can be
-//! opened on it. Only admins may connect one for now, and a single-user
-//! server's settings can turn them off.
+//! opened on it. Every user may link their own.
 
 use crate::{
     app::App,
-    instance::Privilege,
     protocol::{
         DeviceKind,
         link::{LinkOffer, MAX_NAME},
@@ -60,7 +58,6 @@ pub use shell::{Exited, Ran};
 pub use stats::Sampled;
 pub use sync::{Refusal, SyncState, push_sync};
 
-const CLOSE_NOT_ALLOWED: u32 = 401;
 /// The line the machines section starts with, also how a chat finds the
 /// one it last got.
 pub(crate) const MACHINES_HEADER: &str = "The user's machines (exec, process, desktop and \
@@ -259,10 +256,6 @@ impl ProtocolHandler for NodeHandler {
                 return Ok(());
             }
         };
-        if !self.app.allows(Privilege::Nodes, &user) {
-            connection.close(VarInt::from_u32(CLOSE_NOT_ALLOWED), b"nodes are for admins");
-            return Ok(());
-        }
         let control = Control {
             tx,
             rx,
@@ -529,8 +522,6 @@ pub struct NewToken {
 /// Why `create_token` made none.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenRefusal {
-    #[error("Only admins can add machines on this server.")]
-    NotAllowed,
     #[error("This server does not take machines.")]
     NoServer,
     #[error("The machine's name is empty or too long.")]
@@ -546,9 +537,6 @@ pub async fn create_token(
     user: &User,
     name: Option<&str>,
 ) -> Result<NewToken, TokenRefusal> {
-    if !app.allows(Privilege::Nodes, user) {
-        return Err(TokenRefusal::NotAllowed);
-    }
     let server = app.nodes.server().ok_or(TokenRefusal::NoServer)?;
     let name = name.map(str::trim).filter(|name| !name.is_empty());
     if name.is_some_and(|name| name.len() > MAX_NAME) {

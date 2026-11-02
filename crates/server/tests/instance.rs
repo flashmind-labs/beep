@@ -1,10 +1,9 @@
-//! Single-user instance mode: who may sign in, and what the owner gets.
+//! Single-user instance mode: who may sign in.
 
 use async_trait::async_trait;
 use beep_server::{
     app::{Admission, App, ServerTools, SignedIn},
-    events,
-    instance::{InstanceConfig, NODE_FILE, Privilege},
+    instance::{InstanceConfig, NODE_FILE},
     models::ModelChoices,
     protocol::DeviceKind,
     store::{NewKey, Store, TestDb},
@@ -12,7 +11,7 @@ use beep_server::{
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
 };
-use iroh::{EndpointId, SecretKey};
+use iroh::SecretKey;
 use std::{fs, path::PathBuf, sync::Arc};
 
 /// The instance tests never run a model turn.
@@ -31,15 +30,13 @@ impl LlmProvider for NoModel {
     }
 }
 
-const PRIVILEGES: [Privilege; 2] = [Privilege::Events, Privilege::Nodes];
-
 fn instance(text: &str) -> InstanceConfig {
     toml::from_str(text).expect("a valid instance table")
 }
 
-async fn app(store: Store, admins: &[EndpointId], instance: Option<InstanceConfig>) -> Arc<App> {
+async fn app(store: Store, instance: Option<InstanceConfig>) -> Arc<App> {
     let model = "openai:test".parse().expect("a valid model");
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), admins).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     App::new(
         store,
         Arc::new(NoModel),
@@ -72,7 +69,7 @@ async fn refused(app: &Arc<App>, key: &SecretKey) -> bool {
 async fn a_new_phone_joins_the_owner_with_a_code() {
     let db = TestDb::new().await.expect("test database");
     let store = db.store().await.expect("store");
-    let app = app(store.clone(), &[], Some(instance(""))).await;
+    let app = app(store.clone(), Some(instance(""))).await;
     let (phone, second) = (SecretKey::generate(), SecretKey::generate());
     let owner = signed_in(&app, &phone).await;
     assert!(matches!(
@@ -117,7 +114,7 @@ async fn a_new_phone_joins_the_owner_with_a_code() {
 #[tokio::test]
 async fn the_first_key_owns_the_instance_and_others_are_refused() {
     let db = TestDb::new().await.expect("test database");
-    let app = app(db.store().await.expect("store"), &[], Some(instance(""))).await;
+    let app = app(db.store().await.expect("store"), Some(instance(""))).await;
     let (phone, stranger, laptop) = (
         SecretKey::generate(),
         SecretKey::generate(),
@@ -143,14 +140,10 @@ async fn the_first_key_owns_the_instance_and_others_are_refused() {
     assert_eq!(linked.user.id(), owner.user.id());
     assert!(!linked.primary);
 
-    // After a restart the owner is still the owner, and an admin before
-    // connecting again.
-    let again = self::app(db.store().await.expect("store"), &[], Some(instance(""))).await;
+    // After a restart the owner is still the owner.
+    let again = self::app(db.store().await.expect("store"), Some(instance(""))).await;
     again.start_users().await.expect("users start");
-    let user = again.user(owner.user.id()).expect("the owner started");
-    for privilege in PRIVILEGES {
-        assert!(again.allows(privilege, &user), "{privilege:?}");
-    }
+    assert!(again.user(owner.user.id()).is_some(), "the owner started");
     assert!(refused(&again, &stranger).await);
     assert_eq!(signed_in(&again, &phone).await.user.id(), owner.user.id());
 }
@@ -160,7 +153,7 @@ async fn only_the_configured_owner_may_claim() {
     let db = TestDb::new().await.expect("test database");
     let phone = SecretKey::generate();
     let config = instance(&format!("owner = \"{}\"", phone.public()));
-    let app = app(db.store().await.expect("store"), &[], Some(config)).await;
+    let app = app(db.store().await.expect("store"), Some(config)).await;
     let first = SecretKey::generate();
     assert!(
         refused(&app, &first).await,
@@ -175,12 +168,12 @@ async fn only_the_configured_owner_may_claim() {
 async fn an_account_from_before_claims_the_instance() {
     let db = TestDb::new().await.expect("test database");
     let (phone, other) = (SecretKey::generate(), SecretKey::generate());
-    let shared = app(db.store().await.expect("store"), &[], None).await;
+    let shared = app(db.store().await.expect("store"), None).await;
     let before = signed_in(&shared, &phone).await;
     let other_before = signed_in(&shared, &other).await;
     assert_ne!(before.user.id(), other_before.user.id());
 
-    let app = app(db.store().await.expect("store"), &[], Some(instance(""))).await;
+    let app = app(db.store().await.expect("store"), Some(instance(""))).await;
     assert_eq!(signed_in(&app, &phone).await.user.id(), before.user.id());
     assert!(
         refused(&app, &other).await,
@@ -189,30 +182,12 @@ async fn an_account_from_before_claims_the_instance() {
 }
 
 #[tokio::test]
-async fn the_owner_gets_what_the_settings_leave_on() {
+async fn a_shared_server_keeps_open_sign_up() {
     let db = TestDb::new().await.expect("test database");
-    let config = instance("events = false\nnodes = false");
-    let app = app(db.store().await.expect("store"), &[], Some(config)).await;
-    let owner = signed_in(&app, &SecretKey::generate()).await.user;
-    assert!(!app.allows(Privilege::Events, &owner));
-    assert!(!events::enabled(&app, &owner));
-    assert!(!app.allows(Privilege::Nodes, &owner));
-}
-
-#[tokio::test]
-async fn a_shared_server_keeps_its_admins_and_open_sign_up() {
-    let db = TestDb::new().await.expect("test database");
-    let admin = SecretKey::generate();
-    let app = app(db.store().await.expect("store"), &[admin.public()], None).await;
-    let admin_user = signed_in(&app, &admin).await.user;
+    let app = app(db.store().await.expect("store"), None).await;
+    let first = signed_in(&app, &SecretKey::generate()).await.user;
     let someone = signed_in(&app, &SecretKey::generate()).await.user;
-    assert_ne!(admin_user.id(), someone.id());
-    for privilege in PRIVILEGES {
-        assert!(app.allows(privilege, &admin_user), "{privilege:?}");
-        assert!(!app.allows(privilege, &someone), "{privilege:?}");
-    }
-    assert!(events::enabled(&app, &admin_user));
-    assert!(!events::enabled(&app, &someone));
+    assert_ne!(first.id(), someone.id());
 }
 
 #[tokio::test]
@@ -224,7 +199,7 @@ async fn the_bundled_node_joins_the_owner() {
         local_node: Some(link.clone()),
         ..instance("")
     };
-    let app = app(db.store().await.expect("store"), &[], Some(config)).await;
+    let app = app(db.store().await.expect("store"), Some(config)).await;
     let node = SecretKey::generate();
     fs::write(
         link.join(NODE_FILE),

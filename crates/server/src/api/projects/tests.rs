@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     api::work::pending_approvals,
     projects::{
-        model::{MachinePath, WorkerAgent, WorkerState},
+        model::{IssueHost, MachinePath, WorkerAgent, WorkerState},
         testing::machine_id,
     },
     store::{CreateRun, FinishedTurn, NewTask, NewWorker, RunStatus, Step, StepBody, TurnRecord},
@@ -70,10 +70,14 @@ async fn get_project_agent_refuses_bad_names() {
 }
 
 #[tokio::test]
-async fn project_requests_need_nodes_privilege() {
+async fn every_user_gets_projects_of_their_own() {
     let h = harness().await;
-    assert_eq!(admin(&h.app, &h.alice), Ok(()));
-    assert_eq!(admin(&h.app, &h.bob), Err(ApiError::Unauthorized {}));
+    let alices = project_agent(&h.alice, "acme/widget").await.unwrap();
+    let bobs = project_agent(&h.bob, "acme/widget").await.unwrap();
+    assert_ne!(alices.project_id, bobs.project_id);
+    assert_ne!(alices.chat_id, bobs.chat_id);
+    assert_eq!(projects(&h.bob).await.unwrap(), vec![bobs]);
+    assert_eq!(projects(&h.alice).await.unwrap(), vec![alices]);
 }
 
 #[tokio::test]
@@ -96,6 +100,66 @@ async fn other_users_tasks_are_not_found() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].slug, task.slug.as_str());
     assert_eq!(listed[0].state, ProjectTaskState::Planned {});
+}
+
+#[tokio::test]
+async fn other_users_cannot_list_track_or_dismiss_issues() {
+    let h = harness().await;
+    let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
+    let project = ProjectId(agent.project_id);
+    assert!(is_not_found(project_issues(&h.app, &h.bob, project).await));
+    let start = IssueStart {
+        agent: "claude".to_owned(),
+        node_id: None,
+    };
+    let tracked = track_issue(&h.app, &h.bob, project, 12, Some(&start)).await;
+    assert!(is_not_found(tracked));
+    assert!(is_not_found(
+        track_issue(&h.app, &h.bob, project, 12, None).await
+    ));
+    assert!(is_not_found(dismiss_issue(&h.bob, project, 12).await));
+    let github = IssueHost::Github;
+    assert!(
+        h.alice
+            .dismissed_issues(project, &github)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
+    // Alice's own project without a host lists nothing.
+    assert!(
+        project_issues(&h.app, &h.alice, project)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // Nor dismisses one: there is no host to hide it on.
+    assert!(is_bad_request(dismiss_issue(&h.alice, project, 12).await));
+}
+
+#[tokio::test]
+async fn track_project_issue_checks_the_start() {
+    let h = harness().await;
+    let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
+    let project = ProjectId(agent.project_id);
+    let bad_agent = IssueStart {
+        agent: "vim".to_owned(),
+        node_id: None,
+    };
+    let refused = track_issue(&h.app, &h.alice, project, 1, Some(&bad_agent)).await;
+    assert!(is_bad_request(refused));
+    let bad_machine = IssueStart {
+        agent: "codex".to_owned(),
+        node_id: Some("not-a-key".to_owned()),
+    };
+    let refused = track_issue(&h.app, &h.alice, project, 1, Some(&bad_machine)).await;
+    assert!(is_bad_request(refused));
+    // A project with no issues host cannot track one.
+    assert!(is_bad_request(
+        track_issue(&h.app, &h.alice, project, 1, None).await
+    ));
+    assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
 }
 
 #[tokio::test]

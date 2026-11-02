@@ -5,11 +5,11 @@
 use super::Reply;
 use crate::{
     app::App,
-    instance::Privilege,
     projects::{
         fleet::NodeFleet,
+        issues::{self, IssueError, IssueWork, OpenIssue},
         lifecycle::fill_slots,
-        model::{ProjectId, RepoName, TaskId, TaskState, WorkerId},
+        model::{ProjectId, RepoName, TaskId, TaskState, WorkerAgent, WorkerId},
         tools::{drop_task, reopen_task},
         worker::stop_worker,
     },
@@ -19,30 +19,23 @@ use crate::{
     user::User,
 };
 use chrono::{Duration as TimeDelta, Utc};
+use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet},
+    str::FromStr,
     sync::Arc,
 };
+use strum::VariantNames;
 use uuid::Uuid;
 
 /// How long an ended worker still shows.
 const ENDED_SHOWN: TimeDelta = TimeDelta::days(1);
 
-fn admin(app: &App, user: &User) -> Result<(), ApiError> {
-    if app.allows(Privilege::Nodes, user) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized {})
-    }
-}
-
 pub(super) async fn get_project_agent(cx: Cx, req: GetProjectAgent) -> Reply<ProjectAgent> {
-    admin(&cx.app, &cx.user)?;
     project_agent(&cx.user, &req.project).await
 }
 
 pub(super) async fn list_project_tasks(cx: Cx, req: ListProjectTasks) -> Reply<Vec<ProjectTask>> {
-    admin(&cx.app, &cx.user)?;
     project_tasks(&cx.user, ProjectId(req.project)).await
 }
 
@@ -50,23 +43,134 @@ pub(super) async fn list_project_workers(
     cx: Cx,
     req: ListProjectWorkers,
 ) -> Reply<Vec<ProjectWorker>> {
-    admin(&cx.app, &cx.user)?;
     project_workers(&cx.user, ProjectId(req.project)).await
 }
 
 pub(super) async fn update_project_task(cx: Cx, req: UpdateProjectTask) -> Reply<ProjectTask> {
-    admin(&cx.app, &cx.user)?;
     update_task(&cx.app, &cx.user, TaskId(req.task), req.state.into()).await
 }
 
 pub(super) async fn stop_project_worker(cx: Cx, req: StopProjectWorker) -> Reply<()> {
-    admin(&cx.app, &cx.user)?;
     stop(&cx.app, &cx.user, WorkerId(req.worker)).await
 }
 
 pub(super) async fn list_projects(cx: Cx, _: ListProjects) -> Reply<Vec<ProjectAgent>> {
-    admin(&cx.app, &cx.user)?;
     projects(&cx.user).await
+}
+
+// The issue requests are scoped by the project's owner: another user's
+// project is not found.
+
+pub(super) async fn list_project_issues(
+    cx: Cx,
+    req: ListProjectIssues,
+) -> Reply<Vec<ProjectIssue>> {
+    project_issues(&cx.app, &cx.user, ProjectId(req.project_id)).await
+}
+
+pub(super) async fn track_project_issue(cx: Cx, req: TrackProjectIssue) -> Reply<ProjectTask> {
+    track_issue(
+        &cx.app,
+        &cx.user,
+        ProjectId(req.project_id),
+        req.number,
+        req.start.as_ref(),
+    )
+    .await
+}
+
+pub(super) async fn dismiss_project_issue(cx: Cx, req: DismissProjectIssue) -> Reply<()> {
+    dismiss_issue(&cx.user, ProjectId(req.project_id), req.number).await
+}
+
+fn issue_refusal(error: IssueError) -> ApiError {
+    match error {
+        IssueError::Refused(why) => ApiError::bad_request(why),
+        tracked @ IssueError::Tracked(_) => ApiError::Conflict {
+            message: tracked.to_string(),
+        },
+        IssueError::Store(error) => error.into(),
+    }
+}
+
+fn issue_view(issue: OpenIssue) -> ProjectIssue {
+    ProjectIssue {
+        number: issue.number,
+        title: issue.title,
+        labels: issue.labels,
+        author: issue.author,
+        opened_at: issue.opened_at.into(),
+        comments: issue.comments,
+        url: issue.url,
+    }
+}
+
+/// The open issues of the project no task tracks.
+async fn project_issues(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    id: ProjectId,
+) -> Reply<Vec<ProjectIssue>> {
+    let project = project_of(user, id).await?;
+    let fleet = NodeFleet {
+        app: app.clone(),
+        user: user.clone(),
+    };
+    let open = issues::list_open(&fleet, user, &project)
+        .await
+        .map_err(issue_refusal)?;
+    Ok(open.into_iter().map(issue_view).collect())
+}
+
+/// How the app asked the worker to start, checked.
+fn issue_work(start: &IssueStart) -> Result<IssueWork, ApiError> {
+    let agent = WorkerAgent::from_str(start.agent.trim()).map_err(|_| {
+        ApiError::bad_request(format!(
+            "The agent is one of {}.",
+            WorkerAgent::VARIANTS.join(", ")
+        ))
+    })?;
+    let machine = start
+        .node_id
+        .as_deref()
+        .map(|id| {
+            EndpointId::from_str(id.trim())
+                .map_err(|_| ApiError::bad_request("That is not a machine id."))
+        })
+        .transpose()?;
+    Ok(IssueWork { agent, machine })
+}
+
+/// Makes a task tracking the issue `number`, then starts it or has it
+/// planned.
+async fn track_issue(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    id: ProjectId,
+    number: u64,
+    start: Option<&IssueStart>,
+) -> Reply<ProjectTask> {
+    let project = project_of(user, id).await?;
+    let work = start.map(issue_work).transpose()?;
+    let fleet = NodeFleet {
+        app: app.clone(),
+        user: user.clone(),
+    };
+    let task = issues::track(&fleet, user, &project, number, work)
+        .await
+        .map_err(issue_refusal)?;
+    Ok(task_view(task))
+}
+
+/// Hides the issue `number` from the project's list.
+async fn dismiss_issue(user: &User, id: ProjectId, number: u64) -> Reply<()> {
+    let project = project_of(user, id).await?;
+    if i64::try_from(number).is_err() {
+        return Err(ApiError::bad_request("No issue has that number."));
+    }
+    issues::dismiss(user, &project, number)
+        .await
+        .map_err(issue_refusal)
 }
 
 /// The agent of the project `name`, made with its chat on the first ask.

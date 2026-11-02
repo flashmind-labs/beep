@@ -303,6 +303,10 @@ async fn relabel(
     let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) else {
         return;
     };
+    // Someone else's issue keeps its labels.
+    if task.issue_foreign {
+        return;
+    }
     let home = match fleet::home_shell(fleet, user, project).await {
         Ok(home) => home,
         Err(why) => {
@@ -831,7 +835,23 @@ pub(crate) async fn finish_task(
     task: &TaskRow,
 ) -> Result<()> {
     user.set_task_state(task.id, TaskState::Done).await?;
-    if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host)
+    if let Some(issue) = &task.issue
+        && task.issue_foreign
+        && task.state != TaskState::Done
+    {
+        // Someone else's issue stays open; one comment may go, after asking.
+        let chat = user.ensure_project_agent(project.id).await?;
+        let mut text = format!(
+            "{} is done. Its issue #{} was opened by someone else, so Beep leaves it open.",
+            task.slug, issue.number
+        );
+        if !task.issue_commented {
+            text.push_str(
+                " If a note there helps, offer the user one comment with project_tasks comment.",
+            );
+        }
+        fleet.post(chat, WORKER_LABEL, text);
+    } else if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host)
         && task.state != TaskState::Done
     {
         let comment = match &task.pr_url {
@@ -943,15 +963,32 @@ pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()
             Ok(Started::Queued(_)) => {}
             Err(error) => {
                 log::info!("projects: a queued task did not start: {error}");
-                let chat = user.ensure_project_agent(project.id).await?;
-                fleet.post(
-                    chat,
-                    REPLAN_LABEL,
-                    format!("{} could not start: {error}", task.slug),
-                );
+                start_failed(fleet, user, &project, &task, &error.to_string()).await?;
             }
         }
     }
+    Ok(())
+}
+
+/// A start of `task` failed: its start request goes, so nothing retries it
+/// on its own, and the project chat hears once why.
+pub(crate) async fn start_failed(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    task: &TaskRow,
+    why: &str,
+) -> Result<()> {
+    user.set_task_start(task.id, None).await?;
+    let chat = user.ensure_project_agent(project.id).await?;
+    fleet.post(
+        chat,
+        REPLAN_LABEL,
+        format!(
+            "{} could not start: {why} It will not be tried again on its own.",
+            task.slug
+        ),
+    );
     Ok(())
 }
 

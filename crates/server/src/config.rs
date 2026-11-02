@@ -17,7 +17,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
-use iroh::{EndpointId, SecretKey};
+use iroh::SecretKey;
 use secrecy::SecretString;
 use serde::{Deserialize, de::IgnoredAny};
 
@@ -45,17 +45,17 @@ pub struct Config {
     /// The model project chats plan on. Without it they plan on the chat's
     /// default.
     pub project: Option<ProjectConfig>,
-    /// Endpoint ids of the users who get operator features: machines,
-    /// account events and watchers.
-    #[serde(default)]
-    pub admins: Vec<EndpointId>,
+    /// The removed admin list: every user gets every feature now. Ignored;
+    /// kept so configs that still name admins load.
+    #[serde(default, rename = "admins")]
+    _admins: Option<IgnoredAny>,
     /// Describes images for models without vision, and for the saved
     /// conversation. Defaults to `model` when that one sees images.
     pub vision_model: Option<String>,
-    /// Writes the summary when a long session is compacted. A cheap model
-    /// with a large window fits, as it reads the whole session and writes
-    /// little. Defaults to `model`.
-    pub compaction_model: Option<Model>,
+    /// Removed: sessions are summarized on the model their chat ran on.
+    /// Ignored; kept so configs that still set it load.
+    #[serde(default, rename = "compaction_model")]
+    _compaction_model: Option<IgnoredAny>,
     /// How much the assistant thinks before answering: off, low, medium or high.
     #[serde(default = "default_reasoning")]
     pub reasoning: ReasoningLevel,
@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_admins_and_model_choices() {
+    fn ignores_admins_and_reads_model_choices() {
         let admin = SecretKey::generate().public();
         let config: Config = toml::from_str(&format!(
             r#"
@@ -269,8 +269,7 @@ mod tests {
             admins = ["{admin}"]
             "#
         ))
-        .expect("the config is valid");
-        assert_eq!(config.admins, [admin]);
+        .expect("old admin lists are ignored");
         assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
     }
 

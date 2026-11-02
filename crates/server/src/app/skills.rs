@@ -26,10 +26,7 @@ impl App {
         corrected: bool,
     ) {
         // The skills watcher reads the whole chat once it is finished.
-        if self
-            .watchers
-            .watches(self, user.id(), crate::watchers::WatcherKind::Skills)
-        {
+        if self.watchers.watches(crate::watchers::WatcherKind::Skills) {
             return;
         }
         let app = self.clone();

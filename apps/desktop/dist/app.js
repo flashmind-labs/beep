@@ -998,6 +998,8 @@ async function openSession(id) {
     // The user may have moved on, or started a run here, while it loaded.
     if (S.session !== id || S.view !== "chat" || live.has(id)) return;
     drawHistory(id, turns);
+    // The window's title line says when the chat started, known only now.
+    changed();
     // A reply that finished while another chat was open left its queue waiting.
     if (queued.get(id) && !queued.get(id).held) sendQueued(id);
     else watchRun(id);
@@ -2375,14 +2377,13 @@ function renderRevoked() {
 function thisMac(mac) {
   const p = mac.permissions;
   const sub = !mac.enabled ? "Beep can see the screen, click, type and run commands here when you ask"
-    : mac.status === "not_allowed" ? "This account can't add machines on this server"
     : mac.status === "failed" ? `Couldn't connect: ${esc(mac.error || "unknown error")}. Beep tries again on its own.`
     : mac.status === "connected" ? (p.screen_recording && p.accessibility ? "Connected. Ask Beep to do something on this Mac" : "Connected. Allow both below so Beep can see and use the screen")
     : "Connecting…";
   const perm = (key, name, why, ok) => `<div class="dtoggle"><span><b>${name}</b><small>${why}</small></span>${ok
     ? '<span class="dtag ok">Allowed</span>'
     : `<button class="dbtn" data-allow="${key}">Allow…</button>`}</div>`;
-  const rows = mac.enabled && mac.status !== "not_allowed"
+  const rows = mac.enabled
     ? perm("ScreenRecording", "Screen Recording", "To see the screen", p.screen_recording)
       + perm("Accessibility", "Accessibility", "To click, type and read app controls", p.accessibility)
     : "";
@@ -2426,7 +2427,9 @@ const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Ma
 /// `cli` is what gh and teacli on this Mac are signed in to, `cliBusy` the
 /// sign-in being saved and `cliError` why one was refused. `ghFlow` is gh's
 /// browser sign-in under way: { code, url, copied }.
-const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null };
+/// `github` is the GitHub accounts, undefined when the server could not
+/// list them; `ghAdd` whether "Add another GitHub account" is open.
+const CRED = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false };
 const credModule = () => import("./credentials.js").then(m => (CRED.mod = m));
 
 function setCredsHtml() {
@@ -2453,8 +2456,12 @@ async function loadCliLogins() {
 async function loadCreds() {
   loadCliLogins();
   try {
-    const [, list, providers] = await Promise.all([credModule(), invoke("list_credentials"), invoke("credential_providers")]);
+    // A server from before several GitHub accounts does not list them:
+    // the credentials list then has the one GitHub token.
+    const accounts = invoke("list_github_accounts").catch(e => { console.warn(e); return undefined; });
+    const [, list, providers, github] = await Promise.all([credModule(), invoke("list_credentials"), invoke("credential_providers"), accounts]);
     CRED.list = list;
+    CRED.github = github;
     CRED.providers = providers;
   } catch (e) {
     console.warn(e);
@@ -2488,6 +2495,7 @@ async function signInGh(redraw) {
     CRED.cliError = { key: "github", message: String(e) };
   }
   CRED.ghFlow = null;
+  CRED.ghAdd = !!CRED.cliError;
   await loadCreds();
 }
 
@@ -2527,6 +2535,37 @@ function bindCreds(el) {
     await loadCreds();
   }));
   el.querySelectorAll("[data-cred-gh]").forEach(b => b.addEventListener("click", () => signInGh(redraw)));
+  // Opens or closes "Add another GitHub account".
+  el.querySelectorAll("[data-cred-gh-add]").forEach(b => b.addEventListener("click", () => {
+    CRED.ghAdd = !!b.dataset.credGhAdd;
+    CRED.cliError = null;
+    redraw();
+  }));
+  // Saves the token gh here holds for one of its accounts.
+  el.querySelectorAll("[data-cred-gh-use]").forEach(b => b.addEventListener("click", async () => {
+    const login = b.dataset.credGhUse;
+    if (!login || CRED.cliBusy) return;
+    CRED.cliBusy = `gh:${login}`;
+    CRED.cliError = null;
+    redraw();
+    try {
+      await invoke("use_gh_account", { login });
+      CRED.ghAdd = false;
+    } catch (e) {
+      CRED.cliError = { key: "github", message: String(e) };
+    }
+    CRED.cliBusy = "";
+    await loadCreds();
+  }));
+  el.querySelectorAll("[data-cred-gh-default]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await invoke("set_default_github_account", { id: b.dataset.credGhDefault });
+    } catch (e) {
+      console.warn(e);
+    }
+    await loadCreds();
+  }));
   el.querySelectorAll("[data-cred-gh-cancel]").forEach(b => b.addEventListener("click", () => {
     b.disabled = true;
     invoke("cancel_gh_sign_in").catch(console.warn);
@@ -2555,6 +2594,7 @@ function bindCreds(el) {
     redraw();
     try {
       await invoke("save_credential", { credential: d.credential });
+      if (CRED.edit?.kind === "github") CRED.ghAdd = false;
       CRED.edit = null;
     } catch (e) {
       CRED.error = String(e);
@@ -2605,7 +2645,7 @@ function setAppsHtml() {
   return `<div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>`;
 }
 
-/// Other machines; only admins may list them, so for anyone else it stays out.
+/// Other machines; left out when the list could not be read.
 function setMachinesHtml() {
   if (SET.machines === undefined) return setSkeleton(1);
   const list = SET.machines;
@@ -4439,7 +4479,7 @@ function grantKeys(e, cmd) {
 
 // ---------- Machines ----------
 
-// The machines running beep-node (ListMachines), from Settings. Admins only.
+// The machines running beep-node (ListMachines), from Settings.
 const MC = { list: null, error: "" };
 const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
 /// The coding agents Beep can drive on a machine; its other tools follow them.
@@ -6051,6 +6091,13 @@ if (PANE) {
       await start();
       const [sessions, groups] = await Promise.all([invoke("list_sessions"), invoke("list_groups").catch(() => [])]);
       return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
+    },
+    /// When the open chat's first message was sent, in milliseconds, or
+    /// null before its history has loaded.
+    startedAt() {
+      if (S.view !== "chat") return null;
+      const at = Number(body()?.querySelector("[data-at]")?.dataset.at);
+      return at > 0 ? at : null;
     },
     current: () => ({ view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null }),
     onChange(fn) { changeListeners.push(fn); },
