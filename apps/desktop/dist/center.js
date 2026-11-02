@@ -15,7 +15,7 @@ import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectS
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.js";
 import { outsideThreads, outsideTitle } from "./branchwork.js";
-import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted } from "./project.js";
+import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.js";
 import { registerInstructions } from "./instructions.js";
 import { makeTerminals, terminalTile } from "./terminals.js";
 import { makeReviews, branchTile } from "./review.js";
@@ -474,7 +474,8 @@ let shown = null;
 
 /// Adds a view the window can show. `mount(el, arg)` draws it into its own
 /// element, `unmount()` runs when another view takes over. `title` is a
-/// string or a function giving `{ title, sub, tools }`.
+/// string or a function giving `{ title, sub, tools, scope }`, `scope` an
+/// element shown beside the title.
 export function registerView(name, view) {
   let el = view.el;
   if (!el) {
@@ -507,6 +508,7 @@ function drawTop() {
   const view = views.get(shown);
   const head = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   $("#title").textContent = head.title || "Beep";
+  $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
   $("#date").textContent = head.sub || "";
   $("#tools").replaceChildren(...(head.tools || []));
 }
@@ -1785,7 +1787,7 @@ function paneTitle() {
     const c = chatList.find(x => x.id === on.session);
     // A chat just started is not in the list until the server has it.
     const at = pane().startedAt?.();
-    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [] };
+    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [], scope: scopeTag(on.session) };
   }
   if (on.group) {
     const g = chatList.find(x => x.id === on.group);
@@ -1793,6 +1795,34 @@ function paneTitle() {
   }
   const [title, sub] = PANE_TITLES[on.view] ?? ["Beep", ""];
   return { title, sub };
+}
+
+/// Beside a chat's title: the project it belongs to, which opens the
+/// project, or General.
+function scopeTag(session) {
+  const agent = chatProject(state.agents, session);
+  if (!agent) return h("span", "cc-tag", "General");
+  const rows = projectRows() || [];
+  const i = rows.findIndex(p => p.name === agent.name);
+  const dot = h("span", "cc-pdot");
+  if (i >= 0) dot.style.background = PROJECT_COLORS[i % PROJECT_COLORS.length];
+  const b = h("button", "cc-tag pj-scope", dot, shortName(agent.name));
+  b.type = "button";
+  b.title = `${agent.name}: open the project`;
+  b.addEventListener("click", () => openProjects(agent.name));
+  return b;
+}
+
+/// The project agents alone, so a chat's header knows its project before
+/// any project page has loaded them.
+async function loadAgents() {
+  try {
+    state.agents = await invoke("center_projects");
+  } catch (e) {
+    console.warn("project agents:", e);
+    return;
+  }
+  if (shown === "pane") drawTop();
 }
 
 function pinButton(c) {
@@ -1945,8 +1975,22 @@ document.addEventListener("keydown", e => {
   if (key === ",") { e.preventDefault(); return openSettings(); }
   const to = { m: "memories", j: "routines", l: "skills" }[key];
   if (to) { e.preventDefault(); return go("pane", to); }
-  if (key === "n" && shown !== "pane") { e.preventDefault(); return go("pane", { chat: { session: null } }); }
+  // In the pane, the pane's own keys call newChatHere.
+  if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
+
+/// ⌘N: the project's chat while a project or its chat shows, else a new
+/// general chat. A project with no chat yet gets its prompt bar, where
+/// sending starts one.
+function newChatHere() {
+  const on = paneOn();
+  const name = newChatProject({ shown, picked: state.picked, view: on.view, session: on.session }, state.agents);
+  const agent = name && agentFor(state.agents, name);
+  if (agent) return go("pane", { chat: { session: agent.chat_id } });
+  if (name && shown === "projects" && projectComp.form.isConnected) return projectComp.input.focus();
+  go("pane", { chat: { session: null } });
+}
+window.beepNewChat = newChatHere;
 
 // ---------- Refresh ----------
 
@@ -2037,3 +2081,4 @@ $("#home-agent")?.addEventListener("click", () => {
 
 // A reload starts with no chat open, as the window just opened does.
 invoke("new_chat").catch(() => {}).then(() => takePending("home"));
+loadAgents();
