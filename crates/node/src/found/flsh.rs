@@ -7,11 +7,12 @@
 //! Databases are opened read-only; one that is locked or older than the
 //! `working_dir` column is skipped.
 
-use super::{Agent, MAX_FILES, Seen, prompt_title};
+use super::{Agent, MAX_FILES, Memos, Seen, prompt_title};
 use rusqlite::{Connection, OpenFlags};
 use std::{
     env, fs,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -48,7 +49,7 @@ pub(super) fn locate() -> Option<PathBuf> {
 }
 
 /// The sessions in every database under the sessions folder `root`.
-pub(super) fn sessions(root: &Path) -> Vec<Seen> {
+pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
     };
@@ -58,8 +59,11 @@ pub(super) fn sessions(root: &Path) -> Vec<Seen> {
         if !database.is_file() {
             continue;
         }
-        match read(&database) {
-            Ok(found) => seen.extend(found),
+        match memos
+            .databases
+            .read_database(&database, || read(&database).map(Arc::new))
+        {
+            Ok(found) => seen.extend(found.iter().cloned()),
             Err(e) => log::debug!(
                 "flsh sessions not read; database={} error={e}",
                 database.display()
@@ -137,7 +141,7 @@ mod tests {
         .expect("rows");
         drop(conn);
         fs::create_dir_all(root.path().join("display")).expect("a folder");
-        let mut found = sessions(root.path());
+        let mut found = sessions(root.path(), &Memos::default());
         found.sort_by(|a, b| a.id.cmp(&b.id));
         assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(found[0].id, "session_a");
@@ -159,6 +163,6 @@ mod tests {
         )
         .expect("the schema");
         drop(conn);
-        assert!(sessions(root.path()).is_empty());
+        assert!(sessions(root.path(), &Memos::default()).is_empty());
     }
 }

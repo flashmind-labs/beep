@@ -271,11 +271,12 @@ impl Agents {
             .partition(|seen| seen.agent == Agent::Claude);
         let ids: HashSet<String> = claude.into_iter().map(|seen| seen.id).collect();
         let owned = self.owned();
+        let stores = self.stores.clone();
         let described = spawn_blocking(move || {
             let now = SystemTime::now();
             others
                 .into_iter()
-                .map(|seen| found::describe(seen, now))
+                .map(|seen| stores.describe(seen, now))
                 .collect::<Vec<_>>()
         });
         let (claude, others) = tokio::join!(self.external.named(ids, owned.clone()), described);
