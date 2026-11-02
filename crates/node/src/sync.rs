@@ -20,7 +20,9 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    sync::{PROTOCOL, Project, ProjectStatus, Refused, Reply, Request, Skipped, State},
+    sync::{
+        CONTROLS, Keep, PROTOCOL, Project, ProjectStatus, Refused, Reply, Request, Skipped, State,
+    },
 };
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_blobs::{Hash, store::fs::FsStore};
@@ -45,6 +47,7 @@ use tokio_util::task::AbortOnDropHandle;
 mod disk;
 mod map;
 mod peer;
+mod progress;
 mod project;
 mod root;
 mod rules;
@@ -271,12 +274,13 @@ impl Syncs {
                     .get_mut(&project.name)
                     .filter(|running| running.project.folder == project.folder)
                     .map(|running| {
-                        running.project.peers = project.peers.clone();
+                        running.project = project.clone();
                         running.shared.clone()
                     })
             };
             if let Some(shared) = same {
                 shared.set_peers(project.peers.clone());
+                shared.set_paused(project.paused);
                 kept.push(project);
                 continue;
             }
@@ -352,6 +356,7 @@ impl Syncs {
             root: Arc::new(root),
             peers: project.peers.clone(),
             file: self.inner.dir.join(format!("{key:016x}.state")),
+            paused: project.paused,
         };
         let shared = spawn_blocking(move || Shared::load(start)).await??;
         let task = tokio::spawn(project::run(
@@ -505,6 +510,20 @@ impl Syncs {
         })
     }
 
+    /// Settles the conflict copy at `path` of `project`, keeping `keep`.
+    pub async fn resolve(&self, project: &str, path: &str, keep: Keep) -> Result<()> {
+        let Some(shared) = self.project(project) else {
+            bail!("{project} is not synced on this machine");
+        };
+        shared.resolve(path, keep).await
+    }
+
+    /// What tells the server this node pauses projects and settles
+    /// conflicts.
+    pub fn controls(&self) -> Controls {
+        Controls(self.clone())
+    }
+
     /// How many pulls other nodes have open here now.
     pub fn pulls_served(&self) -> usize {
         self.inner.serving.load(Ordering::Relaxed)
@@ -560,6 +579,21 @@ impl Protocol for Syncs {
     }
 }
 
+/// `CONTROLS`, offered beside `sync/1`: the server sends a paused project
+/// and `Request::Resolve` only to a node that offers it. Its sessions are
+/// served as `sync/1`'s.
+pub struct Controls(Syncs);
+
+impl Protocol for Controls {
+    fn name(&self) -> &str {
+        CONTROLS
+    }
+
+    fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
+        Box::pin(serve(self.0.clone(), tx, rx))
+    }
+}
+
 /// Serves one `sync/1` request.
 async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let Some(request) = rx.recv::<Request>().await? else {
@@ -575,6 +609,16 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         },
         Request::Skipped { project, limit } => match syncs.skipped(&project, limit).await {
             Ok(skipped) => Reply::Skipped { skipped },
+            Err(e) => Reply::Error {
+                message: format!("{e:#}"),
+            },
+        },
+        Request::Resolve {
+            project,
+            path,
+            keep,
+        } => match syncs.resolve(&project, &path, keep).await {
+            Ok(()) => Reply::Resolved {},
             Err(e) => Reply::Error {
                 message: format!("{e:#}"),
             },

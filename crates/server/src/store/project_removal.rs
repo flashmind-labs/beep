@@ -112,7 +112,7 @@ impl Store {
                 .execute(&mut *tx)
                 .await?
                 .rows_affected();
-        for table in ["pinned_projects", "projects_on_top"] {
+        for table in ["pinned_projects", "projects_on_top", "paused_syncs"] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND lower(project)=lower($2)"
             ))
@@ -418,6 +418,7 @@ mod tests {
             "project_sync",
             "pinned_projects",
             "projects_on_top",
+            "paused_syncs",
             "terminals",
             "branch_reviews",
         ];

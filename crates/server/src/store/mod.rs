@@ -471,6 +471,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "harness_settings",
         include_str!("../../migrations/0076_harness_settings.sql"),
     ),
+    (
+        77,
+        "paused syncs",
+        include_str!("../../migrations/0077_paused_syncs.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

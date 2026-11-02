@@ -7,7 +7,7 @@
 //! folders with a time limit.
 
 use beep_node::{files::Folders, syncthing::Syncthing, transfer::Transfers};
-use beep_proto::node::sync::{Project, ProjectStatus, Refused, Rule, State};
+use beep_proto::node::sync::{Keep, Project, ProjectStatus, Refused, Rule, State};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{
     fs,
@@ -103,6 +103,10 @@ impl Node {
 
     /// Sets the project as the server would, with `peers`.
     async fn configure(&self, peers: Vec<EndpointAddr>) -> Vec<Refused> {
+        self.configure_paused(peers, false).await
+    }
+
+    async fn configure_paused(&self, peers: Vec<EndpointAddr>, paused: bool) -> Vec<Refused> {
         self.running()
             .transfers
             .syncs()
@@ -110,8 +114,14 @@ impl Node {
                 name: PROJECT.into(),
                 folder: self.folder().to_string_lossy().into_owned(),
                 peers,
+                paused,
             }])
             .await
+    }
+
+    async fn pause(&self, peer: &Node, paused: bool) {
+        let refused = self.configure_paused(vec![peer.addr()], paused).await;
+        assert!(refused.is_empty(), "{refused:?}");
     }
 
     /// Marks the shared folder, above the project, as Syncthing's.
@@ -327,6 +337,63 @@ async fn edits_made_on_both_machines_keep_both() {
     let conflicts = &a.running().transfers.syncs().status()[0].conflicts;
     assert_eq!(conflicts.len(), 1, "{conflicts:?}");
     assert!(conflicts[0].ends_with(".md"));
+
+    // Keeping the copy on one machine settles it on both.
+    a.running()
+        .transfers
+        .syncs()
+        .resolve(PROJECT, &conflicts[0], Keep::Copy)
+        .await
+        .expect("the conflict settles");
+    let settled = |node: &Node| {
+        files(&node.folder()) == ["plan.md"]
+            && read(&node.path("plan.md")).as_deref() == Some(b"from b".as_slice())
+    };
+    eventually("the kept copy on both machines", || {
+        settled(&a) && settled(&b)
+    })
+    .await;
+    eventually("no conflict left", || {
+        a.status().conflicts.is_empty() && b.status().conflicts.is_empty()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paused_project_catches_up_when_resumed() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    eventually("both to say they are paused", || {
+        let (sa, sb) = (a.status(), b.status());
+        sa.paused && sb.paused && sa.state == State::Paused && sb.state == State::Paused
+    })
+    .await;
+    write(&a.path("later.txt"), "while paused");
+    let files_before = a.status().files;
+    // Settling a conflict waits for the resume.
+    let refused = a
+        .running()
+        .transfers
+        .syncs()
+        .resolve(PROJECT, "x (conflict 01020304).txt", Keep::Original)
+        .await
+        .expect_err("refused while paused");
+    assert!(refused.to_string().contains("paused"), "{refused}");
+    assert_eq!(
+        a.status().files,
+        files_before,
+        "nothing scanned while paused"
+    );
+
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("the file written while paused to arrive", || {
+        read(&b.path("later.txt")).as_deref() == Some(b"while paused".as_slice())
+    })
+    .await;
+    assert!(!b.status().paused);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -388,6 +455,7 @@ async fn a_node_taken_out_of_a_project_stops_getting_its_changes() {
             name: PROJECT.into(),
             folder: a.folder().to_string_lossy().into_owned(),
             peers: Vec::new(),
+            paused: false,
         }])
         .await;
     assert!(refused.is_empty(), "{refused:?}");

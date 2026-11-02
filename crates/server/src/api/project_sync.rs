@@ -1,14 +1,14 @@
 //! Keeping a project's folder in step across the caller's machines: turning
 //! it on or off per machine, how each machine stands, what sync leaves out,
-//! and pinning a project to the machines it is on or to the top of the
-//! sidebar. The nodes sync node to node; these requests only change and
+//! pausing it, settling its conflicts, and pinning a project to the
+//! machines it is on or to the top of the sidebar. The nodes sync node to node; these requests only change and
 //! read their lists.
 
 use super::{Reply, agent_sessions::linked_keys};
 use crate::{
     nodes::{Online, push_sync},
     protocol::{
-        node::sync::{ProjectStatus, Rule, SkippedPath, State},
+        node::sync::{Keep, Progress, ProjectStatus, Rule, SkippedPath, State},
         *,
     },
     router::Cx,
@@ -16,7 +16,7 @@ use crate::{
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The longest project name.
 const MAX_NAME: usize = 200;
@@ -89,6 +89,7 @@ async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiEr
     endpoints.sort();
     endpoints.dedup();
     let statuses = statuses(cx, endpoints).await;
+    let paused: HashSet<String> = cx.user.paused_syncs().await?.into_iter().collect();
     let mut out: BTreeMap<String, ProjectSync> = BTreeMap::new();
     for project in cx.user.pinned_projects().await? {
         if only.is_none_or(|only| project == only) {
@@ -107,7 +108,7 @@ async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiEr
         let status = statuses
             .get(&row.endpoint)
             .map(|projects| projects.iter().find(|status| status.name == row.project));
-        let machine = machine_sync(&row, name, status);
+        let machine = machine_sync(&row, name, status, paused.contains(&row.project));
         out.entry(row.project.clone())
             .or_insert_with(|| empty(row.project, false))
             .machines
@@ -125,11 +126,14 @@ fn empty(project: String, pinned: bool) -> ProjectSync {
 }
 
 /// `status` is `None` when the machine is offline or did not answer, and
-/// `Some(None)` when it answered without the project: it refused it.
+/// `Some(None)` when it answered without the project: it refused it, or,
+/// when the project is `paused`, it is too old to pause and stopped it.
+/// A paused machine shows `InSync`: nothing moves, and nothing failed.
 fn machine_sync(
     row: &SyncRow,
     name: String,
     status: Option<Option<&ProjectStatus>>,
+    paused: bool,
 ) -> MachineSync {
     let mut machine = MachineSync {
         machine_id: row.endpoint.clone(),
@@ -146,6 +150,7 @@ fn machine_sync(
     };
     match status {
         None => {}
+        Some(None) if paused => machine.status = SyncStatus::InSync {},
         Some(None) => {
             machine.status = SyncStatus::Failed {};
             machine.error = Some("The machine is not syncing this folder.".to_owned());
@@ -154,7 +159,7 @@ fn machine_sync(
             machine.status = match status.state {
                 State::Scanning => SyncStatus::Scanning {},
                 State::Syncing | State::Other => SyncStatus::Syncing {},
-                State::Idle => SyncStatus::InSync {},
+                State::Idle | State::Paused => SyncStatus::InSync {},
                 State::Failed => SyncStatus::Failed {},
             };
             machine.files = status.files;
@@ -167,6 +172,135 @@ fn machine_sync(
         }
     }
     machine
+}
+
+/// How a machine stands in detail: `machine_sync`'s answer, and whether it
+/// is paused, how far it is and what still waits.
+fn machine_detail(
+    row: &SyncRow,
+    name: String,
+    status: Option<Option<&ProjectStatus>>,
+    paused: bool,
+) -> MachineSyncDetail {
+    let reported = status.flatten();
+    MachineSyncDetail {
+        sync: machine_sync(row, name, status, paused),
+        paused: reported.is_some_and(|s| s.paused) || (paused && status.is_some()),
+        progress: reported.and_then(|s| s.progress).map(sync_progress),
+        waiting: reported.map(|s| s.waiting.clone()).unwrap_or_default(),
+        can_resolve: false,
+    }
+}
+
+fn sync_progress(p: Progress) -> SyncProgress {
+    SyncProgress {
+        files_done: p.files_done,
+        files_total: p.files_total,
+        bytes_done: p.bytes_done,
+        bytes_total: p.bytes_total,
+        rate: p.rate,
+        eta_secs: p.eta_secs,
+    }
+}
+
+/// `project` in detail, as `GetProjectSyncDetail` gives it.
+async fn detail(cx: &Cx, project: &str) -> Reply<ProjectSyncDetail> {
+    let machines = machines(cx).await?;
+    let rows: Vec<SyncRow> = cx
+        .user
+        .project_syncs()
+        .await?
+        .into_iter()
+        .filter(|row| row.project == project && machines.contains_key(&row.endpoint))
+        .collect();
+    let statuses = statuses(cx, rows.iter().map(|row| row.endpoint.clone()).collect()).await;
+    let paused = cx.user.paused_syncs().await?.iter().any(|p| p == project);
+    let pinned = cx
+        .user
+        .pinned_projects()
+        .await?
+        .iter()
+        .any(|p| p == project);
+    let machines = rows
+        .iter()
+        .map(|row| {
+            let name = machines
+                .get(&row.endpoint)
+                .map(|node| node.name.clone())
+                .unwrap_or_default();
+            let status = statuses
+                .get(&row.endpoint)
+                .map(|projects| projects.iter().find(|status| status.name == row.project));
+            let mut machine = machine_detail(row, name, status, paused);
+            machine.can_resolve =
+                online(cx, &row.endpoint).is_some_and(|node| node.sync_controls());
+            machine
+        })
+        .collect();
+    Ok(ProjectSyncDetail {
+        project: project.to_owned(),
+        pinned,
+        paused,
+        machines,
+    })
+}
+
+pub(super) async fn get_project_sync_detail(
+    cx: Cx,
+    request: GetProjectSyncDetail,
+) -> Reply<ProjectSyncDetail> {
+    let name = project_name(&request.project)?;
+    detail(&cx, name).await
+}
+
+pub(super) async fn pause_project_sync(
+    cx: Cx,
+    request: PauseProjectSync,
+) -> Reply<ProjectSyncDetail> {
+    let name = project_name(&request.project)?;
+    if request.paused
+        && cx
+            .user
+            .pinned_projects()
+            .await?
+            .iter()
+            .any(|pinned| pinned == name)
+    {
+        return Err(ApiError::bad_request(format!(
+            "{name} is pinned to the machines it is on, so it does not sync."
+        )));
+    }
+    if cx.user.pause_sync(name, request.paused).await? {
+        push_sync(&cx.app.nodes, &cx.user, None).await?;
+    }
+    detail(&cx, name).await
+}
+
+pub(super) async fn resolve_sync_conflict(cx: Cx, request: ResolveSyncConflict) -> Reply<()> {
+    let name = project_name(&request.project)?;
+    let synced = cx
+        .user
+        .project_syncs()
+        .await?
+        .iter()
+        .any(|row| row.project == name && row.endpoint == request.machine_id);
+    if !synced || !machines(&cx).await?.contains_key(&request.machine_id) {
+        return Err(ApiError::NotFound {});
+    }
+    let node = online(&cx, &request.machine_id).ok_or(ApiError::NotFound {})?;
+    if !node.sync_controls() {
+        return Err(ApiError::bad_request(format!(
+            "{}'s beep-node is too old to settle conflicts. Update it, or settle it in the folder.",
+            node.name
+        )));
+    }
+    let keep = match request.keep {
+        ConflictKeep::Original {} => Keep::Original,
+        ConflictKeep::Copy {} => Keep::Copy,
+    };
+    node.sync_resolve(name, &request.path, keep)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("{e:#}")))
 }
 
 /// One project as `projects` lists it.
@@ -388,11 +522,11 @@ mod tests {
 
     #[test]
     fn a_machine_shows_offline_refused_or_how_it_stands() {
-        let offline = machine_sync(&row(), "mac".into(), None);
+        let offline = machine_sync(&row(), "mac".into(), None, false);
         assert_eq!(offline.status, SyncStatus::Offline {});
         assert_eq!(offline.machine_name, "mac");
 
-        let refused = machine_sync(&row(), "mac".into(), Some(None));
+        let refused = machine_sync(&row(), "mac".into(), Some(None), false);
         assert_eq!(refused.status, SyncStatus::Failed {});
         assert!(refused.error.is_some());
 
@@ -407,13 +541,58 @@ mod tests {
             hint: Some("sysctl fs.inotify.max_user_watches=524288".into()),
             ..ProjectStatus::default()
         };
-        let synced = machine_sync(&row(), "mac".into(), Some(Some(&status)));
+        let synced = machine_sync(&row(), "mac".into(), Some(Some(&status)), false);
         assert_eq!(synced.status, SyncStatus::InSync {});
         assert_eq!(synced.files, 3);
         assert_eq!(synced.bytes, 300);
         assert_eq!(synced.conflicts, status.conflicts);
         assert_eq!(synced.rescan_secs, Some(45));
         assert_eq!(synced.hint, status.hint);
+    }
+
+    #[test]
+    fn a_paused_machine_is_quiet_and_its_progress_carries_over() {
+        // An older node stopped the paused project: not a refusal.
+        let stopped = machine_detail(&row(), "mac".into(), Some(None), true);
+        assert_eq!(stopped.sync.status, SyncStatus::InSync {});
+        assert_eq!(stopped.sync.error, None);
+        assert!(stopped.paused);
+        let offline = machine_detail(&row(), "mac".into(), None, true);
+        assert_eq!(offline.sync.status, SyncStatus::Offline {});
+        assert!(!offline.paused);
+
+        let paused = ProjectStatus {
+            name: "game".into(),
+            state: State::Paused,
+            paused: true,
+            ..ProjectStatus::default()
+        };
+        let detail = machine_detail(&row(), "mac".into(), Some(Some(&paused)), true);
+        assert_eq!(detail.sync.status, SyncStatus::InSync {});
+        assert!(detail.paused);
+
+        let moving = ProjectStatus {
+            name: "game".into(),
+            state: State::Syncing,
+            progress: Some(Progress {
+                files_done: 142,
+                files_total: 610,
+                bytes_done: 48_000_000,
+                bytes_total: 210_000_000,
+                rate: 2_100_000,
+                eta_secs: Some(78),
+            }),
+            waiting: vec!["src/main.rs".into()],
+            ..ProjectStatus::default()
+        };
+        let detail = machine_detail(&row(), "mac".into(), Some(Some(&moving)), false);
+        assert_eq!(detail.sync.status, SyncStatus::Syncing {});
+        assert!(!detail.paused);
+        let progress = detail.progress.expect("progress");
+        assert_eq!((progress.files_done, progress.files_total), (142, 610));
+        assert_eq!(progress.rate, 2_100_000);
+        assert_eq!(progress.eta_secs, Some(78));
+        assert_eq!(detail.waiting, ["src/main.rs"]);
     }
 
     #[test]

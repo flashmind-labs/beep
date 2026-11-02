@@ -1134,6 +1134,16 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// The projects whose sync is paused.
+    pub async fn paused_syncs(&self) -> Result<Vec<String>> {
+        self.store.paused_syncs(&self.key).await
+    }
+
+    /// Pauses `project`'s sync, or resumes it; `false` when it already was.
+    pub async fn pause_sync(&self, project: &str, paused: bool) -> Result<bool> {
+        self.store.pause_sync(&self.key, project, paused).await
+    }
+
     /// Lets `allow` run without asking for the rest of `chat`.
     pub(crate) async fn allow_in_chat(
         &self,

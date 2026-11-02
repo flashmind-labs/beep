@@ -229,6 +229,9 @@ sample_struct! {
     AgentHarness { agent, installed, runnable, version, latest, program, home_var, home_default, sign_in, install, settings }
     HarnessSettings { enabled, program, home, args, env }
     HarnessEnv { name, value }
+    ProjectSyncDetail { project, pinned, paused, machines }
+    MachineSyncDetail { sync, paused, progress, waiting, can_resolve }
+    SyncProgress { files_done, files_total, bytes_done, bytes_total, rate, eta_secs }
     GitItems { items, hosts }
     GitHost { host, kind, account, error }
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }
