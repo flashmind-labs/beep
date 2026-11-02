@@ -192,6 +192,8 @@ fn main() {
             file_sync::project_sync,
             projects::open_folder,
             projects::center_projects,
+            projects::projects_on_top,
+            projects::pin_project_to_top,
             projects::center_open_project,
             projects::center_project,
             projects::center_project_send,

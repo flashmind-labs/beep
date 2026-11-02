@@ -271,13 +271,29 @@ export function projectLine(project, imported, now) {
   return [host, when].filter(Boolean).join(" · ");
 }
 
+/// The projects pinned to the top of the sidebar, in the order they were
+/// pinned, and the rest of `rows`. Each keeps `i`, its place in `rows`, so
+/// its colour stays when it is pinned. A pinned name that is no longer a
+/// project is left out.
+export function splitOnTop(rows, top) {
+  const all = (rows || []).map((p, i) => ({ ...p, i }));
+  const byName = new Map(all.map(p => [p.name, p]));
+  const names = [...new Set(top || [])];
+  return {
+    onTop: names.filter(n => byName.has(n)).map(n => byName.get(n)),
+    rest: all.filter(p => !names.includes(p.name)),
+  };
+}
+
 /// The sidebar's project rows grouped by GitHub org or user: an `{ org }`
 /// heading, then that org's projects with `repo` set to the name after the
 /// slash. Projects without an org come last, under no heading. Each keeps
-/// `i`, its place in `rows`, so its colour does not change with grouping.
+/// `i`, its place in `rows` (or the `i` it has), so its colour does not
+/// change with grouping.
 export function sideProjects(rows) {
   const orgs = new Map(), loose = [];
-  (rows || []).forEach((p, i) => {
+  (rows || []).forEach((p, at) => {
+    const i = p.i ?? at;
     const cut = p.name.indexOf("/");
     if (cut <= 0) return loose.push({ ...p, i });
     const org = p.name.slice(0, cut);

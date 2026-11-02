@@ -389,6 +389,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "project issues",
         include_str!("../../migrations/0064_project_issues.sql"),
     ),
+    (
+        65,
+        "projects on top",
+        include_str!("../../migrations/0065_projects_on_top.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

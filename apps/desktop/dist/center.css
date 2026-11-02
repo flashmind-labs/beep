@@ -96,6 +96,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-si.none:hover { background: transparent }
 .cc-org { padding: 6px 8px 2px; font-size: 11.5px; color: var(--muted) }
 .cc-si.pj-repo { padding-left: 18px }
+.cc-si.cc-chat.pj-repo { padding-left: 10px }
 
 /* Cmd+K palette, as in the mock. */
 .cc-si .tt + kbd { margin-left: auto }

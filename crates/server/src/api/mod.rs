@@ -224,6 +224,8 @@ pub fn router() -> Router {
         .call(project_sync::list_project_sync)
         .call(project_sync::get_sync_skipped)
         .call(project_sync::pin_project)
+        .call(project_sync::pin_project_to_top)
+        .call(project_sync::list_projects_on_top)
         .call(updates::list_updates)
         .call(updates::dismiss_updates)
         .call(create_node_token)

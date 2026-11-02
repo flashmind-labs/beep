@@ -676,7 +676,8 @@ requests! {
     152 GetSyncSkipped { project: String, machine_id: String } => Call<SyncSkipped>
     /// Pins a project to the machines it is on, or unpins it. A pinned
     /// project, such as a large game or video project, never syncs: every
-    /// machine stops, and `SetProjectSync` refuses to turn it on.
+    /// machine stops, and `SetProjectSync` refuses to turn it on. To pin
+    /// one to the top of the sidebar instead, see `PinProjectToTop`.
     153 PinProject { project: String, pinned: bool } => Call<ProjectSync>
     /// What the event triage agent found worth telling the user and that
     /// they have not seen or dismissed yet, from the last two days, newest
@@ -814,6 +815,13 @@ requests! {
     /// the default: the one machines get as `GH_TOKEN`. `NotFound` when the
     /// caller has no such account. Remove one with `RemoveCredential`.
     192 SetDefaultGitHubAccount { id: String } => Call<()>
+    /// Pins `project` (`org/repo`) to the top of the sidebar, or unpins it.
+    /// Unlike `PinProject`, which keeps a project off sync, this only sets
+    /// where the apps list it. `BadRequest` for a malformed name.
+    193 PinProjectToTop { project: String, pinned: bool } => Call<()>
+    /// The projects the caller pinned to the top of the sidebar, in the
+    /// order they were pinned.
+    194 ListProjectsOnTop {} => Call<Vec<String>>
 }
 
 /// One of the caller's GitHub accounts, as `ListGitHubAccounts` lists it.
