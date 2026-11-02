@@ -1047,6 +1047,28 @@ impl User {
         self.store.save_credential(&self.key, key, new).await
     }
 
+    /// Seals and saves a GitHub token as the account it signs in as.
+    pub async fn save_github_account(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        new: crate::store::NewGitHubAccount<'_>,
+    ) -> Result<crate::store::GitHubAccountRow> {
+        self.store.save_github_account(&self.key, key, new).await
+    }
+
+    /// The user's GitHub accounts, the default first.
+    pub async fn github_accounts(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::GitHubAccountRow>> {
+        self.store.github_accounts(&self.key, key).await
+    }
+
+    /// `false` when the user has no GitHub account `id`.
+    pub async fn set_default_github(&self, id: &str) -> Result<bool> {
+        self.store.set_default_github(&self.key, id).await
+    }
+
     /// `false` when the user has no credential `id`.
     pub async fn remove_credential(&self, id: &str) -> Result<bool> {
         self.store.remove_credential(&self.key, id).await

@@ -2425,7 +2425,9 @@ const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Ma
 /// `cli` is what gh and teacli on this Mac are signed in to, `cliBusy` the
 /// sign-in being saved and `cliError` why one was refused. `ghFlow` is gh's
 /// browser sign-in under way: { code, url, copied }.
-const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null };
+/// `github` is the GitHub accounts, undefined when the server could not
+/// list them; `ghAdd` whether "Add another GitHub account" is open.
+const CRED = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false };
 const credModule = () => import("./credentials.js").then(m => (CRED.mod = m));
 
 function setCredsHtml() {
@@ -2452,8 +2454,12 @@ async function loadCliLogins() {
 async function loadCreds() {
   loadCliLogins();
   try {
-    const [, list, providers] = await Promise.all([credModule(), invoke("list_credentials"), invoke("credential_providers")]);
+    // A server from before several GitHub accounts does not list them:
+    // the credentials list then has the one GitHub token.
+    const accounts = invoke("list_github_accounts").catch(e => { console.warn(e); return undefined; });
+    const [, list, providers, github] = await Promise.all([credModule(), invoke("list_credentials"), invoke("credential_providers"), accounts]);
     CRED.list = list;
+    CRED.github = github;
     CRED.providers = providers;
   } catch (e) {
     console.warn(e);
@@ -2487,6 +2493,7 @@ async function signInGh(redraw) {
     CRED.cliError = { key: "github", message: String(e) };
   }
   CRED.ghFlow = null;
+  CRED.ghAdd = !!CRED.cliError;
   await loadCreds();
 }
 
@@ -2526,6 +2533,37 @@ function bindCreds(el) {
     await loadCreds();
   }));
   el.querySelectorAll("[data-cred-gh]").forEach(b => b.addEventListener("click", () => signInGh(redraw)));
+  // Opens or closes "Add another GitHub account".
+  el.querySelectorAll("[data-cred-gh-add]").forEach(b => b.addEventListener("click", () => {
+    CRED.ghAdd = !!b.dataset.credGhAdd;
+    CRED.cliError = null;
+    redraw();
+  }));
+  // Saves the token gh here holds for one of its accounts.
+  el.querySelectorAll("[data-cred-gh-use]").forEach(b => b.addEventListener("click", async () => {
+    const login = b.dataset.credGhUse;
+    if (!login || CRED.cliBusy) return;
+    CRED.cliBusy = `gh:${login}`;
+    CRED.cliError = null;
+    redraw();
+    try {
+      await invoke("use_gh_account", { login });
+      CRED.ghAdd = false;
+    } catch (e) {
+      CRED.cliError = { key: "github", message: String(e) };
+    }
+    CRED.cliBusy = "";
+    await loadCreds();
+  }));
+  el.querySelectorAll("[data-cred-gh-default]").forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await invoke("set_default_github_account", { id: b.dataset.credGhDefault });
+    } catch (e) {
+      console.warn(e);
+    }
+    await loadCreds();
+  }));
   el.querySelectorAll("[data-cred-gh-cancel]").forEach(b => b.addEventListener("click", () => {
     b.disabled = true;
     invoke("cancel_gh_sign_in").catch(console.warn);
@@ -2554,6 +2592,7 @@ function bindCreds(el) {
     redraw();
     try {
       await invoke("save_credential", { credential: d.credential });
+      if (CRED.edit?.kind === "github") CRED.ghAdd = false;
       CRED.edit = null;
     } catch (e) {
       CRED.error = String(e);
