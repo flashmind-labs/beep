@@ -1,23 +1,18 @@
-//! What a project worker may do without asking the user. Agents that ask
-//! permission over ACP put each action to [`judge`] as a [`Question`]; the
-//! verdict either answers it or hands it to the user.
+//! What a project worker may do without asking the user: each question a
+//! worker asks goes to [`judge`], whose verdict either answers it or hands
+//! it to the user.
 //!
-//! Not every agent asks. `flsh` runs its tools without a permission request,
-//! and so does `opencode` unless its own config sets a tool to `ask`, so
-//! [`judge`] never sees their actions: see [`agent_asks`].
+//! A node starts every agent with its permission prompts off and allows a
+//! permission request that comes anyway, so [`judge`] sees only questions
+//! that reach the server: a choice the agent puts to the user, or a request
+//! from a node older than that. A worker must not rely on this policy to
+//! keep it inside its worktree, which is why every start card asks.
 
 use super::model::{MachinePath, RepoName, Visibility};
 use crate::{
     leak::PublicText,
     protocol::node::agent::{MAX_QUESTION_LINE, Question},
 };
-
-/// Whether the agent named `agent` puts its actions to the user over ACP.
-/// One that does not is not held to this policy, so a worker must not rely on
-/// the policy alone to keep it inside its worktree.
-pub(crate) fn agent_asks(agent: &str) -> bool {
-    !matches!(agent, "flsh" | "opencode")
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Verdict {
@@ -1016,15 +1011,6 @@ mod tests {
                 "{detail}"
             );
         }
-    }
-
-    #[test]
-    fn only_flsh_and_opencode_skip_the_questions() {
-        for agent in ["claude", "codex", "gemini", "pi"] {
-            assert!(agent_asks(agent), "{agent}");
-        }
-        assert!(!agent_asks("flsh"));
-        assert!(!agent_asks("opencode"));
     }
 
     #[test]

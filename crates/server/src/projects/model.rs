@@ -445,12 +445,6 @@ pub(crate) enum WorkerAgent {
 }
 
 impl WorkerAgent {
-    /// Whether it puts each action to Beep before it runs it. flsh and
-    /// OpenCode do not, so their workers run commands nobody judged.
-    pub(crate) fn asks_permission(self) -> bool {
-        super::policy::agent_asks(self.into())
-    }
-
     /// The protocol name a node serves this agent on.
     pub(crate) fn protocol(self) -> String {
         agent::protocol(self.into())
@@ -483,12 +477,6 @@ mod tests {
             Some(serde_json::json!("opencode"))
         );
         assert_eq!(WorkerAgent::OpenCode.protocol(), "opencode/1");
-        // flsh and OpenCode run their tools without asking, so nothing can
-        // judge them.
-        assert!(!WorkerAgent::Flsh.asks_permission());
-        assert!(!WorkerAgent::OpenCode.asks_permission());
-        assert!(WorkerAgent::Claude.asks_permission());
-        assert!(WorkerAgent::Pi.asks_permission());
     }
 
     #[test]

@@ -87,7 +87,8 @@ impl ProjectTools {
 }
 
 /// What "Always" on the card for this call saves, or `None` when the card
-/// always asks (a merge, a big plan, a host command), so nothing is saved.
+/// always asks (a merge, a big plan, a host command, a worker start), so
+/// nothing is saved.
 pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option<String> {
     let text = |key: &str| args.get(key).and_then(Value::as_str);
     let slug = match tool {
@@ -107,7 +108,6 @@ pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option
         SETUP => (text("action") == Some("checkout")).then_some(CHECKOUT_SLUG),
         "exec" => gate::exec_slug(text("command").unwrap_or_default(), &project.default_branch),
         "process" => (text("action") == Some("stop")).then_some(gate::PROCESS_STOP_SLUG),
-        worker::WORKER => worker::start_saved(args),
         _ => None,
     };
     slug.map(str::to_owned)

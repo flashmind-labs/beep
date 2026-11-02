@@ -21,12 +21,12 @@ use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use strum::VariantNames;
 
 pub(crate) const WORKER: &str = "project_worker";
-/// What "Always" on a start card saves; a flsh or OpenCode start is never
-/// saved.
+/// The gate's name for a start card. Every start asks, so "Always" on it
+/// saves nothing: the agents run without permission prompts.
 pub(super) const START_SLUG: &str = "PROJECT_WORKER_START";
 
 pub(super) struct WorkerTool {
@@ -70,25 +70,15 @@ struct WorkerArgs {
     prompt: Option<String>,
 }
 
-/// What "Always" on the card for this call saves: a start of an agent
-/// that never asks permission is never saved.
-pub(super) fn start_saved(args: &Value) -> Option<&'static str> {
-    let unasking = args
-        .get("agent")
-        .and_then(Value::as_str)
-        .and_then(|agent| WorkerAgent::from_str(agent).ok())
-        .is_some_and(|agent| !agent.asks_permission());
-    (args.get("action").and_then(Value::as_str) == Some("start") && !unasking).then_some(START_SLUG)
-}
-
-/// The start card for `task` placed as `placement`, and whether it asks
-/// every time: a worker that never asks permission always shows it.
+/// The start card for `task` placed as `placement`. It asks every time:
+/// the node starts each agent with its permission prompts off, so nothing
+/// the worker does is put to Beep first.
 pub(crate) fn start_card(
     task: &TaskRow,
     machine: &str,
     placement: &Placement,
     inputs: &[InputFile],
-) -> (Asks, Approval) {
+) -> Approval {
     let mut fields = vec![
         field("Task", format!("{}: {}", task.slug, task.title)),
         field("Machine", machine),
@@ -111,20 +101,14 @@ pub(crate) fn start_card(
             .collect();
         fields.push(field("Inputs", paths.join(", ")));
     }
-    let asks = if placement.agent.asks_permission() {
-        Asks::ByLevel
-    } else {
-        fields.push(field(
-            "Permissions",
-            format!(
-                "{} runs commands without asking: nothing it does in the worktree is checked \
-                 first.",
-                placement.agent
-            ),
-        ));
-        Asks::Always
-    };
-    (asks, card(format!("Start {}", task.slug), fields))
+    fields.push(field(
+        "Permissions",
+        format!(
+            "{} runs commands without asking: nothing it does in the worktree is checked first.",
+            placement.agent
+        ),
+    ));
+    card(format!("Start {}", task.slug), fields)
 }
 
 #[async_trait]
@@ -347,9 +331,8 @@ impl WorkerTool {
             Err(error) => return Ok(Planned::Refused(error.to_string())),
         };
         if let Prepared::Ready(placement) = &prepared {
-            let (asks, approval) =
-                start_card(task, &placement.machine_name, placement, &request.inputs);
-            if let Some(stop) = gated(tools.gate.check(id, START_SLUG, asks, || approval)) {
+            let approval = start_card(task, &placement.machine_name, placement, &request.inputs);
+            if let Some(stop) = gated(tools.gate.check(id, START_SLUG, Asks::Always, || approval)) {
                 return Ok(stop);
             }
         }
@@ -428,13 +411,12 @@ mod tests {
             machine: None,
             path: "/srv/in/model.glb".to_owned(),
         }];
-        let (asks, card) = start_card(
+        let card = start_card(
             &task(),
             "build-box",
             &placement(WorkerAgent::Claude),
             &inputs,
         );
-        assert_eq!(asks, Asks::ByLevel);
         assert_eq!(card.action, "Start fix-it");
         let shown: Vec<String> = card
             .fields
@@ -450,40 +432,25 @@ mod tests {
                 "Persona: reviewer",
                 "Branch: beep/fix-it from main",
                 "Inputs: /srv/in/model.glb",
+                "Permissions: claude runs commands without asking: nothing it does in the \
+                 worktree is checked first.",
             ]
         );
     }
 
     #[test]
-    fn a_flsh_start_always_asks_and_says_why() {
-        let (asks, card) = start_card(&task(), "build-box", &placement(WorkerAgent::Flsh), &[]);
-        assert_eq!(asks, Asks::Always);
-        assert!(
-            card.fields.iter().any(|field| field.label == "Permissions"
-                && field.value.contains("runs commands without asking")),
-            "{:?}",
-            card.fields
-        );
-        let args = json!({"action": "start", "task": "fix-it", "agent": "flsh"});
-        assert_eq!(start_saved(&args), None);
-        let args = json!({"action": "start", "task": "fix-it"});
-        assert_eq!(start_saved(&args), Some(START_SLUG));
-    }
-
-    #[test]
-    fn an_opencode_start_always_asks() {
-        let placement = placement(WorkerAgent::OpenCode);
-        let (asks, card) = start_card(&task(), "build-box", &placement, &[]);
-        assert_eq!(asks, Asks::Always);
-        assert!(
-            card.fields.iter().any(|field| field.label == "Permissions"
-                && field
-                    .value
-                    .starts_with("opencode runs commands without asking")),
-            "{:?}",
-            card.fields
-        );
-        let args = json!({"action": "start", "task": "fix-it", "agent": "opencode"});
-        assert_eq!(start_saved(&args), None);
+    fn every_start_says_its_agent_runs_without_asking() {
+        for name in WorkerAgent::VARIANTS {
+            let agent: WorkerAgent = name.parse().expect("an agent");
+            let card = start_card(&task(), "build-box", &placement(agent), &[]);
+            assert!(
+                card.fields.iter().any(|field| field.label == "Permissions"
+                    && field
+                        .value
+                        .starts_with(&format!("{name} runs commands without asking"))),
+                "{:?}",
+                card.fields
+            );
+        }
     }
 }

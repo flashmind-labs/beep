@@ -1,8 +1,9 @@
 """A stand-in ACP agent for tests: no network, no model.
 
 A prompt with "edit" asks permission to edit notes.txt and reports the edit
-when allowed. A prompt with "wait" runs until it is cancelled. Anything else
-is echoed back.
+when allowed. A prompt with "pick" asks which file to edit instead, as a
+choice with nothing to reject, and edits notes.txt when it is picked. A
+prompt with "wait" runs until it is cancelled. Anything else is echoed back.
 """
 
 import json
@@ -48,19 +49,28 @@ def handle(message):
             {"content": "Read the prompt", "priority": "high", "status": "completed"},
             {"content": "Answer it", "priority": "high", "status": "in_progress"},
         ]})
-        if "edit" in text:
+        if "edit" in text or "pick" in text:
             path = os.path.join(cwd, "notes.txt")
             update(session, {"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Edit notes.txt",
                              "kind": "edit", "status": "pending", "locations": [{"path": path}]})
             next_id += 1
             waiting[next_id] = (message["id"], session)
-            send({"id": next_id, "method": "session/request_permission", "params": {
-                "sessionId": session,
-                "toolCall": {"toolCallId": "t1", "title": "Edit notes.txt", "rawInput": {"file_path": path}},
-                "options": [
+            if "pick" in text:
+                title = "Which file?"
+                options = [
+                    {"optionId": "allow", "name": "notes.txt", "kind": "allow_once"},
+                    {"optionId": "other", "name": "other.txt", "kind": "allow_once"},
+                ]
+            else:
+                title = "Edit notes.txt"
+                options = [
                     {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
                     {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
-                ],
+                ]
+            send({"id": next_id, "method": "session/request_permission", "params": {
+                "sessionId": session,
+                "toolCall": {"toolCallId": "t1", "title": title, "rawInput": {"file_path": path}},
+                "options": options,
             }})
         elif "wait" in text:
             update(session, {"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "Wait",
