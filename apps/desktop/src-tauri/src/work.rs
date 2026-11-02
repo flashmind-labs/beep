@@ -98,9 +98,20 @@ pub async fn answer_work(
     query_id: String,
     decision: Decision,
 ) -> Result<WorkAnswer> {
+    answer(&beep, &session, query_id, decision).await
+}
+
+/// Answers a question from background work in chat `session`, from its
+/// card or its notification.
+pub(crate) async fn answer(
+    beep: &Beep,
+    session: &str,
+    query_id: String,
+    decision: Decision,
+) -> Result<WorkAnswer> {
     let asked = beep
         .call(AnswerApproval {
-            session_id: session_id(&session)?,
+            session_id: session_id(session)?,
             query_id,
             decision: decision.into(),
             for_session: decision.for_session(),

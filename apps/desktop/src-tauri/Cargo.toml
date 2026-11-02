@@ -47,6 +47,9 @@ tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
+# Notifications with Allow and Deny, and what a click on one opens. The
+# notification plugin shows them through the same crate but drops actions.
+mac-notification-sys = "0.6"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.

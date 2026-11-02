@@ -14,6 +14,7 @@ use crate::{
     markdown, orb,
     state::{LinkState, NoticeVoice},
     voice::{Answered, NoticeCard, Voice, Waiting},
+    waiting,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -115,14 +116,43 @@ pub(crate) struct ApprovalAnswered {
 #[tauri::command]
 pub async fn answer_approval(
     app: AppHandle,
-    beep: Service<'_>,
-    voice: State<'_, Arc<Voice>>,
     session: String,
     query_id: String,
     decision: Decision,
     on_event: Channel<BarEvent>,
 ) -> Result<()> {
+    let answer = ChatAnswer {
+        session,
+        query_id,
+        decision,
+    };
+    answer_chat(&app, answer, Some(on_event)).await
+}
+
+/// An answer to an approval a chat's turn waits on.
+pub(crate) struct ChatAnswer {
+    pub(crate) session: String,
+    pub(crate) query_id: String,
+    pub(crate) decision: Decision,
+}
+
+/// Answers an approval a turn waits on and streams the run it resumes into
+/// `on_event`. Without one, from a notification, the run is followed only
+/// when live mode reads it out; the bar follows it on `approval-answered`.
+pub(crate) async fn answer_chat(
+    app: &AppHandle,
+    answer: ChatAnswer,
+    on_event: Option<Channel<BarEvent>>,
+) -> Result<()> {
+    let ChatAnswer {
+        session,
+        query_id,
+        decision,
+    } = answer;
+    let beep = app.state::<Arc<Beep>>().inner().clone();
+    let voice = app.state::<Arc<Voice>>().inner().clone();
     let run = beep.approve(&session, query_id.clone(), decision).await?;
+    app.state::<waiting::WaitingList>().poke();
     let answered = ApprovalAnswered {
         session: session.clone(),
         query_id: query_id.clone(),
@@ -140,6 +170,11 @@ pub async fn answer_approval(
     if let Err(e) = app.emit("approval-answered", answered) {
         log::warn!("telling the windows an approval was answered: {e}");
     }
+    let on_event = match (on_event, &news) {
+        (Some(channel), _) => channel,
+        (None, Some(_)) => Channel::new(|_| Ok(())),
+        (None, None) => return Ok(()),
+    };
     let followed = beep.follow_answered(run, on_event, news.as_ref()).await;
     if let (Err(e), Some(news)) = (&followed, &news) {
         news.tell(RunNews::Failed(e.to_string()));
