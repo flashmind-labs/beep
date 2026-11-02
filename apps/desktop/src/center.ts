@@ -20,11 +20,12 @@ import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
-import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
+import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { registerInstructions } from "./instructions.ts";
 import { makeTerminals, terminalTile } from "./terminals.ts";
-import { makeReviews, branchTile } from "./review.ts";
-import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.ts";
+import { makeReviews, branchTile, mergeBlock } from "./review.ts";
+import type { ReviewHead } from "./review.ts";
+import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { makeThreads, issueTile, threadTile } from "./threads.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
 import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
@@ -1625,6 +1626,15 @@ function openTile(key: string | null) {
   document.querySelector("#main .cc-view")?.scrollTo({ top: 0 });
 }
 
+/// Opens the Tasks list and brings task `id`'s row into view.
+function openTask(id: string) {
+  openTile("tasks");
+  const row = [...document.querySelectorAll<HTMLElement>("#main .pj-task")].find(r => r.dataset.task === id);
+  if (!row) return;
+  row.classList.add("found");
+  row.scrollIntoView({ block: "center" });
+}
+
 /// The board: what the project chat waits on, then a tile per kind of
 /// thing, or one tile's full list once its header is clicked.
 function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]) {
@@ -1653,7 +1663,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   if (revs.branches(p.name) === undefined) revs.load(p.name);
   if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
   out.push(h("div", "pb-grid",
-    tile("tasks", "Tasks", taskTile(view.tasks), openTile),
+    tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!) }),
     tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks)), openTile, { openUrl }),
     tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
@@ -1752,6 +1762,24 @@ const agentActs = {
   outcome: (id: string) => pa.outcomes.get(id),
   openUrl: (url: string) => invoke("open_url", { url }).catch(e => console.warn("open url:", e)),
   review: (branch: string) => { if (state.picked) revs.openBranch(state.picked, branch); },
+  /// Merge… on a task in review asks the project agent to merge once the
+  /// branch's newest review allows it and the branch has not moved since;
+  /// otherwise it opens the review, which says what stands in the way.
+  merge(task: { id: string; branch: string | null }) {
+    const name = state.picked, branch = task.branch;
+    if (!name || !branch) return;
+    const r = (revs.reviews(name) || []).find(x => x.branch === branch);
+    if (!r || !mergeBlock(r).startsWith("Merge always")) { revs.openBranch(name, branch); return; }
+    return act(task.id, async () => {
+      const now = await invoke<ReviewHead | null>("review_check", { id: r.id });
+      if (!now || now.stale) { revs.openBranch(name, branch); return; }
+      await invoke("review_merge", { review: r.id });
+    });
+  },
+  openWorker(worker: Parameters<typeof workerSession>[0], title: string | null) {
+    const at = workerSession(worker, title);
+    if (at) go("pane", { agent: at });
+  },
   async change(task: { id: string }, change: unknown) {
     await act(task.id, () => invoke("center_update_task", { task: task.id, change }));
   },

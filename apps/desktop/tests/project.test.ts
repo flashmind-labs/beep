@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "../src/project.ts";
+import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, workerSession, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "../src/project.ts";
 
 const MIN = 60000;
 
@@ -87,4 +87,15 @@ test("new chat goes to the project on screen, else a general chat", () => {
   assert.equal(newChatProject({ shown: "pane", view: "chat", session: null }, agents), null);
   assert.equal(newChatProject({ shown: "pane", view: "memories", session: "c1" }, agents), null);
   assert.equal(newChatProject({ shown: "home", picked: "acme/widget" }, agents), null);
+});
+
+test("a worker opens its session once it has one", () => {
+  const w = { machine_id: "m1", machine_name: "build-box", session: "s1", agent: "codex", folder: "/srv/project/.worktrees/bump", state: "running" };
+  assert.deepEqual(workerSession(w, "Bump iroh"), {
+    kind: "agent", machine_id: "m1", machine_name: "build-box", id: "s1", agent: "codex",
+    title: "Bump iroh", cwd: "/srv/project/.worktrees/bump", status: "working", external: false,
+  });
+  assert.equal(workerSession({ ...w, state: "waiting" }, null)!.status, "idle");
+  assert.equal(workerSession({ ...w, state: "failed" }, null)!.status, "ended");
+  assert.equal(workerSession({ ...w, session: null }, null), null);
 });
