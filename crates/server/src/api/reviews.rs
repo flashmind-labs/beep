@@ -414,7 +414,7 @@ async fn shown(cx: &Cx, review: ReviewRow, doing: &HashMap<u32, String>) -> Repl
 
 /// The caller's project named `name`: one they made, or imported on a
 /// machine.
-async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiError> {
+pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiError> {
     let name = RepoName::parse(name.trim()).map_err(|_| ApiError::NotFound {})?;
     let text = name.to_string();
     let known = cx
@@ -440,14 +440,14 @@ async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiError> {
 
 /// A machine and the project's folder there.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Place {
-    endpoint: String,
-    folder: String,
+pub(super) struct Place {
+    pub(super) endpoint: String,
+    pub(super) folder: String,
 }
 
 /// Where the project is: the home checkout first, then its other
 /// checkouts, then the folders it was imported into; one per machine.
-async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, ApiError> {
+pub(super) async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, ApiError> {
     let mut checkouts = cx.user.checkouts(project.id).await?;
     checkouts.sort_by_key(|checkout| !checkout.home);
     let name = project.name.to_string();
@@ -493,7 +493,7 @@ async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), 
 }
 
 /// The caller's machine `endpoint` when it is online now.
-fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
+pub(super) fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
     cx.app
         .nodes
         .online(endpoint)
