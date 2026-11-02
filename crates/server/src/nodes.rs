@@ -39,6 +39,7 @@ mod deliver;
 mod desktop;
 mod files;
 mod follow;
+mod harness;
 mod shell;
 mod stats;
 mod sync;
@@ -88,6 +89,9 @@ pub struct Online {
     /// Woken when the user's credentials change, for a node that takes
     /// them.
     credentials: Option<Arc<Notify>>,
+    /// Woken when the user's settings for this machine's harnesses
+    /// change, for a node that takes them.
+    agent_settings: Option<Arc<Notify>>,
 }
 
 /// The nodes connected now, by key.
@@ -150,6 +154,19 @@ impl Nodes {
             if let Some(changed) = &online.credentials {
                 changed.notify_one();
             }
+        }
+    }
+
+    /// Tells the user's node `machine_id`, when it is online and takes
+    /// them, to fetch its harness settings again.
+    pub fn agent_settings_changed(&self, user: &str, machine_id: &str) {
+        let Ok(id) = machine_id.parse::<EndpointId>() else {
+            return;
+        };
+        if let Some(online) = self.lock().get(&id).filter(|online| online.user == user)
+            && let Some(changed) = &online.agent_settings
+        {
+            changed.notify_one();
         }
     }
 
@@ -409,6 +426,11 @@ async fn serve(
     if let Some(changed) = &credentials {
         changed.notify_one();
     }
+    // The same for the harness settings.
+    let agent_settings = hello.agent_settings.then(|| Arc::new(Notify::new()));
+    if let Some(changed) = &agent_settings {
+        changed.notify_one();
+    }
     let stats = Arc::new(stats::StatsSlot::default());
     app.nodes.insert(
         endpoint,
@@ -425,6 +447,7 @@ async fn serve(
             desktop: Arc::default(),
             stats: stats.clone(),
             credentials: credentials.clone(),
+            agent_settings: agent_settings.clone(),
         },
     );
     app.nodes.follows.reconnected(app, &endpoint.to_string());
@@ -465,6 +488,13 @@ async fn serve(
                     Ok(set) => tx.send(&Down::Credentials(set)).await?,
                     // The node keeps what it had; the next change tries again.
                     Err(e) => log::warn!("credentials not sent; node={endpoint} error={e:#}"),
+                }
+            }
+            () = changed(agent_settings.as_deref()) => {
+                match user.agent_settings(&app.credential_key, &endpoint.to_string()).await {
+                    Ok(settings) => tx.send(&Down::AgentSettings(settings)).await?,
+                    // The node keeps what it had; the next change tries again.
+                    Err(e) => log::warn!("harness settings not sent; node={endpoint} error={e:#}"),
                 }
             }
         }

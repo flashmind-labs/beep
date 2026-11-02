@@ -101,6 +101,7 @@ pub(crate) enum PaletteAction {
     Skills,
     Apps,
     Settings,
+    CodingAgents,
 }
 
 impl PaletteAction {
@@ -114,6 +115,7 @@ impl PaletteAction {
             Self::Skills => "Skills",
             Self::Apps => "Apps",
             Self::Settings => "Settings",
+            Self::CodingAgents => "Coding agents",
         }
     }
 }
@@ -774,9 +776,9 @@ mod tests {
             text: Vec::new(),
         };
         let hits = rank("", &PaletteLists::default(), &chats);
-        assert_eq!(hits.len(), 13);
-        assert!(hits[..8].iter().all(|h| h.kind == HitKind::Action));
-        let ids: Vec<&str> = hits[8..].iter().map(|h| h.id.as_str()).collect();
+        assert_eq!(hits.len(), 14);
+        assert!(hits[..9].iter().all(|h| h.kind == HitKind::Action));
+        let ids: Vec<&str> = hits[9..].iter().map(|h| h.id.as_str()).collect();
         assert_eq!(ids, ["6", "5", "4", "3", "2"]);
     }
 
