@@ -56,6 +56,9 @@ export const TOOL_LABELS: Record<string, string> = {
   code_agent: "Using a coding agent",
   get_route: "Planning a route",
   send_image: "Sending pictures",
+  image_gen: "Making an image",
+  video_gen: "Making a video",
+  "3d_gen": "Making a 3D model",
   chat_search: "Searching this chat",
   chat_read: "Reading this chat",
   place_save: "Saving a place",
@@ -105,7 +108,7 @@ export const PAST: Record<string, string> = {
   drawing: "Drew", downloading: "Downloaded", mapping: "Mapped", asking: "Asked", ending: "Ended",
   following: "Followed", unfollowing: "Unfollowed", taking: "Took", answering: "Answered",
   clicking: "Clicked", typing: "Typed", pressing: "Pressed", scrolling: "Scrolled", writing: "Wrote",
-  linking: "Linked", copying: "Copied", typesetting: "Typeset",
+  linking: "Linked", copying: "Copied", typesetting: "Typeset", making: "Made",
 };
 export function doneLabel(label: string) {
   const text = label.replace(/[.\u2026\s]+$/, "");

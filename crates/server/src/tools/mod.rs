@@ -11,6 +11,7 @@ mod image;
 mod location;
 pub(crate) mod machines;
 mod maps;
+pub(crate) mod media;
 mod memory;
 mod notify_user;
 mod open_app;
