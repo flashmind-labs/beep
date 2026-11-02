@@ -49,6 +49,13 @@ pub struct SessionRef {
     pub id: Uuid,
 }
 
+/// A quiet session and how big its last prompt was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuietSession {
+    pub session: SessionRef,
+    pub context_tokens: u32,
+}
+
 /// A session's model context with the stored text it was read from, so a
 /// later write can check nothing changed it in between.
 pub struct StoredContext {
@@ -499,9 +506,9 @@ impl Store {
         &self,
         min_tokens: u32,
         idle: Duration,
-    ) -> Result<Vec<SessionRef>> {
+    ) -> Result<Vec<QuietSession>> {
         let rows = sqlx::query(
-            "SELECT m.user_id, c.id FROM sessions s
+            "SELECT m.user_id, c.id, s.context_tokens FROM sessions s
              JOIN chats c ON c.id = s.chat_id
              JOIN chat_members m ON m.chat_id = c.id
              WHERE s.context_tokens >= $1
@@ -512,7 +519,15 @@ impl Store {
         .bind(seconds(idle))
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(session_ref).collect()
+        rows.iter()
+            .map(|row| {
+                let tokens: i64 = row.try_get(2)?;
+                Ok(QuietSession {
+                    session: session_ref(row)?,
+                    context_tokens: u32::try_from(tokens).unwrap_or(u32::MAX),
+                })
+            })
+            .collect()
     }
 }
 
