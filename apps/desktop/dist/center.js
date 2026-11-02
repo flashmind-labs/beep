@@ -14,8 +14,8 @@ import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects } from "./projects-state.js";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart } from "./openitems.js";
-import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
-import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
+import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted } from "./project.js";
+import { tile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -1093,7 +1093,7 @@ function projectDetail(p) {
   const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running), ...agentBottom(p)];
+  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -1151,17 +1151,13 @@ function projectBoard(p, rows, known, running) {
   if (sessions === undefined) loadSessions(p.name);
   const out = [];
   if (pv.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${pv.error}`)));
-  const chat = agentBottom(p)[0];
-  if (pa.tile !== "chat") {
-    const needs = cardsSection(view, chatActs(p));
-    if (needs) out.push(needs);
-  }
+  const needs = cardsSection(view, chatActs(p));
+  if (needs) out.push(needs);
   const full = {
     tasks: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))],
     prs: () => [prsSection(view, agentActs)],
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
-    chat: () => [chat],
   };
   if (pa.tile && full[pa.tile]) {
     out.push(backRow(() => openTile(null)), ...full[pa.tile]());
@@ -1173,12 +1169,11 @@ function projectBoard(p, rows, known, running) {
     tile("tasks", "Tasks", taskTile(view.tasks), openTile),
     tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
-    tile("agents", "Agents", agentTile(running, past), openTile),
-    chatTile(recentTurns(view.turns, pa.sending?.name === p.name ? pa.sending.text : null), openTile)));
+    tile("agents", "Agents", agentTile(running, past), openTile)));
   return out;
 }
 
-/// What the project chat's cards do, for the board and the chat section.
+/// What the project chat's cards do, on the board and in the list.
 function chatActs(p) {
   const agent = agentFor(state.agents, p.name);
   return { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) };
@@ -1200,12 +1195,10 @@ function layoutSwitch() {
 // ---------- Project agent ----------
 
 /// What the agent sections are doing: `busy` and `errors` by task or worker
-/// id, `outcomes` of answered cards by query id, `sending` the text on its
-/// way to the project chat, `starting` the project whose chat is being made
-/// and `startError` why that failed. `remembered` is set once the window
-/// made the project chat its current chat.
+/// id, `outcomes` of answered cards by query id, and `starting` the project
+/// whose agent the prompt bar is making.
 /// `tile` is the board tile opened in place of the board, null for the board.
-const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false, tile: null };
+const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), starting: null, tile: null };
 
 function redrawProjects() {
   if (shown === "projects") drawProjects(views.get("projects").el);
@@ -1241,50 +1234,18 @@ async function act(id, call) {
   loadProjectAgent();
 }
 
-/// Tasks beside Workers, above the folders, once the project has an agent.
+/// The cards the project chat waits on, then Tasks beside Workers, above
+/// the folders, once the project has an agent.
 function agentTop(p) {
   const view = p.imported ? state.pview.get(p.name)?.view : null;
   if (!view) return [];
   const out = [];
   const error = state.pview.get(p.name)?.error;
   if (error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${error}`)));
+  const needs = cardsSection(view, chatActs(p));
+  if (needs) out.push(needs);
   out.push(h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat)));
   return out;
-}
-
-/// The project chat at the bottom, or the call to start it. Nothing from a
-/// server without project agents, or for a project that is not imported.
-function agentBottom(p) {
-  if (!p.imported || !state.agents) return [];
-  const agent = agentFor(state.agents, p.name);
-  if (!agent) {
-    return [startSection({ starting: pa.starting === p.name, error: pa.startError, start: () => startProjectChat(p.name) })];
-  }
-  const view = state.pview.get(p.name)?.view;
-  if (!view) return [section("sec-project-chat", "Project chat", "", null, h("div", "cc-panel cc-empty", h("span", "", "Reading the project chat…")))];
-  return [chatSection(view, {
-    ...chatActs(p),
-    sending: pa.sending?.name === p.name ? pa.sending.text : null,
-    openChat: () => go("pane", { chat: { session: agent.chat_id } }),
-  })];
-}
-
-/// Makes the project's agent and its chat, then shows them.
-async function startProjectChat(name) {
-  if (pa.starting) return;
-  pa.starting = name;
-  pa.startError = null;
-  redrawProjects();
-  try {
-    const agent = await invoke("center_open_project", { name });
-    state.agents = [...(state.agents || []).filter(a => a.name !== agent.name), agent];
-  } catch (e) {
-    pa.startError = failure(e);
-  } finally {
-    pa.starting = null;
-  }
-  redrawProjects();
-  loadProjectAgent();
 }
 
 /// Answers a card of the project chat. The call returns when the run it
@@ -1299,48 +1260,78 @@ function answerCard(agent, c, decision, said) {
   setTimeout(loadProjectAgent, 1500);
 }
 
-/// The composer under a project with an agent; kept across redraws so
-/// what is typed stays.
+/// The prompt bar under an imported project; kept across redraws so what
+/// is typed stays. Sending opens the project chat, where the project agent
+/// plans the work and runs the coding agents; "Open chat" goes there once
+/// the chat has turns.
 const projectComp = (() => {
   const input = h("input");
   input.type = "text";
   input.autocomplete = "off";
   input.spellcheck = false;
-  input.placeholder = "Ask the project agent, or describe new work";
   input.setAttribute("aria-label", "Ask the project agent");
   const note = h("span", "cc-err");
   note.setAttribute("role", "status");
+  const open = h("button", "dbtn quiet small", "Open chat");
+  open.type = "button";
+  open.addEventListener("click", () => {
+    const agent = agentFor(state.agents, state.picked);
+    if (agent) go("pane", { chat: { session: agent.chat_id } });
+  });
   const send = h("button", "dbtn pri", "Send", h("kbd", "", "⏎"));
   send.type = "submit";
-  const form = h("form", "cc-comp", input, note, send);
+  const form = h("form", "cc-comp", input, note, open, send);
   form.addEventListener("submit", e => {
     e.preventDefault();
     sendToProject(input, note);
   });
-  return form;
+  return { form, input, open, send };
 })();
 
+/// Points the prompt bar at project `name`: its placeholder, whether its
+/// chat has turns to open, and whether its agent is being made.
+function drawProjectComp(name) {
+  const c = projectComp;
+  c.input.placeholder = barPlaceholder(name);
+  c.open.hidden = !chatStarted(state.pview.get(name)?.view?.turns);
+  const starting = pa.starting === name;
+  c.send.disabled = starting;
+  c.send.firstChild.textContent = starting ? "Starting" : "Send";
+}
+
+/// Sends the bar's prompt to the picked project's agent, making the agent
+/// first when there is none, and shows the project chat with the reply
+/// streaming.
 async function sendToProject(input, note) {
-  const agent = agentFor(state.agents, state.picked);
+  const name = state.picked;
   const text = input.value.trim();
-  if (!agent || !text || pa.sending) return;
+  if (!name || !text || pa.starting || !pane()) return;
   note.textContent = "";
-  input.value = "";
-  pa.sending = { name: agent.name, text };
-  pa.remembered = true;
-  redrawProjects();
-  // The turn shows once the server has it, before the reply ends.
-  setTimeout(loadProjectAgent, 1500);
-  try {
-    await invoke("center_project_send", { chatId: agent.chat_id, text, onEvent: new Channel() });
-  } catch (e) {
-    if (!input.value) input.value = text;
-    note.textContent = failure(e);
-  } finally {
-    pa.sending = null;
+  let agent = agentFor(state.agents, name);
+  if (!agent) {
+    pa.starting = name;
+    redrawProjects();
+    try {
+      agent = await invoke("center_open_project", { name });
+      state.agents = [...(state.agents || []).filter(a => a.name !== agent.name), agent];
+    } catch (e) {
+      note.textContent = failure(e);
+      return;
+    } finally {
+      pa.starting = null;
+      redrawProjects();
+    }
   }
-  redrawProjects();
-  loadProjectAgent();
+  input.value = "";
+  go("pane", { chat: { session: agent.chat_id } });
+  try {
+    await pane().ask(agent.chat_id, text);
+  } catch (e) {
+    // Back on the project with the prompt as typed, where the error shows.
+    openProjects(name);
+    input.value = text;
+    note.textContent = failure(e);
+  }
   reloadChats();
 }
 
@@ -1513,6 +1504,7 @@ function hostOf(url) {
 function drawProjects(el) {
   const rows = projectRows();
   const view = h("div", "cc-view");
+  let one = null;
   if (!state.home) {
     view.append(h("div", "cc-panel cc-empty", h("b", "", "Loading projects…")));
   } else if (!rows || !rows.length) {
@@ -1522,7 +1514,7 @@ function drawProjects(el) {
       importButton("pri")));
   } else {
     const shownRows = filterProjects(rows, state.picked);
-    const one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
+    one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     if (one) view.append(...projectDetail(one));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
     const found = one ? null : foundSection();
@@ -1531,20 +1523,20 @@ function drawProjects(el) {
   // Only the view is drawn again: the composer keeps what is typed and its
   // focus, and the view keeps its scroll.
   const old = el.querySelector(":scope > .cc-view");
-  const oldChat = old?.querySelector(".pj-chat");
-  // The chat follows its newest turn unless the user scrolled up in it.
-  const follow = !oldChat || oldChat.scrollHeight - oldChat.scrollTop - oldChat.clientHeight < 24;
   if (old) {
     old.replaceWith(view);
     view.scrollTop = old.scrollTop;
   } else {
     el.prepend(view);
   }
-  const chat = view.querySelector(".pj-chat");
-  if (chat) chat.scrollTop = follow ? chat.scrollHeight : oldChat.scrollTop;
-  const withAgent = !!(state.picked && agentFor(state.agents, state.picked));
-  if (withAgent && projectComp.parentNode !== el) el.append(projectComp);
-  if (!withAgent) projectComp.remove();
+  // The bar shows on an imported project once the server is known to run
+  // project agents.
+  if (one?.imported && state.agents) {
+    drawProjectComp(one.name);
+    if (projectComp.form.parentNode !== el) el.append(projectComp.form);
+  } else {
+    projectComp.form.remove();
+  }
 }
 
 registerView("projects", {
@@ -1561,15 +1553,10 @@ registerView("projects", {
   mount(el, arg) {
     state.picked = arg?.project || null;
     if (state.picked) { state.sessions.delete(state.picked); state.where.delete(state.picked); }
-    pa.startError = null;
     pa.tile = null;
     drawProjects(el);
     if (!state.picked) loadFound();
     refresh();
-  },
-  unmount() {
-    // The project chat stops being this window's chat, so its notices show.
-    if (pa.remembered) { pa.remembered = false; invoke("new_chat").catch(() => {}); }
   },
 });
 

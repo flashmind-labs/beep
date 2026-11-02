@@ -6073,6 +6073,14 @@ if (PANE) {
       await newChat();
       return send(text);
     },
+    /// Opens chat `session` with its history and sends `text` in it,
+    /// streaming the reply here.
+    async ask(session, text) {
+      await start();
+      await openSession(session);
+      if (S.session !== session || S.view !== "chat") return;
+      return send(text);
+    },
     /// Starts a new chat with `text` in the composer, not sent, for the
     /// user to send or change.
     async draft(text) {
