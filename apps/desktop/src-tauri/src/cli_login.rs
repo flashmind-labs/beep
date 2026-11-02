@@ -142,7 +142,9 @@ async fn gh_account_token(gh: &Path, login: &str) -> Result<SecretText> {
     if active {
         return gh_token().await;
     }
-    Err(refused(&format!("gh has no token for @{login} on this Mac")))
+    Err(refused(&format!(
+        "gh has no token for @{login} on this Mac"
+    )))
 }
 
 /// The github.com accounts in what `gh auth status --hostname github.com`
@@ -175,7 +177,11 @@ fn parse_gh_status(text: &str) -> Vec<GhAccount> {
 fn push_login(accounts: &mut Vec<GhAccount>, rest: &str, active: bool) -> bool {
     let word = rest.split_whitespace().next().unwrap_or_default();
     match parse_login(word) {
-        Some(login) if !accounts.iter().any(|a| a.login.eq_ignore_ascii_case(&login)) => {
+        Some(login)
+            if !accounts
+                .iter()
+                .any(|a| a.login.eq_ignore_ascii_case(&login)) =>
+        {
             accounts.push(GhAccount { login, active });
             true
         }
@@ -487,7 +493,12 @@ mod tests {
                 active: true
             }]
         );
-        assert!(parse_gh_status("You are not logged into any GitHub hosts. To log in, run: gh auth login\n").is_empty());
+        assert!(
+            parse_gh_status(
+                "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
+            )
+            .is_empty()
+        );
     }
 
     #[test]
