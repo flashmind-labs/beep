@@ -14,7 +14,10 @@ use agent_client_protocol::{
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::{ApiError, Upload, check_agent_images};
+use beep_proto::{
+    ApiError, Upload, check_agent_images,
+    node::agent::{AnswerOption, OptionKind},
+};
 use futures::{Sink, Stream, sink, stream};
 use serde::Serialize;
 use std::io;
@@ -57,9 +60,37 @@ pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMe
     }
 }
 
-/// Claude Code's mode that never asks permission, as
-/// `claude --dangerously-skip-permissions` runs.
-pub(super) const BYPASS_MODE: &str = "bypassPermissions";
+/// The session mode that asks no permission, for an agent whose launch
+/// cannot set it: Claude Code's `bypassPermissions`, as
+/// `claude --dangerously-skip-permissions` runs. The others start in theirs
+/// (see `KNOWN`).
+pub(super) fn bypass_mode(agent: &str) -> Option<&'static str> {
+    (agent == "claude").then_some("bypassPermissions")
+}
+
+/// The option that allows what a permission request asks, preferring one
+/// that keeps allowing it. `None` when nothing in it rejects: then it is a
+/// choice put to the user, such as a pi extension's select, not a request
+/// for permission.
+///
+/// Claude Code's plan approval leads with options that also clear the
+/// context (`exit-plan-clear-*`); those are passed over.
+pub(super) fn allow_option(options: &[AnswerOption]) -> Option<&AnswerOption> {
+    if !options.iter().any(|option| option.kind.rejects()) {
+        return None;
+    }
+    let keeps_context = |option: &&AnswerOption| !option.id.starts_with("exit-plan-clear");
+    options
+        .iter()
+        .filter(keeps_context)
+        .find(|option| option.kind == OptionKind::AllowAlways)
+        .or_else(|| {
+            options
+                .iter()
+                .filter(keeps_context)
+                .find(|option| option.kind == OptionKind::AllowOnce)
+        })
+}
 
 /// A message for the agent: its text, then any images.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -414,6 +445,70 @@ mod tests {
         let mut svg = png("x.svg", 10);
         svg.mime = "image/svg+xml".into();
         assert!(Prompt::with_images(text(), vec![svg]).is_err());
+    }
+
+    fn option(id: &str, kind: OptionKind) -> AnswerOption {
+        AnswerOption {
+            id: id.into(),
+            name: id.into(),
+            kind,
+        }
+    }
+
+    fn allowed(options: &[AnswerOption]) -> Option<&str> {
+        allow_option(options).map(|option| option.id.as_str())
+    }
+
+    #[test]
+    fn a_permission_request_is_allowed_for_good_when_it_can_be() {
+        use OptionKind::*;
+        // Codex, OpenCode and Gemini CLI: once, always, reject.
+        let request = [
+            option("approved", AllowOnce),
+            option("approved-for-session", AllowAlways),
+            option("abort", RejectOnce),
+        ];
+        assert_eq!(allowed(&request), Some("approved-for-session"));
+        // Claude Code's prompt for a safety check has no "always".
+        let request = [
+            option("allow-once", AllowOnce),
+            option("reject", RejectOnce),
+        ];
+        assert_eq!(allowed(&request), Some("allow-once"));
+        // A request with no way to allow is still asked.
+        let request = [option("reject", RejectOnce)];
+        assert_eq!(allowed(&request), None);
+    }
+
+    #[test]
+    fn plan_approval_keeps_the_context() {
+        use OptionKind::*;
+        // Claude Code's ExitPlanMode after a session in bypassPermissions.
+        let request = [
+            option("exit-plan-clear-bypass", AllowAlways),
+            option("exit-plan-bypass", AllowAlways),
+            option("exit-plan-auto", AllowAlways),
+            option("exit-plan-default", AllowOnce),
+            option("reject", RejectOnce),
+        ];
+        assert_eq!(allowed(&request), Some("exit-plan-bypass"));
+    }
+
+    #[test]
+    fn a_choice_with_nothing_to_reject_is_left_to_the_user() {
+        use OptionKind::*;
+        // pi's extension select: every choice is an allow_once option.
+        let choice = [option("choice-0", AllowOnce), option("choice-1", AllowOnce)];
+        assert_eq!(allowed(&choice), None);
+        assert_eq!(allowed(&[]), None);
+    }
+
+    #[test]
+    fn only_claude_code_needs_its_mode_set() {
+        assert_eq!(bypass_mode("claude"), Some("bypassPermissions"));
+        for agent in ["codex", "gemini", "pi", "flsh", "opencode"] {
+            assert_eq!(bypass_mode(agent), None, "{agent}");
+        }
     }
 
     #[test]

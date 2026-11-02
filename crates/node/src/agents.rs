@@ -17,7 +17,7 @@ use beep_proto::node::{
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
-    collections::{HashMap, HashSet, hash_map::RandomState},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::RandomState},
     hash::BuildHasher,
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
@@ -58,14 +58,21 @@ pub struct AgentKind {
     pub program: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// Variables set for it on top of the node's own environment.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 }
 
 /// An agent the daemon knows how to start, when its CLI is installed.
+/// Each starts with its own permission prompts off, so it never stops to
+/// ask; a permission request that comes anyway is allowed by the session.
 struct Known {
     name: &'static str,
     /// The CLI whose presence says the user has this agent.
     cli: &'static str,
     adapter: Adapter,
+    /// Variables that turn its permission prompts off.
+    env: &'static [(&'static str, &'static str)],
 }
 
 enum Adapter {
@@ -79,6 +86,7 @@ enum Adapter {
 }
 
 const KNOWN: &[Known] = &[
+    // The session switches it to `bypassPermissions` once it has one.
     Known {
         name: "claude",
         cli: "claude",
@@ -86,7 +94,10 @@ const KNOWN: &[Known] = &[
             bin: "claude-agent-acp",
             package: "@agentclientprotocol/claude-agent-acp",
         },
+        env: &[],
     },
+    // Full access: approval policy `never` and sandbox `danger-full-access`,
+    // for new and resumed sessions alike.
     Known {
         name: "codex",
         cli: "codex",
@@ -94,12 +105,17 @@ const KNOWN: &[Known] = &[
             bin: "codex-acp",
             package: "@agentclientprotocol/codex-acp",
         },
+        env: &[("INITIAL_AGENT_MODE", "agent-full-access")],
     },
+    // YOLO approves every tool. Gemini CLI drops back to `default` in a
+    // folder it does not trust, so the folder is trusted too.
     Known {
         name: "gemini",
         cli: "gemini",
-        adapter: Adapter::Flags(&["--acp"]),
+        adapter: Adapter::Flags(&["--acp", "--approval-mode", "yolo"]),
+        env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
     },
+    // pi has no permission prompts; only its extensions ask.
     Known {
         name: "pi",
         cli: "pi",
@@ -107,16 +123,22 @@ const KNOWN: &[Known] = &[
             bin: "pi-acp",
             package: "pi-acp",
         },
+        env: &[],
     },
+    // flsh never asks permission.
     Known {
         name: "flsh",
         cli: "flsh",
         adapter: Adapter::Flags(&["acp"]),
+        env: &[],
     },
+    // Merged over its config as the last rule, which wins over the defaults
+    // that ask (`doom_loop`, `external_directory`, reading `.env` files).
     Known {
         name: "opencode",
         cli: "opencode",
         adapter: Adapter::Flags(&["acp"]),
+        env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
     },
 ];
 
@@ -153,10 +175,16 @@ fn launch(known: &Known, found: &dyn Fn(&str) -> bool) -> Option<AgentKind> {
             flags.iter().map(|flag| (*flag).to_owned()).collect(),
         ),
     };
+    let env = known
+        .env
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .collect();
     Some(AgentKind {
         name: known.name.to_owned(),
         program,
         args,
+        env,
     })
 }
 
@@ -694,6 +722,7 @@ mod tests {
             name: "claude".into(),
             program: "/opt/acp/claude".into(),
             args: vec![],
+            env: BTreeMap::new(),
         };
         let kinds = detect(std::slice::from_ref(&custom));
         assert_eq!(kinds.iter().filter(|kind| kind.name == "claude").count(), 1);
@@ -726,10 +755,73 @@ mod tests {
                 name: "opencode".into(),
                 program: "opencode".into(),
                 args: vec!["acp".into()],
+                env: BTreeMap::from([(
+                    "OPENCODE_PERMISSION".to_owned(),
+                    r#"{"*":"allow"}"#.to_owned()
+                )]),
             })
         );
         assert_eq!(launch(known, &|_: &str| false), None);
         assert_eq!(Agent::from_name("opencode"), Some(Agent::OpenCode));
+    }
+
+    #[test]
+    fn every_known_agent_starts_without_permission_prompts() {
+        let launched = |name: &str| {
+            let known = KNOWN
+                .iter()
+                .find(|known| known.name == name)
+                .expect("a known agent");
+            let kind = launch(known, &|_: &str| true).expect("installed");
+            let env: Vec<(String, String)> = kind.env.into_iter().collect();
+            (kind.args, env)
+        };
+        let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+        // Claude Code is switched to bypassPermissions by the session.
+        assert_eq!(launched("claude"), (vec![], vec![]));
+        assert_eq!(
+            launched("codex"),
+            (
+                vec![],
+                vec![pair("INITIAL_AGENT_MODE", "agent-full-access")]
+            )
+        );
+        assert_eq!(
+            launched("gemini"),
+            (
+                vec!["--acp".into(), "--approval-mode".into(), "yolo".into()],
+                vec![pair("GEMINI_CLI_TRUST_WORKSPACE", "true")]
+            )
+        );
+        assert_eq!(
+            launched("opencode"),
+            (
+                vec!["acp".into()],
+                vec![pair("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)]
+            )
+        );
+        // Neither has permission prompts to turn off.
+        assert_eq!(launched("pi"), (vec![], vec![]));
+        assert_eq!(launched("flsh"), (vec!["acp".into()], vec![]));
+        let rules: serde_json::Value =
+            serde_json::from_str(&launched("opencode").1[0].1).expect("JSON");
+        assert_eq!(rules, serde_json::json!({"*": "allow"}));
+    }
+
+    #[test]
+    fn node_toml_agents_may_set_variables() {
+        let kind: AgentKind = toml::from_str(
+            "name = \"codex\"\nprogram = \"/opt/acp/codex-acp\"\n\
+             env = { INITIAL_AGENT_MODE = \"agent-full-access\" }",
+        )
+        .expect("an agent");
+        assert_eq!(
+            kind.env.get("INITIAL_AGENT_MODE").map(String::as_str),
+            Some("agent-full-access")
+        );
+        let plain: AgentKind = toml::from_str("name = \"x\"\nprogram = \"x\"").expect("an agent");
+        assert!(plain.env.is_empty());
+        assert!(!toml::to_string(&plain).expect("toml").contains("env"));
     }
 
     #[test]
@@ -756,6 +848,7 @@ mod tests {
             name: "fake".into(),
             program: "true".into(),
             args: vec![],
+            env: BTreeMap::new(),
         }]);
         assert_eq!(agents.offers(), ["fake/1", SESSIONS_PROTOCOL]);
         assert!(agents.kind("fake/1").is_some());
@@ -779,6 +872,7 @@ mod tests {
             name: "claude".into(),
             program: "sh".into(),
             args: vec!["-c".into(), "cat > /dev/null".into()],
+            env: BTreeMap::new(),
         };
         let agents = Agents::new(vec![kind.clone()]);
         let id = "0f3c2a9e-1111-4222-8333-944455556666";

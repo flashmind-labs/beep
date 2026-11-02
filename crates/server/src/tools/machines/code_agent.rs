@@ -32,8 +32,10 @@ const DESCRIPTION: &str = "Run coding agents (Claude Code, Codex, Gemini CLI, pi
     the user (`unfollow` stops), and `takeover` resumes one that nothing runs any more as a \
     session here, with an optional `prompt`. One open in the user's terminal can only be \
     followed. Start a session on a machine that can do the work: iOS and Mac apps build only \
-    on macOS with xcode. When an agent asks permission, answer it yourself if the action is \
-    clearly within what the user asked. When it is risky, destructive or unclear, such as a \
+    on macOS with xcode. Agents run with their own permission prompts off, so they act without \
+    asking; a question that still comes is one the agent puts to the user. Answer it yourself \
+    if the answer is clearly within what the user asked. When it is risky, destructive or \
+    unclear, such as a \
     force push or deleting data, do not answer it either way, not even to deny: tell the user \
     what it wants to do and what you recommend, and they answer on its card or in the chat. \
     `agent` picks the agent when the machine has several.";

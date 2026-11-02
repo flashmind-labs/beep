@@ -96,6 +96,7 @@ impl Session {
         spawn_env::apply(&mut process, Scope::Agent);
         process
             .args(&kind.args)
+            .envs(&kind.env)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -127,7 +128,7 @@ impl Session {
             takes_images: None,
             queued: prompt.map(Prompt::from).into_iter().collect(),
             resume,
-            skip_permissions: kind.name == "claude",
+            bypass_mode: acp::bypass_mode(&kind.name),
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),
@@ -207,10 +208,11 @@ struct Actor {
     takes_images: Option<bool>,
     /// The agent's id of an earlier session to resume.
     resume: Option<String>,
-    /// The agent runs without permission prompts: Claude Code, as with
-    /// `--dangerously-skip-permissions`. A permission request that comes
+    /// The session mode that turns the agent's permission prompts off, set
+    /// before the first prompt: Claude Code's `bypassPermissions`. Every
+    /// agent runs without prompts, and a permission request that comes
     /// anyway is allowed rather than asked.
-    skip_permissions: bool,
+    bypass_mode: Option<&'static str>,
     /// Prompts waiting for the agent to be free, the first prompt among them.
     queued: VecDeque<Prompt>,
     /// Questions waiting, the first one shown.
@@ -494,9 +496,9 @@ impl Actor {
         self.acp_session = Some(session.clone());
         self.live
             .send_modify(|live| live.agent_session = Some(session.to_string()));
-        if self.skip_permissions {
+        if let Some(mode) = self.bypass_mode {
             // The first prompt waits for the mode, so it never asks.
-            let request = SetSessionModeRequest::new(session, acp::BYPASS_MODE);
+            let request = SetSessionModeRequest::new(session, mode);
             self.send(cx, request, |result| Reply::Bypass(result.map(drop)));
             return;
         }
@@ -567,24 +569,17 @@ impl Actor {
         }
     }
 
-    /// Allows a permission request in a session that asks none. Gives the
-    /// responder back when the request should be asked after all: the
-    /// session asks, or the request offers no way to allow.
+    /// Allows a permission request the agent sent despite running without
+    /// prompts, as `acp::allow_option` picks. Gives the responder back when
+    /// the request is to be asked after all: a choice for the user, or a
+    /// request that offers no way to allow.
     fn allow(
         &mut self,
         request: &RequestPermissionRequest,
         responder: Responder<RequestPermissionResponse>,
     ) -> Result<Option<Responder<RequestPermissionResponse>>> {
-        if !self.skip_permissions {
-            return Ok(Some(responder));
-        }
         let question = self.live.borrow().question(0, request);
-        let options = &question.options;
-        let Some(option) = options
-            .iter()
-            .find(|option| option.kind == OptionKind::AllowOnce)
-            .or_else(|| options.iter().find(|o| o.kind == OptionKind::AllowAlways))
-        else {
+        let Some(option) = acp::allow_option(&question.options) else {
             return Ok(Some(responder));
         };
         responder.respond(acp::selected(&option.id))?;
@@ -822,14 +817,15 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
 cat > /dev/null
 "#;
 
-    /// An adapter that asks permission on its first prompt and waits.
+    /// An adapter that puts a choice to the user on its first prompt, as a
+    /// pi extension's select does, and waits.
     const ASKING_ADAPTER: &str = r#"
 read -r line; log "$1"
 reply '{"protocolVersion":1,"agentCapabilities":{}}'
 read -r line; log "$1"
 reply '{"sessionId":"s"}'
 read -r line; log "$1"
-echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]}}'
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"},{"optionId":"choice-1","name":"other.txt","kind":"allow_once"}]}}'
 cat > /dev/null
 "#;
 
@@ -847,6 +843,7 @@ cat > /dev/null
                 "fake-adapter".into(),
                 log.display().to_string(),
             ],
+            env: Default::default(),
         }
     }
 
@@ -916,14 +913,71 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// An adapter that writes `$BEEP_FAKE_MODE` to `$1.env`, asks
+    /// permission on its first prompt, then ends the turn once answered.
+    const ALLOWING_ADAPTER: &str = r#"
+printf '%s\n' "$BEEP_FAKE_MODE" > "$1.env"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always Allow","kind":"allow_always"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+cat > /dev/null
+"#;
+
     #[cfg(unix)]
     #[tokio::test]
-    async fn other_agents_still_ask() {
+    async fn every_agent_has_its_permission_requests_allowed() {
+        let dir = temp("allows");
+        let log = dir.join("sent.jsonl");
+        let mut kind = script("codex", ALLOWING_ADAPTER, &log);
+        kind.env.insert("BEEP_FAKE_MODE".into(), "full".into());
+        let session = Session::start(Start {
+            id: "b4e0d2".into(),
+            kind: &kind,
+            cwd: &dir,
+            prompt: Some("go".into()),
+            resume: None,
+        })
+        .unwrap();
+        settle(&session).await;
+        let info = session.info();
+        assert_eq!(info.turns, 1, "{:?}", info.state.error);
+        assert!(info.question.is_none());
+        let sent: Vec<Value> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        // Codex starts in full access, so no mode is set.
+        assert_eq!(sent[2]["method"], "session/prompt");
+        assert_eq!(sent[3]["id"], "p1");
+        assert_eq!(sent[3]["result"]["outcome"]["optionId"], "always");
+        let (entries, _) = session.live.borrow().transcript(10);
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.text == "Allowed: Run cargo test"),
+            "{entries:?}"
+        );
+        // The kind's variables reach the agent.
+        let env = std::fs::read_to_string(dir.join("sent.jsonl.env")).unwrap();
+        assert_eq!(env, "full\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_choice_is_still_asked() {
         let dir = temp("asks");
         let log = dir.join("sent.jsonl");
         let session = Session::start(Start {
-            id: "b4e0d2".into(),
-            kind: &script("codex", ASKING_ADAPTER, &log),
+            id: "b4e0d3".into(),
+            kind: &script("pi", ASKING_ADAPTER, &log),
             cwd: &dir,
             prompt: Some("go".into()),
             resume: None,
@@ -932,10 +986,9 @@ cat > /dev/null
         settle(&session).await;
         let info = session.info();
         assert_eq!(info.state.status, Status::Asking);
-        assert_eq!(
-            info.question.map(|q| q.text).as_deref(),
-            Some("Run cargo test")
-        );
+        let question = info.question.expect("a question");
+        assert_eq!(question.text, "Which file?");
+        assert_eq!(question.options.len(), 2);
         let sent = std::fs::read_to_string(&log).unwrap();
         assert!(!sent.contains("session/set_mode"));
         std::fs::remove_dir_all(&dir).unwrap();
