@@ -247,6 +247,46 @@ export function openOnLabel(url) {
   return host === "github.com" ? "Open on GitHub" : `Open on ${host}`;
 }
 
+/// When a project was first imported, in words: "today", "yesterday",
+/// "3 days ago", "5 weeks ago". `at` and `now` are in milliseconds.
+export function importedWhen(at, now) {
+  const midnight = ms => new Date(ms).setHours(0, 0, 0, 0);
+  const days = Math.round((midnight(now) - midnight(at)) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  return `${Math.round(days / 7)} weeks ago`;
+}
+
+/// The line under a project's name: its host and when it was imported, or
+/// where it came from when it is not imported. `imported` is the server's
+/// imported rows for every project.
+export function projectLine(project, imported, now) {
+  if (!project) return "";
+  if (!project.imported) return "From running agents";
+  let host = "";
+  try { host = new URL(project.url).host; } catch {}
+  const times = (imported || []).filter(r => r.name === project.name && r.imported_at).map(r => r.imported_at);
+  const when = times.length ? `imported ${importedWhen(Math.min(...times), now)}` : "";
+  return [host, when].filter(Boolean).join(" · ");
+}
+
+/// The sidebar's project rows grouped by GitHub org or user: an `{ org }`
+/// heading, then that org's projects with `repo` set to the name after the
+/// slash. Projects without an org come last, under no heading. Each keeps
+/// `i`, its place in `rows`, so its colour does not change with grouping.
+export function sideProjects(rows) {
+  const orgs = new Map(), loose = [];
+  (rows || []).forEach((p, i) => {
+    const cut = p.name.indexOf("/");
+    if (cut <= 0) return loose.push({ ...p, i });
+    const org = p.name.slice(0, cut);
+    if (!orgs.has(org)) orgs.set(org, []);
+    orgs.get(org).push({ ...p, i, repo: p.name.slice(cut + 1) });
+  });
+  return [...[...orgs].flatMap(([org, list]) => [{ org }, ...list]), ...loose];
+}
+
 /// The rows of a project's "Where it lives": every machine, as
 /// `project_machines` gives them (null from a server too old to say, when
 /// the imported folders are listed), each with `kind`:

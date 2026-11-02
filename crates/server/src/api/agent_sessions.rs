@@ -2,7 +2,6 @@
 
 use super::Reply;
 use crate::{
-    instance::Privilege,
     nodes::Online,
     protocol::{
         node::agent::{
@@ -38,15 +37,12 @@ pub(super) struct Host {
     pub(super) name: String,
 }
 
-/// Admins only, like nodes themselves. A machine whose key was unlinked
-/// is left out.
+/// The caller's own machines. A machine whose key was unlinked is left
+/// out.
 pub(super) async fn list_agent_sessions(
     cx: Cx,
     _: ListAgentSessions,
 ) -> Reply<Vec<MachineSession>> {
-    if !cx.app.allows(Privilege::Nodes, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
     let keys = linked_keys(&cx).await?;
     let names: HashMap<String, String> = cx
         .user
@@ -85,12 +81,8 @@ pub(super) async fn list_agent_sessions(
     Ok(sessions)
 }
 
-/// Admins only. Checks the question against the node's own list, so an
-/// answer that comes after the session moved on is refused.
+/// Checks the question against the node's own list, so an answer that comes after the session moved on is refused.
 pub(super) async fn answer_agent_question(cx: Cx, answer: AnswerAgentQuestion) -> Reply<()> {
-    if !cx.app.allows(Privilege::Nodes, &cx.user) {
-        return Err(ApiError::Unauthorized {});
-    }
     let keys = linked_keys(&cx).await?;
     let online = cx
         .app

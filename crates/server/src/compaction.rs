@@ -7,7 +7,9 @@
 
 use crate::{
     app::App,
-    metering, permissions,
+    metering,
+    models::ModelChoices,
+    permissions,
     store::{SessionRef, Store},
 };
 use anyhow::Result;
@@ -44,10 +46,38 @@ pub fn start(app: Arc<App>) {
     });
 }
 
-/// The model and provider that write the summary.
+/// Writes the summaries. Each session is summarized on the model its chat
+/// last ran on, so `default` only covers sessions without a usable turn.
 pub struct Summarizer<'a> {
     pub provider: &'a dyn LlmProvider,
-    pub model: &'a Model,
+    pub models: &'a ModelChoices,
+    pub default: &'a Model,
+}
+
+impl Summarizer<'_> {
+    /// The offered model `session`'s latest turn ran on, else the default.
+    async fn model_for(&self, store: &Store, session: &SessionRef) -> &Model {
+        match store.last_turn(session.id).await {
+            Ok(Some(turn)) => self.models.find(&turn.model).unwrap_or(self.default),
+            Ok(None) => self.default,
+            Err(error) => {
+                log::warn!(
+                    "reading the last turn failed: {error:#}; session={}",
+                    session.id
+                );
+                self.default
+            }
+        }
+    }
+
+    /// The lowest `compact_at` of any model that can be summarized.
+    async fn lowest_limit(&self) -> u32 {
+        let mut lowest = compact_at(self.provider.context_window(self.default).await);
+        for model in self.models.all() {
+            lowest = lowest.min(compact_at(self.provider.context_window(model).await));
+        }
+        lowest
+    }
 }
 
 /// Token limit for a model's context window: 250k, or 80% of a smaller
@@ -56,29 +86,36 @@ pub fn compact_at(window: Option<u32>) -> u32 {
     LIMIT.min(window.unwrap_or(DEFAULT_WINDOW) / 5 * 4)
 }
 
-/// Compacts every session that is both idle and over `limit` tokens, the
-/// chat model's `compact_at`.
-pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>, limit: u32) {
-    let sessions = match store.sessions_to_compact(limit, IDLE_BEFORE_COMPACT).await {
+/// Compacts every session that is both idle and over the `compact_at` of the
+/// model it runs on.
+pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>) {
+    let lowest = summarizer.lowest_limit().await;
+    let sessions = match store.sessions_to_compact(lowest, IDLE_BEFORE_COMPACT).await {
         Ok(sessions) => sessions,
         Err(error) => {
             log::warn!("unable to list sessions to compact: {error}");
             return;
         }
     };
-    for session in sessions {
-        compact_session(store, &summarizer, &session, limit).await;
+    for quiet in sessions {
+        let model = summarizer.model_for(store, &quiet.session).await;
+        let limit = compact_at(summarizer.provider.context_window(model).await);
+        if quiet.context_tokens < limit {
+            continue;
+        }
+        compact_session(store, summarizer.provider, model, &quiet.session, limit).await;
     }
 }
 
 /// Compacts one session and logs how it went.
 pub async fn compact_session(
     store: &Store,
-    summarizer: &Summarizer<'_>,
+    provider: &dyn LlmProvider,
+    model: &Model,
     session: &SessionRef,
     limit: u32,
 ) {
-    match compact(store, summarizer, session, limit).await {
+    match compact(store, provider, model, session, limit).await {
         Ok(true) => log::info!("session compacted; session={}", session.id),
         Ok(false) => {}
         Err(error) => log::warn!("compaction failed: {error}; session={}", session.id),
@@ -88,7 +125,8 @@ pub async fn compact_session(
 /// Returns whether the session's context was replaced.
 async fn compact(
     store: &Store,
-    summarizer: &Summarizer<'_>,
+    provider: &dyn LlmProvider,
+    model: &Model,
     session: &SessionRef,
     limit: u32,
 ) -> Result<bool> {
@@ -111,11 +149,7 @@ async fn compact(
     }
     let summary = metering::billed_to(
         &session.user,
-        context.compact_with_llm_keeping_tokens(
-            summarizer.provider,
-            summarizer.model,
-            KEEP_RECENT_TOKENS,
-        ),
+        context.compact_with_llm_keeping_tokens(provider, model, KEEP_RECENT_TOKENS),
     )
     .await?;
     if summary.is_none() {
@@ -174,9 +208,13 @@ mod tests {
         core::{Conversation, ConversationEntry},
         types::{CompletionRequest, CompletionStream, FinishReason, Provider, StreamEvent},
     };
+    use std::sync::Mutex;
     use uuid::Uuid;
 
-    struct SummaryStub;
+    #[derive(Default)]
+    struct SummaryStub {
+        used: Mutex<Vec<String>>,
+    }
 
     #[async_trait]
     impl LlmProvider for SummaryStub {
@@ -186,7 +224,11 @@ mod tests {
         fn provider(&self) -> Provider {
             Provider::OpenAi
         }
-        fn complete(&self, _request: CompletionRequest) -> CompletionStream {
+        fn complete(&self, request: CompletionRequest) -> CompletionStream {
+            self.used
+                .lock()
+                .expect("test lock")
+                .push(request.model.to_string());
             Box::pin(async_stream::stream! {
                 yield Ok(StreamEvent::ContentDelta("## Goal\nPlan a trip.".into()));
                 yield Ok(StreamEvent::Finished(FinishReason::Stop));
@@ -277,9 +319,12 @@ mod tests {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let model: Model = "openai:test".parse().unwrap();
+        let models = ModelChoices::only(model.clone());
+        let stub = SummaryStub::default();
         let summarizer = || Summarizer {
-            provider: &SummaryStub,
-            model: &model,
+            provider: &stub,
+            models: &models,
+            default: &model,
         };
 
         let long_idle = save(&store, "long-idle", 150_000).await;
@@ -288,7 +333,7 @@ mod tests {
         make_idle(&store, long_idle.id).await;
         make_idle(&store, short_idle.id).await;
 
-        compact_idle(&store, summarizer(), compact_at(None)).await;
+        compact_idle(&store, summarizer()).await;
 
         let context = |s: SessionRef| {
             let store = store.clone();
@@ -329,10 +374,6 @@ mod tests {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let model: Model = "openai:test".parse().unwrap();
-        let summarizer = Summarizer {
-            provider: &SummaryStub,
-            model: &model,
-        };
         let mut chat = Conversation::with_system("system");
         chat.add(ConversationEntry::user("Find the bank emails"));
         chat.add(ConversationEntry::tool("old", "x".repeat(300_000)));
@@ -342,7 +383,7 @@ mod tests {
         // Still over half the limit once trimmed, and one user message
         // leaves nothing to summarize.
         assert!(
-            !compact(&store, &summarizer, &session, 40_000)
+            !compact(&store, &SummaryStub::default(), &model, &session, 40_000)
                 .await
                 .unwrap()
         );
@@ -409,5 +450,66 @@ mod tests {
             context.conversation.entries().last().unwrap().content(),
             "one more"
         );
+    }
+
+    async fn set_turn_model(store: &Store, session: Uuid, model: &str) {
+        sqlx::query(
+            "UPDATE turns SET model = $2 WHERE message_id IN
+             (SELECT id FROM messages WHERE chat_id = $1)",
+        )
+        .bind(session)
+        .bind(model)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn idle_sessions_are_summarized_on_the_model_their_chat_ran_on() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let default: Model = "openai:default".parse().unwrap();
+        let other: Model = "openai:other".parse().unwrap();
+        let models = ModelChoices::only(default.clone()).offering(other.clone());
+
+        let on_other = save(&store, "on-other", 150_000).await;
+        let unknown = save(&store, "unknown", 150_000).await;
+        make_idle(&store, on_other.id).await;
+        make_idle(&store, unknown.id).await;
+        set_turn_model(&store, on_other.id, "openai:other").await;
+        set_turn_model(&store, unknown.id, "openai:retired").await;
+
+        let stub = SummaryStub::default();
+        let summarizer = Summarizer {
+            provider: &stub,
+            models: &models,
+            default: &default,
+        };
+        assert_eq!(&other, summarizer.model_for(&store, &on_other).await);
+        assert_eq!(&default, summarizer.model_for(&store, &unknown).await);
+
+        compact_idle(&store, summarizer).await;
+        let mut used = stub.used.lock().expect("test lock").clone();
+        used.sort();
+        assert_eq!(used, ["openai:default", "openai:other"]);
+    }
+
+    #[tokio::test]
+    async fn a_session_without_turns_uses_the_default_model() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let default: Model = "openai:default".parse().unwrap();
+        let models = ModelChoices::only(default.clone());
+        let stub = SummaryStub::default();
+        let summarizer = Summarizer {
+            provider: &stub,
+            models: &models,
+            default: &default,
+        };
+        let session = SessionRef {
+            user: "alice".into(),
+            id: Uuid::new_v4(),
+        };
+        assert_eq!(&default, summarizer.model_for(&store, &session).await);
     }
 }

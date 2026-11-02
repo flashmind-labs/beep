@@ -3,11 +3,11 @@ use crate::{
     permissions::{ApprovalPayload, Rules},
     projects::{
         gate::GatedProcess,
-        model::{RepoName, Roles},
+        model::{IssueRef, RepoName, Roles},
         testing::{FakeFleet, FakeShell, RecordingTool},
     },
     protocol::PermissionLevel,
-    store::{AppPermissionRow, TestDb},
+    store::{AppPermissionRow, IssueAuthor, TestDb, TrackedIssue},
 };
 use flashmind::core::CancellationToken;
 use iroh::EndpointId;
@@ -326,6 +326,89 @@ async fn merge_always_asks() {
     assert!(result.is_success(), "{}", result.output());
     assert_eq!(h.shell.ran_with("pr merge 5").len(), 1);
     assert_eq!(h.rows().await[0].state, TaskState::Done);
+}
+
+/// A task tracking issue #12, which `author` opened.
+async fn tracked(h: &Harness, author: IssueAuthor) -> TaskRow {
+    let task = NewTask {
+        title: "Crash on start".into(),
+        body: "From issue #12 on the host.".into(),
+        depends_on: None,
+        needs: Vec::new(),
+        start: None,
+    };
+    let issue = IssueRef {
+        number: 12,
+        url: format!("{ISSUE_URL}12"),
+    };
+    match h
+        .user
+        .track_issue(h.project.id, &task, &IssueHost::Github, &issue, author)
+        .await
+        .unwrap()
+    {
+        TrackedIssue::Made(task) => task,
+        TrackedIssue::Already(_) => panic!("a new task"),
+    }
+}
+
+#[tokio::test]
+async fn someone_elses_issue_gets_one_approved_comment_and_nothing_else() {
+    let h = harness(github(), Visibility::Private).await;
+    tracked(&h, IssueAuthor::Other).await;
+    // Updating the task leaves the issue as it is.
+    let update = json!({"action": "update", "task": "crash-on-start", "body": "New plan."});
+    let result = call(&h.tasks_tool(PermissionLevel::Allow {}, None), "c0", update).await;
+    assert!(result.is_success(), "{}", result.output());
+    assert!(
+        result.output().contains("stays as it is"),
+        "{}",
+        result.output()
+    );
+    // A comment always asks, even under Allow.
+    let comment = json!({"action": "comment", "task": "crash-on-start", "body": "Fixed in #5."});
+    let asked = call(
+        &h.tasks_tool(PermissionLevel::Allow {}, None),
+        "c1",
+        comment.clone(),
+    )
+    .await;
+    let card = approval(&asked);
+    assert_eq!(card.action, "Comment on issue");
+    assert!(
+        card.fields
+            .iter()
+            .any(|field| field.value == "Fixed in #5.")
+    );
+    assert!(h.shell.ran().is_empty(), "{:?}", h.shell.ran());
+    let posted = call(
+        &h.tasks_tool(PermissionLevel::Ask {}, Some("c1")),
+        "c1",
+        comment.clone(),
+    )
+    .await;
+    assert!(posted.is_success(), "{}", posted.output());
+    // A second one is refused, approved or not.
+    let again = call(
+        &h.tasks_tool(PermissionLevel::Ask {}, Some("c2")),
+        "c2",
+        comment,
+    )
+    .await;
+    assert!(!again.is_success(), "{}", again.output());
+    let ran = h.shell.ran();
+    assert_eq!(ran.len(), 1, "{ran:?}");
+    assert!(ran[0].contains("gh issue comment 12 "), "{}", ran[0]);
+}
+
+#[tokio::test]
+async fn the_users_own_tracked_issue_is_edited_as_before() {
+    let h = harness(github(), Visibility::Private).await;
+    tracked(&h, IssueAuthor::User).await;
+    let update = json!({"action": "update", "task": "crash-on-start", "body": "New plan."});
+    let result = call(&h.tasks_tool(PermissionLevel::Allow {}, None), "c0", update).await;
+    assert!(result.is_success(), "{}", result.output());
+    assert_eq!(h.shell.ran_with("issue edit 12").len(), 1);
 }
 
 #[tokio::test]

@@ -416,6 +416,8 @@ mod tests {
             pr_seen: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            issue_foreign: false,
+            issue_commented: false,
         }
     }
 

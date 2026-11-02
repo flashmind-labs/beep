@@ -56,7 +56,7 @@ pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
-pub use credentials::{CredentialRow, NewCredential};
+pub use credentials::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
@@ -78,12 +78,14 @@ pub use profile::{ProfileNote, ProfileRead};
 pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
-    After, CheckoutRow, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused, TaskRow,
-    WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused,
+    TaskRow, TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
-pub use sessions::{DeletedTurn, FoundSession, SessionRef, StoredContext, TurnsToDelete};
+pub use sessions::{
+    DeletedTurn, FoundSession, QuietSession, SessionRef, StoredContext, TurnsToDelete,
+};
 pub use shares::{CopiedShare, Share};
 pub use skills::{NewSkill, Review, SKILL_LIMIT, SkillOwner, SkillPatch, SkillRow};
 pub use test_db::{TestDb, TestTurn, test_chat, test_steps, test_turn, test_turn_with};
@@ -377,6 +379,16 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         62,
         "checkout checks",
         include_str!("../../migrations/0062_checkout_checks.sql"),
+    ),
+    (
+        63,
+        "github accounts",
+        include_str!("../../migrations/0063_github_accounts.sql"),
+    ),
+    (
+        64,
+        "project issues",
+        include_str!("../../migrations/0064_project_issues.sql"),
     ),
 ];
 

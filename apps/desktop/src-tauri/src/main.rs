@@ -14,6 +14,7 @@ mod credentials;
 mod desktop;
 mod devices;
 mod error;
+mod file_sync;
 mod gh_sign_in;
 mod grants;
 mod groups;
@@ -175,8 +176,11 @@ fn main() {
             credentials::list_credentials,
             credentials::save_credential,
             credentials::remove_credential,
+            credentials::list_github_accounts,
+            credentials::set_default_github_account,
             cli_login::cli_logins,
             cli_login::use_cli_login,
+            cli_login::use_gh_account,
             gh_sign_in::gh_sign_in,
             gh_sign_in::cancel_gh_sign_in,
             projects::import_project,
@@ -185,7 +189,14 @@ fn main() {
             projects::found_projects,
             projects::project_sessions,
             projects::project_machines,
+            file_sync::project_sync,
             projects::open_folder,
+            projects::center_projects,
+            projects::center_open_project,
+            projects::center_project,
+            projects::center_project_send,
+            projects::center_update_task,
+            projects::center_stop_worker,
             agents::agent_resume,
             commands::open_file,
             commands::picture,

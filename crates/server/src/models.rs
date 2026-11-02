@@ -1,7 +1,5 @@
 //! The models every user can pick for their own turns. Whoever has not
-//! picked one runs on the server default. Also keeps who is an admin, for
-//! the operator features that stay theirs (machines, account events,
-//! watchers).
+//! picked one runs on the server default.
 
 use crate::{
     config::ProjectConfig,
@@ -9,19 +7,10 @@ use crate::{
     research::ResearchConfig,
 };
 use flashmind::types::{LlmProvider, Model, ModelInfo, ProviderPreferences, ReasoningLevel};
-use iroh::EndpointId;
 use rust_decimal::{Decimal, prelude::ToPrimitive};
-use std::{
-    collections::{HashMap, HashSet},
-    iter,
-    sync::{PoisonError, RwLock},
-};
+use std::{collections::HashMap, iter};
 
 pub struct ModelChoices {
-    /// The keys the config names as admins.
-    admin_keys: HashSet<String>,
-    /// The accounts those keys sign into, filled in as they are seen.
-    admins: RwLock<HashSet<String>>,
     /// The server default first, then the configured choices.
     choices: Vec<Choice>,
     /// Provider routing for models that do not use the server's own.
@@ -49,12 +38,25 @@ struct Choice {
     sees_images: bool,
 }
 
+#[cfg(test)]
 impl ModelChoices {
-    /// Only the default, with no admins.
+    /// Offers `model` besides the ones already offered.
+    pub(crate) fn offering(mut self, model: Model) -> Self {
+        self.choices.push(Choice {
+            name: model.name().to_owned(),
+            model,
+            input_price: None,
+            output_price: None,
+            sees_images: false,
+        });
+        self
+    }
+}
+
+impl ModelChoices {
+    /// Only the default.
     pub fn only(default: Model) -> Self {
         Self {
-            admin_keys: HashSet::new(),
-            admins: RwLock::default(),
             choices: vec![Choice {
                 name: default.name().to_owned(),
                 model: default,
@@ -76,7 +78,6 @@ impl ModelChoices {
         provider: &dyn LlmProvider,
         default: Model,
         configured: Vec<Model>,
-        admins: &[EndpointId],
     ) -> Self {
         let listed = provider.list_models().await;
         if listed.is_none() && !configured.is_empty() {
@@ -109,8 +110,6 @@ impl ModelChoices {
             choices.push(choice);
         }
         Self {
-            admin_keys: admins.iter().map(ToString::to_string).collect(),
-            admins: RwLock::default(),
             choices,
             routing: HashMap::new(),
             auto: Vec::new(),
@@ -222,40 +221,9 @@ impl ModelChoices {
         self.routing.get(model)
     }
 
-    pub fn is_admin(&self, user: &str) -> bool {
-        self.admins
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(user)
-    }
-
-    /// Every account admitted as an admin so far.
-    pub fn admins(&self) -> Vec<String> {
-        self.admins
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .cloned()
-            .collect()
-    }
-
-    /// Makes account `user` an admin when `key`, one of its keys, is an
-    /// admin key in the config.
-    pub fn admit(&self, user: &str, key: &str) {
-        if self.admin_keys.contains(key) {
-            self.admins
-                .write()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(user.to_owned());
-        }
-    }
-
-    /// Makes account `user` an admin, as the owner of a single-user server.
-    pub fn make_admin(&self, user: &str) {
-        self.admins
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(user.to_owned());
+    /// Every offered model.
+    pub fn all(&self) -> impl Iterator<Item = &Model> {
+        self.choices.iter().map(|choice| &choice.model)
     }
 
     pub fn default_model(&self) -> &Model {

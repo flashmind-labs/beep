@@ -16,7 +16,6 @@ use crate::{
     cron, events, followups, gates,
     grants::{RequestGrantTool, RoutineGrants},
     images,
-    instance::Privilege,
     live::LiveRun,
     memories::{Exchange, Turn, clip, days},
     metering,
@@ -132,12 +131,8 @@ impl App {
             None => None,
         };
         // A project chat runs as the project's agent, on its own prompt and
-        // tools. Without machines it is a plain chat.
-        let project = if self.allows(Privilege::Nodes, user) {
-            user.project_in(chat).await?
-        } else {
-            None
-        };
+        // tools.
+        let project = user.project_in(chat).await?;
         // The model runs on the context, which may be compacted. The apps
         // read the turn's steps, saved as messages when it ends.
         let mut conversation = user
@@ -295,7 +290,7 @@ impl App {
         if untrusted {
             cron::remove_changing_tools(&mut registry);
         }
-        let use_machines = self.allows(Privilege::Nodes, user) && !untrusted;
+        let use_machines = !untrusted;
         let workspace = use_machines.then(|| Workspace::find(self, user)).flatten();
         // A project chat gets the project's tools in their place, below,
         // once the rules are loaded.
@@ -303,14 +298,12 @@ impl App {
         if use_machines && project.is_none() {
             tools::machines::register(&mut registry, self, user, chat);
         }
-        if events::enabled(self, user) {
-            registry.register(Arc::new(events::tools::EventTopicsTool {
-                user: user.clone(),
-            }));
-            registry.register(Arc::new(events::tools::RecentEventsTool {
-                user: user.clone(),
-            }));
-        }
+        registry.register(Arc::new(events::tools::EventTopicsTool {
+            user: user.clone(),
+        }));
+        registry.register(Arc::new(events::tools::RecentEventsTool {
+            user: user.clone(),
+        }));
         if message
             .woken
             .as_ref()
@@ -1244,7 +1237,7 @@ impl App {
         // A task that ended, such as a routine run, an event's wake or work
         // handed back, is read by the watchers now rather than once quiet.
         if background && !matches!(status, RunStatus::Waiting | RunStatus::Interrupted) {
-            self.watchers.task_ended(self, user.id(), chat);
+            self.watchers.task_ended(user.id(), chat);
         }
         if let Some(woken) = &message.woken {
             let finished = wake::Finished {

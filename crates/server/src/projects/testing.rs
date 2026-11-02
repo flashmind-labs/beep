@@ -212,6 +212,8 @@ pub(crate) struct FakeFleet {
     pub(crate) posted: Mutex<Vec<(String, String)>>,
     /// The tasks started, which all queue.
     pub(crate) started: Mutex<Vec<TaskSlug>>,
+    /// When set, every start fails saying this.
+    pub(crate) start_fails: Mutex<Option<String>>,
     /// What went to sessions.
     pub(crate) sent: Mutex<Vec<AgentRequest>>,
     /// The questions put to the user.
@@ -367,7 +369,15 @@ impl Fleet for FakeFleet {
         _request: &StartRequest,
     ) -> Result<Started, StartError> {
         push(&self.started, task.slug.clone());
-        Ok(Started::Queued("the fake fleet starts nothing".to_owned()))
+        let fails = self
+            .start_fails
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        match fails {
+            Some(why) => Err(StartError::Node(why)),
+            None => Ok(Started::Queued("the fake fleet starts nothing".to_owned())),
+        }
     }
 
     async fn send_session(&self, _worker: &WorkerRow, request: AgentRequest) -> Result<()> {

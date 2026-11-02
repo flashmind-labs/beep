@@ -66,23 +66,127 @@ pub struct TeaServer {
     url: String,
 }
 
+/// One github.com account `gh` here is signed in to.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GhAccount {
+    login: String,
+    /// The one gh uses now.
+    active: bool,
+}
+
 /// What Settings can take from this Mac's CLIs.
 #[derive(Debug, Serialize)]
 pub struct CliLogins {
     github: LoginView,
+    /// Every github.com account gh has, from `gh auth status`; one at most
+    /// with a gh from before several accounts.
+    github_accounts: Vec<GhAccount>,
     forgejo: Vec<TeaServer>,
 }
 
-/// Whether `gh` is signed in here, and the teacli servers with a token.
+/// Whether `gh` is signed in here, to which accounts, and the teacli
+/// servers with a token.
 #[tauri::command]
 pub async fn cli_logins() -> Result<CliLogins> {
-    let github = LoginView::from(&gh_login(true).await?);
+    let github_accounts = match find_tool("gh") {
+        Some(gh) => gh_accounts(&gh).await?,
+        None => Vec::new(),
+    };
+    let github = match github_accounts.iter().find(|account| account.active) {
+        Some(active) => LoginView::SignedIn {
+            account: Some(active.login.clone()),
+        },
+        None => LoginView::from(&gh_login(true).await?),
+    };
     let forgejo = tea_logins()
         .await?
         .into_iter()
         .map(|login| TeaServer { url: login.url })
         .collect();
-    Ok(CliLogins { github, forgejo })
+    Ok(CliLogins {
+        github,
+        github_accounts,
+        forgejo,
+    })
+}
+
+/// Saves the token gh here holds for the github.com account `login`, as
+/// one of the GitHub accounts, checked by the server.
+#[tauri::command]
+pub async fn use_gh_account(beep: State<'_, Arc<Beep>>, login: String) -> Result<CredentialView> {
+    let login = parse_login(&login).ok_or_else(|| refused("That is not a GitHub login"))?;
+    let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this Mac"))?;
+    let token = gh_account_token(&gh, &login).await?;
+    credentials::save(&beep, Kind::Github, token, true).await
+}
+
+/// The github.com accounts gh lists, signed in or not checked.
+async fn gh_accounts(gh: &Path) -> Result<Vec<GhAccount>> {
+    // It exits with an error when any account's token is bad, and still
+    // lists the rest.
+    let text = all_output(gh, &["auth", "status", "--hostname", "github.com"]).await?;
+    Ok(parse_gh_status(&text))
+}
+
+/// The token gh holds for `login`. A gh from before several accounts has
+/// no `--user`; its one account's token is the active one.
+async fn gh_account_token(gh: &Path, login: &str) -> Result<SecretText> {
+    let args = ["auth", "token", "--hostname", "github.com", "--user", login];
+    if let Some(token) = stdout(gh, &args).await?.as_deref().and_then(parse_token) {
+        return Ok(token);
+    }
+    let active = gh_accounts(gh)
+        .await?
+        .into_iter()
+        .any(|account| account.active && account.login.eq_ignore_ascii_case(login));
+    if active {
+        return gh_token().await;
+    }
+    Err(refused(&format!(
+        "gh has no token for @{login} on this Mac"
+    )))
+}
+
+/// The github.com accounts in what `gh auth status --hostname github.com`
+/// printed. gh 2.40 and later list each account with its "Active account"
+/// line; older gh prints one "Logged in to github.com as <login>", which is
+/// the active one. An account gh failed to sign in is left out.
+fn parse_gh_status(text: &str) -> Vec<GhAccount> {
+    let mut accounts: Vec<GhAccount> = Vec::new();
+    // Whether the lines now are about the last account pushed.
+    let mut current = false;
+    for line in text.lines().map(str::trim) {
+        if line.contains("Failed to log in") {
+            current = false;
+        } else if let Some(rest) = line.split_once("Logged in to github.com account ") {
+            current = push_login(&mut accounts, rest.1, false);
+        } else if let Some(rest) = line.split_once("Logged in to github.com as ") {
+            current = push_login(&mut accounts, rest.1, true);
+        } else if let Some(value) = line.strip_prefix("- Active account:")
+            && current
+            && let Some(last) = accounts.last_mut()
+        {
+            last.active = value.trim() == "true";
+        }
+    }
+    accounts
+}
+
+/// Pushes the login `rest` starts with, such as `octo-one (keyring)`;
+/// whether it was one.
+fn push_login(accounts: &mut Vec<GhAccount>, rest: &str, active: bool) -> bool {
+    let word = rest.split_whitespace().next().unwrap_or_default();
+    match parse_login(word) {
+        Some(login)
+            if !accounts
+                .iter()
+                .any(|a| a.login.eq_ignore_ascii_case(&login)) =>
+        {
+            accounts.push(GhAccount { login, active });
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Saves the token `gh` or teacli holds for `host`, checked by the server
@@ -165,6 +269,23 @@ async fn stdout(program: &Path, args: &[&str]) -> Result<Option<String>> {
     let text = String::from_utf8(out.stdout)
         .with_context(|| format!("{} printed something other than text", program.display()))?;
     Ok(Some(text))
+}
+
+/// What `program` prints, stdout then stderr, whether it succeeds or not.
+async fn all_output(program: &Path, args: &[&str]) -> Result<String> {
+    let run = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let out = timeout(DEADLINE, run)
+        .await
+        .with_context(|| format!("{} took too long", program.display()))?
+        .with_context(|| format!("running {}", program.display()))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push('\n');
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    Ok(text)
 }
 
 /// The token `gh auth token` printed, when it printed one.
@@ -313,6 +434,71 @@ mod tests {
         assert_eq!(parse_login("you-work\n").as_deref(), Some("you-work"));
         assert_eq!(parse_login(""), None);
         assert_eq!(parse_login("{\"message\":\"Bad credentials\"}"), None);
+    }
+
+    const STATUS_TWO: &str = "github.com
+  \u{2713} Logged in to github.com account octo-one (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+
+  \u{2713} Logged in to github.com account octo-two (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo'
+
+  X Failed to log in to github.com account octo-three (keyring)
+  - Active account: false
+  - The token in keyring is invalid.
+";
+
+    #[test]
+    fn gh_status_lists_each_account_and_the_active_one() {
+        assert_eq!(
+            parse_gh_status(STATUS_TWO),
+            [
+                GhAccount {
+                    login: "octo-one".into(),
+                    active: false
+                },
+                GhAccount {
+                    login: "octo-two".into(),
+                    active: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn gh_status_with_one_account() {
+        let one = "github.com\n  \u{2713} Logged in to github.com account octo-one (keyring)\n  \
+                   - Active account: true\n  - Git operations protocol: https\n";
+        assert_eq!(
+            parse_gh_status(one),
+            [GhAccount {
+                login: "octo-one".into(),
+                active: true
+            }]
+        );
+        // A gh from before several accounts.
+        let old = "github.com\n  \u{2713} Logged in to github.com as octo-one \
+                   (/srv/home/.config/gh/hosts.yml)\n  \u{2713} Git operations for github.com \
+                   configured to use https protocol.\n  \u{2713} Token: gho_*****\n";
+        assert_eq!(
+            parse_gh_status(old),
+            [GhAccount {
+                login: "octo-one".into(),
+                active: true
+            }]
+        );
+        assert!(
+            parse_gh_status(
+                "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
+            )
+            .is_empty()
+        );
     }
 
     #[test]
