@@ -66,6 +66,11 @@ pub struct NodeHello {
     /// gets the user's credentials.
     #[serde(default)]
     pub credentials: bool,
+    /// The node makes the branch or worktree `agent::Request::Start`'s
+    /// `checkout` asks for. A node from before it ignores that field, so
+    /// the server refuses a checkout plan for it.
+    #[serde(default)]
+    pub checkouts: bool,
 }
 
 /// What `NodeHello::setup` carries.
@@ -534,6 +539,7 @@ mod tests {
             workspace: None,
             setup: None,
             credentials: true,
+            checkouts: true,
         };
         let body = rmp_serde::to_vec_named(&hello).unwrap();
         assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), hello);

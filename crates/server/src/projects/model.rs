@@ -170,31 +170,20 @@ impl fmt::Display for MachinePath {
     }
 }
 
-/// Longest slug made from a title.
-const MAX_SLUG: usize = 40;
-
 /// A task's short name in its project, used in its branch and folders:
 /// lowercase ASCII letters, digits and `-`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TaskSlug(String);
 
 impl TaskSlug {
+    /// The slug of `title`, as `agent::slug` makes one (a coding agent's
+    /// new branch is named the same way); `task` when it makes none.
     pub(crate) fn from_title(title: &str) -> TaskSlug {
-        let mut slug = String::new();
-        for c in title.chars() {
-            if c.is_ascii_alphanumeric() {
-                slug.push(c.to_ascii_lowercase());
-            } else if !slug.is_empty() && !slug.ends_with('-') {
-                slug.push('-');
-            }
-        }
-        // Only ASCII is pushed, so any byte index is a char boundary.
-        slug.truncate(MAX_SLUG);
-        let slug = slug.trim_matches('-');
+        let slug = agent::slug(title);
         if slug.is_empty() {
             TaskSlug("task".into())
         } else {
-            TaskSlug(slug.into())
+            TaskSlug(slug)
         }
     }
 
