@@ -987,6 +987,28 @@ impl User {
         self.store.imports(&self.key).await
     }
 
+    /// Records a checkout found on a machine as the project's folder there,
+    /// unless the project has one there already; `true` when recorded.
+    pub(crate) async fn link_import(&self, import: crate::store::NewImport<'_>) -> Result<bool> {
+        self.store.link_import(&self.key, import).await
+    }
+
+    /// Notes when `endpoint` was looked through for checkouts.
+    pub(crate) async fn save_checkout_check(
+        &self,
+        endpoint: &str,
+        at: DateTime<Utc>,
+    ) -> Result<()> {
+        self.store
+            .save_checkout_check(&self.key, endpoint, at)
+            .await
+    }
+
+    /// When each machine was last looked through for checkouts, by key.
+    pub(crate) async fn checkout_checks(&self) -> Result<HashMap<String, DateTime<Utc>>> {
+        self.store.checkout_checks(&self.key).await
+    }
+
     /// The user's git credentials (GitHub, Forgejo servers), opened.
     pub async fn git_credentials(
         &self,

@@ -33,6 +33,8 @@ function button(label, cls, onClick) {
 /// `options.macId` this Mac's machine id, when it is one;
 /// `options.onDone(project)` runs once a project is in, as when the window
 /// selects it. With `options.choose` it goes straight to choosing a folder.
+/// `options.repo` and `options.machine` fill in the repository and pick
+/// the machine, as Clone here on a project's page does.
 export function openImportProject(options = {}) {
   if (root) return;
   machines = options.machines || [];
@@ -43,6 +45,8 @@ export function openImportProject(options = {}) {
   // Start on this Mac when it is one of the machines: Choose… then opens the
   // macOS folder picker straight away.
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
+  if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
+  if (options.repo) state = { ...state, repo: options.repo };
   root = el("div", "am-scrim");
   root.addEventListener("mousedown", e => { if (e.target === root && state.step !== "cloning") closeImportProject(); });
   sheet = el("div", "am-sheet ip-sheet");

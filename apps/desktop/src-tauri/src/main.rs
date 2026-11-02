@@ -184,6 +184,7 @@ fn main() {
             projects::pick_folder,
             projects::found_projects,
             projects::project_sessions,
+            projects::project_machines,
             projects::open_folder,
             agents::agent_resume,
             commands::open_file,
