@@ -504,7 +504,7 @@ export function makeReviews(deps: ReviewDeps) {
       return h("div", "pj-task", title, h("span", "pj-st", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
     });
-    out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), h("small", "", `read on ${data.machine_name}`)),
+    out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null),
       rows.length ? h("div", "cc-panel", ...rows) : h("div", "cc-panel cc-empty", h("span", "", "No branches"))));
     return out;
   }
