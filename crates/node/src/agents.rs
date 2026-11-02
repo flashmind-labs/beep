@@ -26,12 +26,15 @@ use std::{
 use tokio::task::spawn_blocking;
 
 mod acp;
+mod images;
 mod live;
 mod session;
 
+pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
 
 use acp::Prompt;
+use images::Images;
 use session::{Command, Session, Start};
 
 /// The most sessions running at once.
@@ -49,6 +52,8 @@ const MAX_IN_FOLDERS: usize = 100;
 const DEFAULT_IN_FOLDERS: usize = 50;
 /// The most folders one `InFolders` names.
 const MAX_ASKED_FOLDERS: usize = 32;
+/// The largest picture `Image` answers, under the link's frame limit.
+const MAX_IMAGE: usize = 7 * 1024 * 1024;
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -198,6 +203,8 @@ pub struct Agents {
     external: External,
     /// Where Codex, pi, flsh and OpenCode keep their sessions.
     stores: Stores,
+    /// The pictures sessions' transcripts show, by session.
+    images: Arc<Images>,
 }
 
 impl Agents {
@@ -207,6 +214,7 @@ impl Agents {
             sessions: Mutex::default(),
             external: External::locate(),
             stores: Stores::locate(),
+            images: Arc::default(),
         }
     }
 
@@ -366,6 +374,51 @@ impl Agents {
         )
     }
 
+    /// The picture `key` of `session`'s transcript: kept, or else found
+    /// again in the agent's own file of the session and kept. `session` is
+    /// one of this node's sessions or one started outside Beep.
+    pub(crate) async fn image(&self, session: &str, key: &str) -> Result<Option<Arc<Picture>>> {
+        if let Some(picture) = self.images.get(session, key) {
+            return Ok(Some(picture));
+        }
+        let Some(file) = self.session_file(session).await? else {
+            return Ok(None);
+        };
+        let wanted = key.to_owned();
+        let found = spawn_blocking(move || images::find_in_file(&file, &wanted))
+            .await?
+            .context("reading the session's file")?;
+        let Some(picture) = found else {
+            return Ok(None);
+        };
+        self.images.keep(session, picture.clone());
+        Ok(Some(Arc::new(picture)))
+    }
+
+    /// The file the agent keeps `session` in: for one of this node's, the
+    /// agent's own session it runs.
+    async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
+        let (agent, id) = match self.get(session) {
+            Some(running) => {
+                let Some(id) = running.live.borrow().agent_session.clone() else {
+                    return Ok(None);
+                };
+                (Agent::from_name(&running.agent), id)
+            }
+            None => (None, session.to_owned()),
+        };
+        if agent.is_none_or(|agent| agent == Agent::Claude)
+            && let Some(file) = self.external.file(&id).await?
+        {
+            return Ok(Some(file));
+        }
+        if agent == Some(Agent::Claude) {
+            return Ok(None);
+        }
+        let stores = self.stores.clone();
+        Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
+    }
+
     /// Closes every running session and waits until their agents have
     /// stopped: for the node shutting down.
     pub async fn shutdown(&self) {
@@ -456,6 +509,7 @@ impl Agents {
             cwd: &cwd,
             prompt: begin.prompt,
             resume: begin.resume,
+            images: self.images.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
@@ -670,7 +724,16 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             let read = match agents.get(&session) {
                 Some(found) => Ok(Some(found.live.borrow().transcript(last))),
                 // A Claude Code session started outside Beep.
-                None => agents.external.transcript(&session, last).await,
+                None => match agents.external.transcript(&session, last).await {
+                    Ok(Some(read)) => {
+                        for picture in read.pictures {
+                            agents.images.keep(&session, picture);
+                        }
+                        Ok(Some((read.entries, read.earlier)))
+                    }
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(e),
+                },
             };
             match read {
                 Ok(Some((entries, earlier))) => SessionsReply::Transcript {
@@ -717,6 +780,21 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         SessionsRequest::Watch { sessions } => {
             return agents.external.watch(tx, rx, sessions).await;
         }
+        SessionsRequest::Image { session, key } => match agents.image(&session, &key).await {
+            Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
+                mime: picture.mime.clone(),
+                data: picture.data.clone(),
+            },
+            Ok(Some(_)) => SessionsReply::Error {
+                message: format!("image {key} is too large to send"),
+            },
+            Ok(None) => SessionsReply::Error {
+                message: format!("session {session} has no image {key}"),
+            },
+            Err(e) => SessionsReply::Error {
+                message: format!("could not read session {session}: {e:#}"),
+            },
+        },
         other => SessionsReply::Error {
             message: format!("this node does not serve {other:?}"),
         },
@@ -727,6 +805,125 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Claude Code session id, as its transcript file is named.
+    #[cfg(unix)]
+    const CLAUDE_ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
+
+    /// An adapter that, loading a session, replays a prompt with `$1`
+    /// inlined as a data URL, as Codex does, then waits.
+    #[cfg(unix)]
+    const REPLAYING_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+read -r line
+printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"what is this [@shot.png](data:image/png;base64,%s)"}}}}\n' "$1"
+reply '{}'
+while read -r line; do reply '{}'; done
+"#;
+
+    #[cfg(unix)]
+    fn png(fill: u8) -> Vec<u8> {
+        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+        data.resize(48, fill);
+        data
+    }
+
+    /// Agents that read Claude Code's sessions in `root`.
+    #[cfg(unix)]
+    fn agents_at(root: &std::path::Path) -> Agents {
+        Agents {
+            external: External::at(root),
+            ..Agents::default()
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_replayed_image_is_served_and_found_again_once_evicted() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use beep_proto::image_key;
+        let dir = std::env::temp_dir().join(format!("beep-agent-images-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let projects = dir.join("claude/projects/-srv-project");
+        std::fs::create_dir_all(&projects).unwrap();
+        let shot = png(1);
+        let encoded = STANDARD.encode(&shot);
+        // Claude Code's own file of the session holds the image too.
+        let line = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": "what is this"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": encoded}}
+        ]}});
+        std::fs::write(
+            projects.join(format!("{CLAUDE_ID}.jsonl")),
+            format!("{line}\n"),
+        )
+        .unwrap();
+        let agents = agents_at(&dir.join("claude"));
+        let kind = AgentKind {
+            name: "claude".into(),
+            program: "sh".into(),
+            args: vec![
+                "-c".into(),
+                REPLAYING_ADAPTER.into(),
+                "fake-adapter".into(),
+                encoded,
+            ],
+            env: BTreeMap::new(),
+        };
+        let begin = Begin {
+            prompt: None,
+            resume: Some(CLAUDE_ID.into()),
+        };
+        let session = agents
+            .start(&kind, Some(dir.to_str().unwrap()), begin)
+            .unwrap();
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            live.wait_for(|live| matches!(live.status(), Status::Idle | Status::Ended)),
+        )
+        .await
+        .expect("the session loads")
+        .unwrap();
+        let key = image_key(&shot);
+        let (entries, _) = session.live.borrow().transcript(10);
+        assert_eq!(
+            entries[0].text,
+            format!("what is this\n[image: image-{key}]")
+        );
+        let served = agents.image(&session.id, &key).await.unwrap();
+        assert_eq!(
+            served.map(|picture| picture.data.clone()),
+            Some(shot.clone())
+        );
+        // Newer pictures push it out; the session's file still has it.
+        for fill in 2..40 {
+            agents.images.keep(
+                &session.id,
+                Picture {
+                    mime: "image/png".into(),
+                    data: png(fill),
+                },
+            );
+        }
+        assert!(agents.images.get(&session.id, &key).is_none(), "evicted");
+        let found = agents.image(&session.id, &key).await.unwrap();
+        assert_eq!(
+            found.map(|picture| picture.data.clone()),
+            Some(shot.clone())
+        );
+        assert!(agents.images.get(&session.id, &key).is_some(), "kept again");
+        // A session started outside Beep is read from its file by its id.
+        let outside = agents.image(CLAUDE_ID, &key).await.unwrap();
+        assert_eq!(outside.map(|picture| picture.data.clone()), Some(shot));
+        let missing = agents.image(CLAUDE_ID, &image_key(b"other")).await;
+        assert!(missing.unwrap().is_none());
+        session.close().await;
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn extra_agents_replace_known_ones() {
