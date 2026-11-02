@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -140,4 +140,50 @@ test("the help line names the default only while it is the default", () => {
   assert.match(folderHelp(picked, machines), /^The default on box\./);
   assert.doesNotMatch(folderHelp(picked, machines), /Projects/);
   assert.match(folderHelp(next(picked, { type: "choose", listing: listing() }), machines), /^Private repositories/);
+});
+
+const found = {
+  project: "org/app",
+  remote: "git@github.com:org/app.git",
+  places: [
+    { machine_id: "m1", machine_name: "build-box", folder: "/home/user/proj" },
+    { machine_id: "m2", machine_name: "mac", folder: "/Users/u/proj" },
+  ],
+  agents: [{ agent: "claude", sessions: 3 }, { agent: "codex", sessions: 2 }],
+};
+
+test("a found row imports each place in place and counts its sessions", () => {
+  assert.deepEqual(importPlan(found), [
+    { repo: "git@github.com:org/app.git", machineId: "m1", folder: "/home/user/proj" },
+    { repo: "git@github.com:org/app.git", machineId: "m2", folder: "/Users/u/proj" },
+  ]);
+  assert.equal(foundSessions(found), 5);
+  assert.deepEqual(importPlan(null), []);
+  assert.equal(agentLabel("claude"), "Claude Code");
+  assert.equal(agentLabel("other"), "other");
+});
+
+test("the looking line names how many machines are online", () => {
+  assert.match(lookingText([{ online: true }, { online: false }]), /on 1 machine…$/);
+  assert.match(lookingText([{ online: true }, { online: true }]), /on 2 machines…$/);
+  assert.match(lookingText([]), /on your machines…$/);
+});
+
+test("running agents in a project's folders show under Agents, not Sessions", () => {
+  const project = { machines: [{ id: "m1", folder: "/home/user/proj" }] };
+  const running = [agent("m1", "/home/user/proj/sub", 5), agent("m1", "/home/user/other", 5), agent("m2", "/home/user/proj", 5)];
+  running[0].id = "s1";
+  assert.deepEqual(runningIn(project, running).map(r => r.cwd), ["/home/user/proj/sub"]);
+  const sessions = [
+    { machine_id: "m1", id: "s0", last_activity: 1 },
+    { machine_id: "m1", id: "s1", last_activity: 9 },
+    { machine_id: "m1", id: "s2", last_activity: 4 },
+  ];
+  assert.deepEqual(pastSessions(sessions, runningIn(project, running)).map(s => s.id), ["s2", "s0"]);
+});
+
+test("open on names GitHub or the host", () => {
+  assert.equal(openOnLabel("https://github.com/org/app"), "Open on GitHub");
+  assert.equal(openOnLabel("https://git.example.com/org/app"), "Open on git.example.com");
+  assert.equal(openOnLabel("not a url"), null);
 });

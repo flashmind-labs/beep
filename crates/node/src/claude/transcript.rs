@@ -255,7 +255,7 @@ fn tool_line(block: &Value) -> String {
 }
 
 /// Unix seconds of an RFC 3339 UTC time such as `2026-10-29T12:34:56.789Z`.
-fn unix_seconds(text: &str) -> Option<u64> {
+pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
     let (date, time) = text.split_once('T')?;
     let mut date = date.split('-');
     let year: i64 = date.next()?.parse().ok()?;
@@ -342,10 +342,15 @@ pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<(Digest, bo
 
 /// When the session started, from the first timestamp in the file's head.
 pub(super) fn started_at(path: &Path) -> io::Result<Option<u64>> {
+    Ok(head(path)?.first_at)
+}
+
+/// What the file's head says: where the session started, and when.
+pub(super) fn head(path: &Path) -> io::Result<Digest> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len();
     let head = read_from(&mut file, 0, len.min(HEAD))?;
-    Ok(Digest::read(&head.text).first_at)
+    Ok(Digest::read(&head.text))
 }
 
 /// The last `last` entries of the transcript at `path`, and how many came

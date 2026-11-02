@@ -2,22 +2,28 @@
 //! table of agents this node can start, the sessions it runs, and the
 //! streams the server follows them on (`beep_proto::node::agent`).
 
-use crate::claude::{self, External};
+use crate::{
+    claude::{self, External},
+    found::{self, Agent, Stores},
+};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        self, Event, Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest,
-        State, Status,
+        self, Event, ExternalSession, Request, SESSIONS_PROTOCOL, SessionFolder, SessionInfo,
+        SessionsReply, SessionsRequest, State, Status,
     },
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, hash_map::RandomState},
+    cmp::Reverse,
+    collections::{HashMap, HashSet, hash_map::RandomState},
     hash::BuildHasher,
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::SystemTime,
 };
+use tokio::task::spawn_blocking;
 
 mod acp;
 mod live;
@@ -34,6 +40,15 @@ const MAX_RUNNING: usize = 8;
 const MAX_KEPT: usize = 64;
 /// The most transcript entries one request reads.
 const MAX_TRANSCRIPT: u32 = 200;
+/// The most folders `Folders` answers, and how many when the server names
+/// no number.
+const MAX_FOLDERS: usize = 200;
+const DEFAULT_FOLDERS: usize = 100;
+/// The most sessions `InFolders` answers, and how many by default.
+const MAX_IN_FOLDERS: usize = 100;
+const DEFAULT_IN_FOLDERS: usize = 50;
+/// The most folders one `InFolders` names.
+const MAX_ASKED_FOLDERS: usize = 32;
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -142,6 +157,8 @@ pub struct Agents {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     /// Claude Code sessions started outside Beep.
     external: External,
+    /// Where Codex, pi and flsh keep their sessions.
+    stores: Stores,
 }
 
 impl Agents {
@@ -150,6 +167,7 @@ impl Agents {
             kinds,
             sessions: Mutex::default(),
             external: External::locate(),
+            stores: Stores::locate(),
         }
     }
 
@@ -164,6 +182,73 @@ impl Agents {
         limit: u32,
     ) -> Result<Vec<beep_proto::node::agent::ExternalSession>> {
         self.external.list(limit, None, self.owned()).await
+    }
+
+    /// Every session the agents' stores hold, with the folder it ran in.
+    async fn sightings(&self) -> Result<Vec<found::Seen>> {
+        let stores = self.stores.clone();
+        let others = spawn_blocking(move || stores.sessions(None));
+        let (claude, others) = tokio::join!(self.external.sightings(), others);
+        let mut seen = claude.unwrap_or_else(|e| {
+            log::warn!("Claude Code sessions not read: {e:#}");
+            Vec::new()
+        });
+        seen.extend(others.context("reading the agents' sessions")?);
+        Ok(seen)
+    }
+
+    /// The checkouts coding agents worked in, newest activity first.
+    pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
+        let limit = match usize::try_from(limit).unwrap_or(MAX_FOLDERS) {
+            0 => DEFAULT_FOLDERS,
+            limit => limit.min(MAX_FOLDERS),
+        };
+        let seen = self.sightings().await?;
+        let home = dirs::home_dir();
+        spawn_blocking(move || found::folders(&seen, home.as_deref(), limit, found::checkout))
+            .await
+            .context("looking up the folders' checkouts")
+    }
+
+    /// The sessions that ran in `folders` or below, newest first.
+    pub async fn sessions_in(
+        &self,
+        folders: Vec<String>,
+        limit: u32,
+    ) -> Result<Vec<ExternalSession>> {
+        let limit = match usize::try_from(limit).unwrap_or(MAX_IN_FOLDERS) {
+            0 => DEFAULT_IN_FOLDERS,
+            limit => limit.min(MAX_IN_FOLDERS),
+        };
+        let folders: Vec<PathBuf> = folders
+            .into_iter()
+            .take(MAX_ASKED_FOLDERS)
+            .map(PathBuf::from)
+            .filter(|folder| folder.is_absolute())
+            .collect();
+        let picked = found::in_folders(self.sightings().await?, &folders, limit);
+        let (claude, others): (Vec<found::Seen>, Vec<found::Seen>) = picked
+            .into_iter()
+            .partition(|seen| seen.agent == Agent::Claude);
+        let ids: HashSet<String> = claude.into_iter().map(|seen| seen.id).collect();
+        let owned = self.owned();
+        let described = spawn_blocking(move || {
+            let now = SystemTime::now();
+            others
+                .into_iter()
+                .map(|seen| found::describe(seen, now))
+                .collect::<Vec<_>>()
+        });
+        let (claude, others) = tokio::join!(self.external.named(ids, owned.clone()), described);
+        let mut sessions = claude?;
+        sessions.extend(others.context("reading the sessions' titles")?);
+        for session in &mut sessions {
+            if session.taken_over.is_none() {
+                session.taken_over = owned.get(&session.id).cloned();
+            }
+        }
+        sessions.sort_by_key(|session| Reverse(session.last_activity));
+        Ok(sessions)
     }
 
     /// The sessions this node runs, by the agent's own id, to the node's id.
@@ -185,10 +270,12 @@ impl Agents {
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
-        anyhow::ensure!(
-            kind.name == "claude",
-            "only Claude Code sessions can be taken over"
-        );
+        let agent = Agent::from_name(&kind.name).with_context(|| {
+            format!(
+                "{} sessions started outside Beep cannot be taken over",
+                kind.name
+            )
+        })?;
         let owned = self.owned();
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
             && session.live.borrow().status() != Status::Ended
@@ -201,13 +288,20 @@ impl Agents {
             }
             return Ok(session);
         }
-        let found = self
-            .external
-            .list(1, Some(id.to_owned()), owned)
-            .await?
-            .into_iter()
-            .next()
-            .with_context(|| format!("there is no Claude Code session {id} on this machine"))?;
+        let found = match agent {
+            Agent::Claude => self
+                .external
+                .list(1, Some(id.to_owned()), owned)
+                .await?
+                .into_iter()
+                .next(),
+            other => {
+                let stores = self.stores.clone();
+                let id = id.to_owned();
+                spawn_blocking(move || stores.find(other, &id)).await?
+            }
+        }
+        .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
         if let Some(reason) = claude::refuse_takeover(&found) {
             anyhow::bail!("{reason}");
         }
@@ -555,6 +649,20 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         SessionsRequest::External { agent, .. } => SessionsReply::Error {
             message: format!("this node lists no {agent} sessions started outside Beep"),
         },
+        SessionsRequest::Folders { limit } => match agents.found_folders(limit).await {
+            Ok(folders) => SessionsReply::Folders { folders },
+            Err(e) => SessionsReply::Error {
+                message: format!("{e:#}"),
+            },
+        },
+        SessionsRequest::InFolders { folders, limit } => {
+            match agents.sessions_in(folders, limit).await {
+                Ok(sessions) => SessionsReply::External { sessions },
+                Err(e) => SessionsReply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
         SessionsRequest::Watch { sessions } => {
             return agents.external.watch(tx, rx, sessions).await;
         }

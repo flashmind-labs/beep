@@ -10,8 +10,8 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AgentEntry, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentSession,
-    ListAgentHosts, ListAgentSessions, MachineSession, StartAgentSession, SteerAgentSession,
-    Upload, check_agent_images,
+    ListAgentHosts, ListAgentSessions, MachineSession, ResumeAgentSession, StartAgentSession,
+    SteerAgentSession, Upload, check_agent_images,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -239,6 +239,30 @@ pub async fn agent_start(
             prompt,
             needs: Vec::new(),
             chat,
+        })
+        .await?;
+    Ok(Started {
+        session: started.session.into(),
+        why: started.why,
+    })
+}
+
+/// Resumes a session that ran outside Beep, as a project lists it; it then
+/// runs as one Beep started.
+#[tauri::command]
+pub async fn agent_resume(
+    beep: Service<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    prompt: Option<String>,
+) -> Result<Started> {
+    let started = beep
+        .call(ResumeAgentSession {
+            machine_id,
+            agent,
+            session,
+            prompt,
         })
         .await?;
     Ok(Started {

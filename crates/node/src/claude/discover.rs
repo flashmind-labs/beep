@@ -8,11 +8,12 @@
 //! session, and a transcript written in the last minutes counts as active.
 
 use super::{procs::Process, transcript};
+use crate::found::{Agent, Seen as Sighting};
 use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
 use std::{
     cmp::Reverse,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env, fs, io,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -25,6 +26,10 @@ const RECENT: Duration = Duration::from_secs(3 * 60);
 const MAX_FILES: usize = 20_000;
 /// The longest a pid file may be.
 const MAX_PID_FILE: u64 = 64 * 1024;
+/// The most project folders whose sessions `sightings` reads.
+const MAX_FOLDERS: usize = 1_000;
+/// The most transcript heads read in one folder for where it is.
+const HEADS_PER_FOLDER: usize = 3;
 
 /// Where Claude Code keeps its state, `~/.claude` unless
 /// `CLAUDE_CONFIG_DIR` says otherwise.
@@ -193,6 +198,64 @@ pub(super) fn list(
         sessions.push(describe(transcript, newest, snapshot)?);
     }
     Ok(sessions)
+}
+
+/// The sessions named in `ids`, newest first.
+pub(super) fn list_ids(
+    store: &Store,
+    snapshot: &Snapshot,
+    ids: &HashSet<String>,
+) -> io::Result<Vec<ExternalSession>> {
+    let all = store.transcripts()?;
+    let newest_in_folder = newest_by_folder(&all);
+    let mut sessions = Vec::new();
+    for transcript in all.iter().filter(|t| ids.contains(&t.id)) {
+        let newest = newest_in_folder
+            .get(folder_of(transcript))
+            .is_some_and(|id| *id == transcript.id);
+        sessions.push(describe(transcript, newest, snapshot)?);
+    }
+    Ok(sessions)
+}
+
+/// Every session, with the folder it ran in. Sessions are filed by that
+/// folder, so only the head of each folder's newest transcript is read
+/// (the next ones when it names no folder); at most `MAX_FOLDERS` folders.
+pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
+    let all = store.transcripts()?;
+    let mut by_folder: HashMap<&str, Vec<&Transcript>> = HashMap::new();
+    for transcript in &all {
+        by_folder
+            .entry(folder_of(transcript))
+            .or_default()
+            .push(transcript);
+    }
+    let mut folders: Vec<Vec<&Transcript>> = by_folder.into_values().collect();
+    // Newest first within each folder already; the busiest-lately first.
+    folders.sort_by_key(|transcripts| Reverse(transcripts.first().map(|t| t.modified)));
+    let mut out = Vec::new();
+    for transcripts in folders.into_iter().take(MAX_FOLDERS) {
+        let Some(cwd) = transcripts
+            .iter()
+            .take(HEADS_PER_FOLDER)
+            .find_map(|t| transcript::head(&t.path).ok()?.cwd)
+        else {
+            continue;
+        };
+        for transcript in transcripts {
+            let modified = unix(transcript.modified);
+            out.push(Sighting {
+                agent: Agent::Claude,
+                id: transcript.id.clone(),
+                cwd: PathBuf::from(&cwd),
+                started_at: transcript.created.map_or(modified, unix),
+                last_activity: modified,
+                title: None,
+                file: Some(transcript.path.clone()),
+            });
+        }
+    }
+    Ok(out)
 }
 
 fn folder_of(transcript: &Transcript) -> &str {

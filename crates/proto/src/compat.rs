@@ -184,6 +184,9 @@ sample_struct! {
     NodeToken { token, expires_at }
     ImportedProject { project, url, machine_id, machine_name, folder, cloned, imported_at }
     MachineFolder { path, parent, exists, folders, more, empty, origin }
+    FoundProject { project, remote, places, agents, last_activity }
+    FoundPlace { machine_id, machine_name, folder }
+    FoundAgent { agent, sessions }
 }
 
 macro_rules! sample_values {

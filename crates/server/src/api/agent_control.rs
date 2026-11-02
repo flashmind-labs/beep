@@ -30,13 +30,13 @@ const MAX_ENTRIES: u32 = 200;
 const PREFERRED: [&str; 5] = ["claude", "codex", "gemini", "pi", "flsh"];
 
 /// An online machine of the caller's that offers a coding agent.
-struct Live {
-    host: AgentHost,
-    online: Online,
+pub(super) struct Live {
+    pub(super) host: AgentHost,
+    pub(super) online: Online,
 }
 
 impl Live {
-    fn host(&self) -> Host {
+    pub(super) fn host(&self) -> Host {
         Host {
             id: self.host.machine_id.clone(),
             name: self.host.machine_name.clone(),
@@ -76,7 +76,7 @@ impl Live {
 
 /// The caller's online machines that offer an agent, in the order the
 /// store lists them. A machine whose key was unlinked is left out.
-async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
+pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
     if !cx.app.allows(Privilege::Nodes, &cx.user) {
         return Err(ApiError::Unauthorized {});
     }
@@ -136,6 +136,39 @@ pub(super) async fn list_agent_hosts(cx: Cx, _: ListAgentHosts) -> Reply<Vec<Age
         .into_iter()
         .map(|live| live.host)
         .collect())
+}
+
+/// Admins only. Takes over the session on its machine; the node refuses one
+/// that still runs in a terminal or whose folder is gone.
+pub(super) async fn resume_agent_session(
+    cx: Cx,
+    resume: ResumeAgentSession,
+) -> Reply<StartedAgent> {
+    let live = live_host(&cx, &resume.machine_id).await?;
+    let agent = live.agent(Some(&resume.agent))?;
+    let prompt = resume
+        .prompt
+        .map(|prompt| prompt.trim().to_owned())
+        .filter(|prompt| !prompt.is_empty());
+    let link = live
+        .online
+        .take_over(&agent, &resume.session, prompt)
+        .await
+        .map_err(|e| {
+            ApiError::bad_request(format!(
+                "Could not resume the {} session: {e:#}",
+                agent_name(&agent)
+            ))
+        })?;
+    // It runs as a node session now; nothing follows it from outside.
+    cx.app
+        .nodes
+        .follows
+        .unfollow(&cx.app, &live.host.machine_id, &resume.session);
+    Ok(StartedAgent {
+        session: beep_session(&live.host(), link.now().info),
+        why: String::new(),
+    })
 }
 
 /// Admins only. Auto reads what the prompt and folder call for and picks
