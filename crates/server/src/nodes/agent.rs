@@ -48,6 +48,12 @@ pub(crate) struct SessionRefused {
     pub(crate) reason: String,
 }
 
+/// A picture of a session's transcript, as the node gave it.
+pub(crate) struct NodeImage {
+    pub(crate) mime: String,
+    pub(crate) data: Vec<u8>,
+}
+
 /// Unreadable messages in a row before a link gives up.
 const MAX_BAD_MESSAGES: u32 = 8;
 const ORDERS: usize = 8;
@@ -388,6 +394,23 @@ impl Online {
         match self.sessions_request(request).await? {
             SessionsReply::Transcript { entries, earlier } => Ok((entries, earlier)),
             SessionsReply::Error { message } => bail!("{message}"),
+            other => bail!("the node answered {other:?}"),
+        }
+    }
+
+    /// The picture `key` of `session`'s transcript, read from the node;
+    /// `None` when the node no longer has it.
+    pub(crate) async fn agent_image(&self, session: &str, key: &str) -> Result<Option<NodeImage>> {
+        let request = SessionsRequest::Image {
+            session: session.to_owned(),
+            key: key.to_owned(),
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::Image { mime, data } => Ok(Some(NodeImage { mime, data })),
+            SessionsReply::Error { message } => {
+                log::debug!("node has no image; session={session} key={key} reason={message}");
+                Ok(None)
+            }
             other => bail!("the node answered {other:?}"),
         }
     }

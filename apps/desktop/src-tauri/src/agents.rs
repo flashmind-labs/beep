@@ -5,16 +5,17 @@
 
 use crate::{
     beep::{Beep, epoch_ms},
+    commands::{GONE, image_mime},
     error::{DesktopError, Result},
     markdown,
     projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentHost, AgentImage, AgentQuestion, AgentSessionView, AgentSteer,
-    ApiError, GetAgentSession, ListAgentHosts, ListAgentImages, ListAgentSessions, MachinePick,
-    MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession, SteerAgentSession,
-    Upload, check_agent_images,
+    AgentEntry, AgentEntryKind, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, ApiError,
+    GetAgentImage, GetAgentSession, ListAgentHosts, ListAgentSessions, MachinePick, MachineSession,
+    PreviewAgentMachine, ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload,
+    check_agent_images, image_key,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -342,18 +343,36 @@ pub async fn agent_view(
     Ok(view.into())
 }
 
-/// The images sent to `session`, for its log's `[image: ...]` lines.
+/// The picture of the `[image: image-<key>]` line of `session`, read from
+/// its machine through the server, as a data URL the bar can draw.
 #[tauri::command]
-pub async fn agent_images(
+pub async fn agent_image(
     beep: Service<'_>,
     machine_id: String,
     session: String,
-) -> Result<Vec<AgentImage>> {
-    beep.call(ListAgentImages {
-        machine_id,
-        session,
-    })
-    .await
+    key: String,
+) -> Result<String> {
+    let image = beep
+        .call(GetAgentImage {
+            machine_id,
+            session,
+            key,
+        })
+        .await;
+    let image = match image {
+        Err(DesktopError::Api(ApiError::NotFound {})) => {
+            return Err(DesktopError::BadRequest(GONE.into()));
+        }
+        other => other?,
+    };
+    if !image_mime(&image.mime) {
+        return Err(DesktopError::BadRequest("bad picture".into()));
+    }
+    Ok(format!(
+        "data:{};base64,{}",
+        image.mime,
+        STANDARD.encode(&image.data)
+    ))
 }
 
 #[tauri::command]
@@ -363,9 +382,16 @@ pub async fn agent_steer(
     agent: String,
     session: String,
     steer: Steer,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let steer = AgentSteer::try_from(steer)?;
-    let images = matches!(steer, AgentSteer::PromptImages { .. });
+    // The keys of the images sent, which the session's log names them by.
+    let keys: Vec<String> = match &steer {
+        AgentSteer::PromptImages { images, .. } => {
+            images.iter().map(|image| image_key(&image.data)).collect()
+        }
+        _ => Vec::new(),
+    };
+    let images = !keys.is_empty();
     let sent = beep
         .call(SteerAgentSession {
             machine_id,
@@ -378,7 +404,7 @@ pub async fn agent_steer(
         Err(e) if images && older_than_images(&e) => Err(DesktopError::BadRequest(
             "This Beep server does not take images yet. Send the message without them.".into(),
         )),
-        other => other,
+        other => other.map(|()| keys),
     }
 }
 

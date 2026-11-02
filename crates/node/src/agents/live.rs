@@ -2,7 +2,10 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
-use super::acp::wire_name;
+use super::{
+    acp::wire_name,
+    images::{Images, Picture, data_url},
+};
 use agent_client_protocol::schema::{
     MaybeUndefined,
     v1::{
@@ -12,7 +15,6 @@ use agent_client_protocol::schema::{
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::image_key;
 use beep_proto::node::agent::{
     AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question, SessionInfo,
     Status, StopReason,
@@ -21,6 +23,7 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, VecDeque},
     path::Path,
+    sync::Arc,
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -53,6 +56,9 @@ pub(crate) struct Live {
     tools: HashMap<ToolCallId, ToolCall>,
     /// The last agent message is still arriving in chunks.
     in_message: bool,
+    /// Where the pictures its transcript shows are kept, shared by the
+    /// node's sessions.
+    images: Arc<Images>,
 }
 
 #[derive(Debug)]
@@ -68,11 +74,23 @@ struct ToolCall {
 }
 
 impl Live {
-    pub(crate) fn new(info: SessionInfo) -> Self {
+    pub(crate) fn new(info: SessionInfo, images: Arc<Images>) -> Self {
         Self {
             info,
+            images,
             ..Self::default()
         }
+    }
+
+    /// Keeps a picture the transcript shows, for the server to ask for.
+    pub(crate) fn keep(&self, picture: Picture) {
+        self.images.keep(&self.info.id, picture);
+    }
+
+    /// The kept picture `key` of this session.
+    #[cfg(test)]
+    pub(crate) fn picture(&self, key: &str) -> Option<Arc<Picture>> {
+        self.images.get(&self.info.id, key)
     }
 
     pub(crate) fn status(&self) -> Status {
@@ -167,10 +185,20 @@ impl Live {
                 if self.info.state.status == Status::Starting =>
             {
                 match &chunk.content {
-                    ContentBlock::Text(text) => self.user_chunk(&replayed(&text.text)),
+                    ContentBlock::Text(text) => {
+                        let mut found = Vec::new();
+                        let shown = replayed(&text.text, &mut found);
+                        for picture in found {
+                            self.keep(picture);
+                        }
+                        self.user_chunk(&shown);
+                    }
                     ContentBlock::Image(image) => {
                         if let Ok(data) = STANDARD.decode(&image.data) {
-                            self.user_image(&data);
+                            self.user_image(Picture {
+                                mime: image.mime_type.clone(),
+                                data,
+                            });
                         }
                     }
                     _ => {}
@@ -221,8 +249,9 @@ impl Live {
     }
 
     /// An image the agent replays with a prompt, on its own line.
-    fn user_image(&mut self, data: &[u8]) {
-        let line = image_line(data);
+    fn user_image(&mut self, picture: Picture) {
+        let line = picture.line();
+        self.keep(picture);
         let joined = match self.transcript.back() {
             Some(last) if self.in_message && last.kind == EntryKind::User => format!("\n{line}"),
             _ => line,
@@ -391,16 +420,10 @@ fn push_cut(out: &mut String, text: &str, max: usize) {
     out.push_str(&text[..end]);
 }
 
-/// How the transcript shows an image the agent gave back without its name:
-/// by its bytes' key, which the server keeps for the images Beep sent.
-fn image_line(data: &[u8]) -> String {
-    format!("[image: image-{}]", image_key(data))
-}
-
 /// `text` as an agent replays it, with each image it inlined as a markdown
 /// link to a data URL, `[@name](data:image/png;base64,...)`, made an image
-/// line of its own.
-fn replayed(text: &str) -> String {
+/// line of its own. The pictures go in `found`.
+fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(at) = rest.find("](data:image/") {
@@ -408,17 +431,16 @@ fn replayed(text: &str) -> String {
         let (Some(open), Some(len)) = (rest[..at].rfind('['), rest[url_at..].find(')')) else {
             break;
         };
-        let data = rest[url_at..url_at + len]
-            .split_once(";base64,")
-            .and_then(|(_, data)| STANDARD.decode(data).ok());
+        let picture = data_url(&rest[url_at..url_at + len]);
         let end = url_at + len + 1;
-        match data {
-            Some(data) => {
+        match picture {
+            Some(picture) => {
                 out.push_str(rest[..open].trim_end_matches(' '));
                 if !out.is_empty() && !out.ends_with('\n') {
                     out.push('\n');
                 }
-                out.push_str(&image_line(&data));
+                out.push_str(&picture.line());
+                found.push(picture);
                 if !rest[end..].is_empty() && !rest[end..].starts_with('\n') {
                     out.push('\n');
                 }
@@ -434,6 +456,7 @@ fn replayed(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_proto::image_key;
     use serde_json::json;
 
     fn update(value: Value) -> SessionUpdate {
@@ -445,10 +468,14 @@ mod tests {
     }
 
     fn live() -> Live {
-        Live::new(SessionInfo {
-            cwd: "/srv/project".into(),
-            ..SessionInfo::default()
-        })
+        Live::new(
+            SessionInfo {
+                id: "a3f9c1".into(),
+                cwd: "/srv/project".into(),
+                ..SessionInfo::default()
+            },
+            Arc::default(),
+        )
     }
 
     #[test]
@@ -504,9 +531,28 @@ mod tests {
             "content": {"type": "image", "mimeType": "image/png", "data": data}})));
         let (entries, _) = live.transcript(10);
         assert_eq!(entries[0].text, format!("what is this\n{line}\n{line}"));
+        let mut found = Vec::new();
         assert_eq!(
-            replayed("a [link](https://x.dev) stays"),
+            replayed("a [link](https://x.dev) stays", &mut found),
             "a [link](https://x.dev) stays"
+        );
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn a_replayed_image_is_kept_by_its_key() {
+        let mut live = live();
+        let png = b"\x89PNG\r\n\x1a\nshot".to_vec();
+        let url = format!("data:image/png;base64,{}", STANDARD.encode(&png));
+        live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
+            "content": {"type": "text", "text": format!("look [@shot.png]({url})")}})));
+        let kept = live.images.get("a3f9c1", &image_key(&png));
+        assert_eq!(
+            kept.as_deref(),
+            Some(&Picture {
+                mime: "image/png".into(),
+                data: png,
+            })
         );
     }
 

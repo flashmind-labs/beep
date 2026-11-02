@@ -25,23 +25,22 @@ use crate::{
         TaskState, Visibility, WorkerId, WorkerState,
     },
     protocol::{
-        AgentImage, Cron, FilePart, ImageRef, Memory, PendingApproval, ProjectGroup, RouteCard,
-        Run, SentFiles, SentImages, Session, ToolLabel, TurnSources, UpdatePage, Upload, WebSource,
+        Cron, FilePart, ImageRef, Memory, PendingApproval, ProjectGroup, RouteCard, Run, SentFiles,
+        SentImages, Session, ToolLabel, TurnSources, UpdatePage, Upload, WebSource,
         node::EnvReport,
     },
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
     store::{
-        Account, AccountKey, ActionRow, AgentSessionOf, AppPermissionRow, AttentionItem,
-        CheckoutRow, CopiedShare, CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn,
-        FoundSession, GrantRow, Invite, IssueAuthor, Join, JoinedGroup, LinkKey, ListedResearch,
-        Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto, NewAgentImage,
-        NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode, NewPicture, NewPlace,
-        NewPlaceRoutine, NewTask, NewThreadChat, NewWorker, NodeRow, OpenCounts, PicturesOf,
-        PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
-        RunStatus, SaveGroup, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow,
-        StartRefused, Store, StoredContext, StoredMessage, SyncRow, TaskRow, ThreadChatRow,
-        TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
+        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CheckoutRow, CopiedShare,
+        CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite,
+        IssueAuthor, Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES,
+        McpServerRow, MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey,
+        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewThreadChat,
+        NewWorker, NodeRow, OpenCounts, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead,
+        ProjectRow, PushDevice, ResearchRow, RunStatus, SaveGroup, SavedPlace, SavedTurn, Share,
+        SkillOwner, SkillPatch, SkillRow, StartRefused, Store, StoredContext, StoredMessage,
+        SyncRow, TaskRow, ThreadChatRow, TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -433,29 +432,6 @@ impl User {
             data,
         };
         self.store.save_file(&self.key, file).await
-    }
-
-    /// Keeps an image the user sent to the coding agent session `of`.
-    pub(crate) async fn save_agent_image(
-        &self,
-        of: AgentSessionOf<'_>,
-        image: NewAgentImage<'_>,
-    ) -> Result<()> {
-        self.store.save_agent_image(&self.key, of, image).await
-    }
-
-    /// The images the user sent to the coding agent session `of`.
-    pub(crate) async fn agent_images(&self, of: AgentSessionOf<'_>) -> Result<Vec<AgentImage>> {
-        self.store.agent_images(&self.key, of).await
-    }
-
-    /// Gives the session `to` the images of `from`, which it goes on from.
-    pub(crate) async fn carry_agent_images(
-        &self,
-        from: AgentSessionOf<'_>,
-        to: AgentSessionOf<'_>,
-    ) -> Result<()> {
-        self.store.carry_agent_images(&self.key, from, to).await
     }
 
     /// Keeps the pictures the user sent with a message.
