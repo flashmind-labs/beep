@@ -135,7 +135,7 @@ test("choosing a checkout fills the field; another machine drops the choice", ()
 
 test("the help line names the default only while it is the default", () => {
   const machines = [{ id: "a", name: "box" }];
-  assert.match(folderHelp(START, machines), /^Pick a machine/);
+  assert.match(folderHelp(START, machines), /^Beep picks a machine/);
   const picked = next(START, { type: "pick", machine: "a" });
   assert.match(folderHelp(picked, machines), /^The default on box\./);
   assert.doesNotMatch(folderHelp(picked, machines), /Projects/);
