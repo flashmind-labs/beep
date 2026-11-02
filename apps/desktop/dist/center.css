@@ -404,6 +404,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .rv-fact code { font-family: var(--mono); font-size: 11.5px }
 .rv-fact.bad { border-color: rgba(232,104,90,.5); color: #F4AFA5 }
 .rv-fact .ddot.bad { background: var(--err) }
+.cc-note .ddot.warn { background: #D9A23B }
 .rv-tools { margin-left: auto; display: flex; gap: 6px }
 .rv-cfl { align-items: flex-start; margin-bottom: 12px }
 .rv-cfl .ddot { margin-top: 6px; background: var(--err) }

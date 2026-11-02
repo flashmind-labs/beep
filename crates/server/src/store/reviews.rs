@@ -32,6 +32,8 @@ pub(crate) struct ReviewRow {
     pub(crate) conflicts: Option<Vec<String>>,
     pub(crate) pr: Option<PrRow>,
     pub(crate) started_at: DateTime<Utc>,
+    /// The detached worktree its reviewers read, until it is removed.
+    pub(crate) worktree: Option<String>,
 }
 
 /// The reviewed branch's pull request.
@@ -100,8 +102,16 @@ pub(crate) struct Judged {
     pub(crate) why: Option<String>,
 }
 
+/// A review the driver moves on, and whose it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Driven {
+    /// The account id.
+    pub(crate) user: String,
+    pub(crate) review: Uuid,
+}
+
 const REVIEW_COLUMNS: &str = "id, project, branch, base, endpoint_id, folder, head, merge_base, \
-     head_at, changed_lines, files, conflicts, pr_number, pr_url, pr_checks, started_at";
+     head_at, changed_lines, files, conflicts, pr_number, pr_url, pr_checks, started_at, worktree";
 
 const SHARD_COLUMNS: &str =
     "shard, area, paths, files, lines, agent, session, verifier, state, error";
@@ -167,6 +177,7 @@ fn review_from(row: &PgRow) -> Result<ReviewRow> {
         conflicts: row.try_get(11)?,
         pr,
         started_at: row.try_get(15)?,
+        worktree: row.try_get(16)?,
     })
 }
 
@@ -215,7 +226,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         sqlx::query(&format!(
             "INSERT INTO branch_reviews (user_id, {REVIEW_COLUMNS})
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)"
         ))
         .bind(user.as_str())
         .bind(review.id)
@@ -240,6 +251,7 @@ impl Store {
         .bind(review.pr.as_ref().map(|pr| pr.url.clone()))
         .bind(review.pr.as_ref().map(|pr| checks_text(pr.checks)))
         .bind(review.started_at)
+        .bind(&review.worktree)
         .execute(&mut *tx)
         .await?;
         for shard in shards {
@@ -370,6 +382,9 @@ impl Store {
         Ok(true)
     }
 
+    /// Reviews from before verifying moved to the server kept a verifier
+    /// session per shard; only tests make one now.
+    #[cfg(test)]
     pub(crate) async fn set_review_verifier(
         &self,
         review: Uuid,
@@ -454,6 +469,39 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
+    /// Reviews with a shard still reading or verifying, or a worktree not
+    /// yet removed, started since `since`, oldest first: what the review
+    /// driver moves on.
+    pub(crate) async fn reviews_to_drive(&self, since: DateTime<Utc>) -> Result<Vec<Driven>> {
+        let rows = sqlx::query(
+            "SELECT r.user_id, r.id FROM branch_reviews r
+             WHERE r.started_at >= $1 AND (r.worktree IS NOT NULL OR EXISTS (
+                 SELECT 1 FROM branch_review_shards s
+                 WHERE s.review_id = r.id AND s.state IN ('reading', 'verifying')))
+             ORDER BY r.started_at",
+        )
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(Driven {
+                    user: row.try_get(0)?,
+                    review: row.try_get(1)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Forgets a review's worktree once it is removed.
+    pub(crate) async fn clear_review_worktree(&self, review: Uuid) -> Result<()> {
+        sqlx::query("UPDATE branch_reviews SET worktree=NULL WHERE id=$1")
+            .bind(review)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Dismisses one finding of the user's review, or brings it back;
     /// false when they have no such finding.
     pub(crate) async fn dismiss_finding(
@@ -506,6 +554,7 @@ mod tests {
                 checks: ReviewChecks::Passing {},
             }),
             started_at: at,
+            worktree: Some("/srv/project/.worktrees/review-1".into()),
         }
     }
 
@@ -594,6 +643,26 @@ mod tests {
         assert_eq!(shards[0].verifier.as_deref(), Some("v0"));
         assert_eq!(shards[1].state, ShardState::Failed);
         assert_eq!(shards[1].error.as_deref(), Some("no report"));
+
+        let driven = store
+            .reviews_to_drive(Utc::now() - chrono::Duration::hours(1))
+            .await
+            .unwrap();
+        assert!(
+            driven
+                .iter()
+                .any(|d| d.review == one.id && d.user == user.as_str())
+        );
+        store.clear_review_worktree(one.id).await.unwrap();
+        let driven = store
+            .reviews_to_drive(Utc::now() - chrono::Duration::hours(1))
+            .await
+            .unwrap();
+        assert!(!driven.iter().any(|d| d.review == one.id));
+        assert_eq!(
+            store.review(&user, one.id).await.unwrap().unwrap().worktree,
+            None
+        );
 
         assert!(!store.dismiss_finding(&bob, one.id, 0, true).await.unwrap());
         assert!(store.dismiss_finding(&user, one.id, 0, true).await.unwrap());

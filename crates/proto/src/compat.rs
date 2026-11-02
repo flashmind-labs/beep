@@ -97,9 +97,14 @@ sample_struct! {
     Terminal { id, project, machine_id, machine_name, name, command, cwd, state, started_at }
     TerminalOutput { terminal, lines, earlier }
     ProjectBranches { machine_id, machine_name, default_branch, branches }
+    BranchPlace { branch, machine_id }
+    ImportPreview { project, checkouts, default_branch, branches, note }
+    ImportCheckout { machine_id, machine_name, folder, remote }
+    WorkBranch { name, pr, pr_title, ahead, worktree, in_checkout, committed_at }
     ProjectBranch { name, worktree, ahead, behind, head, subject, committed_at, local, pushed }
     BranchReview { id, project, branch, base, head, head_at, started_at, machine_name, changed_lines, files, merge, pr, shards, findings }
     ReviewPr { number, url, checks }
+    ReviewHead { head, stale }
     ReviewShard { area, files, lines, agent, state, found }
     ReviewFinding { id, area, severity, title, file, line, why, verdict, dismissed }
     AgentAccounts { claude, codex_key, machines }

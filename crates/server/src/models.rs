@@ -230,6 +230,20 @@ impl ModelChoices {
         &self.choices[0].model
     }
 
+    /// The offered model with the lowest input and output price together,
+    /// for small checks such as a review's verifier. Models without a
+    /// price come after priced ones; with none priced, the default.
+    pub fn cheapest(&self) -> &Model {
+        self.choices
+            .iter()
+            .filter_map(|choice| {
+                let price = choice.input_price? + choice.output_price?;
+                Some((price, &choice.model))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map_or_else(|| self.default_model(), |(_, model)| model)
+    }
+
     /// The offered model with `id`.
     pub fn find(&self, id: &str) -> Option<&Model> {
         self.choices
@@ -389,5 +403,21 @@ mod tests {
     fn prices_are_per_million_tokens() {
         let per_token: Decimal = "0.0000005".parse().unwrap();
         assert_eq!(per_million(Some(per_token)), Some(0.5));
+    }
+
+    #[test]
+    fn the_cheapest_priced_model_wins() {
+        let mut models = choices();
+        assert_eq!(models.cheapest().name(), "openai/gpt-6-luna");
+        models.choices.push(Choice {
+            model: "openrouter:anthropic/claude-haiku-5.5".parse().unwrap(),
+            name: "Haiku".into(),
+            input_price: Some(0.08),
+            output_price: Some(0.4),
+            sees_images: true,
+        });
+        assert_eq!(models.cheapest().name(), "anthropic/claude-haiku-5.5");
+        let unpriced = ModelChoices::only("openrouter:z-ai/glm-5.3-flash".parse().unwrap());
+        assert_eq!(unpriced.cheapest().name(), "z-ai/glm-5.3-flash");
     }
 }

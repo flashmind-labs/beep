@@ -397,6 +397,33 @@ async fn a_worker_starts_in_its_own_worktree() {
 }
 
 #[tokio::test]
+async fn a_fix_starts_from_a_branch_not_pushed_yet() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    let project = world.project(&[&node]).await;
+    git(&node.widget, &["checkout", "-b", "login-copy"]);
+    fs::write(node.widget.join("copy.txt"), "Sign in\n").expect("a file");
+    git(&node.widget, &["add", "copy.txt"]);
+    git(&node.widget, &["commit", "-m", "Copy"]);
+    git(&node.widget, &["checkout", "main"]);
+    let local = git_out(&node.widget, &["rev-parse", "login-copy"]);
+    let tasks = world.tasks(&project, &[new_task("Fix it")]).await;
+    let request = StartRequest {
+        base: Some("login-copy".to_owned()),
+        ..claude()
+    };
+    let Started::Running(_) = world.start(&project, &tasks[0], &request).await else {
+        panic!("the worker did not start");
+    };
+    let worktree = node.widget.join(".worktrees/fix-it");
+    assert_eq!(git_out(&worktree, &["rev-parse", "HEAD"]), local);
+    assert_eq!(
+        git_out(&worktree, &["branch", "--show-current"]),
+        "beep/fix-it"
+    );
+}
+
+#[tokio::test]
 async fn inputs_land_in_incoming() {
     let world = World::new().await;
     let node = world.node("build box").await;
@@ -765,4 +792,38 @@ async fn reconnect_reattaches_and_fails_lost_sessions() {
         .expect("it exists");
     assert_eq!(kept.state, WorkerState::Waiting);
     assert_eq!(kept.turns_seen, 2);
+}
+
+#[tokio::test]
+async fn add_branch_worktree_runs_on_chosen_node() {
+    let world = World::new().await;
+    let build = world.node("build box").await;
+    let render = world.node("render box").await;
+    // A branch only on render box's origin, not in its checkout.
+    git(&render.widget, &["checkout", "-b", "beep/spike"]);
+    git(&render.widget, &["commit", "--allow-empty", "-m", "Spike"]);
+    git(&render.widget, &["push", "origin", "beep/spike"]);
+    git(&render.widget, &["checkout", "main"]);
+    git(&render.widget, &["branch", "-D", "beep/spike"]);
+    let folder = render.widget.to_string_lossy().into_owned();
+    let added = super::branches::add_worktree(&render.online, &folder, "beep/spike", "main")
+        .await
+        .expect("the worktree is added");
+    let worktree = render.widget.join(".worktrees/beep-spike");
+    assert_eq!(added.name, "beep/spike");
+    assert_eq!(
+        added.worktree.as_deref(),
+        Some(worktree.to_string_lossy().as_ref())
+    );
+    assert_eq!(added.ahead, 1);
+    assert_eq!(
+        git_out(&worktree, &["branch", "--show-current"]),
+        "beep/spike"
+    );
+    assert!(!build.widget.join(".worktrees").exists());
+    let again = super::branches::add_worktree(&render.online, &folder, "beep/spike", "main").await;
+    assert_eq!(
+        again.expect_err("a second worktree is refused"),
+        "beep/spike already has a worktree there."
+    );
 }

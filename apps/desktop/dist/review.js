@@ -4,6 +4,7 @@
 // actions (fix with a worker, post the review, merge), polled while the
 // reviewers read. center.js draws the page; this file keeps the state.
 import { agentLabel } from "./projects-state.js";
+import { worktreeMachines, worktreeName } from "./branchwork.js";
 
 /// How often a running review is read again.
 const POLL_MS = 4000;
@@ -32,9 +33,19 @@ export const STATE_LABEL = { running: "Reviewing", blocked: "Blocked", changes: 
 
 function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
 
-/// Why Merge is off, or "" when it may ask.
-export function mergeBlock(r) {
+/// What to say when the branch moved since the review, from what
+/// `CheckBranchReview` gave; "" when it did not, or is not known yet.
+export function staleText(r, now) {
+  if (!now?.stale) return "";
+  const head = now.head ? now.head.slice(0, 7) : null;
+  return head ? `${r.branch} moved to ${head} since this review.` : `${r.branch} is gone since this review.`;
+}
+
+/// Why Merge is off, or "" when it may ask. `now` is where the branch is
+/// now, when read.
+export function mergeBlock(r, now) {
   if (isRunning(r)) return "Actions open when the review is done";
+  if (now?.stale) return "Merge is off: the branch moved since this review";
   const why = [];
   if (r.pr?.checks === "failing") why.push("CI fails");
   if (r.merge === "conflicts") why.push(`${plural(r.conflicts.length, "file conflicts", "files conflict")}`);
@@ -133,10 +144,13 @@ export function branchTile(data, reviews, ago) {
 const TICK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
 const INITIALS = { claude: "CC", codex: "CX", gemini: "GM", opencode: "OC", pi: "PI", flsh: "FL" };
 
-/// `deps`: { invoke, h, button, ago, redraw, openUrl, openTile }.
+/// `deps`: { invoke, h, button, ago, redraw, openUrl, openTile, machines }.
+/// `machines()` gives Home's machines, for where a worktree goes.
 export function makeReviews(deps) {
   const { invoke, h, button, ago, redraw, openUrl, openTile } = deps;
-  // By project: { branches, reviews, open, review, starting, error, note, busy }.
+  const machines = deps.machines || (() => []);
+  // By project: { branches, reviews, open, review, starting, error, note, busy, now }.
+  // `now` is where the open review's branch is now: { id, head, stale }.
   const all = new Map();
   let timer = null;
   let polling = null;
@@ -162,6 +176,21 @@ export function makeReviews(deps) {
     const t = of(name);
     if (t.open === r.id) t.review = r;
     t.reviews = [r, ...(t.reviews || []).filter(x => x.branch !== r.branch)];
+  }
+
+  /// Reads once per review where its branch is now; a server from before
+  /// the check, or an offline machine, leaves it unknown.
+  async function checkHead(name, r) {
+    const t = of(name);
+    if (t.now?.id === r.id || isRunning(r)) return;
+    t.now = { id: r.id, head: null, stale: false };
+    try {
+      const now = await invoke("review_check", { id: r.id });
+      if (now && t.now?.id === r.id) t.now = { id: r.id, ...now };
+    } catch (e) {
+      console.warn("review head:", e);
+    }
+    redraw();
   }
 
   async function read(name) {
@@ -252,11 +281,36 @@ export function makeReviews(deps) {
 
   // ---------- Branches ----------
 
+  /// Gives `branch` a worktree on `machine`, then reads the branches again.
+  const addWorktree = (name, branch, machine) => act(name, `wt:${branch}`,
+    () => invoke("add_branch_worktree", { project: name, branch, machineId: machine.id }),
+    b => { const t = of(name); t.picking = null; t.note = `Added ${b.worktree || worktreeName(branch)} on ${machine.name}.`; load(name); });
+
+  /// A branch without a worktree: one on the machine the list was read
+  /// on, or Other machine… to pick among the online ones.
+  function worktreeActs(name, t, data, b) {
+    const where = worktreeMachines(machines(), data.machine_id);
+    const here = where.find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
+    const busy = t.busy === `wt:${b.name}`;
+    if (t.picking === b.name) {
+      return [
+        ...where.map(m => { const x = button(m.name, "", () => addWorktree(name, b.name, m)); x.disabled = busy; return x; }),
+        button("Cancel", "quiet", () => { t.picking = null; redraw(); }),
+      ];
+    }
+    const go = button(busy ? "Adding…" : `Worktree on ${here.name}`, "", () => addWorktree(name, b.name, here));
+    go.disabled = busy;
+    go.title = `git worktree add ${worktreeName(b.name)}`;
+    const other = where.length > 1 ? button("Other machine…", "quiet", () => { t.picking = b.name; redraw(); }) : null;
+    return [go, other].filter(Boolean);
+  }
+
   function branchesPanel(name) {
     const t = of(name);
     if (t.branches === undefined) load(name);
     const out = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
+    if (t.note && t.note.startsWith("Added ")) out.push(h("div", "cc-note", h("span", "ddot"), h("span", "", t.note)));
     const data = t.branches;
     if (data === null) {
       out.push(h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it lists branches.")));
@@ -279,6 +333,7 @@ export function makeReviews(deps) {
       const acts = h("span", "acts rv-acts");
       if (r) acts.append(button(`Open review · ${STATE_LABEL[reviewState(r)].toLowerCase()}`, "", () => openBranch(name, b.name)));
       if (!isDefault && b.ahead > 0) acts.append(button(r ? "Review again" : "Review", r ? "" : "pri", () => openBranch(name, b.name, !!r)));
+      if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
       const title = h("span", "t", h("code", "", b.name));
       title.title = b.subject;
       return h("div", "pj-task", title, h("span", "pj-st", isDefault ? "default" : b.local ? "local" : "origin"),
@@ -345,7 +400,10 @@ export function makeReviews(deps) {
     }
     const st = reviewState(r);
     const running = st === "running";
-    const pill = h("span", `rv-pill ${st}`, running ? h("span", "dspin") : null, STATE_LABEL[st]);
+    checkHead(name, r);
+    const now = t.now?.id === r.id ? t.now : null;
+    const stale = staleText(r, now);
+    const pill = h("span", `rv-pill ${stale ? "changes" : st}`, running ? h("span", "dspin") : null, stale ? "Stale" : STATE_LABEL[st]);
     const tools = h("span", "rv-tools");
     if (r.pr) tools.append(button(`PR #${r.pr.number}`, "", () => openUrl(r.pr.url)));
     if (!running) {
@@ -357,6 +415,11 @@ export function makeReviews(deps) {
     out.push(h("div", "rv-facts", ...reviewFacts(r, ago).map(fact), tools));
     if (t.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", t.error)));
     if (t.note) out.push(h("div", "cc-note", h("span", "ddot"), h("span", "", t.note)));
+    if (stale) {
+      out.push(h("div", "cc-note", h("span", "ddot warn"),
+        h("span", "", h("b", "", stale), ` The findings are for ${r.head.slice(0, 7)}; Merge is off until the new head is reviewed.`),
+        button("Review again", "pri", () => openBranch(name, r.branch, true))));
+    }
     const blocked = [];
     if (r.merge === "conflicts") {
       blocked.push(h("b", "", `Conflicts with ${r.base} in ${plural(r.conflicts.length, "file", "files")}`),
@@ -390,7 +453,7 @@ export function makeReviews(deps) {
     out.push(h("div", "pj-cols", findSec, shards));
 
     const open = openFindings(r).length;
-    const why = mergeBlock(r);
+    const why = mergeBlock(r, now);
     const fixB = button(t.busy === "fix" ? "Starting…" : "Fix with worker", open && !running ? "pri" : "", () => fix(name, r));
     fixB.disabled = running || !open || !!t.busy;
     fixB.title = open ? `Starts a task on ${r.branch} with ${plural(open, "finding", "findings")}` : "";

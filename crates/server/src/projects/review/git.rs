@@ -15,11 +15,8 @@ pub(crate) const MAX_BRANCHES: usize = 100;
 const MAX_REFS: u32 = 300;
 /// The most changed files read for a review.
 const MAX_FILES: u32 = 2000;
-/// The most shards a review has; the smallest are put together past it.
-pub(crate) const MAX_SHARDS: usize = 6;
-/// A top-level folder with more changed lines than this is split by its
-/// subfolders.
-const SPLIT_LINES: u32 = 1200;
+/// The most of the head's `.gitattributes` read, in bytes.
+const MAX_ATTRIBUTES: u32 = 64 * 1024;
 
 /// The lines that find the default branch (`origin`'s HEAD, else
 /// `fallback`) into `$d` and its commit into `$base`.
@@ -173,6 +170,7 @@ pub(crate) fn review_script(folder: &str, branch: &str, default: &str) -> String
          echo \"@@mergebase $mb\"; \
          echo @@merge; git merge-tree --write-tree --name-only --no-messages \"$base\" \"$head\" 2>/dev/null; \
          echo \"@@merged $?\"; \
+         echo @@attrs; git show \"$head:.gitattributes\" 2>/dev/null | head -c {MAX_ATTRIBUTES}; echo; \
          echo @@numstat; git -c core.quotePath=false diff --numstat --no-renames \"$mb\" \"$head\" | head -n {MAX_FILES}",
         folder = quote(folder),
         base = base_lines(default),
@@ -197,6 +195,8 @@ pub(crate) struct Facts {
     /// `None` when git could not say.
     pub(crate) conflicts: Option<Vec<String>>,
     pub(crate) changed: Vec<Changed>,
+    /// The head's `.gitattributes`, empty when it has none.
+    pub(crate) attributes: String,
 }
 
 /// Why `review_script` found nothing to review.
@@ -218,6 +218,7 @@ pub(crate) fn parse_facts(output: &str) -> Result<Facts, FactsError> {
     let mut merged = None;
     let mut changed = Vec::new();
     let mut in_numstat = false;
+    let mut attributes: Option<Vec<&str>> = None;
     for line in output.lines() {
         if line == "@@nobranch" {
             return Err(FactsError::NoBranch);
@@ -236,6 +237,8 @@ pub(crate) fn parse_facts(output: &str) -> Result<Facts, FactsError> {
             merge_lines = Some(Vec::new());
         } else if let Some(code) = line.strip_prefix("@@merged ") {
             merged = code.trim().parse::<i32>().ok();
+        } else if line == "@@attrs" {
+            attributes = Some(Vec::new());
         } else if line == "@@numstat" {
             in_numstat = true;
         } else if in_numstat {
@@ -252,6 +255,8 @@ pub(crate) fn parse_facts(output: &str) -> Result<Facts, FactsError> {
                     lines,
                 });
             }
+        } else if let Some(lines) = attributes.as_mut() {
+            lines.push(line);
         } else if merged.is_none()
             && let Some(lines) = merge_lines.as_mut()
             && !line.trim().is_empty()
@@ -281,99 +286,84 @@ pub(crate) fn parse_facts(output: &str) -> Result<Facts, FactsError> {
         merge_base,
         conflicts,
         changed,
+        attributes: attributes.unwrap_or_default().join("\n"),
     })
 }
 
-/// One reviewer's part of the diff.
+/// Fetches `branch` and prints its local and `origin` heads, and whether
+/// `origin`'s is behind `reviewed` (pushed before the review's local
+/// commits). Changes nothing in the checkout.
+pub(crate) fn head_script(folder: &str, branch: &str, reviewed: &str) -> String {
+    format!(
+        "cd -- {folder} || exit 3; b={branch}; r={reviewed}; \
+         git fetch --quiet origin \"$b\" >/dev/null 2>&1; \
+         echo \"@@local $(git rev-parse --verify -q \"refs/heads/$b^{{commit}}\")\"; \
+         o=$(git rev-parse --verify -q \"refs/remotes/origin/$b^{{commit}}\"); echo \"@@remote $o\"; \
+         if [ -n \"$o\" ] && git merge-base --is-ancestor \"$o\" \"$r\" 2>/dev/null; then echo @@behind; fi",
+        folder = quote(folder),
+        branch = quote(branch),
+        reviewed = quote(reviewed),
+    )
+}
+
+/// Where a reviewed branch is now.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Shard {
-    pub(crate) area: String,
-    pub(crate) paths: Vec<String>,
-    pub(crate) lines: u32,
+pub(crate) struct HeadNow {
+    /// The local branch's head, else `origin`'s; `None` when it is gone.
+    pub(crate) head: Option<String>,
+    /// Whether it moved since the review: the local branch is elsewhere, or
+    /// `origin` has commits the review did not read.
+    pub(crate) stale: bool,
 }
 
-/// The folders of `path`, without the file.
-fn dirs(path: &str) -> Vec<&str> {
-    let mut parts: Vec<&str> = path.split('/').collect();
-    parts.pop();
-    parts
-}
-
-/// The folders all `paths` share, at most two deep, or `.` for none.
-fn area_of(paths: &[String]) -> String {
-    let mut common: Option<Vec<&str>> = None;
-    for path in paths {
-        let here = dirs(path);
-        common = Some(match common {
-            None => here,
-            Some(kept) => kept
-                .iter()
-                .zip(&here)
-                .take_while(|(a, b)| a == b)
-                .map(|(a, _)| *a)
-                .collect(),
-        });
-    }
-    let common: Vec<&str> = common.unwrap_or_default().into_iter().take(2).collect();
-    if common.is_empty() {
-        ".".to_owned()
-    } else {
-        common.join("/")
-    }
-}
-
-fn shard_of(files: &[&Changed]) -> Shard {
-    let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
-    Shard {
-        area: area_of(&paths),
-        lines: files.iter().map(|file| file.lines).sum(),
-        paths,
-    }
-}
-
-/// Splits the changed files by top-level folder (the files at the top are
-/// one shard); a big folder is split by its subfolders. Past
-/// `MAX_SHARDS`, the smallest are put together. Biggest first.
-pub(crate) fn shards(changed: &[Changed]) -> Vec<Shard> {
-    let mut top: BTreeMap<&str, Vec<&Changed>> = BTreeMap::new();
-    for file in changed {
-        let key = match file.path.split_once('/') {
-            Some((first, _)) => first,
-            None => ".",
-        };
-        top.entry(key).or_default().push(file);
-    }
-    let mut out = Vec::new();
-    for (key, files) in top {
-        let lines: u32 = files.iter().map(|file| file.lines).sum();
-        let mut sub: BTreeMap<&str, Vec<&Changed>> = BTreeMap::new();
-        for file in &files {
-            let second = file
-                .path
-                .split('/')
-                .nth(1)
-                .filter(|_| dirs(&file.path).len() >= 2)
-                .unwrap_or("");
-            sub.entry(second).or_default().push(file);
-        }
-        if key != "." && lines > SPLIT_LINES && sub.len() > 1 {
-            out.extend(sub.values().map(|files| shard_of(files)));
-        } else {
-            out.push(shard_of(&files));
+/// Reads what `head_script` printed about a branch reviewed at `reviewed`.
+pub(crate) fn parse_head(output: &str, reviewed: &str) -> HeadNow {
+    let sha = |rest: &str| Some(rest.trim().to_owned()).filter(|sha| !sha.is_empty());
+    let mut local = None;
+    let mut remote = None;
+    let mut behind = false;
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix("@@local") {
+            local = sha(rest);
+        } else if let Some(rest) = line.strip_prefix("@@remote") {
+            remote = sha(rest);
+        } else if line.trim() == "@@behind" {
+            behind = true;
         }
     }
-    out.sort_by(|a, b| b.lines.cmp(&a.lines).then(a.area.cmp(&b.area)));
-    if out.len() > MAX_SHARDS {
-        let rest = out.split_off(MAX_SHARDS - 1);
-        let names: Vec<&str> = rest.iter().map(|shard| shard.area.as_str()).collect();
-        let area = format!("{} and {} more", names[0], names.len() - 1);
-        out.push(Shard {
-            area,
-            lines: rest.iter().map(|shard| shard.lines).sum(),
-            paths: rest.into_iter().flat_map(|shard| shard.paths).collect(),
-        });
+    let stale = local.as_deref().is_some_and(|sha| sha != reviewed)
+        || remote
+            .as_deref()
+            .is_some_and(|sha| sha != reviewed && !behind);
+    HeadNow {
+        head: local.or(remote),
+        stale,
     }
-    out
+}
+
+/// Makes a detached worktree of `folder` at `head` in `worktree`, kept out
+/// of the checkout's `git status`, for reviewers to read.
+pub(crate) fn add_review_worktree(folder: &str, worktree: &str, head: &str) -> String {
+    format!(
+        "cd -- {folder} || exit 3; \
+         exclude=\"$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude\" \
+         && mkdir -p \"$(dirname \"$exclude\")\" \
+         && {{ grep -qxF .worktrees/ \"$exclude\" 2>/dev/null || echo .worktrees/ >> \"$exclude\"; }} \
+         && git worktree add --quiet --detach {worktree} {head}",
+        folder = quote(folder),
+        worktree = quote(worktree),
+        head = quote(head),
+    )
+}
+
+/// Removes a review's worktree; one already gone is fine.
+pub(crate) fn remove_review_worktree(folder: &str, worktree: &str) -> String {
+    format!(
+        "cd -- {folder} || exit 3; git worktree remove --force {worktree} 2>/dev/null; \
+         git worktree prune; exit 0",
+        folder = quote(folder),
+        worktree = quote(worktree),
+    )
 }
 
 #[cfg(test)]
@@ -419,9 +409,11 @@ mod tests {
     fn facts_name_the_conflicts_and_the_changed_files() {
         let out = "@@default main\n@@base aaa\n@@head bbb 1700000000\n@@mergebase ccc\n\
             @@merge\ntreeoid\napps/web/copy.ts\nCargo.toml\n@@merged 1\n\
+            @@attrs\ngen/** linguist-generated\n\n\
             @@numstat\n10\t2\tapps/web/copy.ts\n-\t-\tlogo.png\n";
         let facts = parse_facts(out).unwrap();
         assert_eq!(facts.head, "bbb");
+        assert_eq!(facts.attributes.trim(), "gen/** linguist-generated");
         assert_eq!(facts.merge_base, "ccc");
         assert_eq!(
             facts.conflicts,
@@ -446,37 +438,24 @@ mod tests {
     }
 
     #[test]
-    fn shards_follow_top_level_areas() {
-        let files = [
-            changed("apps/web/src/Login.tsx", 200),
-            changed("apps/web/src/copy.ts", 68),
-            changed("crates/core/src/auth/limit.rs", 144),
-            changed("README.md", 3),
-        ];
-        let got = shards(&files);
-        let areas: Vec<(&str, u32)> = got.iter().map(|s| (s.area.as_str(), s.lines)).collect();
-        // Named at most two folders deep.
-        assert_eq!(areas, [("apps/web", 268), ("crates/core", 144), (".", 3)]);
-    }
-
-    #[test]
-    fn a_big_area_splits_and_many_small_ones_join() {
-        let big = [
-            changed("crates/core/a.rs", 900),
-            changed("crates/api/b.rs", 700),
-        ];
-        let areas: Vec<String> = shards(&big).into_iter().map(|s| s.area).collect();
-        assert_eq!(areas, ["crates/core", "crates/api"]);
-
-        let many: Vec<Changed> = (0..9)
-            .map(|n| changed(&format!("dir{n}/file.rs"), 10 + n))
-            .collect();
-        let got = shards(&many);
-        assert_eq!(got.len(), MAX_SHARDS);
-        let last = got.last().unwrap();
-        assert_eq!(last.area, "dir3 and 3 more");
-        assert_eq!(last.paths.len(), 4);
-        assert_eq!(got.iter().map(|s| s.paths.len()).sum::<usize>(), 9);
+    fn review_goes_stale_on_push() {
+        let same = "@@local aaa\n@@remote aaa\n@@behind\n";
+        assert_eq!(
+            parse_head(same, "aaa"),
+            HeadNow {
+                head: Some("aaa".into()),
+                stale: false
+            }
+        );
+        // Reviewed before its local commits were pushed.
+        assert!(!parse_head("@@local aaa\n@@remote 999\n@@behind\n", "aaa").stale);
+        // Someone pushed on top.
+        let pushed = parse_head("@@local \n@@remote bbb\n", "aaa");
+        assert_eq!(pushed.head.as_deref(), Some("bbb"));
+        assert!(pushed.stale);
+        // A new local commit.
+        assert!(parse_head("@@local ccc\n@@remote aaa\n@@behind\n", "aaa").stale);
+        assert_eq!(parse_head("@@local \n@@remote \n", "aaa").head, None);
     }
 
     #[test]

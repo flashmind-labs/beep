@@ -8,10 +8,10 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    BranchReview, DismissReviewFinding, FixReviewFindings, GetBranchReview, ListBranchReviews,
-    ListProjectBranches, MergeReviewedBranch, PostBranchReview, ProjectBranch, ProjectBranches,
-    ProjectTask, ReviewFinding, ReviewMerge, ReviewPr, ReviewShard, ReviewShardState,
-    ReviewVerdict, StartBranchReview,
+    BranchReview, CheckBranchReview, DismissReviewFinding, FixReviewFindings, GetBranchReview,
+    ListBranchReviews, ListProjectBranches, MergeReviewedBranch, PostBranchReview, ProjectBranch,
+    ProjectBranches, ProjectTask, ReviewFinding, ReviewHead, ReviewMerge, ReviewPr, ReviewShard,
+    ReviewShardState, ReviewVerdict, StartBranchReview,
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
@@ -22,6 +22,8 @@ type Service<'a> = State<'a, Arc<Beep>>;
 
 /// Starting a review fetches and starts a session per shard first.
 const START_TIMEOUT: Duration = Duration::from_secs(150);
+/// Checking where a branch is now fetches it first.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// One branch as the window shows it.
 #[derive(Debug, Serialize)]
@@ -278,6 +280,19 @@ pub async fn review_start(
 pub async fn review_get(beep: Service<'_>, id: Uuid) -> Result<ReviewView> {
     let review = beep.call(GetBranchReview { id }).await.map_err(outdated)?;
     Ok(review.into())
+}
+
+/// Where the review's branch is now; `None` from a server too old to say.
+#[tauri::command]
+pub async fn review_check(beep: Service<'_>, id: Uuid) -> Result<Option<ReviewHead>> {
+    match beep
+        .call_within(CheckBranchReview { id }, CHECK_TIMEOUT)
+        .await
+    {
+        Ok(now) => Ok(Some(now)),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
