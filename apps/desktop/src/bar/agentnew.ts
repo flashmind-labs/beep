@@ -1,5 +1,6 @@
 import { AG, type AgentHost, agentKind, type AgentSession, byPreference, CAP_NAMES, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, S } from "./core.ts";
+import { folderOn } from "../projects-state.ts";
 import { hints } from "./hints.ts";
 import { back } from "./keys.ts";
 
@@ -10,6 +11,8 @@ import { back } from "./keys.ts";
 export interface AgentPlace {
   machine?: string | null;
   cwd?: string | null;
+  /// The project's checkout on each machine.
+  places?: { machine: string; cwd: string }[];
 }
 
 /// Where Auto would start a session, as `agent_preview` says.
@@ -25,7 +28,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", chat };
+  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat };
   AG.error = "";
   AG.busy = false;
   drawAgentNew();
@@ -79,7 +82,11 @@ export function drawAgentNew() {
     if (S.view !== "agentnew") return;
     const target = e.target as HTMLElement;
     const m = target.closest<HTMLElement>("[data-agm]"), a = target.closest<HTMLElement>("[data-aga]");
-    if (m) { f.machine = m.dataset.agm!; drawAgentNew(); }
+    if (m) {
+      f.machine = m.dataset.agm!;
+      f.cwd = folderOn(f.cwd, f.machine === "auto" ? null : f.machine, f.places);
+      drawAgentNew();
+    }
     else if (a) { f.agent = a.dataset.aga || null; drawAgentNew(); }
     else if (target.closest("#aggo")) startAgent();
     else if (target.closest("#agno")) back();

@@ -19,7 +19,7 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet, hash_map::RandomState},
     hash::BuildHasher,
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::SystemTime,
 };
@@ -530,8 +530,9 @@ struct Begin {
 fn folder(cwd: Option<&str>) -> Result<PathBuf> {
     let home = dirs::home_dir();
     let path = match cwd.map(str::trim) {
-        None | Some("") | Some("~") => home.context("this machine has no home folder")?,
+        None | Some("") | Some("~") => home.clone().context("this machine has no home folder")?,
         Some(rest) if rest.starts_with("~/") => home
+            .as_deref()
             .context("this machine has no home folder")?
             .join(&rest[2..]),
         Some(path) => PathBuf::from(path),
@@ -541,8 +542,42 @@ fn folder(cwd: Option<&str>) -> Result<PathBuf> {
         "the folder must be an absolute path, not {}",
         path.display()
     );
-    anyhow::ensure!(path.is_dir(), "there is no folder {}", path.display());
-    Ok(path)
+    if path.is_dir() {
+        return Ok(path);
+    }
+    // A folder named on another machine: `/Users/<name>/x` there is
+    // `~/x` here, and `~/Projects/x` there is often `~/x` here and the other
+    // way round, as project groups match them.
+    if let Some(home) = home.as_deref()
+        && let Some(found) = home_twins(&path, home).into_iter().find(|p| p.is_dir())
+    {
+        return Ok(found);
+    }
+    anyhow::bail!("there is no folder {}", path.display())
+}
+
+/// Where `path`, named under some home folder, may be under `home`: the
+/// same place, then with a leading `Projects/` taken away or added.
+fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
+    let rest = path.strip_prefix(home).ok().or_else(|| {
+        let mut parts = path.components();
+        let root = parts.next()?;
+        let top = parts.next()?;
+        let under = matches!(top.as_os_str().to_str(), Some("Users" | "home"));
+        (matches!(root, Component::RootDir) && under && parts.next().is_some())
+            .then_some(parts.as_path())
+    });
+    let Some(rest) = rest else {
+        return Vec::new();
+    };
+    let toggled = match rest.strip_prefix("Projects") {
+        Ok(inner) if !inner.as_os_str().is_empty() => home.join(inner),
+        _ => home.join("Projects").join(rest),
+    };
+    [home.join(rest), toggled]
+        .into_iter()
+        .filter(|p| p != path)
+        .collect()
 }
 
 /// Six hex digits, random enough to tell sessions apart.
@@ -1071,6 +1106,28 @@ while read -r line; do reply '{}'; done
         assert!(folder(None).is_ok());
         assert!(folder(Some("relative/dir")).is_err());
         assert!(folder(Some("/no/such/folder/here")).is_err());
+    }
+
+    #[test]
+    fn another_machines_home_folder_maps_here() {
+        let home = Path::new("/home/you");
+        assert_eq!(
+            home_twins(Path::new("/Users/you/Projects/work/tool"), home),
+            [
+                PathBuf::from("/home/you/Projects/work/tool"),
+                PathBuf::from("/home/you/work/tool"),
+            ]
+        );
+        assert_eq!(
+            home_twins(Path::new("/home/you/work/tool"), home),
+            [PathBuf::from("/home/you/Projects/work/tool")]
+        );
+        assert!(home_twins(Path::new("/srv/data"), home).is_empty());
+        assert!(
+            home_twins(Path::new("/home/you"), home).is_empty()
+                || home_twins(Path::new("/home/you"), home)
+                    == [PathBuf::from("/home/you/Projects")]
+        );
     }
 
     #[cfg(unix)]
