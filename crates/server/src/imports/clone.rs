@@ -27,7 +27,7 @@ pub(crate) struct Job<'a> {
 }
 
 /// Quotes `text` for sh.
-fn quote(text: &str) -> String {
+pub(super) fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 

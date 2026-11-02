@@ -3,6 +3,7 @@
 use super::{
     ImportError,
     clone::{self, Failure, Job, Outcome},
+    folder::{self, FolderPath, Seen},
     place::{self, Candidate, Folders},
     repo::{Host, RepoRef},
 };
@@ -10,7 +11,7 @@ use crate::{
     app::App,
     credentials::{ForgejoUrl, Opened, Slot},
     nodes::{Online, SHELL},
-    protocol::ImportedProject,
+    protocol::{ImportedProject, MachineFolder},
     store::{ImportRow, NewImport, NodeRow},
     user::User,
 };
@@ -21,26 +22,37 @@ use std::{collections::HashMap, time::Duration};
 const CLONE_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// The most output kept while cloning; the end explains a failure.
 const MAX_OUTPUT: usize = 64 * 1024;
+/// The longest reading a folder may take.
+const LOOK_LIMIT: Duration = Duration::from_secs(20);
+/// The most output kept from reading a folder; past it, folders are left out.
+const MAX_LISTING: usize = 256 * 1024;
 
-/// Imports `repo` onto the machine `machine_id`, or the one `place::choose`
-/// picks: clones it there, or finds it already there, and records it.
-pub(crate) async fn import(
+/// One import, as the sheet or the tool asks for it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Import<'a> {
+    /// `org/repo` or the repository's URL.
+    pub(crate) repo: &'a str,
+    /// The machine's id; `None` lets `place::choose` pick.
+    pub(crate) machine_id: Option<&'a str>,
+    /// Where it goes, absolute or `~/...`; `None` (or blank) for the
+    /// machine's projects folder.
+    pub(crate) folder: Option<&'a str>,
+}
+
+/// One of the user's machines, online and able to run commands.
+struct Chosen {
+    row: NodeRow,
+    node: Online,
+}
+
+/// The machine `machine_id` names, or the one `place::choose` picks.
+async fn choose_machine(
     app: &App,
     user: &User,
-    repo: &str,
     machine_id: Option<&str>,
-) -> Result<ImportedProject, ImportError> {
-    let credentials = user.git_credentials(&app.credential_key).await?;
-    let servers: Vec<ForgejoUrl> = credentials
-        .iter()
-        .filter_map(|opened| match &opened.slot {
-            Slot::Forgejo(url) => Some(url.clone()),
-            _ => None,
-        })
-        .collect();
-    let repo = RepoRef::parse(repo, &servers)?;
-    let rows = user.nodes().await?;
-    let online: Vec<Option<Online>> = rows
+) -> Result<Chosen, ImportError> {
+    let mut rows = user.nodes().await?;
+    let mut online: Vec<Option<Online>> = rows
         .iter()
         .map(|row| {
             app.nodes
@@ -62,20 +74,49 @@ pub(crate) async fn import(
         })
         .collect();
     let at = place::choose(&candidates, machine_id)?;
-    let row = &rows[at];
-    let node = online[at]
-        .as_ref()
+    let row = rows.swap_remove(at);
+    let node = online
+        .swap_remove(at)
         .ok_or_else(|| ImportError::Offline(row.name.clone()))?;
-    let env = row.env.as_ref();
-    let folders = Folders {
-        os: env.map(|env| env.os.as_str()),
-        home: env.map(|env| env.home.as_str()),
-        workspace: node.workspace.as_deref(),
+    Ok(Chosen { row, node })
+}
+
+/// Imports `job.repo` onto its machine: clones it there, or finds it
+/// already there, and records it.
+pub(crate) async fn import(
+    app: &App,
+    user: &User,
+    job: Import<'_>,
+) -> Result<ImportedProject, ImportError> {
+    let credentials = user.git_credentials(&app.credential_key).await?;
+    let servers: Vec<ForgejoUrl> = credentials
+        .iter()
+        .filter_map(|opened| match &opened.slot {
+            Slot::Forgejo(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect();
+    let repo = RepoRef::parse(job.repo, &servers)?;
+    let picked = match job.folder {
+        Some(folder) => FolderPath::parse(folder)?,
+        None => None,
     };
-    let folder = place::checkout_folder(folders, &repo)
-        .ok_or_else(|| ImportError::NoHome(row.name.clone()))?;
+    let Chosen { row, node } = choose_machine(app, user, job.machine_id).await?;
+    let folder = match picked {
+        Some(picked) => folder::destination(&look(&node, &row, &picked).await?, repo.name()),
+        None => {
+            let env = row.env.as_ref();
+            let folders = Folders {
+                os: env.map(|env| env.os.as_str()),
+                home: env.map(|env| env.home.as_str()),
+                workspace: node.workspace.as_deref(),
+            };
+            place::checkout_folder(folders, &repo)
+                .ok_or_else(|| ImportError::NoHome(row.name.clone()))?
+        }
+    };
     let token = token_for(&credentials, &repo.host);
-    let cloned = run_clone(node, row, &repo, &folder, token).await?;
+    let cloned = run_clone(&node, &row, &repo, &folder, token).await?;
     let saved = user
         .save_import(NewImport {
             project: &repo.project(),
@@ -89,7 +130,64 @@ pub(crate) async fn import(
         saved.project,
         row.endpoint
     );
-    Ok(project(saved, row.name.clone(), cloned))
+    Ok(project(saved, row.name, cloned))
+}
+
+/// One folder on the machine `machine_id`, for the sheet's folder browser:
+/// `path`, or the machine's workspace, else its home.
+pub(crate) async fn browse(
+    app: &App,
+    user: &User,
+    machine_id: &str,
+    path: Option<&str>,
+) -> Result<MachineFolder, ImportError> {
+    let picked = match path {
+        Some(path) => FolderPath::parse(path)?,
+        None => None,
+    };
+    let Chosen { row, node } = choose_machine(app, user, Some(machine_id)).await?;
+    let start = match picked {
+        Some(picked) => picked,
+        None => match node.workspace.as_deref().map(FolderPath::parse) {
+            Some(Ok(Some(workspace))) => workspace,
+            _ => FolderPath::Home(String::new()),
+        },
+    };
+    look(&node, &row, &start).await
+}
+
+/// What `folder` on the machine holds.
+async fn look(
+    node: &Online,
+    row: &NodeRow,
+    folder: &FolderPath,
+) -> Result<MachineFolder, ImportError> {
+    let mut output = String::new();
+    let mut on_output = |text: &str| {
+        if output.len() < MAX_LISTING {
+            output.push_str(text);
+        }
+    };
+    node.exec(&folder::script(folder), LOOK_LIMIT, &mut on_output)
+        .await
+        .map_err(|e| ImportError::Link {
+            machine: row.name.clone(),
+            detail: format!("{e:#}"),
+        })?;
+    match folder::read(&output) {
+        Some(Seen::Folder(seen)) => Ok(seen),
+        Some(Seen::File(path)) => Err(ImportError::NotAFolder {
+            folder: path,
+            machine: row.name.clone(),
+        }),
+        Some(Seen::Denied(path)) => Err(ImportError::Unreadable {
+            folder: path,
+            machine: row.name.clone(),
+        }),
+        None => Err(ImportError::NoListing {
+            machine: row.name.clone(),
+        }),
+    }
 }
 
 /// The user's token for `host`, when they saved one.

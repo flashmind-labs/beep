@@ -6,12 +6,13 @@
 //! two can be folded together.
 
 mod clone;
+mod folder;
 mod place;
 mod repo;
 mod service;
 mod tool;
 
-pub(crate) use service::{import, imported};
+pub(crate) use service::{Import, browse, import, imported};
 pub(crate) use tool::ImportProjectTool;
 
 use thiserror::Error;
@@ -59,6 +60,16 @@ pub(crate) enum ImportError {
         machine: String,
         remote: String,
     },
+    #[error(
+        "Give the folder as an absolute path, such as /srv/code, or one in the home folder, such as ~/code."
+    )]
+    BadFolder,
+    #[error("{folder} on {machine} is a file, not a folder.")]
+    NotAFolder { folder: String, machine: String },
+    #[error("{machine} cannot open {folder}.")]
+    Unreadable { folder: String, machine: String },
+    #[error("{machine} did not say what is in that folder.")]
+    NoListing { machine: String },
     #[error("git is not installed on {0}.")]
     NoGit(String),
     #[error("Cloning {0} took more than 30 minutes and was stopped.")]
