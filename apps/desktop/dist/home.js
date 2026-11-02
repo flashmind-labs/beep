@@ -82,10 +82,18 @@ export function machineOs(m) {
 }
 
 /// A Running now row: a title and one muted line.
-export function runningLine(r) {
+export function runningLine(r, projects = []) {
   if (r.kind === "research") return { title: r.topic, sub: `Research · round ${r.round}` };
-  const ag = agentOf(r.agent), project = base(r.cwd);
-  return { title: r.title || project || ag.name, sub: [project || ag.name, r.machine_name].filter(Boolean).join(" · ") };
+  const ag = agentOf(r.agent), project = repoOf(r, projects);
+  return { title: r.title || project || ag.name, sub: [ag.name, project, r.machine_name].filter(Boolean).join(" · ") };
+}
+
+/// The repo a session runs in: the name of the imported project whose
+/// folder on its machine holds it ("repo" of "org/repo"), else its folder's.
+export function repoOf(r, projects = []) {
+  const inside = p => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
+  const p = projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
+  return p ? p.name.split("/").pop() : base(r.cwd);
 }
 
 /// A Needs you row: a title, one muted line and its one button. A chat
