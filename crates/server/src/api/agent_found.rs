@@ -120,21 +120,25 @@ async fn machine_sessions(live: Live, folders: Vec<String>) -> Vec<MachineSessio
     }
 }
 
-/// A session as a project lists it: one nothing runs reads as ended, and
-/// one Beep took over as running.
+/// A session as a project lists it. One Beep took over opens as Beep's own
+/// session. Only Claude Code's outside sessions can be followed live, so
+/// another agent's reads as ended, and the project offers to resume it.
 fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
+    let followed = session.agent == "claude";
     let status = match session.presence {
         _ if session.taken_over.is_some() => AgentStatus::Running {},
+        _ if !followed => AgentStatus::Ended {},
         Presence::Working => AgentStatus::Working {},
         Presence::Waiting => AgentStatus::Waiting {},
         Presence::Running | Presence::Recent => AgentStatus::Running {},
         _ => AgentStatus::Ended {},
     };
     let unix = |seconds: u64| UNIX_EPOCH + Duration::from_secs(seconds);
+    let external = session.taken_over.is_none();
     MachineSession {
         machine_id: host.id.clone(),
         machine_name: host.name.clone(),
-        id: session.id,
+        id: session.taken_over.unwrap_or(session.id),
         agent: session.agent,
         title: session
             .title
@@ -144,7 +148,7 @@ fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
         doing: None,
         started_at: unix(session.started_at),
         last_activity: unix(session.last_activity),
-        external: true,
+        external,
         question: None,
     }
 }
@@ -176,6 +180,32 @@ mod tests {
             taken_over: Some("a3f9c1".into()),
             ..session
         };
-        assert_eq!(past_session(&host, taken).status, AgentStatus::Running {});
+        let listed = past_session(&host, taken);
+        assert_eq!(listed.status, AgentStatus::Running {});
+        assert_eq!(listed.id, "a3f9c1", "it opens as Beep's session");
+        assert!(!listed.external);
+    }
+
+    #[test]
+    fn a_recent_outside_session_offers_resume_unless_it_can_be_followed() {
+        let host = Host {
+            id: "m".into(),
+            name: "build-box".into(),
+        };
+        let codex = ExternalSession {
+            id: "s".into(),
+            agent: "codex".into(),
+            presence: Presence::Recent,
+            ..ExternalSession::default()
+        };
+        assert_eq!(
+            past_session(&host, codex.clone()).status,
+            AgentStatus::Ended {}
+        );
+        let claude = ExternalSession {
+            agent: "claude".into(),
+            ..codex
+        };
+        assert_eq!(past_session(&host, claude).status, AgentStatus::Running {});
     }
 }
