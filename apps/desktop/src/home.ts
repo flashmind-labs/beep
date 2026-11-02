@@ -270,10 +270,24 @@ export function machineOs(m: { env: Pick<MachineEnv, "os" | "os_version"> | null
 }
 
 /// A Running now row: a title and one muted line.
-export function runningLine(r: Pick<RunningResearch, "kind" | "topic" | "round"> | Pick<RunningAgent, "kind" | "agent" | "title" | "cwd" | "machine_name">) {
+export function runningLine(
+  r: Pick<RunningResearch, "kind" | "topic" | "round"> | Pick<RunningAgent, "kind" | "agent" | "title" | "cwd" | "machine_id" | "machine_name">,
+  projects: readonly ProjectFolder[] = [],
+) {
   if (r.kind === "research") return { title: r.topic, sub: `Research · round ${r.round}` };
-  const ag = agentOf(r.agent), project = base(r.cwd);
-  return { title: r.title || project || ag.name, sub: [project || ag.name, r.machine_name].filter(Boolean).join(" · ") };
+  const ag = agentOf(r.agent), project = repoOf(r, projects);
+  return { title: r.title || project || ag.name, sub: [ag.name, project, r.machine_name].filter(Boolean).join(" · ") };
+}
+
+/// An imported project's folder on one machine.
+type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder">;
+
+/// The repo a session runs in: the name of the imported project whose
+/// folder on its machine holds it ("repo" of "org/repo"), else its folder's.
+export function repoOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: readonly ProjectFolder[] = []) {
+  const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
+  const p = projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
+  return p ? p.name.split("/").pop() : base(r.cwd);
 }
 
 /// A Needs you row: a title, one muted line and its one button. A chat
