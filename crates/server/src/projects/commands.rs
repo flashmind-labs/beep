@@ -267,10 +267,17 @@ pub(crate) enum HostCommand<'a> {
     ListOwnedIssues,
     /// The newest open issues, any author's.
     ListOpenIssues,
-    /// One issue with its text.
+    /// One issue with its text and author.
     ViewIssue {
         number: u64,
     },
+    /// One comment on an issue.
+    CommentIssue {
+        number: u64,
+        body: &'a str,
+    },
+    /// The login of the account the CLI is signed in as.
+    WhoAmI,
     /// Beep's issues whose body holds `marker`, for one filed before.
     FindIssue {
         marker: &'a str,
@@ -323,6 +330,7 @@ impl HostCommand<'_> {
                 vec![title, body]
             }
             Self::CloseIssue { comment, .. } => vec![comment],
+            Self::CommentIssue { body, .. } => vec![body],
             _ => Vec::new(),
         }
     }
@@ -451,8 +459,13 @@ impl HostCommand<'_> {
             Self::ViewIssue { number } => number_command(
                 &["issue", "view"],
                 number,
-                &["--json", "number,title,body,url,state"],
+                &["--json", "number,title,body,url,state,author"],
             ),
+            Self::CommentIssue { number, body } => {
+                number_command(&["issue", "comment"], number, &["--body", body])
+            }
+            // `gh api` takes no -R: the account is the same for every repo.
+            Self::WhoAmI => Parts::new(&["gh", "api", "user", "--jq", ".login"]).render(),
             Self::FindIssue { marker } => {
                 // Filtered by gh itself, so only the match is printed.
                 let jq = format!(
@@ -581,6 +594,14 @@ impl HostCommand<'_> {
                 &["-s", "open", "--per-page", &TEA_OPEN_LIMIT.to_string()],
             ),
             Self::ViewIssue { number } => tea(&["issue", "get"], &[&number.to_string()], &[]),
+            Self::CommentIssue { number, body } => tea(
+                &["issue", "comment", "create"],
+                &[&number.to_string()],
+                &["-b", body],
+            ),
+            Self::WhoAmI => Parts::new(&["teacli", "whoami", "--host", host])
+                .with(&["--format", "json"])
+                .render(),
             Self::FindIssue { marker } => tea(
                 &["issue", "list"],
                 &[],
@@ -740,6 +761,8 @@ pub(crate) struct ViewedIssue {
     pub(crate) body: String,
     pub(crate) url: String,
     pub(crate) open: bool,
+    /// The login of who opened it.
+    pub(crate) author: String,
 }
 
 /// The issue's web page: Forgejo's `url` is its API address.
@@ -836,7 +859,27 @@ pub(crate) fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
         body: text(&item, "body"),
         url: web_url(&item),
         open: text(&item, "state").eq_ignore_ascii_case("open"),
+        author: login(&item),
     })
+}
+
+/// The login [`HostCommand::WhoAmI`] printed: gh prints it bare, teacli
+/// prints the user as JSON.
+pub(crate) fn parse_login(out: &str) -> Result<String> {
+    let out = out.trim();
+    let login = match serde_json::from_str::<Value>(out) {
+        Ok(Value::String(login)) => login,
+        Ok(user @ Value::Object(_)) => ["login", "username"]
+            .iter()
+            .map(|key| text(&user, key))
+            .find(|login| !login.is_empty())
+            .unwrap_or_default(),
+        _ => out.to_owned(),
+    };
+    if login.is_empty() || login.contains(char::is_whitespace) {
+        bail!("the host did not print a login");
+    }
+    Ok(login)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
@@ -1091,7 +1134,7 @@ mod tests {
         );
         assert_eq!(
             HostCommand::ViewIssue { number: 9 }.render(&github(), &repo()),
-            "gh issue view 9 -R acme/widget --json 'number,title,body,url,state'"
+            "gh issue view 9 -R acme/widget --json 'number,title,body,url,state,author'"
         );
         assert_eq!(
             HostCommand::ViewIssue { number: 9 }.render(&forgejo(), &repo()),
@@ -1141,11 +1184,44 @@ mod tests {
     }
 
     #[test]
+    fn whoami_and_comment_render_and_parse() {
+        assert_eq!(
+            HostCommand::WhoAmI.render(&github(), &repo()),
+            "gh api user --jq .login"
+        );
+        assert_eq!(
+            HostCommand::WhoAmI.render(&forgejo(), &repo()),
+            "teacli whoami --host git.example.com --format json"
+        );
+        let comment = HostCommand::CommentIssue {
+            number: 4,
+            body: "Fixed in #5",
+        };
+        assert_eq!(
+            comment.render(&github(), &repo()),
+            "gh issue comment 4 -R acme/widget --body 'Fixed in #5'"
+        );
+        assert_eq!(
+            comment.render(&forgejo(), &repo()),
+            "teacli issue comment create acme/widget 4 --host git.example.com -b 'Fixed in #5' \
+             --format json"
+        );
+        assert_eq!(parse_login("sam\n").expect("a login"), "sam");
+        assert_eq!(
+            parse_login(r#"{"id": 3, "login": "kim"}"#).expect("a login"),
+            "kim"
+        );
+        assert!(parse_login("").is_err());
+        assert!(parse_login("not logged in").is_err());
+    }
+
+    #[test]
     fn a_viewed_issue_parses_and_a_pr_is_refused() {
         let gh = r#"{"number":12,"title":"Crash","body":"Steps","state":"OPEN",
-            "url":"https://github.com/acme/widget/issues/12"}"#;
+            "author":{"login":"sam"},"url":"https://github.com/acme/widget/issues/12"}"#;
         let issue = parse_viewed_issue(gh).expect("an issue");
         assert!(issue.open);
+        assert_eq!(issue.author, "sam");
         assert_eq!(issue.body, "Steps");
         let pr = r#"{"number":5,"title":"PR","body":"","state":"open","pull_request":{}}"#;
         assert!(parse_viewed_issue(pr).is_err());

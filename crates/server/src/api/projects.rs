@@ -168,8 +168,9 @@ async fn dismiss_issue(user: &User, id: ProjectId, number: u64) -> Reply<()> {
     if i64::try_from(number).is_err() {
         return Err(ApiError::bad_request("No issue has that number."));
     }
-    user.dismiss_issue(project.id, number).await?;
-    Ok(())
+    issues::dismiss(user, &project, number)
+        .await
+        .map_err(issue_refusal)
 }
 
 /// The agent of the project `name`, made with its chat on the first ask.
