@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { credentialsHtml, draft, editFor, hostOf, toolLine } from "../dist/credentials.js";
+import {
+  GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, hostOf, sameServer, teaHas, teaOffers, toolLine,
+} from "../dist/credentials.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = () => "today";
@@ -73,4 +75,76 @@ test("adding a server shows the URL field, replacing one does not", () => {
   assert.doesNotMatch(replacing, /id="credUrl"/);
   assert.match(replacing, /id="credSecret"/);
   assert.equal(hostOf("https://git.example.com/"), "git.example.com");
+});
+
+const noGithub = list.filter(c => c.kind !== "github");
+
+test("a gh sign-in on this Mac is offered before pasting", () => {
+  const cli = { github: { state: "signed_in", account: "you" }, forgejo: [] };
+  const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
+  assert.match(html, /data-cred-cli="github">Use gh sign-in/);
+  assert.match(html, /gh on this Mac as @you/);
+  assert.match(html, /data-cred-edit="github">Paste a token/);
+  const busy = credentialsHtml({ list: noGithub, providers, edit: null, cli, cliBusy: "github" }, machines, esc, ago);
+  assert.match(busy, /data-cred-cli="github" disabled>Checking…/);
+  const refused = credentialsHtml({ list: noGithub, providers, edit: null, cli, cliError: { key: "github", message: "bad token" } }, machines, esc, ago);
+  assert.match(refused, /class="derr"[^>]*>bad token/);
+});
+
+test("gh signed out asks to sign in and check again", () => {
+  const cli = { github: { state: "signed_out" }, forgejo: [] };
+  const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
+  assert.match(html, /gh auth login<\/code> in Terminal, then press Check again/);
+  assert.match(html, /data-cred-recheck>Check again/);
+  assert.match(html, /Paste a token/);
+  assert.doesNotMatch(html, /data-cred-cli="github"/);
+});
+
+test("without gh the row links to GitHub's token page", () => {
+  const cli = { github: { state: "missing" }, forgejo: [] };
+  const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
+  assert.match(html, /data-cred-open="https:\/\/github\.com\/settings\/tokens\/new\?scopes=repo,read:org,workflow&amp;description=Beep"/);
+  assert.match(html, /Paste a token/);
+  // Before gh answers the paste form is still there.
+  const unknown = credentialsHtml({ list: noGithub, providers, edit: null }, machines, esc, ago);
+  assert.match(unknown, /data-cred-edit="github">Paste a token/);
+});
+
+test("a saved GitHub token is not offered over, unless it is unreadable", () => {
+  const cli = { github: { state: "signed_in", account: "you" }, forgejo: [] };
+  const saved = credentialsHtml({ list, providers, edit: null, cli }, machines, esc, ago);
+  assert.doesNotMatch(saved, /Use gh sign-in/);
+  const unreadable = list.map(c => (c.id === "g" ? { ...c, unreadable: true } : c));
+  const html = credentialsHtml({ list: unreadable, providers, edit: null, cli }, machines, esc, ago);
+  assert.match(html, /Use gh sign-in/);
+  assert.match(html, /Re-enter this token/);
+});
+
+test("teacli servers not in Beep can be used", () => {
+  const cli = { github: { state: "missing" }, forgejo: [{ url: "https://git.example.com/" }, { url: "http://git.example.net:8087" }] };
+  assert.deepEqual(teaOffers(cli, list).map(s => s.url), ["http://git.example.net:8087"]);
+  const html = credentialsHtml({ list, providers, edit: null, cli }, machines, esc, ago);
+  assert.match(html, /data-cred-cli="forgejo:http:\/\/git\.example\.net:8087">Use teacli sign-in/);
+  assert.equal(teaHas(cli, "https://git.example.com"), true);
+  assert.equal(teaHas(cli, "https://code.example.org"), false);
+});
+
+test("server URLs compare by origin", () => {
+  assert.ok(sameServer("https://git.example.com", "https://GIT.example.com:443/"));
+  assert.ok(!sameServer("http://git.example.com", "https://git.example.com"));
+  assert.ok(!sameServer("git.example.com", "git.example.com"));
+  assert.ok(!sameServer(undefined, "https://git.example.com"));
+});
+
+test("Forgejo token pages and CLI hosts", () => {
+  assert.equal(forgejoTokenPage("https://git.example.com/"), "https://git.example.com/user/settings/applications");
+  assert.equal(forgejoTokenPage("https://example.com/forgejo"), "https://example.com/forgejo/user/settings/applications");
+  assert.equal(forgejoTokenPage("git.example.com"), null);
+  assert.equal(forgejoTokenPage("ftp://git.example.com"), null);
+  assert.deepEqual(cliHost("github"), { kind: "github" });
+  assert.deepEqual(cliHost("forgejo:https://git.example.com"), { kind: "forgejo", url: "https://git.example.com" });
+  assert.equal(cliHost("api:openrouter"), null);
+  const replacing = credentialsHtml({ list, providers, edit: editFor("forgejo:f1", list) }, machines, esc, ago);
+  assert.match(replacing, /data-cred-open="https:\/\/git\.example\.com\/user\/settings\/applications"/);
+  assert.match(GITHUB_TOKEN_PAGE, /^https:\/\/github\.com\/settings\/tokens\/new\?/);
 });

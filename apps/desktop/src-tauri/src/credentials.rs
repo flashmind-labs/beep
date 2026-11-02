@@ -123,10 +123,20 @@ pub async fn save_credential(
         secret,
         to_machines,
     } = credential;
+    save(&beep, kind, SecretText::new(secret), to_machines).await
+}
+
+/// Sends one to the server, which checks it with its host before keeping it.
+pub(crate) async fn save(
+    beep: &Beep,
+    kind: Kind,
+    secret: SecretText,
+    to_machines: bool,
+) -> Result<CredentialView> {
     let saved = beep
         .call(SaveCredential {
             kind: kind.into(),
-            secret: SecretText::new(secret),
+            secret,
             to_machines,
         })
         .await

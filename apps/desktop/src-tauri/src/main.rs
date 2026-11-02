@@ -8,6 +8,7 @@ mod bar;
 mod beep;
 mod cards;
 mod center;
+mod cli_login;
 mod commands;
 mod credentials;
 mod desktop;
@@ -172,6 +173,8 @@ fn main() {
             credentials::list_credentials,
             credentials::save_credential,
             credentials::remove_credential,
+            cli_login::cli_logins,
+            cli_login::use_cli_login,
             projects::import_project,
             commands::open_file,
             commands::picture,
