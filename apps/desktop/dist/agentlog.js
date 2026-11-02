@@ -40,3 +40,20 @@ export function toolLines(output, open = false) {
   if (open || lines.length <= TOOL_LINES) return { shown: output, more: 0 };
   return { shown: lines.slice(0, TOOL_LINES).join("\n"), more: lines.length - TOOL_LINES };
 }
+
+const PASTE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
+
+/// A user message as HTML, with each block a terminal pasted in
+/// (`<pasted_content id="…">…</pasted_content id="…">`) folded into
+/// "Pasted text · 8 lines", opened on click. `esc` escapes text; `open(i)`
+/// says whether the i-th block was left open, so a redraw keeps it.
+export function userHtml(text, esc, open = () => false) {
+  let html = "", last = 0, i = 0;
+  for (const m of text.matchAll(PASTE)) {
+    html += esc(text.slice(last, m.index));
+    const lines = m[2].split("\n").length;
+    html += `<details class="paste" data-paste="${i}"${open(i++) ? " open" : ""}><summary>Pasted text · ${lines === 1 ? "1 line" : `${lines} lines`}</summary><pre>${esc(m[2])}</pre></details>`;
+    last = m.index + m[0].length;
+  }
+  return html + esc(text.slice(last));
+}
