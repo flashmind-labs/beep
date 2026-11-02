@@ -65,7 +65,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
-import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -223,29 +222,10 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
     // Dictation belongs to this chat: switching chats cancels it, and late results are dropped.
     val dictation = remember(chat.id) { Dictation(context.applicationContext) }
     DisposableEffect(dictation) { onDispose { dictation.destroy() } }
-    // The speak button reads the running reply aloud; leaving the chat stops it.
-    val speaker = remember(chat.id) { ReplySpeaker(context.applicationContext) }
-    DisposableEffect(speaker) { onDispose { speaker.destroy() } }
-    // The run being read, kept after it ended so the rest of its reply still plays.
-    var spokenRun by remember(chat.id) { mutableStateOf("") }
-    val spokenText = chat.messages.find { it.id == "assistant-$spokenRun" }?.text.orEmpty()
-    LaunchedEffect(speaker.speaking, chat.runId, chat.busy, spokenText) {
-        when {
-            !speaker.speaking -> spokenRun = ""
-            spokenRun.isEmpty() -> if (chat.runId.isNotEmpty()) spokenRun = chat.runId else if (!chat.busy) speaker.stop()
-            // A new run, such as a queued message going out, is not the reply that was asked for.
-            chat.runId.isNotEmpty() && chat.runId != spokenRun -> speaker.stop()
-            else -> {
-                speaker.update(spokenText)
-                if (!chat.busy) speaker.finish()
-            }
-        }
-    }
     fun submit() {
         val hasContent = draft.isNotBlank() || attachedImages.isNotEmpty() || attachedFiles.isNotEmpty()
         if (hasContent && !chat.busy) {
             dictation.cancel()
-            speaker.stop()
             followLatest = true
             val text = draft.ifBlank { attachedPrompt(attachedImages.size, attachedFiles.size) }
             repository.send(text, attachedImages, files = attachedFiles)
@@ -270,7 +250,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 else -> text
             }
             followLatest = true
-            speaker.stop()
             repository.send(message)
         }, onDismiss = { clipboardContent.value = null })
         if (chat.messages.isEmpty()) {
@@ -746,7 +725,6 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         var micHeld by remember { mutableStateOf(false) }
         val liveShown = liveDock && liveState.active && !micHeld
         LaunchedEffect(liveShown) { if (liveShown) dictation.cancel() }
-        LaunchedEffect(liveState.active) { if (liveState.active) speaker.stop() }
         val buttonSize = if (compact) 44.dp else 50.dp
         val buttonShape = RoundedCornerShape(Beep.shapes.radius)
         if (liveShown) LiveDock(live, compact) else Row(Modifier.padding(start = if (onExpand != null) 2.dp else if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
@@ -791,7 +769,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             color = Surface, contentColor = TextPrimary, contentPadding = PaddingValues(0.dp)) {
                             Icon(Icons.Outlined.Schedule, "Queue message", Modifier.size(22.dp))
                         }
-                    } else SpeakReply(speaker, onStart = { spokenRun = chat.runId }, modifier = buttonModifier, shape = buttonShape)
+                    }
                     ChunkyButton(onClick = repository::cancel, modifier = buttonModifier, shape = buttonShape,
                         color = Beep.colors.ink, contentColor = Beep.colors.page, contentPadding = PaddingValues(0.dp)) {
                         Icon(Icons.Outlined.Stop, "Stop reply", Modifier.size(22.dp))
@@ -811,25 +789,12 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         Icon(Icons.AutoMirrored.Outlined.Send, "Send message", Modifier.size(20.dp))
                     }
                 }
-                // The reply ended but is still being read: the button stays where stop was, to stop it.
-                speaker.speaking -> SpeakReply(speaker, onStart = {}, modifier = buttonModifier, shape = buttonShape)
                 else -> ChunkyButton(onClick = {}, enabled = false, modifier = buttonModifier, shape = buttonShape, contentPadding = PaddingValues(0.dp)) {
                     Icon(Icons.AutoMirrored.Outlined.Send, "Send message", Modifier.size(20.dp))
                 }
             }
         }
 
-    }
-}
-
-/** Reads the running reply aloud, or stops reading it: coral while it speaks. */
-@Composable
-private fun SpeakReply(speaker: ReplySpeaker, onStart: () -> Unit, modifier: Modifier, shape: Shape) {
-    val speaking = speaker.speaking
-    ChunkyButton(onClick = { if (speaking) speaker.stop() else { onStart(); speaker.start() } }, modifier = modifier, shape = shape,
-        color = if (speaking) Beep.colors.accent else Surface, contentColor = if (speaking) Beep.colors.onAccent else TextPrimary,
-        contentPadding = PaddingValues(0.dp)) {
-        Icon(Icons.AutoMirrored.Outlined.VolumeUp, if (speaking) "Stop speaking" else "Speak reply", Modifier.size(22.dp))
     }
 }
 
