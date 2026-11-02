@@ -1,7 +1,8 @@
 //! Keeping a project's folder in step across the caller's machines: turning
 //! it on or off per machine, how each machine stands, what sync leaves out,
-//! and pinning a project to the machines it is on. The nodes sync node to
-//! node; these requests only change and read their lists.
+//! and pinning a project to the machines it is on or to the top of the
+//! sidebar. The nodes sync node to node; these requests only change and
+//! read their lists.
 
 use super::{Reply, agent_sessions::linked_keys};
 use crate::{
@@ -311,6 +312,16 @@ pub(super) async fn pin_project(cx: Cx, request: PinProject) -> Reply<ProjectSyn
         push_sync(&cx.app.nodes, &cx.user, None).await?;
     }
     project(&cx, name).await
+}
+
+pub(super) async fn pin_project_to_top(cx: Cx, request: PinProjectToTop) -> Reply<()> {
+    let name = project_name(&request.project)?;
+    cx.user.pin_project_to_top(name, request.pinned).await?;
+    Ok(())
+}
+
+pub(super) async fn list_projects_on_top(cx: Cx, _: ListProjectsOnTop) -> Reply<Vec<String>> {
+    Ok(cx.user.projects_on_top().await?)
 }
 
 #[cfg(test)]

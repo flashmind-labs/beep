@@ -58,6 +58,13 @@ pub(super) async fn list_projects(cx: Cx, _: ListProjects) -> Reply<Vec<ProjectA
     projects(&cx.user).await
 }
 
+pub(super) async fn list_project_overview(
+    cx: Cx,
+    _: ListProjectOverview,
+) -> Reply<Vec<ProjectOverview>> {
+    project_overview(&cx.user).await
+}
+
 // The issue requests are scoped by the project's owner: another user's
 // project is not found.
 
@@ -188,6 +195,21 @@ async fn projects(user: &User) -> Reply<Vec<ProjectAgent>> {
         agents.push(agent_of(user, &project).await?);
     }
     Ok(agents)
+}
+
+async fn project_overview(user: &User) -> Reply<Vec<ProjectOverview>> {
+    Ok(user
+        .project_overviews()
+        .await?
+        .into_iter()
+        .map(|row| ProjectOverview {
+            project_id: row.id.0,
+            name: row.name,
+            tasks: row.tasks,
+            workers: row.workers,
+            latest: row.latest.map(task_view),
+        })
+        .collect())
 }
 
 async fn agent_of(user: &User, project: &ProjectRow) -> Reply<ProjectAgent> {

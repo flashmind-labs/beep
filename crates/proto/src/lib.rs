@@ -676,7 +676,8 @@ requests! {
     152 GetSyncSkipped { project: String, machine_id: String } => Call<SyncSkipped>
     /// Pins a project to the machines it is on, or unpins it. A pinned
     /// project, such as a large game or video project, never syncs: every
-    /// machine stops, and `SetProjectSync` refuses to turn it on.
+    /// machine stops, and `SetProjectSync` refuses to turn it on. To pin
+    /// one to the top of the sidebar instead, see `PinProjectToTop`.
     153 PinProject { project: String, pinned: bool } => Call<ProjectSync>
     /// What the event triage agent found worth telling the user and that
     /// they have not seen or dismissed yet, from the last two days, newest
@@ -822,6 +823,168 @@ requests! {
     /// the default: the one machines get as `GH_TOKEN`. `NotFound` when the
     /// caller has no such account. Remove one with `RemoveCredential`.
     192 SetDefaultGitHubAccount { id: String } => Call<()>
+    /// Pins `project` (`org/repo`) to the top of the sidebar, or unpins it.
+    /// Unlike `PinProject`, which keeps a project off sync, this only sets
+    /// where the apps list it. `BadRequest` for a malformed name.
+    193 PinProjectToTop { project: String, pinned: bool } => Call<()>
+    /// The projects the caller pinned to the top of the sidebar, in the
+    /// order they were pinned.
+    194 ListProjectsOnTop {} => Call<Vec<String>>
+    /// Every project of the caller's with how many of its tasks stand in
+    /// each state, its live workers and its latest task, by name: what the
+    /// Projects overview shows, in one call instead of one per project.
+    195 ListProjectOverview {} => Call<Vec<ProjectOverview>>
+    /// The newest version of the caller's instructions for every agent
+    /// Beep runs, or `None` before the first save.
+    196 GetInstructions {} => Call<Option<InstructionsVersion>>
+    /// Saves `text` as the next version of the caller's instructions, at
+    /// most 16 KB. `base` is the version the text was edited from (`None`
+    /// for the first); `Conflict` when a newer one was saved since, so an
+    /// edit on another device is never overwritten. `note` says what made
+    /// it, such as "Restored version 3"; empty for an edit.
+    197 SaveInstructions { text: String, base: Option<u32>, note: String } => Call<InstructionsVersion>
+    /// The versions of the caller's instructions, newest first, at most 50.
+    198 ListInstructionsVersions {} => Call<Vec<InstructionsVersion>>
+    /// The agent files on each of the caller's online machines: Claude
+    /// Code's `~/.claude/CLAUDE.md`, Codex's `~/.codex/AGENTS.md`, Gemini
+    /// CLI's `~/.gemini/GEMINI.md` and pi's `~/.pi/agent/AGENTS.md`, for
+    /// each agent whose folder is there. A machine that cannot be read
+    /// says why in `error`.
+    199 ReadAgentFiles {} => Call<Vec<MachineAgentFiles>>
+    /// Writes the newest instructions into each agent file on one machine,
+    /// between `<!-- beep:start -->` and `<!-- beep:end -->`, for each
+    /// agent whose folder is there; text outside the markers stays. Gives
+    /// the files as they are after. `NotFound` when the machine is not one
+    /// of the caller's online ones; `BadRequest` before the first save or
+    /// when the machine refuses.
+    200 SyncAgentFiles { machine_id: String } => Call<MachineAgentFiles>
+    /// The terminals of `project` (`org/repo`): commands kept running in
+    /// the background on the caller's machines, apart from any chat or
+    /// app, oldest first, with how each stands now.
+    201 ListTerminals { project: String } => Call<Vec<Terminal>>
+    /// Starts `command` in `cwd` on one of the caller's online machines as
+    /// a terminal of `project`, named `name` (the command when empty).
+    /// `NotFound` when the machine is not one of the caller's online ones;
+    /// `BadRequest` saying why when a field is malformed or the node
+    /// refuses, such as a node from before background commands.
+    202 StartTerminal { project: String, machine_id: String, name: String, command: String, cwd: String } => Call<Terminal>
+    /// One terminal with the last of its output, at most 100 lines.
+    /// `NotFound` when the caller has no such terminal.
+    203 GetTerminal { id: Uuid } => Call<TerminalOutput>
+    /// Stops a terminal's command when it still runs, then forgets the
+    /// terminal. `NotFound` when the caller has no such terminal;
+    /// `BadRequest` when its machine is online and refuses to stop it.
+    204 CloseTerminal { id: Uuid } => Call<()>
+}
+
+/// A command kept running on one of the user's machines for a project.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Terminal {
+    pub id: Uuid,
+    /// `org/repo`.
+    pub project: String,
+    pub machine_id: String,
+    pub machine_name: String,
+    pub name: String,
+    pub command: String,
+    /// The folder it runs in.
+    pub cwd: String,
+    pub state: TerminalState,
+    pub started_at: SystemTime,
+}
+
+wire_enum! {
+    /// How a terminal stands. `Exited` ended on its own (`code` is `None`
+    /// when a signal ended it); `Offline` is not known while its machine
+    /// is offline; `Gone` is no longer on its machine, such as after a
+    /// restart.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum TerminalState {
+        0 Running {}
+        1 Exited { code: Option<i32> }
+        2 Stopped {}
+        3 Offline {}
+        4 Gone {}
+    }
+}
+
+/// A terminal and the last of its output, as `GetTerminal` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalOutput {
+    pub terminal: Terminal,
+    /// Oldest first.
+    pub lines: Vec<String>,
+    /// Lines were dropped before these.
+    pub earlier: bool,
+}
+
+/// One saved version of the user's instructions.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InstructionsVersion {
+    /// 1 for the first save, then one more each time.
+    pub version: u32,
+    /// Markdown.
+    pub text: String,
+    /// What made it, such as "Restored version 3"; empty for an edit.
+    pub note: String,
+    pub saved_at: SystemTime,
+}
+
+/// The agent files on one machine, as `ReadAgentFiles` reads them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineAgentFiles {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub files: Vec<AgentFile>,
+    /// Why the machine could not be read or written; `files` is then empty.
+    pub error: Option<String>,
+}
+
+/// One coding agent's instructions file on a machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentFile {
+    /// `claude`, `codex`, `gemini` or `pi`.
+    pub agent: String,
+    /// Under the home folder, such as `~/.claude/CLAUDE.md`.
+    pub path: String,
+    /// Its text; `None` when the agent's folder is there but the file is
+    /// not.
+    pub text: Option<String>,
+    /// It holds the newest instructions between Beep's markers.
+    pub synced: bool,
+}
+
+/// One project as `ListProjectOverview` sums it up.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectOverview {
+    pub project_id: Uuid,
+    /// `org/repo`.
+    pub name: String,
+    /// How many of its tasks stand in each state, dropped ones left out.
+    pub tasks: TaskCounts,
+    /// Its workers that have not ended.
+    pub workers: u32,
+    /// The task that changed last, dropped ones left out.
+    pub latest: Option<ProjectTask>,
+}
+
+/// How many of a project's tasks stand in each state.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskCounts {
+    pub planned: u32,
+    pub running: u32,
+    pub blocked: u32,
+    pub review: u32,
+    pub done: u32,
 }
 
 /// One of the caller's GitHub accounts, as `ListGitHubAccounts` lists it.

@@ -1030,6 +1030,56 @@ impl User {
         self.store.pin_project(&self.key, project, pinned).await
     }
 
+    /// `project`'s terminals, oldest first.
+    pub(crate) async fn terminals(&self, project: &str) -> Result<Vec<crate::store::TerminalRow>> {
+        self.store.terminals(&self.key, project).await
+    }
+
+    pub(crate) async fn terminal(&self, id: Uuid) -> Result<Option<crate::store::TerminalRow>> {
+        self.store.terminal(&self.key, id).await
+    }
+
+    pub(crate) async fn add_terminal(&self, row: &crate::store::TerminalRow) -> Result<()> {
+        self.store.add_terminal(&self.key, row).await
+    }
+
+    pub(crate) async fn remove_terminal(&self, id: Uuid) -> Result<bool> {
+        self.store.remove_terminal(&self.key, id).await
+    }
+
+    /// The newest `limit` versions of the user's instructions, newest
+    /// first.
+    pub(crate) async fn instructions_versions(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::store::InstructionsRow>> {
+        self.store.instructions_versions(&self.key, limit).await
+    }
+
+    /// Saves the user's instructions as the version after `base`.
+    pub(crate) async fn save_instructions(
+        &self,
+        base: Option<u32>,
+        text: &str,
+        note: &str,
+    ) -> Result<crate::store::Saved> {
+        self.store
+            .save_instructions(&self.key, base, text, note)
+            .await
+    }
+
+    /// The projects pinned to the top of the sidebar, oldest pin first.
+    pub async fn projects_on_top(&self) -> Result<Vec<String>> {
+        self.store.projects_on_top(&self.key).await
+    }
+
+    /// Pins `project` to the top of the sidebar, or unpins it.
+    pub async fn pin_project_to_top(&self, project: &str, pinned: bool) -> Result<()> {
+        self.store
+            .pin_project_to_top(&self.key, project, pinned)
+            .await
+    }
+
     /// The user's credentials, without their secrets.
     pub async fn credentials(
         &self,
@@ -1459,6 +1509,11 @@ impl User {
     }
 
     /// How many of the project's tasks are open and workers live.
+    /// Every project summed up for the Projects overview, by name.
+    pub(crate) async fn project_overviews(&self) -> Result<Vec<crate::store::OverviewRow>> {
+        self.store.project_overviews(&self.key).await
+    }
+
     pub(crate) async fn project_open_counts(&self, project: ProjectId) -> Result<OpenCounts> {
         self.store.open_counts(project).await
     }
