@@ -48,6 +48,8 @@ const DROP_SLUG: &str = "PROJECT_TASKS_DROP";
 const REOPEN_SLUG: &str = "PROJECT_TASKS_REOPEN";
 /// Never saved: a merge always asks.
 const MERGE_SLUG: &str = "PROJECT_TASKS_MERGE";
+/// Never saved: a comment on an issue always asks.
+const COMMENT_SLUG: &str = "PROJECT_TASKS_COMMENT";
 
 /// Most tasks one plan makes.
 const MAX_PLAN: usize = 20;
@@ -824,6 +826,7 @@ enum TasksAction {
     Drop,
     Reopen,
     Merge,
+    Comment,
 }
 
 #[derive(Debug, Deserialize)]
@@ -859,10 +862,10 @@ impl Tool for TasksTool {
         json!({
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["list", "update", "drop", "reopen", "merge"]},
+                "action": {"type": "string", "enum": ["list", "update", "drop", "reopen", "merge", "comment"]},
                 "task": {"type": "string", "description": "The task's slug."},
                 "title": {"type": "string"},
-                "body": {"type": "string"},
+                "body": {"type": "string", "description": "The new body, or the comment for comment."},
                 "after": {"type": "string", "description": "The slug of the task it waits for; empty for none."}
             },
             "required": ["action"],
@@ -897,6 +900,7 @@ impl Tool for TasksTool {
             TasksAction::Drop => self.drop_task(id, &project, task).await?,
             TasksAction::Reopen => self.reopen(id, &project, task).await?,
             TasksAction::Merge => self.merge(id, &project, task).await?,
+            TasksAction::Comment => self.comment(id, &project, task, &args).await?,
         };
         Ok(match done {
             Planned::Done(text) => ToolResult::success(id, text),
@@ -908,6 +912,7 @@ impl Tool for TasksTool {
     fn humanize(&self, args: &Value) -> String {
         match args.get("action").and_then(Value::as_str) {
             Some("merge") => "Merging a pull request".to_owned(),
+            Some("comment") => "Commenting on an issue".to_owned(),
             Some("list") => "Reading the tasks".to_owned(),
             _ => "Updating a task".to_owned(),
         }
@@ -1050,7 +1055,9 @@ impl TasksTool {
             tools.user.set_task_after(task.id, after).await?;
         }
         let mut text = format!("Updated {}.", task.slug);
-        if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host)
+        if task.issue_foreign && task.issue.is_some() && (title.is_some() || body.is_some()) {
+            text.push_str(" Its issue was opened by someone else, so it stays as it is.");
+        } else if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host)
             && (title.is_some() || body.is_some())
         {
             let body = issues::issue_body(task.id, new_body);
@@ -1170,6 +1177,76 @@ impl TasksTool {
         )))
     }
 
+    /// Posts one comment on the task's issue, always asking first. An issue
+    /// someone else opened gets at most one.
+    async fn comment(
+        &self,
+        id: &str,
+        project: &ProjectRow,
+        task: &TaskRow,
+        args: &TasksArgs,
+    ) -> Result<Planned> {
+        let tools = &self.tools;
+        let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) else {
+            return Ok(Planned::Refused(format!("{} has no issue.", task.slug)));
+        };
+        let Some(body) = args
+            .body
+            .as_deref()
+            .map(str::trim)
+            .filter(|body| !body.is_empty())
+        else {
+            return Ok(Planned::Refused("Give the comment as body.".to_owned()));
+        };
+        if task.issue_foreign && task.issue_commented {
+            return Ok(Planned::Refused(format!(
+                "Beep already commented on issue #{}, which someone else opened; it gets one \
+                 comment at most.",
+                issue.number
+            )));
+        }
+        let command = HostCommand::CommentIssue {
+            number: issue.number,
+            body,
+        };
+        let hits = command.leaks(&tools.public_text().await?);
+        if !hits.is_empty() {
+            return Ok(Planned::Refused(leaked(&hits)));
+        }
+        let comment_card = || {
+            card(
+                "Comment on issue".to_owned(),
+                vec![
+                    field("Task", format!("{}: {}", task.slug, task.title)),
+                    field("Issue", issue.url.clone()),
+                    field("Comment", body),
+                ],
+            )
+        };
+        if let Some(stop) = gated(
+            tools
+                .gate
+                .check(id, COMMENT_SLUG, Asks::Always, comment_card),
+        ) {
+            return Ok(stop);
+        }
+        // Noted first, so two calls cannot both post on someone else's issue.
+        if !tools
+            .user
+            .note_issue_comment(task.id, task.issue_foreign)
+            .await?
+        {
+            return Ok(Planned::Refused(format!(
+                "Beep already commented on issue #{}.",
+                issue.number
+            )));
+        }
+        Ok(match self.on_home(project, host, command).await? {
+            Ok(_) => Planned::Done(format!("Commented on issue #{}.", issue.number)),
+            Err(why) => Planned::Refused(format!("The comment failed: {why}")),
+        })
+    }
+
     /// Runs `command` on the home machine; the error is for the model.
     async fn on_home(
         &self,
@@ -1221,7 +1298,13 @@ pub(crate) async fn drop_task(
         }
     }
     let mut text = format!("Dropped {}.", task.slug);
-    if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
+    if let Some(issue) = task.issue.as_ref().filter(|_| task.issue_foreign) {
+        let _ = write!(
+            text,
+            " Issue #{} was opened by someone else, so it stays open.",
+            issue.number
+        );
+    } else if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
         let command = HostCommand::CloseIssue {
             number: issue.number,
             comment: "Dropped: no longer planned.",
@@ -1248,7 +1331,9 @@ pub(crate) async fn reopen_task(
 ) -> Result<String> {
     user.set_task_state(task.id, TaskState::Planned).await?;
     let mut text = format!("Reopened {}; it is planned again.", task.slug);
-    if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
+    if task.issue_foreign {
+        // Beep never closed it, so there is nothing to reopen.
+    } else if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) {
         let command = HostCommand::ReopenIssue {
             number: issue.number,
         };
