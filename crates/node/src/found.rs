@@ -7,26 +7,31 @@
 //! ran in and when. Folders are then folded into the checkout that holds
 //! them (`git`), so a session in a subfolder or a worktree counts for the
 //! checkout's main folder. Every read is capped, and all of it is blocking
-//! work for `spawn_blocking`.
+//! work for `spawn_blocking`. What a file said is kept (`memo`) until the
+//! file changes, so listing again reads only what changed.
 
 use crate::agents::cut;
 use beep_proto::node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder};
 use std::{
     cmp::Reverse,
     collections::HashMap,
+    convert::Infallible,
     fs::File,
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 mod codex;
 mod flsh;
 mod git;
+mod memo;
 mod opencode;
 mod pi;
 
 pub(crate) use git::{Checkout, checkout};
+pub(crate) use memo::Memo;
 
 /// The most session files one store looks at.
 const MAX_FILES: usize = 2_000;
@@ -101,6 +106,31 @@ pub(crate) struct Stores {
     flsh: Option<PathBuf>,
     /// OpenCode's database, or its data folder of them.
     opencode: Option<PathBuf>,
+    memos: Arc<Memos>,
+}
+
+/// What the stores' files said, kept while they are unchanged.
+#[derive(Debug)]
+struct Memos {
+    /// Each Codex or pi session file's header.
+    heads: Memo<Option<Seen>>,
+    /// Each Codex or pi session file's name or first prompt.
+    titles: Memo<Option<String>>,
+    /// Codex's index of the names the user gave.
+    names: Memo<Arc<HashMap<String, String>>>,
+    /// Each flsh or OpenCode database's sessions.
+    databases: Memo<Arc<Vec<Seen>>>,
+}
+
+impl Default for Memos {
+    fn default() -> Self {
+        Self {
+            heads: Memo::new(MAX_FILES * 4),
+            titles: Memo::new(1_000),
+            names: Memo::new(4),
+            databases: Memo::new(1_000),
+        }
+    }
 }
 
 impl Stores {
@@ -111,6 +141,7 @@ impl Stores {
             pi: pi::locate(),
             flsh: flsh::locate(),
             opencode: opencode::locate(),
+            memos: Arc::default(),
         }
     }
 
@@ -118,19 +149,33 @@ impl Stores {
     pub(crate) fn sessions(&self, agent: Option<Agent>) -> Vec<Seen> {
         let wants = |one: Agent| agent.is_none_or(|agent| agent == one);
         let mut seen = Vec::new();
+        let memos = &self.memos;
         if let Some(root) = self.codex.as_deref().filter(|_| wants(Agent::Codex)) {
-            seen.extend(codex::sessions(root));
+            seen.extend(codex::sessions(root, memos));
         }
         if let Some(root) = self.pi.as_deref().filter(|_| wants(Agent::Pi)) {
-            seen.extend(pi::sessions(root));
+            seen.extend(pi::sessions(root, memos));
         }
         if let Some(root) = self.flsh.as_deref().filter(|_| wants(Agent::Flsh)) {
-            seen.extend(flsh::sessions(root));
+            seen.extend(flsh::sessions(root, memos));
         }
         if let Some(root) = self.opencode.as_deref().filter(|_| wants(Agent::OpenCode)) {
-            seen.extend(opencode::sessions(root));
+            seen.extend(opencode::sessions(root, memos));
         }
         seen
+    }
+
+    /// `seen` as `describe` lists it, its title read from its file when the
+    /// store gave none.
+    pub(crate) fn describe(&self, mut seen: Seen, now: SystemTime) -> ExternalSession {
+        if seen.title.is_none()
+            && let Some(file) = seen.file.as_deref()
+        {
+            let read = || Ok::<_, Infallible>(title(seen.agent, file));
+            let Ok(title) = self.memos.titles.read(file, read);
+            seen.title = title;
+        }
+        describe(seen, now)
     }
 
     /// One session of `agent` by its id, described.
@@ -139,7 +184,7 @@ impl Stores {
             .sessions(Some(agent))
             .into_iter()
             .find(|seen| seen.id == id)?;
-        Some(describe(seen, SystemTime::now()))
+        Some(self.describe(seen, SystemTime::now()))
     }
 
     #[cfg(test)]
@@ -148,7 +193,7 @@ impl Stores {
             codex: codex.map(Path::to_owned),
             pi: pi.map(Path::to_owned),
             flsh: flsh.map(Path::to_owned),
-            opencode: None,
+            ..Self::default()
         }
     }
 
@@ -252,17 +297,19 @@ pub(crate) fn in_folders(mut seen: Vec<Seen>, folders: &[PathBuf], limit: usize)
     seen
 }
 
-/// `seen` as the server lists a session started outside Beep: its title,
-/// else its first prompt, and whether it may still run.
-pub(crate) fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
-    let title = seen.title.clone().or_else(|| {
-        let file = seen.file.as_deref()?;
-        match seen.agent {
-            Agent::Codex => codex::title(file),
-            Agent::Pi => pi::title(file),
-            Agent::Claude | Agent::Flsh | Agent::OpenCode => None,
-        }
-    });
+/// The name or first prompt in `agent`'s session file at `file`.
+fn title(agent: Agent, file: &Path) -> Option<String> {
+    match agent {
+        Agent::Codex => codex::title(file),
+        Agent::Pi => pi::title(file),
+        Agent::Claude | Agent::Flsh | Agent::OpenCode => None,
+    }
+}
+
+/// `seen` as the server lists a session started outside Beep: its title
+/// (`Stores::describe` reads one from the file), and whether it may still
+/// run.
+fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
     let quiet = now
         .duration_since(UNIX_EPOCH + Duration::from_secs(seen.last_activity))
         .unwrap_or_default();
@@ -270,7 +317,7 @@ pub(crate) fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
         id: seen.id,
         agent: seen.agent.as_str().to_owned(),
         cwd: seen.cwd.to_string_lossy().into_owned(),
-        title,
+        title: seen.title,
         started_at: seen.started_at,
         last_activity: seen.last_activity,
         presence: if quiet < RECENT {
@@ -482,6 +529,48 @@ mod tests {
         assert_eq!(found.presence, Presence::Recent, "just written");
         assert!(stores.find(Agent::Codex, "p1").is_none());
         assert!(stores.find(Agent::Pi, "p2").is_none());
+    }
+
+    /// Writes `text` over `path` and gives it back its modification time,
+    /// so only a read of its content can tell it changed.
+    fn rewrite_in_place(path: &Path, text: &str) {
+        let modified = std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .expect("a modification time");
+        std::fs::write(path, text).expect("the rewrite");
+        File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| file.set_modified(modified))
+            .expect("the old time back");
+    }
+
+    #[test]
+    fn an_unchanged_session_file_is_not_read_again_and_a_changed_one_is() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let dir = root.path().join("--home-user-proj--");
+        std::fs::create_dir_all(&dir).expect("folders");
+        let path = dir.join("2026-08-27T23-01-39-077Z_p1.jsonl");
+        let session = |cwd: &str, prompt: &str| {
+            format!(
+                "{{\"type\":\"session\",\"version\":3,\"id\":\"p1\",\"timestamp\":\"2026-08-27T23:01:39.077Z\",\"cwd\":\"{cwd}\"}}\n\
+                 {{\"type\":\"message\",\"message\":{{\"role\":\"user\",\"content\":\"{prompt}\"}}}}\n"
+            )
+        };
+        std::fs::write(&path, session("/home/user/proj", "Tidy up")).expect("a session");
+        let stores = Stores::at(None, Some(root.path()), None);
+        let found = stores.find(Agent::Pi, "p1").expect("the session");
+        assert_eq!(found.title.as_deref(), Some("Tidy up"));
+
+        rewrite_in_place(&path, &session("/home/user/proi", "Tidy on"));
+        let found = stores.find(Agent::Pi, "p1").expect("the session");
+        assert_eq!(found.cwd, "/home/user/proj", "kept from the first read");
+        assert_eq!(found.title.as_deref(), Some("Tidy up"));
+
+        std::fs::write(&path, session("/home/user/other", "Tidy it all up")).expect("a session");
+        let found = stores.find(Agent::Pi, "p1").expect("the session");
+        assert_eq!(found.cwd, "/home/user/other");
+        assert_eq!(found.title.as_deref(), Some("Tidy it all up"));
     }
 
     #[test]

@@ -239,6 +239,15 @@ export function pastSessions(sessions, running) {
     .sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
 }
 
+/// A project's session list after a read: `got`, else (`got` null, the
+/// read failed) the list shown before, else none. `changed` says whether it
+/// differs from `before`, the list shown now, so an unchanged one is not
+/// drawn again.
+export function nextSessions(before, got) {
+  const list = got ?? before ?? [];
+  return { list, changed: before === undefined || JSON.stringify(before) !== JSON.stringify(list) };
+}
+
 /// "Open on GitHub", or "Open on <host>" for another host's web page; null
 /// without one.
 export function openOnLabel(url) {
