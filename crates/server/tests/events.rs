@@ -132,9 +132,7 @@ fn first_id(text: &str) -> Option<i64> {
 struct Harness {
     _db: TestDb,
     app: Arc<App>,
-    /// An admin, who gets events.
     alice: Arc<User>,
-    /// Not an admin.
     bob: Arc<User>,
 }
 
@@ -148,7 +146,7 @@ impl Harness {
         let store = db.store().await.unwrap();
         let (alice, bob) = (SecretKey::generate(), SecretKey::generate());
         let model = "openai:test".parse().unwrap();
-        let models = ModelChoices::resolve(&Brain, model, Vec::new(), &[alice.public()]).await;
+        let models = ModelChoices::resolve(&Brain, model, Vec::new()).await;
         let app = App::new(
             store,
             Arc::new(Brain),
@@ -321,11 +319,21 @@ async fn an_inform_now_wakes_the_agent_with_the_triage_summary() {
         events::accept(&h.app, alice, failed.clone()).await.unwrap(),
         Accepted::Unsubscribed
     );
-    // Only admins get events for now.
-    assert_eq!(
-        events::accept(&h.app, &h.bob, failed).await.unwrap(),
-        Accepted::Off
-    );
+    // Every user gets events, and each sees only their own.
+    let Accepted::Stored(bobs) = events::accept(&h.app, &h.bob, failed).await.unwrap() else {
+        panic!("bob's event is stored");
+    };
+    for state in [
+        EventState::Pending,
+        EventState::Triaging,
+        EventState::Triaged,
+        EventState::Woken,
+        EventState::Held,
+        EventState::Digested,
+    ] {
+        let rows = alice.events_in(state, Duration::ZERO, 50).await.unwrap();
+        assert!(rows.iter().all(|row| row.id != bobs), "{state:?}");
+    }
 }
 
 #[tokio::test]

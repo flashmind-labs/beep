@@ -1,5 +1,5 @@
-//! Findings: where Beep failed users, as the improvement watcher found it.
-//! Admins only.
+//! Findings: where Beep failed the user, as the improvement watcher found
+//! it in their own chats.
 
 use super::Reply;
 use crate::{
@@ -30,16 +30,7 @@ pub(super) async fn update_finding(
     update(&cx.app, &cx.user, &id, status).await
 }
 
-fn admin(app: &App, user: &User) -> Reply<()> {
-    if app.models.is_admin(user.id()) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized {})
-    }
-}
-
 async fn list(app: &App, user: &User, status: Option<FindingStatus>) -> Reply<Vec<Finding>> {
-    admin(app, user)?;
     let rows = app
         .store
         .findings(user.id(), status.map(stored), LIMIT)
@@ -48,7 +39,6 @@ async fn list(app: &App, user: &User, status: Option<FindingStatus>) -> Reply<Ve
 }
 
 async fn update(app: &App, user: &User, id: &str, status: FindingStatus) -> Reply<Finding> {
-    admin(app, user)?;
     let id = Uuid::parse_str(id.trim()).map_err(|_| ApiError::NotFound {})?;
     app.store
         .set_finding_status(user.id(), id, stored(status), Utc::now())
@@ -103,7 +93,7 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn only_admins_read_and_settle_findings() {
+    async fn every_user_reads_and_settles_only_their_own_findings() {
         let h = Harness::new(Scripted::default()).await;
         let chat = test_chat("finding");
         let last = h.turn(&h.alice, chat, "no, I meant tomorrow").await;
@@ -129,16 +119,32 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            list(&h.app, &h.bob, None).await.unwrap_err(),
-            ApiError::Unauthorized {}
-        );
+        // Bob gets findings too, only never Alice's.
+        assert!(list(&h.app, &h.bob, None).await.unwrap().is_empty());
         assert_eq!(
             update(&h.app, &h.bob, &id.to_string(), FindingStatus::Dismissed {})
                 .await
                 .unwrap_err(),
-            ApiError::Unauthorized {}
+            ApiError::NotFound {}
         );
+        let bobs_chat = test_chat("bobs-finding");
+        let bobs_last = h.turn(&h.bob, bobs_chat, "no, I meant tomorrow").await;
+        let bobs_sighting = Sighting {
+            user: "bob",
+            chat: bobs_chat,
+            first_seq: bobs_last - 1,
+            last_seq: bobs_last,
+        };
+        let bobs = h
+            .app
+            .store
+            .record_finding(&new, &bobs_sighting, Utc::now())
+            .await
+            .unwrap();
+        let his = list(&h.app, &h.bob, None).await.unwrap();
+        assert_eq!(his.len(), 1);
+        assert_eq!(his[0].id, bobs.to_string());
+        assert_eq!(his[0].session_id, Some(bobs_chat));
 
         let listed = list(&h.app, &h.alice, Some(FindingStatus::Open {}))
             .await

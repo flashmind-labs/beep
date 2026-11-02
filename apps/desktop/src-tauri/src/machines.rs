@@ -1,5 +1,5 @@
 //! The machines running beep-node on the account, as Settings lists them.
-//! Admins only, like nodes.
+//! Only the account's own machines.
 
 use crate::{
     beep::{Beep, epoch_ms},

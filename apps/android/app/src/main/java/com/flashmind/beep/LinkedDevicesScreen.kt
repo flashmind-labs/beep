@@ -91,7 +91,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var devices by remember { mutableStateOf<List<LinkedDevice>?>(null) }
-    // Keys that are machines running beep-node. Only admins can list them.
+    // Keys that are machines running beep-node.
     var machines by remember { mutableStateOf(emptySet<String>()) }
     var removing by remember { mutableStateOf<LinkedDevice?>(null) }
     var showingCode by remember { mutableStateOf(false) }
@@ -100,7 +100,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
         runCatching { withContext(Dispatchers.IO) { repository.listDevices() } }
             .onSuccess { devices = it }
             .onFailure { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
-        // Only admins may list machines; for anyone else this fails and marks none.
+        // When the list fails, no key is marked as a machine.
         runCatching { withContext(Dispatchers.IO) { repository.listMachines() } }
             .onSuccess { list -> machines = list.map { it.id }.toSet() }
     }

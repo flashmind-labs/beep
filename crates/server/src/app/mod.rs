@@ -22,7 +22,7 @@ use crate::{
     credentials::CredentialKey,
     decision::DecisionTool,
     images::Describer,
-    instance::{Instance, InstanceConfig, Privilege},
+    instance::{Instance, InstanceConfig},
     live::LiveRun,
     metering,
     models::ModelChoices,
@@ -100,6 +100,8 @@ pub struct App {
     pub nodes: crate::nodes::Nodes,
     /// The project workers' sessions and the issue mirroring in flight.
     pub projects: crate::projects::Projects,
+    /// Looks through the users' machines for checkouts of their projects.
+    pub checkouts: crate::imports::Checkouts,
     /// Images tools hand the model, such as node screenshots.
     pub tool_images: Arc<ToolImages>,
     /// Speaks voice notes and transcribes spoken replies.
@@ -355,6 +357,7 @@ impl App {
             teams: AsyncMutex::new(HashMap::new()),
             nodes: crate::nodes::Nodes::default(),
             projects: crate::projects::Projects::default(),
+            checkouts: crate::imports::Checkouts::default(),
             tool_images,
             voice,
             realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),
@@ -406,7 +409,7 @@ impl App {
                     account,
                     device,
                     primary,
-                } => Admission::SignedIn(self.signed_in(&account, endpoint, device, primary)),
+                } => Admission::SignedIn(self.signed_in(&account, device, primary)),
                 SignIn::Revoked => Admission::Revoked,
             });
         };
@@ -426,7 +429,7 @@ impl App {
                 if !self.owns(instance, &account, endpoint).await? {
                     return Ok(Admission::NotInvited);
                 }
-                Admission::SignedIn(self.signed_in(&account, endpoint, device, primary))
+                Admission::SignedIn(self.signed_in(&account, device, primary))
             }
             SignIn::Revoked => Admission::Revoked,
         })
@@ -458,7 +461,7 @@ impl App {
                 {
                     return Ok(None);
                 }
-                Some(self.signed_in(&account, endpoint, device, primary))
+                Some(self.signed_in(&account, device, primary))
             }
             Some(SignIn::Revoked) | None => None,
         })
@@ -467,26 +470,14 @@ impl App {
     fn signed_in(
         self: &Arc<Self>,
         account: &Account,
-        endpoint: &EndpointId,
         device: DeviceKind,
         primary: bool,
     ) -> SignedIn {
-        self.models.admit(&account.id, &endpoint.to_string());
         SignedIn {
             user: self.start_user(account),
             device,
             primary,
         }
-    }
-
-    /// Whether `user` gets `privilege`: an admin, and on a single-user
-    /// server only while its settings leave it on.
-    pub fn allows(&self, privilege: Privilege, user: &User) -> bool {
-        self.models.is_admin(user.id())
-            && self
-                .instance
-                .as_ref()
-                .is_none_or(|instance| instance.allows(privilege))
     }
 
     /// The single-user settings, when the server runs for one owner.
@@ -504,14 +495,9 @@ impl App {
         }
         let owner = self.store.instance_owner().await?;
         if let Some(owner) = &owner {
-            self.owner_known(instance, owner);
+            instance.set_owner(owner);
         }
         Ok(owner)
-    }
-
-    fn owner_known(&self, instance: &Instance, owner: &str) {
-        instance.set_owner(owner);
-        self.models.make_admin(owner);
     }
 
     /// Makes `endpoint`, which no account has, the owner's new account when
@@ -530,7 +516,7 @@ impl App {
         let claimed = self.store.claim_instance_new(endpoint).await?;
         if let Some(SignIn::Account { account, .. }) = &claimed {
             log::info!("instance claimed; user={} key={endpoint}", account.id);
-            self.owner_known(instance, &account.id);
+            instance.set_owner(&account.id);
         }
         Ok(claimed)
     }
@@ -552,7 +538,7 @@ impl App {
         }
         if self.store.claim_instance(&account.id, endpoint).await? {
             log::info!("instance claimed; user={} key={endpoint}", account.id);
-            self.owner_known(instance, &account.id);
+            instance.set_owner(&account.id);
             return Ok(true);
         }
         // Another key claimed it a moment ago.
@@ -598,12 +584,7 @@ impl App {
     /// Starts every user that signed in before, so their crons and feeds
     /// run without a connection.
     pub async fn start_users(self: &Arc<Self>) -> Result<()> {
-        // The owner is an admin before any of their background work runs.
-        self.instance_owner().await?;
         for account in self.store.accounts().await? {
-            for key in self.store.live_keys(&account.id).await? {
-                self.models.admit(&account.id, &key);
-            }
             self.start_user(&account);
         }
         Ok(())
@@ -623,9 +604,6 @@ impl App {
         };
         for user in old.into_iter().flatten() {
             user.stop();
-        }
-        for key in self.store.live_keys(target).await? {
-            self.models.admit(target, &key);
         }
         self.start_user(&account);
         Ok(())

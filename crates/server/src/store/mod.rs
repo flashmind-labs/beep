@@ -374,8 +374,13 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     ),
     (
         62,
+        "checkout checks",
+        include_str!("../../migrations/0062_checkout_checks.sql"),
+    ),
+    (
+        63,
         "github accounts",
-        include_str!("../../migrations/0062_github_accounts.sql"),
+        include_str!("../../migrations/0063_github_accounts.sql"),
     ),
 ];
 

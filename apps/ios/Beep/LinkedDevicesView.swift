@@ -7,7 +7,7 @@ struct LinkedDevicesView: View {
     @Environment(AppModel.self) private var model
     let back: () -> Void
     @State private var devices: [LinkedDevice]?
-    /// Keys that are machines running beep-node. Only admins can list them.
+    /// Keys that are machines running beep-node.
     @State private var machines: Set<String> = []
     @State private var removing: LinkedDevice?
     @State private var error = ""
@@ -99,7 +99,7 @@ struct LinkedDevicesView: View {
         do {
             devices = try await model.devices()
             error = ""
-            // Only admins may list machines; for anyone else this fails and marks none.
+            // When the list fails, no key is marked as a machine.
             if let list = try? await model.machines() { machines = Set(list.map(\.id)) }
         } catch {
             self.error = describe(error)
