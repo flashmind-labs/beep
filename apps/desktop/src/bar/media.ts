@@ -36,7 +36,8 @@ export type PicFile = Omit<SentFile, "size"> & { size?: number };
 
 /// A picture the viewer shows. One from a reply's text or an agent has a
 /// name of its own.
-export type ViewerPic = ({ url: string; file?: undefined } | { file: PicFile; url?: undefined }) & { caption?: string; name?: string };
+/// `saves` marks a picture held as a data URL that can be saved and copied.
+export type ViewerPic = ({ url: string; file?: undefined; saves?: boolean } | { file: PicFile; url?: undefined; saves?: undefined }) & { caption?: string; name?: string };
 
 /// The kind of a file, as its chip says it: PDF, or its extension.
 export function fileKind(f: { name: string; mime?: string }) {
@@ -222,11 +223,12 @@ export function drawViewer() {
   const p = V.pics[V.at], many = V.pics.length > 1;
   const name = p.file ? p.file.name : p.name || hostOf(p.url);
   const about = [many ? `${V.at + 1} of ${V.pics.length}` : "", p.file ? [fileKind(p.file), p.file.size ? fileSize(p.file.size) : ""].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
-  const acts = p.file
+  const keeps = !!p.file || !!p.saves;
+  const acts = keeps
     ? `<button class="dbtn" data-v="copy">${COPY_ICON}Copy<kbd>⌘C</kbd></button><button class="dbtn pri" data-v="save">${ICON.save}Save<kbd>⌘S</kbd></button>`
     : p.url.startsWith("data:") ? "" : `<button class="dbtn" data-v="open">Open in browser</button>`;
   const nav = (dir: "prev" | "next", on: boolean) => many ? `<button class="nav${dir === "prev" ? " prev" : ""}" data-v="${dir}" aria-label="${dir === "prev" ? "Previous" : "Next"}"${on ? "" : " disabled"}>${ICON.chev}</button>` : "";
-  const keys = [...(many ? [["← →", "move"]] : []), ...(p.file ? [["⌘S", "save"], ["⌘C", "copy"]] : []), ["esc", "close"]];
+  const keys = [...(many ? [["← →", "move"]] : []), ...(keeps ? [["⌘S", "save"], ["⌘C", "copy"]] : []), ["esc", "close"]];
   const el = h(`<div class="dover dviewer" id="viewer" role="dialog" aria-label="${esc(name)}">
     <div class="vt"><span class="tt"><b>${esc(name)}</b><small>${esc(about)}</small></span>${acts}<button class="dbtn" data-v="close" aria-label="Close">${ICON.x}</button></div>
     <div class="vi">${nav("prev", V.at > 0)}<img alt="${esc(p.caption)}">${nav("next", V.at < V.pics.length - 1)}</div>
@@ -248,7 +250,9 @@ export function viewerAct(a: ViewerAct) {
     if (at >= 0 && at < V.pics.length) { V.at = at; drawViewer(); }
   } else if (a === "close") closeViewer();
   else if (a === "save" && p.file) savePic(p.file);
+  else if (a === "save" && p.saves) saveUrl(p.url, p.name || "image");
   else if (a === "copy" && p.file) copyPic(p.file);
+  else if (a === "copy" && p.saves) copyUrl(p.url);
   else if (a === "open" && p.url) invoke("open_url", { url: p.url }).catch(() => {});
 }
 
@@ -270,10 +274,25 @@ export async function savePic(file: PicFile) {
   }
 }
 
+/// Saves a picture held as a data URL to Downloads and says where it went.
+export async function saveUrl(url: string, name: string) {
+  try {
+    const path = await invoke<string>("save_picture", { name, url });
+    notice(`Saved ${path.split("/").pop()} to Downloads`, { path });
+  } catch (e) {
+    notice(`Could not save it. ${e}`, { bad: true });
+  }
+}
+
 /// Copies a picture as PNG, the type every app pastes.
 export async function copyPic(file: PicFile) {
   const url = await loadPic(file.id, file.mime);
   if (!url) return notice(GONE_PIC, { bad: true });
+  return copyUrl(url);
+}
+
+/// Copies the picture at `url` as PNG.
+export async function copyUrl(url: string) {
   const png = (async () => {
     const img = new Image();
     img.src = url;

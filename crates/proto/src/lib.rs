@@ -140,7 +140,7 @@ pub trait Duplex: Stream {
 macro_rules! requests {
     ($($(#[$meta:meta])* $op:literal $name:ident { $($(#[$fmeta:meta])* $field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        #[repr(u8)]
+        #[repr(u16)]
         pub enum Op {
             $($name = $op,)*
         }
@@ -149,16 +149,20 @@ macro_rules! requests {
             pub const ALL: &[Op] = &[$(Op::$name),*];
         }
 
+        // A request frame's tag 255 says a wide op follows, so no request
+        // has that number.
+        const _: () = assert!($($op != wire::WIDE as u16 &&)* true, "op 255 is reserved");
+
         /// Hands `visit` every request type with its reply type, in op order.
         #[cfg(test)]
         fn each_request(visit: &mut impl compat::Visit) {
             $(visit.request::<$name, $reply>();)*
         }
 
-        impl TryFrom<u8> for Op {
+        impl TryFrom<u16> for Op {
             type Error = ApiError;
 
-            fn try_from(op: u8) -> Result<Self, ApiError> {
+            fn try_from(op: u16) -> Result<Self, ApiError> {
                 match op {
                     $($op => Ok(Op::$name),)*
                     _ => Err(ApiError::bad_request(format!("unknown op {op}"))),
@@ -1003,10 +1007,9 @@ requests! {
     /// the machine is offline or has no checkout of it, the branch already
     /// has a worktree or is not found, or git fails.
     246 AddBranchWorktree { project: String, branch: String, machine_id: String } => Call<ProjectBranch>
-    /// The images the caller sent to the coding agent session `session` on
-    /// `machine_id`, oldest first, for its log's `[image: name]` lines. Each
-    /// is kept 30 days and read like any file; a resumed session keeps the
-    /// images of the one it goes on from. Empty for a session with none.
+    /// Always empty now: the server keeps no images of coding agent
+    /// sessions. Read each `[image: image-<key>]` line's picture with
+    /// `GetAgentImage`. Kept for the apps that still ask.
     247 ListAgentImages { machine_id: String, session: String } => Call<Vec<AgentImage>>
     /// The caller's project groups, oldest first: folders the apps list
     /// projects under, in place of their org, on every machine.
@@ -1031,6 +1034,12 @@ requests! {
     /// the caller's has that id; `BadRequest` for the caller's own key,
     /// which `RemoveDevice` unlinks.
     251 RemoveMachine { machine_id: String } => Call<()>
+    /// The picture of a `[image: image-<key>]` line in the log of the
+    /// coding agent session `session` on `machine_id`, read from the node
+    /// on each call; the server keeps nothing. `NotFound` when the caller
+    /// has no such online machine or the node no longer has the image;
+    /// `BadRequest` saying why when the node cannot be asked.
+    260 GetAgentImage { machine_id: String, session: String, key: String } => Call<AgentImageData>
 }
 
 /// Folders the apps list projects under, as `ListProjectGroups` gives
@@ -1976,6 +1985,17 @@ pub struct AgentImage {
     /// gives the image back without its name, and the node logs it as
     /// `[image: image-<key>]`.
     pub key: String,
+}
+
+/// One picture of a coding agent session's log, as `GetAgentImage` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentImageData {
+    /// [`image_key`] of `data`.
+    pub key: String,
+    pub mime: String,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
 }
 
 /// A short name for an image's bytes, the same on the node and the server.

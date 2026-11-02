@@ -54,7 +54,7 @@ async fn call(
     rx: &mut Rx,
 ) -> Result<bool> {
     let frame = read_request(rx).await?;
-    let joined = if frame.tag == PeekInvite::OP as u8 {
+    let joined = if frame.op() == Ok(PeekInvite::OP) {
         let reply = match frame.decode::<PeekInvite>() {
             Ok(PeekInvite { code }) => peek(app, &code).await,
             Err(e) => Err(e),
@@ -64,7 +64,7 @@ async fn call(
             Err(e) => tx.err(&e).await?,
         }
         false
-    } else if frame.tag == JoinAccount::OP as u8 {
+    } else if frame.op() == Ok(JoinAccount::OP) {
         let reply = match frame.decode::<JoinAccount>() {
             Ok(JoinAccount { code }) => join(app, connection, client, &code).await,
             Err(e) => Err(e),

@@ -116,6 +116,7 @@ sample_struct! {
     ThreadChat { chat_id, kind, repo, number, title }
     AgentImage { name, file_id, mime, key }
     ProjectGroup { id, name, paths }
+    AgentImageData { key, mime, data }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }
@@ -339,7 +340,7 @@ impl Revision {
 
     /// The fixture for `op` ending in `.ext`, matched by number so a renamed
     /// request keeps its fixtures.
-    fn find(&self, op: u8, ext: &str) -> Option<String> {
+    fn find(&self, op: u16, ext: &str) -> Option<String> {
         let prefix = format!("{op:03}-");
         let suffix = format!(".{ext}");
         self.files
@@ -396,7 +397,7 @@ impl Revision {
 
 impl Visit for Revision {
     fn request<R: Rpc + Sample, T: Serialize + Sample>(&mut self) {
-        let op = R::OP as u8;
+        let op = R::OP as u16;
         let request = self.find(op, "request");
         let reply = self.find(op, "reply");
         let (request, reply) = match (request, reply) {

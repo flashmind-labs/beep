@@ -5,17 +5,14 @@
 
 use crate::found::Seen as Sighting;
 use anyhow::{Context, Result};
-use beep_proto::node::{
-    LinkRx, LinkTx,
-    agent::{Entry, ExternalSession},
-};
+use beep_proto::node::{LinkRx, LinkTx, agent::ExternalSession};
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
 
-pub(crate) use transcript::unix_seconds;
+pub(crate) use transcript::{Excerpt, unix_seconds};
 
 mod discover;
 pub mod hooks;
@@ -41,6 +38,15 @@ impl External {
     pub fn locate() -> Self {
         Self {
             store: discover::Store::locate(),
+            hub: watch::Hub::default(),
+        }
+    }
+
+    /// The sessions in the Claude Code folder `root`.
+    #[cfg(test)]
+    pub(crate) fn at(root: &Path) -> Self {
+        Self {
+            store: Some(discover::Store::at(root)),
             hub: watch::Hub::default(),
         }
     }
@@ -117,18 +123,24 @@ impl External {
         Ok(sessions)
     }
 
-    /// The last `last` entries of session `id`'s transcript and how many
-    /// came before them, `None` when there is no such session.
-    pub(crate) async fn transcript(
-        &self,
-        id: &str,
-        last: usize,
-    ) -> Result<Option<(Vec<Entry>, u64)>> {
-        let Some(path) = self.store.as_ref().and_then(|store| store.find(id)) else {
+    /// The last `last` entries of session `id`'s transcript, how many came
+    /// before them and the pictures they show; `None` when there is no
+    /// such session.
+    pub(crate) async fn transcript(&self, id: &str, last: usize) -> Result<Option<Excerpt>> {
+        let Some(path) = self.file(id).await? else {
             return Ok(None);
         };
         let read = spawn_blocking(move || transcript::entries(&path, last)).await??;
         Ok(Some(read))
+    }
+
+    /// Session `id`'s transcript file, when there is one.
+    pub(crate) async fn file(&self, id: &str) -> Result<Option<PathBuf>> {
+        let Some(store) = self.store.clone() else {
+            return Ok(None);
+        };
+        let id = id.to_owned();
+        Ok(spawn_blocking(move || store.find(&id)).await?)
     }
 
     /// Takes hook events on the socket in `dir` until the node stops.

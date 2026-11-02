@@ -9,7 +9,6 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
 mod actions;
-mod agent_images;
 mod apps;
 mod backfill;
 mod blobs;
@@ -67,7 +66,6 @@ mod users;
 mod watchers;
 
 pub use actions::ActionRow;
-pub(crate) use agent_images::{AgentSessionOf, NewAgentImage};
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
@@ -452,6 +450,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         73,
         "project groups",
         include_str!("../../migrations/0073_project_groups.sql"),
+    ),
+    (
+        74,
+        "drop agent images",
+        include_str!("../../migrations/0074_drop_agent_images.sql"),
     ),
 ];
 

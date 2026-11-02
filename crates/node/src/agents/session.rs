@@ -5,6 +5,7 @@
 use super::{
     AgentKind,
     acp::{self, Line, LineReader, Prompt, ResumeMethod},
+    images::Images,
     live::{Live, cut},
 };
 use crate::{
@@ -31,6 +32,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     str::FromStr,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -83,6 +85,8 @@ pub(super) struct Start<'a> {
     pub(super) prompt: Option<String>,
     /// The agent's id of an earlier session to resume instead of a new one.
     pub(super) resume: Option<String>,
+    /// Where its transcript's pictures are kept.
+    pub(super) images: Arc<Images>,
 }
 
 impl Session {
@@ -93,6 +97,7 @@ impl Session {
             cwd,
             prompt,
             resume,
+            images,
         } = start;
         let mut process = command(&kind.program);
         // The token Beep keeps for this agent, such as Claude Code's, when
@@ -120,7 +125,7 @@ impl Session {
                 .map_or(0, |since| since.as_secs()),
             ..SessionInfo::default()
         };
-        let mut first = Live::new(info);
+        let mut first = Live::new(info, images);
         // Known from the start, so a second takeover of it is refused.
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
@@ -713,6 +718,9 @@ impl Actor {
         self.send(cx, acp::prompt(&session, &prompt), Reply::Prompt);
         let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
         self.live.send_modify(|live| {
+            for picture in prompt.pictures() {
+                live.keep(picture);
+            }
             live.prompted(&prompt.shown());
             live.info.state.queued = queued;
         });
@@ -884,6 +892,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("carry on".into()),
             resume: Some(id.into()),
+            images: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -947,6 +956,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("go".into()),
             resume: None,
+            images: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -986,6 +996,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("go".into()),
             resume: None,
+            images: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1027,6 +1038,7 @@ cat > /dev/null
             cwd: &dir,
             prompt: Some("y".repeat(4 * 1024 * 1024)),
             resume: None,
+            images: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -1058,6 +1070,7 @@ read -r line
             cwd: dir,
             prompt: Some("go".into()),
             resume: None,
+            images: Arc::default(),
         })
         .unwrap()
     }
@@ -1165,6 +1178,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             cwd: dir,
             prompt: None,
             resume: None,
+            images: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -1206,12 +1220,18 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
         assert_eq!(prompt["params"]["prompt"][0]["text"], "The button overlaps");
         assert_eq!(prompt["params"]["prompt"][1]["type"], "image");
         assert_eq!(prompt["params"]["prompt"][1]["mimeType"], "image/png");
+        let data = b"\x89PNG\r\n\x1a\n";
+        let key = beep_proto::image_key(data);
         let (entries, _) = session.live.borrow().transcript(10);
+        let shown = format!("The button overlaps\n[image: image-{key}]");
         assert!(
-            entries
-                .iter()
-                .any(|entry| entry.text == "The button overlaps\n[image: shot.png]"),
+            entries.iter().any(|entry| entry.text == shown),
             "{entries:?}"
+        );
+        let kept = session.live.borrow().picture(&key);
+        assert_eq!(
+            kept.map(|picture| picture.data.clone()),
+            Some(data.to_vec())
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

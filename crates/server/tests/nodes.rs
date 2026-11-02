@@ -17,11 +17,12 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online},
     protocol::{
-        AgentEntryKind, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
-        CreateNodeToken, DeviceKind, GetAgentSession, GetNodeToken, ListAgentHosts,
-        ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        ListProjectSessions, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
-        RemoveDevice, RemoveMachine, RevokeNodeToken, StartAgentSession, SteerAgentSession,
+        AgentEntryKind, AgentImageData, AgentPlanStatus, AgentStatus, AgentSteer,
+        AnswerAgentQuestion, ApiError, CreateNodeToken, DeviceKind, GetAgentImage, GetAgentSession,
+        GetNodeToken, ListAgentHosts, ListAgentImages, ListAgentSessions, ListMachineDetails,
+        ListMachineStats, ListMachines, ListMemoryScopes, ListProjectSessions, MachineCapability,
+        MemoryScope, MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine,
+        RevokeNodeToken, StartAgentSession, SteerAgentSession, Upload, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1075,6 +1076,8 @@ struct FakeAgents {
     hang: bool,
     /// Where the `claude/1` stream hands the orders it gets.
     orders: Option<mpsc::UnboundedSender<Request>>,
+    /// The PNGs `Image` finds, by session.
+    images: Vec<(String, Vec<u8>)>,
 }
 
 impl FakeAgents {
@@ -1132,6 +1135,19 @@ impl Protocol for FakeSessions {
                 (SessionsRequest::InFolders { .. }, Some(external)) => SessionsReply::External {
                     sessions: external.clone(),
                 },
+                (SessionsRequest::Image { session, key }, _) => fake
+                    .images
+                    .iter()
+                    .find(|(of, data)| *of == session && image_key(data) == key)
+                    .map_or_else(
+                        || SessionsReply::Error {
+                            message: "no such image".into(),
+                        },
+                        |(_, data)| SessionsReply::Image {
+                            mime: "image/png".into(),
+                            data: data.clone(),
+                        },
+                    ),
                 _ => SessionsReply::Error {
                     message: "not faked".into(),
                 },
@@ -1947,6 +1963,83 @@ async fn steer_agent_session_sends_prompts_and_stops() {
         missing.downcast::<ApiError>().unwrap(),
         ApiError::NotFound {}
     ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_images_pass_through_from_the_node() {
+    let mut center = CommandCenter::new(1).await;
+    let png = b"\x89PNG\r\n\x1a\nshot".to_vec();
+    let (orders, mut received) = mpsc::unbounded_channel();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                orders: Some(orders),
+                images: vec![("a3f9c1".into(), png.clone())],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let get = |session: &str, key: &str| GetAgentImage {
+        machine_id: build.clone(),
+        session: session.into(),
+        key: key.into(),
+    };
+    let key = image_key(&png);
+    let got = client.call(&get("a3f9c1", &key)).await.unwrap();
+    assert_eq!(
+        got,
+        AgentImageData {
+            key: key.clone(),
+            mime: "image/png".into(),
+            data: png.clone(),
+        }
+    );
+    let not_found = |error: anyhow::Error| {
+        matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
+    };
+    let elsewhere = client.call(&get("000000", &key)).await.unwrap_err();
+    assert!(not_found(elsewhere), "another session's image is not found");
+    let unknown = client.call(&get("a3f9c1", &image_key(b"other"))).await;
+    assert!(not_found(unknown.unwrap_err()));
+    let refused = client.call(&get("a3f9c1", "shot.png")).await.unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+    // An image sent with a prompt goes to the node, and the server keeps
+    // nothing: the old listing stays empty for the apps that still ask.
+    let steer = SteerAgentSession {
+        machine_id: build.clone(),
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+        steer: AgentSteer::PromptImages {
+            text: "Look at this".into(),
+            images: vec![Upload {
+                name: "shot.png".into(),
+                mime: "image/png".into(),
+                data: png,
+            }],
+        },
+    };
+    client.call(&steer).await.unwrap();
+    let order = timeout(Duration::from_secs(5), received.recv())
+        .await
+        .expect("the node got the prompt")
+        .expect("the fake still runs");
+    assert!(matches!(order, Request::PromptImages { .. }), "{order:?}");
+    let listed = client
+        .call(&ListAgentImages {
+            machine_id: build,
+            session: "a3f9c1".into(),
+        })
+        .await
+        .unwrap();
+    assert!(listed.is_empty());
     center.shutdown().await;
 }
 
