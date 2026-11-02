@@ -1,9 +1,9 @@
 use crate::{
     app::{App, Draws, Message, ServerTools},
     models::ModelChoices,
-    protocol::{DeviceKind, RunEvent, WebSource},
+    protocol::{DeviceKind, MemorySource, RunEvent, WebSource},
     search::SearchTool,
-    store::{Account, TestDb},
+    store::{Account, Fact, TestDb},
 };
 use async_trait::async_trait;
 use flashmind::types::{
@@ -12,7 +12,10 @@ use flashmind::types::{
 };
 
 use serde_json::json;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -20,41 +23,6 @@ use tokio::{
     time::timeout,
 };
 use uuid::Uuid;
-
-#[test]
-fn retrieved_memories_are_transient_developer_entries() {
-    use super::memory_entries;
-    use crate::{
-        protocol::MemorySource,
-        store::{MemoryRow, Scope, Scored, Validity},
-    };
-    use flashmind::core::Conversation;
-
-    let found = Scored {
-        row: MemoryRow {
-            id: "memory-1".into(),
-            content: "Maya manages the design team.".into(),
-            category: "people".into(),
-            source: MemorySource::Learned {},
-            updated_at: "2026-01-01 10:00:00".into(),
-            valid: Validity::default(),
-            origin: None,
-            core: false,
-            scope: Scope::User,
-        },
-        score: 0.8,
-    };
-    let mut chat = Conversation::new();
-    for entry in memory_entries(vec![found]) {
-        assert!(entry.is_memory());
-        assert_eq!(entry.role(), "developer");
-        assert!(entry.content().contains("Maya manages the design team."));
-        chat.add(entry);
-    }
-    assert_eq!(chat.entries().len(), 1);
-    chat.strip_memories();
-    assert!(chat.entries().is_empty());
-}
 
 /// Searches once, then answers. The first search waits for a permit, so the
 /// test can follow the run from its start.
@@ -149,6 +117,118 @@ fn message(session_id: Uuid) -> Message {
         },
         finished_research: false,
     }
+}
+
+struct MemoryObserver {
+    go: Arc<Semaphore>,
+    counts: Mutex<Vec<usize>>,
+}
+
+#[async_trait]
+impl LlmProvider for MemoryObserver {
+    fn name(&self) -> &str {
+        "test"
+    }
+    fn provider(&self) -> Provider {
+        Provider::OpenAi
+    }
+    fn complete(&self, request: CompletionRequest) -> CompletionStream {
+        let main = request.tools.iter().any(|tool| tool.name == "memory");
+        if main {
+            let count = request
+                .messages
+                .iter()
+                .filter(|message| {
+                    message.role == Role::Developer
+                        && message.content.contains("alpha bravo echo foxtrot")
+                })
+                .count();
+            self.counts
+                .lock()
+                .expect("the observer is available")
+                .push(count);
+        }
+        let go = self.go.clone();
+        Box::pin(async_stream::stream! {
+            if main {
+                let _permit = go.acquire().await;
+            }
+            yield Ok(StreamEvent::ContentDelta(if main { "Okay." } else { "{}" }.into()));
+            yield Ok(StreamEvent::Finished(FinishReason::Stop));
+        })
+    }
+}
+
+#[tokio::test]
+async fn repeated_prompts_do_not_duplicate_recalled_memories() {
+    let db = TestDb::new().await.expect("a test database");
+    let store = db.store().await.expect("a store");
+    let go = Arc::new(Semaphore::new(0));
+    let provider = Arc::new(MemoryObserver {
+        go: go.clone(),
+        counts: Mutex::new(Vec::new()),
+    });
+    let model = "openai:test".parse().expect("a model name");
+    let models = ModelChoices::resolve(provider.as_ref(), model, Vec::new()).await;
+    let app = App::new(
+        store,
+        provider.clone(),
+        AgentLlmConfig::new("openai:test".parse().expect("a model name")),
+        ServerTools::default(),
+        models,
+    );
+    let user = app.user_for(&Account {
+        id: "alice".into(),
+        external_id: "alice".into(),
+    });
+    let id = user
+        .add_memory(Fact {
+            content: "alpha bravo echo foxtrot",
+            category: None,
+            source: MemorySource::User {},
+            valid: None,
+            origin: None,
+            scope: None,
+        })
+        .await
+        .expect("memory saved");
+    let chat = Uuid::new_v4();
+    for turn in 0..3 {
+        if turn == 2 {
+            assert!(user.forget(&id).await.expect("memory forgotten"));
+        }
+        let mut prompt = message(chat);
+        prompt.message = "alpha bravo echo foxtrot".into();
+        let crate::store::CreateRun::Created(run) =
+            app.submit(&user, prompt).await.expect("submitted")
+        else {
+            panic!("the run was not created")
+        };
+        let live = app
+            .live(&run.id)
+            .await
+            .expect("the run waits for the model");
+        let mut events = live.subscribe(0);
+        go.add_permits(1);
+        timeout(Duration::from_secs(30), async {
+            let mut backlog = std::mem::take(&mut events.backlog).into_iter();
+            loop {
+                let event = match backlog.next() {
+                    Some(event) => event,
+                    None => events.live.recv().await.expect("the run streams"),
+                };
+                if matches!(event.event, RunEvent::RunFinished { .. }) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("the run finishes");
+    }
+    assert_eq!(
+        *provider.counts.lock().expect("the observer is available"),
+        vec![1, 1, 0]
+    );
 }
 
 #[tokio::test]

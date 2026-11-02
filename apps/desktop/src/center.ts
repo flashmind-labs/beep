@@ -164,7 +164,12 @@ function refusal(e: unknown) { return String(e).replace(/^(bad request|error):\s
 
 // ---------- Pieces ----------
 
-function dot(m: MachineCard) { return h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`); }
+/// Green online, yellow with agents running there, grey offline.
+function dot(m: MachineCard) {
+  const el = h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`);
+  el.title = !m.online ? "Offline" : m.agents ? `Online · ${m.agents === 1 ? "1 agent" : `${m.agents} agents`} running` : "Online";
+  return el;
+}
 
 /// A project's colour dot; `i` is its place in the project list, none
 /// leaves it plain.
