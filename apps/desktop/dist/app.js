@@ -4752,7 +4752,7 @@ function drawMachines() {
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike.
 const AG = {
-  images: new Map(),
+  images: new Map(), readError: "",
   hosts: null, sessions: [], error: "", busy: false,
   form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
   open: null, page: null, why: "", back: "chat", timer: 0, inflight: null, note: "", sel: 0,
@@ -5033,11 +5033,18 @@ async function pollAgent() {
       if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       AG.page = page;
-      AG.note = AG.note === "gone" ? "" : AG.note;
+      // What the last failed read said no longer holds.
+      if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
+      AG.readError = "";
       drawAgentBody();
     }
   } catch (e) {
-    if (isOpen(o)) { AG.note = /not found/i.test(String(e)) ? "gone" : String(e); drawAgentBody(); }
+    if (isOpen(o)) {
+      // A dropped connection comes back by itself; the next read says so.
+      AG.readError = /not found/i.test(String(e)) ? "" : /connection lost|closed by peer|timed out/i.test(String(e)) ? "Reconnecting to Beep…" : String(e);
+      AG.note = AG.readError || "gone";
+      drawAgentBody();
+    }
   } finally {
     if (AG.inflight === o) AG.inflight = null;
   }
@@ -5254,6 +5261,7 @@ function drawAgentBody() {
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
+    : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   b.innerHTML = why + card + entries + err + note + paused;
