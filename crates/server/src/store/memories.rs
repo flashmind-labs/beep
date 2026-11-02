@@ -28,7 +28,7 @@ use std::collections::HashMap;
 /// Memories whose days are over are kept this long, then deleted.
 const ENDED_KEPT_DAYS: u64 = 30;
 /// Most memories read for one user at once.
-const MAX_ROWS: usize = 2000;
+pub(crate) const MAX_ROWS: usize = 2000;
 
 const USER: &str = "user";
 const CATEGORY: &str = "category";
@@ -484,6 +484,26 @@ impl Store {
             .filter_map(from_result)
             .filter(|found| scope.is_none_or(|scope| found.row.scope == *scope))
             .take(limit)
+            .collect())
+    }
+
+    /// Vector-only candidates for automatic recall, scoped to one user.
+    pub(crate) async fn similar_memories(
+        &self,
+        user: &UserKey,
+        query: &str,
+        threshold: f32,
+        limit: usize,
+    ) -> Result<Vec<Scored>> {
+        Ok(self
+            .memories
+            .similar(query)
+            .filter(USER, user.as_str())
+            .threshold(threshold)
+            .limit(limit)
+            .await?
+            .into_iter()
+            .filter_map(from_result)
             .collect())
     }
 

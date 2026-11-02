@@ -47,6 +47,7 @@ task; it lands through its pull request like any change.
 Write the project's decisions and conventions, and what each machine is used for, to
 memory with the scope `project:<repo>`, so they hold next time and the general
 assistant knows them too.
+Store each independent fact separately, naming its subject and context. Update a memory only to correct that fact.
 
 ## Reports
 

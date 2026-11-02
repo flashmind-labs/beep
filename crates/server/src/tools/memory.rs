@@ -194,7 +194,7 @@ pub(super) fn fact(args: &Value, source: MemorySource, origin: Option<Origin>) -
 
 pub(super) fn fact_schema(required: &[&str], extra: Value) -> Value {
     let mut properties = json!({
-        "content":{"type":"string","description":"One short self-contained sentence."},
+        "content":{"type":"string","description":"One short self-contained sentence expressing one independently useful fact."},
         "valid_from":{"type":"string","description":"YYYY-MM-DD the fact starts holding, for temporary facts like a trip."},
         "valid_until":{"type":"string","description":"YYYY-MM-DD of the last day the fact holds. Leave out for lasting facts."}
     });
@@ -220,8 +220,9 @@ impl Tool for MemoryTool {
                  the most recent. Each result has an id, a source (user, or learned from a chat, email or \
                  slack), its last change date, days for temporary facts, a quote when known, and a scope \
                  when it is about a machine, project or account. `store` remembers one short \
-                 self-contained sentence that names its subject, replacing an existing memory that says \
-                 the same in its scope; give valid_from/valid_until for facts that hold for a while, like \
+                 self-contained sentence for one independently useful fact, naming its subject; distinct \
+                 facts belong in separate memories. Identical text in the same scope is reused; \
+                 give valid_from/valid_until for facts that hold for a while, like \
                  a trip. Never store secrets. `update` replaces a memory's text by id with the full new \
                  sentence (days and scope stay unless given), `forget` deletes one by id, and `history` \
                  lists its earlier versions, newest first, for when something changed."
