@@ -84,6 +84,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
@@ -173,6 +174,8 @@ fn main() {
             credentials::save_credential,
             credentials::remove_credential,
             projects::import_project,
+            projects::list_machine_folder,
+            projects::pick_folder,
             commands::open_file,
             commands::picture,
             commands::save_file,

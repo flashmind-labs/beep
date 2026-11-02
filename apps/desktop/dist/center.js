@@ -666,6 +666,7 @@ export function openProjects(name) {
 export function addProject() {
   openImportProject({
     machines: state.home?.machines || [],
+    macId: state.mac?.id || null,
     onDone: p => {
       state.picked = p.name;
       refresh();
