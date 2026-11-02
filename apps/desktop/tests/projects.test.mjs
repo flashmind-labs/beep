@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount, sideProjects } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -219,4 +219,34 @@ test("the sidebar groups projects by org and keeps each one's colour index", () 
   assert.deepEqual(rows.map(r => r.org ?? r.repo ?? r.name), ["acme", "widget", "relay", "north", "pines", "scratch"]);
   assert.deepEqual(rows.filter(r => !r.org).map(r => r.i), [0, 3, 2, 1]);
   assert.deepEqual(sideProjects(null), []);
+});
+
+test("pinned projects come out in pin order and keep their colour", () => {
+  const rows = [{ name: "acme/relay" }, { name: "acme/widget" }, { name: "northwind/pines" }];
+  const { onTop, rest } = splitOnTop(rows, ["northwind/pines", "acme/relay", "gone/repo"]);
+  assert.deepEqual(onTop.map(p => [p.name, p.i]), [["northwind/pines", 2], ["acme/relay", 0]]);
+  assert.deepEqual(rest.map(p => [p.name, p.i]), [["acme/widget", 1]]);
+  assert.deepEqual(sideProjects(rest).map(p => p.org ?? [p.repo, p.i]), ["acme", ["widget", 1]]);
+  assert.deepEqual(splitOnTop(null, null), { onTop: [], rest: [] });
+});
+
+test("the overview groups cards by org, pinned first, with their sums", () => {
+  const rows = [{ name: "acme/widget", machines: [] }, { name: "acme/relay", machines: [] }, { name: "notes", machines: [] }, { name: "zed/pines", machines: [] }];
+  const sums = [{ name: "acme/relay", workers: 1, tasks: { planned: 0, running: 1, blocked: 1, review: 0, done: 2 } }];
+  const groups = overviewGroups(rows, sums, ["acme/relay"]);
+  assert.deepEqual(groups.map(g => g.org), ["acme", "zed", null]);
+  assert.deepEqual(groups[0].cards.map(c => [c.repo, c.i, c.pinned, !!c.sum]), [["relay", 1, true, true], ["widget", 0, false, false]]);
+  assert.equal(overviewSub(groups), "4 projects in 2 orgs, 1 worker running");
+  assert.equal(overviewSub(overviewGroups(rows.slice(2, 3), [], [])), "1 project, no workers running");
+});
+
+test("a card's bar, counts and status line", () => {
+  const counts = { planned: 1, running: 1, blocked: 0, review: 2, done: 4 };
+  assert.deepEqual(barSegments(counts).map(s => [s.state, s.share]), [["running", 12.5], ["review", 25], ["planned", 12.5], ["done", 50]]);
+  assert.deepEqual(barSegments({ planned: 0, running: 0, blocked: 0, review: 0, done: 0 }), []);
+  assert.deepEqual(countsLine(counts), ["4 open", "2 in review", "4 done"]);
+  assert.equal(latestLine({ slug: "fix-clippy", title: "Fix clippy", state: "blocked" }), "fix-clippy is blocked");
+  assert.equal(latestLine({ slug: "x", title: "Login copy", state: "review", pr_url: "https://example.com/pr/1" }), "Login copy: its PR waits for your review");
+  assert.equal(latestLine(null), "No tasks yet");
+  assert.deepEqual([0, 1, 2].map(workersLabel), ["idle", "1 worker", "2 workers"]);
 });

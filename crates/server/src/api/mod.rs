@@ -28,6 +28,7 @@ mod findings;
 mod git_items;
 mod grants;
 mod groups;
+mod instructions;
 mod live;
 mod location;
 mod machines;
@@ -38,6 +39,7 @@ mod projects;
 mod research;
 mod sessions;
 mod settings;
+mod terminals;
 mod transcribe;
 mod updates;
 mod work;
@@ -218,6 +220,16 @@ pub fn router() -> Router {
         .call(projects::update_project_task)
         .call(projects::stop_project_worker)
         .call(projects::list_projects)
+        .call(projects::list_project_overview)
+        .call(instructions::get_instructions)
+        .call(instructions::save_instructions)
+        .call(instructions::list_instructions_versions)
+        .call(instructions::read_agent_files)
+        .call(instructions::sync_agent_files)
+        .call(terminals::list_terminals)
+        .call(terminals::start_terminal)
+        .call(terminals::get_terminal)
+        .call(terminals::close_terminal)
         .call(projects::list_project_issues)
         .call(projects::track_project_issue)
         .call(projects::dismiss_project_issue)
@@ -225,6 +237,8 @@ pub fn router() -> Router {
         .call(project_sync::list_project_sync)
         .call(project_sync::get_sync_skipped)
         .call(project_sync::pin_project)
+        .call(project_sync::pin_project_to_top)
+        .call(project_sync::list_projects_on_top)
         .call(updates::list_updates)
         .call(updates::dismiss_updates)
         .call(create_node_token)

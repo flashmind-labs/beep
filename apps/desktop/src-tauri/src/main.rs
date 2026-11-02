@@ -21,6 +21,7 @@ mod grants;
 mod groups;
 mod hotkey;
 mod identity;
+mod instructions;
 mod logfile;
 mod login_path;
 mod machine;
@@ -28,6 +29,7 @@ mod machines;
 mod markdown;
 mod news;
 mod orb;
+mod overview;
 mod palette;
 mod presence;
 mod products;
@@ -35,6 +37,7 @@ mod projects;
 mod research;
 mod state;
 mod sync;
+mod terminals;
 mod tool_labels;
 mod update;
 mod voice;
@@ -194,6 +197,18 @@ fn main() {
             git_items::git_items,
             projects::open_folder,
             projects::center_projects,
+            projects::projects_on_top,
+            overview::project_overview,
+            instructions::instructions_get,
+            instructions::instructions_save,
+            instructions::instructions_versions,
+            instructions::agent_files_read,
+            instructions::agent_files_sync,
+            terminals::terminals_list,
+            terminals::terminal_start,
+            terminals::terminal_output,
+            terminals::terminal_close,
+            projects::pin_project_to_top,
             projects::center_open_project,
             projects::center_project,
             projects::center_project_send,

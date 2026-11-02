@@ -26,7 +26,10 @@ mod grants;
 mod groups;
 mod habits;
 mod instance;
+mod instructions;
 pub(crate) use habits::DuplicateHabit;
+pub(crate) use instructions::{InstructionsRow, Saved};
+pub(crate) use terminals::TerminalRow;
 mod location;
 mod memories;
 mod merge;
@@ -45,6 +48,7 @@ mod sessions;
 mod shares;
 mod skills;
 mod sources;
+mod terminals;
 mod test_db;
 mod updates;
 mod usage;
@@ -78,8 +82,8 @@ pub use profile::{ProfileNote, ProfileRead};
 pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
-    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused,
-    TaskRow, TrackedIssue, WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, OverviewRow, ProjectRow,
+    StartRefused, TaskRow, TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
@@ -389,6 +393,21 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         64,
         "project issues",
         include_str!("../../migrations/0064_project_issues.sql"),
+    ),
+    (
+        65,
+        "projects on top",
+        include_str!("../../migrations/0065_projects_on_top.sql"),
+    ),
+    (
+        66,
+        "instructions",
+        include_str!("../../migrations/0066_instructions.sql"),
+    ),
+    (
+        67,
+        "terminals",
+        include_str!("../../migrations/0067_terminals.sql"),
     ),
 ];
 
