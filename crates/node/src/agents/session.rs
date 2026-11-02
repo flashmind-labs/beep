@@ -897,7 +897,7 @@ cat > /dev/null
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert_eq!(sent[1]["method"], "session/resume");
+        assert_eq!(sent[1]["method"], "session/load");
         assert_eq!(sent[1]["params"]["sessionId"], id);
         assert_eq!(sent[1]["params"]["cwd"], dir.display().to_string());
         assert_eq!(sent[2]["method"], "session/set_mode");

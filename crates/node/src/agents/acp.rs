@@ -48,13 +48,14 @@ pub(super) enum ResumeMethod {
 }
 
 /// How the agent the `initialize` answer describes resumes a session,
-/// preferring `session/resume`; `None` when it does neither.
+/// preferring `session/load`, which replays the conversation so the
+/// session shows its history; `None` when it does neither.
 pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMethod> {
     let capabilities = &initialized.agent_capabilities;
-    if capabilities.session_capabilities.resume.is_some() {
-        Some(ResumeMethod::Resume)
-    } else if capabilities.load_session {
+    if capabilities.load_session {
         Some(ResumeMethod::Load)
+    } else if capabilities.session_capabilities.resume.is_some() {
+        Some(ResumeMethod::Resume)
     } else {
         None
     }
@@ -330,7 +331,7 @@ mod tests {
     use futures::StreamExt;
 
     #[test]
-    fn resume_prefers_session_resume_to_load() {
+    fn resume_prefers_load_to_session_resume() {
         let answer = |capabilities| {
             InitializeResponse::new(ProtocolVersion::V1).agent_capabilities(capabilities)
         };
@@ -339,9 +340,11 @@ mod tests {
             .session_capabilities(
                 SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
             );
-        assert_eq!(resume_method(&answer(both)), Some(ResumeMethod::Resume));
-        let load = AgentCapabilities::new().load_session(true);
-        assert_eq!(resume_method(&answer(load)), Some(ResumeMethod::Load));
+        assert_eq!(resume_method(&answer(both)), Some(ResumeMethod::Load));
+        let resume = AgentCapabilities::new().session_capabilities(
+            SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
+        );
+        assert_eq!(resume_method(&answer(resume)), Some(ResumeMethod::Resume));
         assert_eq!(resume_method(&answer(AgentCapabilities::new())), None);
     }
 
