@@ -80,7 +80,7 @@ async fn server() -> Server {
     let store = db.store().await.unwrap();
     let alice = SecretKey::generate();
     let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new(), &[alice.public()]).await;
+    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
     let app = App::new(
         store.clone(),
         Arc::new(NoModel),

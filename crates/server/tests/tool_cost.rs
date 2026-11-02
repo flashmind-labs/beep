@@ -1,5 +1,5 @@
 //! What the built-in tools add to each model request. Runs a chat turn
-//! and a routine turn for an admin with every optional built-in a test
+//! and a routine turn for a user with every optional built-in a test
 //! server has, and prints the tools the model was offered, largest first:
 //!
 //!     just test-db
@@ -104,7 +104,7 @@ async fn offered(message: Message) -> Vec<ToolDefinition> {
     let admin = SecretKey::generate();
     let provider = Arc::new(Recorder::default());
     let model = "openai:test".parse().expect("a valid model");
-    let models = ModelChoices::resolve(&*provider, model, Vec::new(), &[admin.public()]).await;
+    let models = ModelChoices::resolve(&*provider, model, Vec::new()).await;
     let app = App::new(
         store,
         provider.clone(),

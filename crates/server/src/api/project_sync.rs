@@ -5,7 +5,6 @@
 
 use super::{Reply, agent_sessions::linked_keys};
 use crate::{
-    instance::Privilege,
     nodes::{Online, push_sync},
     protocol::{
         node::sync::{ProjectStatus, Rule, SkippedPath, State},
@@ -22,14 +21,6 @@ use std::collections::{BTreeMap, HashMap};
 const MAX_NAME: usize = 200;
 /// How many machines are asked how they stand at once.
 const ASKING: usize = 8;
-
-fn admin(cx: &Cx) -> Result<(), ApiError> {
-    if cx.app.allows(Privilege::Nodes, &cx.user) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized {})
-    }
-}
 
 fn project_name(name: &str) -> Result<&str, ApiError> {
     let name = name.trim();
@@ -187,7 +178,6 @@ async fn project(cx: &Cx, name: &str) -> Reply<ProjectSync> {
 }
 
 pub(super) async fn set_project_sync(cx: Cx, request: SetProjectSync) -> Reply<ProjectSync> {
-    admin(&cx)?;
     let name = project_name(&request.project)?;
     let machines = machines(&cx).await?;
     let machine = machines
@@ -268,12 +258,10 @@ pub(super) async fn set_project_sync(cx: Cx, request: SetProjectSync) -> Reply<P
 }
 
 pub(super) async fn list_project_sync(cx: Cx, _: ListProjectSync) -> Reply<Vec<ProjectSync>> {
-    admin(&cx)?;
     projects(&cx, None).await
 }
 
 pub(super) async fn get_sync_skipped(cx: Cx, request: GetSyncSkipped) -> Reply<SyncSkipped> {
-    admin(&cx)?;
     let name = project_name(&request.project)?;
     let synced = cx
         .user
@@ -317,7 +305,6 @@ fn skipped_file(path: SkippedPath) -> Option<SkippedFile> {
 }
 
 pub(super) async fn pin_project(cx: Cx, request: PinProject) -> Reply<ProjectSync> {
-    admin(&cx)?;
     let name = project_name(&request.project)?;
     cx.user.pin_project(name, request.pinned).await?;
     if request.pinned {
