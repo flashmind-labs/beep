@@ -117,7 +117,6 @@ async fn main() -> Result<()> {
             decision,
             composio,
             vision_model,
-            compaction_model: config.compaction_model.clone(),
             transitous: Some(Arc::new(Transitous::new()?)),
             voice: config.voice.clone(),
             realtime: realtime(mistral.as_ref(), &config),
