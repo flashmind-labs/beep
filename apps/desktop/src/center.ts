@@ -19,7 +19,7 @@ import { openGroupSheet } from "./groupsheet.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
-import { outsideThreads, outsideTitle } from "./branchwork.ts";
+import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
 import { registerInstructions } from "./instructions.ts";
 import { makeTerminals, terminalTile } from "./terminals.ts";
@@ -2055,8 +2055,8 @@ function elsewhereSection(rows: Project[]) {
     const head = repoLine(undefined, r.repo, r.host, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
     return [head, ...r.items.slice(0, ITEMS_SHOWN).map(item => openItemRow(item, null))];
   });
-  return section("sec-elsewhere", outsideTitle(repos), "", null, h("div", "cc-panel cc-open", ...body),
-    h("small", "", "your open PRs and issues in repos without a project"));
+  return section("sec-elsewhere", "Your open PRs and issues in repos without a project", "", null,
+    h("div", "cc-panel cc-open", ...body));
 }
 
 /// "github.com" from a project's web page.
