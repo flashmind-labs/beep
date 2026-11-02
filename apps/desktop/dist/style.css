@@ -616,7 +616,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .ag-att .chip button { position: absolute; right: 5px; border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid }
 .ag-att .chip button:hover { color: var(--fg) }
 .dcoderen.user .pics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; white-space: normal }
-.dcoderen.user .pic { display: block; max-width: 160px; max-height: 110px; border-radius: 6px; border: 1px solid var(--border); object-fit: cover }
+.dcoderen.user .pic { display: block; max-width: 160px; max-height: 110px; border-radius: 6px; border: 1px solid var(--border); object-fit: cover; cursor: zoom-in }
 .dcoderen.user .pic.none { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); background: var(--surface) }
 .dcoderen.user .pic.none svg { width: 14px; height: 14px }
 /* Rows standing in for a part of a page the server has not answered yet. */

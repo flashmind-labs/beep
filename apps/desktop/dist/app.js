@@ -1676,11 +1676,11 @@ function closeViewer() {
 /// The open picture over the whole bar, with arrows when there are more.
 function drawViewer() {
   const p = V.pics[V.at], many = V.pics.length > 1;
-  const name = p.file ? p.file.name : hostOf(p.url);
+  const name = p.file ? p.file.name : p.name || hostOf(p.url);
   const about = [many ? `${V.at + 1} of ${V.pics.length}` : "", p.file ? [fileKind(p.file), fileSize(p.file.size)].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
   const acts = p.file
     ? `<button class="dbtn" data-v="copy">${COPY_ICON}Copy<kbd>⌘C</kbd></button><button class="dbtn pri" data-v="save">${ICON.save}Save<kbd>⌘S</kbd></button>`
-    : `<button class="dbtn" data-v="open">Open in browser</button>`;
+    : p.url.startsWith("data:") ? "" : `<button class="dbtn" data-v="open">Open in browser</button>`;
   const nav = (dir, on) => many ? `<button class="nav${dir === "prev" ? " prev" : ""}" data-v="${dir}" aria-label="${dir === "prev" ? "Previous" : "Next"}"${on ? "" : " disabled"}>${ICON.chev}</button>` : "";
   const keys = [...(many ? [["← →", "move"]] : []), ...(p.file ? [["⌘S", "save"], ["⌘C", "copy"]] : []), ["esc", "close"]];
   const el = h(`<div class="dover dviewer" id="viewer" role="dialog" aria-label="${esc(name)}">
@@ -5161,6 +5161,11 @@ function drawAgentFrame() {
     if (S.view !== "agent") return;
     const opt = e.target.closest("[data-agopt]");
     if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+    const pic = e.target.closest("#agbody img.pic");
+    if (pic) {
+      const all = [...pic.parentElement.querySelectorAll("img.pic")];
+      return openViewer(all.map(i => ({ url: i.src, name: i.alt, caption: "" })), all.indexOf(pic));
+    }
     if (e.target.closest("#agresume")) return resumeAgent();
     if (e.target.closest("#agstop")) return steerAgent({ cancel: null });
     if (e.target.closest("#agclose")) return steerAgent({ close: null });
