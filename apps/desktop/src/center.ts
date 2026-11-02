@@ -1664,7 +1664,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
   out.push(h("div", "pb-grid",
     tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!) }),
-    tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks)), openTile, { openUrl }),
+    tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl }),
     tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl }),
     tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
       menu: (r, e) => {

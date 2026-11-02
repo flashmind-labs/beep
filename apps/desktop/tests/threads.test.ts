@@ -36,6 +36,40 @@ test("the Pull requests tile puts what needs a reply first", () => {
   assert.equal(threadTile([{ kind: "pr", number: 1, title: "x", needs_reply: false }], fallback).count, "1 open");
 });
 
+test("the Pull requests tile lists every open PR, replies first", () => {
+  const fallback = { count: "", rows: [], empty: "No pull requests from tasks yet" };
+  const pr = (number: number, author: string, created_at: number, extra: { mine?: boolean; draft?: boolean } = {}) =>
+    ({ number, title: `PR ${number}`, url: `https://github.com/acme/widget/pull/${number}`, author, created_at, mine: false, draft: false, ...extra });
+  const prs = [
+    pr(7, "dependabot[bot]", 100),
+    pr(9, "sam", 300),
+    pr(8, "alice", 200, { mine: true, draft: true }),
+    pr(5, "alice", 50, { mine: true }),
+  ];
+  const threads = [
+    { kind: "pr", number: 5, title: "PR 5", needs_reply: true },
+    { kind: "issue", number: 31, title: "Upload fails", needs_reply: true },
+    { kind: "pr", number: 8, title: "PR 8", needs_reply: false },
+  ];
+  const tile = threadTile(threads, fallback, prs);
+  assert.equal(tile.count, "4 open");
+  assert.deepEqual(tile.rows.map(r => [r.code, r.chip?.text || "", r.note]), [
+    ["#5", "reply", ""],
+    ["#31", "reply", ""],
+    ["#9", "", "sam"],
+    ["#8", "", "draft"],
+    ["#7", "", "dependabot[bot]"],
+  ]);
+  // Others' PRs alone still show, before the user's threads load.
+  const bots = threadTile(undefined, fallback, [pr(7, "dependabot[bot]", 100)]);
+  assert.equal(bots.count, "1 open");
+  assert.deepEqual(bots.rows.map(r => r.note), ["dependabot[bot]"]);
+  assert.equal(threadTile([], fallback, []).empty, "No open pull requests");
+  // A server too old to list them keeps the user's own threads.
+  assert.equal(threadTile([{ kind: "pr", number: 1, title: "x", needs_reply: false }], fallback, null).count, "1 open");
+  assert.equal(threadTile(undefined, fallback, null), fallback);
+});
+
 test("an issue's line says who opened it and how busy it is", () => {
   assert.equal(issueMeta({ author: "sam", opened_at: 1, labels: ["bug"], comments: 1 }, ago), "opened by sam · 2 h ago · bug · 1 comment");
   assert.equal(threadMeta({ last_other: "sam: Logs?", updated_at: 1, needs_reply: true }, ago), "sam: Logs? · 2 h ago");

@@ -8,9 +8,9 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    DismissProjectIssue, GitItemKind, IssueStart, ListProjectIssues, ListProjectThreads,
-    ListThreadChats, OpenThreadChat, ProjectIssue, ProjectThread, ReplyToThread, ThreadChat,
-    TrackProjectIssue,
+    DismissProjectIssue, GitItemKind, IssueStart, ListProjectIssues, ListProjectPullRequests,
+    ListProjectThreads, ListThreadChats, OpenThreadChat, ProjectIssue, ProjectPullRequest,
+    ProjectThread, ReplyToThread, ThreadChat, TrackProjectIssue,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -91,6 +91,36 @@ impl From<ProjectThread> for ThreadRow {
     }
 }
 
+/// An open pull request of the project's, anyone's.
+#[derive(Debug, Serialize)]
+pub struct PullRequestRow {
+    number: u64,
+    title: String,
+    url: String,
+    author: String,
+    draft: bool,
+    mine: bool,
+    /// In milliseconds since the Unix epoch.
+    created_at: u64,
+    /// In milliseconds since the Unix epoch.
+    updated_at: u64,
+}
+
+impl From<ProjectPullRequest> for PullRequestRow {
+    fn from(p: ProjectPullRequest) -> Self {
+        Self {
+            number: p.number,
+            title: p.title,
+            url: p.url,
+            author: p.author,
+            draft: p.draft,
+            mine: p.mine,
+            created_at: epoch_ms(p.created_at),
+            updated_at: epoch_ms(p.updated_at),
+        }
+    }
+}
+
 /// A chat about one thread.
 #[derive(Debug, Serialize)]
 pub struct ThreadChatRow {
@@ -165,6 +195,20 @@ pub async fn center_project_threads(
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadRow>>> {
     match beep.call(ListProjectThreads { project_id }).await {
+        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Every open pull request of the project, newest first; `None` from a
+/// server too old to list them.
+#[tauri::command]
+pub async fn center_project_pull_requests(
+    beep: Service<'_>,
+    project_id: Uuid,
+) -> Result<Option<Vec<PullRequestRow>>> {
+    match beep.call(ListProjectPullRequests { project_id }).await {
         Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
