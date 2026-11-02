@@ -21,7 +21,6 @@ export const TOOL_LABELS: Record<string, string> = {
   query_contacts: "Looking up contacts",
   suggest_replies: "Suggesting replies",
   send_file: "Sending a file",
-  mac_files: "Using files on this Mac",
   show_products: "Showing products",
   show_cards: "Showing recommendations",
   show_chart: "Drawing a chart",
@@ -90,7 +89,7 @@ export const TOOL_LABELS: Record<string, string> = {
 // Tools whose own description says more than their name, such as "Reading
 // lease.pdf" or which action of a folded tool runs.
 export const DESCRIBED = new Set([
-  "mac_files", "memory", "skill", "habit", "background", "reminder", "node",
+  "memory", "skill", "habit", "background", "reminder", "node",
   "desktop", "code_agent", "send_file", "exec",
 ]);
 /// A finished step's label in the past tense, as on the phone: "Recalling

@@ -7,9 +7,10 @@ const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,
 });
 
-test("a named card replaces the plain GPU and nothing shows twice", () => {
+test("a graphics card shows as GPU, its model only on hover, and nothing shows twice", () => {
   const m = machine({ capabilities: ["gpu", "docker"], gpus: [{ model: "RTX 4090" }], apps: [{ name: "Docker" }, { name: "Blender" }] });
-  assert.deepEqual(machineCaps(m), ["Docker", "RTX 4090", "Blender"]);
+  assert.deepEqual(machineCaps(m), ["GPU", "Docker", "Blender"]);
+  assert.deepEqual(machineCaps(machine({ capabilities: ["docker"], gpus: [{ model: "RTX 4090" }] })), ["Docker", "GPU"]);
   assert.deepEqual(machineCaps(machine({ capabilities: ["gpu", "xcode"] })), ["GPU", "Xcode"]);
 });
 
