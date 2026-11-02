@@ -5071,7 +5071,8 @@ function agentHints() {
   if (s?.external || s?.status === "ended") return hints([["esc", "back"]]);
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return hints([...paste, [ICON.ret, "send"], ["⌘.", "stop the turn"], ["esc", "back"]]);
+  const stop = AGENT_ACTIVE.has(s?.status) ? [["⌘.", "stop the turn"]] : [];
+  return hints([...paste, [ICON.ret, "send"], ...stop, ["esc", "back"]]);
 }
 
 // ----- Images for the agent -----
@@ -5223,6 +5224,9 @@ function drawAgentBody() {
   if (hint) hint.replaceWith(h(agentHints()));
   const field = $("#agfield");
   if (field) field.style.display = s.status === "ended" ? "none" : "";
+  // Only a turn that runs can be stopped.
+  const stop = $("#agstop");
+  if (stop) stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
   if (b.stuck !== false) b.scrollTop = b.scrollHeight;
 }
 
