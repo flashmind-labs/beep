@@ -1,6 +1,5 @@
 // What the "Add a machine" sheet shows, as pure functions so they can be
 // tested without Tauri. addmachine.js draws it and talks to the app.
-import { MAC_NOT_ALLOWED } from "./home.js";
 
 /// The command that puts beep-node on a machine.
 export const INSTALL = "curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh";
@@ -85,8 +84,6 @@ export function macOption(mac, asked) {
   switch (mac.status) {
     case "connected":
       return asked ? { text: `${name} is linked. It shows under Machines.`, done: true } : null;
-    case "not_allowed":
-      return { text: MAC_NOT_ALLOWED, bad: true };
     case "failed":
       return { text: `Couldn't connect: ${mac.error || "unknown error"}. Beep tries again on its own.`, bad: true };
     default:
