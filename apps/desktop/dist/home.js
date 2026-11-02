@@ -25,6 +25,18 @@ export function machineNow(m) {
   return m.agents ? "working" : "idle";
 }
 
+/// What machine `id` is fetching or scanning for a synced project now, from
+/// the `project_sync` rows, or null when it is idle or in step:
+/// `{ project, pct, text }`, with `pct` null while it scans.
+export function machineSync(id, rows) {
+  const r = (rows || []).find(x => x.machine_id === id && (x.status === "syncing" || x.status === "scanning"));
+  if (!r) return null;
+  if (r.status === "scanning") return { project: r.project, pct: null, text: "Scanning" };
+  const total = r.files + r.pending;
+  const pct = total ? Math.floor((100 * r.files) / total) : 0;
+  return { project: r.project, pct, text: `Syncing, ${pct}%`, files: `${r.files} of ${total} files` };
+}
+
 /// A size in bytes, decimal as disks are sold: "850 MB", "4.3 GB",
 /// "212 GB", "1.2 TB".
 export function bytes(n) {

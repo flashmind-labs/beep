@@ -14,6 +14,7 @@ mod credentials;
 mod desktop;
 mod devices;
 mod error;
+mod file_sync;
 mod gh_sign_in;
 mod grants;
 mod groups;
@@ -188,6 +189,7 @@ fn main() {
             projects::found_projects,
             projects::project_sessions,
             projects::project_machines,
+            file_sync::project_sync,
             projects::open_folder,
             projects::center_projects,
             projects::center_open_project,

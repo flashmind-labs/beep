@@ -8,12 +8,13 @@ import { initPalette, openPalette } from "./palette.js";
 import { initSideResize } from "./sidewidth.js";
 import { connectProblem } from "./connect.js";
 import { withoutDismissed } from "./updates.js";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "./home.js";
+import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.js";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote } from "./projects-state.js";
-import { agentFor, tasksSection, workersSection, chatSection, startSection } from "./project.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects } from "./projects-state.js";
+import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
+import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
 
@@ -62,7 +63,7 @@ const CONNECT_RETRY_MS = 3000;
 /// `sessions` each project's past sessions once read, by name.
 /// `agents` lists the project agents (undefined before, null from a server
 /// without them) and `pview` each one's tasks, workers and chat, by name.
-const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map() };
+const state = { home: null, mac: null, error: null, outcomes: new Map(), shown: false, since: Date.now(), picked: null, found: null, importing: null, foundError: null, sessions: new Map(), where: new Map(), agents: undefined, pview: new Map(), sync: [] };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 
@@ -139,10 +140,10 @@ function addMachineButton(cls) {
   return b;
 }
 
-/// One machine per row: name and OS, agents, what it can run, free disk,
-/// memory in use and what it is doing now.
+/// One machine per row: name and OS, agents, free disk, memory in use,
+/// what it can run and what it is doing now.
 function machineTable(machines) {
-  const table = h("div", "cc-mt", ...["Machine", "Agents", "Can run", "Disk", "Memory", "Now"].map(t => h("span", "th", t)));
+  const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Can run", "Now"].map(t => h("span", "th", t)));
   for (const m of machines) {
     const off = m.online ? "" : " off";
     const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", machineOs(m)));
@@ -151,18 +152,28 @@ function machineTable(machines) {
     const caps = machineCaps(m);
     const can = h("span", `caps${off}`, caps.join(" · ") || "–");
     if (caps.length) can.title = caps.join(", ");
-    const now = h("span", `num${off}`, machineNow(m));
+    const sync = m.online ? machineSync(m.id, state.sync) : null;
+    const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
     const d = machineDisk(m), mem = machineMemory(m);
     const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
     if (d.title) disk.title = d.title;
     const memory = h("span", `num${off}`, mem.text);
     if (mem.title) memory.title = mem.title;
-    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), can, disk, memory, now);
+    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), disk, memory, can, now);
   }
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
   return table;
+}
+
+/// The Now cell of a machine fetching a synced project: a bar and how far.
+function syncCell(sync) {
+  const bar = h("span", "bar", sync.pct == null ? null : h("i"));
+  if (sync.pct != null) bar.firstChild.style.width = `${sync.pct}%`;
+  const cell = h("span", "num sync", bar, h("small", "", sync.text));
+  cell.title = [`${sync.text.split(",")[0]} ${sync.project}`, sync.files].filter(Boolean).join(": ");
+  return cell;
 }
 
 /// This Mac's row while the server does not list it: its state across the
@@ -298,6 +309,13 @@ function updateTime(ms) {
   if (days === 1) return "Yesterday";
   if (days < 7) return at.toLocaleDateString([], { weekday: "short" });
   return at.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+/// When a chat started, for its title line: "09:12" today, then as an
+/// update's time reads.
+function startedWhen(ms) {
+  const t = updateTime(ms);
+  return t === "Yesterday" ? "yesterday" : t;
 }
 
 /// Updates dismissed here that a list may still carry, by id.
@@ -462,7 +480,8 @@ function drawSide() {
   const top = h("div", "cc-grp",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
-  if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { on: () => jump("sec-running") }));
+  // Running opens the coding agents' list, the full view of Home's section.
+  if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [head, h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
@@ -745,16 +764,26 @@ registerSidebarGroup("projects", {
   onTitle: () => openProjects(),
   action: () => plusButton("Add a project", addProject),
   empty: () => emptyRow("No projects yet"),
-  load: async () => projectRows()?.map((p, i) => ({ ...p, i })) ?? null,
+  load: async () => {
+    const rows = projectRows();
+    return rows ? sideProjects(rows) : null;
+  },
   row(p) {
-    const b = sideItem(null, p.name, p.agents, { current: shown === "projects" && state.picked === p.name });
+    // An org's heading; under it only the repo name shows.
+    if (p.org) return h("div", "cc-org", `${p.org}/`);
+    const b = sideItem(null, p.repo ?? p.name, p.agents, { cls: p.repo ? "pj-repo" : "", current: shown === "projects" && state.picked === p.name });
     b.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
     const sw = h("span", "cc-pdot");
     sw.style.background = PROJECT_COLORS[p.i % PROJECT_COLORS.length];
     b.prepend(sw);
     return b;
   },
-  onPick: p => openProjects(p.name),
+  onPick: p => { if (!p.org) openProjects(p.name); },
+  foot() {
+    if (!groups.get("projects").items?.length) return [];
+    const all = sideItem(null, "All projects", 0, { cls: "more", current: shown === "projects" && !state.picked, on: () => openProjects() });
+    return [all];
+  },
 });
 
 // The machines Home lists, each with its online dot. It shows once Home has
@@ -962,20 +991,111 @@ function projectDetail(p) {
   const machines = p.imported ? state.where.get(p.name) : null;
   if (p.imported && machines === undefined) loadWhere(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
+  const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
+  const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
+  if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
+  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running), ...agentBottom(p)];
+}
+
+/// "Where it lives": every machine with the project's folder there, or why
+/// there is none.
+function whereSection(p, rows, known) {
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
   for (const m of rows) where.append(...whereRow(p, m));
-  const whereEl = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
-  if (machines) whereEl.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
-  const out = [whereEl];
-  const inside = (r, m) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
-  const running = (state.home?.running || []).filter(r => p.machines.some(m => inside(r, m)));
+  const el = section("sec-where", "Where it lives", rows.filter(m => m.kind === "here").length, null, where);
+  if (known) el.querySelector("h4").append(h("small", "", `on ${whereCount(rows, true)}`));
+  return el;
+}
+
+/// The coding agents running in the project's folders now.
+function agentsSection(running) {
   const list = running.length
     ? h("div", "cc-panel", ...running.map(runningRow))
     : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
-  out.push(section("sec-project-agents", "Agents", running.length || "", null, list));
-  out.push(sessionsSection(p, running));
-  return [...agentTop(p), ...out, ...agentBottom(p)];
+  return section("sec-project-agents", "Agents", running.length || "", null, list);
+}
+
+// ---------- Project board ----------
+
+/// How a project with an agent shows: "board" or "list", kept for next time.
+const LAYOUT_KEY = "beep.center.projectLayout";
+let layout = "board";
+try { layout = localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "board"; } catch {}
+
+function setLayout(to) {
+  layout = to;
+  pa.tile = null;
+  try { localStorage.setItem(LAYOUT_KEY, to); } catch {}
+  redrawProjects();
+  drawTop();
+}
+
+/// The board shows for an imported project whose agent's view has loaded.
+function boardOn(p) {
+  return layout === "board" && p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
+}
+
+/// Opens tile `key` in place of the board, or goes back with null.
+function openTile(key) {
+  pa.tile = key;
+  redrawProjects();
+  $("#main .cc-view")?.scrollTo({ top: 0 });
+}
+
+/// The board: what the project chat waits on, then a tile per kind of
+/// thing, or one tile's full list once its header is clicked.
+function projectBoard(p, rows, known, running) {
+  const pv = state.pview.get(p.name);
+  const view = pv.view;
+  const sessions = state.sessions.get(p.name);
+  if (sessions === undefined) loadSessions(p.name);
+  const out = [];
+  if (pv.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", `Could not refresh the project: ${pv.error}`)));
+  const chat = agentBottom(p)[0];
+  if (pa.tile !== "chat") {
+    const needs = cardsSection(view, chatActs(p));
+    if (needs) out.push(needs);
+  }
+  const full = {
+    tasks: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))],
+    prs: () => [prsSection(view, agentActs)],
+    machines: () => [whereSection(p, rows, known)],
+    agents: () => [agentsSection(running), sessionsSection(p, running)],
+    chat: () => [chat],
+  };
+  if (pa.tile && full[pa.tile]) {
+    out.push(backRow(() => openTile(null)), ...full[pa.tile]());
+    return out;
+  }
+  const past = sessions ? pastSessions(sessions, running) : [];
+  const openUrl = agentActs.openUrl;
+  out.push(h("div", "pb-grid",
+    tile("tasks", "Tasks", taskTile(view.tasks), openTile),
+    tile("prs", "Pull requests", prTile(view.tasks), openTile, { openUrl }),
+    tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
+    tile("agents", "Agents", agentTile(running, past), openTile),
+    chatTile(recentTurns(view.turns, pa.sending?.name === p.name ? pa.sending.text : null), openTile)));
+  return out;
+}
+
+/// What the project chat's cards do, for the board and the chat section.
+function chatActs(p) {
+  const agent = agentFor(state.agents, p.name);
+  return { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) };
+}
+
+/// The Board and List switch in the header of a project with an agent.
+function layoutSwitch() {
+  const seg = h("span", "pb-seg");
+  for (const [key, label] of [["board", "Board"], ["list", "List"]]) {
+    const b = h("button", "", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(layout === key));
+    b.addEventListener("click", () => { if (layout !== key) setLayout(key); });
+    seg.append(b);
+  }
+  return seg;
 }
 
 // ---------- Project agent ----------
@@ -985,7 +1105,8 @@ function projectDetail(p) {
 /// way to the project chat, `starting` the project whose chat is being made
 /// and `startError` why that failed. `remembered` is set once the window
 /// made the project chat its current chat.
-const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false };
+/// `tile` is the board tile opened in place of the board, null for the board.
+const pa = { busy: new Set(), errors: new Map(), outcomes: new Map(), sending: null, starting: null, startError: null, remembered: false, tile: null };
 
 function redrawProjects() {
   if (shown === "projects") drawProjects(views.get("projects").el);
@@ -1043,9 +1164,8 @@ function agentBottom(p) {
   const view = state.pview.get(p.name)?.view;
   if (!view) return [section("sec-project-chat", "Project chat", "", null, h("div", "cc-panel cc-empty", h("span", "", "Reading the project chat…")))];
   return [chatSection(view, {
-    ...agentActs,
+    ...chatActs(p),
     sending: pa.sending?.name === p.name ? pa.sending.text : null,
-    answer: (c, decision, said) => answerCard(agent, c, decision, said),
     openChat: () => go("pane", { chat: { session: agent.chat_id } }),
   })];
 }
@@ -1153,6 +1273,8 @@ async function loadProjectAgent() {
     agentLoading = false;
   }
   redrawProjects();
+  // The header's Board and List switch shows once the project has an agent.
+  if (shown === "projects") drawTop();
   if (agentAgain) { agentAgain = false; loadProjectAgent(); }
 }
 
@@ -1328,18 +1450,20 @@ function drawProjects(el) {
 
 registerView("projects", {
   title() {
-    const tools = [importButton("small")];
-    if (state.picked) {
-      const p = filterProjects(projectRows() || [], state.picked)[0];
-      if (p?.url) tools.unshift(button(`Open on ${hostOf(p.url) === "github.com" ? "GitHub" : hostOf(p.url)}`, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
-      tools.unshift(button("All projects", "quiet small", () => openProjects()));
-    }
-    return { title: state.picked || "Projects", sub: state.picked ? "Project" : "Repositories on your machines", tools };
+    if (!state.picked) return { title: "Projects", sub: "Repositories on your machines", tools: [importButton("small")] };
+    const p = filterProjects(projectRows() || [], state.picked)[0];
+    const tools = [];
+    if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
+    const label = p?.url ? openOnLabel(p.url) : null;
+    if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+    tools.push(button("All projects", "quiet small", () => openProjects()));
+    return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
   mount(el, arg) {
     state.picked = arg?.project || null;
     if (state.picked) { state.sessions.delete(state.picked); state.where.delete(state.picked); }
     pa.startError = null;
+    pa.tile = null;
     drawProjects(el);
     if (!state.picked) loadFound();
     refresh();
@@ -1389,7 +1513,8 @@ function paneTitle() {
   if (on.view === "chat") {
     const c = chatList.find(x => x.id === on.session);
     // A chat just started is not in the list until the server has it.
-    return { title: c?.title ?? "New chat", tools: c ? [pinButton(c)] : [] };
+    const at = pane().startedAt?.();
+    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [] };
   }
   if (on.group) {
     const g = chatList.find(x => x.id === on.group);
@@ -1527,9 +1652,14 @@ window.beepSettingsAway = view => {
 
 initSideResize($(".cwin"), $("#side-grip"));
 
-initPalette({ go, jump, pane, findIcon: IC.find });
+initPalette({ go, jump, pane, settings: openSettings, project: openProjects, findIcon: IC.find });
 
 document.addEventListener("keydown", e => {
+  // Esc on an opened board tile goes back to the board.
+  if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
+    e.preventDefault();
+    return openTile(null);
+  }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
   if (key === "k") { e.preventDefault(); return openPalette(); }
@@ -1549,11 +1679,14 @@ async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    const [home, mac] = await Promise.all([
+    const [home, mac, sync] = await Promise.all([
       invoke("center_home"),
       invoke("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
+      // Sync progress only adds to the Now column; Home draws without it.
+      invoke("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
     ]);
     state.mac = mac;
+    state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;
     state.error = null;

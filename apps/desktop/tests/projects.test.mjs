@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount, sideProjects } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -211,4 +211,11 @@ test("an old server's page lists the imported folders", () => {
   const rows = whereRows({ machines: [{ id: "m1", name: "build-box", folder: "/srv/app" }] }, null, null);
   assert.deepEqual(rows, [{ kind: "here", id: "m1", name: "build-box", folder: "/srv/app", mac: false }]);
   assert.equal(whereCount(rows, false), "1 machine");
+});
+
+test("the sidebar groups projects by org and keeps each one's colour index", () => {
+  const rows = sideProjects([{ name: "acme/widget" }, { name: "scratch" }, { name: "north/pines" }, { name: "acme/relay" }]);
+  assert.deepEqual(rows.map(r => r.org ?? r.repo ?? r.name), ["acme", "widget", "relay", "north", "pines", "scratch"]);
+  assert.deepEqual(rows.filter(r => !r.org).map(r => r.i), [0, 3, 2, 1]);
+  assert.deepEqual(sideProjects(null), []);
 });
