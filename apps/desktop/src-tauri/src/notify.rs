@@ -182,12 +182,14 @@ mod mac {
 
     impl Slot {
         fn take() -> Option<Self> {
-            WAITING
-                .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                    (n < WAITERS).then_some(n + 1)
-                })
-                .ok()
-                .map(|_| Self)
+            let mut n = WAITING.load(Ordering::Acquire);
+            while n < WAITERS {
+                match WAITING.compare_exchange_weak(n, n + 1, Ordering::AcqRel, Ordering::Acquire) {
+                    Ok(_) => return Some(Self),
+                    Err(now) => n = now,
+                }
+            }
+            None
         }
     }
 
