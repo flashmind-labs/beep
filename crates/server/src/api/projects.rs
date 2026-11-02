@@ -90,7 +90,7 @@ pub(super) async fn dismiss_project_issue(cx: Cx, req: DismissProjectIssue) -> R
     dismiss_issue(&cx.user, ProjectId(req.project_id), req.number).await
 }
 
-fn issue_refusal(error: IssueError) -> ApiError {
+pub(super) fn issue_refusal(error: IssueError) -> ApiError {
     match error {
         IssueError::Refused(why) => ApiError::bad_request(why),
         tracked @ IssueError::Tracked(_) => ApiError::Conflict {
@@ -224,7 +224,7 @@ async fn agent_of(user: &User, project: &ProjectRow) -> Reply<ProjectAgent> {
     })
 }
 
-async fn project_of(user: &User, id: ProjectId) -> Reply<ProjectRow> {
+pub(super) async fn project_of(user: &User, id: ProjectId) -> Reply<ProjectRow> {
     user.project(id).await?.ok_or(ApiError::NotFound {})
 }
 

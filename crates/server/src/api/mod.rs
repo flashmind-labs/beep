@@ -42,6 +42,7 @@ mod reviews;
 mod sessions;
 mod settings;
 mod terminals;
+mod threads;
 mod transcribe;
 mod updates;
 mod work;
@@ -275,6 +276,10 @@ pub fn router() -> Router {
         .call(agent_found::list_project_sessions)
         .call(agent_control::resume_agent_session)
         .call(git_items::list_git_items)
+        .call(threads::list_project_threads)
+        .call(threads::reply_to_thread)
+        .call(threads::open_thread_chat)
+        .call(threads::list_thread_chats)
 }
 
 type Reply<T> = Result<T, ApiError>;

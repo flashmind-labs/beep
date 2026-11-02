@@ -35,11 +35,11 @@ use crate::{
         CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite,
         IssueAuthor, Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES,
         McpServerRow, MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey,
-        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow,
-        OpenCounts, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow,
-        PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch,
-        SkillRow, StartRefused, Store, StoredContext, StoredMessage, SyncRow, TaskRow,
-        TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
+        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewThreadChat,
+        NewWorker, NodeRow, OpenCounts, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead,
+        ProjectRow, PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner,
+        SkillPatch, SkillRow, StartRefused, Store, StoredContext, StoredMessage, SyncRow, TaskRow,
+        ThreadChatRow, TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -1758,6 +1758,33 @@ impl User {
 
     pub(crate) async fn note_issue_comment(&self, task: TaskId, once: bool) -> Result<bool> {
         self.store.note_issue_comment(task, once).await
+    }
+
+    /// The chat about one thread of `project`, made on the first ask.
+    pub(crate) async fn open_thread_chat(
+        &self,
+        project: ProjectId,
+        new: &NewThreadChat<'_>,
+    ) -> Result<ThreadChatRow> {
+        self.store.open_thread_chat(&self.key, project, new).await
+    }
+
+    pub(crate) async fn thread_chats(&self, project: ProjectId) -> Result<Vec<ThreadChatRow>> {
+        self.store.thread_chats(project).await
+    }
+
+    /// The thread `chat` is about, when it is a thread chat.
+    pub(crate) async fn thread_in(&self, chat: Uuid) -> Result<Option<ThreadChatRow>> {
+        self.store.thread_in(&self.key, chat).await
+    }
+
+    pub(crate) async fn note_thread_reply(
+        &self,
+        project: ProjectId,
+        repo: &str,
+        number: u64,
+    ) -> Result<bool> {
+        self.store.note_thread_reply(project, repo, number).await
     }
 
     pub(crate) async fn project_tasks(&self, project: ProjectId) -> Result<Vec<TaskRow>> {
