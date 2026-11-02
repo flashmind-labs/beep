@@ -341,12 +341,11 @@ pub async fn agent_images(
     machine_id: String,
     session: String,
 ) -> Result<Vec<AgentImage>> {
-    Ok(beep
-        .call(ListAgentImages {
-            machine_id,
-            session,
-        })
-        .await?)
+    beep.call(ListAgentImages {
+        machine_id,
+        session,
+    })
+    .await
 }
 
 #[tauri::command]
