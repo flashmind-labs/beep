@@ -104,7 +104,12 @@ function scheduleText(s) {
 
 // ---------- Pieces ----------
 
-function dot(m) { return h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`); }
+/// Green online, yellow with agents running there, grey offline.
+function dot(m) {
+  const el = h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`);
+  el.title = !m.online ? "Offline" : m.agents ? `Online · ${m.agents === 1 ? "1 agent" : `${m.agents} agents`} running` : "Online";
+  return el;
+}
 
 /// A Home section: its title and count, an optional button on the right,
 /// then its body.
