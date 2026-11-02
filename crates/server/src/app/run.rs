@@ -31,7 +31,7 @@ use crate::{
     steps::{self, TurnsByTime},
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
-    tool_cost,
+    tool_attachments, tool_cost,
     tools::{self, media},
     user::User,
     wake,
@@ -320,6 +320,14 @@ impl App {
             paper: research.is_some(),
             copy_into,
         });
+        registry.register(Arc::new(tools::AttachTool {
+            workspace: workspace.clone(),
+            machines: use_machines.then(|| tools::machines::Machines {
+                app: self.clone(),
+                user: user.clone(),
+            }),
+            describer: self.describer(user, &model, false),
+        }));
         registry.register(Arc::new(tools::SendImageTool {
             user: user.clone(),
             session_id: chat,
@@ -1140,7 +1148,7 @@ impl App {
             });
         }
         // A routine's turn joins the chat's context, unless it stayed silent.
-        let stored = chat_context.map(|mut chat_context| {
+        let mut stored = chat_context.map(|mut chat_context| {
             if !silent {
                 // Showing the turn drops the chat's waiting card, so the
                 // call it asked about is answered as not done rather than
@@ -1157,6 +1165,11 @@ impl App {
         // Keep facts in the saved context only while their stored values still
         // match. Compaction drops them so a later turn can recall them again.
         conversation.strip_memories();
+        // Files tools showed the model are not saved; only a note stays.
+        tool_attachments::drop_attachments(&mut conversation);
+        if let Some(stored) = &mut stored {
+            tool_attachments::drop_attachments(stored);
+        }
         if !was_compacted && !recalled.is_empty() {
             match timeout(MEMORY_RECALL_TIMEOUT, user.memory_rows()).await {
                 Ok(Ok(rows)) => {
