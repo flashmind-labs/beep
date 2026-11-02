@@ -2419,7 +2419,7 @@ function sendRow(onPause) {
 /// bar it is the bar's page; in the window it is a sheet over the view
 /// (`SET.root`), which `settingsSheet` opens.
 const SET = { root: null, token: 0, devices: null, machines: undefined, confirm: false };
-const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["creds", "Credentials"], ["general", "General"]];
+const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["creds", "Credentials"], ["instr", "Instructions"], ["general", "General"]];
 
 /// Settings, Credentials (`credentials.js` draws it). `list` is undefined
 /// until the server answers and null when it failed; `edit` is the row
@@ -2667,6 +2667,9 @@ function bindSettings(el) {
   $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
   $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
   $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
+  // Instructions is a view of the window: the sheet closes onto it, and
+  // the bar hands it over.
+  $in("#openInstr")?.addEventListener("click", () => (window.beepOpenInstructions ? window.beepOpenInstructions() : toWindow("instructions")));
   el.querySelectorAll("[data-remove]").forEach(b => b.addEventListener("click", async () => {
     b.disabled = true;
     try {
@@ -2781,6 +2784,7 @@ async function renderSettings(confirm = false, root = undefined) {
     + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
     + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
     + (linked ? sec("creds", "Credentials", setCredsHtml()) : "")
+    + (linked ? sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`) : "")
     + `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>

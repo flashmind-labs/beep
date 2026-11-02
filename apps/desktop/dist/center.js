@@ -14,6 +14,7 @@ import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
 import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "./projects-state.js";
 import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
+import { registerInstructions } from "./instructions.js";
 import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
 const $ = sel => document.querySelector(sel);
@@ -1678,6 +1679,7 @@ async function takePending(fallback) {
   const target = await invoke("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
   if (target === "home") return go("home");
+  if (target === "instructions") return go("instructions");
   go("pane", target);
   // Home is not on screen, but the sidebar counts come from it.
   refresh();
@@ -1757,6 +1759,13 @@ function trapTab(e, sheet) {
 }
 
 window.beepOpenSettings = openSettings;
+/// Settings' Instructions row: the sheet closes and the view shows.
+window.beepOpenInstructions = () => {
+  closeSettings();
+  go("instructions");
+};
+
+registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 /// A page Settings leads to, such as Apps: the sheet closes and the pane
 /// shows it; null only closes.
 window.beepSettingsAway = view => {

@@ -826,6 +826,69 @@ requests! {
     /// each state, its live workers and its latest task, by name: what the
     /// Projects overview shows, in one call instead of one per project.
     195 ListProjectOverview {} => Call<Vec<ProjectOverview>>
+    /// The newest version of the caller's instructions for every agent
+    /// Beep runs, or `None` before the first save.
+    196 GetInstructions {} => Call<Option<InstructionsVersion>>
+    /// Saves `text` as the next version of the caller's instructions, at
+    /// most 16 KB. `base` is the version the text was edited from (`None`
+    /// for the first); `Conflict` when a newer one was saved since, so an
+    /// edit on another device is never overwritten. `note` says what made
+    /// it, such as "Restored version 3"; empty for an edit.
+    197 SaveInstructions { text: String, base: Option<u32>, note: String } => Call<InstructionsVersion>
+    /// The versions of the caller's instructions, newest first, at most 50.
+    198 ListInstructionsVersions {} => Call<Vec<InstructionsVersion>>
+    /// The agent files on each of the caller's online machines: Claude
+    /// Code's `~/.claude/CLAUDE.md`, Codex's `~/.codex/AGENTS.md`, Gemini
+    /// CLI's `~/.gemini/GEMINI.md` and pi's `~/.pi/agent/AGENTS.md`, for
+    /// each agent whose folder is there. A machine that cannot be read
+    /// says why in `error`.
+    199 ReadAgentFiles {} => Call<Vec<MachineAgentFiles>>
+    /// Writes the newest instructions into each agent file on one machine,
+    /// between `<!-- beep:start -->` and `<!-- beep:end -->`, for each
+    /// agent whose folder is there; text outside the markers stays. Gives
+    /// the files as they are after. `NotFound` when the machine is not one
+    /// of the caller's online ones; `BadRequest` before the first save or
+    /// when the machine refuses.
+    200 SyncAgentFiles { machine_id: String } => Call<MachineAgentFiles>
+}
+
+/// One saved version of the user's instructions.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InstructionsVersion {
+    /// 1 for the first save, then one more each time.
+    pub version: u32,
+    /// Markdown.
+    pub text: String,
+    /// What made it, such as "Restored version 3"; empty for an edit.
+    pub note: String,
+    pub saved_at: SystemTime,
+}
+
+/// The agent files on one machine, as `ReadAgentFiles` reads them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineAgentFiles {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub files: Vec<AgentFile>,
+    /// Why the machine could not be read or written; `files` is then empty.
+    pub error: Option<String>,
+}
+
+/// One coding agent's instructions file on a machine.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentFile {
+    /// `claude`, `codex`, `gemini` or `pi`.
+    pub agent: String,
+    /// Under the home folder, such as `~/.claude/CLAUDE.md`.
+    pub path: String,
+    /// Its text; `None` when the agent's folder is there but the file is
+    /// not.
+    pub text: Option<String>,
+    /// It holds the newest instructions between Beep's markers.
+    pub synced: bool,
 }
 
 /// One project as `ListProjectOverview` sums it up.

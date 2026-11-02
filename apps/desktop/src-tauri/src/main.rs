@@ -20,6 +20,7 @@ mod grants;
 mod groups;
 mod hotkey;
 mod identity;
+mod instructions;
 mod logfile;
 mod login_path;
 mod machine;
@@ -195,6 +196,11 @@ fn main() {
             projects::center_projects,
             projects::projects_on_top,
             overview::project_overview,
+            instructions::instructions_get,
+            instructions::instructions_save,
+            instructions::instructions_versions,
+            instructions::agent_files_read,
+            instructions::agent_files_sync,
             projects::pin_project_to_top,
             projects::center_open_project,
             projects::center_project,
