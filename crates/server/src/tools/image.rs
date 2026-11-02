@@ -148,7 +148,7 @@ impl SendImageTool {
 }
 
 /// The MIME type of an image the phone can show, by its first bytes.
-fn image_mime(data: &[u8]) -> Option<&'static str> {
+pub(super) fn image_mime(data: &[u8]) -> Option<&'static str> {
     match imagesize::image_type(data).ok()? {
         ImageType::Png => Some("image/png"),
         ImageType::Jpeg => Some("image/jpeg"),

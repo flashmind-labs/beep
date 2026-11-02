@@ -31,7 +31,8 @@ use crate::{
     steps::{self, TurnsByTime},
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
     timing::{Output, TurnTimer},
-    tool_cost, tools,
+    tool_cost,
+    tools::{self, media},
     user::User,
     wake,
     workspace::Workspace,
@@ -408,6 +409,11 @@ impl App {
             None => tools,
         };
         tools.push(send_file);
+        // Media made with the user's own keys spends their money, so it
+        // asks first, and a turn on untrusted text never gets it.
+        if !untrusted {
+            tools.extend(self.media_tools(user, chat, workspace.clone()).await);
+        }
         // A setup token grants access to the account, and an import clones
         // with the user's tokens, so both ask first too.
         if use_machines {
@@ -1305,6 +1311,37 @@ impl App {
             updated_at: None,
         });
         Ok(())
+    }
+
+    /// The media tools `user`'s API keys make, none when they have no key
+    /// for one or the keys cannot be read.
+    async fn media_tools(
+        &self,
+        user: &Arc<User>,
+        chat: Uuid,
+        workspace: Option<Arc<Workspace>>,
+    ) -> Vec<Arc<dyn Tool>> {
+        let keys = match user.api_keys(&self.credential_key).await {
+            Ok(keys) => media::Keys::new(keys),
+            Err(error) => {
+                log::warn!("media: unable to read the API keys; user={user} error={error:#}");
+                return Vec::new();
+            }
+        };
+        let endpoints = match media::Endpoints::public() {
+            Ok(endpoints) => endpoints,
+            Err(error) => {
+                log::warn!("media: bad endpoint; error={error:#}");
+                return Vec::new();
+            }
+        };
+        media::tools(media::Media {
+            user: user.clone(),
+            chat,
+            workspace,
+            keys,
+            endpoints,
+        })
     }
 
     /// The tasks `user` has scheduled, other than the routine running now,

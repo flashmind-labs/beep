@@ -1842,6 +1842,10 @@ pub enum ApiProvider {
     DeepSeek,
     Moonshot,
     Zai,
+    /// Images and videos.
+    Venice,
+    /// 3D models.
+    Meshy,
 }
 
 impl ApiProvider {
@@ -1866,6 +1870,8 @@ impl ApiProvider {
             Self::DeepSeek => "DeepSeek",
             Self::Moonshot => "Moonshot",
             Self::Zai => "Z.ai",
+            Self::Venice => "Venice",
+            Self::Meshy => "Meshy",
         }
     }
 
@@ -1880,6 +1886,8 @@ impl ApiProvider {
             Self::DeepSeek => "DEEPSEEK_API_KEY",
             Self::Moonshot => "MOONSHOT_API_KEY",
             Self::Zai => "ZAI_API_KEY",
+            Self::Venice => "VENICE_API_KEY",
+            Self::Meshy => "MESHY_API_KEY",
         }
     }
 }

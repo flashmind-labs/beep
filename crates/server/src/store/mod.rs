@@ -71,6 +71,7 @@ pub(crate) use agent_images::{AgentSessionOf, NewAgentImage};
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
+pub(crate) use credentials::ApiKey;
 pub use credentials::{
     AgentTokenRow, CredentialRow, GitHubAccountRow, GitLogin, NewCredential, NewGitHubAccount,
 };

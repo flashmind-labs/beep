@@ -1,0 +1,14 @@
+{
+  "id": "generate-image-1767225600-abc123",
+  "images": ["iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA="],
+  "request": {
+    "model": "qwen-image-2",
+    "prompt": "a red fox in the snow"
+  },
+  "timing": {
+    "inferenceDuration": 2104,
+    "inferencePreprocessingTime": 12,
+    "inferenceQueueTime": 30,
+    "total": 2160
+  }
+}

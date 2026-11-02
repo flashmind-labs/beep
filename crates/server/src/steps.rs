@@ -147,8 +147,14 @@ pub fn steps(
 }
 
 /// The tools whose results the apps show as what Beep sent: pictures and
-/// files.
-const SENT_TOOLS: &[&str] = &[tools::SEND_IMAGE, tools::file::NAME];
+/// files, the media made with the user's keys among them.
+const SENT_TOOLS: &[&str] = &[
+    tools::SEND_IMAGE,
+    tools::file::NAME,
+    "image_gen",
+    "video_gen",
+    "3d_gen",
+];
 
 /// What a routine told the user: the text it wrote with its `notify_user`
 /// call, in the same message or the first one after it. A sign-off after
