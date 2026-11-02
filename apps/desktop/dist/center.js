@@ -12,7 +12,7 @@ import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machin
 import { openAddMachine as openAddMachineSheet } from "./addmachine.js";
 import { openImportProject } from "./importproject.js";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.js";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine } from "./projects-state.js";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects } from "./projects-state.js";
 import { agentFor, tasksSection, workersSection, chatSection, startSection, cardsSection, prsSection, recentTurns } from "./project.js";
 import { tile, chatTile, backRow, taskTile, prTile, machineTile, agentTile } from "./board.js";
 
@@ -747,16 +747,26 @@ registerSidebarGroup("projects", {
   onTitle: () => openProjects(),
   action: () => plusButton("Add a project", addProject),
   empty: () => emptyRow("No projects yet"),
-  load: async () => projectRows()?.map((p, i) => ({ ...p, i })) ?? null,
+  load: async () => {
+    const rows = projectRows();
+    return rows ? sideProjects(rows) : null;
+  },
   row(p) {
-    const b = sideItem(null, p.name, p.agents, { current: shown === "projects" && state.picked === p.name });
+    // An org's heading; under it only the repo name shows.
+    if (p.org) return h("div", "cc-org", `${p.org}/`);
+    const b = sideItem(null, p.repo ?? p.name, p.agents, { cls: p.repo ? "pj-repo" : "", current: shown === "projects" && state.picked === p.name });
     b.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
     const sw = h("span", "cc-pdot");
     sw.style.background = PROJECT_COLORS[p.i % PROJECT_COLORS.length];
     b.prepend(sw);
     return b;
   },
-  onPick: p => openProjects(p.name),
+  onPick: p => { if (!p.org) openProjects(p.name); },
+  foot() {
+    if (!groups.get("projects").items?.length) return [];
+    const all = sideItem(null, "All projects", 0, { cls: "more", current: shown === "projects" && !state.picked, on: () => openProjects() });
+    return [all];
+  },
 });
 
 // The machines Home lists, each with its online dot. It shows once Home has
