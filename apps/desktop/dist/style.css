@@ -609,7 +609,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcoderen.other { font-size: 12.5px; color: var(--muted) }
 #agentGo { flex: none; align-self: center; font-size: 12.5px }
 /* Images waiting to go to a coding agent, and those sent, as in the mock. */
-.ag-att { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px 0; align-items: center }
+.ag-att { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; align-items: center }
 .ag-att .chip { position: relative; display: flex; align-items: center; gap: 8px; max-width: 240px; padding: 4px 26px 4px 4px; border-radius: 8px; border: 1px solid var(--border); background: var(--elev); font-size: 12px; color: var(--muted) }
 .ag-att .chip img { display: block; width: 36px; height: 26px; border-radius: 5px; object-fit: cover; flex: none }
 .ag-att .chip .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
