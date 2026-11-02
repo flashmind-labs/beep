@@ -183,6 +183,7 @@ sample_struct! {
     SkippedFile { path, folder, rule }
     NodeToken { token, expires_at }
     ImportedProject { project, url, machine_id, machine_name, folder, cloned, imported_at }
+    MachineFolder { path, parent, exists, folders, more, empty, origin }
 }
 
 macro_rules! sample_values {
