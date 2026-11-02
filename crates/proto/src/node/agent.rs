@@ -337,7 +337,7 @@ pub enum SessionsRequest {
         sessions: Vec<String>,
     },
     /// The git checkouts coding agents worked in, from the sessions Claude
-    /// Code, Codex, pi and flsh keep: at most `limit`, newest activity
+    /// Code, Codex, pi, flsh and OpenCode keep: at most `limit`, newest activity
     /// first. Answered with `Folders`. A node from before it answers
     /// `Error` or closes the stream.
     Folders {
