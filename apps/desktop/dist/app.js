@@ -2423,7 +2423,9 @@ const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Ma
 /// Settings, Credentials (`credentials.js` draws it). `list` is undefined
 /// until the server answers and null when it failed; `edit` is the row
 /// whose token is being typed.
-const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "" };
+/// `cli` is what gh and teacli on this Mac are signed in to, `cliBusy` the
+/// sign-in being saved and `cliError` why one was refused.
+const CRED = { mod: null, list: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null };
 const credModule = () => import("./credentials.js").then(m => (CRED.mod = m));
 
 function setCredsHtml() {
@@ -2434,8 +2436,21 @@ function setCredsHtml() {
   return CRED.mod.credentialsHtml(CRED, machines, esc, when);
 }
 
+/// Asks gh and teacli on this Mac what they are signed in to, then redraws.
+async function loadCliLogins() {
+  try {
+    CRED.cli = await invoke("cli_logins");
+  } catch (e) {
+    console.warn(e);
+    CRED.cli = null;
+  }
+  // Not while a token is typed: the redraw would drop it.
+  if (setShown() && CRED.list && !setRoot().querySelector("#credSecret")?.value) fillSection("creds", setCredsHtml());
+}
+
 /// Lists the credentials again and redraws their section.
 async function loadCreds() {
+  loadCliLogins();
   try {
     const [, list, providers] = await Promise.all([credModule(), invoke("list_credentials"), invoke("credential_providers")]);
     CRED.list = list;
@@ -2465,6 +2480,31 @@ function bindCreds(el) {
       console.warn(e);
     }
     await loadCreds();
+  }));
+  // Saves the token gh or teacli here holds; the token never reaches the page.
+  el.querySelectorAll("[data-cred-cli]").forEach(b => b.addEventListener("click", async () => {
+    const key = b.dataset.credCli;
+    const host = CRED.mod?.cliHost(key);
+    if (!host || CRED.cliBusy) return;
+    CRED.cliBusy = key;
+    CRED.cliError = null;
+    redraw();
+    try {
+      await invoke("use_cli_login", { host });
+    } catch (e) {
+      CRED.cliError = { key, message: String(e) };
+    }
+    CRED.cliBusy = "";
+    await loadCreds();
+  }));
+  el.querySelectorAll("[data-cred-recheck]").forEach(b => b.addEventListener("click", () => {
+    b.disabled = true;
+    loadCliLogins();
+  }));
+  el.querySelectorAll("[data-cred-open]").forEach(a => a.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    invoke("open_url", { url: a.dataset.credOpen }).catch(console.warn);
   }));
   $in("#credCancel")?.addEventListener("click", () => { CRED.edit = null; CRED.error = ""; redraw(); });
   const save = async () => {
