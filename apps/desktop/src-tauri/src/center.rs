@@ -35,7 +35,7 @@ pub const LABEL: &str = "center";
 const MIN_WIDTH: f64 = 1000.0;
 const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
-const SHARE: f64 = 0.82;
+const SHARE: f64 = 0.95;
 /// Labels of the windows that each show one project.
 const PROJECT_PREFIX: &str = "project-";
 /// How far each project window opens down and right of the one before.
