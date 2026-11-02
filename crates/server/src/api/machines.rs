@@ -1,6 +1,6 @@
 //! The machines running beep-node, for the app's Machines screen.
 
-use super::Reply;
+use super::{Reply, devices::unlink};
 use crate::{
     nodes::{self, Sampled, TokenRefusal},
     protocol::{
@@ -11,6 +11,7 @@ use crate::{
     router::Cx,
     store::NodeRow,
 };
+use iroh::EndpointId;
 use std::collections::HashSet;
 
 /// The caller's own machines. A machine whose key was unlinked is left
@@ -34,6 +35,31 @@ pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>
             machine(node, online)
         })
         .collect())
+}
+
+/// Unlinks one of the caller's machines, connected or not. A machine that
+/// went away for good is the usual case, so nothing waits on it: its key
+/// is revoked and its rows go, and a connection it still has is dropped.
+pub(super) async fn remove_machine(
+    cx: Cx,
+    RemoveMachine { machine_id }: RemoveMachine,
+) -> Reply<()> {
+    let key: EndpointId = machine_id.parse().map_err(|_| ApiError::NotFound {})?;
+    if key == cx.connection.remote_id() {
+        return Err(ApiError::bad_request(
+            "This is the machine you are on. Unlink it from Settings.",
+        ));
+    }
+    let listed = cx
+        .user
+        .nodes()
+        .await?
+        .iter()
+        .any(|node| node.endpoint == machine_id);
+    if !listed {
+        return Err(ApiError::NotFound {});
+    }
+    unlink(&cx, key).await
 }
 
 /// The caller's own machines, like `list_machines`. A machine that has

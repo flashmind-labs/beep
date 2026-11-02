@@ -3,9 +3,10 @@
 
 use crate::{
     beep::{Beep, epoch_ms},
-    error::Result,
+    error::{DesktopError, Result},
+    projects::unknown_op,
 };
-use beep_proto::{ListMachines, Machine, MachineEnv};
+use beep_proto::{ListMachines, Machine, MachineEnv, RemoveMachine};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
@@ -57,4 +58,16 @@ impl MachineView {
 pub async fn list_machines(beep: Service<'_>) -> Result<Vec<MachineView>> {
     let machines = beep.call(ListMachines {}).await?;
     Ok(machines.into_iter().map(MachineView::from).collect())
+}
+
+/// Unlinks one of the account's machines, online or not. The server drops
+/// its connection if it has one and refuses its node from then on.
+#[tauri::command]
+pub async fn remove_machine(beep: Service<'_>, id: String) -> Result<()> {
+    match beep.call(RemoveMachine { machine_id: id }).await {
+        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
+            "The server needs an update before machines can be removed here.".into(),
+        )),
+        done => done,
+    }
 }

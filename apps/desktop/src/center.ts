@@ -16,7 +16,7 @@ import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectS
 import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, el as h } from "./projects-state.ts";
 import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
-import { openMenu } from "./menu.ts";
+import { confirmSheet, openMenu } from "./menu.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads, outsideTitle } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "./project.ts";
@@ -272,7 +272,9 @@ function machineTable(machines: MachineCard[]) {
     if (d.title) disk.title = d.title;
     const memory = h("span", `num${off}`, mem.text);
     if (mem.title) memory.title = mem.title;
-    table.append(name, h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–"), disk, memory, can, now);
+    const agents = h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–");
+    table.append(name, agents, disk, memory, can, now);
+    machineMenu(m, name, agents, disk, memory, can, now);
   }
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
@@ -310,6 +312,45 @@ async function useThisMac() {
   reloadGroup("machines");
   // The link takes a moment; Home looks again soon after.
   for (const ms of [1500, 5000]) setTimeout(refresh, ms);
+}
+
+/// A machine the window can offer to remove: any but this Mac, which
+/// unlinks from Settings.
+interface Removable {
+  id: string;
+  name: string;
+  online?: boolean;
+}
+
+/// Right-clicking `els` opens the menu for machine `m`, offline or not.
+function machineMenu(m: Removable, ...els: Element[]) {
+  for (const el of els) el.addEventListener("contextmenu", e => openMachineMenu(e as MouseEvent, m));
+}
+
+/// The menu for machine `m` where `e` was clicked; none for this Mac.
+function openMachineMenu(e: MouseEvent, m: Removable) {
+  if (!m.id || m.id === state.mac?.id) return;
+  openMenu(e, m.name, [{ label: "Remove…", warn: true, on: () => removeMachine(m) }]);
+}
+
+/// Asks, then unlinks `m` from the account.
+function removeMachine(m: Removable) {
+  confirmSheet({
+    title: `Remove ${m.name}?`,
+    text: m.online === false
+      ? "It is unlinked from your account. If it comes back online, it is turned away."
+      : "It is unlinked from your account and stops taking work. Agents running there stop with it.",
+    note: "Its files stay on the machine. To use it again, add it with a new setup command.",
+    action: "Remove",
+    run: async () => {
+      await invoke("remove_machine", { id: m.id });
+      if (state.home) state.home = { ...state.home, machines: state.home.machines?.filter(x => x.id !== m.id) ?? null };
+      state.where.clear();
+      draw();
+      reloadGroup("machines");
+      refresh();
+    },
+  });
 }
 
 function machinesSection(machines: MachineCard[]) {
@@ -1173,6 +1214,7 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
     const b = sideItem(null, m.name, m.agents || 0);
     b.prepend(dot(m));
     b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
+    machineMenu(m, b);
     return b;
   },
   onPick: m => jump("thisMac" in m ? "m-this-mac" : `m-${m.id}`),
@@ -1476,7 +1518,11 @@ function projectDetail(p: Project) {
 function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
   where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
-  for (const m of rows) where.append(...whereRow(p, m));
+  for (const m of rows) {
+    const cells = whereRow(p, m);
+    where.append(...cells);
+    if (m.id) machineMenu({ id: m.id, name: m.name, online: m.kind !== "offline" }, ...cells);
+  }
   // Once every machine answered, the note says the count instead.
   return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,
     known && h("small", "", `on ${whereCount(rows, true)}`));
@@ -1550,7 +1596,12 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     tile("tasks", "Tasks", taskTile(view.tasks), openTile),
     tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks)), openTile, { openUrl }),
     tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl }),
-    tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile),
+    tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
+      menu: (r, e) => {
+        const m = rows.find(w => w.id === r.id);
+        if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
+      },
+    }),
     tile("agents", "Agents", agentTile(running, past), openTile),
     tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
     tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile)));

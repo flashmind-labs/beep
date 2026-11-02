@@ -52,6 +52,7 @@ test("a machine still fetching the project says how far it is", () => {
     { project: "acme/widget", machine_id: "m2", status: "in_sync", files: 610, pending: 0 },
   ];
   assert.deepEqual(machineTile(where, sync).rows.map(r => r.note), ["syncing 23%", "w"]);
+  assert.deepEqual(machineTile(where, sync).rows.map(r => r.id), ["m1", "m2"], "a row's menu knows its machine");
   assert.deepEqual(machineSync("m1", sync), { project: "acme/widget", pct: 23, text: "Syncing, 23%", files: "142 of 610 files" });
   assert.equal(machineSync("m2", sync), null);
   assert.equal(machineSync("m1", [{ project: "p", machine_id: "m1", status: "scanning", files: 0, pending: 0 }])!.text, "Scanning");
