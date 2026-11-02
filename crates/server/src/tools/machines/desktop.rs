@@ -2,10 +2,7 @@
 //! a Mac the user lets Beep use.
 
 use super::{Machines, Need, in_parameter};
-use crate::{
-    protocol::node::desktop::{KeyPress, MouseButton, Permission, Reply, Request, Target},
-    tool_images::ToolImages,
-};
+use crate::protocol::node::desktop::{KeyPress, MouseButton, Permission, Reply, Request, Target};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::{
@@ -248,38 +245,69 @@ impl Tool for DesktopTool {
                 ));
             }
         };
-        let images = &self.machines.app.tool_images;
+        // Without the model's capabilities at hand, it is taken to see.
+        let sees = match (ctx.llm, &ctx.provider) {
+            (Some(llm), Some(provider)) => provider.capabilities(&llm.model).await.images,
+            _ => true,
+        };
         let mut lines = Vec::new();
+        let mut images = Vec::new();
         for request in &requests {
             let reply = match picked.online.desktop(request).await {
                 Ok(reply) => reply,
                 Err(e) => return Ok(ToolResult::failure(call_id, format!("{e:#}"))),
             };
-            match read_reply(&picked.name, reply, images) {
-                Ok(line) => lines.push(line),
+            match read_reply(&picked.name, reply, sees) {
+                Ok(said) => {
+                    lines.push(said.text);
+                    images.extend(said.image);
+                }
                 Err(failed) => {
                     lines.push(failed);
                     return Ok(ToolResult::failure(call_id, lines.join("\n")));
                 }
             }
         }
-        Ok(ToolResult::success(call_id, lines.join("\n")))
+        Ok(ToolResult::success(call_id, lines.join("\n")).with_parts(images))
+    }
+}
+
+/// What a desktop reply tells the model.
+struct Said {
+    text: String,
+    /// The screenshot, for a model that sees images.
+    image: Option<ContentPart>,
+}
+
+impl From<String> for Said {
+    fn from(text: String) -> Self {
+        Self { text, image: None }
     }
 }
 
 /// A desktop reply for the model; `Err` when the node could not do it.
-fn read_reply(node: &str, reply: Reply, images: &ToolImages) -> Result<String, String> {
-    Ok(match reply {
+/// `sees` is whether the model sees images.
+fn read_reply(node: &str, reply: Reply, sees: bool) -> Result<Said, String> {
+    let text = match reply {
         Reply::Screenshot(shot) => {
-            let mark = images.add(ContentPart::Image {
-                media_type: "image/jpeg".into(),
-                data: STANDARD.encode(&shot.jpeg),
-            });
-            format!(
+            let text = format!(
                 "Screenshot of {node}, {}x{} pixels (the screen is {}x{} points). Points to \
-                 click are in these pixels. {mark}",
+                 click are in these pixels.",
                 shot.width, shot.height, shot.screen_width, shot.screen_height
-            )
+            );
+            if !sees {
+                return Ok(Said::from(format!(
+                    "{text} It cannot be shown: this model does not see images. Read the \
+                     screen with `desktop tree` instead."
+                )));
+            }
+            return Ok(Said {
+                text,
+                image: Some(ContentPart::Image {
+                    media_type: "image/jpeg".into(),
+                    data: STANDARD.encode(&shot.jpeg),
+                }),
+            });
         }
         Reply::Tree(tree) => {
             let mut out = match &tree.window {
@@ -328,7 +356,8 @@ fn read_reply(node: &str, reply: Reply, images: &ToolImages) -> Result<String, S
             });
         }
         other => format!("{other:?}"),
-    })
+    };
+    Ok(Said::from(text))
 }
 
 fn grant_hint(permission: Permission) -> String {
@@ -423,26 +452,47 @@ mod tests {
         }
     }
 
+    fn screenshot() -> Reply {
+        Reply::Screenshot(desktop::Screenshot {
+            jpeg: vec![0xff, 0xd8],
+            width: 1280,
+            height: 800,
+            screen_width: 1512,
+            screen_height: 945,
+        })
+    }
+
     #[test]
-    fn a_screenshot_reaches_the_model_as_a_marked_image() {
-        let images = ToolImages::default();
-        let text = read_reply(
-            "mac",
-            Reply::Screenshot(desktop::Screenshot {
-                jpeg: vec![0xff, 0xd8],
-                width: 1280,
-                height: 800,
-                screen_width: 1512,
-                screen_height: 945,
-            }),
-            &images,
-        )
-        .unwrap();
+    fn a_screenshot_reaches_the_model_as_an_image_part() {
+        let said = read_reply("mac", screenshot(), true).unwrap();
         assert!(
-            text.starts_with("Screenshot of mac, 1280x800 pixels"),
-            "{text}"
+            said.text.starts_with("Screenshot of mac, 1280x800 pixels"),
+            "{}",
+            said.text
         );
-        assert!(text.contains("[image "), "{text}");
+        let result =
+            ToolResult::success("call", said.text).with_parts(said.image.into_iter().collect());
+        let images: Vec<_> = result
+            .content()
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Image { media_type, data } => {
+                    Some((media_type.as_str(), data.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            images,
+            [("image/jpeg", STANDARD.encode([0xff, 0xd8]).as_str())]
+        );
+    }
+
+    #[test]
+    fn a_model_without_vision_gets_a_note_instead() {
+        let said = read_reply("mac", screenshot(), false).unwrap();
+        assert!(said.image.is_none());
+        assert!(said.text.contains("does not see images"), "{}", said.text);
     }
 
     #[test]
@@ -453,9 +503,10 @@ mod tests {
                 reason: "Screen Recording is off.".into(),
                 missing: Some(Permission::ScreenRecording),
             },
-            &ToolImages::default(),
+            true,
         )
-        .unwrap_err();
+        .err()
+        .expect("the reply failed");
         assert!(
             failed.contains("allow Screen Recording for Beep"),
             "{failed}"

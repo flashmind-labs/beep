@@ -33,7 +33,7 @@ use crate::{
     store::{Account, CreateRun, LinkKey, NewKey, RunStatus, SessionRef, SignIn, Store},
     stt::{RealtimeStt, Unavailable},
     titles,
-    tool_images::{ToolImages, WithToolImages},
+    tool_attachments::RecentAttachments,
     tools::Transitous,
     user::{Shared, User},
     voice::{Voice, VoiceConfig},
@@ -101,8 +101,6 @@ pub struct App {
     pub projects: crate::projects::Projects,
     /// Looks through the users' machines for checkouts of their projects.
     pub checkouts: crate::imports::Checkouts,
-    /// Images tools hand the model, such as node screenshots.
-    pub tool_images: Arc<ToolImages>,
     /// Speaks voice notes and transcribes spoken replies.
     voice: Voice,
     /// Transcribes speech live, for `Transcribe`.
@@ -322,9 +320,7 @@ impl App {
             credential_key,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
-        let tool_images = Arc::new(ToolImages::default());
-        let provider: Arc<dyn LlmProvider> =
-            Arc::new(WithToolImages::new(provider, tool_images.clone()));
+        let provider: Arc<dyn LlmProvider> = Arc::new(RecentAttachments::new(provider));
 
         let shared = Shared {
             store: store.clone(),
@@ -359,7 +355,6 @@ impl App {
             nodes: crate::nodes::Nodes::default(),
             projects: crate::projects::Projects::default(),
             checkouts: crate::imports::Checkouts::default(),
-            tool_images,
             voice,
             realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),
             live_transcriptions: voice::LiveSlots::default(),
