@@ -324,7 +324,9 @@ pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
         let checked_at = machine
             .checked_at
             .filter(|at| since.is_none_or(|since| *at >= since));
-        let mut checking = machine.checking;
+        // A look left over from before it went offline answers nothing; it
+        // is looked through again when it connects.
+        let mut checking = machine.checking && machine.online;
         if folder.is_none() && checked_at.is_none() && machine.lookable && !checking {
             to_check.push(machine.row.endpoint.clone());
             checking = true;
@@ -447,7 +449,7 @@ mod tests {
             checked_at,
         };
         let listed = [
-            at(&old, false, None, false),
+            at(&old, false, None, true),
             at(
                 &build,
                 true,
