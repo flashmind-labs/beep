@@ -234,7 +234,7 @@ impl Watcher {
         Self::with_budget(read_budget(), Some(others_watches))
     }
 
-    fn with_budget(budget: Option<Budget>, recount: Option<fn() -> u64>) -> Self {
+    pub(super) fn with_budget(budget: Option<Budget>, recount: Option<fn() -> u64>) -> Self {
         let routes: Arc<Mutex<HashMap<Key, Route>>> = Arc::default();
         let events = routes.clone();
         let watcher =

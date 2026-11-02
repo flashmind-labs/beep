@@ -5,9 +5,16 @@
 //!
 //! The folder holds a `.beep-sync` file with a random id, which sync never
 //! syncs, and the state keeps that id with the folder's device and inode.
+//! Deleting the folder (`rm -rf`) removes its files and the marker before
+//! the folder itself, so a folder that lost its marker is not trusted with
+//! deletes: the marker is written again only once a scan finds no file
+//! missing.
 
 use super::rules::MARKER;
-use crate::{fsat, transfer::place::Folder};
+use crate::{
+    fsat::{self, FileId},
+    transfer::place::Folder,
+};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -27,17 +34,23 @@ pub(super) struct RootId {
 
 const CHANGED: &str = "the folder changed or is not mounted";
 
+/// What `check` found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Checked {
+    /// The folder synced before, or one with nothing seen yet.
+    Same(RootId),
+    /// The folder synced before, by device and inode, without its marker:
+    /// being deleted, or only the marker removed. Holds the saved id, for
+    /// `restore` once a scan finds no file missing.
+    Unmarked(RootId),
+}
+
 /// Checks `root` is the folder `saved` was, given whether the state holds
 /// any file seen there, and gives its identity now. Writes the marker when
-/// the folder has none yet and is the same folder, or nothing was seen.
-pub(super) fn check(root: &Folder, saved: Option<&RootId>, seen_any: bool) -> Result<RootId> {
-    let at_path = fsat::id_of_path(root.path())
-        .with_context(|| format!("{CHANGED}: {} is missing", root.path().display()))?;
-    let open = root.dir().id().context("reading the open folder")?;
-    let (device, inode) = (at_path.device, at_path.inode);
-    if open != at_path {
-        bail!("{CHANGED}: {} is another folder now", root.path().display());
-    }
+/// the folder has none yet and nothing was seen there; one that had files
+/// and lost its marker is `Unmarked`.
+pub(super) fn check(root: &Folder, saved: Option<&RootId>, seen_any: bool) -> Result<Checked> {
+    let FileId { device, inode } = open_id(root)?;
     let same_place = saved.is_some_and(|saved| (saved.device, saved.inode) == (device, inode));
     let marker = read_marker(root.path())?;
     let marker = match (marker, saved) {
@@ -51,16 +64,38 @@ pub(super) fn check(root: &Folder, saved: Option<&RootId>, seen_any: bool) -> Re
                 root.path().display()
             )
         }
-        // The same folder whose marker went away: written again.
+        // The same folder whose marker went away, perhaps with its files.
+        (None, Some(saved)) if seen_any => return Ok(Checked::Unmarked(saved.clone())),
         (None, Some(saved)) => write_marker(root.path(), &saved.marker)?,
         (Some(marker), _) => marker,
         (None, None) => write_marker(root.path(), &new_id())?,
     };
-    Ok(RootId {
+    Ok(Checked::Same(RootId {
         marker,
         device,
         inode,
-    })
+    }))
+}
+
+/// Writes `saved`'s marker again into the folder it names.
+pub(super) fn restore(root: &Folder, saved: &RootId) -> Result<()> {
+    let FileId { device, inode } = open_id(root)?;
+    if (device, inode) != (saved.device, saved.inode) {
+        bail!("{CHANGED}: {} is another folder now", root.path().display());
+    }
+    write_marker(root.path(), &saved.marker)?;
+    Ok(())
+}
+
+/// Which folder is at `root`'s path, which must be the one held open.
+fn open_id(root: &Folder) -> Result<FileId> {
+    let at_path = fsat::id_of_path(root.path())
+        .with_context(|| format!("{CHANGED}: {} is missing", root.path().display()))?;
+    let open = root.dir().id().context("reading the open folder")?;
+    if open != at_path {
+        bail!("{CHANGED}: {} is another folder now", root.path().display());
+    }
+    Ok(at_path)
 }
 
 fn new_id() -> String {
@@ -129,13 +164,22 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("game")).unwrap();
         let root = open(&dir, "game");
-        let first = check(&root, None, false).unwrap();
+        let Checked::Same(first) = check(&root, None, false).unwrap() else {
+            panic!("a new folder is marked");
+        };
         assert!(dir.path().join("game").join(MARKER).exists());
-        assert_eq!(check(&root, Some(&first), true).unwrap(), first);
+        let same = Checked::Same(first.clone());
+        assert_eq!(check(&root, Some(&first), true).unwrap(), same);
 
-        // The marker removed by hand comes back.
+        // The marker removed: not trusted, nor written, until restored.
         fs::remove_file(dir.path().join("game").join(MARKER)).unwrap();
-        assert_eq!(check(&root, Some(&first), true).unwrap(), first);
+        assert_eq!(
+            check(&root, Some(&first), true).unwrap(),
+            Checked::Unmarked(first.clone())
+        );
+        assert!(!dir.path().join("game").join(MARKER).exists());
+        restore(&root, &first).unwrap();
+        assert_eq!(check(&root, Some(&first), true).unwrap(), same);
 
         // Swapped for an empty folder at the same path.
         fs::rename(dir.path().join("game"), dir.path().join("old")).unwrap();
@@ -156,9 +200,11 @@ mod tests {
         fs::create_dir_all(dir.path().join("repo/.git/info")).unwrap();
         let root = open(&dir, "repo");
         check(&root, None, false).unwrap();
-        let first = check(&root, None, false).unwrap();
+        let Checked::Same(first) = check(&root, None, false).unwrap() else {
+            panic!("a new folder is marked");
+        };
         fs::remove_file(dir.path().join("repo").join(MARKER)).unwrap();
-        check(&root, Some(&first), true).unwrap();
+        restore(&root, &first).unwrap();
         let exclude = fs::read_to_string(dir.path().join("repo/.git/info/exclude")).unwrap();
         assert_eq!(exclude, format!("/{MARKER}\n"));
     }
