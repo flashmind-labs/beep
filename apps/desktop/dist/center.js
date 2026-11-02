@@ -824,7 +824,7 @@ registerSidebarGroup("views", {
 function projectRows() {
   const home = state.home;
   if (!home || (!home.running && !home.projects)) return null;
-  return mergeProjects(home.projects, home.running);
+  return mergeProjects(home.projects, home.running, state.found);
 }
 
 /// A small + button for a group's heading or the footer.
@@ -901,6 +901,8 @@ async function loadFound() {
     finding = false;
   }
   if (shown === "projects" && !state.picked) drawProjects(views.get("projects").el);
+  // Their remotes name the folders agents run in as org/repo.
+  reloadGroup("projects");
 }
 
 /// Imports a found row from the Projects page and opens it.
@@ -941,11 +943,6 @@ registerSidebarGroup("projects", {
     return row;
   },
   onPick: p => { if (!p.org) openProjects(p.name); },
-  foot() {
-    if (!groups.get("projects").items?.length) return [];
-    const all = sideItem(null, "All projects", 0, { cls: "more", current: shown === "projects" && !state.picked, on: () => openProjects() });
-    return [all];
-  },
 });
 
 // The machines Home lists, each with its online dot. It shows once Home has
@@ -1986,6 +1983,8 @@ window.beepSettingsAway = view => {
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
+// The sidebar names running folders by their remote, which the found list gives.
+loadFound();
 
 initPalette({ go, jump, pane, settings: openSettings, project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 

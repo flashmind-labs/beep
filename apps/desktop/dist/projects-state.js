@@ -16,7 +16,7 @@ function within(cwd, folder) {
 /// An agent counts for an imported project when it runs in its folder on
 /// that machine; any other agent's folder is a project of its own, by its
 /// last folder name. Imported first, by name, then the others by name.
-export function mergeProjects(imported, running) {
+export function mergeProjects(imported, running, found = []) {
   const rows = new Map();
   for (const p of imported || []) {
     const row = rows.get(p.name) || { name: p.name, url: p.url, machines: [], agents: 0, last: null, imported: true };
@@ -27,7 +27,7 @@ export function mergeProjects(imported, running) {
   for (const r of agents) {
     let row = [...rows.values()].find(p => p.imported && p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
     if (!row) {
-      const name = base(r.cwd);
+      const name = foundName(found, r) || base(r.cwd);
       if (!name) continue;
       row = rows.get(name);
       if (!row) {
@@ -43,6 +43,17 @@ export function mergeProjects(imported, running) {
     if (at && (!row.last || at > row.last)) row.last = at;
   }
   return [...rows.values()].sort((a, b) => (b.imported - a.imported) || a.name.localeCompare(b.name));
+}
+
+/// "org/repo" for the checkout a session runs in, from the remote of the
+/// found folder that holds it; null when no found folder does or it has no remote.
+function foundName(found, r) {
+  for (const row of found || []) {
+    if (!row.remote || !(row.places || []).some(p => p.machine_id === r.machine_id && within(r.cwd, p.folder))) continue;
+    const parts = String(row.remote).trim().replace(/\.git\/?$/, "").split(/[/:]/).filter(Boolean);
+    if (parts.length >= 2) return parts.slice(-2).join("/");
+  }
+  return null;
 }
 
 /// The rows the page shows: all, or only `name` once one is picked.
