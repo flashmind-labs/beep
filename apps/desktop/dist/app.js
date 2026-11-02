@@ -998,6 +998,8 @@ async function openSession(id) {
     // The user may have moved on, or started a run here, while it loaded.
     if (S.session !== id || S.view !== "chat" || live.has(id)) return;
     drawHistory(id, turns);
+    // The window's title line says when the chat started, known only now.
+    changed();
     // A reply that finished while another chat was open left its queue waiting.
     if (queued.get(id) && !queued.get(id).held) sendQueued(id);
     else watchRun(id);
@@ -6089,6 +6091,13 @@ if (PANE) {
       await start();
       const [sessions, groups] = await Promise.all([invoke("list_sessions"), invoke("list_groups").catch(() => [])]);
       return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
+    },
+    /// When the open chat's first message was sent, in milliseconds, or
+    /// null before its history has loaded.
+    startedAt() {
+      if (S.view !== "chat") return null;
+      const at = Number(body()?.querySelector("[data-at]")?.dataset.at);
+      return at > 0 ? at : null;
     },
     current: () => ({ view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null }),
     onChange(fn) { changeListeners.push(fn); },
