@@ -4,18 +4,47 @@ import { span } from "./routines.ts";
 
 // ---------- Machines ----------
 
+/// What a machine reported about itself (MachineEnv).
+export interface MachineEnv {
+  /// `linux` or `macos`.
+  os: string;
+  /// Such as "Ubuntu 24.04" or "macOS 26.3".
+  os_version: string;
+  arch: string;
+  hostname: string;
+  cpus: number;
+  memory_mb: number;
+  home: string;
+  tools: { name: string; version: string | null }[];
+  /// Whether a CLI is signed in, such as gh.
+  logins: { tool: string; signed_in: boolean; account: string | null }[];
+  avds: string[];
+}
+
+/// A machine running beep-node (MachineView).
+export interface Machine {
+  id: string;
+  name: string;
+  online: boolean;
+  /// When it last connected or reported, in milliseconds since the Unix epoch.
+  seen_at: number;
+  version: string;
+  /// Null until its first report.
+  env: MachineEnv | null;
+}
+
 // The machines running beep-node (ListMachines), from Settings.
-export const MC = { list: null, error: "" };
-export const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
+export const MC: { list: Machine[] | null; error: string } = { list: null, error: "" };
+const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
 /// The coding agents Beep can drive on a machine; its other tools follow them.
-export const CODERS = new Set(["claude", "codex", "gemini", "opencode", "cursor-agent", "amp", "aider"]);
+const CODERS = new Set(["claude", "codex", "gemini", "opencode", "cursor-agent", "amp", "aider"]);
 
 export async function renderMachines() {
   S.view = "machines";
   invoke("close_group").catch(() => {});
   drawMachines();
   try {
-    MC.list = await invoke("list_machines");
+    MC.list = await invoke<Machine[]>("list_machines");
     MC.error = "";
   } catch (e) {
     MC.error = String(e);
@@ -23,7 +52,7 @@ export async function renderMachines() {
   if (S.view === "machines") drawMachines();
 }
 
-export function machineCard(m) {
+function machineCard(m: Machine) {
   const env = m.env, now = Date.now();
   const tag = m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(now - m.seen_at)} ago</span>`;
   const version = /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
@@ -37,9 +66,9 @@ export function machineCard(m) {
     ${also ? `<small>${esc(also)}</small>` : ""}</div>`;
 }
 
-export function drawMachines() {
+function drawMachines() {
   const list = MC.list ?? [], on = list.filter(m => m.online).length;
-  const sum = !MC.list ? "Where Beep runs commands and coding agents" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
+  const sum = !MC.list ? "" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Machines</b><small>${esc(sum || "Where Beep runs commands and coding agents")}</small></span></div>`;
   const err = MC.error ? `<div class="derr" style="padding:8px 18px 0">${esc(MC.error)}</div>` : "";
   const setup = '<code>beep-node setup</code>';
@@ -50,4 +79,3 @@ export function drawMachines() {
       ${MC.list ? `<div class="dmuted" style="display:block;padding:0 18px 12px">To add one, press Add a machine in the Beep window and run the ${setup} command it shows.</div>` : ""}`)
     + hints([["esc", "back"]]);
 }
-

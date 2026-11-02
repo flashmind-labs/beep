@@ -1,26 +1,40 @@
 import { failed, grow, newTurn } from "./chat.ts";
 import { when } from "./chats.ts";
-import { $, bar, esc, ICON, invoke, S } from "./core.ts";
+import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints, refreshHints } from "./hints.ts";
 import { notice } from "./media.ts";
 
 // ---------- Research ----------
 
+/// Where a research is (ResearchStatus).
+export type ResearchStatus = "planning" | "researching" | "reviewing" | "writing" | "done" | "failed" | "stopped" | "interrupted";
+
+/// A research on the account (ResearchItem).
+export interface Research {
+  session: string;
+  topic: string;
+  status: ResearchStatus;
+  round: number;
+  sources: number;
+  started_at: number;
+  finished_at: number | null;
+}
+
 /// Chats started as researches, which open in their own window.
-export const RESEARCHES = new Set();
+export const RESEARCHES = new Set<string>();
 export async function loadResearches() {
-  const ids = await invoke("research_sessions").catch(() => []);
+  const ids = await invoke<string[]>("research_sessions").catch((): string[] => []);
   for (const id of ids) RESEARCHES.add(id);
 }
 
 /// Starts a research on `topic` in its own window.
-export async function research(topic) {
+export async function research(topic: string) {
   topic = topic.trim();
   if (!topic) return;
   try {
-    const id = await invoke("research_begin", { topic });
+    const id = await invoke<string>("research_begin", { topic });
     RESEARCHES.add(id);
-    const ask = $("#ask");
+    const ask = $<HTMLTextAreaElement>("#ask");
     if (ask && ask.value.trim() === topic) { ask.value = ""; grow(ask); refreshHints(); }
   } catch (err) {
     if (S.view === "research") { RL.error = String(err); return drawResearches(); }
@@ -31,26 +45,26 @@ export async function research(topic) {
 /// The bar's Research view: every research on the account, newest first,
 /// from the server, so ones started on another computer show too. The field
 /// on top starts a new one; Return on a row opens its window.
-export const RL = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
-export const RSTATUS = {
+export const RL: { list: Research[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
+export const RSTATUS: Record<ResearchStatus, string> = {
   planning: "Waiting for your go", researching: "Researching", reviewing: "Reviewing",
   writing: "Writing", done: "Done", failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
 };
-export const RUNNING = new Set(["researching", "reviewing", "writing"]);
+export const RUNNING = new Set<ResearchStatus>(["researching", "reviewing", "writing"]);
 
 export function renderResearches(topic = "") {
   S.view = "research";
   invoke("close_group").catch(() => {});
   Object.assign(RL, { mode: "list", error: "", sel: 0 });
   drawResearches();
-  const field = $("#rtopic");
+  const field = $<HTMLInputElement>("#rtopic");
   if (field) { field.value = topic; field.focus(); }
   loadResearchList();
 }
 
 export async function loadResearchList() {
   try {
-    RL.list = await invoke("list_researches");
+    RL.list = await invoke<Research[]>("list_researches");
     for (const r of RL.list) RESEARCHES.add(r.session);
     RL.loaded = true;
     RL.error = "";
@@ -60,7 +74,7 @@ export async function loadResearchList() {
   if (S.view === "research") drawResearches();
 }
 
-export function researchLine(r) {
+export function researchLine(r: Research) {
   const parts = [RSTATUS[r.status] ?? r.status];
   if (r.round > 1) parts.unshift(`Round ${r.round}`);
   if (r.sources) parts.push(`${r.sources} source${r.sources === 1 ? "" : "s"}`);
@@ -69,7 +83,7 @@ export function researchLine(r) {
 }
 
 export function drawResearches() {
-  const typed = $("#rtopic")?.value ?? "";
+  const typed = $<HTMLInputElement>("#rtopic")?.value ?? "";
   const focused = document.activeElement?.id === "rtopic";
   RL.sel = Math.max(0, Math.min(RL.sel, RL.list.length - 1));
   const running = RL.list.filter(r => RUNNING.has(r.status)).length;
@@ -79,10 +93,13 @@ export function drawResearches() {
   const head = `<div class="dhead"><span class="tt"><b>Research</b><small>${esc(sum)}</small></span></div>`;
   const field = `<div class="dinput"><input id="rtopic" placeholder="What should the team research?" autocomplete="off" spellcheck="false"><kbd>⌘R</kbd></div>`;
   const err = RL.error ? `<div class="derr" style="padding:8px 18px 0">${esc(RL.error)}</div>` : "";
-  if (RL.loaded && !RL.list.length) {
-    bar.innerHTML = field + head + err + `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${ICON.browser}</span>
-      <b style="font-size:14px">No research yet.</b><span class="dmuted" style="display:block">A team of agents digs into a question and writes it up as a paper.</span></div>`
-      + hints([[ICON.ret, "research"], ["esc", "back"]]);
+  const empty = RL.loaded && !RL.list.length;
+  let list, keys;
+  if (empty) {
+    // There is no browser icon, so this draws "undefined" (left as it was).
+    list = `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${(ICON as Record<string, string>).browser}</span>
+      <b style="font-size:14px">No research yet.</b><span class="dmuted" style="display:block">A team of agents digs into a question and writes it up as a paper.</span></div>`;
+    keys = [[ICON.ret, "research"], ["esc", "back"]];
   } else {
     const rows = RL.list.map((r, i) => {
       const cur = i === RL.sel && !typed.trim();
@@ -95,35 +112,37 @@ export function drawResearches() {
       return `<div class="drt${off ? " off" : ""}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${ic}</span>
         <span class="tt"><b>${esc(r.topic)}</b><small>${esc(researchLine(r))}</small></span>${tail}</div>`;
     }).join("");
-    const keys = typed.trim() ? [[ICON.ret, "research"], ["esc", "back"]]
+    list = `<div class="dlist" role="listbox" aria-label="Research" style="padding-top:8px">${rows}</div>`;
+    keys = typed.trim() ? [[ICON.ret, "research"], ["esc", "back"]]
       : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
       : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];
-    bar.innerHTML = field + head + err + `<div class="dlist" role="listbox" aria-label="Research" style="padding-top:8px">${rows}</div>` + hints(keys);
-    bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
-  const input = $("#rtopic");
+  bar.innerHTML = field + head + err + list + hints(keys);
+  if (!empty) bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  const input = $$<HTMLInputElement>("#rtopic");
   input.value = typed;
   if (focused || !RL.list.length) input.focus();
-  input.oninput = () => { const at = input.selectionStart; drawResearches(); $("#rtopic").setSelectionRange(at, at); };
+  input.oninput = () => { const at = input.selectionStart; drawResearches(); $$<HTMLInputElement>("#rtopic").setSelectionRange(at, at); };
   bar.onclick = researchClick;
 }
 
-export function researchClick(e) {
+export function researchClick(e: MouseEvent) {
   if (S.view !== "research") return;
-  const btn = e.target.closest("[data-rl]");
-  const row = e.target.closest(".drt[data-i]");
+  const t = e.target as HTMLElement;
+  const btn = t.closest<HTMLElement>("[data-rl]");
+  const row = t.closest<HTMLElement>(".drt[data-i]");
   if (row) RL.sel = Number(row.dataset.i);
-  if (btn) return researchListAction(btn.dataset.rl);
+  if (btn) return researchListAction(btn.dataset.rl!);
   if (row) return researchListAction("open");
 }
 
-export async function researchListAction(a) {
+export async function researchListAction(a: string) {
   const r = RL.list[RL.sel];
   if (!r) return;
   try {
     if (a === "open") return await invoke("open_research", { session: r.session });
     if (a === "pdf") {
-      const to = await invoke("export_research", { session: r.session });
+      const to = await invoke<string>("export_research", { session: r.session });
       RL.error = "";
       RL.mode = "list";
       drawResearches();
@@ -137,13 +156,13 @@ export async function researchListAction(a) {
 
 /// Cmd-R: researches what is typed, and otherwise opens the Research view.
 export function researchShortcut() {
-  const typed = (S.view === "chat" ? $("#ask") : S.view === "research" ? $("#rtopic") : null)?.value.trim();
+  const typed = (S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : S.view === "research" ? $<HTMLInputElement>("#rtopic") : null)?.value.trim();
   if (typed) return research(typed);
   if (S.view !== "research") return renderResearches();
 }
 
-export function researchKeys(e) {
-  const typed = $("#rtopic")?.value.trim();
+export function researchKeys(e: KeyboardEvent) {
+  const typed = $<HTMLInputElement>("#rtopic")?.value.trim();
   if (e.key === "Enter" && !e.isComposing) {
     e.preventDefault();
     return typed ? research(typed) : researchListAction("open");

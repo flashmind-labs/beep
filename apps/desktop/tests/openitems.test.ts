@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { itemChips, openTitle, projectsWithOpen, replyPrompt, repoUrl, reviewStart, showsOpen, waitsOnYou } from "../src/openitems.ts";
 import { homeColumns, homeRows } from "../src/home.ts";
+import type { GitItemRow } from "../src/openitems.ts";
 
-const item = (over = {}) => ({
+const item = (over: Partial<GitItemRow> = {}): GitItemRow => ({
   host: "github.com", repo: "acme/widget", number: 1, kind: "pull_request", title: "A change",
   url: "https://github.com/acme/widget/pull/1", updated_at: 1000, authored: false, assigned: false,
   review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, ...over,
@@ -51,12 +52,12 @@ test("items group by project, waiting ones first, with counts", () => {
   assert.equal(widget.prs, 1);
   assert.equal(widget.issues, 1);
   assert.equal(widget.last, 5000);
-  assert.equal(widget.project.name, "acme/widget");
+  assert.equal(widget.project!.name, "acme/widget");
   assert.deepEqual(widget.items.map(i => i.number), [3, 2]);
 });
 
 test("chips say what state a PR is in", () => {
-  const texts = it => itemChips(it).map(c => c.text);
+  const texts = (it: GitItemRow) => itemChips(it).map(c => c.text);
   assert.deepEqual(texts(item({ review_requested: true, checks_failing: true })), ["your review", "checks failing"]);
   assert.deepEqual(texts(item({ draft: true, review: "changes_requested" })), ["draft", "changes requested"]);
   assert.deepEqual(texts(item({ review: "approved" })), ["approved"]);

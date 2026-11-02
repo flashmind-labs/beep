@@ -2,15 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, ghChoices, githubAccounts, hostOf, sameServer, teaHas, teaOffers, toolLine,
+  type CliLogins, type Credential,
 } from "../src/credentials.ts";
 
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 const ago = () => "today";
 const providers = [
   { slug: "openrouter", name: "OpenRouter", env_var: "OPENROUTER_API_KEY" },
   { slug: "elevenlabs", name: "ElevenLabs", env_var: "ELEVENLABS_API_KEY" },
 ];
-const list = [
+const list: Credential[] = [
   { id: "g", kind: "github", last4: "4f2a", account: "you", env_var: "GH_TOKEN", to_machines: true, created_at: 0 },
   { id: "f1", kind: "forgejo", url: "https://git.example.com", last4: "9c1d", account: "you", env_var: "", to_machines: true, created_at: 0 },
   { id: "f2", kind: "forgejo", url: "https://code.example.org", last4: "02be", account: null, env_var: "", to_machines: true, created_at: 0 },
@@ -80,7 +81,7 @@ test("adding a server shows the URL field, replacing one does not", () => {
 const noGithub = list.filter(c => c.kind !== "github");
 
 test("a gh sign-in on this Mac is offered before pasting", () => {
-  const cli = { github: { state: "signed_in", account: "you" }, forgejo: [] };
+  const cli: CliLogins = { github: { state: "signed_in", account: "you" }, forgejo: [] };
   const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
   assert.match(html, /data-cred-cli="github">Use gh sign-in/);
   assert.match(html, /gh on this Mac as @you/);
@@ -92,7 +93,7 @@ test("a gh sign-in on this Mac is offered before pasting", () => {
 });
 
 test("gh signed out offers to sign in with GitHub here", () => {
-  const cli = { github: { state: "signed_out" }, forgejo: [] };
+  const cli: CliLogins = { github: { state: "signed_out" }, forgejo: [] };
   const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
   assert.match(html, /class="dbtn pri"[^>]*data-cred-gh>Sign in with GitHub/);
   assert.match(html, /Paste a token/);
@@ -105,7 +106,7 @@ test("gh signed out offers to sign in with GitHub here", () => {
 });
 
 test("while gh signs in the row shows the code and Cancel", () => {
-  const cli = { github: { state: "signed_out" }, forgejo: [] };
+  const cli: CliLogins = { github: { state: "signed_out" }, forgejo: [] };
   const starting = credentialsHtml({ list: noGithub, providers, edit: null, cli, ghFlow: { code: "", url: "" } }, machines, esc, ago);
   assert.match(starting, /Starting gh/);
   assert.match(starting, /data-cred-gh-cancel>Cancel/);
@@ -120,7 +121,7 @@ test("while gh signs in the row shows the code and Cancel", () => {
 });
 
 test("without gh the row links to GitHub's token page", () => {
-  const cli = { github: { state: "missing" }, forgejo: [] };
+  const cli: CliLogins = { github: { state: "missing" }, forgejo: [] };
   const html = credentialsHtml({ list: noGithub, providers, edit: null, cli }, machines, esc, ago);
   assert.match(html, /data-cred-open="https:\/\/github\.com\/settings\/tokens\/new\?scopes=repo,read:org,workflow&amp;description=Beep"/);
   assert.match(html, /Paste a token/);
@@ -132,7 +133,7 @@ test("without gh the row links to GitHub's token page", () => {
 });
 
 test("a saved GitHub token is not offered over, unless it is unreadable", () => {
-  const cli = { github: { state: "signed_in", account: "you" }, forgejo: [] };
+  const cli: CliLogins = { github: { state: "signed_in", account: "you" }, forgejo: [] };
   const saved = credentialsHtml({ list, providers, edit: null, cli }, machines, esc, ago);
   assert.doesNotMatch(saved, /Use gh sign-in/);
   const unreadable = list.map(c => (c.id === "g" ? { ...c, unreadable: true } : c));
@@ -142,7 +143,7 @@ test("a saved GitHub token is not offered over, unless it is unreadable", () => 
 });
 
 test("teacli servers not in Beep can be used", () => {
-  const cli = { github: { state: "missing" }, forgejo: [{ url: "https://git.example.com/" }, { url: "http://git.example.net:8087" }] };
+  const cli: CliLogins = { github: { state: "missing" }, forgejo: [{ url: "https://git.example.com/" }, { url: "http://git.example.net:8087" }] };
   assert.deepEqual(teaOffers(cli, list).map(s => s.url), ["http://git.example.net:8087"]);
   const html = credentialsHtml({ list, providers, edit: null, cli }, machines, esc, ago);
   assert.match(html, /data-cred-cli="forgejo:http:\/\/git\.example\.net:8087">Use teacli sign-in/);
@@ -173,7 +174,7 @@ test("each GitHub account is a row, the default tagged", () => {
 });
 
 test("adding another account offers gh's accounts not in Beep yet", () => {
-  const cli = {
+  const cli: CliLogins = {
     github: { state: "signed_in", account: "octo-three" },
     github_accounts: [{ login: "octo-one", active: false }, { login: "octo-three", active: true }],
     forgejo: [],
@@ -194,7 +195,7 @@ test("adding another account offers gh's accounts not in Beep yet", () => {
 });
 
 test("with no account saved, several gh accounts each get Use", () => {
-  const cli = { github: { state: "signed_in", account: "octo-one" }, github_accounts: [{ login: "octo-one", active: true }, { login: "octo-two", active: false }], forgejo: [] };
+  const cli: CliLogins = { github: { state: "signed_in", account: "octo-one" }, github_accounts: [{ login: "octo-one", active: true }, { login: "octo-two", active: false }], forgejo: [] };
   const html = credentialsHtml({ list: noGithub, github: [], providers, edit: null, cli }, machines, esc, ago);
   assert.match(html, /gh on this Mac has 2 accounts/);
   assert.match(html, /data-cred-gh-use="octo-one"/);

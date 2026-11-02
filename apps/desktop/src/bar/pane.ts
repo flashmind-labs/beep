@@ -1,13 +1,13 @@
 // The pane: the bar's views drawn inside the command center window, which
 // drives them through `pane`.
 import "./events.ts";
-import { renderAgentNew } from "./agentnew.ts";
-import { loadAgentHosts, openAgent, renderAgents } from "./agents.ts";
+import { type AgentPlace, renderAgentNew } from "./agentnew.ts";
+import { type AgentRow, loadAgentHosts, openAgent, renderAgents } from "./agents.ts";
 import { renderApps } from "./apps.ts";
 import { body, focusAsk, grow, newChat, renderChat, send } from "./chat.ts";
-import { renderChats, rows } from "./chats.ts";
+import { renderChats, rows, type SessionSummary } from "./chats.ts";
 import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, invoke, type PaneNow, S } from "./core.ts";
-import { renderGroup } from "./groups.ts";
+import { type GroupSummary, renderGroup } from "./groups.ts";
 import { refreshHints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { mountPane } from "./keys.ts";
@@ -19,6 +19,7 @@ import { loadResearches, RESEARCHES } from "./researches.ts";
 import { renderRoutines, routineWhen } from "./routines.ts";
 import { renderSettings } from "./settings.ts";
 import { renderSkills } from "./skills.ts";
+import type { Status } from "./views.ts";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,
 /// a group, or an agent view.
@@ -27,7 +28,7 @@ export type PaneTarget =
   | null
   | { chat: { session: string | null } }
   | { group: { id: string } }
-  | { agent: AgentSession; from?: BackTo }
+  | { agent: AgentRow & { kind?: string }; from?: BackTo }
   | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
 
 /// Pages the window opens in the pane by name.

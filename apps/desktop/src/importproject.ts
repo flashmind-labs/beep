@@ -5,61 +5,63 @@
 // is imported in place. It shows the clone's progress and closes onto the
 // new project. Esc or Cancel closes it, except while cloning, when the
 // clone goes on and the project shows up once it is in.
-import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp } from "./projects-state.ts";
+import { invoke } from "./tauri.ts";
+import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
+import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
+import type { ImportEvent, MachineFolder, ProjectRow } from "./projects-state.ts";
 import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
+import type { BranchPicks, PreviewView } from "./branchwork.ts";
+import type { MachineCard } from "./home.ts";
 
-const { invoke } = window.__TAURI__.core;
+/// A machine the sheet offers, as Home lists it.
+type Machine = Pick<MachineCard, "id" | "name" | "online" | "env">;
 
-let root = null, sheet = null, state = START, machines = [], macId = null, back = null, onDone = null;
+/// What the window hands the sheet.
+export interface ImportProjectOptions {
+  /// The machines Home lists.
+  machines?: readonly Machine[];
+  /// This Mac's machine id, when it is one.
+  macId?: string | null;
+  /// Runs once a project is in, as when the window selects it.
+  onDone?: ((project: ProjectRow) => void) | null;
+  /// Goes straight to choosing a folder.
+  choose?: boolean;
+  /// Fills in the repository, as Clone here on a project's page does.
+  repo?: string | null;
+  /// Picks the machine, as Clone here does.
+  machine?: string | null;
+}
+
+let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
+let macId: string | null = null, back: Element | null = null, onDone: ((project: ProjectRow) => void) | null = null;
 /// The repository's checkouts and branches with work, once read: for the
 /// repo text `previewFor`, null from a server too old to say. `picks` is
 /// where each branch gets a worktree, by name: a machine id, `""` for
 /// where the project lands, or absent to skip.
-let preview = undefined, previewFor = "", previewError = "", picks = {}, previewTimer = null;
+let preview: PreviewView | null | undefined = undefined, previewFor = "", previewError = "", picks: BranchPicks = {};
+let previewTimer: ReturnType<typeof setTimeout> | undefined;
 /// The folder each machine starts in (workspace, else home), by id, once read.
-const bases = new Map();
+const bases = new Map<string, string>();
 /// A folder is being read, so the folder buttons wait.
 let reading = false;
 
-function el(tag, cls, ...kids) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  for (const k of kids) if (k != null && k !== false) e.append(k);
-  return e;
-}
-
-function button(label, cls, onClick) {
-  const b = el("button", cls, label);
-  b.type = "button";
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-/// Opens the sheet. `options.machines` are the machines Home lists and
-/// `options.macId` this Mac's machine id, when it is one;
-/// `options.onDone(project)` runs once a project is in, as when the window
-/// selects it. With `options.choose` it goes straight to choosing a folder.
-/// `options.repo` and `options.machine` fill in the repository and pick
-/// the machine, as Clone here on a project's page does.
-export function openImportProject(options = {}) {
+/// Opens the sheet. With `options.choose` it goes straight to choosing a
+/// folder.
+export function openImportProject(options: ImportProjectOptions = {}) {
   if (root) return;
   machines = options.machines || [];
   macId = options.macId || null;
   onDone = options.onDone || null;
   back = document.activeElement;
+  linkSheetStyle();
   injectStyle();
   // Start on this Mac when it is one of the machines: Choose… then opens the
   // macOS folder picker straight away.
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
   if (options.repo) state = { ...state, repo: options.repo };
-  root = el("div", "am-scrim");
+  ({ root, sheet } = sheetShell("Import a project", "am-sheet ip-sheet"));
   root.addEventListener("mousedown", e => { if (e.target === root && state.step !== "cloning") closeImportProject(); });
-  sheet = el("div", "am-sheet ip-sheet");
-  sheet.setAttribute("role", "dialog");
-  sheet.setAttribute("aria-modal", "true");
-  sheet.setAttribute("aria-label", "Import a project");
-  root.append(sheet);
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   preview = undefined;
@@ -84,14 +86,14 @@ function schedulePreview() {
     picks = {};
     if (root) draw();
     try {
-      const got = await invoke("preview_import", { repo });
+      const got = await invoke<PreviewView | null>("preview_import", { repo });
       if (previewFor !== repo) return;
       preview = got;
       picks = defaultPlaces(got);
     } catch (e) {
       if (previewFor !== repo) return;
       preview = null;
-      previewError = String(e).replace(/^(bad request|error):\s*/i, "");
+      previewError = reason(e);
     }
     if (root && state.step !== "cloning" && state.step !== "done") draw();
   }, 700);
@@ -107,20 +109,20 @@ export function closeImportProject() {
   clearTimeout(previewTimer);
   preview = undefined;
   previewFor = "";
-  if (back && back.focus) back.focus();
+  focusBack(back);
   const then = onDone;
   onDone = null;
   if (done && then) then(done);
 }
 
-function onKey(e) {
+function onKey(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   e.preventDefault();
   e.stopPropagation();
   closeImportProject();
 }
 
-function update(event) {
+function update(event: ImportEvent) {
   state = next(state, event);
   if (root && event.type !== "edit") draw();
   else if (root) syncForm();
@@ -133,7 +135,7 @@ async function submit() {
   // The branches picked go with it only when they were read for this repo.
   const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
   try {
-    const project = await invoke("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees });
+    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees });
     update({ type: "done", project });
     // The sheet may have closed while cloning: the project still lands.
     if (!root && onDone) { const then = onDone; onDone = null; then(project); }
@@ -144,30 +146,31 @@ async function submit() {
 
 /// Keeps the typed text and focus, only enabling Import and clearing an error.
 function syncForm() {
-  const go = sheet.querySelector(".ip-go");
+  const go = sheet!.querySelector<HTMLButtonElement>(".ip-go");
   if (go) go.disabled = !looksLikeRepo(state.repo);
-  if (!state.error) sheet.querySelector(".am-msg.bad")?.remove();
+  if (!state.error) sheet!.querySelector(".am-msg.bad")?.remove();
 }
 
 function draw() {
+  const box = sheet!;
   const head = el("div", "am-head", el("b", "", "Import a project"), el("kbd", "", "esc"));
-  sheet.replaceChildren(head, ...present(body()));
-  const field = sheet.querySelector("input");
-  const pick = sheet.querySelector(".ip-browse .dirs button");
+  box.replaceChildren(head, ...present(body()));
+  const field = box.querySelector("input");
+  const pick = box.querySelector<HTMLElement>(".ip-browse .dirs button");
   if (state.browsing && pick) pick.focus();
   else if (field && !state.browsing) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); }
-  else sheet.querySelector(".dbtn.pri")?.focus();
+  else box.querySelector<HTMLElement>(".dbtn.pri")?.focus();
 }
 
 /// Reads a folder on the picked machine (`path` null for where it starts),
 /// then hands it to `then`; a failure shows as the sheet's error.
-async function read(path, then) {
+async function read(path: string | null, then: (listing: MachineFolder) => void) {
   const machine = state.machine;
   if (!machine || reading) return;
   reading = true;
   if (root) draw();
   try {
-    const listing = await invoke("list_machine_folder", { machineId: machine, path });
+    const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path });
     if (!path && !bases.has(machine)) bases.set(machine, listing.path);
     if (state.machine === machine) then(listing);
   } catch (e) {
@@ -183,6 +186,9 @@ function learnBase() {
   if (state.machine && !bases.has(state.machine)) read(null, () => {});
 }
 
+/// Moves the folder browser to `path`.
+const browseTo = (path: string | null) => read(path, listing => update({ type: "browse", listing }));
+
 /// Choose…: the macOS picker on this Mac, the folder browser elsewhere.
 async function choose() {
   if (reading) return;
@@ -193,12 +199,12 @@ async function choose() {
     update({ type: "pick", machine: id });
   }
   if (state.machine !== macId) {
-    read(state.chosen?.path ?? null, listing => update({ type: "browse", listing }));
+    browseTo(state.chosen?.path ?? null);
     return;
   }
   let path = null;
   try {
-    path = await invoke("pick_folder", { start: state.chosen?.path ?? bases.get(state.machine) ?? null });
+    path = await invoke<string | null>("pick_folder", { start: state.chosen?.path ?? bases.get(state.machine!) ?? null });
   } catch (e) {
     update({ type: "oops", message: String(e) });
   }
@@ -213,12 +219,14 @@ function body() {
         el("div", "am-sub", "A large repository takes a few minutes. You can close this; the project shows up once it is in."),
         el("div", "am-line", el("span", "end"), button("Close", "dbtn quiet", closeImportProject)),
       ];
-    case "done":
+    case "done": {
+      const project = state.project!;
       return [
-        el("div", "am-done", el("span", "ddot"), el("b", "", `${state.project.name} imported`)),
-        el("div", "am-sub", doneText(state.project)),
+        el("div", "am-done", el("span", "ddot"), el("b", "", `${project.name} imported`)),
+        el("div", "am-sub", doneText(project)),
         button("Open project", "dbtn pri", closeImportProject),
       ];
+    }
     default:
       return form();
   }
@@ -262,25 +270,25 @@ function form() {
 /// server too old to look.
 function branchesBlock() {
   if (!previewFor || previewFor !== state.repo.trim()) return [];
-  if (preview === undefined) return [el("div", "am-label", "Branches"), el("div", "am-wait", el("span", "dspin"), "Looking for checkouts and branches…")];
-  if (preview === null) return previewError ? [el("div", "am-label", "Branches"), el("div", "am-sub", previewError)] : [];
+  const label = el("div", "am-label", "Branches");
+  if (preview === undefined) return [label, el("div", "am-wait", el("span", "dspin"), "Looking for checkouts and branches…")];
+  if (preview === null) return previewError ? [label, el("div", "am-sub", previewError)] : [];
+  const { default_branch } = preview;
   const choices = placeChoices(preview, machines);
   const rows = preview.branches.map(b => {
-    const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", previewLine(b, preview.default_branch)));
-    if (b.name !== preview.default_branch && !b.worktree) {
-      const seg = el("span", "seg");
-      const pick = (id, label) => {
+    const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", previewLine(b, default_branch)));
+    if (b.name !== default_branch && !b.worktree) {
+      const pick = (id: string | null, label: string) => {
         const x = button(label, "", () => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); });
         x.setAttribute("aria-pressed", String(id == null ? !(b.name in picks) : picks[b.name] === id));
         return x;
       };
-      seg.append(...choices.map(c => pick(c.id, c.name)), pick(null, "Skip"));
-      line.append(el("span", "lbl", "Worktree"), seg);
+      line.append(el("span", "lbl", "Worktree"), el("span", "seg", ...choices.map(c => pick(c.id, c.name)), pick(null, "Skip")));
     }
     return line;
   });
   return [
-    el("div", "am-label", "Branches"),
+    label,
     el("div", "am-sub", [checkoutNote(preview), preview.note].filter(Boolean).join(" ")),
     rows.length ? el("div", "ip-branches", ...rows) : el("div", "am-sub", "No branches with work."),
   ];
@@ -302,14 +310,14 @@ function folderLine() {
 
 /// The folder browser for another machine: the folder, its folders, and
 /// what importing there does.
-function browser(listing) {
-  const up = button("Up", "dbtn quiet ip-up", () => read(listing.parent, l => update({ type: "browse", listing: l })));
+function browser(listing: MachineFolder) {
+  const up = button("Up", "dbtn quiet ip-up", () => browseTo(listing.parent));
   up.disabled = !listing.parent || reading;
-  const at = el("div", "at", up, el("span", "", listing.path));
-  at.lastChild.title = listing.path;
-  const into = name => `${listing.path.replace(/\/+$/, "")}/${name}`;
+  const where = el("span", "", listing.path);
+  where.title = listing.path;
+  const into = (name: string) => `${listing.path.replace(/\/+$/, "")}/${name}`;
   const dirs = el("div", "dirs", ...listing.folders.map(name => {
-    const b = button(name, "", () => read(into(name), l => update({ type: "browse", listing: l })));
+    const b = button(name, "", () => browseTo(into(name)));
     b.disabled = reading;
     return b;
   }));
@@ -318,18 +326,11 @@ function browser(listing) {
   const use = button("Use this folder", "dbtn pri", () => update({ type: "choose", listing }));
   const cancel = button("Cancel", "dbtn quiet", () => update({ type: "browse", listing: null }));
   const foot = el("div", "foot", el("span", "note", folderNote(listing, state.repo)), cancel, use);
-  return el("div", "ip-browse", at, dirs, foot);
+  return el("div", "ip-browse", el("div", "at", up, where), dirs, foot);
 }
 
-/// Loads the sheet's styles once: the Add a machine sheet's, plus the field.
+/// Loads the field's styles once; the Add a machine sheet's come first.
 function injectStyle() {
-  if (!document.querySelector("link[data-am]")) {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = new URL("./addmachine.css", import.meta.url).href;
-    link.dataset.am = "";
-    document.head.append(link);
-  }
   if (document.querySelector("style[data-ip]")) return;
   const style = document.createElement("style");
   style.dataset.ip = "";

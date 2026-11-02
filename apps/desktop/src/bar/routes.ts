@@ -1,7 +1,68 @@
-import { esc, h, invoke } from "./core.ts";
+import { esc, h, invoke, type Turn } from "./core.ts";
 import { sentBox } from "./media.ts";
 
 // ---------- Transit routes ----------
+
+export interface RoutePoint {
+  latitude: number;
+  longitude: number;
+}
+
+/// A stop a ride passes (RouteStop).
+export interface RouteStop {
+  name: string;
+  code: string;
+  time: string;
+  at: RoutePoint;
+}
+
+/// One walk or ride of a route (RouteLeg).
+export interface RouteLeg {
+  /// "walk", "bus", "tram", "subway", "rail" and others.
+  mode: string;
+  line: string;
+  name: string;
+  color: string;
+  text_color: string;
+  headsign: string;
+  from: string;
+  to: string;
+  from_track: string;
+  to_track: string;
+  departs: string;
+  arrives: string;
+  minutes: number;
+  stops: number;
+  meters: number;
+  points: RoutePoint[];
+  /// Missing on cards saved before station codes.
+  from_code?: string;
+  to_code?: string;
+  between?: RouteStop[];
+}
+
+/// One way there (RouteOption).
+export interface RouteOption {
+  departs: string;
+  arrives: string;
+  minutes: number;
+  transfers: number;
+  live: boolean;
+  legs: RouteLeg[];
+}
+
+/// What a `get_route` call found (RouteCard).
+export interface RouteCard {
+  routes: RouteOption[];
+}
+
+/// A route card in a chat: the route picked and the rides whose stops are
+/// open, as "route:leg".
+interface RouteCardEl extends HTMLDivElement {
+  route: RouteCard;
+  pick: number;
+  open: Set<string>;
+}
 
 /// A get_route result. The routes live on the server, fetched by the call's
 /// id, so their shapes never sit in the model's context.
@@ -9,31 +70,30 @@ export const ROUTE_WALK = '<svg width="14" height="14" viewBox="0 0 24 24" fill=
 
 export const ROUTE_CHEV = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 
-export async function routeRow(turn, callId) {
-  const card = h('<div class="dchart droute"><div class="dmuted"><span class="dspin"></span>Loading the route</div></div>');
+export async function routeRow(turn: Turn, callId: string) {
+  const card = h<RouteCardEl>('<div class="dchart droute"><div class="dmuted"><span class="dspin"></span>Loading the route</div></div>');
   card.pick = 0;
-  // The rides whose stops are open, as "route:leg".
   card.open = new Set();
   sentBox(turn).append(card);
   try {
-    card.route = await invoke("route_card", { callId });
+    card.route = await invoke<RouteCard>("route_card", { callId });
     drawRoute(card);
   } catch {
     card.innerHTML = '<div class="dmuted">Route no longer available</div>';
   }
 }
 
-export function routeChanges(r, sep) {
+export function routeChanges(r: RouteOption, sep: string) {
   return r.transfers ? `${sep}${r.transfers} change${r.transfers > 1 ? "s" : ""}` : "";
 }
 
 /// A station code as Tokyo's signs draw it, ringed in the line's colour.
-export const stationCode = (code, color) => code ? `<span class="rc" style="border-color:${color}">${esc(code)}</span>` : "";
+export const stationCode = (code: string | undefined, color: string) => code ? `<span class="rc" style="border-color:${color}">${esc(code)}</span>` : "";
 
-export function drawRoute(card) {
+export function drawRoute(card: RouteCardEl) {
   const routes = card.route.routes, r = routes[card.pick] ?? routes[0];
   if (!r) return void (card.innerHTML = '<div class="dmuted">No route found</div>');
-  const leg = (l, i) => {
+  const leg = (l: RouteLeg, i: number) => {
     if (l.mode === "walk") {
       const km = l.meters >= 1000 ? `, ${(l.meters / 1000).toFixed(1)} km` : "";
       return `<div class="dmuted" style="gap:10px"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
@@ -64,48 +124,62 @@ export const MAP_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/C
 /// The route over Esri's dark gray map tiles: walks dotted, rides in their
 /// line's colour with a stop at each end. Both are in Web Mercator. The tiles
 /// reach past the viewBox, so a wide card has map out to its edges.
-export function routeSketch(r) {
+export function routeSketch(r: RouteOption) {
   const pts = r.legs.flatMap(l => l.points);
   if (!pts.length) return "";
   const W = 300, H = 132, pad = 14;
-  const mx = p => (p.longitude + 180) / 360;
-  const my = p => { const s = Math.sin(p.latitude * Math.PI / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+  const mx = (p: RoutePoint) => (p.longitude + 180) / 360;
+  const my = (p: RoutePoint) => { const s = Math.sin(p.latitude * Math.PI / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
   const xs = pts.map(mx), ys = pts.map(my);
   const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
   // Units per world width, never closer than street level.
   const k = Math.min((W - 2 * pad) / Math.max(right - left, 1e-12), (H - 2 * pad) / Math.max(bottom - top, 1e-12), 256 * 2 ** 17);
   const cx = (left + right) / 2, cy = (top + bottom) / 2;
-  const sx = x => W / 2 + (x - cx) * k, sy = y => H / 2 + (y - cy) * k;
-  const at = p => [sx(mx(p)).toFixed(1), sy(my(p)).toFixed(1)];
+  const sx = (x: number) => W / 2 + (x - cx) * k, sy = (y: number) => H / 2 + (y - cy) * k;
+  const at = (p: RoutePoint) => [sx(mx(p)).toFixed(1), sy(my(p)).toFixed(1)];
   // A zoom level finer than the scale, so 256 px tiles stay sharp on Retina; the tiles stop at 16.
   const z = Math.max(0, Math.min(16, Math.ceil(Math.log2(k / 256)) + 1)), n = 2 ** z, size = (k / n + 0.5).toFixed(1);
-  const world = v => v / k;
+  const world = (v: number) => v / k;
   let tiles = "";
   for (let tx = Math.floor((cx + world(-2 * W)) * n); tx <= Math.floor((cx + world(2 * W)) * n); tx++)
     for (let ty = Math.max(0, Math.floor((cy + world(-H)) * n)); ty <= Math.min(n - 1, Math.floor((cy + world(H)) * n)); ty++)
       tiles += `<image href="${MAP_TILES}/${z}/${ty}/${((tx % n) + n) % n}" x="${sx(tx / n).toFixed(1)}" y="${sy(ty / n).toFixed(1)}" width="${size}" height="${size}" preserveAspectRatio="none"/>`;
-  const path = ps => ps.map((p, i) => `${i ? "L" : "M"}${at(p).join(",")}`).join("");
-  const dot = (p, rad, attrs) => { const [x, y] = at(p); return `<circle cx="${x}" cy="${y}" r="${rad}" ${attrs}/>`; };
+  const path = (ps: RoutePoint[]) => ps.map((p, i) => `${i ? "L" : "M"}${at(p).join(",")}`).join("");
+  const dot = (p: RoutePoint, rad: number, attrs: string) => { const [x, y] = at(p); return `<circle cx="${x}" cy="${y}" r="${rad}" ${attrs}/>`; };
   const lines = r.legs.filter(l => l.points.length).map(l => l.mode === "walk"
     ? `<path d="${path(l.points)}" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="0.1 6"/>`
     : `<path d="${path(l.points)}" fill="none" stroke="${l.color || "var(--emerald)"}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
   const rides = r.legs.filter(l => l.mode !== "walk" && l.points.length);
   const passed = rides.flatMap(l => (l.between ?? []).map(s => dot(s.at, 2.2, `fill="var(--surface)" stroke="${l.color || "var(--emerald)"}" stroke-width="1.4"`))).join("");
-  const stops = rides.flatMap(l => [l.points[0], l.points.at(-1)])
+  const stops = rides.flatMap(l => [l.points[0], l.points.at(-1)!])
     .map(p => dot(p, 4, 'fill="var(--surface)" stroke="var(--fg)" stroke-width="1.8"')).join("");
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Map of the route"><g opacity=".85">${tiles}</g>${lines}${passed}${stops}
-    ${dot(pts[0], 5, 'fill="var(--emerald)"')}${dot(pts.at(-1), 6, 'fill="var(--coral)" stroke="var(--surface)" stroke-width="2"')}${routeLabels(rides, p => at(p).map(Number), W, H)}</svg>
+    ${dot(pts[0], 5, 'fill="var(--emerald)"')}${dot(pts.at(-1)!, 6, 'fill="var(--coral)" stroke="var(--surface)" stroke-width="2"')}${routeLabels(rides, p => at(p).map(Number), W, H)}</svg>
     <small>Esri, HERE, Garmin, © OpenStreetMap</small>`;
+}
+
+/// A station label on the map and the codes of the lines there.
+interface Label {
+  x: number;
+  y: number;
+  name: string;
+  codes: [code: string, color: string][];
+}
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 /// A label for each station to get on or off at, with its codes: a change
 /// at one station shares one label. A label goes beside its stop, toward the
 /// middle, and is left out when no side has room.
-export function routeLabels(rides, at, W, H) {
-  const labels = [];
+export function routeLabels(rides: RouteLeg[], at: (p: RoutePoint) => number[], W: number, H: number) {
+  const labels: Label[] = [];
   for (const l of rides) {
     const color = l.color || "var(--emerald)";
-    for (const [p, name, code] of [[l.points[0], l.from, l.from_code], [l.points.at(-1), l.to, l.to_code]]) {
+    for (const [p, name, code] of [[l.points[0], l.from, l.from_code], [l.points.at(-1)!, l.to, l.to_code]] as const) {
       const [x, y] = at(p);
       const near = labels.find(b => Math.hypot(b.x - x, b.y - y) < 18);
       if (near) {
@@ -115,8 +189,8 @@ export function routeLabels(rides, at, W, H) {
       if (name) labels.push({ x, y, name, codes: code ? [[code, color]] : [] });
     }
   }
-  const placed = [];
-  const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const placed: Box[] = [];
+  const hits = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   return labels.map(b => {
     const codesW = b.codes.reduce((w, [c]) => w + c.length * 5.6 + 8, 0);
     const w = 8 + codesW + b.name.length * 5.2, h = 16;
@@ -135,23 +209,24 @@ export function routeLabels(rides, at, W, H) {
   }).join("");
 }
 
-export function routeClick(e) {
-  const card = e.target.closest(".droute");
-  const stops = e.target.closest("[data-stops]");
+export function routeClick(e: MouseEvent) {
+  const t = e.target as HTMLElement;
+  const card = t.closest<RouteCardEl>(".droute")!;
+  const stops = t.closest<HTMLElement>("[data-stops]");
   if (stops) {
-    const key = stops.dataset.stops;
+    const key = stops.dataset.stops!;
     if (!card.open.delete(key)) card.open.add(key);
     return drawRoute(card);
   }
-  const pick = e.target.closest("[data-route]");
+  const pick = t.closest<HTMLElement>("[data-route]");
   if (pick) {
-    card.pick = +pick.dataset.route;
+    card.pick = +pick.dataset.route!;
     return drawRoute(card);
   }
   const r = card.route.routes[card.pick], pts = r.legs.flatMap(l => l.points);
   if (!pts.length) return;
-  const at = p => `${p.latitude},${p.longitude}`;
+  const at = (p: RoutePoint) => `${p.latitude},${p.longitude}`;
   // Maps plans the trip again between the ends, with its own live times.
-  invoke("open_url", { url: `https://maps.apple.com/?saddr=${at(pts[0])}&daddr=${at(pts.at(-1))}&dirflg=r` }).catch(() => {});
+  invoke("open_url", { url: `https://maps.apple.com/?saddr=${at(pts[0])}&daddr=${at(pts.at(-1)!)}&dirflg=r` }).catch(() => {});
 }
 

@@ -55,16 +55,7 @@ export interface ChatsState {
   mode?: ChatsMode;
   /// The group the list was opened from, for Esc.
   back?: string | null;
-  share?: { id: string } | null;
-}
-
-/// A link offer while this Mac waits to be linked (LinkOffer).
-export interface LinkOffer {
-  code: string;
-  url: string;
-  expires_in: number;
-  /// When it runs out, in milliseconds, set here.
-  until: number;
+  share?: { id: string; url?: string; error?: string } | null;
 }
 
 export interface BarState {
@@ -74,7 +65,6 @@ export interface BarState {
   chats: ChatsState;
   /// The last chat list, drawn at once while a fresh one loads.
   cache: ChatRow[];
-  offer: LinkOffer | null;
   timer: ReturnType<typeof setInterval> | undefined;
 }
 
@@ -111,7 +101,6 @@ export const S: BarState = new Proxy<BarState>({
   session: null,
   chats: { list: [], sel: 0, query: "" },
   cache: [],
-  offer: null,
   timer: undefined,
 }, {
   set(t, k, v) {
@@ -135,11 +124,12 @@ export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySele
 /// An element `$` is sure to find, as the view on screen draws it.
 export const $$ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel)!;
 
-/// A tool step of a turn, as the chat shows it.
+/// A tool step of a turn, as the chat shows it. A step still running when
+/// its turn ends is marked stopped.
 export interface Step {
   id: string;
   label: string;
-  state: "run" | "ok" | "bad";
+  state: "run" | "ok" | "bad" | "stop";
 }
 
 /// A turn of a chat: a prompt and its reply. The element keeps what the

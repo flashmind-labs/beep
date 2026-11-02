@@ -4,15 +4,64 @@
 // asks; clicking the card, not a button, opens the bar on that chat.
 // Outside live mode, a new notice can show here too, when Voice notes asks
 // first: a card with Play, Open and ×, which goes after 20 seconds alone.
-const { invoke, Channel } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
-const orb = document.getElementById("orb");
-const x = document.getElementById("x");
-const card = document.getElementById("ask");
-const note = document.getElementById("toast");
-const ring = document.getElementById("ring");
-const mini = document.getElementById("mini");
-const noticeEl = document.getElementById("notice");
+import { invoke, Channel, listen } from "./tauri.ts";
+
+/// A field of an approval card.
+interface Field {
+  label: string;
+  value: string;
+}
+
+/// An action the reply waits on an OK for (Rust's `Asking`).
+interface Asking {
+  query_id: string;
+  app: string;
+  action: string;
+  fields: Field[];
+}
+
+/// The approval live mode waits on, and its chat (Rust's `Waiting`).
+interface Waiting {
+  session: string;
+  approval: Asking;
+}
+
+/// A new notice the card offers (Rust's `NoticeCard`).
+interface NoticeCard {
+  id: number;
+  title: string;
+  snippet: string;
+}
+
+/// What live mode shows, as its `view` event carries it.
+interface LiveView {
+  phase: string;
+  words: string;
+  line: string | null;
+  speaking: boolean;
+  title: string | null;
+  finishing: boolean;
+}
+
+/// The `live` events the orb follows (Rust's `LiveEvent`), as far as it reads them.
+type LiveEvent =
+  | ({ kind: "view" } & LiveView)
+  | { kind: "level"; level: number }
+  | { kind: "toast"; text: string }
+  | { kind: "soon"; ms: number | null }
+  | { kind: "sent" }
+  | { kind: "left" }
+  | ({ kind: "approval" } & Waiting)
+  | { kind: "answered"; query_id: string };
+
+const byId = (id: string) => document.getElementById(id)!;
+const orb = byId("orb");
+const x = byId("x");
+const card = byId("ask");
+const note = byId("toast");
+const ring = byId("ring");
+const mini = byId("mini");
+const noticeEl = byId("notice");
 
 /// The orb alone, and the window's width while a card shows.
 const ORB = 112, WITH_CARD = 296, WITH_NOTE = 240;
@@ -21,15 +70,17 @@ const TOAST_MS = 1600;
 /// Fields the card shows; the rest are in the chat.
 const FIELDS = 3;
 
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const clip = (s, n) => s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
+const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESC[c]);
+const clip = (s: string, n: number) => s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
 /// A routine asking for a grant: no Always, as in the bar.
-const forRoutine = action => /for a routine$/.test(action ?? "");
+const forRoutine = (action: string | undefined) => /for a routine$/.test(action ?? "");
+const ignore = () => {};
 
 /// Whether live mode runs here, from its first view until it is left.
 let live = false;
 
-function draw(v) {
+function draw(v: LiveView) {
   live = true;
   // The same states as the bar's orb: listening, thinking, speaking.
   const mode = v.speaking || (v.phase === "speaking" && v.line) ? "speak"
@@ -47,19 +98,19 @@ function draw(v) {
 
 // ---------- Approval ----------
 
-let waiting = null; // { session, approval: { query_id, app, action, fields } }
+let waiting: Waiting | null = null;
 let failure = "";
 
 // ---------- Notes ----------
 
 /// The note for the state live mode is in, and a toast shown over it for a moment.
-let state = "", toast = null, toastTimer = 0;
+let state = "", toast: string | null = null, toastTimer: ReturnType<typeof setTimeout> | undefined;
 /// Toasts that say something went wrong.
 const BAD = /could not|not available|busy|failed/i;
 
 function drawNote() {
-  const text = toast?.text ?? state;
-  const bad = !!toast && BAD.test(toast.text);
+  const text = toast ?? state;
+  const bad = toast !== null && BAD.test(toast);
   if (note.textContent === text && note.classList.contains("bad") === bad && note.hidden === !text) return;
   note.textContent = text;
   note.classList.toggle("bad", bad);
@@ -67,17 +118,17 @@ function drawNote() {
   fit();
 }
 
-function showToast(text) {
-  toast = { text };
+function showToast(text: string) {
+  toast = text;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toast = null; drawNote(); }, TOAST_MS);
   drawNote();
 }
 
 /// A pause sends after `ms`: the ring runs down; null takes it away.
-function soon(ms) {
-  if (ms == null) { ring.hidden = true; return; }
+function soon(ms: number | null) {
   ring.hidden = true;
+  if (ms == null) return;
   ring.style.setProperty("--ms", `${Math.max(1, ms)}ms`);
   // Hidden and shown again restarts the animation.
   void ring.getBoundingClientRect();
@@ -92,16 +143,28 @@ function fit() {
     const last = notice ? noticeEl : waiting ? card : note.hidden ? null : note;
     const height = last ? Math.ceil(last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom)) : ORB;
     const width = waiting || notice ? WITH_CARD : last ? WITH_NOTE : ORB;
-    invoke("fit_orb", { width, height }).catch(() => {});
+    invoke("fit_orb", { width, height }).catch(ignore);
   });
 }
 
+/// Calls `act` with a button's `data-<key>` on its click, which goes no
+/// further than the button.
+function onButtons(el: HTMLElement, key: "d" | "n", act: (value: string) => void) {
+  el.querySelectorAll<HTMLElement>(`[data-${key}]`).forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    act(b.dataset[key]!);
+  }));
+}
+
+/// Empties and hides `el`, or shows it; either way the window fits again.
+function showCard(el: HTMLElement, shown: boolean) {
+  if (!shown) el.replaceChildren();
+  el.hidden = !shown;
+  fit();
+}
+
 function drawAsk() {
-  if (!waiting) {
-    card.hidden = true;
-    card.replaceChildren();
-    return fit();
-  }
+  if (!waiting) return showCard(card, false);
   const { app, action, fields } = waiting.approval;
   const grant = forRoutine(action);
   const shown = fields.slice(0, FIELDS), more = fields.length - shown.length;
@@ -110,22 +173,23 @@ function drawAsk() {
     ${more > 0 ? `<div class="more">${more} more in the chat</div>` : ""}
     ${failure ? `<div class="err">${esc(failure)}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-d="allow">Allow</button>${grant ? "" : '<button class="dbtn" data-d="always">Always</button>'}<button class="dbtn warn" data-d="deny">Deny</button></div>`;
-  card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", e => {
-    e.stopPropagation();
-    answer(b.dataset.d);
-  }));
-  card.hidden = false;
-  fit();
+  onButtons(card, "d", answer);
+  showCard(card, true);
+}
+
+/// Shows `w`'s card, or drops the card for null; either clears a failure.
+function ask(w: Waiting | null) {
+  waiting = w;
+  failure = "";
+  drawAsk();
 }
 
 /// Answers from the orb. The run it resumes shows in the chat when it is
 /// opened, so nothing here follows it. The bar hears of the answer from Rust.
-async function answer(decision) {
+async function answer(decision: string) {
   const asked = waiting;
   if (!asked) return;
-  waiting = null;
-  failure = "";
-  drawAsk();
+  ask(null);
   try {
     await invoke("answer_approval", { session: asked.session, queryId: asked.approval.query_id, decision, onEvent: new Channel() });
   } catch (err) {
@@ -137,77 +201,61 @@ async function answer(decision) {
   }
 }
 
-function ask(w) {
-  waiting = w;
-  failure = "";
-  drawAsk();
-}
-
 /// Drops the card for `queryId`, or any card when it is left out.
-function clear(queryId) {
+function clear(queryId?: string) {
   if (!waiting || (queryId && waiting.approval.query_id !== queryId)) return;
-  waiting = null;
-  failure = "";
-  drawAsk();
+  ask(null);
 }
 
 // ---------- A new notice ----------
 
-let notice = null; // { id, title, snippet }
+let notice: NoticeCard | null = null;
 const X_ICON = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const PLAY_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 
 function drawNotice() {
-  if (!notice) {
-    noticeEl.hidden = true;
-    noticeEl.replaceChildren();
-    return fit();
-  }
+  if (!notice) return showCard(noticeEl, false);
   if (!live) orb.className = "dorb idle";
   noticeEl.innerHTML = `<div class="head"><span class="dlogo">b</span><div class="tt"><b title="${esc(notice.title)}">${esc(notice.title)}</b><small>New message</small></div><button class="nx" data-n="dismiss" aria-label="Dismiss">${X_ICON}</button></div>
     ${notice.snippet ? `<div class="snip">${esc(notice.snippet)}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-n="play">${PLAY_ICON}Play</button><button class="dbtn" data-n="open">Open<kbd>⌥ ⌥</kbd></button></div>
     <div class="life"><i></i></div>`;
-  noticeEl.querySelectorAll("[data-n]").forEach(b => b.addEventListener("click", e => {
-    e.stopPropagation();
-    noticeAct(b.dataset.n);
-  }));
-  noticeEl.hidden = false;
-  fit();
+  onButtons(noticeEl, "n", noticeAct);
+  showCard(noticeEl, true);
 }
 
 /// Play, Open or ×. Rust drops the card; it is gone here at once.
-function noticeAct(act) {
+function noticeAct(act: string) {
   if (!notice) return;
   const { id } = notice;
   notice = null;
   drawNotice();
   // The voice note takes a moment to come; the orb thinks meanwhile.
   if (act === "play") orb.className = "dorb think";
-  invoke(`${act}_notice`, { id }).catch(() => {});
+  invoke(`${act}_notice`, { id }).catch(ignore);
 }
 
 noticeEl.addEventListener("click", () => noticeAct("open"));
 // The pointer on the card keeps it up; leaving it starts the 20 seconds again.
 noticeEl.addEventListener("mouseenter", () => {
-  if (notice) invoke("hold_notice", { id: notice.id, held: true }).catch(() => {});
+  if (notice) invoke("hold_notice", { id: notice.id, held: true }).catch(ignore);
 });
 noticeEl.addEventListener("mouseleave", () => {
   if (!notice) return;
-  invoke("hold_notice", { id: notice.id, held: false }).catch(() => {});
+  invoke("hold_notice", { id: notice.id, held: false }).catch(ignore);
   const life = noticeEl.querySelector(".life");
   if (life) life.innerHTML = "<i></i>";
 });
-listen("notice-card", e => {
+listen<NoticeCard>("notice-card", e => {
   notice = e.payload;
   drawNotice();
 });
 
 card.addEventListener("click", () => {
-  if (waiting) invoke("open_approval", { session: waiting.session }).catch(() => {});
+  if (waiting) invoke("open_approval", { session: waiting.session }).catch(ignore);
 });
 
-listen("live", e => {
+listen<LiveEvent>("live", e => {
   const v = e.payload;
   if (v.kind === "view") draw(v);
   else if (v.kind === "level") orb.style.setProperty("--lvl", Math.min(1, v.level).toFixed(3));
@@ -230,14 +278,14 @@ listen("live", e => {
 });
 mini.addEventListener("click", () => {
   if (notice && !live) return noticeAct("open");
-  invoke("show_bar").catch(() => {});
+  invoke("show_bar").catch(ignore);
 });
 x.addEventListener("click", e => {
   e.stopPropagation();
   if (notice && !live) return noticeAct("dismiss");
-  invoke("cancel_live").catch(() => {});
+  invoke("cancel_live").catch(ignore);
 });
 // An approval that came before this window was made.
-invoke("live_approval").then(w => { if (w && !waiting) ask(w); }).catch(() => {});
+invoke<Waiting | null>("live_approval").then(w => { if (w && !waiting) ask(w); }).catch(ignore);
 // A notice card that came before this window was made.
-invoke("notice_card").then(c => { if (c && !notice) { notice = c; drawNotice(); } }).catch(() => {});
+invoke<NoticeCard | null>("notice_card").then(c => { if (c && !notice) { notice = c; drawNotice(); } }).catch(ignore);

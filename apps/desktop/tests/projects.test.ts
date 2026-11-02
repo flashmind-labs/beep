@@ -1,19 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { RunningAgent, RunningRow } from "../src/home.ts";
+import type { ProjectRow } from "../src/projects-state.ts";
 import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m2", machine_name: "mac", folder: "/Users/u/Projects/org/app" },
 ];
-const agent = (machine_id, cwd, last_activity) => ({ kind: "agent", machine_id, machine_name: machine_id, cwd, started_at: 1, last_activity });
+const agent = (machine_id: string, cwd: string, last_activity: number) => ({ kind: "agent", machine_id, machine_name: machine_id, cwd, started_at: 1, last_activity }) as RunningAgent;
 
 test("agents in an imported checkout count for it; others make their own project", () => {
   const rows = mergeProjects(imported, [
     agent("m1", "/srv/work/projects/org/app", 50),
     agent("m1", "/srv/work/projects/org/app/.worktrees/fix", 80),
     agent("m2", "/Users/u/code/notes", 30),
-    { kind: "research", topic: "x" },
+    { kind: "research", topic: "x" } as RunningRow,
   ]);
   assert.deepEqual(rows.map(r => r.name), ["org/app", "notes"]);
   assert.equal(rows[0].agents, 2);
@@ -59,7 +61,7 @@ test("the sheet clones, then lands on the project", () => {
   assert.equal(s.repo, "n0-computer/iroh");
   assert.equal(progressText(s, [{ id: "a", name: "box" }]), "Cloning n0-computer/iroh onto box…");
   assert.equal(next(s, { type: "edit", repo: "x" }), s, "the field is locked while cloning");
-  const project = { name: "n0-computer/iroh", machine_name: "box", folder: "/w/projects/n0-computer/iroh", cloned: true };
+  const project = { name: "n0-computer/iroh", machine_name: "box", folder: "/w/projects/n0-computer/iroh", cloned: true } as ProjectRow;
   s = next(s, { type: "done", project });
   assert.equal(s.step, "done");
   assert.equal(doneText(project), "Cloned on box in /w/projects/n0-computer/iroh");
@@ -107,7 +109,7 @@ const listing = (over = {}) => ({ path: "/w/code", parent: "/w", exists: true, f
 
 test("the note says what importing into a folder does", () => {
   assert.equal(folderNote(listing({ origin: "git@github.com:org/app.git" }), ""), "A checkout of org/app. It is imported in place, without cloning.");
-  assert.match(folderNote(listing({ origin: "" }), ""), /no origin remote/);
+  assert.match(folderNote(listing({ origin: "" }), "")!, /no origin remote/);
   assert.equal(folderNote(listing({ exists: false, empty: true }), "org/app"), "Not there yet: the clone makes it.");
   assert.equal(folderNote(listing({ empty: true }), "org/app"), "Empty: the clone goes here.");
   assert.equal(folderNote(listing(), "org/app"), "Has other files: it goes in /w/code/app.");
@@ -119,11 +121,11 @@ test("choosing a checkout fills the field; another machine drops the choice", ()
   assert.equal(s, START, "Auto has no folder to choose");
   s = next(s, { type: "pick", machine: "a" });
   s = next(s, { type: "browse", listing: listing() });
-  assert.equal(s.browsing.path, "/w/code");
+  assert.equal(s.browsing!.path, "/w/code");
   s = next(s, { type: "choose", listing: listing({ origin: "git@github.com:org/app.git" }) });
   assert.equal(s.repo, "org/app");
   assert.equal(s.browsing, null);
-  assert.equal(s.chosen.path, "/w/code");
+  assert.equal(s.chosen!.path, "/w/code");
   s = next(s, { type: "submit" });
   assert.equal(progressText(s, [{ id: "a", name: "box" }]), "Importing org/app onto box…");
   s = next(next(START, { type: "pick", machine: "a" }), { type: "choose", listing: listing() });

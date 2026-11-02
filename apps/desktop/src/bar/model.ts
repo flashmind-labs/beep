@@ -4,35 +4,67 @@ import { cap } from "./tools.ts";
 
 // ---------- Model (admins) ----------
 
+/// How long the model reasons before it answers (ReasoningLevel).
+export type Thinking = "off" | "low" | "medium" | "high";
+
+/// A model the caller can pick (ModelChoice).
+export interface ModelChoice {
+  id: string;
+  name: string;
+  /// USD per million tokens, when the provider lists it.
+  input_price: number | null;
+  output_price: number | null;
+  sees_images: boolean;
+  default: boolean;
+}
+
+/// The models the caller can pick from and the one their turns use (Models).
+export interface Models {
+  /// Empty on servers from before every user could pick.
+  choices: ModelChoice[];
+  selected: string;
+  thinking: Thinking;
+  auto: boolean;
+  auto_available: boolean;
+}
+
+/// Whether agents are on for everyone, and the agents set up (Agents).
+interface Agents {
+  enabled: boolean;
+  agents: { id: string; name: string; when: string; model: string; thinking: Thinking }[];
+}
+
 /// The caller's model settings. `choices` is empty unless they are an
 /// admin, and then the bar shows no chip, no model view and no rerun.
 /// `agents` is whether an admin turned agents on for everyone.
 /// `list` names the agents set up, General first; empty when there are none.
-export const MODELS = { info: null, sel: 0, agents: false, list: [] };
-export const THINKING = ["off", "low", "medium", "high"];
+export const MODELS: { info: Models | null; sel: number; agents: boolean; list: string[] } = { info: null, sel: 0, agents: false, list: [] };
+export const THINKING: Thinking[] = ["off", "low", "medium", "high"];
 
 /// Whether the server offers model choices (every user once it lists them).
 export function canPickModel() { return !!MODELS.info?.choices.length; }
 export async function loadModels() {
   try {
-    MODELS.info = await invoke("get_models");
+    MODELS.info = await invoke<Models>("get_models");
   } catch {
     return;
   }
   refreshHints();
   if (!canPickModel()) return;
   try {
-    const agents = await invoke("get_agents");
-    MODELS.agents = agents.enabled;
-    MODELS.list = agents.agents.map(a => a.name);
+    takeAgents(await invoke<Agents>("get_agents"));
   } catch {
     return;
   }
   if (S.view === "model") drawModel();
 }
-export function modelName(id) { return MODELS.info?.choices.find(c => c.id === id)?.name ?? id.split(/[:/]/).pop(); }
-export function modelPrice(c) {
-  const usd = n => "$" + (Math.round(n * 100) / 100);
+function takeAgents(agents: Agents) {
+  MODELS.agents = agents.enabled;
+  MODELS.list = agents.agents.map(a => a.name);
+}
+export function modelName(id: string) { return MODELS.info?.choices.find(c => c.id === id)?.name ?? id.split(/[:/]/).pop()!; }
+export function modelPrice(c: ModelChoice) {
+  const usd = (n: number) => "$" + (Math.round(n * 100) / 100);
   const price = c.input_price != null && c.output_price != null ? `${usd(c.input_price)} in, ${usd(c.output_price)} out per M tokens` : "No price listed";
   return c.sees_images ? price : price + ", text only";
 }
@@ -52,7 +84,7 @@ export function renderModel() {
   drawModel();
 }
 export function drawModel() {
-  const m = MODELS.info, agents = MODELS.agents;
+  const m = MODELS.info!, agents = MODELS.agents;
   // Auto picks only the thinking: the model below always applies, and with
   // agents on the agent Jev picks brings its prompt and thinking.
   const autoSub = m.auto
@@ -75,9 +107,11 @@ export function drawModel() {
       <div class="derr" id="modelErr"></div>
     </div>${hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
 }
-export async function changeModel(command, args) {
+/// Runs a change the server answers with `T`, which `take` stores; an error
+/// shows under the form.
+async function change<T>(command: string, args: Record<string, unknown>, take: (answer: T) => void) {
   try {
-    MODELS.info = await invoke(command, args);
+    take(await invoke<T>(command, args));
   } catch (e) {
     const err = $("#modelErr");
     if (err) err.textContent = String(e);
@@ -85,34 +119,30 @@ export async function changeModel(command, args) {
   }
   if (S.view === "model") drawModel();
 }
-export function modelClick(e) {
-  const pick = e.target.closest("[data-pick]");
-  if (pick) { MODELS.sel = +pick.dataset.pick; return changeModel("set_model", { id: MODELS.info.choices[MODELS.sel].id }); }
-  const level = e.target.closest("[data-level]");
+export function changeModel(command: string, args: Record<string, unknown>) {
+  return change<Models>(command, args, m => { MODELS.info = m; });
+}
+export function setAgents(enabled: boolean) {
+  return change("set_agents", { enabled }, takeAgents);
+}
+const pickModel = () => changeModel("set_model", { id: MODELS.info!.choices[MODELS.sel].id });
+export function modelClick(e: MouseEvent) {
+  const t = e.target as HTMLElement;
+  const pick = t.closest<HTMLElement>("[data-pick]");
+  if (pick) { MODELS.sel = +pick.dataset.pick!; return pickModel(); }
+  const level = t.closest<HTMLElement>("[data-level]");
   if (level) return changeModel("set_thinking", { level: level.dataset.level });
-  if (e.target.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info.auto });
-  if (e.target.closest('[data-act="agents"]')) return setAgents(!MODELS.agents);
+  if (t.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info!.auto });
+  if (t.closest('[data-act="agents"]')) return setAgents(!MODELS.agents);
 }
-export async function setAgents(enabled) {
-  try {
-    const agents = await invoke("set_agents", { enabled });
-    MODELS.agents = agents.enabled;
-    MODELS.list = agents.agents.map(a => a.name);
-  } catch (e) {
-    const err = $("#modelErr");
-    if (err) err.textContent = String(e);
-    return;
-  }
-  if (S.view === "model") drawModel();
-}
-export function modelKeys(e) {
-  if (MODELS.agents && MODELS.info.auto_available && MODELS.info.auto) return;
-  const n = MODELS.info.choices.length;
+export function modelKeys(e: KeyboardEvent) {
+  const m = MODELS.info!;
+  if (MODELS.agents && m.auto_available && m.auto) return;
+  const n = m.choices.length;
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     MODELS.sel = (MODELS.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
     return drawModel();
   }
-  if (e.key === "Enter") { e.preventDefault(); return changeModel("set_model", { id: MODELS.info.choices[MODELS.sel].id }); }
+  if (e.key === "Enter") { e.preventDefault(); return pickModel(); }
 }
-

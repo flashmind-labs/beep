@@ -1,13 +1,27 @@
-import { AG, agentKind, byPreference, CAP_NAMES, loadAgentHosts, openAgent, renderAgents } from "./agents.ts";
-import { $, bar, esc, ICON, invoke, S } from "./core.ts";
+import { AG, type AgentHost, agentKind, type AgentSession, byPreference, CAP_NAMES, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
+import { $, $$, type BackTo, bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
 import { back } from "./keys.ts";
 
 // ----- Start form -----
 
+/// The machine and folder a start form is preset to, as a project's
+/// "Start an agent here" gives them.
+export interface AgentPlace {
+  machine?: string | null;
+  cwd?: string | null;
+}
+
+/// Where Auto would start a session, as `agent_preview` says.
+interface AgentPick {
+  machine_id: string;
+  machine_name: string;
+  why: string;
+}
+
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
-export function renderAgentNew(prompt = "", from = "chat", at = null) {
+export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: AgentPlace | null = null) {
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
@@ -17,7 +31,7 @@ export function renderAgentNew(prompt = "", from = "chat", at = null) {
   drawAgentNew();
   $("#agprompt")?.focus();
   loadAgentHosts();
-  invoke("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawFolders(); }).catch(() => {});
+  invoke<AgentSession[]>("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawFolders(); }).catch(() => {});
 }
 
 export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
@@ -28,12 +42,14 @@ export function formAgents() {
   return all.sort(byPreference);
 }
 
+const chip = (attr: string, val: string, on: boolean, label: string, sub?: string) =>
+  `<button class="dchip" aria-pressed="${on}" ${attr}="${esc(val)}"${sub ? ` title="${esc(sub)}"` : ""}>${label}</button>`;
+const caps = (m: AgentHost) => m.capabilities.map(c => CAP_NAMES[c] || c);
+
 export function drawAgentNew() {
   const f = AG.form, hosts = AG.hosts ?? [], host = formHost();
   const agents = formAgents();
   if (f.agent && !agents.includes(f.agent)) f.agent = null;
-  const chip = (attr, val, on, label, sub) => `<button class="dchip" aria-pressed="${on}" ${attr}="${esc(val)}"${sub ? ` title="${esc(sub)}"` : ""}>${label}</button>`;
-  const caps = m => m.capabilities.map(c => CAP_NAMES[c] || c);
   const machines = [chip("data-agm", "auto", f.machine === "auto", "Auto", "Beep picks from what each machine has"),
     ...hosts.map(m => chip("data-agm", m.machine_id, f.machine === m.machine_id, esc(m.machine_name), caps(m).join(", ")))].join("");
   const machineNote = !AG.hosts ? '<span class="dspin"></span> Looking for machines…'
@@ -56,23 +72,24 @@ export function drawAgentNew() {
         <span class="dmuted" style="margin-left:auto">Or ask Beep in a chat to start one</span></div>
     </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "start"], ["esc", "cancel"]])}`;
   drawFolders();
-  $("#agprompt").addEventListener("input", e => { f.prompt = e.target.value; previewAuto(); });
-  $("#agcwd").addEventListener("input", e => { f.cwd = e.target.value; previewAuto(); });
+  $$("#agprompt").addEventListener("input", e => { f.prompt = (e.target as HTMLTextAreaElement).value; previewAuto(); });
+  $$("#agcwd").addEventListener("input", e => { f.cwd = (e.target as HTMLInputElement).value; previewAuto(); });
   previewAuto();
   bar.onclick = e => {
     if (S.view !== "agentnew") return;
-    const m = e.target.closest("[data-agm]"), a = e.target.closest("[data-aga]");
-    if (m) { f.machine = m.dataset.agm; drawAgentNew(); }
+    const target = e.target as HTMLElement;
+    const m = target.closest<HTMLElement>("[data-agm]"), a = target.closest<HTMLElement>("[data-aga]");
+    if (m) { f.machine = m.dataset.agm!; drawAgentNew(); }
     else if (a) { f.agent = a.dataset.aga || null; drawAgentNew(); }
-    else if (e.target.closest("#aggo")) startAgent();
-    else if (e.target.closest("#agno")) back();
-    else if (e.target.closest("#agList")) renderAgents();
+    else if (target.closest("#aggo")) startAgent();
+    else if (target.closest("#agno")) back();
+    else if (target.closest("#agList")) renderAgents();
   };
 }
 
 /// What Auto would pick for the form as it stands: the server's answer for
 /// `key`, else nothing while it is asked.
-export const PICK = { key: "", pick: null, error: "", timer: 0 };
+export const PICK: { key: string; pick: AgentPick | null; error: string; timer: ReturnType<typeof setTimeout> | undefined } = { key: "", pick: null, error: "", timer: undefined };
 
 /// The line under the machines when Auto is on: where it would start now.
 export function pickNote() {
@@ -96,22 +113,23 @@ export function previewAuto() {
   const f = AG.form, note = () => $("#agwhy");
   const auto = S.view === "agentnew" && f.machine === "auto" && AG.hosts?.length;
   if (!auto) return;
-  if (note()) note().innerHTML = pickNote();
+  if (note()) note()!.innerHTML = pickNote();
   if (!f.prompt.trim() || PICK.key === pickKey()) return;
   PICK.timer = setTimeout(async () => {
     const key = pickKey();
-    let pick = null, error = "";
+    let pick: AgentPick | null = null, error = "";
     try {
-      pick = await invoke("agent_preview", { agent: f.agent, cwd: f.cwd.trim() || null, prompt: f.prompt.trim() });
+      pick = await invoke<AgentPick | null>("agent_preview", { agent: f.agent, cwd: f.cwd.trim() || null, prompt: f.prompt.trim() });
     } catch (e) {
       error = String(e).replace(/^bad request: /, "");
     }
     if (key !== pickKey()) return;
     Object.assign(PICK, { key, pick, error });
     if (S.view !== "agentnew") return;
-    if (note()) {
-      note().innerHTML = pickNote();
-      note().hidden = !pick && !error;
+    const el = note();
+    if (el) {
+      el.innerHTML = pickNote();
+      el.hidden = !pick && !error;
     }
   }, 450);
 }
@@ -135,7 +153,7 @@ export async function startAgent() {
   AG.error = "";
   drawAgentNew();
   try {
-    const started = await invoke("agent_start", {
+    const started = await invoke<Started>("agent_start", {
       machineId: f.machine === "auto" ? null : f.machine,
       agent: f.agent,
       cwd: f.cwd.trim() || null,
@@ -152,4 +170,3 @@ export async function startAgent() {
     if (S.view === "agentnew") drawAgentNew();
   }
 }
-

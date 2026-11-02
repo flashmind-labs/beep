@@ -1,26 +1,64 @@
 // The Instructions view: the user's rules for every agent Beep runs. An
 // editor over the saved versions, the agent files on each machine to import
-// from, writing the rules into those files, and the history. center.js
-// registers it; instructions-state.js holds the words and sums.
+// from, writing the rules into those files, and the history. center.ts
+// registers it; instructions-state.ts holds the words and sums.
+import type { invoke as Invoke } from "./tauri.ts";
+import type { Ago, Kid, MakeButton, MakeEl } from "./projects-state.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.ts";
+import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
 
-const TABS = [["editor", "Editor"], ["import", "Import"], ["sync", "Sync"], ["history", "History"]];
+/// The view's tabs.
+export type InstructionsTab = "editor" | "import" | "sync" | "history";
 
-/// `deps`: { registerView, invoke, h, button, ago, drawTop, openSettings }.
-export function registerInstructions(deps) {
+const TABS: [InstructionsTab, string][] = [["editor", "Editor"], ["import", "Import"], ["sync", "Sync"], ["history", "History"]];
+
+/// The view as the window registers it.
+export interface InstructionsView {
+  title: () => { title: string; sub: string; tools: Node[] };
+  /// `arg.tab` opens on that tab.
+  mount(root: HTMLElement, arg?: unknown): void;
+}
+
+/// What the window hands `registerInstructions`.
+export interface InstructionsDeps {
+  registerView: (name: string, view: InstructionsView) => void;
+  invoke: typeof Invoke;
+  h: MakeEl;
+  button: MakeButton;
+  ago: Ago;
+  openSettings: () => void;
+}
+
+/// The view's state. `newest` is the saved version (null before the first,
+/// undefined while loading); `draft` what the editor holds when it differs.
+/// `versions` and `files` are undefined until read and null when that failed.
+interface InstructionsState {
+  tab: InstructionsTab;
+  newest: VersionRow | null | undefined;
+  draft: string | null;
+  note: string;
+  saving: boolean;
+  error: string;
+  versions: VersionRow[] | null | undefined;
+  files: MachineAgentFiles[] | null | undefined;
+  reading: boolean;
+  writing: Set<string>;
+  /// The file (machine id and path) or version (`v` and its number) shown.
+  shown: string | null;
+}
+
+export function registerInstructions(deps: InstructionsDeps) {
   const { registerView, invoke, h, button, ago } = deps;
-  // `newest` is the saved version (null before the first, undefined while
-  // loading); `draft` what the editor holds when it differs.
-  const st = { tab: "editor", newest: undefined, draft: null, note: "", saving: false, error: "", versions: undefined, files: undefined, reading: false, writing: new Set(), shown: null };
-  let el = null;
+  const st: InstructionsState = { tab: "editor", newest: undefined, draft: null, note: "", saving: false, error: "", versions: undefined, files: undefined, reading: false, writing: new Set(), shown: null };
+  let el: HTMLElement | null = null;
 
-  const fail = e => String(e).replace(/^(bad request|conflict|error):\s*/i, "");
+  const fail = (e: unknown) => String(e).replace(/^(bad request|conflict|error):\s*/i, "");
   const text = () => st.draft ?? st.newest?.text ?? "";
   const dirty = () => st.draft != null && st.draft !== (st.newest?.text ?? "");
 
   async function load() {
     try {
-      st.newest = await invoke("instructions_get");
+      st.newest = await invoke<VersionRow | null>("instructions_get");
       st.error = "";
     } catch (e) {
       st.newest ??= null;
@@ -29,13 +67,13 @@ export function registerInstructions(deps) {
     draw();
   }
 
-  async function save(note) {
+  async function save(note?: string) {
     if (st.saving || bytes(text()) > MAX_BYTES) return;
     st.saving = true;
     st.error = "";
     draw();
     try {
-      st.newest = await invoke("instructions_save", { text: text(), base: st.newest?.version ?? null, note: note ?? st.note });
+      st.newest = await invoke<VersionRow>("instructions_save", { text: text(), base: st.newest?.version ?? null, note: note ?? st.note });
       st.draft = null;
       st.note = "";
       st.versions = undefined;
@@ -50,7 +88,7 @@ export function registerInstructions(deps) {
 
   async function loadVersions() {
     try {
-      st.versions = await invoke("instructions_versions");
+      st.versions = await invoke<VersionRow[]>("instructions_versions");
     } catch (e) {
       st.versions = null;
       st.error = fail(e);
@@ -63,7 +101,7 @@ export function registerInstructions(deps) {
     st.reading = true;
     draw();
     try {
-      st.files = await invoke("agent_files_read");
+      st.files = await invoke<MachineAgentFiles[]>("agent_files_read");
     } catch (e) {
       st.files = null;
       st.error = fail(e);
@@ -73,11 +111,11 @@ export function registerInstructions(deps) {
     draw();
   }
 
-  async function writeFiles(machineId) {
+  async function writeFiles(machineId: string) {
     st.writing.add(machineId);
     draw();
     try {
-      const after = await invoke("agent_files_sync", { machineId });
+      const after = await invoke<MachineAgentFiles>("agent_files_sync", { machineId });
       st.files = (st.files || []).map(m => (m.machine_id === machineId ? after : m));
     } catch (e) {
       st.files = (st.files || []).map(m => (m.machine_id === machineId ? { ...m, error: fail(e) } : m));
@@ -87,14 +125,14 @@ export function registerInstructions(deps) {
     draw();
   }
 
-  function setTab(tab) {
+  function setTab(tab: InstructionsTab) {
     st.tab = tab;
     if (tab === "history" && st.versions === undefined) loadVersions();
     if ((tab === "import" || tab === "sync") && st.files === undefined) readFiles();
     draw();
   }
 
-  function sec(title, small, ...body) {
+  function sec(title: string, small: string, ...body: Kid[]) {
     return h("div", "", h("div", "cc-sec", h("h4", "", title), small ? h("small", "", small) : null), ...body);
   }
 
@@ -145,8 +183,8 @@ export function registerInstructions(deps) {
 
   /// How agents see it: what a coding agent on a machine reads, first to
   /// last, with this text's place among them.
-  function layers(summary) {
-    const li = (title, note, me) => h("li", me ? "me" : "", h("b", "", title), h("small", "", note));
+  function layers(summary: SyncSummary | null) {
+    const li = (title: string, note: string, me = false) => h("li", me ? "me" : "", h("b", "", title), h("small", "", note));
     return sec("How agents see it", "first to last", h("div", "cc-panel",
       h("ol", "in-layers",
         li("The agent's own rules", "Built into Claude Code, Codex, Gemini CLI or pi"),
@@ -157,57 +195,75 @@ export function registerInstructions(deps) {
       h("div", "in-foot", "Agents read these in order, so later layers can narrow earlier ones. Beep's own chat does not read this text.")));
   }
 
-  function fileRow(m, f, acts) {
-    const r = h("span", "r", ...acts);
-    return h("div", `in-file${f.text == null ? " miss" : ""}`, h("span", "ag", agentName(f.agent)), h("code", "", f.path), r);
+  function fileRow(f: AgentFile, acts: Kid[]) {
+    return h("div", `in-file${f.text == null ? " miss" : ""}`, h("span", "ag", agentName(f.agent)), h("code", "", f.path), h("span", "r", ...acts));
   }
 
-  function machineBlock(m, right, rows) {
+  function machineBlock(m: MachineAgentFiles, right: Node | null, rows: Node[]) {
     const head = h("b", "", h("span", `ddot${m.error ? " bad" : ""}`), m.machine_name);
     return h("div", "in-mach", head, right || h("span", ""), h("div", "in-files", ...rows));
   }
 
-  function loading(what) {
+  function loading(what: string) {
     return h("div", "cc-panel cc-empty", h("b", "", what));
   }
 
-  function importTab() {
+  /// A machine's line when it has no file rows: why it could not be read,
+  /// or that it has no coding agent.
+  function missRow(text: string) {
+    return h("div", "in-file miss", h("span", "", text));
+  }
+
+  /// What the Import and Sync tabs show before the files are read, or
+  /// when reading them failed; null once they are there.
+  function notRead() {
     if (st.files === undefined || (st.reading && !st.files)) return [loading("Reading the agent files on your machines…")];
     if (st.files === null) return [h("div", "cc-err", st.error || "Could not read the agent files.")];
-    const machines = st.files.map(m => machineBlock(m, null, m.error ? [h("div", "in-file miss", h("span", "", m.error))]
-      : m.files.length ? m.files.map(f => {
+    return null;
+  }
+
+  /// The machines' panel, or that none is online.
+  function machinesPanel(machines: HTMLElement[]) {
+    return h("div", "cc-panel", ...(machines.length ? machines : [h("div", "cc-empty", "No machine online")]));
+  }
+
+  function importTab() {
+    const early = notRead();
+    if (early) return early;
+    const machines = st.files!.map(m => machineBlock(m, null, m.error ? [missRow(m.error)]
+      : m.files.length ? m.files.map((f): HTMLElement => {
         const own = withoutBeepBlock(f.text);
-        if (f.text == null || !own) return fileRow(m, f, [f.text == null ? "none" : "only Beep's text"]);
+        if (f.text == null || !own) return fileRow(f, [f.text == null ? "none" : "only Beep's text"]);
         const note = `Imported from ${agentName(f.agent)} on ${m.machine_name}`;
-        return fileRow(m, f, [linesLabel(own),
+        return fileRow(f, [linesLabel(own),
           button("Show", "small", () => { st.shown = st.shown === `${m.machine_id}${f.path}` ? null : `${m.machine_id}${f.path}`; draw(); }),
           button("Add to mine", "small", () => { st.draft = appended(text(), own); st.note = note; setTab("editor"); }),
           button("Use instead", "small quiet", () => { st.draft = `${own}\n`; st.note = note; setTab("editor"); })]);
       }).concat(m.files.filter(f => st.shown === `${m.machine_id}${f.path}`).map(f => h("pre", "in-pre", withoutBeepBlock(f.text))))
-        : [h("div", "in-file miss", h("span", "", "No coding agent here"))]));
+        : [missRow("No coding agent here")]));
     return [
       h("div", "cc-note", h("span", "ddot"), h("span", "", "Nothing on the machines changes. Add a file's rules to yours, then save them as a new version.")),
-      sec("Found on your machines", st.reading ? "reading…" : "read just now", h("div", "cc-panel", ...(machines.length ? machines : [h("div", "cc-empty", "No machine online")]))),
+      sec("Found on your machines", st.reading ? "reading…" : "read just now", machinesPanel(machines)),
       h("div", "in-acts", button("Read again", "", readFiles)),
     ];
   }
 
   function syncTab() {
-    if (st.files === undefined || (st.reading && !st.files)) return [loading("Reading the agent files on your machines…")];
-    if (st.files === null) return [h("div", "cc-err", st.error || "Could not read the agent files.")];
+    const early = notRead();
+    if (early) return early;
     const ver = st.newest ? `version ${st.newest.version}` : "nothing saved yet";
-    const machines = st.files.map(m => {
+    const machines = st.files!.map(m => {
       const busy = st.writing.has(m.machine_id);
       const write = button(busy ? "Writing…" : "Write to agent files", "small", () => writeFiles(m.machine_id));
       write.disabled = busy || !st.newest || !!m.error || !m.files.length || m.files.every(f => f.synced);
-      const rows = m.error ? [h("div", "in-file miss", h("span", "", m.error))]
-        : m.files.length ? m.files.map(f => { const s = fileState(f); return fileRow(m, f, [h("span", s.cls ? `in-${s.cls}` : "", s.text)]); })
-          : [h("div", "in-file miss", h("span", "", "No coding agent here"))];
+      const rows = m.error ? [missRow(m.error)]
+        : m.files.length ? m.files.map(f => { const s = fileState(f); return fileRow(f, [h("span", s.cls ? `in-${s.cls}` : "", s.text)]); })
+          : [missRow("No coding agent here")];
       return machineBlock(m, write, rows);
     });
     return [
       h("div", "cc-note", h("span", "ddot"), h("span", "", "Beep writes your rules between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file, so sessions started outside Beep follow them too. Text outside the markers is never touched.")),
-      sec("Machines", ver, h("div", "cc-panel", ...(machines.length ? machines : [h("div", "cc-empty", "No machine online")]))),
+      sec("Machines", ver, machinesPanel(machines)),
       h("div", "in-acts", button("Read again", "", readFiles)),
     ];
   }
@@ -237,10 +293,10 @@ export function registerInstructions(deps) {
     else if (st.tab === "sync") view.append(...syncTab());
     else view.append(...historyTab());
     const old = el.querySelector(":scope > .cc-view");
-    const focused = document.activeElement?.tagName === "TEXTAREA" && el.contains(document.activeElement);
-    const caret = focused ? document.activeElement.selectionStart : null;
+    const active = document.activeElement;
+    const caret = active instanceof HTMLTextAreaElement && el.contains(active) ? active.selectionStart : null;
     if (old) { old.replaceWith(view); view.scrollTop = old.scrollTop; } else el.append(view);
-    if (focused) {
+    if (caret != null) {
       const area = view.querySelector("textarea");
       area?.focus();
       area?.setSelectionRange(caret, caret);
@@ -251,7 +307,8 @@ export function registerInstructions(deps) {
     title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", tools: [button("Settings", "quiet small", () => deps.openSettings())] }),
     mount(root, arg) {
       el = root;
-      if (arg?.tab) st.tab = arg.tab;
+      const tab = arg && typeof arg === "object" && "tab" in arg ? arg.tab : null;
+      if (tab) st.tab = tab as InstructionsTab;
       st.error = "";
       draw();
       load();

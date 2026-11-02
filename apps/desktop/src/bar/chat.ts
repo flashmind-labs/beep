@@ -1,12 +1,16 @@
 import { drawAgentButton } from "./agents.ts";
 import { askFiles, attached, attachError, drawAttached } from "./attach.ts";
+import type { AskFile } from "./attach.ts";
 import { chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
-import { $, bar, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "./core.ts";
+import { $, $$, bar, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "./core.ts";
+import type { ChatBody, LiveEntry, PendingApproval, Step, Turn } from "./core.ts";
 import { chatHints, drawStop, refreshHints } from "./hints.ts";
 import { loadTurnAgent, sourceRow } from "./history.ts";
+import type { WebSource } from "./history.ts";
 import { heard, takeDraft } from "./live.ts";
 import { fillPics, picRow, productRow, replyPic, sentFile } from "./media.ts";
+import type { PicRef, SentFile, SentImage } from "./media.ts";
 import { canPickModel, modelName, MODELS } from "./model.ts";
 import { replyActs } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
@@ -15,18 +19,81 @@ import { refreshStatus } from "./views.ts";
 
 // ---------- Chat ----------
 
+/// A chart a tool drew, as charts.ts draws it.
+type Chart = Parameters<typeof chartRow>[1];
+
+/// One line of an approval card.
+export interface ApprovalField {
+  label: string;
+  value: string;
+}
+
+/// An action waiting for the user's OK (`Asking`).
+export interface Asking {
+  query_id: string;
+  app: string;
+  action: string;
+  fields: ApprovalField[];
+}
+
+/// The user's answer to an approval card.
+export type Decision = "allow" | "session" | "always" | "deny";
+
+/// What a tool sent with its result, shown under the reply.
+export interface ToolOutput {
+  file: SentFile | null;
+  /// A `send_image` result's pictures.
+  images: SentImage[];
+  /// A `show_products` result's cards, as HTML.
+  products: string | null;
+  /// A `show_cards` result's cards, as HTML.
+  cards: string | null;
+  chart: Chart | null;
+}
+
+/// What a run streams into the bar (`BarEvent`).
+export type BarEvent =
+  | { kind: "started"; run_id: string; session_id: string }
+  /// The reply so far, as sanitized HTML.
+  | { kind: "text"; html: string }
+  | { kind: "reasoning"; delta: string }
+  | { kind: "tool_started"; call_id: string; name: string; description: string }
+  | ({ kind: "tool_result"; call_id: string; name: string; success: boolean } & ToolOutput)
+  | { kind: "sources"; sources: WebSource[] }
+  | { kind: "replies"; replies: string[] }
+  | ({ kind: "approval" } & Asking)
+  /// Jev picked the model and thinking for this prompt.
+  | { kind: "auto_picked"; model: string; thinking: string }
+  | { kind: "transcript"; text: string }
+  | { kind: "error"; message: string }
+  | { kind: "finished"; status: string };
+
+/// What this module reads of `MODELS.info` (`Models`).
+interface ModelPick {
+  auto: boolean;
+  selected: string;
+  thinking: string;
+}
+
+/// The right-edge map of prompts, which keeps the turns its ticks stand for.
+interface PromptMap extends HTMLElement {
+  turns?: HTMLElement[];
+}
+
+const CARET = '<span class="caret"></span>';
+
 export function renderChat() {
   S.view = "chat";
   bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
     <div class="dbody" id="body"></div>${chatHints()}`;
   const kept = here()?.body;
-  if (kept) $("#body").replaceWith(kept);
-  const b = body();
+  if (kept) $$("#body").replaceWith(kept);
+  const b = body()!;
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
   drawLatest();
   drawQueue();
   drawAttached();
-  const ask = $("#ask");
+  const ask = $$<HTMLTextAreaElement>("#ask");
   let multi = false, typed = false;
   ask.addEventListener("input", () => {
     grow(ask);
@@ -41,25 +108,25 @@ export function renderChat() {
 }
 export const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
 /// A height the user dragged the bar's prompt to; null lets it follow its lines.
-export let askHeight = null;
+export let askHeight: number | null = null;
 try { askHeight = Number(localStorage.getItem(ASK_HEIGHT)) || null; } catch {}
 /// The prompt grows with its lines, up to six, then scrolls. A height the
 /// user dragged it to is the least it shows, so its lines still fit.
-export function grow(ask) {
+export function grow(ask: HTMLTextAreaElement) {
   ask.style.height = "auto";
   const lines = Math.min(ask.scrollHeight, 156);
   const dragged = askHeight && ask.id === "ask" ? Math.min(askHeight, ASK_MAX) : 0;
   ask.style.height = Math.max(lines, dragged) + "px";
 }
 /// Dragging the grip under the prompt sets its height, kept for next time.
-export function dragGrip(ask) {
-  const grip = $("#grip");
+export function dragGrip(ask: HTMLTextAreaElement) {
+  const grip = $$("#grip");
   grip.addEventListener("pointerdown", e => {
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
     grip.classList.add("on");
     const startY = e.clientY, startH = ask.offsetHeight;
-    const move = m => {
+    const move = (m: PointerEvent) => {
       // A click on the grip is not a drag: it would pin the prompt to one line.
       if (Math.abs(m.clientY - startY) < 4) return;
       askHeight = Math.max(26, Math.min(startH + m.clientY - startY, ASK_MAX));
@@ -81,15 +148,15 @@ export function dragGrip(ask) {
   });
   grow(ask);
 }
-export function focusAsk() { const ask = $("#ask"); if (ask) ask.focus(); }
-export function body() { return $("#body"); }
+export function focusAsk() { $("#ask")?.focus(); }
+export function body() { return $<ChatBody>("#body"); }
 export function scrollDown() { const b = body(); if (b) { b.stuck = true; b.scrollTop = b.scrollHeight; } }
 /// Follows a streaming reply down, unless the user scrolled up to read.
-export function keepDown() { const b = body(); if (b?.stuck !== false) scrollDown(); }
+export function keepDown() { if (body()?.stuck !== false) scrollDown(); }
 
 /// While the user reads back, a button that jumps to the newest text.
 export function drawLatest() {
-  const b = body(), want = S.view === "chat" && b?.stuck === false;
+  const want = S.view === "chat" && body()?.stuck === false;
   const btn = $("#latest");
   if (!want) return btn?.remove();
   if (btn) return;
@@ -106,18 +173,18 @@ export const MAP_QUIET_AFTER = 12;
 /// change, since fit() calls this from the bar's MutationObserver.
 export function drawMap() {
   const b = body();
-  const turns = b && S.view === "chat" ? [...b.children].filter(t => t.querySelector(":scope > .ask")) : [];
-  let map = $("#map");
-  if (turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
-  if (!map) map = bar.appendChild(h('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
+  const turns = b && S.view === "chat" ? ([...b.children] as HTMLElement[]).filter(t => t.querySelector(":scope > .ask")) : [];
+  let map = $<PromptMap>("#map");
+  if (!b || turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
+  if (!map) map = bar.appendChild(h<PromptMap>('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
   // A long chat's ticks are a wall of noise: they show only on hover.
   map.classList.toggle("many", turns.length > MAP_QUIET_AFTER);
   if (map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
     map.turns = turns;
     map.replaceChildren(...turns.map(t => {
       const tk = h('<button class="tk"><i></i><span class="tip"></span></button>');
-      const q = t.querySelector(":scope > .ask").textContent;
-      tk.querySelector(".tip").textContent = q;
+      const q = t.querySelector(":scope > .ask")!.textContent ?? "";
+      tk.querySelector(".tip")!.textContent = q;
       tk.setAttribute("aria-label", q);
       tk.addEventListener("click", () => { b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }); focusAsk(); });
       return tk;
@@ -127,33 +194,33 @@ export function drawMap() {
   map.style.height = b.clientHeight + "px";
   turns.forEach((t, i) => {
     const at = (t.offsetTop - b.offsetTop) / b.scrollHeight * 100;
-    map.children[i].style.top = Math.min(97, Math.max(3, at)) + "%";
+    (map.children[i] as HTMLElement).style.top = Math.min(97, Math.max(3, at)) + "%";
   });
   markMap();
 }
 /// Marks the prompt whose turn is at the top of the view.
 export function markMap() {
-  const b = body(), map = $("#map");
+  const b = body(), map = $<PromptMap>("#map");
   if (!b || !map?.turns) return;
   let cur = 0;
   map.turns.forEach((t, i) => { if (t.offsetTop - b.offsetTop <= b.scrollTop + b.clientHeight / 3) cur = i; });
   [...map.children].forEach((tk, i) => tk.classList.toggle("on", i === cur));
 }
 
-export function newTurn(question, images, files) {
-  const turn = h(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
+export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) {
+  const turn = h<Turn>(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
   fillPics(turn);
   if (files?.length) turn.append(askFiles(files));
   turn.steps = [];
   turn.folded = true;
-  body().append(turn);
+  body()!.append(turn);
   return turn;
 }
 
 /// The model and thinking a prompt ran on, under it. Everyone but an admin
 /// is on Auto for thinking only, so they see just the level Jev picked. A
 /// later line, such as Jev's pick, replaces it.
-export function ranOn(turn, model, thinking) {
+export function ranOn(turn: Turn, model: string, thinking: string) {
   if (!model) return;
   const line = canPickModel()
     ? (thinking ? `${modelName(model)} · ${thinking}` : modelName(model))
@@ -163,7 +230,7 @@ export function ranOn(turn, model, thinking) {
   turn.querySelector(".ask")?.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
 }
 
-export function stepIcon(state) {
+export function stepIcon(state: Step["state"]) {
   if (state === "run") return '<span class="dspin"></span>';
   if (state === "bad") return `<span class="dbad">${ICON.x}</span>`;
   if (state === "stop") return `<span style="color:var(--dim);display:grid">${ICON.x}</span>`;
@@ -172,7 +239,7 @@ export function stepIcon(state) {
 
 // Same fold as the phone: while running, the last three steps and a
 // "+N tools" row; once done, one "N steps" row that opens them all.
-export function drawSteps(turn, done) {
+export function drawSteps(turn: Turn, done: boolean | undefined) {
   let box = turn.querySelector(".tools");
   if (!turn.steps.length) { box?.remove(); return; }
   if (!box) {
@@ -180,20 +247,19 @@ export function drawSteps(turn, done) {
     const reply = turn.querySelector(".reply, .dcard, .derr");
     reply ? turn.insertBefore(box, reply) : turn.append(box);
   }
-  const rows = s => s.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
+  const rows = (steps: Step[]) => steps.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
   const n = turn.steps.length;
+  const row = (expanded: boolean, label: string) => `<button class="drow" aria-expanded="${expanded}"><span class="chev">${ICON.chev}</span>${label}</button>`;
   if (done) {
-    const label = n === 1 ? "1 step" : `${n} steps`;
-    box.innerHTML = `<button class="drow" aria-expanded="${!turn.folded}"><span class="chev">${ICON.chev}</span>${label}</button>${turn.folded ? "" : rows(turn.steps)}`;
+    box.innerHTML = row(!turn.folded, n === 1 ? "1 step" : `${n} steps`) + (turn.folded ? "" : rows(turn.steps));
   } else {
     const hidden = turn.folded ? Math.max(0, n - VISIBLE_STEPS) : 0;
-    const more = hidden ? `<button class="drow" aria-expanded="false"><span class="chev">${ICON.chev}</span>+${hidden} tools</button>` : "";
-    box.innerHTML = more + rows(turn.steps.slice(hidden));
+    box.innerHTML = (hidden ? row(false, `+${hidden} tools`) : "") + rows(turn.steps.slice(hidden));
   }
   box.querySelector(".drow")?.addEventListener("click", () => { turn.folded = !turn.folded; drawSteps(turn, turn.done); });
 }
 
-export function reply(turn) {
+export function reply(turn: Turn) {
   let el = turn.querySelector(".reply");
   if (!el) {
     el = h('<div class="reply"></div>');
@@ -203,30 +269,41 @@ export function reply(turn) {
   return el;
 }
 
-export function thinking(turn, delta) {
+export function thinking(turn: Turn, delta: string) {
   let row = turn.querySelector(".thinkrow");
   if (!row) {
     row = h(`<div class="thinkrow" style="display:grid;gap:6px"><button class="drow" aria-expanded="false"><span class="chev">${ICON.chev}</span>Thinking</button><div class="think" hidden></div></div>`);
-    const btn = row.querySelector("button"), text = row.querySelector(".think");
+    const btn = row.querySelector("button")!, text = row.querySelector<HTMLElement>(".think")!;
     btn.addEventListener("click", () => { text.hidden = !text.hidden; btn.setAttribute("aria-expanded", String(!text.hidden)); });
     const ask = turn.querySelector(".dachips") ?? turn.querySelector(".dpics") ?? turn.querySelector(".ask");
     ask ? ask.after(row) : turn.prepend(row);
   }
-  row.querySelector(".think").textContent += delta;
+  row.querySelector(".think")!.textContent += delta;
+}
+
+/// What a tool sent, under the reply. `route` is a `get_route` call's id,
+/// whose transit card is fetched.
+export function toolOutput(turn: Turn, x: ToolOutput, route: string | null) {
+  if (x.file) sentFile(turn, x.file);
+  for (const p of x.images ?? []) replyPic(turn, p);
+  if (x.products) productRow(turn, x.products);
+  if (x.cards) productRow(turn, x.cards);
+  if (x.chart) chartRow(turn, x.chart);
+  if (route) routeRow(turn, route);
 }
 
 /// A routine asking for a grant (`request_grant`). A grant always ends, so
 /// its card has no Always, and the Always key allows it.
-export const forRoutine = action => /for a routine$/.test(action ?? "");
+export const forRoutine = (action: string | null | undefined) => /for a routine$/.test(action ?? "");
 
-export function approvalCard(id, turn, { query_id, app, action, fields }) {
+export function approvalCard(id: string | null, turn: Turn, { query_id, app, action, fields }: Asking) {
   const grant = forRoutine(action);
   const card = h(`<div class="dcard">
     <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
-  card.querySelectorAll("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d)));
+  card.querySelectorAll<HTMLElement>("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d as Decision)));
   turn.append(card);
   const e = entry(id);
   e.approval = { queryId: query_id, turn, card, grant };
@@ -235,21 +312,22 @@ export function approvalCard(id, turn, { query_id, app, action, fields }) {
 }
 
 /// Follow-ups under the reply; picking one sends it.
-export function suggestions(turn, replies) {
+export function suggestions(turn: Turn, replies: string[]) {
   turn.querySelector(".dreplies")?.remove();
   const row = h(`<div class="dreplies">${replies.map(r => `<button class="dbtn">${esc(r)}</button>`).join("")}</div>`);
   row.querySelectorAll("button").forEach((b, i) => b.addEventListener("click", () => send(replies[i])));
   turn.append(row);
 }
 
-export function failed(turn, message) {
+export function failed(turn: Turn, message: string) {
   turn.failed = true;
   turn.append(h(`<div class="derr">${esc(message)}</div>`));
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
 
-export function finish(id, turn) {
-  touch(id);
+export function finish(id: string | null, turn: Turn) {
+  // A chat with no id yet is in no list.
+  if (id) touch(id);
   turn.done = true;
   turn.querySelector(".caret")?.remove();
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
@@ -273,25 +351,30 @@ export function finish(id, turn) {
   }
 }
 
+/// Empties the prompt, or sets it to `text`, and sizes it to match.
+function setAsk(text: string) {
+  const ask = $$<HTMLTextAreaElement>("#ask");
+  ask.value = text;
+  grow(ask);
+}
+
 /// Holds a prompt typed while the open chat's reply runs.
-export function enqueue(text) {
+export function enqueue(text: string) {
   const id = S.session;
   if (!id) return;
   const q = queued.get(id) ?? { list: [], held: false };
   q.list.push(text);
   queued.set(id, q);
-  const ask = $("#ask");
-  ask.value = "";
-  grow(ask);
+  setAsk("");
   drawQueue();
   refreshHints();
 }
 
 /// Sends the chat's first queued prompt; the rest follow as each reply finishes.
-export function sendQueued(id) {
+export function sendQueued(id: string | null) {
   const q = queued.get(id);
   if (!q?.list.length || id !== S.session || S.view !== "chat" || live.get(id)?.run || live.get(id)?.approval) return;
-  const text = q.list.shift();
+  const text = q.list.shift()!;
   q.held = false;
   if (!q.list.length) queued.delete(id);
   drawQueue();
@@ -309,22 +392,19 @@ export function drawQueue() {
   el.querySelectorAll(".dq .dcopy").forEach((b, i) => b.addEventListener("click", () => {
     const [text] = q.list.splice(i, 1);
     if (!q.list.length) queued.delete(S.session);
-    const ask = $("#ask");
-    ask.value = [text, ask.value].filter(s => s.trim()).join("\n\n");
-    grow(ask);
+    setAsk([text, $$<HTMLTextAreaElement>("#ask").value].filter(s => s.trim()).join("\n\n"));
     drawQueue();
     refreshHints();
     focusAsk();
   }));
   if (old) old.replaceWith(el);
-  else $(".dhints").before(el);
+  else $$(".dhints").before(el);
 }
 
 /// A channel that draws one run's events into `turn`, which stays in its
 /// chat's body while the bar shows another chat.
-export function follow(id, turn) {
-  const channel = new Channel();
-  let text = "";
+export function follow(id: string | null, turn: Turn) {
+  const channel = new Channel<BarEvent>();
   channel.onmessage = ev => {
     // A stopped turn only needs its run's id, to stop it.
     if (turn.stopped) return ev.kind === "started" && turn.started?.(ev.run_id);
@@ -334,8 +414,7 @@ export function follow(id, turn) {
         if (id === S.session) refreshHints();
         break;
       case "text":
-        text = ev.html;
-        reply(turn).innerHTML = text + '<span class="caret"></span>';
+        reply(turn).innerHTML = ev.html + CARET;
         break;
       case "reasoning":
         thinking(turn, ev.delta);
@@ -349,12 +428,7 @@ export function follow(id, turn) {
         const step = turn.steps.find(s => s.id === ev.call_id);
         if (step) step.state = ev.success ? "ok" : "bad";
         drawSteps(turn, false);
-        if (ev.file) sentFile(turn, ev.file);
-        for (const p of ev.images ?? []) replyPic(turn, p);
-        if (ev.products) productRow(turn, ev.products);
-        if (ev.cards) productRow(turn, ev.cards);
-        if (ev.chart) chartRow(turn, ev.chart);
-        if (ev.name === "get_route" && ev.success && ev.call_id) routeRow(turn, ev.call_id);
+        toolOutput(turn, ev, ev.name === "get_route" && ev.success && ev.call_id ? ev.call_id : null);
         break;
       }
       case "sources":
@@ -388,7 +462,27 @@ export function follow(id, turn) {
   return channel;
 }
 
-export async function send(message) {
+/// Makes `turn` chat `id`'s running reply, with a caret until text comes.
+export function startRun(id: string | null, turn: Turn, runId: string | null) {
+  reply(turn).innerHTML = CARET;
+  const e = entry(id);
+  e.body = body();
+  e.run = { id: runId, turn };
+}
+
+/// Waits out the command streaming `turn`'s run, then finishes the turn.
+/// A failure shows unless the turn was stopped.
+export async function runTurn(id: string | null, turn: Turn, run: Promise<unknown>) {
+  try {
+    await run;
+  } catch (err) {
+    if (!turn.stopped) failed(turn, String(err));
+  }
+  turn.started?.(null);
+  if (!turn.done) finish(id, turn);
+}
+
+export async function send(message: string) {
   const images = attached.pics.slice(), files = attached.files.slice();
   const n = images.length + files.length;
   if (!message.trim() && !n) return;
@@ -400,8 +494,8 @@ export async function send(message) {
   attached.files = [];
   drawAttached();
   const id = S.session ??= newId();
-  const ask = $("#ask");
-  body().querySelectorAll(".dreplies").forEach(r => r.remove());
+  const ask = $$<HTMLTextAreaElement>("#ask");
+  body()!.querySelectorAll(".dreplies").forEach(r => r.remove());
   ask.value = "";
   ask.placeholder = "Ask a follow-up…";
   grow(ask);
@@ -409,53 +503,36 @@ export async function send(message) {
   turn.user = true;
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick
   // arrives as an event.
-  const m = MODELS.info;
+  const m = MODELS.info as ModelPick | null;
   if (m && !m.auto && canPickModel()) ranOn(turn, m.selected, m.thinking);
-  reply(turn).innerHTML = '<span class="caret"></span>';
-  const e = entry(id);
-  e.body = body();
-  e.run = { id: null, turn };
+  startRun(id, turn, null);
   touch(id, message);
   refreshHints();
   scrollDown();
   await stopping.get(id);
-  try {
-    const uploads = files.map(({ name, mime, data }) => ({ name, mime, data }));
-    await invoke("send_prompt", { session: id, message, images, files: uploads, onEvent: follow(id, turn) });
-  } catch (err) {
-    if (!turn.stopped) failed(turn, String(err));
-  }
-  turn.started?.(null);
-  if (!turn.done) finish(id, turn);
+  const uploads = files.map(({ name, mime, data }) => ({ name, mime, data }));
+  await runTurn(id, turn, invoke("send_prompt", { session: id, message, images, files: uploads, onEvent: follow(id, turn) }));
 }
 
 // Chats whose run, started on another device, the bar is looking up or following.
-export const watching = new Set();
+export const watching = new Set<string>();
 
 /// Follows the open chat's run when another device started it, drawing it
 /// as it streams like one sent from here.
-export async function watchRun(id) {
+export async function watchRun(id: string | null) {
   if (!id || live.has(id) || watching.has(id)) return;
   watching.add(id);
   try {
-    const runId = await invoke("active_run", { session: id }).catch(() => null);
+    const runId = await invoke<string | null>("active_run", { session: id }).catch(() => null);
     if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;
     // The prompt is already drawn from the server's copy, waiting for its reply.
-    const last = [...body().querySelectorAll(".turn")].at(-1);
+    const last = [...body()!.querySelectorAll<Turn>(".turn")].at(-1);
     const turn = last?.user && !last.done ? last : newTurn("");
     turn.steps ??= [];
-    reply(turn).innerHTML = '<span class="caret"></span>';
-    const e = entry(id);
-    e.body = body();
-    e.run = { id: runId, turn };
+    startRun(id, turn, runId);
     refreshHints();
     scrollDown();
-    try {
-      await invoke("follow_run", { runId, onEvent: follow(id, turn) });
-    } catch (err) {
-      if (!turn.stopped) failed(turn, String(err));
-    }
-    if (!turn.done) finish(id, turn);
+    await followAnswered(id, turn, runId);
   } finally {
     watching.delete(id);
   }
@@ -463,10 +540,10 @@ export async function watchRun(id) {
 
 /// Takes chat `id`'s approval card away, saying how it was answered, and
 /// readies its turn for the run the answer resumes.
-export function settle(id, e, pending, decision) {
+export function settle(id: string | null, e: LiveEntry, pending: PendingApproval, decision: Decision) {
   e.approval = null;
   const said = pending.grant
-    ? { allow: "Allowed for this routine", deny: "Denied" }[decision]
+    ? { allow: "Allowed for this routine", deny: "Denied" }[decision as "allow" | "deny"]
     : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
@@ -476,30 +553,19 @@ export function settle(id, e, pending, decision) {
   return turn;
 }
 
-export async function answer(decision) {
+export async function answer(decision: Decision) {
   const id = S.session, e = live.get(id), pending = e?.approval;
-  if (!pending) return;
+  if (!e || !pending) return;
   if (pending.grant && (decision === "always" || decision === "session")) decision = "allow";
   const turn = settle(id, e, pending, decision);
   await stopping.get(id);
-  try {
-    await invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) });
-  } catch (err) {
-    if (!turn.stopped) failed(turn, String(err));
-  }
-  turn.started?.(null);
-  if (!turn.done) finish(id, turn);
+  await runTurn(id, turn, invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) }));
 }
 
-/// Follows run `runId`, resumed by an answer given in the orb, into `turn`.
-export async function followAnswered(id, turn, runId) {
-  try {
-    await invoke("follow_run", { runId, onEvent: follow(id, turn) });
-  } catch (err) {
-    if (!turn.stopped) failed(turn, String(err));
-  }
-  turn.started?.(null);
-  if (!turn.done) finish(id, turn);
+/// Follows run `runId` into `turn`: one an answer given in the orb resumed,
+/// or one another device started.
+export function followAnswered(id: string | null, turn: Turn, runId: string) {
+  return runTurn(id, turn, invoke("follow_run", { runId, onEvent: follow(id, turn) }));
 }
 
 /// Stops the run at once: the chat lets go of it and takes the next prompt
@@ -510,8 +576,8 @@ export function stop() {
   const turn = run.turn;
   turn.stopped = true;
   // A run not started yet is stopped once it says its id.
-  const runId = run.id ? Promise.resolve(run.id) : new Promise(resolve => { turn.started = resolve; });
-  const stopped = runId
+  const runId = run.id ? Promise.resolve(run.id) : new Promise<string | null>(resolve => { turn.started = resolve; });
+  const stopped: Promise<unknown> = runId
     .then(runId => runId && invoke("cancel_run", { runId }))
     .catch(() => {})
     .finally(() => { if (stopping.get(id) === stopped) stopping.delete(id); });
@@ -527,9 +593,8 @@ export async function newChat() {
 }
 
 /// Hands a view to the command center window, which hides the bar.
-export function toWindow(target) {
+export function toWindow(target: unknown) {
   return invoke("center_open", { target }).catch(() => {});
 }
 /// Opens chat `id` (null for a new one) in the window.
-export const openInWindow = id => toWindow({ chat: { session: id ?? null } });
-
+export const openInWindow = (id: string | null | undefined) => toWindow({ chat: { session: id ?? null } });

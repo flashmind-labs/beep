@@ -1,11 +1,11 @@
-import { body, focusAsk, followAnswered, forRoutine, newTurn, renderChat, reply, scrollDown, settle } from "./chat.ts";
+import { body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, reply, scrollDown, settle } from "./chat.ts";
 import { touch } from "./chats.ts";
-import { $, bar, entry, esc, h, here, ICON, invoke, listen, live, PANE, S } from "./core.ts";
+import { $, $$, bar, entry, esc, h, here, ICON, invoke, listen, live, PANE, S, type Turn } from "./core.ts";
 import { hints, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { notice } from "./media.ts";
 import { forgetHeight } from "./size.ts";
-import { waitingQuestion } from "./work.ts";
+import { type HeldQuestion, waitingQuestion } from "./work.ts";
 
 // ---------- Live voice ----------
 
@@ -15,6 +15,40 @@ import { waitingQuestion } from "./work.ts";
 // and Beep's voice while speaking, one status word, the caption, the hint
 // and the way out. Rust runs the microphone, the server's live transcription
 // and the player; this draws.
+/// What live mode shows (LiveEvent::View).
+export interface LiveView {
+  kind: "view";
+  phase: string;
+  /// What the user said so far this turn.
+  words: string;
+  /// Beep's sentence on screen, and the one before it.
+  line: string | null;
+  prev: string | null;
+  /// The tool step running.
+  step: string | null;
+  speaking: boolean;
+  pause_sends: boolean;
+  session: string | null;
+  /// The voice note's title, when one started live mode.
+  title: string | null;
+  /// Push to talk: nothing listens between holds.
+  hold_only: boolean;
+  finishing: boolean;
+  /// The sheet of what to say is open.
+  sheet: boolean;
+}
+
+/// What the bar hears about live mode, as the `live` event (LiveEvent).
+type LiveEvent =
+  | LiveView
+  | { kind: "level"; level: number }
+  | { kind: "toast"; text: string }
+  | { kind: "soon"; ms: number | null }
+  | { kind: "sent"; session: string; text: string; run: string }
+  | { kind: "left"; draft: string | null; session: string | null; quiet: boolean; failure: string | null }
+  | { kind: "approval" }
+  | { kind: "answered"; session: string; query_id: string; run: string; decision: Decision };
+
 export const VOICE_ICON = {
   speaker: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 010 6M19.5 6.5a8 8 0 010 11"/></svg>',
   mic: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
@@ -22,15 +56,24 @@ export const VOICE_ICON = {
 /// `drafts` holds the words live mode kept when it ended, by chat ("" for a
 /// new one), until that chat takes them, and `note` says why it ended.
 /// `typed` is a key pressed to leave live mode, for the prompt after the words.
-export const VN = { drafts: new Map(), note: "", typed: "" };
+export const VN = { drafts: new Map<string, string>(), note: "", typed: "" };
 /// The live view: the last view Rust sent, a toast, the pause bar, the
 /// message just sent, and the chat under the dock (null for a new one).
-export const LV = { on: false, view: null, toast: "", toastTimer: 0, soon: null, sent: "", chat: null };
+export const LV: {
+  on: boolean;
+  view: LiveView | null;
+  toast: string;
+  toastTimer: ReturnType<typeof setTimeout> | undefined;
+  /// When a pause sends, and how long that wait is in all.
+  soon: { until: number; total: number } | null;
+  sent: string;
+  chat: string | null;
+} = { on: false, view: null, toast: "", toastTimer: undefined, soon: null, sent: "", chat: null };
 export const redrawLive = () => LV.on && renderLive();
 /// Chats live mode talked in, marked with a mic in the chat list.
-export const LIVE_CHATS = new Set();
+export const LIVE_CHATS = new Set<string>();
 export async function loadLiveChats() {
-  const ids = await invoke("live_chats").catch(() => []);
+  const ids = await invoke<string[]>("live_chats").catch((): string[] => []);
   for (const id of ids) LIVE_CHATS.add(id);
 }
 export const LIVE_KEYS = [["tap ⌥", "leave"], ["hold ⌥", "talk, let go to send"], ["esc", "leave live"], ["⌘/", "what to say"]];
@@ -38,10 +81,10 @@ export const LIVE_KEYS = [["tap ⌥", "leave"], ["hold ⌥", "talk, let go to se
 export const LIVE_PTT_KEYS = [["hold ⌥", "reply"], ["tap ⌥", "leave"], ["esc", "leave live"], ["⌘/", "what to say"]];
 /// The sheet of what to say, over the chat and the dock.
 export const liveSheet = () => `<div class="dover lsheet" role="dialog" aria-label="What to say"><div class="vt"><span class="tt"><b>What to say</b></span></div>
-  <div class="dkeys">${[["Say", LIVE_SAY], ["Keys", LIVE_TALK]].map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>
+  <div class="dkeys">${([["Say", LIVE_SAY], ["Keys", LIVE_TALK]] as [string, string[][]][]).map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>
   ${hints([["esc", "close"], ["⌘/", "close"]])}</div>`;
 /// Bars of a waveform, the same every time for a seed.
-export function wave(n, cls = "", seed = 7) {
+export function wave(n: number, cls = "", seed = 7) {
   let a = seed;
   const bars = Array.from({ length: n }, (_, i) => {
     a = (a * 9301 + 49297) % 233280;
@@ -51,7 +94,7 @@ export function wave(n, cls = "", seed = 7) {
   return `<span class="dwave ${cls}" aria-hidden="true">${bars.join("")}</span>`;
 }
 /// What the dock and the keys row say for view `v`.
-export function liveParts(v) {
+export function liveParts(v: LiveView) {
   const mode = v.speaking || (v.phase === "speaking" && v.line) ? "speak" : v.phase === "thinking" ? "think" : "listen";
   const holding = v.phase === "holding";
   // A voice note is only read out; answering means opening Beep.
@@ -63,7 +106,7 @@ export function liveParts(v) {
     : { listen: [v.hold_only && !holding ? "Push to talk" : "Listening", "on"], think: ["Thinking", ""], speak: ["Speaking", "sp"] }[mode];
   const orb = waiting ? "idle" : mode === "listen" ? (v.words ? "" : "idle") : mode;
   const step = v.step ? `<span class="stepw"><span class="step"><span class="dspin"></span>${esc(v.step)}</span></span>` : "";
-  const prev = t => t ? `<span class="prev">${esc(t)}</span>` : "";
+  const prev = (t: string | null | undefined) => t ? `<span class="prev">${esc(t)}</span>` : "";
   const idle = v.hold_only && !holding && !v.finishing ? "Hold Option to reply" : "Start talking…";
   const cap = waiting ? '<span class="ph">Allow or deny in the chat</span>'
     : mode === "listen" ? `${prev(v.line)}${v.words ? esc(v.words) : `<span class="ph">${idle}</span>`}`
@@ -78,7 +121,7 @@ export function liveParts(v) {
     : mode === "think" ? "Option to skip the spoken answer"
     : v.phase === "thinking" ? "Beep reads the answer when it is ready · Option to stop"
     : "Say “stop” or tap Option to talk";
-  const grant = asked && (e?.approval ? e.approval.grant : forRoutine(asked.action));
+  const grant = asked && (e?.approval ? e.approval.grant : forRoutine((asked as HeldQuestion).action));
   const keys = note ? [["tap ⌥", "stop"], ["⌥ ⌥", "open the chat"], ["esc", "dismiss"]]
     : asked ? [[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "leave live"]]
     : v.finishing ? [["esc", "leave live"]]
@@ -102,7 +145,7 @@ export function renderLive() {
 }
 /// Shows chat `id` (null for a new one) with the dock in place of the field.
 /// The chat the bar already shows stays as it is.
-export function openLive(id) {
+export function openLive(id: string | null) {
   const same = S.view === "chat" && !!$("#ask") && (S.session ?? null) === id;
   LV.chat = id;
   if (!same) {
@@ -120,7 +163,7 @@ export function mountDock() {
   $("#ask")?.blur();
   field.after(h('<div class="ddock" id="ldock" role="region" aria-label="Live mode"></div>'));
 }
-export function drawDock(v) {
+export function drawDock(v: LiveView | null) {
   const dock = $("#ldock");
   if (!dock || !v) return;
   const p = liveParts(v);
@@ -133,11 +176,11 @@ export function drawDock(v) {
       <div class="dtx"><div class="word ${p.word[1]}">${p.title ? `<span class="tt">${p.title}</span> · ` : ""}${p.word[0]}</div><div class="cap" aria-live="polite">${p.cap}</div></div>
       <button class="dleave" id="lleave" aria-label="${p.replying ? "Cancel the reply and leave live mode" : "Leave live mode"}">${ICON.x}</button></div>
     <div class="dfoot">${soon}<div class="hint">${p.hint}</div>${p.replying ? `<button class="dbtn lcancel" id="lcancel">Cancel<kbd>esc</kbd></button>` : ""}</div>`;
-  if (lvl) $("#orb").style.setProperty("--lvl", lvl);
-  const cap = dock.querySelector(".cap");
+  if (lvl) $$("#orb").style.setProperty("--lvl", lvl);
+  const cap = dock.querySelector(".cap")!;
   cap.scrollTop = cap.scrollHeight;
-  $("#orb").addEventListener("click", () => invoke("live_tap").catch(() => {}));
-  $("#lleave").addEventListener("click", () => invoke("cancel_live").catch(() => {}));
+  $$("#orb").addEventListener("click", () => invoke("live_tap").catch(() => {}));
+  $$("#lleave").addEventListener("click", () => invoke("cancel_live").catch(() => {}));
   $("#lcancel")?.addEventListener("click", () => invoke("cancel_live").catch(() => {}));
   refreshHints();
   const sheet = bar.querySelector(".lsheet");
@@ -147,7 +190,7 @@ export function drawDock(v) {
 /// Draws a message live mode sent into the chat under the dock and follows
 /// its reply there, like one typed in the field. With no dock on screen the
 /// chat comes from the server when it is next opened.
-export function liveTurn(id, text, runId) {
+export function liveTurn(id: string, text: string, runId: string) {
   if (S.view !== "chat" || !$("#ldock")) return live.delete(id);
   if (LV.chat !== id) {
     // A new chat. An empty bar becomes it; "new chat" said in another one
@@ -169,14 +212,15 @@ export function liveTurn(id, text, runId) {
     e.approval.card.replaceWith(h('<div class="dmuted">Not answered</div>'));
     e.approval = null;
   }
-  body().querySelectorAll(".dreplies").forEach(r => r.remove());
+  const b = body()!;
+  b.querySelectorAll(".dreplies").forEach(r => r.remove());
   // The server's copy may have drawn the message already.
-  const last = [...body().querySelectorAll(".turn")].at(-1);
+  const last = [...b.querySelectorAll<Turn>(".turn")].at(-1);
   const turn = last?.user && !last.done && last.querySelector(".ask")?.textContent === text ? last : newTurn(text);
   turn.user = true;
   turn.steps ??= [];
   reply(turn).innerHTML = '<span class="caret"></span>';
-  e.body = body();
+  e.body = b;
   e.run = { id: runId, turn };
   refreshHints();
   scrollDown();
@@ -189,10 +233,10 @@ export function renderLeft() {
   const chat = LV.chat;
   LV.chat = null;
   if (S.view === "chat" && $("#ldock") && chat === (S.session ?? null)) {
-    $("#ldock").remove();
+    $$("#ldock").remove();
     $(".dinput.dgrow")?.classList.remove("lhid");
     refreshHints();
-    takeDraft($("#ask"));
+    takeDraft($<HTMLTextAreaElement>("#ask"));
     focusAsk();
     return;
   }
@@ -200,7 +244,7 @@ export function renderLeft() {
   else renderChat();
 }
 /// Puts a kept draft in the open chat's prompt, after anything typed there.
-export function takeDraft(ask) {
+export function takeDraft(ask: HTMLTextAreaElement | null) {
   // The field is out of sight under the dock until live mode ends.
   if (LV.on) return;
   const key = S.session ?? "";
@@ -220,27 +264,27 @@ export function takeDraft(ask) {
   if (VN.note) { notice(VN.note); VN.note = ""; }
 }
 /// Shows what the user said in place of the waiting prompt.
-export function heard(turn, text) {
-  const ask = turn.querySelector(".ask") ?? h('<div class="ask"></div>');
+export function heard(turn: Turn, text: string) {
+  const ask = turn.querySelector<HTMLElement>(".ask") ?? h('<div class="ask"></div>');
   if (!ask.isConnected) turn.prepend(ask);
   ask.textContent = text;
   ask.classList.remove("dmuted");
-  touch(S.session, text);
+  touch(S.session!, text);
 }
 // Live mode stays in the bar and the orb.
-if (!PANE) listen("live", e => {
+if (!PANE) listen<LiveEvent>("live", e => {
   const v = e.payload;
   switch (v.kind) {
     case "view":
       if (!LV.on) {
         forgetHeight();
         // What was typed in the prompt comes back when live mode ends.
-        const ask = S.view === "chat" ? $("#ask") : null, typed = ask?.value.trim();
+        const ask = S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : null, typed = ask?.value.trim();
         if (typed) {
           const key = S.session ?? "";
           const kept = VN.drafts.get(key);
           VN.drafts.set(key, kept ? `${typed} ${kept}` : typed);
-          ask.value = "";
+          ask!.value = "";
         }
       }
       LV.on = true;
@@ -259,8 +303,8 @@ if (!PANE) listen("live", e => {
     case "answered": {
       // Answered in the orb: the card here says so and follows the run.
       const e = live.get(v.session), pending = e?.approval;
-      if (pending?.queryId !== v.query_id) return;
-      return followAnswered(v.session, settle(v.session, e, pending, v.decision), v.run);
+      if (!e || pending?.queryId !== v.query_id) return;
+      return followAnswered(v.session, settle(v.session, e, pending!, v.decision), v.run);
     }
     case "sent":
       LV.sent = v.text;
@@ -289,7 +333,7 @@ if (!PANE) listen("live", e => {
         const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet." : VN.typed ? "Left live mode to type." : v.draft ? "Left live mode." : "");
         if (why) VN.note = why + kept;
       }
-      return renderLeft(v);
+      return renderLeft();
   }
 });
 
