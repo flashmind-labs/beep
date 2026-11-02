@@ -5,7 +5,6 @@
 
 use crate::{beep::Beep, desktop, state::LinkState};
 use beep_node::{
-    agents::{self, Agents},
     link::{self, Offers},
     provision::Provision,
 };
@@ -166,12 +165,10 @@ async fn stay_linked(
     // Installs gh, teacli and the agent skills, and takes the credentials
     // the server sends; the work stops with this task.
     let _provision = provision.start();
-    let offers = Offers {
-        // Found on the login shell's PATH, which the app adopts at start.
-        agents: Arc::new(Agents::new(agents::detect(&[]))),
-        extra: vec![Arc::new(desktop::Desktop)],
-        provision: Some(provision),
-    };
+    // The same as `beep-node` serves, with agents found on the login
+    // shell's PATH (the app adopts it at start), plus desktop control.
+    let mut offers = Offers::local(&[], provision);
+    offers.extra.push(Arc::new(desktop::Desktop));
     let mut wait = FIRST_RETRY;
     loop {
         // A Mac removed from the account has nothing to sign in with.
