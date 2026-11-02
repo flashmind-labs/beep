@@ -4,8 +4,8 @@
 
 use super::{
     commands::{
-        HostCommand, Shell, ViewedIssue, parse_created_issue, parse_found_issue, parse_login,
-        parse_open_issues, parse_viewed_issue,
+        HostCommand, OpenPr, Shell, ViewedIssue, parse_created_issue, parse_found_issue,
+        parse_login, parse_open_issues, parse_open_prs, parse_viewed_issue,
     },
     fleet::{self, Fleet},
     lifecycle::start_failed,
@@ -169,6 +169,8 @@ pub(crate) async fn mirror_missing(
 /// on a machine that has the project.
 pub(crate) struct IssueSource {
     pub(crate) host: IssueHost,
+    /// The machine the shell is on.
+    pub(crate) machine: EndpointId,
     pub(crate) shell: Arc<dyn Shell>,
 }
 
@@ -270,24 +272,96 @@ pub(crate) async fn issue_source(
     user: &User,
     project: &ProjectRow,
 ) -> Result<Option<IssueSource>, IssueError> {
+    Ok(issue_sources(fleet, user, project)
+        .await?
+        .and_then(|sources| sources.into_iter().next()))
+}
+
+/// Every place `project`'s open issues can be read, as [`issue_source`]
+/// finds them: the home checkout's machine alone, else each machine the
+/// project was imported on that is online, ordered by machine id. `None` when
+/// it has no GitHub or Forgejo host; refused when none is online.
+async fn issue_sources(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+) -> Result<Option<Vec<IssueSource>>, IssueError> {
     let Some(found) = host_and_machines(user, project).await? else {
         return Ok(None);
     };
-    let shell = found
+    let mut seen = Vec::new();
+    let sources: Vec<IssueSource> = found
         .machines
         .iter()
-        .find_map(|machine| fleet.shell(machine))
-        .ok_or_else(|| {
-            IssueError::Refused(if found.home {
-                "The home checkout's machine is offline or offers no shell.".to_owned()
-            } else {
-                "No machine the project is on is online.".to_owned()
+        .filter(|machine| {
+            let new = !seen.contains(*machine);
+            seen.push(**machine);
+            new
+        })
+        .filter_map(|machine| {
+            fleet.shell(machine).map(|shell| IssueSource {
+                host: found.host.clone(),
+                machine: *machine,
+                shell,
             })
-        })?;
-    Ok(Some(IssueSource {
-        host: found.host,
-        shell,
-    }))
+        })
+        .collect();
+    if sources.is_empty() {
+        return Err(IssueError::Refused(if found.home {
+            "The home checkout's machine is offline or offers no shell.".to_owned()
+        } else {
+            "No machine the project is on is online.".to_owned()
+        }));
+    }
+    Ok(Some(sources))
+}
+
+/// What one of `sources` printed for `command`, read by `parse`: each is
+/// tried in turn, so a machine whose CLI is missing, too old or signed out
+/// does not hide the list another can read. Gives the source that
+/// answered; when all fail, the last error and the machines tried.
+async fn read_any<'s, T>(
+    fleet: &dyn Fleet,
+    sources: &'s [IssueSource],
+    project: &ProjectRow,
+    command: HostCommand<'_>,
+    parse: impl Fn(&str) -> Result<T>,
+) -> Result<(&'s IssueSource, T), IssueError> {
+    let mut last = None;
+    for source in sources {
+        let read = run_host(source.shell.as_ref(), &source.host, project, command)
+            .await
+            .and_then(|out| parse(&out));
+        match read {
+            Ok(value) => return Ok((source, value)),
+            Err(error) => {
+                log::info!("projects: reading the host failed on one machine: {error:#}");
+                last = Some(error);
+            }
+        }
+    }
+    let error = last.unwrap_or_else(|| anyhow!("no machine to read it on"));
+    if sources.len() < 2 {
+        return Err(host_failed(&error));
+    }
+    // Names only make the message clearer: without them it still says why.
+    let machines = fleet.machines().await.unwrap_or_else(|names_error| {
+        log::info!("projects: the machines' names are unknown: {names_error:#}");
+        Vec::new()
+    });
+    let tried: Vec<String> = sources
+        .iter()
+        .map(|source| {
+            machines
+                .iter()
+                .find(|machine| machine.id == source.machine)
+                .map_or_else(|| "a machine".to_owned(), |machine| machine.name.clone())
+        })
+        .collect();
+    Err(IssueError::Refused(format!(
+        "Could not read the issues host on {}: {error:#}",
+        tried.join(", ")
+    )))
 }
 
 /// Hides the open issue `number` from `project`'s list, for its current
@@ -357,18 +431,17 @@ pub(crate) async fn list_open(
     user: &User,
     project: &ProjectRow,
 ) -> Result<Vec<OpenIssue>, IssueError> {
-    let Some(source) = issue_source(fleet, user, project).await? else {
+    let Some(sources) = issue_sources(fleet, user, project).await? else {
         return Ok(Vec::new());
     };
-    let out = run_host(
-        source.shell.as_ref(),
-        &source.host,
+    let (source, open) = read_any(
+        fleet,
+        &sources,
         project,
         HostCommand::ListOpenIssues,
+        parse_open_issues,
     )
-    .await
-    .map_err(|error| host_failed(&error))?;
-    let open = parse_open_issues(&out).map_err(|error| host_failed(&error))?;
+    .await?;
     let tracked: Vec<u64> = user
         .project_tasks(project.id)
         .await?
@@ -378,6 +451,66 @@ pub(crate) async fn list_open(
         .collect();
     let dismissed = user.dismissed_issues(project.id, &source.host).await?;
     Ok(untracked(open, &tracked, &dismissed))
+}
+
+/// The open pull requests on a project's host, and whether each is the
+/// user's.
+pub(crate) struct ListedPr {
+    pub(crate) pr: OpenPr,
+    /// Opened by the account the host's CLI is signed in as. False when
+    /// that account is unknown.
+    pub(crate) mine: bool,
+}
+
+/// The open pull requests on `project`'s host, any author's, newest first.
+/// Empty when it has no issues host.
+pub(crate) async fn list_open_prs(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+) -> Result<Vec<ListedPr>, IssueError> {
+    let Some(sources) = issue_sources(fleet, user, project).await? else {
+        return Ok(Vec::new());
+    };
+    let (source, mut prs) = read_any(
+        fleet,
+        &sources,
+        project,
+        HostCommand::ListOpenPrs,
+        parse_open_prs,
+    )
+    .await?;
+    // Asked on the machine that listed them, whose CLI is known to work.
+    let whoami = run_host(
+        source.shell.as_ref(),
+        &source.host,
+        project,
+        HostCommand::WhoAmI,
+    )
+    .await;
+    let login = match whoami.and_then(|out| parse_login(&out)) {
+        Ok(login) => Some(login),
+        Err(error) => {
+            log::info!(
+                "projects: the host's account is unknown, so no PR counts as mine: {error:#}"
+            );
+            None
+        }
+    };
+    prs.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.number.cmp(&a.number))
+    });
+    Ok(prs
+        .into_iter()
+        .map(|pr| ListedPr {
+            mine: login.as_deref().is_some_and(|login| {
+                !pr.author.is_empty() && login.eq_ignore_ascii_case(&pr.author)
+            }),
+            pr,
+        })
+        .collect())
 }
 
 /// The start of `text`, at most `max` bytes, cut on a character boundary.
@@ -867,6 +1000,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_prs_list_everyones_newest_first_and_mark_the_users() {
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let mut fleet = FakeFleet::default();
+        let (project, _, shell) = github_project(&user, &mut fleet).await;
+        shell.answer(
+            "pr list",
+            0,
+            r#"[{"number":3,"title":"Bump serde","url":"https://github.com/acme/widget/pull/3",
+                "author":"dependabot[bot]","isDraft":false,"createdAt":"2026-10-01T09:00:00Z",
+                "updatedAt":"2026-10-02T09:00:00Z"},
+               {"number":5,"title":"Faster start","url":"https://github.com/acme/widget/pull/5",
+                "author":"Alice-Dev","isDraft":true,"createdAt":"2026-10-03T09:00:00Z",
+                "updatedAt":"2026-10-03T09:00:00Z"}]"#,
+        );
+        shell.answer("api user", 0, "alice-dev\n");
+        let prs = list_open_prs(&fleet, &user, &project).await.unwrap();
+        let seen: Vec<(u64, bool)> = prs.iter().map(|p| (p.pr.number, p.mine)).collect();
+        assert_eq!(seen, [(5, true), (3, false)]);
+        assert!(prs[0].pr.draft);
+
+        // An unknown account makes none the user's, and still lists them.
+        shell.answer("api user", 1, "gh: not logged in");
+        let prs = list_open_prs(&fleet, &user, &project).await.unwrap();
+        assert_eq!(prs.len(), 2);
+        assert!(prs.iter().all(|p| !p.mine));
+
+        shell.answer("pr list", 1, "HTTP 401: Bad credentials");
+        let failed = list_open_prs(&fleet, &user, &project).await;
+        assert!(
+            matches!(failed, Err(IssueError::Refused(_))),
+            "{:?}",
+            failed.err()
+        );
+    }
+
+    #[tokio::test]
     async fn a_failing_host_gives_its_error() {
         let db = TestDb::new().await.unwrap();
         let user = User::for_test(db.store().await.unwrap(), "alice");
@@ -921,6 +1091,83 @@ mod tests {
         .await
         .unwrap();
         assert!(list_open(&fleet, &user, &other).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let mut fleet = FakeFleet::default();
+        let a = fleet.add(1, "build-box", &[], "/srv");
+        let b = fleet.add(2, "mac-box", &[], "/srv");
+        // The machines are tried in the imports' order, by machine id: the
+        // first one tried is the one whose CLI fails.
+        let (a, b) = if a.0.to_string() < b.0.to_string() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let ((old_box, old), (new_box, new)) = (a, b);
+        for machine in [old_box, new_box] {
+            user.save_import(NewImport {
+                project: "acme/widget",
+                endpoint: &machine.to_string(),
+                folder: "/srv/widget",
+                url: "https://git.example.com/acme/widget",
+            })
+            .await
+            .unwrap();
+        }
+        let project = user
+            .ensure_project(&RepoName::parse("acme/widget").unwrap())
+            .await
+            .unwrap();
+        old.answer("teacli", 1, "Error: unknown flag: --host");
+        new.answer(
+            "issue list",
+            0,
+            r#"[{"number":4,"title":"Slow","user":{"login":"kim"},
+                "created_at":"2026-10-29T10:00:00Z","comments":0,
+                "html_url":"https://git.example.com/acme/widget/issues/4"}]"#,
+        );
+        new.answer(
+            "pr list",
+            0,
+            r#"[{"number":5,"title":"Faster","user":{"login":"kim"},
+                "created_at":"2026-10-29T10:00:00Z",
+                "html_url":"https://git.example.com/acme/widget/pulls/5"}]"#,
+        );
+        new.answer("whoami", 0, r#"{"login":"kim"}"#);
+
+        let issues = list_open(&fleet, &user, &project).await.unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            old.ran_with("issue list").len(),
+            1,
+            "the first machine is tried"
+        );
+        assert_eq!(new.ran_with("issue list").len(), 1);
+
+        let prs = list_open_prs(&fleet, &user, &project).await.unwrap();
+        assert_eq!(prs.len(), 1);
+        assert!(
+            prs[0].mine,
+            "the account is asked on the machine that answered"
+        );
+        assert!(old.ran_with("whoami").is_empty());
+
+        // When every machine fails, the last error names the machines tried.
+        new.answer("teacli", 1, "Error: not logged in");
+        match list_open(&fleet, &user, &project).await {
+            Err(IssueError::Refused(why)) => {
+                assert!(why.contains("not logged in"), "{why}");
+                assert!(
+                    why.contains("build-box") && why.contains("mac-box"),
+                    "{why}"
+                );
+            }
+            other => panic!("expected the host's error, got {other:?}"),
+        }
     }
 
     #[test]

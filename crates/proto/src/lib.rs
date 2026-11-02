@@ -1072,6 +1072,11 @@ requests! {
     /// machine already syncing it stops. Empty when there is none or the
     /// caller has not imported `project`.
     261 ListProjectSyncthing { project: String } => Call<Vec<SyncthingPlace>>
+    /// Every open pull request on the project's issues host, anyone's,
+    /// newest first: the 100 newest on GitHub, 25 on Forgejo. Empty when
+    /// the project has no GitHub or Forgejo host; `BadRequest` saying why
+    /// when no machine of the project can read it or the host refuses.
+    262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
 }
 
 /// A machine whose folder of a project Syncthing keeps in step, as
@@ -2039,6 +2044,25 @@ pub struct ProjectIssue {
     pub comments: u32,
     /// Its web page.
     pub url: String,
+}
+
+/// An open pull request on a project's host, anyone's, as
+/// `ListProjectPullRequests` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectPullRequest {
+    pub number: u64,
+    pub title: String,
+    /// Its web page.
+    pub url: String,
+    /// The login of who opened it.
+    pub author: String,
+    pub draft: bool,
+    /// Opened by the account the host's CLI on the project's machine is
+    /// signed in as; false when that account is unknown.
+    pub mine: bool,
+    pub created_at: SystemTime,
+    pub updated_at: SystemTime,
 }
 
 /// An open pull request or issue of the caller's, as

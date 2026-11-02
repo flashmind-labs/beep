@@ -288,6 +288,8 @@ pub(crate) enum HostCommand<'a> {
     ListOwnedIssues,
     /// The newest open issues, any author's.
     ListOpenIssues,
+    /// The newest open pull requests, any author's.
+    ListOpenPrs,
     /// One issue with its text and author.
     ViewIssue {
         number: u64,
@@ -500,6 +502,24 @@ impl HostCommand<'_> {
                     ],
                 )
             }
+            Self::ListOpenPrs => {
+                let jq = "[.[] | {number, title, url, author: .author.login, \
+                          isDraft, createdAt, updatedAt}]";
+                let limit = GH_OPEN_LIMIT.to_string();
+                gh(
+                    &["pr", "list"],
+                    &[
+                        "--state",
+                        "open",
+                        "--limit",
+                        &limit,
+                        "--json",
+                        "number,title,url,author,isDraft,createdAt,updatedAt",
+                        "--jq",
+                        jq,
+                    ],
+                )
+            }
             Self::ViewIssue { number } => number_command(
                 &["issue", "view"],
                 number,
@@ -672,6 +692,11 @@ impl HostCommand<'_> {
                 &[],
                 &["-s", "open", "--per-page", &TEA_OPEN_LIMIT.to_string()],
             ),
+            Self::ListOpenPrs => tea(
+                &["pr", "list"],
+                &[],
+                &["-s", "open", "--per-page", &TEA_OPEN_LIMIT.to_string()],
+            ),
             Self::ViewIssue { number } => tea(&["issue", "get"], &[&number.to_string()], &[]),
             Self::CommentIssue { number, body } => tea(
                 &["issue", "comment", "create"],
@@ -723,8 +748,8 @@ impl HostCommand<'_> {
     }
 }
 
-/// Most open issues one list reads. teacli prints each issue's whole text,
-/// so it reads fewer to stay under the output cap.
+/// Most open issues or pull requests one list reads. teacli prints each
+/// one's whole text, so it reads fewer to stay under the output cap.
 pub(crate) const GH_OPEN_LIMIT: usize = 100;
 pub(crate) const TEA_OPEN_LIMIT: usize = 25;
 
@@ -933,6 +958,67 @@ pub(crate) fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
                 opened_at,
                 comments: comment_count(item),
                 url: web_url(item),
+            })
+        })
+        .collect()
+}
+
+/// An open pull request on the host, by anyone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenPr {
+    pub(crate) number: u64,
+    pub(crate) title: String,
+    /// Its web page.
+    pub(crate) url: String,
+    /// The login of who opened it.
+    pub(crate) author: String,
+    pub(crate) draft: bool,
+    pub(crate) created_at: DateTime<Utc>,
+    pub(crate) updated_at: DateTime<Utc>,
+}
+
+/// The time in the first of `keys` that holds one; `what` names it in
+/// the error.
+fn time_of(item: &Value, keys: &[&str], what: &str, number: u64) -> Result<DateTime<Utc>> {
+    let at = keys
+        .iter()
+        .map(|key| text(item, key))
+        .find(|at| !at.is_empty())
+        .ok_or_else(|| anyhow!("#{number} has no {what}"))?;
+    Ok(DateTime::parse_from_rfc3339(&at)
+        .with_context(|| format!("#{number} has a bad {what}"))?
+        .with_timezone(&Utc))
+}
+
+/// The open pull requests [`HostCommand::ListOpenPrs`] printed: gh's jq
+/// gives `isDraft` and camelCase times, Forgejo `draft` and snake_case.
+pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
+    let value = json(out)?;
+    let items = value
+        .as_array()
+        .ok_or_else(|| anyhow!("expected a list of pull requests"))?;
+    items
+        .iter()
+        .map(|item| {
+            let number = item
+                .get("number")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| anyhow!("a pull request has no number"))?;
+            let created_at = time_of(item, &["createdAt", "created_at"], "creation time", number)?;
+            // Optional: the list still reads without it.
+            let updated_at = time_of(item, &["updatedAt", "updated_at"], "update time", number)
+                .unwrap_or(created_at);
+            let draft = ["isDraft", "draft"]
+                .iter()
+                .any(|key| item.get(key).and_then(Value::as_bool) == Some(true));
+            Ok(OpenPr {
+                number,
+                title: text(item, "title"),
+                url: web_url(item),
+                author: login(item),
+                draft,
+                created_at,
+                updated_at,
             })
         })
         .collect()
@@ -1244,6 +1330,67 @@ mod tests {
             HostCommand::ViewIssue { number: 9 }.render(&forgejo(), &repo()),
             "teacli issue get acme/widget 9 --host git.example.com --format json"
         );
+    }
+
+    #[test]
+    fn open_pr_commands_render() {
+        let list = HostCommand::ListOpenPrs.render(&github(), &repo());
+        assert!(
+            list.starts_with(
+                "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr list -R acme/widget --state open --limit 100 \
+                 --json 'number,title,url,author,isDraft,createdAt,updatedAt' --jq"
+            ),
+            "{list}"
+        );
+        assert_eq!(
+            HostCommand::ListOpenPrs.render(&forgejo(), &repo()),
+            "teacli pr list acme/widget --host git.example.com -s open --per-page 25 \
+             --format json"
+        );
+    }
+
+    #[test]
+    fn open_prs_parse_from_gh_and_teacli() {
+        let at = |text: &str| {
+            DateTime::parse_from_rfc3339(text)
+                .expect("a test time")
+                .with_timezone(&Utc)
+        };
+        let gh = r#"[{"number":7,"title":"Bump serde","url":"https://github.com/acme/widget/pull/7",
+            "author":"dependabot[bot]","isDraft":false,"createdAt":"2026-10-30T08:00:00Z",
+            "updatedAt":"2026-10-31T09:00:00Z"}]"#;
+        assert_eq!(
+            parse_open_prs(gh).expect("prs"),
+            [OpenPr {
+                number: 7,
+                title: "Bump serde".into(),
+                url: "https://github.com/acme/widget/pull/7".into(),
+                author: "dependabot[bot]".into(),
+                draft: false,
+                created_at: at("2026-10-30T08:00:00Z"),
+                updated_at: at("2026-10-31T09:00:00Z"),
+            }]
+        );
+        let tea = r#"[
+            {"number":5,"title":"Faster start","user":{"login":"kim"},"draft":true,
+             "created_at":"2026-10-29T10:00:00+02:00","updated_at":"2026-10-29T12:00:00+02:00",
+             "url":"https://git.example.com/api/v1/repos/acme/widget/pulls/5",
+             "html_url":"https://git.example.com/acme/widget/pulls/5","body":"Long text"},
+            {"number":6,"title":"No draft field","user":{"login":"sam"},
+             "created_at":"2026-10-28T10:00:00Z",
+             "html_url":"https://git.example.com/acme/widget/pulls/6"}
+        ]"#;
+        let prs = parse_open_prs(tea).expect("prs");
+        assert_eq!(prs.len(), 2, "{prs:?}");
+        assert_eq!(prs[0].author, "kim");
+        assert!(prs[0].draft);
+        assert_eq!(prs[0].url, "https://git.example.com/acme/widget/pulls/5");
+        assert_eq!(prs[0].updated_at, at("2026-10-29T10:00:00Z"));
+        assert!(!prs[1].draft);
+        assert_eq!(prs[1].updated_at, prs[1].created_at);
+        assert!(parse_open_prs("[]").expect("none").is_empty());
+        assert!(parse_open_prs("gh: not logged in").is_err());
+        assert!(parse_open_prs(r#"[{"number":1,"title":"x"}]"#).is_err());
     }
 
     #[test]

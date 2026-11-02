@@ -113,6 +113,7 @@ sample_struct! {
     CodexLogin { task, url, code, expires_at }
     IssueStart { agent, node_id }
     ProjectThread { kind, repo, number, title, url, last_other, needs_reply, updated_at }
+    ProjectPullRequest { number, title, url, author, draft, mine, created_at, updated_at }
     ThreadChat { chat_id, kind, repo, number, title }
     AgentImage { name, file_id, mime, key }
     ProjectGroup { id, name, paths }
