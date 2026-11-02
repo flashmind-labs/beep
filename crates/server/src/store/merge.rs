@@ -219,6 +219,15 @@ impl Store {
         move_chats(&mut tx, source, &target).await?;
         let bumped = move_updates(&mut tx, source, &target).await?;
         reseal_for(&mut tx, into.credential_key, source, &target).await?;
+        // The joined account keeps its default GitHub account.
+        sqlx::query(
+            "UPDATE credentials SET is_default=false WHERE user_id=$1 AND kind='github'
+             AND EXISTS (SELECT 1 FROM credentials WHERE user_id=$2 AND kind='github')",
+        )
+        .bind(source)
+        .bind(&target)
+        .execute(&mut *tx)
+        .await?;
         for (table, key) in MOVED {
             move_rows(&mut tx, table, key, source, &target).await?;
         }
@@ -481,10 +490,7 @@ async fn move_places(tx: &mut PgConnection, source: &str, target: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        credentials::Slot,
-        store::{NewCredential, SignIn, TestDb, test_chat, test_turn},
-    };
+    use crate::store::{NewGitHubAccount, SignIn, TestDb, test_chat, test_turn};
     use iroh::SecretKey;
     use secrecy::{ExposeSecret, SecretString};
 
@@ -706,15 +712,32 @@ mod tests {
 
         let token = SecretString::from("ghp_moved0000");
         store
-            .save_credential(
+            .save_github_account(
                 &source_key,
                 &credential_key,
-                NewCredential {
-                    slot: &Slot::GitHub,
+                NewGitHubAccount {
                     secret: &token,
                     last4: "0000",
-                    account: None,
-                    to_machines: true,
+                    login: "octo-one",
+                    orgs: &[],
+                    replace_default: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        // Both have a default GitHub account; the joined one keeps its own.
+        let kept = SecretString::from("ghp_kept00001111");
+        store
+            .save_github_account(
+                &target_key,
+                &credential_key,
+                NewGitHubAccount {
+                    secret: &kept,
+                    last4: "1111",
+                    login: "octo-two",
+                    orgs: &[],
+                    replace_default: false,
                 },
             )
             .await
@@ -742,7 +765,7 @@ mod tests {
             ("event_triggers", 1),
             ("event_polls", 1),
             ("nodes", 1),
-            ("credentials", 1),
+            ("credentials", 2),
         ] {
             let query = format!("SELECT count(*) FROM {table} WHERE user_id=$1");
             for (user, expected) in [(&source, 0), (&target, rows)] {
@@ -760,10 +783,19 @@ mod tests {
             .await
             .unwrap();
         assert!(!listed[0].unreadable);
+        let accounts = store
+            .github_accounts(&target_key, &credential_key)
+            .await
+            .unwrap();
+        let logins: Vec<(&str, bool)> = accounts
+            .iter()
+            .map(|a| (a.login.as_str(), a.default))
+            .collect();
+        assert_eq!(logins, [("octo-two", true), ("octo-one", false)]);
         let opened = store
             .machine_credentials(&target_key, &credential_key)
             .await
             .unwrap();
-        assert_eq!(opened[0].secret.expose_secret(), "ghp_moved0000");
+        assert_eq!(opened[1].secret.expose_secret(), "ghp_moved0000");
     }
 }

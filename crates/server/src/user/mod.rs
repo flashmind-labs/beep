@@ -33,13 +33,13 @@ use crate::{
     store::{
         Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CheckoutRow, CopiedShare,
         CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite,
-        Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow,
-        MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode,
-        NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, OpenCounts, PicturesOf,
-        PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
-        RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
-        Store, StoredContext, StoredMessage, SyncRow, TaskRow, TurnRecord, TurnsToDelete,
-        WorkerRow,
+        IssueAuthor, Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES,
+        McpServerRow, MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey,
+        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow,
+        OpenCounts, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow,
+        PushDevice, ResearchRow, RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch,
+        SkillRow, StartRefused, Store, StoredContext, StoredMessage, SyncRow, TaskRow,
+        TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -1047,6 +1047,28 @@ impl User {
         self.store.save_credential(&self.key, key, new).await
     }
 
+    /// Seals and saves a GitHub token as the account it signs in as.
+    pub async fn save_github_account(
+        &self,
+        key: &crate::credentials::CredentialKey,
+        new: crate::store::NewGitHubAccount<'_>,
+    ) -> Result<crate::store::GitHubAccountRow> {
+        self.store.save_github_account(&self.key, key, new).await
+    }
+
+    /// The user's GitHub accounts, the default first.
+    pub async fn github_accounts(
+        &self,
+        key: &crate::credentials::CredentialKey,
+    ) -> Result<Vec<crate::store::GitHubAccountRow>> {
+        self.store.github_accounts(&self.key, key).await
+    }
+
+    /// `false` when the user has no GitHub account `id`.
+    pub async fn set_default_github(&self, id: &str) -> Result<bool> {
+        self.store.set_default_github(&self.key, id).await
+    }
+
     /// `false` when the user has no credential `id`.
     pub async fn remove_credential(&self, id: &str) -> Result<bool> {
         self.store.remove_credential(&self.key, id).await
@@ -1528,6 +1550,40 @@ impl User {
         tasks: &[NewTask],
     ) -> Result<Vec<TaskRow>> {
         self.store.create_tasks(project, tasks).await
+    }
+
+    pub(crate) async fn track_issue(
+        &self,
+        project: ProjectId,
+        task: &NewTask,
+        host: &IssueHost,
+        issue: &IssueRef,
+        author: IssueAuthor,
+    ) -> Result<TrackedIssue> {
+        self.store
+            .track_issue(project, task, host, issue, author)
+            .await
+    }
+
+    pub(crate) async fn dismiss_issue(
+        &self,
+        project: ProjectId,
+        host: &IssueHost,
+        number: u64,
+    ) -> Result<()> {
+        self.store.dismiss_issue(project, host, number).await
+    }
+
+    pub(crate) async fn dismissed_issues(
+        &self,
+        project: ProjectId,
+        host: &IssueHost,
+    ) -> Result<Vec<u64>> {
+        self.store.dismissed_issues(project, host).await
+    }
+
+    pub(crate) async fn note_issue_comment(&self, task: TaskId, once: bool) -> Result<bool> {
+        self.store.note_issue_comment(task, once).await
     }
 
     pub(crate) async fn project_tasks(&self, project: ProjectId) -> Result<Vec<TaskRow>> {

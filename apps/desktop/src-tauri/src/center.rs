@@ -438,7 +438,7 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
 
 /// Whether the server does not know the request or this account may not
 /// make it, as opposed to a failure on the way.
-fn is_unsupported(e: &DesktopError) -> bool {
+pub(crate) fn is_unsupported(e: &DesktopError) -> bool {
     matches!(
         e,
         DesktopError::Api(ApiError::BadRequest { .. } | ApiError::Unauthorized {})
