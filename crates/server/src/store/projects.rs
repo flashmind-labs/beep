@@ -12,14 +12,14 @@ use crate::{
         MachinePath, ProjectId, RepoName, Roles, StartRequest, TaskId, TaskSlug, TaskState,
         Visibility, WorkerAgent, WorkerId, WorkerState,
     },
-    protocol::node::Capability,
+    protocol::{TaskCounts, node::Capability},
     user::UserKey,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use sqlx::{PgConnection, Postgres, Row, Transaction, postgres::PgRow};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// A project as the store keeps it.
@@ -157,6 +157,19 @@ pub(crate) struct OpenCounts {
     pub(crate) tasks: u32,
     /// Live workers.
     pub(crate) workers: u32,
+}
+
+/// One project summed up, as [`Store::project_overviews`] gives it.
+#[derive(Debug, Clone)]
+pub(crate) struct OverviewRow {
+    pub(crate) id: ProjectId,
+    /// `org/repo`.
+    pub(crate) name: String,
+    pub(crate) tasks: TaskCounts,
+    /// Live workers.
+    pub(crate) workers: u32,
+    /// The task that changed last, dropped ones left out.
+    pub(crate) latest: Option<TaskRow>,
 }
 
 /// What [`Store::track_issue`] did.
@@ -1216,6 +1229,66 @@ impl Store {
         rows.iter().map(worker_from).collect()
     }
 
+    /// Every project of `user`'s summed up, by name: its tasks per state,
+    /// its live workers and the task that changed last. Dropped tasks are
+    /// left out. Two queries, whatever the number of projects.
+    pub(crate) async fn project_overviews(&self, user: &UserKey) -> Result<Vec<OverviewRow>> {
+        let rows = sqlx::query(
+            "SELECT p.id, p.name,
+                    COUNT(t.id) FILTER (WHERE t.state = 'planned'),
+                    COUNT(t.id) FILTER (WHERE t.state = 'running'),
+                    COUNT(t.id) FILTER (WHERE t.state = 'blocked'),
+                    COUNT(t.id) FILTER (WHERE t.state = 'review'),
+                    COUNT(t.id) FILTER (WHERE t.state = 'done'),
+                    (SELECT COUNT(*) FROM project_workers w
+                      WHERE w.project_id = p.id AND w.state = ANY($2))
+             FROM projects p LEFT JOIN project_tasks t ON t.project_id = p.id
+             WHERE p.user_id = $1
+             GROUP BY p.id, p.name
+             ORDER BY p.name",
+        )
+        .bind(user.as_str())
+        .bind(live_states())
+        .fetch_all(&self.pool)
+        .await?;
+        let latest = sqlx::query(&format!(
+            "SELECT DISTINCT ON (t.project_id) {TASK_COLUMNS}
+             FROM project_tasks t JOIN projects p ON p.id = t.project_id
+             WHERE p.user_id = $1 AND t.state <> 'dropped'
+             ORDER BY t.project_id, t.updated_at DESC, t.slug"
+        ))
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        let mut latest = latest
+            .iter()
+            .map(task_from)
+            .map(|task| task.map(|task| (task.project, task)))
+            .collect::<Result<HashMap<_, _>>>()?;
+        rows.iter()
+            .map(|row| {
+                let count = |i: usize| -> Result<u32> {
+                    let n: i64 = row.try_get(i)?;
+                    Ok(u32::try_from(n)?)
+                };
+                let id = ProjectId(row.try_get(0)?);
+                Ok(OverviewRow {
+                    id,
+                    name: row.try_get(1)?,
+                    tasks: TaskCounts {
+                        planned: count(2)?,
+                        running: count(3)?,
+                        blocked: count(4)?,
+                        review: count(5)?,
+                        done: count(6)?,
+                    },
+                    workers: count(7)?,
+                    latest: latest.remove(&id),
+                })
+            })
+            .collect()
+    }
+
     pub(crate) async fn open_counts(&self, project: ProjectId) -> Result<OpenCounts> {
         let closed: Vec<&str> = [TaskState::Done, TaskState::Dropped]
             .into_iter()
@@ -1300,6 +1373,58 @@ mod tests {
             .start_worker(user, worker)
             .await
             .expect("the store answers")
+    }
+
+    #[tokio::test]
+    async fn the_overview_counts_every_project_in_one_go() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let widget = store
+            .ensure_project(&user, &repo("acme/widget"))
+            .await
+            .unwrap();
+        let relay = store
+            .ensure_project(&user, &repo("acme/relay"))
+            .await
+            .unwrap();
+        store
+            .ensure_project(&UserKey::for_test("bob"), &repo("acme/other"))
+            .await
+            .unwrap();
+        let tasks = tasks_in(&store, widget.id, 4).await;
+        store
+            .set_task_state(tasks[0], TaskState::Done)
+            .await
+            .unwrap();
+        store
+            .set_task_state(tasks[1], TaskState::Dropped)
+            .await
+            .unwrap();
+        store
+            .set_task_state(tasks[2], TaskState::Blocked)
+            .await
+            .unwrap();
+        start(&store, &user, &worker_for(tasks[3], machine(), "/srv/w"))
+            .await
+            .unwrap();
+
+        let rows = store.project_overviews(&user).await.unwrap();
+        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(names, ["acme/relay", "acme/widget"]);
+        assert_eq!(rows[0].id, relay.id);
+        assert_eq!(rows[0].tasks, TaskCounts::default());
+        assert_eq!(rows[0].workers, 0);
+        assert!(rows[0].latest.is_none());
+        let counts = rows[1].tasks;
+        assert_eq!(
+            (counts.planned, counts.blocked, counts.done, counts.running),
+            (1, 1, 1, 0)
+        );
+        assert_eq!(rows[1].workers, 1);
+        let latest = rows[1].latest.as_ref().expect("a latest task");
+        assert_ne!(latest.state, TaskState::Dropped);
+        assert_eq!(latest.project, widget.id);
     }
 
     #[tokio::test]

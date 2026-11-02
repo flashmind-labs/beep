@@ -217,6 +217,7 @@ pub fn router() -> Router {
         .call(projects::update_project_task)
         .call(projects::stop_project_worker)
         .call(projects::list_projects)
+        .call(projects::list_project_overview)
         .call(projects::list_project_issues)
         .call(projects::track_project_issue)
         .call(projects::dismiss_project_issue)
