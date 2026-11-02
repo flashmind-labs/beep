@@ -27,6 +27,7 @@ mod findings;
 mod grants;
 mod groups;
 mod habits;
+mod harness_settings;
 mod instance;
 mod instructions;
 pub(crate) use habits::DuplicateHabit;
@@ -83,6 +84,7 @@ pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
 pub use findings::{FindingRow, NewFinding, SeenIn, Sighting};
 pub(crate) use grants::{GrantRow, NewGrant};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
+pub(crate) use harness_settings::{HarnessRow, OffHarness, SaveHarness};
 pub use location::Location;
 pub(crate) use memories::MAX_ROWS as MAX_MEMORY_ROWS;
 pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
@@ -463,6 +465,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         75,
         "imported projects",
         include_str!("../../migrations/0075_imported_projects.sql"),
+    ),
+    (
+        76,
+        "harness_settings",
+        include_str!("../../migrations/0076_harness_settings.sql"),
     ),
 ];
 

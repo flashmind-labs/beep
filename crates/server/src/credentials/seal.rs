@@ -40,6 +40,22 @@ impl Owner<'_> {
     }
 }
 
+/// What a harness's sealed env vars belong to: the user, the machine and
+/// the agent. The prefix keeps them apart from any credential's.
+pub struct HarnessOwner<'a> {
+    pub user: &'a str,
+    pub machine: &'a str,
+    pub agent: &'a str,
+}
+
+impl HarnessOwner<'_> {
+    fn aad(&self) -> Vec<u8> {
+        ["harness_env", self.user, self.machine, self.agent]
+            .join("\0")
+            .into_bytes()
+    }
+}
+
 /// The key credentials are sealed with.
 pub struct CredentialKey(SecretBox<[u8; 32]>);
 
@@ -65,6 +81,21 @@ impl CredentialKey {
 
     /// `plain` sealed for `owner`: a fresh nonce, then the ciphertext.
     pub fn seal(&self, owner: &Owner<'_>, plain: &SecretString) -> Result<Vec<u8>> {
+        self.seal_for(&owner.aad(), plain)
+    }
+
+    /// `plain` sealed for a harness's env vars.
+    pub fn seal_harness(&self, owner: &HarnessOwner<'_>, plain: &SecretString) -> Result<Vec<u8>> {
+        self.seal_for(&owner.aad(), plain)
+    }
+
+    /// What `seal_harness` sealed for `owner`.
+    pub fn open_harness(&self, owner: &HarnessOwner<'_>, sealed: &[u8]) -> Result<SecretString> {
+        let what = format!("the {} settings", owner.agent);
+        self.open_for(&owner.aad(), sealed, &what)
+    }
+
+    fn seal_for(&self, aad: &[u8], plain: &SecretString) -> Result<Vec<u8>> {
         let mut nonce = [0; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
         let sealed = self
@@ -73,7 +104,7 @@ impl CredentialKey {
                 Nonce::from_slice(&nonce),
                 Payload {
                     msg: plain.expose_secret().as_bytes(),
-                    aad: &owner.aad(),
+                    aad,
                 },
             )
             .map_err(|_| anyhow!("sealing a credential failed"))?;
@@ -84,7 +115,10 @@ impl CredentialKey {
 
     /// What `seal` sealed for `owner`.
     pub fn open(&self, owner: &Owner<'_>, sealed: &[u8]) -> Result<SecretString> {
-        let id = owner.id;
+        self.open_for(&owner.aad(), sealed, &format!("credential {}", owner.id))
+    }
+
+    fn open_for(&self, aad: &[u8], sealed: &[u8], id: &str) -> Result<SecretString> {
         ensure!(
             sealed.len() >= NONCE_LEN + TAG_LEN,
             "a sealed credential is too short"
@@ -92,17 +126,9 @@ impl CredentialKey {
         let (nonce, sealed) = sealed.split_at(NONCE_LEN);
         let plain = self
             .cipher()
-            .decrypt(
-                Nonce::from_slice(nonce),
-                Payload {
-                    msg: sealed,
-                    aad: &owner.aad(),
-                },
-            )
-            .map_err(|_| {
-                anyhow!("credential {id} was sealed with another key or for another owner")
-            })?;
-        let plain = String::from_utf8(plain).map_err(|_| anyhow!("credential {id} is not text"))?;
+            .decrypt(Nonce::from_slice(nonce), Payload { msg: sealed, aad })
+            .map_err(|_| anyhow!("{id} was sealed with another key or for another owner"))?;
+        let plain = String::from_utf8(plain).map_err(|_| anyhow!("{id} is not text"))?;
         Ok(SecretString::from(plain))
     }
 }
@@ -150,5 +176,21 @@ mod tests {
                 .is_err()
         );
         assert!(!format!("{key:?}").contains('['));
+    }
+
+    #[test]
+    fn harness_settings_open_only_for_their_machine_and_agent() {
+        let key = CredentialKey::random();
+        let owner = |machine, agent| HarnessOwner {
+            user: "alice",
+            machine,
+            agent,
+        };
+        let plain = SecretString::from(r#"[{"name":"HTTPS_PROXY","value":"x"}]"#);
+        let sealed = key.seal_harness(&owner("m1", "codex"), &plain).unwrap();
+        let opened = key.open_harness(&owner("m1", "codex"), &sealed).unwrap();
+        assert_eq!(opened.expose_secret(), plain.expose_secret());
+        assert!(key.open_harness(&owner("m2", "codex"), &sealed).is_err());
+        assert!(key.open_harness(&owner("m1", "claude"), &sealed).is_err());
     }
 }
