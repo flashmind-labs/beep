@@ -64,6 +64,21 @@ pub(crate) struct TaskRow {
     pub(crate) pr_seen: Option<String>,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    /// Its issue was opened by someone else: Beep never closes, relabels or
+    /// edits it, and comments on it at most once, after asking.
+    pub(crate) issue_foreign: bool,
+    /// Beep commented on its issue.
+    pub(crate) issue_commented: bool,
+}
+
+/// Who opened the issue a task tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IssueAuthor {
+    /// The user's own account on the host: Beep keeps it in step as it
+    /// does the issues it files.
+    User,
+    /// Anyone else: Beep leaves it as it is.
+    Other,
 }
 
 #[derive(Debug, Clone)]
@@ -161,7 +176,7 @@ const PROJECT_COLUMNS: &str =
 
 const TASK_COLUMNS: &str = "t.id, t.project_id, t.slug, t.title, t.body, t.state, t.depends_on,
     t.needs, t.issue_host, t.issue_number, t.issue_url, t.branch, t.pr_url, t.start, t.pr_seen,
-    t.created_at, t.updated_at";
+    t.created_at, t.updated_at, t.issue_foreign, t.issue_commented";
 
 const WORKER_COLUMNS: &str = "w.id, w.task_id, w.project_id, w.machine, w.agent, w.session,
     w.folder, w.state, w.asking, w.last_output, w.persona, w.persona_commit, w.turns_seen,
@@ -247,6 +262,8 @@ fn task_from(row: &PgRow) -> Result<TaskRow> {
         pr_seen: row.try_get(14)?,
         created_at: row.try_get(15)?,
         updated_at: row.try_get(16)?,
+        issue_foreign: row.try_get(17)?,
+        issue_commented: row.try_get(18)?,
     })
 }
 
@@ -445,6 +462,7 @@ async fn track_in(
     task: &NewTask,
     host: &IssueHost,
     issue: &IssueRef,
+    author: IssueAuthor,
 ) -> Result<TrackedIssue> {
     // Locking the project makes a second caller wait and find this task.
     sqlx::query("SELECT 1 FROM projects WHERE id=$1 FOR UPDATE")
@@ -469,13 +487,15 @@ async fn track_in(
     let made = tasks_in(tx, project, std::slice::from_ref(task)).await?;
     let made = made.first().context("no task was made")?;
     let row = sqlx::query(&format!(
-        "UPDATE project_tasks AS t SET issue_host=$2, issue_number=$3, issue_url=$4
+        "UPDATE project_tasks AS t SET issue_host=$2, issue_number=$3, issue_url=$4,
+             issue_foreign=$5
          WHERE t.id=$1 RETURNING {TASK_COLUMNS}"
     ))
     .bind(made.id.0)
     .bind(host.stored())
     .bind(number)
     .bind(&issue.url)
+    .bind(author == IssueAuthor::Other)
     .fetch_one(&mut *tx)
     .await?;
     Ok(TrackedIssue::Made(task_from(&row)?))
@@ -830,38 +850,66 @@ impl Store {
         task: &NewTask,
         host: &IssueHost,
         issue: &IssueRef,
+        author: IssueAuthor,
     ) -> Result<TrackedIssue> {
         let mut tx = self.pool.begin().await?;
-        let done = track_in(&mut tx, project, task, host, issue).await;
+        let done = track_in(&mut tx, project, task, host, issue, author).await;
         let keep = done.is_ok();
         end(tx, keep, done).await
     }
 
-    /// Hides the open issue `number` from the project's issue list.
-    pub(crate) async fn dismiss_issue(&self, project: ProjectId, number: u64) -> Result<()> {
+    /// Hides the open issue `number` on `host` from the project's issue list.
+    pub(crate) async fn dismiss_issue(
+        &self,
+        project: ProjectId,
+        host: &IssueHost,
+        number: u64,
+    ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO project_dismissed_issues (project_id, number) VALUES ($1, $2)
+            "INSERT INTO project_dismissed_issues (project_id, host, number) VALUES ($1, $2, $3)
              ON CONFLICT DO NOTHING",
         )
         .bind(project.0)
+        .bind(host.stored())
         .bind(i64::try_from(number)?)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    /// The issue numbers the user dismissed in the project.
-    pub(crate) async fn dismissed_issues(&self, project: ProjectId) -> Result<Vec<u64>> {
+    /// The issue numbers on `host` the user dismissed in the project.
+    pub(crate) async fn dismissed_issues(
+        &self,
+        project: ProjectId,
+        host: &IssueHost,
+    ) -> Result<Vec<u64>> {
         let numbers: Vec<i64> = sqlx::query_scalar(
-            "SELECT number FROM project_dismissed_issues WHERE project_id=$1 ORDER BY number",
+            "SELECT number FROM project_dismissed_issues WHERE project_id=$1 AND host=$2
+             ORDER BY number",
         )
         .bind(project.0)
+        .bind(host.stored())
         .fetch_all(&self.pool)
         .await?;
         numbers
             .into_iter()
             .map(|number| Ok(u64::try_from(number)?))
             .collect()
+    }
+
+    /// Notes that Beep commented on the task's issue. With `once`, only
+    /// when it had not yet; says whether it noted it.
+    pub(crate) async fn note_issue_comment(&self, id: TaskId, once: bool) -> Result<bool> {
+        let noted = sqlx::query(
+            "UPDATE project_tasks SET issue_commented=true, updated_at=now()
+             WHERE id=$1 AND NOT ($2 AND issue_commented)",
+        )
+        .bind(id.0)
+        .bind(once)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(noted == 1)
     }
 
     /// Sets or clears the task it waits for.

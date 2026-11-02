@@ -437,6 +437,10 @@ async fn relabel_running(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow,
     let (Some(issue), Some(host)) = (&task.issue, &task.issue_host) else {
         return;
     };
+    // Someone else's issue keeps its labels.
+    if task.issue_foreign {
+        return;
+    }
     let fleet = NodeFleet {
         app: app.clone(),
         user: user.clone(),
@@ -496,6 +500,7 @@ impl OnNode<'_> {
         let task_prompt = task_prompt(&PromptFacts {
             repo: &self.project.name,
             issue: self.task.issue.as_ref(),
+            issue_foreign: self.task.issue_foreign,
             title: &self.task.title,
             body: &self.task.body,
             slug: &self.task.slug,
@@ -680,6 +685,8 @@ pub(crate) async fn stop_worker_on(
 pub(crate) struct PromptFacts<'a> {
     pub(crate) repo: &'a RepoName,
     pub(crate) issue: Option<&'a IssueRef>,
+    /// Someone else opened the issue: the PR refers to it without closing it.
+    pub(crate) issue_foreign: bool,
     pub(crate) title: &'a str,
     pub(crate) body: &'a str,
     pub(crate) slug: &'a TaskSlug,
@@ -725,6 +732,9 @@ pub(crate) fn task_prompt(facts: &PromptFacts<'_>) -> String {
     let _ = writeln!(prompt, "2. Push the branch: git push -u origin {branch}");
     if let Some(prs) = facts.prs {
         let issue_link = match facts.issue {
+            Some(issue) if facts.issue_foreign && facts.issues == Some(prs) => {
+                format!(" with \"Refs #{}\" in its description", issue.number)
+            }
             Some(issue) if facts.issues == Some(prs) => {
                 format!(" with \"Closes #{}\" in its description", issue.number)
             }
@@ -787,6 +797,7 @@ mod tests {
         PromptFacts {
             repo: &fixture.repo,
             issue: Some(&fixture.issue),
+            issue_foreign: false,
             title: "Fix it",
             body: "Make the build pass.",
             slug: &fixture.slug,
@@ -844,6 +855,16 @@ mod tests {
             "{linked}"
         );
         assert!(!linked.contains(".beep/incoming"), "{linked}");
+        // Someone else's issue is referred to, never closed by the PR.
+        let foreign = task_prompt(&PromptFacts {
+            issue_foreign: true,
+            ..facts(&fixture)
+        });
+        assert!(
+            foreign.contains("with \"Refs #12\" in its description"),
+            "{foreign}"
+        );
+        assert!(!foreign.contains("Closes"), "{foreign}");
         let untracked = task_prompt(&PromptFacts {
             issue: None,
             ..facts(&fixture)
