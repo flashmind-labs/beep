@@ -13,10 +13,10 @@ import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyn
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
-import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, el as h } from "./projects-state.ts";
+import { mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, el as h } from "./projects-state.ts";
 import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
-import { confirmSheet, openMenu } from "./menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads, outsideTitle } from "./branchwork.ts";
@@ -976,7 +976,40 @@ function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string) {
   };
   clicks.addEventListener("click", open, true);
   clicks.addEventListener("auxclick", open);
-  menu.addEventListener("contextmenu", e => openMenu(e, name, [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }]));
+  menu.addEventListener("contextmenu", e => openProjectMenu(e, name));
+}
+
+/// The right-click menu of project `name`: a window of its own, and
+/// removing it once it is imported (one from running agents only is not
+/// the server's to remove).
+function openProjectMenu(e: MouseEvent, name: string) {
+  const items: MenuItem[] = [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }];
+  if (isImported(name)) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
+  openMenu(e, name, items);
+}
+
+function isImported(name: string) {
+  return !!projectRows()?.some(p => p.name === name && p.imported);
+}
+
+/// Asks, then removes project `name` from Beep. Its files stay on every
+/// machine.
+function removeProject(name: string) {
+  confirmSheet({
+    ...removeProjectSheet(name),
+    run: async () => {
+      await invoke("remove_project", { project: name });
+      state.top = state.top.filter(n => n !== name);
+      if (state.home?.projects) state.home = { ...state.home, projects: state.home.projects.filter(p => p.name !== name) };
+      state.where.delete(name);
+      state.pview.delete(name);
+      if (shown === "projects" && state.picked === name) openProjects();
+      else { draw(); redrawProjectsPage(); }
+      loadFound();
+      loadOverview();
+      refresh();
+    },
+  });
 }
 
 function pickChat(c: SideChat) {
@@ -2099,6 +2132,7 @@ registerView("projects", {
     if (p) {
       const on = state.top.includes(p.name);
       tools.push(button(on ? "Unpin" : "Pin", "quiet small", () => setProjectOnTop(p.name, !on)));
+      if (p.imported) tools.push(button(REMOVE_PROJECT, "quiet small", () => removeProject(p.name)));
     }
     tools.push(button("All projects", "quiet small", () => openProjects()));
     return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
