@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel } from "../dist/projects-state.js";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, openOnLabel, whereRows, whereCount } from "../dist/projects-state.js";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -186,4 +186,29 @@ test("open on names GitHub or the host", () => {
   assert.equal(openOnLabel("https://github.com/org/app"), "Open on GitHub");
   assert.equal(openOnLabel("https://git.example.com/org/app"), "Open on git.example.com");
   assert.equal(openOnLabel("not a url"), null);
+});
+
+test("where it lives lists every machine: a checkout, checking, clone here, or offline", () => {
+  const machines = [
+    { id: "mac", name: "MacBook Air", online: true, folder: "/Users/user/Projects/acme/widget", checking: false, checked_at: null },
+    { id: "gpu", name: "gpu-box", online: true, folder: "/home/user/code/widget", checking: false, checked_at: 5 },
+    { id: "build", name: "build-box", online: true, folder: null, checking: false, checked_at: 9 },
+    { id: "mini", name: "mini-box", online: true, folder: null, checking: true, checked_at: null },
+    { id: "old", name: "old-box", online: false, folder: null, checking: false, checked_at: null },
+  ];
+  const rows = whereRows({ machines: [] }, machines, "mac");
+  assert.deepEqual(rows.map(r => r.kind), ["here", "here", "none", "checking", "offline"]);
+  assert.equal(rows[0].mac, true);
+  assert.equal(rows[1].mac, false);
+  assert.equal(rows[2].text, "Not on build-box");
+  assert.equal(rows[2].checked_at, 9);
+  assert.equal(rows[3].text, "Checking…");
+  assert.equal(rows[4].text, "Checks when old-box is online");
+  assert.equal(whereCount(rows, true), "2 of 5 machines");
+});
+
+test("an old server's page lists the imported folders", () => {
+  const rows = whereRows({ machines: [{ id: "m1", name: "build-box", folder: "/srv/app" }] }, null, null);
+  assert.deepEqual(rows, [{ kind: "here", id: "m1", name: "build-box", folder: "/srv/app", mac: false }]);
+  assert.equal(whereCount(rows, false), "1 machine");
 });

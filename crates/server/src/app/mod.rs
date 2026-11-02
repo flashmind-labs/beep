@@ -100,6 +100,8 @@ pub struct App {
     pub nodes: crate::nodes::Nodes,
     /// The project workers' sessions and the issue mirroring in flight.
     pub projects: crate::projects::Projects,
+    /// Looks through the users' machines for checkouts of their projects.
+    pub checkouts: crate::imports::Checkouts,
     /// Images tools hand the model, such as node screenshots.
     pub tool_images: Arc<ToolImages>,
     /// Speaks voice notes and transcribes spoken replies.
@@ -355,6 +357,7 @@ impl App {
             teams: AsyncMutex::new(HashMap::new()),
             nodes: crate::nodes::Nodes::default(),
             projects: crate::projects::Projects::default(),
+            checkouts: crate::imports::Checkouts::default(),
             tool_images,
             voice,
             realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),
