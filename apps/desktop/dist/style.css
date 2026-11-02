@@ -304,6 +304,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchip { min-height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 12.5px }
 .dchip[aria-pressed="true"] { background: rgba(59, 155, 122, .28); border-color: var(--emerald) }
 .dchip.day { min-width: 34px; padding: 0 8px }
+.dchip:disabled { opacity: .5 }
+#setModel { flex: none; max-width: 46%; min-height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px }
 .dfield textarea { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--emerald) }
 .dfield input[type="time"], .dfield input[type="date"] { color-scheme: dark }
 

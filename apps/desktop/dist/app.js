@@ -2419,7 +2419,7 @@ function sendRow(onPause) {
 /// bar it is the bar's page; in the window it is a sheet over the view
 /// (`SET.root`), which `settingsSheet` opens.
 const SET = { root: null, token: 0, devices: null, machines: undefined, confirm: false };
-const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["creds", "Credentials"], ["instr", "Instructions"], ["general", "General"]];
+const SET_SECTIONS = [["general", "General"], ["models", "Models"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["creds", "Credentials"], ["instr", "Instructions"], ["devices", "Account"]];
 
 /// Settings, Credentials (`credentials.js` draws it). `list` is undefined
 /// until the server answers and null when it failed; `edit` is the row
@@ -2467,7 +2467,10 @@ async function loadCreds() {
     console.warn(e);
     CRED.list ??= null;
   }
-  if (setShown()) fillSection("creds", setCredsHtml());
+  if (setShown()) {
+    fillSection("creds", setCredsHtml());
+    fillSection("account", setAccountHtml(S.link === "linked"));
+  }
 }
 
 /// Runs gh's browser sign-in: Beep shows the code gh prints (and copies
@@ -2607,6 +2610,20 @@ function bindCreds(el) {
   $in("#credSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
 }
 
+/// Changes a model setting from Settings and redraws the section with
+/// what the server answers.
+async function setModelChange(command, args) {
+  try {
+    MODELS.info = await invoke(command, args);
+  } catch (e) {
+    const err = setRoot().querySelector("#setModelErr");
+    if (err) err.textContent = String(e);
+    return;
+  }
+  refreshHints();
+  if (setShown()) fillSection("models", setModelsHtml());
+}
+
 const setRoot = () => SET.root ?? bar;
 /// The sheet is open, or the bar still shows Settings.
 const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
@@ -2637,6 +2654,34 @@ function setDevicesHtml(linked, set) {
   return devices.map(row).join("") + (owner
     ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
     : SET.confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
+}
+
+/// Settings, Models: the model every turn of yours uses, how long it
+/// thinks, and Auto. Auto picks only the thinking for each prompt; the
+/// model stays the one picked here.
+function setModelsHtml() {
+  const m = MODELS.info;
+  if (!m) return SET.modelsError ? `<div class="dmuted">Could not load your models.</div>` : setSkeleton(2);
+  const chosen = m.choices.find(c => c.id === m.selected);
+  const options = m.choices.map(c => `<option value="${esc(c.id)}"${c.id === m.selected ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+  const auto = m.auto_available
+    ? `<div class="dtoggle"><span><b>Auto thinking</b><small>${m.auto ? "On: Beep picks how long to think for each prompt, on your model" : "Off: every prompt thinks as set below"}</small></span>
+        <button class="dswitch" id="setAuto" role="switch" aria-checked="${m.auto}" aria-label="Auto thinking"></button></div>`
+    : "";
+  const levels = THINKING.map(l => `<button class="dchip" data-setlevel="${l}" aria-pressed="${!m.auto && l === m.thinking}"${m.auto ? " disabled" : ""}>${cap(l)}</button>`).join("");
+  return `<div class="dtoggle"><span><b>Model</b><small>${chosen ? esc(modelPrice(chosen)) : "Your turns use the server's default"}</small></span>
+      <select id="setModel" aria-label="Model">${options}</select></div>
+    ${auto}
+    <div class="dfield"><span>Thinking${m.auto ? " (Auto picks it per prompt)" : ""}</span><div class="dchips">${levels}</div></div>
+    <div class="derr" id="setModelErr"></div>`;
+}
+
+/// Settings, Account: who this account signs in to GitHub as, when known,
+/// above its devices.
+function setAccountHtml(linked) {
+  if (!linked) return "";
+  const gh = Array.isArray(CRED.github) ? CRED.github.find(a => a.default) : null;
+  return gh ? `<div class="dtoggle"><span><b>GitHub</b><small>@${esc(gh.login)}, given to your machines as GH_TOKEN</small></span></div>` : "";
 }
 
 function setAppsHtml() {
@@ -2679,6 +2724,9 @@ function bindSettings(el) {
     }
     if (setShown()) renderSettings();
   }));
+  $in("#setModel")?.addEventListener("change", e => setModelChange("set_model", { id: e.target.value }));
+  $in("#setAuto")?.addEventListener("click", () => setModelChange("set_auto_model", { enabled: !MODELS.info.auto }));
+  el.querySelectorAll("[data-setlevel]").forEach(b => b.addEventListener("click", () => setModelChange("set_thinking", { level: b.dataset.setlevel })));
   $in("#unlink")?.addEventListener("click", () => renderSettings(true));
   $in("#unlinkNo")?.addEventListener("click", () => renderSettings());
   $in("#unlinkYes")?.addEventListener("click", async () => {
@@ -2733,7 +2781,7 @@ function fillSection(id, html) {
 }
 
 // The data attributes that name a Settings control when it has no id.
-const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto"];
+const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto", "setlevel"];
 
 /// What has focus inside `box`, as a selector that finds it again after
 /// a redraw; null when focus is elsewhere.
@@ -2779,16 +2827,17 @@ async function renderSettings(confirm = false, root = undefined) {
   }
   const linked = S.link === "linked";
   const sec = (id, title, body) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat" style="padding-top:6px">${title}</div><div id="set-${id}">${body}</div></section>`;
-  const sections = sec("devices", "Devices", setDevicesHtml(linked, set))
+  const sections = `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
+      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
+        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
+      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}</section>`
+    + (linked && (!MODELS.info || canPickModel()) ? sec("models", "Models", setModelsHtml()) : "")
     + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
     + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
     + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
     + (linked ? sec("creds", "Credentials", setCredsHtml()) : "")
     + (linked ? sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`) : "")
-    + `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
-      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
-        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
-      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}</section>`;
+    + sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`);
   if (SET.root) {
     const shown = new Set([...sections.matchAll(/data-sec="(\w+)"/g)].map(m => m[1]));
     const nav = SET_SECTIONS.filter(([id]) => shown.has(id))
@@ -2815,7 +2864,15 @@ async function renderSettings(confirm = false, root = undefined) {
   if (!linked) return;
   // The server's parts, side by side; each fills its section as it answers.
   invoke("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
-    .then(() => { if (alive()) fillSection("devices", setDevicesHtml(true, set)); });
+    .then(() => { if (alive()) fillSection("devices", `<div id="set-account">${setAccountHtml(true)}</div>${setDevicesHtml(true, set)}`); });
+  invoke("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
+    .then(() => {
+      if (!alive()) return;
+      // A server with no choices to offer leaves the section out.
+      if (canPickModel() || SET.modelsError) return fillSection("models", setModelsHtml());
+      setRoot().querySelector("#set-models-sec")?.remove();
+      setRoot().querySelector('[data-goto="models"]')?.remove();
+    });
   invoke("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
     .then(() => { if (alive()) fillSection("apps", setAppsHtml()); });
   invoke("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
