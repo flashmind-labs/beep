@@ -200,7 +200,7 @@ export function doneText(project) {
 // ---------- Add a project, and one project's view ----------
 
 /// What each coding agent is called on screen.
-const AGENT_NAMES = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", gemini: "Gemini CLI" };
+const AGENT_NAMES = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", gemini: "Gemini CLI", opencode: "OpenCode" };
 
 /// "Claude Code" for `claude`; an agent Beep does not know reads as named.
 export function agentLabel(agent) { return AGENT_NAMES[agent] || String(agent || ""); }
@@ -219,7 +219,7 @@ export function importPlan(row) {
 export function lookingText(machines) {
   const n = (machines || []).filter(m => m.online).length;
   const on = n === 1 ? "1 machine" : n ? `${n} machines` : "your machines";
-  return `Looking through Claude Code, Codex, pi and flsh sessions on ${on}…`;
+  return `Looking through Claude Code, Codex, pi, flsh and OpenCode sessions on ${on}…`;
 }
 
 /// The coding agents running now in one of `project`'s folders, or below one,
