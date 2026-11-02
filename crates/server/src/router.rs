@@ -156,7 +156,7 @@ impl Router {
     /// Runs the handler for a request already read. `rx` is the rest of the
     /// client's side of the stream, which only a `Duplex` request reads.
     pub async fn dispatch(&self, cx: Cx, frame: Frame, mut tx: Tx, rx: Rx) -> Result<()> {
-        let handler = Op::try_from(frame.tag).and_then(|op| {
+        let handler = frame.op().and_then(|op| {
             self.routes
                 .get(&op)
                 .ok_or_else(|| ApiError::bad_request(format!("{op:?} is not served")))

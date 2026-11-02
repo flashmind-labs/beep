@@ -176,7 +176,7 @@ enum Opening {
 async fn open(send: SendStream, recv: RecvStream) -> Result<Opening> {
     let (mut tx, mut rx) = framed(send, recv);
     let frame = read_request(&mut rx).await?;
-    if frame.tag != Hello::OP as u8 {
+    if frame.op() != Ok(Hello::OP) {
         return Ok(Opening::Request {
             frame,
             tx,
