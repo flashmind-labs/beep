@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentAccountsHtml, machinesWith, timeLeft, tokenDraft, usedOn } from "../dist/agentaccounts.js";
+import { agentAccountsHtml, machinesWith, ownLogin, timeLeft, tokenDraft, usedOn } from "../dist/agentaccounts.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ago = () => "today";
@@ -34,9 +34,9 @@ test("signed in: Replace, Revoke and the machines it is used on", () => {
   assert.match(html, /Use an API key/);
 });
 
-test("not signed in: Sign in once, or paste a token", () => {
+test("not signed in: Sign in for all, or paste a token", () => {
   const html = agentAccountsHtml({ data: { ...signedIn, claude: null }, codex: {} }, esc, ago);
-  assert.match(html, /data-ag-claude-sign>Sign in</);
+  assert.match(html, /data-ag-claude-sign>Sign in for all</);
   assert.match(html, /data-ag-edit="claude"/);
   assert.doesNotMatch(html, /Used on/);
   const typing = agentAccountsHtml({ data: { ...signedIn, claude: null }, codex: {}, edit: "claude" }, esc, ago);
@@ -69,4 +69,19 @@ test("a pasted token is checked before it is sent", () => {
   assert.match(tokenDraft("codex", "").error, /key/);
   assert.match(tokenDraft("codex", "a b").error, /spaces/);
   assert.equal(tokenDraft(null, "x").error, "Nothing to save.");
+});
+
+test("without Beep's token, Claude Code shows each machine's own sign-in", () => {
+  assert.equal(ownLogin(undefined), "not checked");
+  assert.equal(ownLogin({ tool: "claude", signed_in: false }), "not signed in");
+  assert.equal(ownLogin({ tool: "claude", signed_in: true, account: "you@example.com" }), "signed in as you@example.com");
+  const data = {
+    claude: null,
+    machines: [{ id: "m1", name: "This Mac", online: true, claude: true }, { id: "m2", name: "Workspace", online: true, claude: true }],
+    claude_logins: new Map([["m1", { tool: "claude", signed_in: true, account: null }], ["m2", { tool: "claude", signed_in: false }]]),
+  };
+  const html = agentAccountsHtml({ data }, s => s, () => "now");
+  assert.match(html, /This Mac.*signed in/s);
+  assert.match(html, /Workspace.*not signed in/s);
+  assert.match(html, /Sign in for all/);
 });
