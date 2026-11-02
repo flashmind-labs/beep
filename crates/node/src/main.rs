@@ -171,12 +171,19 @@ fn stopped() -> Result<impl Future<Output = ()>> {
     })
 }
 
+/// The log filter unless `RUST_LOG` says otherwise: the node at info, the
+/// networking crates under it (iroh, its QUIC and port mapping) only when
+/// something goes wrong, since they log every packet path at info.
+const LOG_FILTER: &str =
+    "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn";
+
 /// Logs to stderr, or to daily files next to `log_file` when given.
 fn start_logging(log_file: Option<&Path>) -> Result<()> {
-    let filter = || RustLogFilterBuilder::from_default_env_or("info").build();
+    let filter = || RustLogFilterBuilder::from_default_env_or(LOG_FILTER).build();
     let Some(log_file) = log_file else {
+        let stderr = Stderr::default().with_layout(TextLayout::default());
         logforth::starter_log::builder()
-            .dispatch(|d| d.filter(filter()).append(Stderr::default()))
+            .dispatch(|d| d.filter(filter()).append(stderr))
             .apply();
         return Ok(());
     };
