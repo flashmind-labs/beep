@@ -3,7 +3,6 @@
 use super::{App, Message};
 use crate::{
     cron,
-    instance::Privilege,
     memories::PROFILE_HEADER,
     nodes::{self, MACHINES_HEADER},
     protocol::{AppIntegration, DeviceKind},
@@ -116,16 +115,12 @@ impl App {
         }
 
         // Ends in a blank line, which is where `last_block` stops reading.
-        if self.allows(Privilege::Nodes, user) {
-            match self.machines(user).await {
-                Ok(Some(machines))
-                    if last_block(chat, MACHINES_HEADER) != Some(machines.as_str()) =>
-                {
-                    let _ = writeln!(ctx, "{machines}\n");
-                }
-                Ok(_) => {}
-                Err(error) => log::warn!("unable to list machines: {error:#}; user={user}"),
+        match self.machines(user).await {
+            Ok(Some(machines)) if last_block(chat, MACHINES_HEADER) != Some(machines.as_str()) => {
+                let _ = writeln!(ctx, "{machines}\n");
             }
+            Ok(_) => {}
+            Err(error) => log::warn!("unable to list machines: {error:#}; user={user}"),
         }
 
         // Last, so the profile a chat got runs to the end of its message.

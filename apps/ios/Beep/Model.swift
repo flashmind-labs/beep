@@ -1592,7 +1592,7 @@ final class AppModel {
         return Dictionary(list.map { ($0.id, $0.scope) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The machines running beep-node on the account. Admins only.
+    /// The machines running beep-node on the account.
     func machines() async throws -> [Machine] { try await api().listMachines() }
     /// Live disk, memory and load by machine id, online machines only. Empty on servers from before stats.
     func machineStats() async -> [String: MachineStats] {

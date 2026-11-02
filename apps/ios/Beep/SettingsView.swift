@@ -7,7 +7,6 @@ struct SettingsView: View {
     /// and with agents on the agent Jev picks brings its prompt and thinking.
     @State private var agents: Agents?
     @State private var agentsError = ""
-    @State private var machinesAllowed = false
 
     private var agentsOn: Bool { agents?.enabled == true }
 
@@ -40,13 +39,10 @@ struct SettingsView: View {
                             row("checkmark.shield", "Routine grants", "What routines may do without asking")
                         }
                         divider
-                        // Nodes are for admins for now: the row shows once the server lists machines.
-                        if machinesAllowed {
-                            Button { path.append(.machines) } label: {
-                                row("server.rack", "Machines", "Where Beep runs commands and coding agents")
-                            }
-                            divider
+                        Button { path.append(.machines) } label: {
+                            row("server.rack", "Machines", "Where Beep runs commands and coding agents")
                         }
+                        divider
                         Button { if !model.connected { model.connect() } } label: {
                             row("server.rack", "Server", model.connected ? "Connected"
                                 : (model.connectionError.isEmpty ? "Connecting" : model.connectionError),
@@ -63,7 +59,6 @@ struct SettingsView: View {
         .task(id: model.models?.choices.isEmpty == false) {
             if model.models?.choices.isEmpty == false { agents = await model.agents() }
         }
-        .task { machinesAllowed = (try? await model.machines()) != nil }
     }
 
     private var divider: some View { Rectangle().fill(Mint.soft).frame(height: 1) }

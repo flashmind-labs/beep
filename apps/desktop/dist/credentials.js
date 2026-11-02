@@ -8,7 +8,7 @@ export function hostOf(url) {
 }
 
 /// The names of the machines that report `tool`, or null when the machines
-/// are not known (only admins may list them).
+/// are not known (the list could not be read).
 export function machinesWith(machines, tool) {
   if (!Array.isArray(machines)) return null;
   return machines.filter(m => m.env?.tools?.some(t => t.name === tool)).map(m => m.name);
