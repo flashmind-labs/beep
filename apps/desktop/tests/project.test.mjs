@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, recentTurns } from "../dist/project.js";
+import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, barPlaceholder, chatStarted } from "../dist/project.js";
 
 const MIN = 60000;
 
@@ -55,11 +55,11 @@ test("a worker's line names its agent, machine, worktree, state and time", () =>
   assert.equal(workerLine({ ...w, state: "running", ended_at: null }, 18 * MIN), "Codex · build-box · .worktrees/bump · running · 18 min");
 });
 
-test("the chat shows its last turns and what is being sent until it lands", () => {
-  const turns = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: `t${i}`, html: "" }));
-  assert.equal(recentTurns(turns, null, 5).length, 5);
-  const sending = recentTurns(turns, "new work", 5);
-  assert.deepEqual(sending.at(-1), { role: "user", text: "new work" });
-  const landed = [...turns, { role: "user", text: "new work" }];
-  assert.equal(recentTurns(landed, "new work", 5).filter(t => t.text === "new work").length, 1);
+test("the prompt bar names the project and offers the chat once it has turns", () => {
+  assert.equal(barPlaceholder("acme/widget"), "Ask the project agent about acme/widget");
+  assert.equal(chatStarted(undefined), false);
+  assert.equal(chatStarted([]), false);
+  assert.equal(chatStarted([{ role: "scheduled", label: "Nightly" }, { role: "approval", action: "Create 3 tasks" }]), false);
+  assert.equal(chatStarted([{ role: "user", text: "Plan the 0.4 release" }]), true);
+  assert.equal(chatStarted([{ role: "assistant", html: "<p>Done</p>" }]), true);
 });

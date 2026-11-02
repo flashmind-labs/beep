@@ -86,7 +86,6 @@ const ICONS = {
   prs: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V9a3 3 0 00-3-3h-4"/><path d="M13 3l-2 3 2 3"/></svg>',
   machines: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
   agents: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
-  chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
 };
 
 /// An element with `cls`; string children become text, never markup.
@@ -126,28 +125,9 @@ export function tile(key, title, data, open, opts = {}) {
   const rows = data.rows.slice(0, opts.rows ?? TILE_ROWS).map(r => row(r, opts.openUrl));
   if (!rows.length) rows.push(h("div", "pb-r none", h("span", "t", data.empty)));
   const more = data.rows.length > (opts.rows ?? TILE_ROWS) ? h("div", "pb-r more", h("span", "t", `${data.rows.length - (opts.rows ?? TILE_ROWS)} more`)) : null;
-  const el = h("section", `pb-tile${opts.wide ? " wide" : ""}`, head, h("div", "pb-rows", ...rows, more));
+  const el = h("section", "pb-tile", head, h("div", "pb-rows", ...rows, more));
   el.dataset.tile = key;
   return el;
-}
-
-/// The project chat as a wide tile: its last two turns.
-export function chatTile(turns, open) {
-  const last = (turns || []).filter(t => t.role === "user" || t.role === "assistant").slice(-2);
-  const rows = last.map(t => {
-    const said = t.role === "user" ? h("span", "t", h("b", "", "You: "), t.text) : h("span", "t", plain(t.html));
-    return h("div", `pb-r talk${t.role === "user" ? " you" : ""}`, said);
-  });
-  const el = tile("chat", "Project chat", { count: "the project agent", rows: [], empty: "Nothing said yet. Ask for work below." }, open, { wide: true });
-  if (rows.length) el.querySelector(".pb-rows").replaceChildren(...rows);
-  return el;
-}
-
-/// The text of rendered Markdown, for a one-line preview.
-function plain(html) {
-  const d = document.createElement("div");
-  d.innerHTML = html; // rendered and cleaned by markdown.rs; read as text only
-  return d.textContent.trim();
 }
 
 /// The way back from an opened tile to the board.
