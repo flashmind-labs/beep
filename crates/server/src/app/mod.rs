@@ -6,6 +6,7 @@ mod group;
 mod group_reminders;
 mod group_tools;
 mod learning;
+pub(crate) mod memory_context;
 mod notify;
 mod research;
 mod run;

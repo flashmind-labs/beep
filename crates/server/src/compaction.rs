@@ -138,6 +138,8 @@ async fn compact(
         return Ok(false);
     }
     let mut context = before.conversation.clone();
+    // Recalled facts are not part of a summary; they can be found again.
+    crate::app::memory_context::discard_saved(&mut context);
     let dropped = trim_tool_output(&mut context, KEEP_RECENT_TOKENS);
     // Half the limit, so the next turns do not trigger it again right away.
     if dropped > 0 && estimated_tokens(&context) < limit / 2 {
@@ -312,6 +314,42 @@ mod tests {
         assert_eq!(compact_at(Some(200_000)), 160_000);
         assert_eq!(compact_at(Some(128_000)), 102_400);
         assert_eq!(compact_at(None), 102_400);
+    }
+
+    #[tokio::test]
+    async fn compaction_removes_recalled_memories_from_context() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let mut chat = long_chat();
+        crate::app::memory_context::restore(
+            &mut chat,
+            &[ConversationEntry::memory(
+                "A recalled fact.",
+                "memory-1",
+                0.8,
+            )],
+            true,
+        );
+        let session = save_chat(&store, "recalled", &chat, 150_000).await;
+        let model: Model = "openai:test".parse().unwrap();
+        assert!(
+            compact(&store, &SummaryStub::default(), &model, &session, 102_400)
+                .await
+                .unwrap()
+        );
+        let compacted = store
+            .session_context(&session)
+            .await
+            .unwrap()
+            .unwrap()
+            .conversation;
+        assert!(
+            !compacted
+                .entries()
+                .iter()
+                .any(|entry| entry.content().contains("A recalled fact."))
+        );
+        assert!(compacted.entries().iter().any(|entry| entry.is_summary()));
     }
 
     #[tokio::test]

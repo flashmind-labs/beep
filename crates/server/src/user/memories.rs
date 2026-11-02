@@ -22,7 +22,6 @@ impl User {
     /// 1 - L2 distance / 2; embeddings are unit vectors.
     pub(crate) async fn prompt_memories(&self, query: &str) -> Result<Vec<Scored>> {
         const MIN_COSINE: f32 = 0.7;
-        const MAX_HITS: usize = 8;
         const CANDIDATES: usize = 32;
         let query = query.trim();
         if query.is_empty() {
@@ -39,7 +38,6 @@ impl User {
                 !found.row.valid.ended(today)
                     && found.row.valid.from.is_none_or(|from| from <= today)
             })
-            .take(MAX_HITS)
             .collect())
     }
 
