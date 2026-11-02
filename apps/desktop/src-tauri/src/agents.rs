@@ -12,10 +12,11 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, ApiError,
-    GetAgentImage, GetAgentSession, ListAgentHosts, ListAgentSessions, MachinePick, MachineSession,
-    PreviewAgentMachine, ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload,
-    check_agent_images, image_key,
+    AgentEntry, AgentEntryKind, AgentHost, AgentModel, AgentModels, AgentQuestion,
+    AgentSessionView, AgentSteer, ApiError, GetAgentImage, GetAgentSession, ListAgentHosts,
+    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
+    ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
+    image_key,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -232,7 +233,8 @@ pub async fn agent_sessions(beep: Service<'_>) -> Result<Vec<SessionRow>> {
 }
 
 /// Starts a session; no `machine_id` lets the server pick. `chat` hears
-/// its turn ends and questions.
+/// its turn ends and questions; `model`, from `agent_models`, picks the
+/// agent's model.
 #[tauri::command]
 pub async fn agent_start(
     beep: Service<'_>,
@@ -241,6 +243,7 @@ pub async fn agent_start(
     cwd: Option<String>,
     prompt: String,
     chat: Option<Uuid>,
+    model: Option<String>,
 ) -> Result<Started> {
     let started = beep
         .call(StartAgentSession {
@@ -250,6 +253,7 @@ pub async fn agent_start(
             prompt,
             needs: Vec::new(),
             chat,
+            model,
         })
         .await?;
     Ok(Started {
@@ -295,6 +299,58 @@ pub async fn agent_preview(
         .await;
     match asked {
         Ok(pick) => Ok(Some(pick.into())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The models an agent can run on a machine, as the start form's Model
+/// field lists them.
+#[derive(Debug, Serialize)]
+pub struct ModelsView {
+    /// "listed", "named" or "fixed".
+    pick: &'static str,
+    current: Option<String>,
+    models: Vec<ModelView>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ModelView {
+    id: String,
+    name: String,
+    description: Option<String>,
+}
+
+impl From<AgentModels> for ModelsView {
+    fn from(list: AgentModels) -> Self {
+        Self {
+            pick: list.pick.into(),
+            current: list.current,
+            models: list.models.into_iter().map(ModelView::from).collect(),
+        }
+    }
+}
+
+impl From<AgentModel> for ModelView {
+    fn from(model: AgentModel) -> Self {
+        Self {
+            id: model.id,
+            name: model.name,
+            description: model.description,
+        }
+    }
+}
+
+/// The models `agent` can run on `machine_id`; `None` from a server too
+/// old to say, which the form takes as none to pick.
+#[tauri::command]
+pub async fn agent_models(
+    beep: Service<'_>,
+    machine_id: String,
+    agent: String,
+) -> Result<Option<ModelsView>> {
+    match beep.call(ListAgentModels { machine_id, agent }).await {
+        Ok(list) => Ok(Some(list.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
     }

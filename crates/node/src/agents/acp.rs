@@ -4,24 +4,28 @@
 
 use super::images::{Picture, image_line};
 use agent_client_protocol::{
-    Lines,
+    Lines, UntypedMessage,
     schema::{
         ProtocolVersion,
         v1::{
-            ContentBlock, ImageContent, Implementation, InitializeRequest, InitializeResponse,
-            PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-            SelectedPermissionOutcome, SessionId, TextContent,
+            AGENT_METHOD_NAMES, ContentBlock, ImageContent, Implementation, InitializeRequest,
+            InitializeResponse, NewSessionRequest, NewSessionResponse, PermissionOptionId,
+            PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
+            SelectedPermissionOutcome, SessionConfigId, SessionConfigKind,
+            SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
+            SessionId, SetSessionConfigOptionRequest, TextContent,
         },
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     ApiError, Upload, check_agent_images,
-    node::agent::{AnswerOption, OptionKind},
+    node::agent::{AnswerOption, ModelOption, OptionKind},
 };
 use futures::{Sink, Stream, sink, stream};
-use serde::Serialize;
-use std::io;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::{io, path::Path};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout},
@@ -68,6 +72,148 @@ pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMe
 /// (see `KNOWN`).
 pub(super) fn bypass_mode(agent: &str) -> Option<&'static str> {
     (agent == "claude").then_some("bypassPermissions")
+}
+
+/// The flag that starts the agent `agent` on a model, for an agent whose
+/// command line picks it: flsh and Gemini CLI take `--model`. The others
+/// switch over ACP once the session exists.
+pub(super) fn model_flag(agent: &str) -> Option<&'static str> {
+    matches!(agent, "flsh" | "gemini").then_some("--model")
+}
+
+/// The most models kept from one agent's list.
+pub(super) const MAX_MODELS: usize = 500;
+
+/// The models an agent offers in its answer to `session/new`, and how it
+/// switches between them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Offered {
+    /// The model the session runs on, when it says.
+    pub(super) current: Option<String>,
+    pub(super) models: Vec<ModelOption>,
+    pub(super) switch: Option<ModelSwitch>,
+}
+
+/// How an agent switches a session's model.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum ModelSwitch {
+    /// `session/set_config_option` on its selector of category `model`.
+    ConfigOption(SessionConfigId),
+    /// `session/set_model`, from ACP's unstable session models, which the
+    /// Claude Code, Codex and OpenCode adapters answer.
+    SetModel,
+}
+
+/// `models` in an answer to `session/new`: ACP's unstable session models.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionModels {
+    #[serde(default)]
+    available_models: Vec<AcpModel>,
+    #[serde(default)]
+    current_model_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpModel {
+    model_id: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+/// `session/new` in `cwd`, sent untyped so the answer keeps `models`, which
+/// the crate's typed answer drops.
+pub(super) fn new_session(cwd: &Path) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    UntypedMessage::new(AGENT_METHOD_NAMES.session_new, NewSessionRequest::new(cwd))
+}
+
+/// The session an answer to `session/new` made, and the models it offers.
+pub(super) fn session_created(
+    answer: Value,
+) -> Result<(NewSessionResponse, Offered), serde_json::Error> {
+    let offered = offered_models(&answer);
+    Ok((serde_json::from_value(answer)?, offered))
+}
+
+/// The models an answer to `session/new` offers: its config option of
+/// category `model` when it has one, else its unstable `models`.
+pub(super) fn offered_models(answer: &Value) -> Offered {
+    let options = answer
+        .get("configOptions")
+        .filter(|options| options.is_array())
+        .and_then(|_| serde_json::from_value::<NewSessionResponse>(answer.clone()).ok())
+        .and_then(|created| created.config_options)
+        .unwrap_or_default();
+    let selector = options.into_iter().find_map(|option| {
+        let SessionConfigKind::Select(select) = option.kind else {
+            return None;
+        };
+        matches!(option.category, Some(SessionConfigOptionCategory::Model))
+            .then_some((option.id, select))
+    });
+    if let Some((id, select)) = selector {
+        let choices: Vec<SessionConfigSelectOption> = match select.options {
+            SessionConfigSelectOptions::Ungrouped(options) => options,
+            SessionConfigSelectOptions::Grouped(groups) => {
+                groups.into_iter().flat_map(|group| group.options).collect()
+            }
+            _ => Vec::new(),
+        };
+        return Offered {
+            current: Some(select.current_value.to_string()),
+            models: choices
+                .into_iter()
+                .take(MAX_MODELS)
+                .map(|choice| ModelOption {
+                    id: choice.value.to_string(),
+                    name: choice.name,
+                    description: choice.description,
+                })
+                .collect(),
+            switch: Some(ModelSwitch::ConfigOption(id)),
+        };
+    }
+    let Some(models) = answer
+        .get("models")
+        .and_then(|models| serde_json::from_value::<SessionModels>(models.clone()).ok())
+    else {
+        return Offered::default();
+    };
+    Offered {
+        current: models.current_model_id,
+        models: models
+            .available_models
+            .into_iter()
+            .take(MAX_MODELS)
+            .map(|model| ModelOption {
+                name: model.name.unwrap_or_else(|| model.model_id.clone()),
+                id: model.model_id,
+                description: model.description,
+            })
+            .collect(),
+        switch: Some(ModelSwitch::SetModel),
+    }
+}
+
+/// The request that switches `session` to `model` the way `switch` says.
+pub(super) fn switch_model(
+    session: &SessionId,
+    switch: &ModelSwitch,
+    model: &str,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    match switch {
+        ModelSwitch::ConfigOption(id) => UntypedMessage::new(
+            AGENT_METHOD_NAMES.session_set_config_option,
+            SetSessionConfigOptionRequest::new(session.clone(), id.clone(), model),
+        ),
+        ModelSwitch::SetModel => UntypedMessage::new(
+            "session/set_model",
+            serde_json::json!({ "sessionId": session, "modelId": model }),
+        ),
+    }
 }
 
 /// The option that allows what a permission request asks, preferring one
@@ -517,6 +663,95 @@ mod tests {
         assert_eq!(bypass_mode("claude"), Some("bypassPermissions"));
         for agent in ["codex", "gemini", "pi", "flsh", "opencode"] {
             assert_eq!(bypass_mode(agent), None, "{agent}");
+        }
+    }
+
+    #[test]
+    fn session_models_are_read_from_session_new() {
+        let answer = serde_json::json!({
+            "sessionId": "s1",
+            "models": {
+                "availableModels": [
+                    {"modelId": "default", "name": "Default (recommended)", "description": "Use the default model"},
+                    {"modelId": "opus"},
+                ],
+                "currentModelId": "default",
+            },
+        });
+        let (created, offered) = session_created(answer).unwrap();
+        assert_eq!(created.session_id, SessionId::new("s1"));
+        assert_eq!(offered.current.as_deref(), Some("default"));
+        assert_eq!(offered.switch, Some(ModelSwitch::SetModel));
+        assert_eq!(
+            offered.models,
+            [
+                ModelOption {
+                    id: "default".into(),
+                    name: "Default (recommended)".into(),
+                    description: Some("Use the default model".into()),
+                },
+                ModelOption {
+                    id: "opus".into(),
+                    name: "opus".into(),
+                    description: None,
+                },
+            ]
+        );
+        let request = switch_model(&SessionId::new("s1"), &ModelSwitch::SetModel, "opus").unwrap();
+        assert_eq!(request.method(), "session/set_model");
+        assert_eq!(
+            request.params(),
+            &serde_json::json!({"sessionId": "s1", "modelId": "opus"})
+        );
+    }
+
+    #[test]
+    fn a_model_config_option_wins_over_session_models() {
+        let answer = serde_json::json!({
+            "sessionId": "s1",
+            "configOptions": [
+                {"id": "mode", "name": "Mode", "category": "mode", "type": "select",
+                 "currentValue": "ask", "options": [{"value": "ask", "name": "Ask"}]},
+                {"id": "model", "name": "Model", "category": "model", "type": "select",
+                 "currentValue": "gpt-test", "options": [
+                    {"group": "openai", "name": "OpenAI", "options": [
+                        {"value": "gpt-test", "name": "GPT Test"},
+                        {"value": "gpt-mini", "name": "GPT Mini", "description": "Faster"}]}]},
+            ],
+            "models": {"availableModels": [{"modelId": "other"}], "currentModelId": "other"},
+        });
+        let offered = offered_models(&answer);
+        assert_eq!(offered.current.as_deref(), Some("gpt-test"));
+        let ids: Vec<&str> = offered.models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["gpt-test", "gpt-mini"]);
+        assert_eq!(offered.models[1].description.as_deref(), Some("Faster"));
+        let switch = offered.switch.expect("a switch");
+        assert_eq!(
+            switch,
+            ModelSwitch::ConfigOption(SessionConfigId::new("model"))
+        );
+        let request = switch_model(&SessionId::new("s1"), &switch, "gpt-mini").unwrap();
+        assert_eq!(request.method(), "session/set_config_option");
+        assert_eq!(request.params()["configId"], "model");
+        assert_eq!(request.params()["value"], "gpt-mini");
+    }
+
+    #[test]
+    fn an_agent_without_models_offers_none() {
+        let offered = offered_models(&serde_json::json!({"sessionId": "s1"}));
+        assert_eq!(offered, Offered::default());
+        // A broken `models` is ignored rather than failing the session.
+        let broken = serde_json::json!({"sessionId": "s1", "models": {"availableModels": 3}});
+        assert_eq!(offered_models(&broken), Offered::default());
+        assert!(session_created(broken).is_ok());
+    }
+
+    #[test]
+    fn flsh_and_gemini_take_the_model_on_their_command_line() {
+        assert_eq!(model_flag("flsh"), Some("--model"));
+        assert_eq!(model_flag("gemini"), Some("--model"));
+        for agent in ["claude", "codex", "pi", "opencode"] {
+            assert_eq!(model_flag(agent), None, "{agent}");
         }
     }
 
