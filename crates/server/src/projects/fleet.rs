@@ -12,7 +12,7 @@ use crate::{
     leak::PublicText,
     nodes::{Follower, Online, SHELL},
     protocol::node::{
-        Capability,
+        Capability, SyncthingFolder,
         agent::{OptionKind, Question, Request as AgentRequest, SessionInfo},
         files::{Reply, Request},
     },
@@ -37,6 +37,8 @@ pub(crate) struct Machine {
     pub(crate) home: Option<String>,
     /// Its own host name, which is as private as its Beep name.
     pub(crate) hostname: Option<String>,
+    /// The folders its Syncthing keeps in step, as it last reported them.
+    pub(crate) syncthing: Vec<SyncthingFolder>,
 }
 
 #[async_trait]
@@ -129,6 +131,11 @@ impl Fleet for NodeFleet {
                     .map(|env| env.capabilities())
                     .unwrap_or_default(),
                 home: row.env.as_ref().map(|env| env.home.clone()),
+                syncthing: row
+                    .env
+                    .as_ref()
+                    .map(|env| env.syncthing.clone())
+                    .unwrap_or_default(),
                 hostname: row.env.map(|env| env.hostname),
             });
         }

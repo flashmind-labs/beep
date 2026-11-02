@@ -284,6 +284,7 @@ impl FakeFleet {
             capabilities: capabilities.to_vec(),
             home: Some("/home/sam".to_owned()),
             hostname: None,
+            syncthing: Vec::new(),
         });
         let shell = Arc::new(FakeShell::default());
         self.shells.insert(id, shell.clone());

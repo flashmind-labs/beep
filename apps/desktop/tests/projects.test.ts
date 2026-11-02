@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT } from "../src/projects-state.ts";
+import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, withSyncthing, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -212,6 +212,21 @@ test("where it lives lists every machine: a checkout, checking, clone here, or o
   assert.equal(rows[3].text, "Checking…");
   assert.equal(rows[4].text, "Checks when old-box is online");
   assert.equal(whereCount(rows, true), "2 of 5 machines");
+});
+
+test("a folder Syncthing keeps in step says so on its row", () => {
+  const machines = [
+    { id: "m1", name: "build-box", online: true, folder: "/srv/work/app", checking: false, checked_at: 1 },
+    { id: "m2", name: "laptop", online: true, folder: "/srv/app", checking: false, checked_at: 1 },
+    { id: "m3", name: "gpu-box", online: true, folder: null, checking: false, checked_at: 1 },
+  ];
+  const marked = withSyncthing(machines, [
+    { machine_id: "m1", folder: "/srv/work/app", label: "Work" },
+    { machine_id: "m2", folder: "/srv/other", label: "Other" },
+  ]);
+  const rows = whereRows({ machines: [] }, marked, null);
+  assert.deepEqual(rows.map(r => r.syncthing ?? null), ["Work", null, null]);
+  assert.equal(withSyncthing(null, []), null);
 });
 
 test("an old server's page lists the imported folders", () => {

@@ -215,6 +215,7 @@ fn main() {
             projects::found_projects,
             projects::project_sessions,
             projects::project_machines,
+            projects::project_syncthing,
             file_sync::project_sync,
             git_items::git_items,
             projects::open_folder,
