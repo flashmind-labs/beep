@@ -78,7 +78,7 @@ pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
     After, CheckoutRow, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused, TaskRow,
-    WorkerRow,
+    TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
@@ -371,6 +371,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         61,
         "project imports",
         include_str!("../../migrations/0061_project_imports.sql"),
+    ),
+    (
+        63,
+        "project issues",
+        include_str!("../../migrations/0063_project_issues.sql"),
     ),
 ];
 

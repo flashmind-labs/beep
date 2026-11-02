@@ -38,8 +38,8 @@ use crate::{
         NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewWorker, NodeRow, OpenCounts, PicturesOf,
         PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
         RunStatus, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow, StartRefused,
-        Store, StoredContext, StoredMessage, SyncRow, TaskRow, TurnRecord, TurnsToDelete,
-        WorkerRow,
+        Store, StoredContext, StoredMessage, SyncRow, TaskRow, TrackedIssue, TurnRecord,
+        TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -1498,6 +1498,24 @@ impl User {
         tasks: &[NewTask],
     ) -> Result<Vec<TaskRow>> {
         self.store.create_tasks(project, tasks).await
+    }
+
+    pub(crate) async fn track_issue(
+        &self,
+        project: ProjectId,
+        task: &NewTask,
+        host: &IssueHost,
+        issue: &IssueRef,
+    ) -> Result<TrackedIssue> {
+        self.store.track_issue(project, task, host, issue).await
+    }
+
+    pub(crate) async fn dismiss_issue(&self, project: ProjectId, number: u64) -> Result<()> {
+        self.store.dismiss_issue(project, number).await
+    }
+
+    pub(crate) async fn dismissed_issues(&self, project: ProjectId) -> Result<Vec<u64>> {
+        self.store.dismissed_issues(project).await
     }
 
     pub(crate) async fn project_tasks(&self, project: ProjectId) -> Result<Vec<TaskRow>> {

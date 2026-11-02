@@ -144,6 +144,15 @@ pub(crate) struct OpenCounts {
     pub(crate) workers: u32,
 }
 
+/// What [`Store::track_issue`] did.
+#[derive(Debug, Clone)]
+pub(crate) enum TrackedIssue {
+    /// A new task tracks the issue.
+    Made(TaskRow),
+    /// This task of the project tracked it already.
+    Already(TaskRow),
+}
+
 /// The most tries at a free slug for one task.
 const MAX_SLUG_SUFFIX: u32 = 1000;
 
@@ -427,6 +436,49 @@ async fn tasks_in(
         made.push(task_from(&row)?);
     }
     Ok(made)
+}
+
+/// The body of [`Store::track_issue`], in its transaction.
+async fn track_in(
+    tx: &mut PgConnection,
+    project: ProjectId,
+    task: &NewTask,
+    host: &IssueHost,
+    issue: &IssueRef,
+) -> Result<TrackedIssue> {
+    // Locking the project makes a second caller wait and find this task.
+    sqlx::query("SELECT 1 FROM projects WHERE id=$1 FOR UPDATE")
+        .bind(project.0)
+        .fetch_optional(&mut *tx)
+        .await?
+        .context("no such project")?;
+    let number = i64::try_from(issue.number)?;
+    let tracked = sqlx::query(&format!(
+        "SELECT {TASK_COLUMNS} FROM project_tasks t
+         WHERE t.project_id=$1 AND t.issue_host=$2 AND t.issue_number=$3
+         ORDER BY t.created_at LIMIT 1"
+    ))
+    .bind(project.0)
+    .bind(host.stored())
+    .bind(number)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(row) = tracked {
+        return Ok(TrackedIssue::Already(task_from(&row)?));
+    }
+    let made = tasks_in(tx, project, std::slice::from_ref(task)).await?;
+    let made = made.first().context("no task was made")?;
+    let row = sqlx::query(&format!(
+        "UPDATE project_tasks AS t SET issue_host=$2, issue_number=$3, issue_url=$4
+         WHERE t.id=$1 RETURNING {TASK_COLUMNS}"
+    ))
+    .bind(made.id.0)
+    .bind(host.stored())
+    .bind(number)
+    .bind(&issue.url)
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok(TrackedIssue::Made(task_from(&row)?))
 }
 
 /// The body of [`Store::start_worker`], in its transaction.
@@ -767,6 +819,49 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Makes `task` tracking the existing `issue` on `host`, unless a task
+    /// of the project tracks it already. Nothing is made when any step
+    /// fails, so no task is left without its issue.
+    pub(crate) async fn track_issue(
+        &self,
+        project: ProjectId,
+        task: &NewTask,
+        host: &IssueHost,
+        issue: &IssueRef,
+    ) -> Result<TrackedIssue> {
+        let mut tx = self.pool.begin().await?;
+        let done = track_in(&mut tx, project, task, host, issue).await;
+        let keep = done.is_ok();
+        end(tx, keep, done).await
+    }
+
+    /// Hides the open issue `number` from the project's issue list.
+    pub(crate) async fn dismiss_issue(&self, project: ProjectId, number: u64) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO project_dismissed_issues (project_id, number) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(project.0)
+        .bind(i64::try_from(number)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The issue numbers the user dismissed in the project.
+    pub(crate) async fn dismissed_issues(&self, project: ProjectId) -> Result<Vec<u64>> {
+        let numbers: Vec<i64> = sqlx::query_scalar(
+            "SELECT number FROM project_dismissed_issues WHERE project_id=$1 ORDER BY number",
+        )
+        .bind(project.0)
+        .fetch_all(&self.pool)
+        .await?;
+        numbers
+            .into_iter()
+            .map(|number| Ok(u64::try_from(number)?))
+            .collect()
     }
 
     /// Sets or clears the task it waits for.
