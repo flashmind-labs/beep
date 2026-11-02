@@ -132,6 +132,7 @@ enum SettingsSection {
     Apps,
     Mac,
     Machines,
+    Agents,
     Creds,
     General,
 }
@@ -144,6 +145,7 @@ impl SettingsSection {
             Self::Apps => "Apps",
             Self::Mac => "This Mac",
             Self::Machines => "Machines",
+            Self::Agents => "Agent accounts",
             Self::Creds => "Credentials",
             Self::General => "General",
         }
@@ -169,6 +171,9 @@ fn settings() -> Vec<Setting> {
         ("Apps", Apps),
         ("Let Beep use this Mac", Mac),
         ("Machines", Machines),
+        ("Agent accounts", Agents),
+        ("Claude Code token", Agents),
+        ("Codex sign-in", Agents),
         ("GitHub token", Creds),
         ("Forgejo or Gitea token", Creds),
         ("Launch at login", General),

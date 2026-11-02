@@ -127,7 +127,7 @@ async fn login(
 ) -> Login {
     let mut command = crate::process::command(tool);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
-    spawn_env::apply(&mut command, Scope::Agent);
+    spawn_env::apply(&mut command, Scope::Agent(None));
     let run = command
         .args(args)
         .stdin(Stdio::null())

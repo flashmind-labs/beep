@@ -96,6 +96,10 @@ sample_struct! {
     AgentFile { agent, path, text, synced }
     Terminal { id, project, machine_id, machine_name, name, command, cwd, state, started_at }
     TerminalOutput { terminal, lines, earlier }
+    AgentAccounts { claude, codex_key, machines }
+    AgentToken { last4, created_at, unreadable }
+    AgentMachine { machine_id, machine_name, online, claude, codex, claude_sessions, codex_signed_in }
+    CodexLogin { task, url, code, expires_at }
     IssueStart { agent, node_id }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }

@@ -108,7 +108,7 @@ pub(super) async fn set_default_github_account(
 
 /// `secret` without the spaces around it, refused when it is empty or
 /// does not look like a token.
-fn trimmed(secret: &SecretText) -> Reply<SecretString> {
+pub(super) fn trimmed(secret: &SecretText) -> Reply<SecretString> {
     let secret = SecretString::from(secret.expose().trim());
     let text = secret.expose_secret();
     if text.is_empty() {
@@ -167,7 +167,7 @@ async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
         Slot::Forgejo(url) if !url.is_public().await => return Ok(None),
         Slot::Forgejo(url) => Checker::new()?.forgejo(url, secret).await,
         Slot::ApiKey(ApiProvider::OpenRouter) => Checker::new()?.openrouter(secret).await,
-        Slot::ApiKey(_) => return Ok(None),
+        Slot::ApiKey(_) | Slot::AgentToken(_) => return Ok(None),
     };
     match checked {
         Checked::Valid { login } => Ok(login),

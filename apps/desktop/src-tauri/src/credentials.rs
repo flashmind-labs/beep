@@ -214,7 +214,7 @@ pub async fn set_default_github_account(beep: Service<'_>, id: String) -> Result
 }
 
 /// The server's reason on its own, without the "bad request:" before it.
-fn plain(e: DesktopError) -> DesktopError {
+pub(crate) fn plain(e: DesktopError) -> DesktopError {
     match e {
         DesktopError::Api(ApiError::BadRequest { message }) => DesktopError::BadRequest(message),
         other => other,

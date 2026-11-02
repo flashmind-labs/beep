@@ -62,7 +62,9 @@ pub use actions::ActionRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
-pub use credentials::{CredentialRow, GitHubAccountRow, GitLogin, NewCredential, NewGitHubAccount};
+pub use credentials::{
+    AgentTokenRow, CredentialRow, GitHubAccountRow, GitLogin, NewCredential, NewGitHubAccount,
+};
 pub(crate) use cron_jobs::{decode_schedule, encode_schedule};
 pub use devices::{PushDevice, PushService, PushToken};
 pub use digest::AttentionItem;
