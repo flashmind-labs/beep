@@ -1592,8 +1592,11 @@ function sessionsSection(p, running) {
   return el;
 }
 
-/// The agent view for a session row.
-function openAgentRow(r) { go("pane", { agent: { kind: "agent", ...r } }); }
+/// The agent view for a session row; Esc there comes back to the project shown.
+function openAgentRow(r) {
+  const project = shown === "projects" ? state.picked : null;
+  go("pane", { agent: { kind: "agent", ...r }, ...(project ? { from: { project } } : {}) });
+}
 
 function sessionRow(s) {
   const ended = s.status === "ended";
@@ -1961,6 +1964,8 @@ window.beepOpenInstructions = () => {
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 /// A page Settings leads to, such as Apps: the sheet closes and the pane
 /// shows it; null only closes.
+/// Esc from a session opened in a project goes back to that project.
+window.beepOpenProject = openProjects;
 window.beepSettingsAway = view => {
   closeSettings();
   if (view) go("pane", view);
