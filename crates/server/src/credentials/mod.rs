@@ -108,12 +108,6 @@ impl FromStr for ForgejoUrl {
                 "The server URL must start with https:// or http://.",
             ));
         }
-        if url.scheme() == "http" && !net::is_local_name(&url) {
-            return Err(SlotError::BadUrl(
-                "Use https:// for a server on the internet: over http the token travels \
-                 in the clear.",
-            ));
-        }
         if !url.username().is_empty() || url.password().is_some() {
             return Err(SlotError::BadUrl(
                 "Put the token in its own field, not in the URL.",
@@ -282,13 +276,9 @@ mod tests {
         assert_eq!(url.host(), "code.example.org:3000");
         let url: ForgejoUrl = "http://forge.local:3000".parse().unwrap();
         assert_eq!(url.as_str(), "http://forge.local:3000");
-        assert_eq!(
-            "http://git.example.com".parse::<ForgejoUrl>(),
-            Err(SlotError::BadUrl(
-                "Use https:// for a server on the internet: over http the token travels \
-                 in the clear."
-            ))
-        );
+        // Over a VPN a server named like one on the internet can be plain http.
+        let url: ForgejoUrl = "http://git.example.com:8087".parse().unwrap();
+        assert_eq!(url.as_str(), "http://git.example.com:8087");
         assert!("ftp://git.example.com".parse::<ForgejoUrl>().is_err());
         assert!("git.example.com".parse::<ForgejoUrl>().is_err());
         assert!(
