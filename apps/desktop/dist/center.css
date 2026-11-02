@@ -291,9 +291,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-plan ol small { color: var(--muted) }
 .pj-plan .acts { display: flex; gap: 6px; align-items: center }
 .pj-plan .ok { font-size: 12px; color: var(--emerald) }
-/* Project board: square tiles, each a count and the rows that matter now. */
-.pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 12px }
-.pb-tile { aspect-ratio: 1 / 1; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--border); background: var(--elev); overflow: hidden }
+/* Project board: two tiles a row, each a count and the rows that matter now. */
+.pb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px }
+.pb-tile { min-height: 236px; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--border); background: var(--elev); overflow: hidden }
 .pb-h { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; font-size: 12.5px; font-weight: 600; cursor: pointer }
 .pb-h:hover, .pb-h:focus-visible { color: var(--emerald) }
 .pb-h svg { opacity: .8; flex: none }

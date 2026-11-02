@@ -48,7 +48,7 @@ export interface TileOptions {
 }
 
 /// Rows a tile shows before its full list.
-export const TILE_ROWS = 4;
+export const TILE_ROWS = 6;
 
 /// Open task states, in the order the tile lists them.
 const OPEN: Record<string, number> = { running: 0, blocked: 1, review: 2, planned: 3 };
