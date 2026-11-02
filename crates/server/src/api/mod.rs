@@ -236,6 +236,7 @@ pub fn router() -> Router {
         .call(reviews::list_project_branches)
         .call(reviews::start_branch_review)
         .call(reviews::get_branch_review)
+        .call(reviews::check_branch_review)
         .call(reviews::list_branch_reviews)
         .call(reviews::dismiss_review_finding)
         .call(reviews::fix_review_findings)

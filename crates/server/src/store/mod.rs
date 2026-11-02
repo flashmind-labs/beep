@@ -427,6 +427,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "chat allows",
         include_str!("../../migrations/0069_chat_allows.sql"),
     ),
+    (
+        70,
+        "review worktrees",
+        include_str!("../../migrations/0070_review_worktrees.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them

@@ -12,7 +12,7 @@ use crate::{credentials::github_owner_var, leak::PublicText, nodes::Online};
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::time::Duration;
 use strum::IntoStaticStr;
 
@@ -77,14 +77,23 @@ pub(crate) fn exclude_project_dirs(checkout: &MachinePath) -> String {
     )
 }
 
+/// Makes the task's worktree on a new `beep/<slug>` branch from `base`:
+/// `origin`'s after a fetch, or the local branch when it has commits
+/// `origin` lacks (a branch not pushed yet, or pushed behind).
 pub(crate) fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) -> String {
     let repo = quote(checkout.as_str());
+    let local = quote(&format!("refs/heads/{base}"));
+    let remote = quote(&format!("refs/remotes/origin/{base}"));
     format!(
-        "git -C {repo} fetch origin {} && git -C {repo} worktree add -b {} {} {}",
-        quote(base),
-        quote(&slug.branch()),
-        quote(slug.worktree(checkout).as_str()),
-        quote(&format!("origin/{base}")),
+        "git -C {repo} fetch origin {base_word}; \
+         if git -C {repo} rev-parse -q --verify {local} >/dev/null \
+         && ! git -C {repo} merge-base --is-ancestor {local} {remote} 2>/dev/null; \
+         then start={local}; else start={origin}; fi; \
+         git -C {repo} worktree add -b {branch} {path} \"$start\"",
+        base_word = quote(base),
+        branch = quote(&slug.branch()),
+        path = quote(slug.worktree(checkout).as_str()),
+        origin = quote(&format!("origin/{base}")),
     )
 }
 
@@ -305,7 +314,23 @@ pub(crate) enum HostCommand<'a> {
     MergePr {
         number: u64,
     },
+    /// One review that comments, with an inline comment per entry.
+    PostReview {
+        number: u64,
+        /// The commit the comments are on.
+        commit: &'a str,
+        body: &'a str,
+        comments: &'a [InlineComment],
+    },
     Visibility,
+}
+
+/// A comment on one line of a pull request's diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InlineComment {
+    pub(crate) path: String,
+    pub(crate) line: u32,
+    pub(crate) body: String,
 }
 
 /// The pieces of a command, quoted when joined.
@@ -343,6 +368,11 @@ impl HostCommand<'_> {
             }
             Self::CloseIssue { comment, .. } => vec![comment],
             Self::CommentIssue { body, .. } => vec![body],
+            Self::PostReview { body, comments, .. } => {
+                let mut out = vec![*body];
+                out.extend(comments.iter().map(|comment| comment.body.as_str()));
+                out
+            }
             _ => Vec::new(),
         }
     }
@@ -516,6 +546,35 @@ impl HostCommand<'_> {
                 number_command(&["pr", "view"], number, &["--json", PR_FIELDS])
             }
             Self::MergePr { number } => number_command(&["pr", "merge"], number, &["--squash"]),
+            Self::PostReview {
+                number,
+                commit,
+                body,
+                comments,
+            } => {
+                let payload = json!({
+                    "commit_id": commit,
+                    "event": "COMMENT",
+                    "body": body,
+                    "comments": comments
+                        .iter()
+                        .map(|comment| json!({
+                            "path": comment.path,
+                            "line": comment.line,
+                            "side": "RIGHT",
+                            "body": comment.body,
+                        }))
+                        .collect::<Vec<_>>(),
+                });
+                // `gh api` takes no -R; the owner's account decides who it is.
+                format!(
+                    "printf '%s' {} | {account}{}",
+                    quote(&payload.to_string()),
+                    Parts::new(&["gh", "api", &format!("repos/{repo}/pulls/{number}/reviews")])
+                        .with(&["--method", "POST", "--input", "-"])
+                        .render()
+                )
+            }
             Self::Visibility => format!(
                 "{account}{}",
                 Parts::new(&["gh", "repo", "view", repo])
@@ -643,6 +702,22 @@ impl HostCommand<'_> {
                 &[&number.to_string()],
                 &["--method", "squash"],
             ),
+            Self::PostReview {
+                number,
+                commit,
+                body,
+                comments,
+            } => {
+                let inline: Vec<String> = comments
+                    .iter()
+                    .map(|comment| format!("{}:{}:{}", comment.path, comment.line, comment.body))
+                    .collect();
+                let mut flags = vec!["--state", "comment", "-b", body, "--commit", commit];
+                for comment in &inline {
+                    flags.extend(["--comment", comment.as_str()]);
+                }
+                tea(&["pr", "review", "submit"], &[&number.to_string()], &flags)
+            }
             Self::Visibility => tea(&["repo", "get"], &[], &[]),
         }
     }
@@ -1061,10 +1136,19 @@ mod tests {
         let checkout = MachinePath::parse("/srv/my project").expect("a path");
         let slug = TaskSlug::parse("fix-it").expect("a slug");
         let command = worktree_add(&checkout, &slug, "main");
-        assert_eq!(
-            command,
-            "git -C '/srv/my project' fetch origin main && git -C '/srv/my project' \
-             worktree add -b beep/fix-it '/srv/my project/.worktrees/fix-it' origin/main"
+        assert!(
+            command.starts_with("git -C '/srv/my project' fetch origin main; "),
+            "{command}"
+        );
+        assert!(
+            command.contains("then start=refs/heads/main; else start=origin/main; fi;"),
+            "{command}"
+        );
+        assert!(
+            command.ends_with(
+                "worktree add -b beep/fix-it '/srv/my project/.worktrees/fix-it' \"$start\""
+            ),
+            "{command}"
         );
         let remove = worktree_remove(&checkout, &slug);
         assert_eq!(

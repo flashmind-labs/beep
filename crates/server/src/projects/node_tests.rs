@@ -397,6 +397,33 @@ async fn a_worker_starts_in_its_own_worktree() {
 }
 
 #[tokio::test]
+async fn a_fix_starts_from_a_branch_not_pushed_yet() {
+    let world = World::new().await;
+    let node = world.node("build box").await;
+    let project = world.project(&[&node]).await;
+    git(&node.widget, &["checkout", "-b", "login-copy"]);
+    fs::write(node.widget.join("copy.txt"), "Sign in\n").expect("a file");
+    git(&node.widget, &["add", "copy.txt"]);
+    git(&node.widget, &["commit", "-m", "Copy"]);
+    git(&node.widget, &["checkout", "main"]);
+    let local = git_out(&node.widget, &["rev-parse", "login-copy"]);
+    let tasks = world.tasks(&project, &[new_task("Fix it")]).await;
+    let request = StartRequest {
+        base: Some("login-copy".to_owned()),
+        ..claude()
+    };
+    let Started::Running(_) = world.start(&project, &tasks[0], &request).await else {
+        panic!("the worker did not start");
+    };
+    let worktree = node.widget.join(".worktrees/fix-it");
+    assert_eq!(git_out(&worktree, &["rev-parse", "HEAD"]), local);
+    assert_eq!(
+        git_out(&worktree, &["branch", "--show-current"]),
+        "beep/fix-it"
+    );
+}
+
+#[tokio::test]
 async fn inputs_land_in_incoming() {
     let world = World::new().await;
     let node = world.node("build box").await;

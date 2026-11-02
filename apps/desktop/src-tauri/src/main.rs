@@ -224,6 +224,7 @@ fn main() {
             reviews::reviews_list,
             reviews::review_start,
             reviews::review_get,
+            reviews::review_check,
             reviews::review_dismiss,
             reviews::review_fix,
             reviews::review_post,
