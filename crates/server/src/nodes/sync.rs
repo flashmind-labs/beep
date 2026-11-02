@@ -7,7 +7,8 @@ use super::{Nodes, Online};
 use crate::{
     AsyncMutex,
     protocol::node::sync::{
-        MAX_SKIPPED, PROTOCOL, Project, ProjectStatus, Refused, Reply, Request, Skipped,
+        CONTROLS, Keep, MAX_SKIPPED, PROTOCOL, Project, ProjectStatus, Refused, Reply, Request,
+        Skipped,
     },
     store::SyncRow,
     user::User,
@@ -27,6 +28,8 @@ const CONFIGURE_LIMIT: Duration = Duration::from_secs(30);
 /// what one leaves out.
 const STATUS_LIMIT: Duration = Duration::from_secs(5);
 const SKIPPED_LIMIT: Duration = Duration::from_secs(30);
+/// How long a node may take to settle a conflict.
+const RESOLVE_LIMIT: Duration = Duration::from_secs(30);
 
 /// What the server keeps between pushes.
 #[derive(Default)]
@@ -74,6 +77,11 @@ impl Online {
         self.offers(PROTOCOL)
     }
 
+    /// Whether this node pauses projects and settles conflicts.
+    pub fn sync_controls(&self) -> bool {
+        self.syncs() && self.offers(CONTROLS)
+    }
+
     async fn sync_call(&self, request: &Request, limit: Duration) -> Result<Reply> {
         let (mut tx, mut rx) = self.open_stream(PROTOCOL).await?;
         tx.send(request).await?;
@@ -107,6 +115,22 @@ impl Online {
         }
     }
 
+    /// Settles the conflict copy at `path` of `project` on this node.
+    pub async fn sync_resolve(&self, project: &str, path: &str, keep: Keep) -> Result<()> {
+        if !self.sync_controls() {
+            bail!("{}'s beep-node is too old to settle conflicts", self.name);
+        }
+        let request = Request::Resolve {
+            project: project.to_owned(),
+            path: path.to_owned(),
+            keep,
+        };
+        match self.sync_call(&request, RESOLVE_LIMIT).await? {
+            Reply::Resolved {} => Ok(()),
+            other => bail!("{} answered {other:?}", self.name),
+        }
+    }
+
     /// Sets the projects this node syncs; gives how it is reached and
     /// what it refused.
     async fn configure_sync(&self, projects: Vec<Project>) -> Result<Configured> {
@@ -136,11 +160,23 @@ fn linked_rows(rows: Vec<SyncRow>, linked: &HashSet<String>) -> Vec<SyncRow> {
         .collect()
 }
 
-/// The projects `node` syncs, each with the other nodes that sync it.
-fn projects_for(rows: &[SyncRow], node: EndpointId, state: &SyncState) -> Vec<Project> {
-    let id = node.to_string();
+/// What `projects_for` needs to know of the user and the node.
+struct ForNode<'a> {
+    node: EndpointId,
+    /// The projects whose sync is paused.
+    paused: &'a HashSet<String>,
+    /// The node pauses a project itself; an older one is left without it.
+    controls: bool,
+}
+
+/// The projects `node` syncs, each with the other nodes that sync it. A
+/// paused project goes as paused to a node that pauses, and is left out
+/// for one that does not, which stops it.
+fn projects_for(rows: &[SyncRow], node: &ForNode, state: &SyncState) -> Vec<Project> {
+    let id = node.node.to_string();
     rows.iter()
         .filter(|row| row.endpoint == id)
+        .filter(|row| node.controls || !node.paused.contains(&row.project))
         .map(|row| Project {
             name: row.project.clone(),
             folder: row.folder.clone(),
@@ -150,6 +186,7 @@ fn projects_for(rows: &[SyncRow], node: EndpointId, state: &SyncState) -> Vec<Pr
                 .filter_map(|peer| peer.endpoint.parse().ok())
                 .map(|peer| state.addr(peer))
                 .collect(),
+            paused: node.paused.contains(&row.project),
         })
         .collect()
 }
@@ -173,6 +210,7 @@ pub async fn push_sync(
         .map(|key| key.endpoint_id)
         .collect();
     let rows = linked_rows(user.project_syncs().await?, &linked);
+    let paused: HashSet<String> = user.paused_syncs().await?.into_iter().collect();
     let mut online: Vec<Online> = nodes
         .of_user(user.id())
         .into_iter()
@@ -182,7 +220,12 @@ pub async fn push_sync(
     let mut refusals = Vec::new();
     for node in online {
         let id = node.id();
-        let projects = projects_for(&rows, id, &nodes.sync);
+        let for_node = ForNode {
+            node: id,
+            paused: &paused,
+            controls: node.sync_controls(),
+        };
+        let projects = projects_for(&rows, &for_node, &nodes.sync);
         match node.configure_sync(projects).await {
             Ok(configured) => {
                 nodes.sync.addrs().insert(id, configured.addr);
@@ -212,6 +255,15 @@ mod tests {
     use super::*;
     use iroh::SecretKey;
 
+    /// A node that pauses, with nothing paused.
+    fn plain(node: EndpointId, none: &HashSet<String>) -> ForNode<'_> {
+        ForNode {
+            node,
+            paused: none,
+            controls: true,
+        }
+    }
+
     #[test]
     fn a_node_gets_its_projects_with_the_other_nodes_as_peers() {
         let [a, b, c] = [(); 3].map(|()| SecretKey::generate().public());
@@ -229,19 +281,53 @@ mod tests {
         let state = SyncState::default();
         let known: EndpointAddr = b.into();
         state.addrs().insert(b, known.clone());
-        let projects = projects_for(&rows, a, &state);
+        let none = HashSet::new();
+        let projects = projects_for(&rows, &plain(a, &none), &state);
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].name, "game");
         assert_eq!(projects[0].folder, "/srv/game");
         assert_eq!(projects[0].peers, [known]);
 
-        let names: Vec<_> = projects_for(&rows, b, &state)
+        assert!(!projects[0].paused);
+
+        let names: Vec<_> = projects_for(&rows, &plain(b, &none), &state)
             .into_iter()
             .map(|project| (project.name, project.peers.len()))
             .collect();
         assert_eq!(names, [("game".to_owned(), 1), ("site".to_owned(), 1)]);
-        let none = SecretKey::generate().public();
-        assert!(projects_for(&rows, none, &state).is_empty());
+        let stranger = SecretKey::generate().public();
+        assert!(projects_for(&rows, &plain(stranger, &none), &state).is_empty());
+    }
+
+    #[test]
+    fn a_paused_project_goes_paused_or_is_left_out_for_an_older_node() {
+        let a = SecretKey::generate().public();
+        let rows = ["game", "site"].map(|project| SyncRow {
+            project: project.into(),
+            endpoint: a.to_string(),
+            folder: format!("/srv/{project}"),
+        });
+        let paused: HashSet<String> = ["game".to_owned()].into();
+        let state = SyncState::default();
+        let newer = ForNode {
+            node: a,
+            paused: &paused,
+            controls: true,
+        };
+        let got: Vec<_> = projects_for(&rows, &newer, &state)
+            .into_iter()
+            .map(|project| (project.name, project.paused))
+            .collect();
+        assert_eq!(got, [("game".to_owned(), true), ("site".to_owned(), false)]);
+        let older = ForNode {
+            controls: false,
+            ..newer
+        };
+        let got: Vec<_> = projects_for(&rows, &older, &state)
+            .into_iter()
+            .map(|project| project.name)
+            .collect();
+        assert_eq!(got, ["site"]);
     }
 
     #[test]
@@ -256,9 +342,10 @@ mod tests {
             .to_vec();
         let linked: HashSet<String> = [a.to_string()].into();
         let rows = linked_rows(rows, &linked);
-        let projects = projects_for(&rows, a, &SyncState::default());
+        let none = HashSet::new();
+        let projects = projects_for(&rows, &plain(a, &none), &SyncState::default());
         assert_eq!(projects.len(), 1);
         assert!(projects[0].peers.is_empty());
-        assert!(projects_for(&rows, b, &SyncState::default()).is_empty());
+        assert!(projects_for(&rows, &plain(b, &none), &SyncState::default()).is_empty());
     }
 }

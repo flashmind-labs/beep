@@ -112,6 +112,39 @@ impl Store {
         Ok(())
     }
 
+    /// The projects whose sync is paused.
+    pub(crate) async fn paused_syncs(&self, user: &UserKey) -> Result<Vec<String>> {
+        Ok(
+            sqlx::query_scalar(
+                "SELECT project FROM paused_syncs WHERE user_id=$1 ORDER BY project",
+            )
+            .bind(user.as_str())
+            .fetch_all(&self.pool)
+            .await?,
+        )
+    }
+
+    /// Pauses `project`'s sync on every machine, or resumes it; `false`
+    /// when it already was.
+    pub(crate) async fn pause_sync(
+        &self,
+        user: &UserKey,
+        project: &str,
+        paused: bool,
+    ) -> Result<bool> {
+        let query = if paused {
+            "INSERT INTO paused_syncs (user_id, project) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+        } else {
+            "DELETE FROM paused_syncs WHERE user_id=$1 AND project=$2"
+        };
+        let done = sqlx::query(query)
+            .bind(user.as_str())
+            .bind(project)
+            .execute(&self.pool)
+            .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
     /// The projects pinned to the top of the sidebar, oldest pin first.
     pub(crate) async fn projects_on_top(&self, user: &UserKey) -> Result<Vec<String>> {
         Ok(sqlx::query_scalar(
@@ -202,6 +235,21 @@ mod tests {
         assert_eq!(store.project_syncs(&other).await.unwrap().len(), 1);
         store.pin_project(&user, "game", false).await.unwrap();
         assert!(store.pinned_projects(&user).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_paused_sync_is_kept_per_user_until_resumed() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let user = UserKey::for_test("alice");
+        let other = UserKey::for_test("bob");
+        assert!(store.pause_sync(&user, "game", true).await.unwrap());
+        assert!(!store.pause_sync(&user, "game", true).await.unwrap());
+        assert_eq!(store.paused_syncs(&user).await.unwrap(), ["game"]);
+        assert!(store.paused_syncs(&other).await.unwrap().is_empty());
+        assert!(store.pause_sync(&user, "game", false).await.unwrap());
+        assert!(!store.pause_sync(&user, "game", false).await.unwrap());
+        assert!(store.paused_syncs(&user).await.unwrap().is_empty());
     }
 
     #[tokio::test]

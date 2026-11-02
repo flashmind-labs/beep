@@ -1081,6 +1081,78 @@ requests! {
     /// the project has no GitHub or Forgejo host; `BadRequest` saying why
     /// when no machine of the project can read it or the host refuses.
     262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
+    /// How `project`'s sync stands on each machine that syncs it, in more
+    /// detail than `ListProjectSync`: whether it is paused, what a machine
+    /// still has to bring, how fast it moves and how long that takes. An
+    /// offline machine shows `SyncStatus::Offline` and no progress.
+    290 GetProjectSyncDetail { project: String } => Call<ProjectSyncDetail>
+    /// Pauses `project`'s sync on every machine, or resumes it. A paused
+    /// machine keeps its files and its list, and catches up when resumed;
+    /// an older beep-node stops the project instead and scans it afresh
+    /// when resumed. `BadRequest` when the project is pinned.
+    291 PauseProjectSync { project: String, paused: bool } => Call<ProjectSyncDetail>
+    /// Settles one conflict of `project` on `machine_id`: `Copy` keeps the
+    /// conflict copy at `path` as the file it stands beside, `Original`
+    /// keeps that file and deletes the copy. The machine changes its folder
+    /// and syncs the result to the others. `NotFound` when the machine does
+    /// not sync the project or is offline; `BadRequest` saying why when
+    /// its beep-node is too old, sync is paused, or `path` is not a
+    /// conflict copy there.
+    292 ResolveSyncConflict { project: String, machine_id: String, path: String, keep: ConflictKeep } => Call<()>
+}
+
+/// One project's sync in detail, as `GetProjectSyncDetail` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectSyncDetail {
+    pub project: String,
+    pub pinned: bool,
+    /// Paused on every machine with `PauseProjectSync`.
+    pub paused: bool,
+    pub machines: Vec<MachineSyncDetail>,
+}
+
+/// One machine's sync of a project in detail.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineSyncDetail {
+    /// How it stands, as `ListProjectSync` gives it. While paused its
+    /// status is `InSync`, or `Offline` when it does not answer.
+    pub sync: MachineSync,
+    /// The machine reports itself paused.
+    pub paused: bool,
+    /// What it is bringing in line now, while it syncs.
+    pub progress: Option<SyncProgress>,
+    /// Some paths it still has to bring, or that failed and are tried
+    /// again, at most 50.
+    pub waiting: Vec<String>,
+    /// Its beep-node can settle conflicts with `ResolveSyncConflict`.
+    pub can_resolve: bool,
+}
+
+/// How far a machine is through what it brings in line now.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncProgress {
+    pub files_done: u64,
+    pub files_total: u64,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    /// Bytes a second over the last few seconds; 0 before it can tell.
+    pub rate: u64,
+    /// Seconds left at that rate; `None` before it can tell.
+    pub eta_secs: Option<u32>,
+}
+
+wire_enum! {
+    /// Which side of a conflict `ResolveSyncConflict` keeps: the file the
+    /// copy stands beside (`Original`), or the conflict copy (`Copy`).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ConflictKeep {
+        0 Original {}
+        1 Copy {}
+    }
 }
 
 /// A machine whose folder of a project Syncthing keeps in step, as
