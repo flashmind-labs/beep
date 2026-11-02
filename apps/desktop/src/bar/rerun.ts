@@ -13,6 +13,14 @@ interface ModelChoices {
   choices: (Parameters<typeof modelPrice>[0] & { id: string; name: string })[];
 }
 
+/// "Stopped" under a reply the user or another device stopped, with Retry,
+/// which sends the prompt again, for a prompt sent from this chat.
+export function stoppedRow(turn: Turn) {
+  turn.querySelector(":scope > .dstopped")?.remove();
+  const retry = turn.user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
+  turn.append(h(`<div class="dmuted dstopped">Stopped${retry}</div>`));
+}
+
 /// Copy, and for admins Rerun, under a finished reply, then the agent that
 /// answered it when there was one.
 export function replyActs(turn: Turn) {
@@ -62,8 +70,9 @@ export function rerunClick(e: MouseEvent) {
   return true;
 }
 /// Drops `turn` and every turn after it, then sends its prompt again on
-/// `model`, as the phone's Rerun does.
-export async function rerun(turn: Turn, model: string, thinking: string | null) {
+/// `model`, as the phone's Rerun does. No model is Retry: the prompt goes
+/// again on the account's own pick.
+export async function rerun(turn: Turn, model: string | null, thinking: string | null) {
   const id = S.session, busy = here();
   if (!id || busy?.run || busy?.approval) return;
   const turns = [...body()!.querySelectorAll<Turn>(".turn")];
@@ -73,8 +82,10 @@ export async function rerun(turn: Turn, model: string, thinking: string | null) 
   for (const t of turns.slice(turns.indexOf(turn))) t.remove();
   const fresh = newTurn(question);
   fresh.user = true;
-  fresh.model = model;
-  fresh.append(h(`<div class="drerunof">Rerun on ${esc(modelName(model))}${thinking ? " · " + thinking : ""}</div>`));
+  if (model) {
+    fresh.model = model;
+    fresh.append(h(`<div class="drerunof">Rerun on ${esc(modelName(model))}${thinking ? " · " + thinking : ""}</div>`));
+  }
   startRun(id, fresh, null);
   refreshHints();
   scrollDown();

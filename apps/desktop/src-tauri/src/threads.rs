@@ -8,9 +8,10 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    DismissProjectIssue, GitItemKind, IssueStart, ListProjectIssues, ListProjectPullRequests,
-    ListProjectThreads, ListThreadChats, OpenThreadChat, ProjectIssue, ProjectPullRequest,
-    ProjectThread, ReplyToThread, ThreadChat, TrackProjectIssue,
+    DismissProjectIssue, GetProjectThread, GitItemKind, IssueStart, ListProjectIssues,
+    ListProjectPullRequests, ListProjectThreads, ListThreadChats, OpenThreadChat, ProjectIssue,
+    ProjectPullRequest, ProjectThread, ReplyToThread, ThreadChat, ThreadPost, ThreadView,
+    TrackProjectIssue,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -143,6 +144,56 @@ impl From<ThreadChat> for ThreadChatRow {
     }
 }
 
+/// A comment or review on a thread, for the card atop its chat.
+#[derive(Debug, Serialize)]
+pub struct ThreadPostRow {
+    author: String,
+    /// In milliseconds since the Unix epoch.
+    at: u64,
+    body: String,
+}
+
+impl From<ThreadPost> for ThreadPostRow {
+    fn from(p: ThreadPost) -> Self {
+        Self {
+            author: p.author,
+            at: epoch_ms(p.at),
+            body: p.body,
+        }
+    }
+}
+
+/// A pull request or issue read from its host now, for the card atop the
+/// chat about it.
+#[derive(Debug, Serialize)]
+pub struct ThreadCardRow {
+    kind: &'static str,
+    number: u64,
+    title: String,
+    url: String,
+    author: String,
+    body: String,
+    needs_reply: bool,
+    comments: Vec<ThreadPostRow>,
+    earlier: u32,
+}
+
+impl From<ThreadView> for ThreadCardRow {
+    fn from(t: ThreadView) -> Self {
+        Self {
+            kind: kind_name(t.kind),
+            number: t.number,
+            title: t.title,
+            url: t.url,
+            author: t.author,
+            body: t.body,
+            needs_reply: t.needs_reply,
+            comments: t.comments.into_iter().map(Into::into).collect(),
+            earlier: t.earlier,
+        }
+    }
+}
+
 /// The project's open issues no task tracks; `None` from a server too old
 /// to list them.
 #[tauri::command]
@@ -258,6 +309,27 @@ pub async fn center_thread_chats(
 ) -> Result<Option<Vec<ThreadChatRow>>> {
     match beep.call(ListThreadChats { project_id }).await {
         Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Thread `number` of `repo` read from its host now; `None` from a server
+/// too old to read one.
+#[tauri::command]
+pub async fn center_thread_view(
+    beep: Service<'_>,
+    project_id: Uuid,
+    repo: String,
+    number: u64,
+) -> Result<Option<ThreadCardRow>> {
+    let read = beep.call(GetProjectThread {
+        project_id,
+        repo,
+        number,
+    });
+    match read.await {
+        Ok(thread) => Ok(Some(thread.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
     }

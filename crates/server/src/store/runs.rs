@@ -160,6 +160,18 @@ impl Store {
         row.as_ref().map(run).transpose()
     }
 
+    /// The runs going on in any of `user`'s sessions, oldest first.
+    pub(crate) async fn active_runs(&self, user: &UserKey) -> Result<Vec<Run>> {
+        let rows = sqlx::query(
+            "SELECT id, chat_id, status FROM runs
+             WHERE user_id = $1 AND status = 'running' ORDER BY seq",
+        )
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(run).collect()
+    }
+
     /// Starts a run in session `chat`, making the session on its first run.
     /// A conflict when the session is someone else's or busy.
     pub(crate) async fn create_run(

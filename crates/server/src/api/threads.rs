@@ -53,6 +53,19 @@ pub(super) async fn list_thread_chats(cx: Cx, req: ListThreadChats) -> Reply<Vec
     thread_chats(&cx.user, ProjectId(req.project_id)).await
 }
 
+pub(super) async fn get_project_thread(cx: Cx, req: GetProjectThread) -> Reply<ThreadView> {
+    let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
+    threads::view(
+        &fleet(&cx.app, &cx.user),
+        &cx.user,
+        &project,
+        &req.repo,
+        req.number,
+    )
+    .await
+    .map_err(issue_refusal)
+}
+
 fn fleet(app: &Arc<App>, user: &Arc<User>) -> NodeFleet {
     NodeFleet {
         app: app.clone(),

@@ -737,6 +737,13 @@ mod tests {
             store.active_run(&alice, s1).await.unwrap(),
             Some(run.clone())
         );
+        // Every running chat of the user's, and none of anyone else's.
+        assert_eq!(
+            store.active_runs(&alice).await.unwrap(),
+            std::slice::from_ref(&run)
+        );
+        let bob = UserKey::for_test("bob");
+        assert!(store.active_runs(&bob).await.unwrap().is_empty());
 
         // The finished turn holds the prompt once.
         let mut turn = Conversation::new();
@@ -756,6 +763,7 @@ mod tests {
             .unwrap();
         assert_eq!(texts(s1).await, ["hi", "re: hi"]);
         assert_eq!(store.active_run(&alice, s1).await.unwrap(), None);
+        assert!(store.active_runs(&alice).await.unwrap().is_empty());
 
         // A first run that saved nothing takes its prompt and listing along.
         let s2 = test_chat("s2");
