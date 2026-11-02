@@ -380,6 +380,20 @@ pub enum SessionsRequest {
     Models {
         agent: String,
     },
+    /// What the node finds of each coding agent harness it knows, answered
+    /// with `Harnesses`. `refresh` looks the newest versions up again
+    /// instead of using the ones found lately. A node from before it
+    /// answers `Error` or closes the stream.
+    Harnesses {
+        #[serde(default)]
+        refresh: bool,
+    },
+    /// Installs the harness `agent`, or updates it to the newest version,
+    /// with the command its `HarnessInfo::install` names, then answers
+    /// `Harnesses` as they stand after, or `Error` saying why it failed.
+    UpdateHarness {
+        agent: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -418,6 +432,9 @@ pub enum SessionsReply {
     /// The answer to `Models`.
     Models {
         models: ModelList,
+    },
+    Harnesses {
+        report: super::harness::HarnessReport,
     },
 }
 

@@ -218,6 +218,7 @@ pub(crate) enum CenterTarget {
     },
     /// A coding agent's session, as a Running now row names it.
     Agent(Box<AgentTarget>),
+    Providers,
 }
 
 /// A coding agent's session to open, shaped as the window's Running now

@@ -8,6 +8,7 @@ use super::{
     agent_sessions::{
         Host, IN_FLIGHT, NODE_LIMIT, beep_session, external_session, limited, linked_keys,
     },
+    harnesses,
     machines::machine_capability,
 };
 use crate::{
@@ -75,9 +76,11 @@ impl Live {
 }
 
 /// The caller's online machines that offer an agent, in the order the
-/// store lists them. A machine whose key was unlinked is left out.
+/// store lists them. A machine whose key was unlinked is left out, and so
+/// is an agent the caller turned off on a machine (Coding agents).
 pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
     let keys = linked_keys(cx).await?;
+    let off = cx.user.off_harnesses().await?;
     Ok(cx
         .user
         .nodes()
@@ -94,6 +97,7 @@ pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
                 .offers
                 .iter()
                 .filter_map(|offer| agent::agent_of(offer))
+                .filter(|agent| !harnesses::is_off(&off, &row.endpoint, agent))
                 .map(str::to_owned)
                 .collect();
             if agents.is_empty() {

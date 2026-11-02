@@ -13,6 +13,7 @@ use beep_proto::node::{
         self, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL, SessionFolder,
         SessionInfo, SessionsReply, SessionsRequest, State, Status,
     },
+    harness::{AgentSettings, HarnessReport},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -27,6 +28,7 @@ use tokio::task::spawn_blocking;
 
 mod acp;
 mod checkout;
+mod harnesses;
 mod images;
 mod live;
 mod models;
@@ -59,7 +61,7 @@ const MAX_ASKED_FOLDERS: usize = 32;
 const MAX_IMAGE: usize = 7 * 1024 * 1024;
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentKind {
     /// What Beep calls it, such as `claude`; its protocol is `claude/1`.
     pub name: String,
@@ -69,6 +71,19 @@ pub struct AgentKind {
     /// Variables set for it on top of the node's own environment.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+}
+
+/// Shows the names of its variables, never their values, which may be the
+/// user's secrets.
+impl std::fmt::Debug for AgentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentKind")
+            .field("name", &self.name)
+            .field("program", &self.program)
+            .field("args", &self.args)
+            .field("env", &self.env.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
 
 /// An agent the daemon knows how to start, when its CLI is installed.
@@ -210,6 +225,10 @@ pub struct Agents {
     images: Arc<Images>,
     /// The models each agent offers, found lately.
     models: ModelCache,
+    /// The user's settings for each agent, applied when one starts.
+    settings: harnesses::Settings,
+    /// The newest versions of the agents, found lately.
+    latest: harnesses::Latest,
 }
 
 impl Agents {
@@ -221,14 +240,31 @@ impl Agents {
             stores: Stores::locate(),
             images: Arc::default(),
             models: ModelCache::default(),
+            settings: harnesses::Settings::default(),
+            latest: harnesses::Latest::default(),
         }
+    }
+
+    /// Takes the user's settings for the agents in place of the ones
+    /// before; sessions start with them from now on.
+    pub fn set_settings(&self, settings: AgentSettings) {
+        self.settings.set(settings);
     }
 
     /// The models the agent `name` can run on here; `None` when this node
     /// has no such agent.
     async fn models(&self, name: &str) -> Option<ModelList> {
-        let kind = self.kinds.iter().find(|kind| kind.name == name)?.clone();
+        let kind = self.kinds.iter().find(|kind| kind.name == name)?;
+        let kind = self
+            .settings
+            .configured(kind)
+            .unwrap_or_else(|_| kind.clone());
         Some(self.models.get(name, models::find(kind)).await)
+    }
+
+    /// What this node finds of each agent harness it knows.
+    async fn harnesses(&self, refresh: bool) -> HarnessReport {
+        harnesses::report(&self.kinds, &self.settings, &self.latest, refresh).await
     }
 
     /// The Claude Code sessions started outside Beep.
@@ -482,6 +518,7 @@ impl Agents {
     }
 
     fn start(&self, kind: &AgentKind, cwd: Option<&str>, begin: Begin) -> Result<Arc<Session>> {
+        let kind = &self.settings.configured(kind)?;
         let cwd = folder(cwd)?;
         let mut sessions = self.lock();
         // Checked under the lock: two takeovers of one session must not
@@ -891,6 +928,19 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 message: format!("this node has no agent {agent}"),
             },
         },
+        SessionsRequest::Harnesses { refresh } => SessionsReply::Harnesses {
+            report: agents.harnesses(refresh).await,
+        },
+        SessionsRequest::UpdateHarness { agent } => {
+            match harnesses::update(&agents.kinds, &agents.latest, &agent).await {
+                Ok(()) => SessionsReply::Harnesses {
+                    report: agents.harnesses(false).await,
+                },
+                Err(e) => SessionsReply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
         other => SessionsReply::Error {
             message: format!("this node does not serve {other:?}"),
         },

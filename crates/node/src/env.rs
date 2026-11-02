@@ -153,7 +153,7 @@ async fn login(
 
 /// `loggedIn` in `claude auth status`, which prints JSON; `None` for any
 /// other output.
-fn claude_logged_in(status: &str) -> Option<bool> {
+pub(crate) fn claude_logged_in(status: &str) -> Option<bool> {
     let status: serde_json::Value = serde_json::from_str(status).ok()?;
     status.get("loggedIn")?.as_bool()
 }
@@ -161,7 +161,7 @@ fn claude_logged_in(status: &str) -> Option<bool> {
 /// Whether `opencode auth list` counts a stored credential: it always
 /// succeeds, and ends its credentials box with "<n> credentials", so no
 /// count reads as signed out.
-fn opencode_logged_in(list: &str) -> Option<bool> {
+pub(crate) fn opencode_logged_in(list: &str) -> Option<bool> {
     let count = list.lines().find_map(|line| {
         let mut words = line.split_whitespace().rev();
         words.next()?.starts_with("credential").then_some(())?;

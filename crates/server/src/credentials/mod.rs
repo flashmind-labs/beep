@@ -7,7 +7,7 @@ mod net;
 mod seal;
 
 pub use check::{Checked, Checker, MAX_ORGS, host_client};
-pub use seal::{CredentialKey, Owner};
+pub use seal::{CredentialKey, HarnessOwner, Owner};
 
 use crate::protocol::{
     AgentAccount, ApiProvider, CredentialKind, GITHUB_ENV_VAR, SecretText,
