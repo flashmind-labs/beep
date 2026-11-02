@@ -6,12 +6,13 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
+    projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AgentEntry, AgentHost, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentSession,
-    ListAgentHosts, ListAgentSessions, MachineSession, ResumeAgentSession, StartAgentSession,
-    SteerAgentSession, Upload, check_agent_images,
+    ListAgentHosts, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
+    ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -245,6 +246,48 @@ pub async fn agent_start(
         session: started.session.into(),
         why: started.why,
     })
+}
+
+/// The machine Auto would pick, as the start form shows it.
+#[derive(Debug, Serialize)]
+pub struct PickView {
+    machine_id: String,
+    machine_name: String,
+    why: String,
+}
+
+impl From<MachinePick> for PickView {
+    fn from(pick: MachinePick) -> Self {
+        Self {
+            machine_id: pick.machine_id,
+            machine_name: pick.machine_name,
+            why: pick.why,
+        }
+    }
+}
+
+/// Where Auto would start the form's session now; `None` from a server
+/// too old to say. A start no machine fits is an error saying why.
+#[tauri::command]
+pub async fn agent_preview(
+    beep: Service<'_>,
+    agent: Option<String>,
+    cwd: Option<String>,
+    prompt: String,
+) -> Result<Option<PickView>> {
+    let asked = beep
+        .call(PreviewAgentMachine {
+            agent,
+            cwd,
+            prompt,
+            needs: Vec::new(),
+        })
+        .await;
+    match asked {
+        Ok(pick) => Ok(Some(pick.into())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Resumes a session that ran outside Beep, as a project lists it; it then

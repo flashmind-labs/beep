@@ -875,6 +875,22 @@ requests! {
     /// terminal. `NotFound` when the caller has no such terminal;
     /// `BadRequest` when its machine is online and refuses to stop it.
     204 CloseTerminal { id: Uuid } => Call<()>
+    /// The machine `StartAgentSession` without a `machine_id` would start
+    /// these fields on now, and why, without starting anything: what the
+    /// start form shows under Auto. `BadRequest` saying why when no machine
+    /// fits, as the start would.
+    219 PreviewAgentMachine { agent: Option<String>, cwd: Option<String>, prompt: String, needs: Vec<MachineCapability> } => Call<MachinePick>
+}
+
+/// The machine Auto would start a coding agent on, as
+/// `PreviewAgentMachine` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachinePick {
+    pub machine_id: String,
+    pub machine_name: String,
+    /// Why, such as "It has Xcode and runs the fewest sessions."
+    pub why: String,
 }
 
 /// A command kept running on one of the user's machines for a project.

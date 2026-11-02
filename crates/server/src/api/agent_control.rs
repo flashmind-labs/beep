@@ -221,6 +221,35 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
     })
 }
 
+/// Where Auto would start `preview` now, without starting it.
+pub(super) async fn preview_agent_machine(
+    cx: Cx,
+    preview: PreviewAgentMachine,
+) -> Reply<MachinePick> {
+    let PreviewAgentMachine {
+        agent,
+        cwd,
+        prompt,
+        needs,
+    } = preview;
+    let prompt = prompt.trim().to_owned();
+    let start = StartAgentSession {
+        machine_id: None,
+        agent,
+        cwd,
+        prompt: prompt.clone(),
+        needs,
+        chat: None,
+    };
+    let hosts = live_hosts(&cx).await?;
+    let (live, why) = auto(hosts, &start, &prompt).await?;
+    Ok(MachinePick {
+        machine_id: live.host.machine_id,
+        machine_name: live.host.machine_name,
+        why,
+    })
+}
+
 /// The machine Auto picks for `start`, and why.
 async fn auto(
     hosts: Vec<Live>,

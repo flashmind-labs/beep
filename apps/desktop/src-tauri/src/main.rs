@@ -128,6 +128,7 @@ fn main() {
             agents::agent_hosts,
             agents::agent_sessions,
             agents::agent_start,
+            agents::agent_preview,
             agents::agent_view,
             agents::agent_steer,
             center::open_center,
