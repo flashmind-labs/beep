@@ -62,6 +62,8 @@ pub struct StartOn {
     pub model: Option<String>,
     /// One of `agent::efforts` for the agent.
     pub effort: Option<agent::Effort>,
+    /// The branch or worktree to make first, for a node that makes them.
+    pub checkout: Option<agent::CheckoutPlan>,
 }
 
 /// How long a node has to list an agent's models: it may start the agent
@@ -264,7 +266,7 @@ impl Online {
     }
 
     /// Starts a session of `agent` in `cwd` on `prompt` and follows it, on
-    /// the model and thinking `on` names.
+    /// the model, thinking and checkout `on` names.
     pub async fn start_agent(
         &self,
         agent: &str,
@@ -272,12 +274,17 @@ impl Online {
         prompt: String,
         on: StartOn,
     ) -> Result<Arc<AgentLink>> {
-        let StartOn { model, effort } = on;
+        let StartOn {
+            model,
+            effort,
+            checkout,
+        } = on;
         let start = Request::Start {
             cwd,
             prompt,
             model,
             effort,
+            checkout,
         };
         self.open_agent(agent, start).await
     }

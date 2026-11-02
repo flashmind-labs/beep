@@ -17,21 +17,21 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online, StartOn},
     protocol::{
-        AgentEffort, AgentEntryKind, AgentImageData, AgentModel, AgentModelPick, AgentModels,
-        AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError, CreateNodeToken,
-        DeviceKind, GetAgentImage, GetAgentSession, GetNodeToken, ListAgentHosts, ListAgentImages,
-        ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
-        ListMemoryScopes, ListProjectSessions, MachineCapability, MemoryScope, MemorySource,
-        PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken, StartAgentSession,
-        SteerAgentSession, Upload, image_key,
+        AgentCheckoutPlan, AgentEffort, AgentEntryKind, AgentImageData, AgentModel, AgentModelPick,
+        AgentModels, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
+        CreateNodeToken, DeviceKind, GetAgentImage, GetAgentSession, GetNodeToken, ListAgentHosts,
+        ListAgentImages, ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, ListProjectSessions, MachineCapability, MemoryScope,
+        MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken,
+        StartAgentSession, SteerAgentSession, Upload, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
             agent::{
-                AnswerOption, Effort, Entry, EntryKind, Event, ExternalSession, ModelList,
-                ModelOption, ModelPick, OptionKind, PlanEntry, PlanStatus, Presence, Question,
-                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
-                Status, StopReason,
+                AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event, ExternalSession,
+                ModelList, ModelOption, ModelPick, OptionKind, PlanEntry, PlanStatus, Presence,
+                Question, Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest,
+                State, Status, StopReason,
             },
         },
         setup::SetupToken,
@@ -1715,6 +1715,7 @@ fn start(machine_id: Option<String>, prompt: &str) -> StartAgentSession {
         chat: None,
         model: None,
         effort: None,
+        checkout: None,
     }
 }
 
@@ -1752,6 +1753,7 @@ async fn start_agent_session_on_a_named_machine() {
             prompt: "Fix the tests".into(),
             model: None,
             effort: None,
+            checkout: None,
         }
     );
     let refused = client.call(&start(Some(build), "   ")).await.unwrap_err();
@@ -2544,6 +2546,7 @@ async fn agent_models_come_from_the_node_and_reach_the_start() {
             prompt: "Fix the tests".into(),
             model: Some("deep".into()),
             effort: None,
+            checkout: None,
         }
     );
     let refused = client.call(&on_model("deep\nrm")).await.unwrap_err();
@@ -2568,6 +2571,7 @@ async fn agent_models_come_from_the_node_and_reach_the_start() {
             prompt: "Fix the tests".into(),
             model: None,
             effort: Some(Effort::Xhigh),
+            checkout: None,
         }
     );
     let refused = client
@@ -2575,5 +2579,33 @@ async fn agent_models_come_from_the_node_and_reach_the_start() {
         .await
         .unwrap_err();
     assert!(bad_request(refused), "Claude Code has no minimal level");
+
+    // A checkout plan goes to a node that makes them; a base that is not
+    // a ref name is refused first.
+    let in_worktree = |base: &str| StartAgentSession {
+        checkout: Some(AgentCheckoutPlan::NewWorktree {
+            base: Some(base.into()),
+        }),
+        ..start(Some(build.clone()), "Fix the tests")
+    };
+    client.call(&in_worktree("main")).await.unwrap();
+    let order = timeout(Duration::from_secs(5), received.recv())
+        .await
+        .expect("the node got the start")
+        .expect("the fake still runs");
+    assert_eq!(
+        order,
+        Request::Start {
+            cwd: Some("/srv/project".into()),
+            prompt: "Fix the tests".into(),
+            model: None,
+            effort: None,
+            checkout: Some(CheckoutPlan::NewWorktree {
+                base: Some("main".into()),
+            }),
+        }
+    );
+    let refused = client.call(&in_worktree("a b")).await.unwrap_err();
+    assert!(bad_request(refused));
     center.shutdown().await;
 }

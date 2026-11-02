@@ -17,7 +17,7 @@
 //! server closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 
-use crate::{AgentEffort, Upload};
+use crate::{AgentCheckoutPlan, AgentEffort, Upload};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -49,8 +49,11 @@ pub fn agent_of(protocol: &str) -> Option<&str> {
 pub enum Request {
     /// The first message: starts a session in `cwd` (the home folder when
     /// `None`) on `prompt`, on `model` when given (an id from
-    /// `SessionsRequest::Models`) and thinking at `effort` when given. A
-    /// node from before either ignores it.
+    /// `SessionsRequest::Models`) and thinking at `effort` when given.
+    /// With `checkout`, it first makes the branch or worktree it names in
+    /// `cwd`'s git checkout and starts there. A node from before any of
+    /// these ignores it; one that makes checkouts says so with
+    /// `NodeHello::checkouts`.
     Start {
         cwd: Option<String>,
         prompt: String,
@@ -58,6 +61,8 @@ pub enum Request {
         model: Option<String>,
         #[serde(default)]
         effort: Option<Effort>,
+        #[serde(default)]
+        checkout: Option<CheckoutPlan>,
     },
     /// The first message: follows a session that already runs.
     Attach { session: String },
@@ -502,6 +507,102 @@ pub fn efforts(agent: &str) -> &'static [Effort] {
     }
 }
 
+/// A new branch a session starts on, made from `base` (a branch, tag or
+/// commit; the checkout's `HEAD` when `None`). Its name comes from the
+/// prompt, as `prompt_branch` makes it, with `-2`, `-3` added while that
+/// is taken.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CheckoutPlan {
+    /// Switches the checkout itself to the branch; refused when it has
+    /// uncommitted changes.
+    NewBranch { base: Option<String> },
+    /// Adds a worktree on the branch in the checkout, where
+    /// `worktree_path` puts it, and starts there.
+    NewWorktree { base: Option<String> },
+}
+
+impl CheckoutPlan {
+    /// The ref the branch is made from, when one is named.
+    pub fn base(&self) -> Option<&str> {
+        match self {
+            Self::NewBranch { base } | Self::NewWorktree { base } => base.as_deref(),
+        }
+    }
+}
+
+impl From<AgentCheckoutPlan> for CheckoutPlan {
+    fn from(plan: AgentCheckoutPlan) -> Self {
+        match plan {
+            AgentCheckoutPlan::NewBranch { base } => Self::NewBranch { base },
+            AgentCheckoutPlan::NewWorktree { base } => Self::NewWorktree { base },
+        }
+    }
+}
+
+impl From<CheckoutPlan> for AgentCheckoutPlan {
+    fn from(plan: CheckoutPlan) -> Self {
+        match plan {
+            CheckoutPlan::NewBranch { base } => Self::NewBranch { base },
+            CheckoutPlan::NewWorktree { base } => Self::NewWorktree { base },
+        }
+    }
+}
+
+/// The longest base ref a checkout plan may name.
+pub const MAX_REF: usize = 200;
+
+/// Whether `base` may name the ref a new branch starts from: short, not an
+/// option, and nothing git refuses in a ref anywhere (spaces, control
+/// characters, `..`, `:`). `~` and `^` stay, for `HEAD~2`.
+pub fn valid_ref(base: &str) -> bool {
+    !base.is_empty()
+        && base.len() <= MAX_REF
+        && !base.starts_with('-')
+        && !base.contains("..")
+        && !base.contains("@{")
+        && !base.chars().any(|c| {
+            c.is_control() || c.is_whitespace() || matches!(c, ':' | '?' | '*' | '[' | '\\')
+        })
+}
+
+/// The longest slug `slug` makes.
+pub const MAX_SLUG: usize = 40;
+
+/// A short name for `text`, for a branch or folder: its ASCII letters and
+/// digits in lowercase, each run of anything else as one `-`, at most
+/// `MAX_SLUG` long, with no `-` at either end. Empty when `text` has no
+/// letter or digit. Project tasks name their branches the same way.
+pub fn slug(text: &str) -> String {
+    let mut slug = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    // Only ASCII is pushed, so any byte index is a char boundary.
+    slug.truncate(MAX_SLUG);
+    slug.trim_matches('-').to_owned()
+}
+
+/// The branch a session started on `prompt` gets: `beep/<slug>`, or
+/// `beep/agent` for a prompt without a letter or digit.
+pub fn prompt_branch(prompt: &str) -> String {
+    let slug = slug(prompt);
+    let slug = if slug.is_empty() { "agent" } else { &slug };
+    format!("beep/{slug}")
+}
+
+/// Where `branch`'s worktree goes in its checkout: `.worktrees/` and the
+/// name with each `/` as `-`, as the desktop's `worktreeName` and the
+/// Branches tile name it.
+pub fn worktree_path(branch: &str) -> String {
+    format!(".worktrees/{}", branch.replace('/', "-"))
+}
+
 /// Whether `model` may name a model to start an agent on: short, and no
 /// control characters, since it may go on the agent's command line.
 pub fn valid_model(model: &str) -> bool {
@@ -815,6 +916,9 @@ mod tests {
             prompt: "go".into(),
             model: Some("openai:gpt-test".into()),
             effort: Some(Effort::Xhigh),
+            checkout: Some(CheckoutPlan::NewWorktree {
+                base: Some("main".into()),
+            }),
         };
         let body = rmp_serde::to_vec_named(&start).unwrap();
         assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);
@@ -831,6 +935,7 @@ mod tests {
             prompt: "go".into(),
             model: Some("m".into()),
             effort: Some(Effort::High),
+            checkout: Some(CheckoutPlan::NewBranch { base: None }),
         };
         let body = rmp_serde::to_vec_named(&newer).unwrap();
         assert_eq!(
@@ -852,8 +957,63 @@ mod tests {
                 prompt: "go".into(),
                 model: None,
                 effort: None,
+                checkout: None,
             }
         );
+    }
+
+    #[test]
+    fn checkout_plans_cross_both_wires() {
+        let plans = [
+            CheckoutPlan::NewBranch { base: None },
+            CheckoutPlan::NewWorktree {
+                base: Some("origin/main".into()),
+            },
+        ];
+        for plan in plans {
+            assert_eq!(
+                CheckoutPlan::from(AgentCheckoutPlan::from(plan.clone())),
+                plan
+            );
+            let body = rmp_serde::to_vec_named(&plan).unwrap();
+            assert_eq!(rmp_serde::from_slice::<CheckoutPlan>(&body).unwrap(), plan);
+        }
+    }
+
+    #[test]
+    fn a_prompt_names_its_branch_and_worktree() {
+        assert_eq!(slug("Fix the Android build!"), "fix-the-android-build");
+        assert_eq!(slug("  Ünïcode -- and   spaces  "), "n-code-and-spaces");
+        assert_eq!(slug("!!!"), "");
+        let long = slug(&format!("{} {}", "a".repeat(39), "b".repeat(20)));
+        assert_eq!(long, "a".repeat(39), "cut at 40, then the hyphen goes");
+        assert_eq!(
+            prompt_branch("Add a dark mode\nto settings"),
+            "beep/add-a-dark-mode-to-settings"
+        );
+        assert_eq!(prompt_branch("?"), "beep/agent");
+        assert_eq!(worktree_path("beep/fix-it-2"), ".worktrees/beep-fix-it-2");
+    }
+
+    #[test]
+    fn base_refs_are_plain_names() {
+        for good in ["main", "origin/main", "v1.2.0", "HEAD~2", "a1b2c3d"] {
+            assert!(valid_ref(good), "{good}");
+        }
+        let long = "x".repeat(MAX_REF + 1);
+        for bad in [
+            "",
+            "-x",
+            "--upload-pack=x",
+            "a..b",
+            "a b",
+            "a:b",
+            "a\nb",
+            "@{-1}",
+            &long,
+        ] {
+            assert!(!valid_ref(bad), "{bad:?}");
+        }
     }
 
     #[test]

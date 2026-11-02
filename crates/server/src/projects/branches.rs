@@ -10,7 +10,7 @@ use super::{
 use crate::{
     credentials::github_owner_var,
     nodes::Online,
-    protocol::{ProjectBranch, WorkBranch},
+    protocol::{ProjectBranch, WorkBranch, node::agent},
 };
 use anyhow::{Result, bail};
 use serde::Deserialize;
@@ -49,7 +49,7 @@ pub(crate) fn branch_name(text: &str) -> Option<&str> {
 /// Where a branch's worktree goes in its checkout: `.worktrees/` and the
 /// name with each `/` as `-`.
 pub(crate) fn worktree_path(branch: &str) -> String {
-    format!(".worktrees/{}", branch.replace('/', "-"))
+    agent::worktree_path(branch)
 }
 
 /// Gives `branch` a worktree at [`worktree_path`] in the checkout

@@ -121,10 +121,17 @@ export interface AgentForm {
   effort?: string | null;
   /// The project the form was opened from, for its heading.
   project?: string | null;
-  /// In a checkout: Auto, the checkout, a new worktree or an existing one.
+  /// In a checkout: Auto, the checkout, a new branch, a new worktree or an
+  /// existing one.
   checkout?: CheckoutPick;
-  /// The open popover: the harness picker, or the Machine or Folder menu.
-  open?: "pick" | "host" | "folder" | null;
+  /// The ref a new branch or worktree starts from; null for the project's
+  /// default branch (the checkout's HEAD outside a project).
+  base?: string | null;
+  /// Whether the Base button is a field to type a ref in.
+  baseTyping?: boolean;
+  /// The open popover: the harness picker, or the Machine, Folder or Base
+  /// menu.
+  open?: "pick" | "host" | "folder" | "base" | null;
   /// What the picker's search holds.
   query?: string;
   /// Whether the Folder button is a field to type a folder in.

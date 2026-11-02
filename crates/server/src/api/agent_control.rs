@@ -195,6 +195,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
     };
     let agent = live.agent(start.agent.as_deref())?;
     let effort = picked_effort(&agent, start.effort)?;
+    let checkout = picked_checkout(&live.online, start.checkout)?;
     let cwd = start
         .cwd
         .map(|cwd| cwd.trim().to_owned())
@@ -202,7 +203,16 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
         .or_else(|| live.online.workspace.clone());
     let link = live
         .online
-        .start_agent(&agent, cwd, prompt, StartOn { model, effort })
+        .start_agent(
+            &agent,
+            cwd,
+            prompt,
+            StartOn {
+                model,
+                effort,
+                checkout,
+            },
+        )
         .await
         .map_err(|e| {
             ApiError::bad_request(format!("Could not start {}: {e:#}", agent_name(&agent)))
@@ -246,6 +256,7 @@ pub(super) async fn preview_agent_machine(
         chat: None,
         model: None,
         effort: None,
+        checkout: None,
     };
     let hosts = live_hosts(&cx).await?;
     let (live, why) = auto(hosts, &start, &prompt).await?;
@@ -689,6 +700,41 @@ fn picked_effort(
     Ok(Some(effort))
 }
 
+/// The branch or worktree a start asks `node` to make first: refused when
+/// its base cannot name a ref, or the node is too old to make it (it would
+/// start in the checkout as it is).
+fn picked_checkout(
+    node: &Online,
+    checkout: Option<AgentCheckoutPlan>,
+) -> Result<Option<agent::CheckoutPlan>, ApiError> {
+    checkout_for(node.checkouts, &node.name, checkout)
+}
+
+/// `picked_checkout` for a node named `name` that makes checkouts when
+/// `checkouts` is set.
+fn checkout_for(
+    checkouts: bool,
+    name: &str,
+    checkout: Option<AgentCheckoutPlan>,
+) -> Result<Option<agent::CheckoutPlan>, ApiError> {
+    let Some(plan) = checkout.map(agent::CheckoutPlan::from) else {
+        return Ok(None);
+    };
+    if let Some(base) = plan.base()
+        && !agent::valid_ref(base)
+    {
+        return Err(ApiError::bad_request(format!(
+            "{base:?} is not a branch or commit name."
+        )));
+    }
+    if !checkouts {
+        return Err(ApiError::bad_request(format!(
+            "beep-node on {name} is too old to make a branch or worktree. Update it, or start in the checkout as it is."
+        )));
+    }
+    Ok(Some(plan))
+}
+
 /// Whether `key` is what `image_key` makes: 16 lowercase hex digits.
 fn is_image_key(key: &str) -> bool {
     key.len() == 16 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -717,6 +763,32 @@ fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_checkout_plan_needs_a_plain_base_and_a_node_that_makes_it() {
+        let worktree = |base: Option<&str>| {
+            Some(AgentCheckoutPlan::NewWorktree {
+                base: base.map(str::to_owned),
+            })
+        };
+        assert_eq!(checkout_for(false, "old-box", None).unwrap(), None);
+        assert_eq!(
+            checkout_for(true, "box", worktree(Some("main"))).unwrap(),
+            Some(agent::CheckoutPlan::NewWorktree {
+                base: Some("main".into())
+            })
+        );
+        let ApiError::BadRequest { message } =
+            checkout_for(false, "old-box", worktree(None)).unwrap_err()
+        else {
+            panic!("a bad request");
+        };
+        assert!(message.contains("old-box is too old"), "{message}");
+        assert!(matches!(
+            checkout_for(true, "box", worktree(Some("--orphan"))),
+            Err(ApiError::BadRequest { .. })
+        ));
+    }
 
     fn png(name: &str, size: usize) -> Upload {
         let mut data = b"\x89PNG\r\n\x1a\n".to_vec();

@@ -1,6 +1,6 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
 import { type AgentModels, MODELS_KEPT_MS, modelMachine } from "./agentmodels.ts";
-import { type CheckoutPick, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, harnessFor, keepEffort, knownWorktrees, machineRows, modelLabel, modelRows, pillDetail, railOf } from "./agentpick.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, modelLabel, modelRows, pillDetail, railOf, startPlace } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "./core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../projects-state.ts";
@@ -34,13 +34,27 @@ interface AgentPick {
 /// until read.
 let KNOWN: Machine[] | null = null;
 
+/// Each project's branches for the Base menu, by project: `undefined`
+/// while asked, `null` when the server cannot list them.
+const BRANCHES = new Map<string, BaseBranches | null | undefined>();
+
+/// Reads `project`'s branches once per form, then redraws.
+function loadBranches(project: string) {
+  BRANCHES.set(project, undefined);
+  invoke<BaseBranches | null>("project_branches", { project })
+    .catch(() => null)
+    .then(list => { BRANCHES.set(project, list); if (S.view === "agentnew" && AG.form.project === project) drawParts(); });
+}
+
+const formBranches = () => AG.form.project ? BRANCHES.get(AG.form.project) : null;
+
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
 export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: AgentPlace | null = null) {
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", effort: null, open: null, query: "", typing: false };
+  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   AG.error = "";
   AG.busy = false;
   drawFrame();
@@ -48,6 +62,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   loadAgentHosts();
   invoke<AgentSession[]>("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
   invoke<Machine[]>("list_machines").then(list => { KNOWN = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  if (at?.project) loadBranches(at.project);
 }
 
 export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
@@ -62,6 +77,7 @@ const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" strok
 const UP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 const HOST = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>';
 const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>';
+const BRANCH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>';
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
 
 /// A harness's badge, the window's `cc-ag` tile.
@@ -128,7 +144,7 @@ function drawParts() {
   $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
       <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
       <div><button class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
-  if (focused === "agq" || focused === "agcwd") {
+  if (focused === "agq" || focused === "agcwd" || focused === "agbase") {
     const field = $<HTMLInputElement>(`#${focused}`);
     field?.focus();
     field?.setSelectionRange(field.value.length, field.value.length);
@@ -209,8 +225,43 @@ function drawUnder() {
   const folder = f.typing
     ? `<span class="agc-type"><input id="agcwd" spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="${esc(f.cwd)}"><span id="agcwdmenu"></span></span>`
     : `<button class="agc-pill" id="agfoldb" aria-expanded="${f.open === "folder"}">${FOLDER}${folderText}${sub}${CARET}</button>`;
-  el.innerHTML = `<button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Auto")}${CARET}</button><span class="bar"></span>${folder}${hostMenu()}${folderMenu(checkout, busy)}`;
+  const base = checkout && makesBranch(f.checkout ?? "auto", busy) ? `<span class="bar"></span>${baseButton()}` : "";
+  el.innerHTML = `<button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Auto")}${CARET}</button><span class="bar"></span>${folder}${base}${hostMenu()}${folderMenu(checkout, busy)}${baseMenu()}`;
   if (f.typing) bindFolderField();
+  if (f.baseTyping) bindBaseField();
+}
+
+/// The Base button, which the new branch starts from: the ref picked, else
+/// the project's default branch, else the checkout's HEAD. A field when a
+/// ref is being typed.
+function baseButton() {
+  const f = AG.form, base = baseFor(f.base, formBranches());
+  if (f.baseTyping) {
+    return `<span class="agc-type base"><input id="agbase" spellcheck="false" autocomplete="off" aria-label="Base branch" placeholder="${esc(base || "HEAD")}" value="${esc(f.base ?? "")}"></span>`;
+  }
+  return `<button class="agc-pill" id="agbaseb" aria-expanded="${f.open === "base"}" title="The branch the new one starts from">${BRANCH}<small>from</small> <span class="mono">${esc(base || "HEAD")}</span>${CARET}</button>`;
+}
+
+/// The Base menu: the project's branches, the default first, and a row to
+/// type any branch, tag or commit.
+function baseMenu() {
+  const f = AG.form;
+  if (f.open !== "base") return "";
+  const list = formBranches(), picked = baseFor(f.base, list);
+  const rows = baseRows(list).map(name => `<button data-agb="${esc(name)}" class="${picked === name ? "on" : ""}"><span></span><span class="mono">${esc(name)}</span><small>${name === list?.default_branch ? "default" : ""}</small></button>`);
+  const note = list === undefined ? ['<button disabled><span></span><span><span class="dspin"></span> Reading branches…</span><small></small></button>'] : [];
+  return `<div class="agc-menu base" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), `<button data-agbtype="1"><span></span>Type a branch or commit…<small></small></button>`].join("")}</div>`;
+}
+
+/// The base field: Enter or a click elsewhere keeps what is typed; empty
+/// goes back to the default.
+function bindBaseField() {
+  const f = AG.form, input = $$<HTMLInputElement>("#agbase");
+  input.addEventListener("input", () => { f.base = input.value.trim() || null; });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); f.baseTyping = false; drawParts(); }
+  });
+  input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input && AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } }, 150));
 }
 
 function hostMenu() {
@@ -243,8 +294,9 @@ function folderMenu(checkout: boolean, busy: boolean) {
     ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(p)}</span><small>checkout</small></button>`),
     ...(checkout ? ["<hr>",
       `<button data-agk="auto" class="${same("auto") ? "on" : ""}"><span></span>Auto<small>${esc(resolved)}</small></button>`,
-      `<button data-agk="current" class="${same("current") ? "on" : ""}"><span></span>Current checkout<small></small></button>`,
-      `<button data-agk="new" class="${same("new") ? "on" : ""}"><span></span>New worktree<small>branch from the prompt</small></button>`,
+      `<button data-agk="current" class="${same("current") ? "on" : ""}"><span></span>Current checkout<small>as it is</small></button>`,
+      `<button data-agk="branch" class="${same("branch") ? "on" : ""}"><span></span>New branch<small>in the checkout, named from the prompt</small></button>`,
+      `<button data-agk="new" class="${same("new") ? "on" : ""}"><span></span>New worktree<small>new branch in .worktrees/</small></button>`,
       ...trees.map(t => `<button data-agw="${esc(t)}" class="${same({ worktree: t }) ? "on" : ""}"><span></span><span class="mono">${esc(t.split("/").slice(-2).join("/"))}</span><small>worktree</small></button>`)] : []),
     ...(places.length || checkout ? ["<hr>"] : []),
     `<button data-agf="" class="${f.cwd.trim() ? "" : "on"}"><span></span>Workspace<small>${esc(host?.workspace || host?.home || "home folder")}</small></button>`,
@@ -271,6 +323,15 @@ function onClick(e: MouseEvent) {
   if (at("#agpillb")) return togglePicker();
   if (at("#aghostb")) { f.open = f.open === "host" ? null : "host"; return drawParts(); }
   if (at("#agfoldb")) { f.open = f.open === "folder" ? null : "folder"; return drawParts(); }
+  if (at("#agbaseb")) {
+    // Without the project's branches, the ref is typed.
+    if (formBranches() === null) return typeBase();
+    f.open = f.open === "base" ? null : "base";
+    return drawParts();
+  }
+  const base = at("[data-agb]");
+  if (base) { f.base = base.dataset.agb!; f.open = null; return drawParts(); }
+  if (at("[data-agbtype]")) return typeBase();
   const harness = at("[data-agh]");
   if (harness) { f.agent = harness.dataset.agh!; f.query = ""; drawParts(); return $("#agq")?.focus(); }
   const model = at("[data-agmo]");
@@ -304,6 +365,17 @@ function onClick(e: MouseEvent) {
   if (f.open && !at(".agc-pick, .agc-menu")) { f.open = null; drawParts(); }
 }
 
+/// Turns the Base button into a field to type a ref in.
+function typeBase() {
+  const f = AG.form;
+  f.baseTyping = true;
+  f.open = null;
+  drawParts();
+  const input = $<HTMLInputElement>("#agbase");
+  input?.focus();
+  input?.setSelectionRange(input.value.length, input.value.length);
+}
+
 /// Opens or closes the picker; open, the search takes the keys.
 export function togglePicker() {
   const f = AG.form;
@@ -318,9 +390,10 @@ export function togglePicker() {
 /// Esc goes no further.
 export function closeAgentNewMenus() {
   const f = AG.form;
-  if (S.view !== "agentnew" || (!f.open && !f.typing)) return false;
+  if (S.view !== "agentnew" || (!f.open && !f.typing && !f.baseTyping)) return false;
   f.open = null;
   f.typing = false;
+  f.baseTyping = false;
   drawParts();
   $("#agprompt")?.focus();
   return true;
@@ -504,10 +577,12 @@ export async function startAgent() {
     // A model is for the machine it was listed on, which Auto then keeps.
     const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
     const machine = f.machine === "auto" ? (model ? formModelMachine() : null) : f.machine;
-    // An existing worktree is a folder to start in. A new one is not made
-    // yet: the session starts in the checkout.
-    const pick = f.checkout ?? "auto";
-    const cwd = typeof pick === "object" ? pick.worktree : f.cwd.trim();
+    // In a project's checkout, an existing worktree is a folder to start
+    // in, and the node makes a new branch or worktree before it starts.
+    const busy = folderBusy(AG.sessions, formModelMachine(), f.cwd);
+    const { cwd, checkout } = checkoutHere()
+      ? startPlace(f.checkout ?? "auto", busy, f.cwd.trim(), baseFor(f.base, formBranches()))
+      : { cwd: f.cwd.trim(), checkout: null };
     const started = await invoke<Started>("agent_start", {
       machineId: machine,
       agent: f.agent,
@@ -516,6 +591,7 @@ export async function startAgent() {
       chat: f.chat,
       model,
       effort: f.effort || null,
+      checkout,
     });
     AG.busy = false;
     if (S.view !== "agentnew") return;

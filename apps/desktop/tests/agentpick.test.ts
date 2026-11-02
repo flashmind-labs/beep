@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/bar/agentmodels.ts";
-import { checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, harnessFor, keepEffort, knownWorktrees, machineRows, modelLabel, modelRows, pillDetail, railOf } from "../src/bar/agentpick.ts";
+import { baseFor, baseRows, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, railOf, startPlace } from "../src/bar/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -127,4 +127,38 @@ test("a checkout's worktrees come from where sessions ran, newest first", () => 
   ];
   assert.deepEqual(knownWorktrees(sessions, "m1", `${root}/`), [`${root}/.worktrees/new`, `${root}/.worktrees/old`]);
   assert.deepEqual(knownWorktrees(sessions, null, root), []);
+});
+
+test("New branch and New worktree send a plan; the checkout and a worktree send a folder", () => {
+  const cwd = "/srv/project/widget";
+  assert.equal(checkoutLabel("branch", false), "New branch");
+  assert.equal(makesBranch("branch", false), true);
+  assert.equal(makesBranch("auto", true), true, "Auto on a busy checkout makes a worktree");
+  assert.equal(makesBranch("auto", false), false);
+  assert.equal(makesBranch({ worktree: `${cwd}/.worktrees/fix-it` }, true), false);
+  assert.deepEqual(startPlace("current", true, cwd, "main"), { cwd, checkout: null });
+  assert.deepEqual(startPlace("auto", false, cwd, "main"), { cwd, checkout: null });
+  assert.deepEqual(startPlace("auto", true, cwd, "main"), { cwd, checkout: { new_worktree: { base: "main" } } });
+  assert.deepEqual(startPlace("branch", false, cwd, " "), { cwd, checkout: { new_branch: { base: null } } });
+  assert.deepEqual(startPlace("new", false, cwd, null), { cwd, checkout: { new_worktree: { base: null } } });
+  assert.deepEqual(startPlace({ worktree: `${cwd}/.worktrees/fix-it` }, false, cwd, "main"), { cwd: `${cwd}/.worktrees/fix-it`, checkout: null });
+});
+
+test("the Base menu lists the default branch first, then the newest", () => {
+  const list = {
+    default_branch: "main",
+    branches: [
+      { name: "old", local: true, committed_at: 1 },
+      { name: "main", local: true, committed_at: 2 },
+      { name: "beep/fix-it", local: false, committed_at: 3 },
+    ],
+  };
+  assert.deepEqual(baseRows(list), ["main", "beep/fix-it", "old"]);
+  assert.deepEqual(baseRows(list, "FIX"), ["beep/fix-it"]);
+  assert.deepEqual(baseRows(null), []);
+  const many = { default_branch: "main", branches: Array.from({ length: 50 }, (_, i) => ({ name: `b${i}`, local: true, committed_at: i })) };
+  assert.equal(baseRows(many).length, MAX_BASES);
+  assert.equal(baseFor(null, list), "main", "the default branch");
+  assert.equal(baseFor("old", list), "old");
+  assert.equal(baseFor(" ", null), null, "the checkout's HEAD");
 });
