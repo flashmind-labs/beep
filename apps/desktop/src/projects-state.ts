@@ -131,14 +131,12 @@ function within(cwd: string, folder: string) {
 
 const isAgent = (r: RunningRow): r is RunningAgent => r.kind === "agent";
 
-/// Imported projects and the folders agents run in, one row per project.
-/// An agent counts for an imported project when it runs in its folder on
-/// that machine; any other agent's folder is a project of its own, by its
-/// last folder name. Imported first, by name, then the others by name.
+/// The imported projects, one row each, with the agents running in their
+/// folders counted. Agents anywhere else are not a project: their folders
+/// show under Found on your machines, to import.
 export function mergeProjects(
   imported: readonly Pick<ProjectRow, "name" | "url" | "machine_id" | "machine_name" | "folder">[] | null | undefined,
   running: readonly RunningRow[] | null | undefined,
-  found: readonly Pick<FoundRow, "remote" | "places">[] | null | undefined = [],
 ): Project[] {
   const rows = new Map<string, Project>();
   for (const p of imported || []) {
@@ -147,35 +145,13 @@ export function mergeProjects(
     rows.set(p.name, row);
   }
   for (const r of (running || []).filter(isAgent)) {
-    let row = [...rows.values()].find(p => p.imported && p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
-    if (!row) {
-      const name = foundName(found, r) || base(r.cwd);
-      if (!name) continue;
-      row = rows.get(name);
-      if (!row) {
-        row = { name, url: null, machines: [], agents: 0, last: null, imported: false };
-        rows.set(name, row);
-      }
-      if (!row.machines.some(m => m.id === r.machine_id && m.folder === r.cwd)) {
-        row.machines.push({ id: r.machine_id, name: r.machine_name, folder: r.cwd });
-      }
-    }
+    const row = [...rows.values()].find(p => p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
+    if (!row) continue;
     row.agents += 1;
     const at = r.last_activity || r.started_at || null;
     if (at && (!row.last || at > row.last)) row.last = at;
   }
-  return [...rows.values()].sort((a, b) => (Number(b.imported) - Number(a.imported)) || a.name.localeCompare(b.name));
-}
-
-/// "org/repo" for the checkout a session runs in, from the remote of the
-/// found folder that holds it; null when no found folder does or it has no remote.
-function foundName(found: readonly Pick<FoundRow, "remote" | "places">[] | null | undefined, r: RunningAgent) {
-  for (const row of found || []) {
-    if (!row.remote || !(row.places || []).some(p => p.machine_id === r.machine_id && within(r.cwd, p.folder))) continue;
-    const parts = String(row.remote).trim().replace(/\.git\/?$/, "").split(/[/:]/).filter(Boolean);
-    if (parts.length >= 2) return parts.slice(-2).join("/");
-  }
-  return null;
+  return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /// The rows the page shows: all, or only `name` once one is picked.
