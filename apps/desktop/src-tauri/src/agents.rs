@@ -6,12 +6,13 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
+    markdown,
     projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentEntry, AgentHost, AgentImage, AgentQuestion, AgentSessionView, AgentSteer, ApiError,
-    GetAgentSession, ListAgentHosts, ListAgentImages, ListAgentSessions, MachinePick,
+    AgentEntry, AgentEntryKind, AgentHost, AgentImage, AgentQuestion, AgentSessionView, AgentSteer,
+    ApiError, GetAgentSession, ListAgentHosts, ListAgentImages, ListAgentSessions, MachinePick,
     MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession, SteerAgentSession,
     Upload, check_agent_images,
 };
@@ -97,13 +98,20 @@ struct StepRow {
 struct EntryRow {
     kind: &'static str,
     text: String,
+    /// What the agent said, as the chat shows Beep's replies: its Markdown
+    /// as cleaned HTML. Only on the agent's own entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    html: Option<String>,
 }
 
 impl From<AgentEntry> for EntryRow {
     fn from(entry: AgentEntry) -> Self {
+        let html =
+            matches!(entry.kind, AgentEntryKind::Agent {}).then(|| markdown::to_html(&entry.text));
         Self {
             kind: entry.kind.into(),
             text: entry.text,
+            html,
         }
     }
 }
@@ -423,5 +431,26 @@ mod tests {
         assert!(!older_than_images(&DesktopError::Api(
             ApiError::bad_request("The message is empty.")
         )));
+    }
+
+    #[test]
+    fn what_the_agent_says_comes_as_clean_html() {
+        let said = EntryRow::from(AgentEntry {
+            kind: AgentEntryKind::Agent {},
+            text: "See [sqlx #19](https://example.com/19) and `cargo test`.<script>x()</script>"
+                .into(),
+        });
+        let html = said.html.expect("an agent entry carries its HTML");
+        assert!(
+            html.contains(r#"<a href="https://example.com/19""#),
+            "{html}"
+        );
+        assert!(html.contains("<code>cargo test</code>"), "{html}");
+        assert!(!html.contains("<script"), "{html}");
+        let tool = EntryRow::from(AgentEntry {
+            kind: AgentEntryKind::Tool {},
+            text: "Read file [completed]".into(),
+        });
+        assert_eq!(tool.html, None);
     }
 }

@@ -601,11 +601,30 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcoder .files { display: grid; gap: 1px; padding: 0 12px; font-family: var(--mono); font-size: 12px }
 .dcoder .files span { display: flex; gap: 10px } .dcoder .files b { flex: 1; font-weight: 400; overflow-wrap: anywhere }
 .dcoder .q { margin: 10px 12px 0; padding: 10px; border-radius: 8px; background: var(--surface); display: grid; gap: 6px; font-size: 13px; line-height: 19px }
-.dcoderlog { display: grid; gap: 8px; font-size: 13.5px; line-height: 20px }
-.dcoderen { white-space: pre-wrap; overflow-wrap: anywhere }
-.dcoderen.user { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--elev) }
+/* The session's log reads in one column, as wide as the chat's. */
+#agbody > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 760px; margin-inline: auto }
+.dcoderlog { display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 21px }
+.dcoderen { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
+.dcoderen.user { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
-.dcoderen.tool { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-left: 10px; border-left: 2px solid var(--border) }
+/* What the agent said, from Markdown: headings stay near the text's size. */
+.dcoderen.agent.md { white-space: normal }
+.dcoderen.agent.md :is(h1, h2) { font-size: 14.5px; margin: 10px 0 4px } .dcoderen.agent.md :is(h3, h4, h5, h6) { font-size: 14px; margin: 8px 0 2px }
+.dcoderen.agent.md > :first-child { margin-top: 0 } .dcoderen.agent.md > :last-child { margin-bottom: 0 }
+.dcoderen.agent.md pre { font-size: 12px; line-height: 18px }
+.dcoderen.agent.md img { max-width: 100%; height: auto }
+/* A tool call: its mark, its title in mono, then its output folded to a few lines. */
+.dcoderen.tool { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; align-items: start; white-space: normal; font-size: 12px; line-height: 20px; color: var(--muted) }
+.dcoderen.tool + .dcoderen.tool { margin-top: -9px }
+.dcoderen.tool .mk { height: 20px; display: grid; place-items: center }
+.dcoderen.tool .mk .dspin { width: 11px; height: 11px }
+.dbody .dcoderen.tool .tt { font-family: var(--mono); font-size: 12px; color: var(--muted); background: none; border: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dbody .dcoderen.tool.open .tt { white-space: pre-wrap; overflow-wrap: anywhere }
+.dbody .dcoderen.tool .out { grid-column: 2; margin: 3px 0 0; padding: 6px 9px; border-radius: 6px; background: var(--surface); font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere }
+.dbody .dcoderen.tool.open .out { max-height: 420px; overflow: auto }
+.dbody .dcoderen.tool.failed .out { border-color: rgba(232, 104, 90, .35) }
+.dcoderen.tool .more { grid-column: 2; font-size: 11.5px; line-height: 18px; padding-top: 2px; color: var(--dim) }
+.dcoderen.tool[data-at] { cursor: pointer } .dcoderen.tool[data-at]:hover .more { color: var(--fg) }
 .dcoderen.other { font-size: 12.5px; color: var(--muted) }
 #agentGo { flex: none; align-self: center; font-size: 12.5px }
 /* Images waiting to go to a coding agent, and those sent, as in the mock. */
