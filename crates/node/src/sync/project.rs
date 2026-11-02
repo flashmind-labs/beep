@@ -11,8 +11,12 @@
 use super::{
     Parts,
     disk::{self, Found as OnDisk, same},
-    map::{Changes, Entry, FileMeta, Map, Replica, Version, is_conflict, valid_path},
+    map::{
+        Changes, Entry, FileMeta, Map, Order, Replica, Version, is_conflict, original_of,
+        valid_path,
+    },
     peer,
+    progress::{self, Meter},
     root::{self, Checked, RootId},
     rules::{MARKER, Rules},
     scan::{self, Found, MAX_BYTES, MAX_FILES, Stat},
@@ -21,7 +25,7 @@ use super::{
 use crate::transfer::place::{Folder, Partial, Reserved, create_file_at, space_at};
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;
-use beep_proto::node::sync::{ProjectStatus, State as SyncState};
+use beep_proto::node::sync::{Keep, MAX_WAITING, ProjectStatus, State as SyncState};
 use futures::StreamExt as _;
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use iroh_blobs::{
@@ -71,6 +75,8 @@ const SPACE_MARGIN: u64 = 64 << 20;
 const CHUNK: usize = 1 << 20;
 /// How often a changing state is saved; it is saved on stop as well.
 const SAVE_EVERY: Duration = Duration::from_secs(2);
+/// How often progress is published while files are brought in line.
+const SHOW_EVERY: Duration = Duration::from_millis(500);
 
 /// The last change this node has from a peer's replica.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +176,10 @@ pub(super) struct Shared {
     peers: watch::Sender<Vec<EndpointAddr>>,
     /// Wakes the task when a pull merged something.
     merged: Notify,
+    /// Wakes the task to scan when this node changed the folder itself.
+    touched: Notify,
+    /// Paused by the server: no scans, fetches or pulls.
+    paused: watch::Sender<bool>,
     stop: CancellationToken,
 }
 
@@ -219,6 +229,7 @@ pub(super) struct Start {
     pub(super) peers: Vec<EndpointAddr>,
     /// Where its state is kept.
     pub(super) file: PathBuf,
+    pub(super) paused: bool,
 }
 
 impl Shared {
@@ -245,6 +256,8 @@ impl Shared {
             status: watch::Sender::new(status),
             peers: watch::Sender::new(start.peers),
             merged: Notify::new(),
+            touched: Notify::new(),
+            paused: watch::Sender::new(start.paused),
             stop: CancellationToken::new(),
         }))
     }
@@ -353,6 +366,79 @@ impl Shared {
     fn publish(&self, update: impl FnOnce(&mut ProjectStatus)) {
         self.status.send_modify(update);
     }
+
+    pub(super) fn is_paused(&self) -> bool {
+        *self.paused.borrow()
+    }
+
+    /// Pauses the project or resumes it; the task follows.
+    pub(super) fn set_paused(&self, paused: bool) {
+        self.paused.send_if_modified(|now| {
+            let changed = *now != paused;
+            *now = paused;
+            changed
+        });
+    }
+
+    /// Settles the conflict copy at `path`: deletes it, or puts it in
+    /// place of the file it stands beside. The folder changes on this
+    /// machine only; the scan that follows syncs it.
+    pub(super) async fn resolve(&self, path: &str, keep: Keep) -> Result<()> {
+        if self.is_paused() {
+            bail!(
+                "sync of {} is paused; resume it to settle conflicts",
+                self.name
+            );
+        }
+        if !valid_path(path) || !is_conflict(path) {
+            bail!("{path} is not a conflict copy");
+        }
+        let original =
+            original_of(path).with_context(|| format!("{path} is not a conflict copy"))?;
+        let (copy, beside) = {
+            let state = self.lock();
+            let stat = |p: &str| state.saved.seen.get(p).map(|seen| seen.stat);
+            (stat(path), stat(&original))
+        };
+        let copy = copy.with_context(|| format!("{path} is not on this machine yet"))?;
+        let (root, path) = (self.root.clone(), path.to_owned());
+        let settle_it = Settle { copy, beside, keep };
+        spawn_blocking(move || settle(&root, &path, &original, settle_it)).await??;
+        self.touched.notify_one();
+        Ok(())
+    }
+}
+
+/// What the scan last saw of a conflict copy and the file beside it, and
+/// which to keep.
+struct Settle {
+    copy: Stat,
+    beside: Option<Stat>,
+    keep: Keep,
+}
+
+/// Settles conflict copy `path` of `original` on disk, if neither changed
+/// since the last scan; blocks.
+fn settle(root: &Folder, path: &str, original: &str, settle: Settle) -> Result<()> {
+    const CHANGED: &str = "changed on this machine since it was scanned; try again in a moment";
+    match settle.keep {
+        Keep::Original => {
+            if !disk::remove(root, path, &settle.copy)? {
+                bail!("{path} {CHANGED}");
+            }
+        }
+        Keep::Copy => {
+            if let Some(beside) = settle.beside
+                && !disk::remove(root, original, &beside)?
+            {
+                bail!("{original} {CHANGED}");
+            }
+            if disk::rename(root, path, original, &settle.copy)?.is_none() {
+                bail!("{path} {CHANGED}");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One file to bring in line with the list.
@@ -392,6 +478,8 @@ struct Task {
     /// Files the last scan found missing: still seen, and not deleted in
     /// the list until `send_deletes`.
     held: BTreeSet<String>,
+    /// The paths the last round could not bring, tried again later.
+    waiting: Vec<String>,
 }
 
 /// When held deletes are due: once the folder was quiet for
@@ -430,18 +518,47 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
         .await;
     let mut task = Task::new(shared.clone(), parts, watcher.clone(), first_mode);
     let mut peers = shared.peers.subscribe();
+    let mut paused = shared.paused.subscribe();
     let mut pulls = JoinSet::new();
     // Scanned before anything is pulled, so edits made while the node was
-    // down merge as edits.
-    task.scan().await;
-    task.apply().await;
-    task.save(true).await;
-    start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+    // down merge as edits. A paused project does this once resumed.
+    if !*paused.borrow_and_update() {
+        task.scan().await;
+        task.apply().await;
+        task.save(true).await;
+        start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+    }
     let mut settle: Option<Instant> = None;
     let mut deletes = DeleteTimer::default();
     deletes.scanned(!task.held.is_empty(), Instant::now());
     let mut last_scan = Instant::now();
     loop {
+        if *paused.borrow_and_update() {
+            // Nothing moves: the pulls stop, and changes on disk wait for
+            // the scan on resume.
+            pulls = JoinSet::new();
+            settle = None;
+            deletes = DeleteTimer::default();
+            task.publish_status(None);
+            let unsaved = shared.lock().unsaved;
+            tokio::select! {
+                () = shared.stop.cancelled() => break,
+                changed = paused.changed() => if changed.is_err() {
+                    break;
+                },
+                () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
+            }
+            task.save(false).await;
+            if !*paused.borrow() {
+                while woken.try_recv().is_ok() {}
+                task.scan().await;
+                last_scan = Instant::now();
+                task.apply().await;
+                deletes.scanned(!task.held.is_empty(), last_scan);
+                start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+            }
+            continue;
+        }
         let every = match task.mode {
             Mode::Watching => FULL_RESCAN,
             Mode::Rescan { .. } => RESCAN,
@@ -456,6 +573,14 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
                 settle.get_or_insert(now + SETTLE);
                 deletes.changed(now);
             }
+            () = shared.touched.notified() => {
+                let now = Instant::now();
+                settle.get_or_insert(now + SETTLE);
+                deletes.changed(now);
+            }
+            changed = paused.changed() => if changed.is_err() {
+                break;
+            },
             () = sleep_until(settle.unwrap_or_else(Instant::now)), if settle.is_some() => {
                 settle = None;
                 task.scan().await;
@@ -534,6 +659,7 @@ impl Task {
             scan_failed: false,
             saved_at: Instant::now(),
             held: BTreeSet::new(),
+            waiting: Vec::new(),
         }
     }
 
@@ -812,6 +938,7 @@ impl Task {
         };
         if work.is_empty() {
             self.pending = 0;
+            self.waiting.clear();
             self.publish_status(None);
             return;
         }
@@ -819,15 +946,40 @@ impl Task {
         let mut partial = None;
         let mut failed = 0;
         let total = work.len();
-        for item in work {
-            if self.shared.stop.is_cancelled() {
+        let paths: Vec<String> = work.iter().map(|item| item.path.clone()).collect();
+        let bytes = work
+            .iter()
+            .filter_map(|item| item.file.as_ref())
+            .map(|file| file.size)
+            .sum();
+        let mut meter = Meter::new(total as u64, bytes, Instant::now());
+        let mut lost: Vec<String> = Vec::new();
+        self.show(&meter, progress::waiting(&lost, &paths));
+        let mut shown = Instant::now();
+        for (at, item) in work.into_iter().enumerate() {
+            if self.shared.stop.is_cancelled() || self.shared.is_paused() {
                 break;
             }
-            if let Err(e) = self.bring(item, &mut partial).await {
-                failed += 1;
-                self.fail("syncing a file failed", &e);
+            let size = item.file.as_ref().map_or(0, |file| file.size);
+            let path = item.path.clone();
+            match self.bring(item, &mut partial).await {
+                Ok(()) => meter.done(size, Instant::now()),
+                Err(e) => {
+                    failed += 1;
+                    meter.failed(size);
+                    if lost.len() < MAX_WAITING {
+                        lost.push(path);
+                    }
+                    self.fail("syncing a file failed", &e);
+                }
+            }
+            if shown.elapsed() >= SHOW_EVERY {
+                shown = Instant::now();
+                let ahead = paths.get(at + 1..).unwrap_or_default();
+                self.show(&meter, progress::waiting(&lost, ahead));
             }
         }
+        self.waiting = lost;
         if let Some(partial) = partial {
             let finished = spawn_blocking(move || partial.finish()).await;
             if let Ok(Err(e)) | Err(e) = finished.map_err(anyhow::Error::from) {
@@ -1161,6 +1313,17 @@ impl Task {
         }
     }
 
+    /// Publishes how far the round is, and what still waits.
+    fn show(&self, meter: &Meter, waiting: Vec<String>) {
+        let progress = meter.progress();
+        self.shared.publish(move |status| {
+            status.progress = Some(progress);
+            status.waiting = waiting;
+        });
+    }
+
+    /// Publishes how the project stands; progress shows only while a round
+    /// runs, and `show` sets it then.
     fn publish_status(&self, state: Option<SyncState>) {
         let (files, bytes, conflicts) = {
             let locked = self.shared.lock();
@@ -1174,7 +1337,10 @@ impl Task {
                 .collect();
             (locked.saved.seen.len() as u64, bytes, conflicts)
         };
-        let state = state.unwrap_or(if self.scan_failed {
+        let paused = self.shared.is_paused();
+        let state = state.unwrap_or(if paused {
+            SyncState::Paused
+        } else if self.scan_failed {
             SyncState::Failed
         } else if self.pending > 0 {
             SyncState::Syncing
@@ -1186,7 +1352,11 @@ impl Task {
             Mode::Rescan { hint } => (Some(RESCAN.as_secs() as u32), Some((*hint).to_owned())),
         };
         let (pending, error) = (self.pending, self.error.clone());
+        let waiting = self.waiting.clone();
         self.shared.publish(move |status| {
+            status.paused = paused;
+            status.progress = None;
+            status.waiting = waiting;
             status.state = state;
             status.files = files;
             status.bytes = bytes;
@@ -1313,10 +1483,21 @@ fn record(state: &mut State, found: &Found, hash: [u8; 32], prior: Option<Seen>)
     let version = match prior {
         // Touched, not changed.
         Some(prior) if prior.hash == hash => prior.version,
-        Some(prior) => state
-            .saved
-            .map
-            .edit(&found.path, &prior.version, Some(meta)),
+        Some(prior) => {
+            // The list may hold the content seen here under a newer version:
+            // a concurrent edit this content won was merged into it. The
+            // edit builds on that, so it does not lose to it again.
+            let base = match state.saved.map.get(&found.path) {
+                Some(entry)
+                    if entry.file.as_ref().is_some_and(|f| f.hash == prior.hash)
+                        && entry.version.compare(&prior.version) == Order::Newer =>
+                {
+                    entry.version.clone()
+                }
+                _ => prior.version,
+            };
+            state.saved.map.edit(&found.path, &base, Some(meta))
+        }
         None => match state.saved.map.get(&found.path) {
             // The same file arrived some other way; nothing changed.
             Some(entry) if entry.file.as_ref().is_some_and(|f| f.hash == hash) => {
@@ -1462,6 +1643,7 @@ mod tests {
                 root: Arc::new(root),
                 peers: Vec::new(),
                 file: base.join("state"),
+                paused: false,
             })
             .unwrap();
             let watcher = Watcher::with_budget(None, None);
@@ -1501,6 +1683,93 @@ mod tests {
             self.task.parts.store.shutdown().await.ok();
             self.task.parts.endpoint.close().await;
         }
+    }
+
+    const COPY: &str = "docs/notes (conflict 1a2b3c4d).txt";
+
+    #[tokio::test]
+    async fn keeping_the_copy_puts_it_in_place_of_the_file() {
+        let mut project = Project::new(&["docs/notes.txt", COPY]).await;
+        project.task.shared.resolve(COPY, Keep::Copy).await.unwrap();
+        assert_eq!(
+            fs::read_to_string(project.path("docs/notes.txt")).unwrap(),
+            COPY
+        );
+        assert!(!project.path(COPY).exists());
+        // The scan records the new content, and holds the copy's delete.
+        project.task.scan().await;
+        assert_eq!(project.held(), [COPY]);
+        let listed = project
+            .task
+            .shared
+            .lock()
+            .saved
+            .map
+            .get("docs/notes.txt")
+            .and_then(|entry| entry.file.as_ref().map(|file| file.hash));
+        assert_eq!(listed, Some(*Hash::new(COPY).as_bytes()));
+        project.stop().await;
+    }
+
+    #[tokio::test]
+    async fn keeping_the_original_deletes_the_copy() {
+        let mut project = Project::new(&["docs/notes.txt", COPY]).await;
+        project
+            .task
+            .shared
+            .resolve(COPY, Keep::Original)
+            .await
+            .unwrap();
+        assert!(!project.path(COPY).exists());
+        assert_eq!(
+            fs::read_to_string(project.path("docs/notes.txt")).unwrap(),
+            "docs/notes.txt"
+        );
+        project.task.scan().await;
+        assert_eq!(project.held(), [COPY]);
+        project.stop().await;
+    }
+
+    #[tokio::test]
+    async fn only_an_unchanged_conflict_copy_is_settled() {
+        let project = Project::new(&["a.txt", COPY]).await;
+        let shared = &project.task.shared;
+        let error = shared.resolve("a.txt", Keep::Copy).await.unwrap_err();
+        assert!(error.to_string().contains("not a conflict copy"), "{error}");
+        let error = shared.resolve("../x (conflict 1a2b3c4d)", Keep::Copy).await;
+        assert!(error.is_err());
+        // Edited since the scan: left alone.
+        fs::write(project.path(COPY), "edited meanwhile").unwrap();
+        let error = shared.resolve(COPY, Keep::Original).await.unwrap_err();
+        assert!(error.to_string().contains("changed"), "{error}");
+        assert!(project.path(COPY).exists());
+        project.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_paused_project_says_so_and_settles_nothing() {
+        let project = Project::new(&["a.txt", COPY]).await;
+        project.task.shared.set_paused(true);
+        project.task.publish_status(None);
+        let status = project.task.shared.status();
+        assert_eq!(status.state, SyncState::Paused);
+        assert!(status.paused);
+        assert_eq!(status.conflicts, [COPY]);
+        let error = project
+            .task
+            .shared
+            .resolve(COPY, Keep::Copy)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("paused"), "{error}");
+        assert!(project.path(COPY).exists());
+        project.task.shared.set_paused(false);
+        project.task.publish_status(None);
+        let status = project.task.shared.status();
+        assert_eq!(status.state, SyncState::Idle);
+        assert!(!status.paused);
+        assert!(status.progress.is_none());
+        project.stop().await;
     }
 
     #[tokio::test]
@@ -1809,6 +2078,59 @@ mod tests {
         let saved = state.snapshot().expect("changed");
         assert!(saved.map.get("a.txt").is_some());
         assert!(state.snapshot().is_none(), "saved already");
+    }
+
+    #[test]
+    fn an_edit_after_a_won_conflict_builds_on_the_merge() {
+        let stat = |inode| Stat {
+            size: 1,
+            mtime_ns: 0,
+            ctime_ns: 0,
+            inode,
+            device: 1,
+            executable: false,
+        };
+        let mut map = Map::new(1);
+        let mine = map.edit("plan.md", &Version::default(), Some(meta(1)));
+        // Another machine's concurrent edit loses to this one: the list
+        // keeps this content under a version that has seen both.
+        let mut other = Map::new(2);
+        let older = FileMeta {
+            mtime_ms: -1,
+            ..meta(2)
+        };
+        let version = other.edit("plan.md", &Version::default(), Some(older.clone()));
+        map.merge(&Entry {
+            path: "plan.md".into(),
+            version,
+            file: Some(older),
+        });
+        let merged = map.get("plan.md").unwrap().version.clone();
+        assert_eq!(merged.compare(&mine), Order::Newer);
+        let mut state = State::new(Saved {
+            map,
+            ..Saved::default()
+        });
+        let seen = Seen {
+            stat: stat(1),
+            hash: [1; 32],
+            version: mine,
+        };
+        state.set_seen("plan.md", seen);
+        let found = Found {
+            path: "plan.md".into(),
+            abs: PathBuf::from("/srv/project/plan.md"),
+            stat: stat(2),
+        };
+        let prior = state.saved.seen.get("plan.md").cloned();
+        record(&mut state, &found, [3; 32], prior);
+        let entry = state.saved.map.get("plan.md").unwrap();
+        assert_eq!(entry.file.as_ref().map(|f| f.hash), Some([3; 32]));
+        assert_eq!(entry.version.compare(&merged), Order::Newer);
+        assert!(
+            !state.saved.map.entries().any(|e| is_conflict(&e.path) && e.file.as_ref().is_some_and(|f| f.hash == [3; 32])),
+            "the edit is not a conflict"
+        );
     }
 
     #[test]

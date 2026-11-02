@@ -115,6 +115,7 @@ pub async fn serve(
         match Transfers::start(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
             Ok(transfers) => {
                 offers.extra.push(Arc::new(transfers.syncs()));
+                offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.clone()));
                 started = Some(transfers);
             }
