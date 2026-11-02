@@ -764,6 +764,26 @@ requests! {
     /// listed as its folder there, in place. `NotFound` when the caller has
     /// not imported `project`. Admins only.
     172 ListProjectMachines { project: String } => Call<Vec<ProjectMachine>>
+    /// The open issues on `project_id`'s issues host that no task of the
+    /// project tracks and the caller has not dismissed, newest first, at
+    /// most 100. Read with `gh` or `teacli` on the project's home checkout
+    /// (else a machine it was imported on) on each call. A project with no
+    /// GitHub or Forgejo host gives an empty list. `NotFound` when the
+    /// caller has no such project; `BadRequest` with the host's error when
+    /// the machine is offline or the command fails.
+    173 ListProjectIssues { project_id: Uuid } => Call<Vec<ProjectIssue>>
+    /// Makes a task that tracks the open issue `number`, without filing a
+    /// new one. With `start`, a worker starts on it (or it waits for a free
+    /// slot); without, the project agent is asked to plan it in the project
+    /// chat. `NotFound` when the caller has no such project; `Conflict`
+    /// when a task already tracks the issue; `BadRequest` saying why when
+    /// the issue is not open, the project has no issues host, the agent or
+    /// machine is unknown, or the host cannot be read.
+    174 TrackProjectIssue { project_id: Uuid, number: u64, start: Option<IssueStart> } => Call<ProjectTask>
+    /// Hides the issue `number` from `ListProjectIssues` for this project;
+    /// it stays open on the host. `NotFound` when the caller has no such
+    /// project.
+    175 DismissProjectIssue { project_id: Uuid, number: u64 } => Call<()>
     /// A one-time setup token that links a machine to the caller's account:
     /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
     /// It works for ten minutes. `name` is what the machine is called once
@@ -1137,6 +1157,32 @@ pub struct ProjectAgent {
     pub chat_id: Uuid,
     pub open_tasks: u32,
     pub open_workers: u32,
+}
+
+/// An open issue on a project's issues host, as `ListProjectIssues` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectIssue {
+    pub number: u64,
+    pub title: String,
+    /// Its label names.
+    pub labels: Vec<String>,
+    /// The login of who opened it.
+    pub author: String,
+    pub opened_at: SystemTime,
+    pub comments: u32,
+    /// Its web page.
+    pub url: String,
+}
+
+/// How `TrackProjectIssue` starts a worker on the issue.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IssueStart {
+    /// The coding agent: `claude`, `codex`, `gemini`, `pi` or `flsh`.
+    pub agent: String,
+    /// The `Machine::id` to run on; `None` picks one at start.
+    pub node_id: Option<String>,
 }
 
 /// One task of a project.

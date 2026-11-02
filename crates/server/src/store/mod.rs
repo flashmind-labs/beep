@@ -77,8 +77,8 @@ pub use profile::{ProfileNote, ProfileRead};
 pub use project_imports::{ImportRow, NewImport};
 pub use project_sync::SyncRow;
 pub(crate) use projects::{
-    After, CheckoutRow, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused, TaskRow,
-    WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, ProjectRow, StartRefused,
+    TaskRow, TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
@@ -383,6 +383,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         63,
         "github accounts",
         include_str!("../../migrations/0063_github_accounts.sql"),
+    ),
+    (
+        64,
+        "project issues",
+        include_str!("../../migrations/0064_project_issues.sql"),
     ),
 ];
 

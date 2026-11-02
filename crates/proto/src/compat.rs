@@ -88,6 +88,8 @@ sample_struct! {
     ChatApproval { session_id, session_title, pending }
     ProjectAgent { project_id, name, chat_id, open_tasks, open_workers }
     ProjectTask { id, slug, title, body, state, depends_on, issue_number, issue_url, branch, pr_url, created_at, updated_at }
+    ProjectIssue { number, title, labels, author, opened_at, comments, url }
+    IssueStart { agent, node_id }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }
