@@ -3,7 +3,7 @@
 use super::Store;
 use crate::{
     credentials::{CredentialKey, GitHubLogin, Opened, Owner, Slot},
-    protocol::{ApiProvider, CredentialKind},
+    protocol::{AgentAccount, ApiProvider, CredentialKind},
     user::UserKey,
 };
 use anyhow::{Context, Result, bail};
@@ -78,6 +78,18 @@ pub struct NewGitHubAccount<'a> {
 const GITHUB: &str = "github";
 const FORGEJO: &str = "forgejo";
 const API_KEY: &str = "api_key";
+const AGENT_TOKEN: &str = "agent_token";
+
+/// A coding agent's token as Agent accounts shows it: everything but the
+/// secret.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentTokenRow {
+    pub agent: AgentAccount,
+    pub last4: String,
+    pub created_at: DateTime<Utc>,
+    /// Its secret no longer opens; the user has to sign in again.
+    pub unreadable: bool,
+}
 
 /// `kind, provider, host_url` of a slot.
 struct Columns {
@@ -103,6 +115,11 @@ fn columns(slot: &Slot) -> Columns {
             provider: provider.slug(),
             host_url: String::new(),
         },
+        Slot::AgentToken(agent) => Columns {
+            kind: AGENT_TOKEN,
+            provider: agent.slug(),
+            host_url: String::new(),
+        },
     }
 }
 
@@ -116,6 +133,13 @@ fn slot_from(row: &PgRow) -> Result<Slot> {
             Slot::ApiKey(
                 ApiProvider::from_str(&provider)
                     .with_context(|| format!("unknown provider {provider:?}"))?,
+            )
+        }
+        AGENT_TOKEN => {
+            let agent: String = row.try_get("provider")?;
+            Slot::AgentToken(
+                AgentAccount::from_str(&agent)
+                    .with_context(|| format!("unknown agent {agent:?}"))?,
             )
         }
         other => bail!("unknown credential kind {other:?}"),
@@ -361,13 +385,15 @@ impl Store {
     /// tried with `key`, to mark the ones that no longer open. Of the
     /// GitHub accounts only the default is listed, as apps from before
     /// several accounts know one GitHub row (see `github_accounts`).
+    /// Coding agents' tokens are left out: Agent accounts shows them (see
+    /// `agent_tokens`).
     pub(crate) async fn credentials(
         &self,
         user: &UserKey,
         key: &CredentialKey,
     ) -> Result<Vec<CredentialRow>> {
         let rows = sqlx::query(&format!(
-            "SELECT {SHOWN}, secret FROM credentials WHERE user_id=$1
+            "SELECT {SHOWN}, secret FROM credentials WHERE user_id=$1 AND kind <> '{AGENT_TOKEN}'
              ORDER BY kind <> 'github', kind <> 'forgejo', is_default DESC, created_at,
                  host_url, provider"
         ))
@@ -387,6 +413,53 @@ impl Store {
             out.push(credential);
         }
         Ok(out)
+    }
+
+    /// The user's coding agents' tokens, each tried with `key` to mark
+    /// one that no longer opens.
+    pub(crate) async fn agent_tokens(
+        &self,
+        user: &UserKey,
+        key: &CredentialKey,
+    ) -> Result<Vec<AgentTokenRow>> {
+        let rows = sqlx::query(
+            "SELECT id, kind, provider, host_url, last4, created_at, secret FROM credentials
+             WHERE user_id=$1 AND kind=$2 ORDER BY provider",
+        )
+        .bind(user.as_str())
+        .bind(AGENT_TOKEN)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::new();
+        for row in &rows {
+            // One a newer server saved for an agent this one does not know.
+            let Ok(Slot::AgentToken(agent)) = slot_from(row) else {
+                continue;
+            };
+            out.push(AgentTokenRow {
+                agent,
+                last4: row.try_get("last4")?,
+                created_at: row.try_get("created_at")?,
+                unreadable: !opens(row, user, key),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Removes `agent`'s token; `false` when the user has none.
+    pub(crate) async fn remove_agent_token(
+        &self,
+        user: &UserKey,
+        agent: AgentAccount,
+    ) -> Result<bool> {
+        let done =
+            sqlx::query("DELETE FROM credentials WHERE user_id=$1 AND kind=$2 AND provider=$3")
+                .bind(user.as_str())
+                .bind(AGENT_TOKEN)
+                .bind(agent.slug())
+                .execute(&self.pool)
+                .await?;
+        Ok(done.rows_affected() > 0)
     }
 
     /// Removes the user's credential `id`; `false` when they have none.
@@ -831,6 +904,67 @@ mod tests {
         assert!(
             store
                 .machine_credentials(&bob, &key)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_tokens_go_to_machines_but_not_to_the_credentials_list() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let key = CredentialKey::random();
+        let secret = SecretString::from("sk-ant-oat01-plaintextvalue7d1e");
+        let claude = Slot::AgentToken(AgentAccount::Claude);
+        store
+            .save_credential(
+                &alice,
+                &key,
+                NewCredential {
+                    slot: &claude,
+                    secret: &secret,
+                    last4: "7d1e",
+                    account: None,
+                    to_machines: true,
+                },
+            )
+            .await
+            .unwrap();
+        // ListCredentials stays as older apps know it.
+        assert!(store.credentials(&alice, &key).await.unwrap().is_empty());
+        let tokens = store.agent_tokens(&alice, &key).await.unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].agent, AgentAccount::Claude);
+        assert_eq!(tokens[0].last4, "7d1e");
+        assert!(!tokens[0].unreadable);
+        let opened = store.machine_credentials(&alice, &key).await.unwrap();
+        assert_eq!(opened.len(), 1);
+        assert_eq!(opened[0].slot, claude);
+        assert_eq!(
+            opened[0].secret.expose_secret(),
+            "sk-ant-oat01-plaintextvalue7d1e"
+        );
+        let other_key = CredentialKey::random();
+        assert!(store.agent_tokens(&alice, &other_key).await.unwrap()[0].unreadable);
+
+        assert!(
+            !store
+                .remove_agent_token(&alice, AgentAccount::Codex)
+                .await
+                .unwrap()
+        );
+        assert!(
+            store
+                .remove_agent_token(&alice, AgentAccount::Claude)
+                .await
+                .unwrap()
+        );
+        assert!(store.agent_tokens(&alice, &key).await.unwrap().is_empty());
+        assert!(
+            store
+                .machine_credentials(&alice, &key)
                 .await
                 .unwrap()
                 .is_empty()

@@ -103,7 +103,7 @@ async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> G
         let (host, kind) = match &login.slot {
             Slot::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
             Slot::Forgejo(url) => (url.host(), GitHostKind::Forgejo {}),
-            Slot::ApiKey(_) => return None,
+            Slot::ApiKey(_) | Slot::AgentToken(_) => return None,
         };
         let caller = Caller {
             client,

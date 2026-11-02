@@ -2419,7 +2419,7 @@ function sendRow(onPause) {
 /// bar it is the bar's page; in the window it is a sheet over the view
 /// (`SET.root`), which `settingsSheet` opens.
 const SET = { root: null, token: 0, devices: null, machines: undefined, confirm: false };
-const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["creds", "Credentials"], ["instr", "Instructions"], ["general", "General"]];
+const SET_SECTIONS = [["devices", "Devices"], ["apps", "Apps"], ["mac", "This Mac"], ["machines", "Machines"], ["agents", "Agent accounts"], ["creds", "Credentials"], ["instr", "Instructions"], ["general", "General"]];
 
 /// Settings, Credentials (`credentials.js` draws it). `list` is undefined
 /// until the server answers and null when it failed; `edit` is the row
@@ -2607,13 +2607,169 @@ function bindCreds(el) {
   $in("#credSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
 }
 
+/// Settings, Agent accounts (`agentaccounts.js` draws it). `data` is
+/// undefined until the server answers, null when it failed and false from
+/// a server too old. `edit` is the agent whose token is being typed,
+/// `claudeFlow` whether `claude setup-token` waits on the browser, and
+/// `codex` the Codex sign-ins under way by machine id.
+const ACC = { mod: null, data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
+const agModule = () => import("./agentaccounts.js").then(m => (ACC.mod = m));
+
+function setAgentsHtml() {
+  if (ACC.data === undefined || !ACC.mod) return setSkeleton(2);
+  return ACC.mod.agentAccountsHtml(ACC, esc, when);
+}
+
+/// Redraws Agent accounts, unless a token is being typed there.
+function redrawAgents() {
+  if (setShown() && !setRoot().querySelector("#agSecret")?.value) fillSection("agents", setAgentsHtml());
+}
+
+async function loadAgents() {
+  try {
+    const [, data] = await Promise.all([agModule(), invoke("agent_accounts")]);
+    ACC.data = data ?? false;
+  } catch (e) {
+    console.warn(e);
+    ACC.data ??= null;
+  }
+  redrawAgents();
+}
+
+/// Asks after each Codex sign-in under way every 2 seconds, until none is.
+function pollCodex() {
+  if (ACC.poll) return;
+  ACC.poll = setInterval(async () => {
+    const waiting = Object.entries(ACC.codex).filter(([, f]) => f.task !== undefined);
+    if (!waiting.length || !setShown()) {
+      clearInterval(ACC.poll);
+      ACC.poll = null;
+      return;
+    }
+    let done = false;
+    for (const [id, f] of waiting) {
+      try {
+        const st = await invoke("codex_login_state", { machineId: id, task: f.task });
+        if (st.state === "waiting") continue;
+        done = true;
+        if (st.state === "failed") ACC.codex[id] = { error: st.message || "Codex could not sign in." };
+        else delete ACC.codex[id];
+      } catch (e) {
+        ACC.codex[id] = { error: String(e) };
+        done = true;
+      }
+    }
+    if (done) await loadAgents();
+    else redrawAgents();
+  }, 2000);
+}
+
+/// Binds the Agent accounts controls inside `el`.
+function bindAgents(el) {
+  const $in = sel => el.querySelector(sel);
+  el.querySelectorAll("[data-ag-edit]").forEach(b => b.addEventListener("click", () => {
+    ACC.edit = b.dataset.agEdit;
+    ACC.error = "";
+    fillSection("agents", setAgentsHtml());
+    setRoot().querySelector("#agSecret")?.focus();
+  }));
+  $in("#agCancel")?.addEventListener("click", () => { ACC.edit = null; ACC.error = ""; fillSection("agents", setAgentsHtml()); });
+  const save = async () => {
+    if (ACC.busy || !ACC.mod) return;
+    const d = ACC.mod.tokenDraft(ACC.edit, $in("#agSecret")?.value);
+    if (d.error) {
+      ACC.error = d.error;
+      const err = $in("#agErr");
+      if (err) err.textContent = d.error;
+      return;
+    }
+    ACC.busy = d.agent;
+    ACC.error = "";
+    try {
+      await invoke("save_agent_token", { agentSlug: d.agent, secret: d.secret });
+      ACC.edit = null;
+    } catch (e) {
+      ACC.error = String(e);
+    }
+    ACC.busy = "";
+    // The typed token is gone from the page either way.
+    const input = setRoot().querySelector("#agSecret");
+    if (input) input.value = "";
+    await loadAgents();
+  };
+  $in("#agSave")?.addEventListener("click", save);
+  $in("#agSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+  el.querySelectorAll("[data-ag-revoke]").forEach(b => b.addEventListener("click", async () => {
+    const agent = b.dataset.agRevoke;
+    ACC.busy = `revoke:${agent}`;
+    b.disabled = true;
+    try {
+      await invoke("revoke_agent_token", { agentSlug: agent });
+    } catch (e) {
+      if (agent === "claude") ACC.claudeError = String(e);
+      else ACC.error = String(e);
+    }
+    ACC.busy = "";
+    await loadAgents();
+  }));
+  // Runs `claude setup-token` here; the token goes to the server, never the page.
+  el.querySelectorAll("[data-ag-claude-sign]").forEach(b => b.addEventListener("click", async () => {
+    if (ACC.claudeFlow) return;
+    ACC.claudeFlow = true;
+    ACC.claudeError = "";
+    ACC.edit = null;
+    fillSection("agents", setAgentsHtml());
+    try {
+      await invoke("claude_sign_in");
+    } catch (e) {
+      ACC.claudeError = String(e);
+    }
+    ACC.claudeFlow = false;
+    await loadAgents();
+  }));
+  el.querySelectorAll("[data-ag-claude-cancel]").forEach(b => b.addEventListener("click", () => {
+    b.disabled = true;
+    invoke("cancel_claude_sign_in").catch(console.warn);
+  }));
+  // Starts Codex's device sign-in on that machine, copies the code and opens the page.
+  el.querySelectorAll("[data-ag-codex-sign]").forEach(b => b.addEventListener("click", async () => {
+    const id = b.dataset.agCodexSign;
+    if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;
+    ACC.codex[id] = { starting: true };
+    redrawAgents();
+    try {
+      const flow = await invoke("codex_login_start", { machineId: id });
+      ACC.codex[id] = { ...flow, copied: false };
+      redrawAgents();
+      pollCodex();
+      await copy(flow.code);
+      if (ACC.codex[id]?.code === flow.code) ACC.codex[id].copied = true;
+      invoke("open_url", { url: flow.url }).catch(console.warn);
+    } catch (e) {
+      ACC.codex[id] = { error: String(e) };
+    }
+    redrawAgents();
+  }));
+  el.querySelectorAll("[data-ag-codex-cancel]").forEach(b => b.addEventListener("click", async () => {
+    const id = b.dataset.agCodexCancel;
+    const f = ACC.codex[id];
+    b.disabled = true;
+    if (f?.task !== undefined) await invoke("codex_login_cancel", { machineId: id, task: f.task }).catch(console.warn);
+    delete ACC.codex[id];
+    redrawAgents();
+  }));
+  el.querySelectorAll("[data-ag-copy]").forEach(b => b.addEventListener("click", () => copy(b.dataset.agCopy, b)));
+  el.querySelectorAll("[data-ag-open]").forEach(b => b.addEventListener("click", () =>
+    invoke("open_url", { url: b.dataset.agOpen }).catch(console.warn)));
+}
+
 const setRoot = () => SET.root ?? bar;
 /// The sheet is open, or the bar still shows Settings.
 const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
 
 // Permissions are granted in System Settings; coming back shows them.
 // Not while a token is typed in Credentials: the redraw would drop it.
-window.addEventListener("focus", () => { if (setShown() && !$("#unlinkYes") && !$("#credSecret")?.value) renderSettings(); });
+window.addEventListener("focus", () => { if (setShown() && !$("#unlinkYes") && !$("#credSecret")?.value && !$("#agSecret")?.value) renderSettings(); });
 
 /// Rows that stand in for a section until the server answers.
 const setSkeleton = n => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
@@ -2711,6 +2867,7 @@ function bindSettings(el) {
     if (setShown()) renderSettings();
   }));
   bindCreds(el);
+  bindAgents(el);
   $in("#autostart")?.addEventListener("click", async e => {
     const sw = e.currentTarget, on = sw.getAttribute("aria-checked") !== "true";
     try {
@@ -2783,6 +2940,7 @@ async function renderSettings(confirm = false, root = undefined) {
     + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
     + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
     + (linked ? sec("machines", "Machines", setMachinesHtml()) : "")
+    + (linked ? sec("agents", "Agent accounts", setAgentsHtml()) : "")
     + (linked ? sec("creds", "Credentials", setCredsHtml()) : "")
     + (linked ? sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`) : "")
     + `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
@@ -2826,6 +2984,7 @@ async function renderSettings(confirm = false, root = undefined) {
       if (CRED.list) fillSection("creds", setCredsHtml());
     });
   loadCreds();
+  loadAgents();
 }
 
 // ---------- Apps ----------

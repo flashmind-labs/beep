@@ -17,6 +17,7 @@ use std::{collections::VecDeque, time::Duration};
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
 use uuid::Uuid;
 
+mod agent_accounts;
 mod agent_auto;
 mod agent_control;
 mod agent_found;
@@ -230,6 +231,12 @@ pub fn router() -> Router {
         .call(terminals::start_terminal)
         .call(terminals::get_terminal)
         .call(terminals::close_terminal)
+        .call(agent_accounts::get_agent_accounts)
+        .call(agent_accounts::save_agent_token)
+        .call(agent_accounts::revoke_agent_token)
+        .call(agent_accounts::start_codex_login)
+        .call(agent_accounts::get_codex_login)
+        .call(agent_accounts::cancel_codex_login)
         .call(projects::list_project_issues)
         .call(projects::track_project_issue)
         .call(projects::dismiss_project_issue)

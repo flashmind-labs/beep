@@ -21,6 +21,7 @@ use agent_client_protocol::{
     },
 };
 use anyhow::{Context, Result};
+use beep_proto::AgentAccount;
 use beep_proto::node::agent::{
     AnswerOption, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
 };
@@ -29,6 +30,7 @@ use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
     process::Stdio,
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -93,7 +95,10 @@ impl Session {
             resume,
         } = start;
         let mut process = command(&kind.program);
-        spawn_env::apply(&mut process, Scope::Agent);
+        // The token Beep keeps for this agent, such as Claude Code's, when
+        // there is one.
+        let account = AgentAccount::from_str(&kind.name).ok();
+        spawn_env::apply(&mut process, Scope::Agent(account));
         process
             .args(&kind.args)
             .envs(&kind.env)

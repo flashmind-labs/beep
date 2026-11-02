@@ -1,6 +1,6 @@
 //! Credentials a user adds once (a GitHub token, a token per Forgejo or
-//! Gitea server, API keys) that Beep keeps sealed and hands to the user's
-//! machines (see `Down::Credentials`).
+//! Gitea server, API keys, coding agents' tokens) that Beep keeps sealed
+//! and hands to the user's machines (see `Down::Credentials`).
 
 mod check;
 mod net;
@@ -10,7 +10,7 @@ pub use check::{Checked, Checker, MAX_ORGS, host_client};
 pub use seal::{CredentialKey, Owner};
 
 use crate::protocol::{
-    ApiProvider, CredentialKind, GITHUB_ENV_VAR, SecretText,
+    AgentAccount, ApiProvider, CredentialKind, GITHUB_ENV_VAR, SecretText,
     node::{EnvSecret, ForgejoLogin, MachineCredentials},
 };
 use reqwest::Url;
@@ -24,6 +24,9 @@ pub enum Slot {
     GitHub,
     Forgejo(ForgejoUrl),
     ApiKey(ApiProvider),
+    /// A coding agent's own token, such as Claude Code's OAuth token. Set
+    /// in Agent accounts and never listed with the other credentials.
+    AgentToken(AgentAccount),
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -47,18 +50,6 @@ impl Slot {
         })
     }
 
-    pub fn to_wire(&self) -> CredentialKind {
-        match self {
-            Self::GitHub => CredentialKind::GitHub {},
-            Self::Forgejo(url) => CredentialKind::Forgejo {
-                url: url.as_str().to_owned(),
-            },
-            Self::ApiKey(provider) => CredentialKind::ApiKey {
-                provider: provider.slug().to_owned(),
-            },
-        }
-    }
-
     /// The env var the machines get it as; `None` for Forgejo, whose
     /// tokens go into teacli's config.
     pub fn env_var(&self) -> Option<&'static str> {
@@ -66,13 +57,14 @@ impl Slot {
             Self::GitHub => Some(GITHUB_ENV_VAR),
             Self::Forgejo(_) => None,
             Self::ApiKey(provider) => Some(provider.env_var()),
+            Self::AgentToken(agent) => Some(agent.env_var()),
         }
     }
 
     /// Git hosts always go to the machines: gh and teacli are why they are
     /// there.
     pub fn always_to_machines(&self) -> bool {
-        !matches!(self, Self::ApiKey(_))
+        matches!(self, Self::GitHub | Self::Forgejo(_))
     }
 }
 
@@ -321,6 +313,11 @@ mod tests {
             .is_err()
         );
         assert_eq!(Slot::GitHub.env_var(), Some("GH_TOKEN"));
+        let claude = Slot::AgentToken(AgentAccount::Claude);
+        assert_eq!(claude.env_var(), Some("CLAUDE_CODE_OAUTH_TOKEN"));
+        // Not among the git credentials imports and checks use.
+        assert!(!claude.always_to_machines());
+        assert!(Slot::GitHub.always_to_machines());
     }
 
     fn account(login: &str, orgs: &[&str], default: bool, token: &str) -> Opened {

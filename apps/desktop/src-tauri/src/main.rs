@@ -1,6 +1,7 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
 mod add_machine;
+mod agent_accounts;
 mod agents;
 mod apps;
 mod audio;
@@ -187,6 +188,14 @@ fn main() {
             cli_login::use_gh_account,
             gh_sign_in::gh_sign_in,
             gh_sign_in::cancel_gh_sign_in,
+            agent_accounts::agent_accounts,
+            agent_accounts::save_agent_token,
+            agent_accounts::revoke_agent_token,
+            agent_accounts::claude_sign_in,
+            agent_accounts::cancel_claude_sign_in,
+            agent_accounts::codex_login_start,
+            agent_accounts::codex_login_state,
+            agent_accounts::codex_login_cancel,
             projects::import_project,
             projects::list_machine_folder,
             projects::pick_folder,
@@ -313,6 +322,7 @@ fn main() {
                     update::install(app);
                     // gh, if it is still waiting for a GitHub code, goes too.
                     app.state::<gh_sign_in::GhSignIn>().stop_on_quit();
+                    app.state::<agent_accounts::ClaudeSignIn>().stop();
                     // Background tasks the agent started here end with the app.
                     beep_node::kill_tasks();
                 }
@@ -354,6 +364,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());
     app.manage(gh_sign_in::GhSignIn::default());
+    app.manage(agent_accounts::ClaudeSignIn::default());
     app.manage(update::Updates::default());
     app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());

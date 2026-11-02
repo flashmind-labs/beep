@@ -7,7 +7,7 @@
 //! background tasks and the machine probe all start processes, and each
 //! reads it when it does.
 
-use beep_proto::{GITHUB_ENV_VAR, node::EnvSecret};
+use beep_proto::{AgentAccount, GITHUB_ENV_VAR, node::EnvSecret};
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -21,10 +21,12 @@ use tokio::process::Command;
 pub(crate) enum Scope {
     /// None: a version probe needs only the tools' folders.
     Probe,
-    /// The GitHub token only. teacli finds its logins through the shim on
-    /// `PATH`. API keys stay out of agent sessions such as Claude Code and
-    /// Codex, which would otherwise bill or act on them.
-    Agent,
+    /// The GitHub token, and the token Beep keeps for the agent itself
+    /// (Claude Code's `CLAUDE_CODE_OAUTH_TOKEN`, Codex's `CODEX_API_KEY`)
+    /// when the process is that agent. teacli finds its logins through the
+    /// shim on `PATH`. API keys stay out of agent sessions such as Claude
+    /// Code and Codex, which would otherwise bill or act on them.
+    Agent(Option<AgentAccount>),
     /// Every credential the user gave to their machines: exec, background
     /// tasks and terminals, where the user runs their own commands.
     Shell,
@@ -34,7 +36,9 @@ impl Scope {
     fn admits(self, var: &EnvSecret) -> bool {
         match self {
             Self::Probe => false,
-            Self::Agent => var.name == GITHUB_ENV_VAR,
+            Self::Agent(agent) => {
+                var.name == GITHUB_ENV_VAR || agent.is_some_and(|agent| var.name == agent.env_var())
+            }
             Self::Shell => true,
         }
     }
@@ -152,11 +156,50 @@ mod tests {
             },
         ]);
         let shell = seen(Scope::Shell).await;
-        let agent = seen(Scope::Agent).await;
+        let agent = seen(Scope::Agent(None)).await;
         let probe = seen(Scope::Probe).await;
         set_vars(Vec::new());
         assert_eq!(shell, "from-beep,gh-token");
         assert_eq!(agent, "inherited,gh-token");
         assert_eq!(probe, "inherited,");
+    }
+
+    async fn agent_token(scope: Scope) -> String {
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "printf '%s,%s' \"$CLAUDE_CODE_OAUTH_TOKEN\" \"$CODEX_API_KEY\"",
+            ])
+            .env_remove("CLAUDE_CODE_OAUTH_TOKEN")
+            .env_remove("CODEX_API_KEY")
+            .stdout(Stdio::piped());
+        apply(&mut command, scope);
+        let out = command.output().await.unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[tokio::test]
+    async fn an_agent_gets_only_its_own_token() {
+        let _env = TEST_LOCK.lock().await;
+        set_vars(vec![
+            EnvSecret {
+                name: AgentAccount::Claude.env_var().into(),
+                value: SecretText::new("claude-token"),
+            },
+            EnvSecret {
+                name: AgentAccount::Codex.env_var().into(),
+                value: SecretText::new("codex-key"),
+            },
+        ]);
+        let claude = agent_token(Scope::Agent(Some(AgentAccount::Claude))).await;
+        let codex = agent_token(Scope::Agent(Some(AgentAccount::Codex))).await;
+        let other = agent_token(Scope::Agent(None)).await;
+        let shell = agent_token(Scope::Shell).await;
+        set_vars(Vec::new());
+        assert_eq!(claude, "claude-token,");
+        assert_eq!(codex, ",codex-key");
+        assert_eq!(other, ",");
+        assert_eq!(shell, "claude-token,codex-key");
     }
 }
