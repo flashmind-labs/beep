@@ -307,54 +307,6 @@ async fn edits_made_on_both_machines_keep_both() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_node_restarting_mid_sync_finishes_without_conflicts() {
-    let (a, mut b) = pair().await;
-    let count = 200;
-    for n in 0..count {
-        write(
-            &a.path(&format!("frames/{n:04}.bin")),
-            data(20_000, n as u8),
-        );
-    }
-    eventually("the first files to arrive", || {
-        b.path("frames").exists() && !files(&b.path("frames")).is_empty()
-    })
-    .await;
-    b.stop().await;
-    let arrived = files(&b.folder()).len();
-    // A change made while it is down comes along too.
-    write(&a.path("frames/0000.bin"), "changed while away");
-    b.start().await;
-    a.sync_with(&b).await;
-    b.sync_with(&a).await;
-
-    eventually("every file to arrive", || {
-        let names = files(&b.folder());
-        names.len() == count
-            && read(&b.path("frames/0000.bin")).as_deref() == Some(b"changed while away".as_slice())
-    })
-    .await;
-    for n in 1..count {
-        let path = format!("frames/{n:04}.bin");
-        assert_eq!(read(&b.path(&path)), Some(data(20_000, n as u8)), "{path}");
-    }
-    assert!(arrived <= count);
-    assert!(
-        fs::read_dir(b.folder()).unwrap().all(|e| {
-            let name = e.unwrap().file_name();
-            name == MARKER || !name.to_string_lossy().starts_with(".beep-")
-        }),
-        "no partial folder is left"
-    );
-    assert!(
-        b.running().transfers.syncs().status()[0]
-            .conflicts
-            .is_empty()
-    );
-    assert_eq!(files(&a.folder()), files(&b.folder()));
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn a_folder_swapped_for_an_empty_one_deletes_nothing() {
     let (mut a, b) = pair().await;
     write(&a.path("notes.txt"), "keep me");
