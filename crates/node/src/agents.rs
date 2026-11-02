@@ -303,12 +303,23 @@ impl Agents {
 
     /// Takes over the Claude Code session `id` started outside Beep, once
     /// nothing runs it; one this node already runs is returned as it is.
+    /// `id` may also be one of this node's sessions that ended: it goes on
+    /// from the agent's own session.
     async fn resume(
         &self,
         kind: &AgentKind,
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
+        let ended = self
+            .get(id)
+            .map(|session| session.live.borrow().agent_session.clone());
+        let id = match ended {
+            Some(Some(agent_session)) => agent_session,
+            Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
+            None => id.to_owned(),
+        };
+        let id = id.as_str();
         let agent = Agent::from_name(&kind.name).with_context(|| {
             format!(
                 "{} sessions started outside Beep cannot be taken over",
@@ -889,6 +900,29 @@ mod tests {
             "{second}"
         );
         assert_eq!(agents.owned().get(id), Some(&first.id));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_ended_node_session_resumes_from_the_agents_session() {
+        let kind = AgentKind {
+            name: "claude".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), "cat > /dev/null".into()],
+            env: BTreeMap::new(),
+        };
+        let agents = Agents::new(vec![kind.clone()]);
+        let id = "0f3c2a9e-1111-4222-8333-944455556666";
+        let begin = Begin {
+            prompt: None,
+            resume: Some(id.to_owned()),
+        };
+        let first = agents.start(&kind, Some("/"), begin).unwrap();
+        first.close().await;
+        // Nothing on this machine has the agent's session, so it is the
+        // agent's id that the node looks for, not its own.
+        let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
+        assert!(err.to_string().contains(id), "{err}");
     }
 
     #[test]
