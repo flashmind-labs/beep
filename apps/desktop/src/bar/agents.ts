@@ -4,7 +4,7 @@ import { renderChat } from "./chat.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
 import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
-import { loadPic, openViewer, pictures } from "./media.ts";
+import { GONE, openViewer } from "./media.ts";
 import { cap } from "./tools.ts";
 
 // ---------- Coding agents ----------
@@ -82,14 +82,6 @@ export interface Started {
   why: string;
 }
 
-/// An image the server kept for a session.
-interface AgentImage {
-  name: string;
-  file_id: string;
-  mime: string;
-  key: string;
-}
-
 /// An image waiting to go with the next message.
 interface Attached {
   name: string;
@@ -122,8 +114,6 @@ export interface AgentForm {
 type Steer = { prompt: { text: string; images?: { name: string; mime: string; data: string }[] } } | { cancel: null } | { close: null };
 
 interface AgentState {
-  /// Images the server kept for the open session, by name and by `image-<key>`.
-  images: Map<string, AgentImage>;
   readError: string;
   hosts: AgentHost[] | null;
   sessions: AgentSession[];
@@ -162,7 +152,7 @@ interface AgentState {
 }
 
 export const AG: AgentState = {
-  images: new Map(), readError: "",
+  readError: "",
   hosts: null, sessions: [], error: "", busy: false,
   form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
@@ -180,6 +170,10 @@ export const AGENT_MAX_IMAGES_TOTAL = 7 * 1024 * 1024;
 /// transcript's `[image: name]` lines show the picture.
 export const agentPics = new Map<string, string>();
 export const AGENT_PICS_KEPT = 60;
+/// The pictures of `[image: image-<key>]` lines, read from the session's
+/// machine, by key, as data URLs: `null` for one the machine no longer has.
+/// Kept while the app runs.
+export const agentImages = new Map<string, Promise<string | null> | string | null>();
 let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 export const AGENT_POLL_MS = 1500;
@@ -253,11 +247,10 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, images: new Map(), opened: new Set(),
+    att: [], attError: "", noImages: null, opened: new Set(),
   });
   drawAgentFrame();
   pollAgent();
-  loadAgentImages(AG.open!);
 }
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
@@ -407,22 +400,43 @@ export function drawAgentAttached() {
   if (S.view === "agent") redrawAgentHints();
 }
 
-/// Reads the images the server kept for the open session, by the name its
-/// log gives each and by its key, for an agent that replays it without one.
-export async function loadAgentImages(o: OpenAgent) {
-  let got: AgentImage[] = [];
-  try { got = await invoke<AgentImage[]>("agent_images", { machineId: o.machine_id, session: o.session }); } catch { return; }
-  if (!isOpen(o)) return;
-  AG.images = new Map();
-  for (const i of got) { AG.images.set(i.name, i); AG.images.set(`image-${i.key}`, i); }
-  if (AG.page) drawAgentBody();
+/// The picture `key` of session `o`, read from its machine the first time.
+/// Only one the machine no longer has stays gone; anything else tries again.
+export function loadAgentImage(o: OpenAgent, key: string) {
+  let got = agentImages.get(key);
+  if (got === undefined) {
+    got = invoke<string>("agent_image", { machineId: o.machine_id, session: o.session, key }).then(url => {
+      agentImages.set(key, url);
+      return url;
+    }, e => {
+      if (String(e) === GONE) agentImages.set(key, null);
+      else agentImages.delete(key);
+      return null;
+    });
+    agentImages.set(key, got);
+  }
+  return Promise.resolve(got);
 }
 
 /// Fills the session pictures drawn before their bytes were here.
 export function fillAgentPics(b: HTMLElement) {
-  for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-file]:not([src])")) {
-    loadPic(img.dataset.file!, img.dataset.mime!).then(url => { if (url) img.src = url; });
+  const o = AG.open;
+  if (!o) return;
+  for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-key]:not([src])")) {
+    loadAgentImage(o, img.dataset.key!).then(url => {
+      if (url) img.src = url;
+      else if (img.isConnected && agentImages.get(img.dataset.key!) === null) img.replaceWith(h(gonePic(img.alt)));
+    });
   }
+}
+
+/// A session picture that is not here: its icon and name.
+const gonePic = (label: string) => `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
+
+/// The images a message sent from here carried, under the keys the log
+/// will name them by, so they show without asking the machine.
+function keepSentImages(keys: string[], images: { mime: string; data: string }[]) {
+  keys.forEach((key, i) => { if (images[i]) agentImages.set(key, `data:${images[i].mime};base64,${images[i].data}`); });
 }
 
 /// Keeps the thumbnails of images just sent, for the transcript.
@@ -473,10 +487,8 @@ function agentClick(e: MouseEvent) {
   const pic = target.closest<HTMLImageElement>("#agbody img.pic");
   if (pic) {
     const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic")];
-    // A kept one opens as the file it is, to save or copy.
-    const shown = all.map(i => i.dataset.file
-      ? { file: { id: i.dataset.file, name: i.alt, mime: i.dataset.mime! }, caption: "" }
-      : { url: i.src, name: i.alt, caption: "" });
+    // Each opens by its data URL, which can be saved or copied.
+    const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
     return openViewer(shown, all.indexOf(pic));
   }
   if (target.closest("#agresume")) return resumeAgent();
@@ -518,16 +530,17 @@ export function toolRow(en: AgentEntry, at: number) {
     + (shown ? `<pre class="out">${esc(shown)}</pre>` : "") + toggle + "</div>";
 }
 
-/// An image a user entry carried: the one sent from here, the one the
-/// server kept, or its name when neither is here.
+/// An image a user entry carried: the one sent from here, the one read
+/// from the session's machine by its key (an empty tile while it loads),
+/// or its name when neither can be.
 function entryPic(n: string) {
-  const kept = AG.images.get(n), label = kept?.name || (/^image-[0-9a-f]{16}$/.test(n) ? "Image" : n);
-  const loaded = kept && pictures.get(kept.file_id);
-  const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof loaded === "string" ? loaded : "");
-  const file = kept ? ` data-file="${esc(kept.file_id)}" data-mime="${esc(kept.mime)}"` : "";
-  if (url) return `<img class="pic" src="${esc(url)}"${file} alt="${esc(label)}" title="${esc(label)}">`;
-  if (kept) return `<img class="pic"${file} alt="${esc(label)}" title="${esc(label)}">`;
-  return `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
+  const key = /^image-([0-9a-f]{16})$/.exec(n)?.[1], label = key ? "Image" : n;
+  const got = key ? agentImages.get(key) : undefined;
+  const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof got === "string" ? got : "");
+  const named = ` data-name="${esc(n)}" alt="${esc(label)}" title="${esc(label)}"`;
+  if (url) return `<img class="pic" src="${esc(url)}"${named}>`;
+  if (key && got !== null) return `<img class="pic" data-key="${key}"${named}>`;
+  return gonePic(label);
 }
 
 export function entryRow(en: AgentEntry, at: number) {
@@ -626,7 +639,8 @@ export async function steerAgent(steer: Steer) {
   if (!o || AG.page?.session.external) return false;
   let ok = false;
   try {
-    await invoke("agent_steer", { ...where(o), steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
+    if ("prompt" in steer && steer.prompt.images) keepSentImages(keys, steer.prompt.images);
     AG.note = "";
     ok = true;
   } catch (e) {
