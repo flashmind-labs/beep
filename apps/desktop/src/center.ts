@@ -2377,6 +2377,8 @@ document.addEventListener("keydown", e => {
   }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
+  // ⌘W closes this window; Beep keeps running in the menu bar.
+  if (key === "w" && !e.shiftKey) { e.preventDefault(); return window.close(); }
   if (key === "k") { e.preventDefault(); return openPalette(); }
   if (key === ",") { e.preventDefault(); return openSettings(); }
   const to = PANE_KEYS[key];
