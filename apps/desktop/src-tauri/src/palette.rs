@@ -1,14 +1,17 @@
-//! The command center's Cmd+K search: ranks actions, chats, memories,
-//! routines and machines against what was typed.
+//! The command center's Cmd+K search: ranks actions, settings, projects,
+//! chats, memories, routines and machines against what was typed.
 
 use crate::{
     beep::Beep, center::section, commands::MemoryView, error::Result, machines::MachineView,
 };
-use beep_proto::{Cron, ListCrons, ListMachines, ListMemories, Session, SessionMatch};
+use beep_proto::{
+    ApiProvider, Cron, ImportedProject, ListCrons, ListImportedProjects, ListMachines,
+    ListMemories, Session, SessionMatch,
+};
 use serde::Serialize;
 use std::{
     cmp::Reverse,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex, PoisonError},
 };
 use strum::IntoEnumIterator;
@@ -31,6 +34,7 @@ pub(crate) struct PaletteLists {
     memories: Option<Vec<MemoryView>>,
     routines: Option<Vec<Cron>>,
     machines: Option<Vec<MachineView>>,
+    projects: Option<Vec<ImportedProject>>,
 }
 
 /// The lists `center_palette` fetched last.
@@ -78,10 +82,70 @@ impl PaletteAction {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum HitKind {
     Action,
+    Setting,
+    Project,
     Chat,
     Memory,
     Routine,
     Machine,
+}
+
+/// A section of the Settings sheet, by the id the sheet's nav goes to.
+#[derive(Clone, Copy, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+enum SettingsSection {
+    Devices,
+    Apps,
+    Mac,
+    Machines,
+    Creds,
+    General,
+}
+
+impl SettingsSection {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Devices => "Devices",
+            Self::Apps => "Apps",
+            Self::Mac => "This Mac",
+            Self::Machines => "Machines",
+            Self::Creds => "Credentials",
+            Self::General => "General",
+        }
+    }
+}
+
+/// A setting the palette finds, and the section of the sheet that holds it.
+struct Setting {
+    title: String,
+    section: SettingsSection,
+}
+
+/// Every setting the palette finds.
+fn settings() -> Vec<Setting> {
+    use SettingsSection::*;
+    let fixed = [
+        ("Devices", Devices),
+        ("Apps", Apps),
+        ("Let Beep use this Mac", Mac),
+        ("Machines", Machines),
+        ("GitHub token", Creds),
+        ("Forgejo or Gitea token", Creds),
+        ("Launch at login", General),
+        ("Voice notes", General),
+        ("When I stop talking", General),
+    ];
+    fixed
+        .into_iter()
+        .map(|(title, section)| Setting {
+            title: title.to_owned(),
+            section,
+        })
+        .chain(ApiProvider::all().map(|p| Setting {
+            title: format!("{} API key", p.name()),
+            section: Creds,
+        }))
+        .collect()
 }
 
 #[derive(Debug, Serialize)]
@@ -238,7 +302,36 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
         };
         Some((tier(&query, m.name())?, hit))
     });
+    let settings = settings()
+        .into_iter()
+        .filter_map(|Setting { title, section }| {
+            let tier = tier(&query, &title)?;
+            let hit = Hit {
+                kind: HitKind::Setting,
+                id: <&'static str>::from(section).to_owned(),
+                detail: format!("Settings · {}", section.title()),
+                title,
+            };
+            Some((tier, hit))
+        });
+    let mut seen = HashSet::new();
+    let projects = lists.projects.iter().flatten().filter_map(|p| {
+        let tier = tier(&query, &p.project)?;
+        // A project is imported once per machine it is on; it lists once.
+        if !seen.insert(p.project.as_str()) {
+            return None;
+        }
+        let hit = Hit {
+            kind: HitKind::Project,
+            id: p.project.clone(),
+            title: p.project.clone(),
+            detail: p.machine_name.clone(),
+        };
+        Some((tier, hit))
+    });
     best(actions)
+        .chain(best(settings.collect()))
+        .chain(best(projects.collect()))
         .chain(chat_hits(&query, chats))
         .chain(best(memories.collect()))
         .chain(best(routines.collect()))
@@ -250,10 +343,11 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
 /// cannot give hides its group.
 #[tauri::command]
 pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -> Result<()> {
-    let (memories, routines, machines) = join!(
+    let (memories, routines, machines, projects) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListMachines {}),
+        beep.call(ListImportedProjects {}),
     );
     let lists = PaletteLists {
         memories: section("memories", memories)
@@ -261,6 +355,7 @@ pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -
         routines: section("routines", routines),
         machines: section("machines", machines)
             .map(|all| all.into_iter().map(MachineView::from).collect()),
+        projects: section("projects", projects),
     };
     *cache.0.lock().unwrap_or_else(PoisonError::into_inner) = lists;
     Ok(())
@@ -486,5 +581,44 @@ mod tests {
         assert!(of_kind(&hits, HitKind::Memory).is_empty());
         assert_eq!(of_kind(&hits, HitKind::Chat).len(), 1);
         assert_eq!(of_kind(&hits, HitKind::Machine).len(), 1);
+    }
+
+    fn imported(project: &str, machine: &str) -> ImportedProject {
+        ImportedProject {
+            project: project.to_owned(),
+            url: format!("https://example.com/{project}"),
+            machine_id: machine.to_owned(),
+            machine_name: machine.to_owned(),
+            folder: "/srv/project".to_owned(),
+            cloned: false,
+            imported_at: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn settings_are_found_with_their_section() {
+        let hits = rank("elevenlabs", &PaletteLists::default(), &none());
+        let settings = of_kind(&hits, HitKind::Setting);
+        assert_eq!(settings.len(), 1);
+        assert_eq!(settings[0].title, "ElevenLabs API key");
+        assert_eq!(settings[0].id, "creds");
+        assert_eq!(settings[0].detail, "Settings · Credentials");
+    }
+
+    #[test]
+    fn a_project_on_two_machines_is_found_once() {
+        let lists = PaletteLists {
+            projects: Some(vec![
+                imported("acme/widget", "build-box"),
+                imported("acme/widget", "mac-box"),
+                imported("acme/relay", "build-box"),
+            ]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("widget", &lists, &none());
+        let projects = of_kind(&hits, HitKind::Project);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].id, "acme/widget");
+        assert_eq!(projects[0].detail, "build-box");
     }
 }
