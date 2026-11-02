@@ -4,6 +4,7 @@ import type * as CredentialsModule from "../credentials.ts";
 import type { CliLogins, Credential, CredState, GhFlow, GitHubAccount, Provider } from "../credentials.ts";
 import { copy, when } from "./chats.ts";
 import { Channel, esc, invoke, S } from "./core.ts";
+import type { Machine } from "./machines.ts";
 import { fillSection, SET, setAccountHtml, setRoot, setShown, setSkeleton } from "./settings.ts";
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use
@@ -221,8 +222,17 @@ function redrawAgents() {
 
 export async function loadAgentAccounts() {
   try {
-    const [, data] = await Promise.all([agModule(), invoke<AgentAccounts | null>("agent_accounts")]);
+    const [, data, machines] = await Promise.all([
+      agModule(),
+      invoke<AgentAccounts | null>("agent_accounts"),
+      invoke<Machine[]>("list_machines").catch((): Machine[] => []),
+    ]);
     ACC.data = data ?? false;
+    // Each machine's own Claude Code sign-in, as it last reported it.
+    if (data) data.claude_logins = new Map(machines.flatMap(m => {
+      const login = m.env?.logins?.find(l => l.tool === "claude");
+      return login ? [[m.id, login] as const] : [];
+    }));
   } catch (e) {
     console.warn(e);
     ACC.data ??= null;
