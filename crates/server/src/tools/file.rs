@@ -2,7 +2,10 @@
 //! a command made, instead of mailing it to them; or copies a file from one
 //! of the user's machines to another.
 
-use super::machines::{Machines, Need, copy, transfer};
+use super::{
+    args::text,
+    machines::{Machines, Need, copy, transfer},
+};
 use crate::{fetch, projects::model::MachinePath, user::User, workspace::Workspace};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -136,13 +139,7 @@ impl SendFileTool {
     }
 
     async fn send(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
-        let arg = |key| {
-            ctx.args
-                .get(key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-        };
+        let arg = |key| text(&ctx.args, key);
         let paper = self.paper && ctx.args.get("paper").and_then(Value::as_bool) == Some(true);
         if let Err(e) = no_old_args(&ctx.args) {
             return Ok(ToolResult::failure(ctx.tool_call_id, format!("{e:#}")));
@@ -287,12 +284,7 @@ impl SendFileTool {
     /// Sends `path` on `from` to the machine `to`; the text is the result.
     async fn copy(&self, ctx: &ToolContext<'_>, to: &str) -> Result<String> {
         let args = &ctx.args;
-        let arg = |key| {
-            args.get(key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-        };
+        let arg = |key| text(args, key);
         let path = arg("path").context("sending to a machine takes `path`, what to send")?;
         if arg("url").is_some() || arg("email_id").is_some() {
             bail!("sending to a machine takes only `path` and `from` as the source");
