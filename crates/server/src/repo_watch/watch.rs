@@ -2,6 +2,7 @@
 //! background sync that keeps the ones someone looks at fresh.
 
 use super::{
+    forward::{Forwards, Refresh},
     http::HostCalls,
     lists::{self, ListsCopy},
     live::{self, RunsCopy},
@@ -14,10 +15,17 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
     time::{Duration, Instant},
 };
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::{
+    sync::{Notify, broadcast},
+    time::{MissedTickBehavior, interval},
+};
 
-/// How often the background sync looks for copies to read again.
-const TICK: Duration = Duration::from_secs(30);
+/// How often the background sync looks for copies to read again. A
+/// webhook wakes it at once too.
+const TICK: Duration = Duration::from_secs(5);
+/// Reads of copies kept for the pages following them before the slowest
+/// misses some (and reads everything again).
+const MAX_CHANGES: usize = 256;
 /// Projects the background sync reads at once.
 const MAX_SYNCS: usize = 4;
 
@@ -98,15 +106,66 @@ impl Entry {
     }
 }
 
+/// A copy the background sync read again, for the pages following the
+/// project (`WatchProject`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Changed {
+    pub(crate) user: String,
+    pub(crate) project: ProjectId,
+    pub(crate) lists: bool,
+    pub(crate) runs: bool,
+}
+
 /// Every user's copies of their projects' pull requests, issues and
 /// workflow runs, and the calls that read the runs.
-#[derive(Default)]
 pub struct RepoWatch {
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
     pub(super) calls: HostCalls,
+    /// The webhooks forwarded for live updates.
+    pub(crate) forwards: Forwards,
+    changes: broadcast::Sender<Changed>,
+    /// Wakes the background sync when a webhook marked a copy stale.
+    wake: Arc<Notify>,
+}
+
+impl Default for RepoWatch {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::default(),
+            calls: HostCalls::default(),
+            forwards: Forwards::default(),
+            changes: broadcast::channel(MAX_CHANGES).0,
+            wake: Arc::new(Notify::new()),
+        }
+    }
 }
 
 impl RepoWatch {
+    /// The reads from now on.
+    pub(crate) fn changes(&self) -> broadcast::Receiver<Changed> {
+        self.changes.subscribe()
+    }
+
+    /// A webhook says `project`'s host changed: what `refresh` names is
+    /// read again within seconds, while someone looks at the project.
+    pub(crate) fn poke(&self, user: &str, project: ProjectId, refresh: Refresh) {
+        if !refresh.lists && !refresh.runs {
+            return;
+        }
+        let entry = self.entry(user, project);
+        if refresh.lists {
+            entry.lists.timing().poke();
+        }
+        if refresh.runs {
+            entry.runs.timing().poke();
+        }
+        self.wake.notify_one();
+    }
+
+    fn wake_handle(&self) -> Arc<Notify> {
+        self.wake.clone()
+    }
+
     pub(super) fn entry(&self, user: &str, project: ProjectId) -> Arc<Entry> {
         self.entries
             .lock()
@@ -158,11 +217,18 @@ impl RepoWatch {
                         return;
                     }
                 };
-                if due.lists {
-                    lists::sync_in_background(app, &user, &project, &due.entry).await;
-                }
-                if due.runs {
-                    live::sync_in_background(app, &user, &project, &due.entry).await;
+                let lists =
+                    due.lists && lists::sync_in_background(app, &user, &project, &due.entry).await;
+                let runs =
+                    due.runs && live::sync_in_background(app, &user, &project, &due.entry).await;
+                if lists || runs {
+                    // Nobody following is fine: the page reads on its own.
+                    let _ = self.changes.send(Changed {
+                        user: due.key.user.clone(),
+                        project: due.key.project,
+                        lists,
+                        runs,
+                    });
                 }
             })
             .await;
@@ -182,8 +248,14 @@ struct Due {
 pub(super) async fn run(app: Weak<App>) {
     let mut tick = interval(TICK);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let Some(wake) = app.upgrade().map(|app| app.repo_watch.wake_handle()) else {
+        return;
+    };
     loop {
-        tick.tick().await;
+        tokio::select! {
+            _ = tick.tick() => {}
+            () = wake.notified() => {}
+        }
         let Some(app) = app.upgrade() else { return };
         app.repo_watch.sync_due(&app).await;
     }
@@ -193,6 +265,40 @@ pub(super) async fn run(app: Weak<App>) {
 mod tests {
     use super::*;
     use uuid::Uuid;
+
+    #[test]
+    fn an_event_reads_again_only_the_copy_it_is_about() {
+        let watch = RepoWatch::default();
+        let widget = ProjectId(Uuid::from_u128(1));
+        let gadget = ProjectId(Uuid::from_u128(2));
+        let start = Instant::now();
+        for project in [widget, gadget] {
+            let entry = watch.entry("alice", project);
+            entry.lists.ask(start, false);
+            entry.lists.timing().synced(start, true);
+            entry.runs.ask(start, false);
+            entry.runs.timing().synced(start, true);
+        }
+        let later = start + Duration::from_secs(10);
+        assert!(watch.due(later).is_empty(), "both fresh");
+
+        watch.poke("alice", widget, Refresh::of_event("pull_request"));
+        let due = watch.due(later);
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].key.project, widget);
+        assert!(due[0].lists && !due[0].runs);
+
+        watch.poke("alice", gadget, Refresh::of_event("workflow_run"));
+        let mut due = watch.due(later);
+        due.sort_by_key(|due| due.key.project.0);
+        assert_eq!(due.len(), 2);
+        assert_eq!(due[1].key.project, gadget);
+        assert!(!due[1].lists && due[1].runs);
+
+        // Someone else's project of the same id is not touched.
+        watch.poke("bob", widget, Refresh::of_event("push"));
+        assert!(watch.due(later).iter().all(|due| due.key.user == "alice"));
+    }
 
     #[test]
     fn only_viewed_stale_copies_are_due_and_old_ones_are_dropped() {
