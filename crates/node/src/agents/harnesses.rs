@@ -183,7 +183,7 @@ fn found_program(program: &str) -> bool {
     find(program).is_some()
 }
 
-fn find(program: &str) -> Option<PathBuf> {
+pub(super) fn find(program: &str) -> Option<PathBuf> {
     let path: Option<OsString> = spawn_env::search_path();
     which::which_in(program, path.as_ref(), "/").ok()
 }
