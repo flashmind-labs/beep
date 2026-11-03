@@ -462,6 +462,25 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
+    /// Keeps `account` as who the user's Forgejo credential `id` signs in
+    /// as, once a host said so; `false` when they have no such one.
+    pub(crate) async fn set_forgejo_account(
+        &self,
+        user: &UserKey,
+        id: &str,
+        account: &str,
+    ) -> Result<bool> {
+        let done =
+            sqlx::query("UPDATE credentials SET account=$3 WHERE user_id=$1 AND id=$2 AND kind=$4")
+                .bind(user.as_str())
+                .bind(id)
+                .bind(account)
+                .bind(FORGEJO)
+                .execute(&self.pool)
+                .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
     /// Removes the user's credential `id`; `false` when they have none.
     /// Removing the default GitHub account makes the oldest other one the
     /// default.

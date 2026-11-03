@@ -3,7 +3,11 @@
 //! one `FollowAlerts` stream per connection (see `beep_proto::node::agent`)
 //! and each goes to the user's devices as a `Notice`.
 //!
-//! Phones get it with no chat, so they open Beep. Computers get the same
+//! It goes only to the device that started the session through Beep. A
+//! session no device started (one run in a terminal, or by a routine or a
+//! project agent) tells the user's computers, never a phone.
+//!
+//! A phone gets it with no chat, so it opens Beep. A computer gets the same
 //! text with an `AgentNoticeKey` as its `session_id`, so a click opens the
 //! session and a question has Allow and Deny. A session that reports to a
 //! chat or works for a project is left out: the chat or project already
@@ -11,7 +15,7 @@
 
 use super::Online;
 use crate::{
-    app::UserNotice,
+    app::{Reach, UserNotice},
     nodes::deliver::agent_name,
     protocol::{
         AgentNoticeKey, Notice,
@@ -19,9 +23,11 @@ use crate::{
             Alert, AlertKind, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest, StopReason,
         },
     },
+    store::SessionOn,
     user::User,
 };
 use anyhow::{Result, bail};
+use iroh::EndpointId;
 use std::path::Path;
 
 /// The longest body, in characters; the session has the rest.
@@ -58,12 +64,31 @@ impl Online {
             if elsewhere {
                 continue;
             }
+            let to = reach(user, &machine, &alert).await;
             // Nobody listening is fine: the notice has nowhere to go.
             let _ = app
                 .notifications
-                .send(user_notice(user.id(), &host, &alert));
+                .send(user_notice(user.id(), &host, &alert, to));
         }
         Ok(())
+    }
+}
+
+/// The device that started the alert's session, or else the computers.
+async fn reach(user: &User, machine: &EndpointId, alert: &Alert) -> Reach {
+    let on = SessionOn {
+        machine,
+        agent: &alert.agent,
+        session: &alert.session,
+    };
+    match user.agent_starter(on).await {
+        Ok(Some(device)) => Reach::Device(device),
+        Ok(None) => Reach::Desktops,
+        // The computers still hear of it; a phone is never told by mistake.
+        Err(e) => {
+            log::warn!("agent alert starter not read; error={e:#}");
+            Reach::Desktops
+        }
     }
 }
 
@@ -73,9 +98,9 @@ struct Host {
     name: String,
 }
 
-/// `alert` as a notice for `user`: without a chat for phones, with the
-/// session's key for computers.
-fn user_notice(user: &str, host: &Host, alert: &Alert) -> UserNotice {
+/// `alert` as a notice for `user`'s devices in `to`: without a chat for
+/// phones, with the session's key for computers.
+fn user_notice(user: &str, host: &Host, alert: &Alert, to: Reach) -> UserNotice {
     let notice = Notice {
         title: title(host, alert),
         body: body(alert),
@@ -104,6 +129,7 @@ fn user_notice(user: &str, host: &Host, alert: &Alert) -> UserNotice {
         user: user.to_owned(),
         notice,
         desktop: Some(desktop),
+        to,
     }
 }
 
@@ -212,7 +238,12 @@ mod tests {
             detail: Some("cargo test -p server".into()),
             options: Vec::new(),
         };
-        let sent = user_notice("u1", &host(), &alert(AlertKind::Asks { question }));
+        let sent = user_notice(
+            "u1",
+            &host(),
+            &alert(AlertKind::Asks { question }),
+            Reach::Desktops,
+        );
         assert_eq!(sent.user, "u1");
         let phone = &sent.notice;
         assert_eq!(phone.title, "Claude Code on build-box asks");
@@ -239,7 +270,7 @@ mod tests {
     #[test]
     fn a_turn_says_how_it_ended() {
         let said = |alert: &Alert| {
-            let sent = user_notice("u1", &host(), alert);
+            let sent = user_notice("u1", &host(), alert, Reach::Desktops);
             (sent.notice.title, sent.notice.body)
         };
         assert_eq!(
@@ -274,7 +305,7 @@ mod tests {
             reason: "the agent exited".into(),
         });
         assert_eq!(said(&failed).0, "Claude Code on build-box failed");
-        let key: AgentNoticeKey = user_notice("u1", &host(), &failed)
+        let key: AgentNoticeKey = user_notice("u1", &host(), &failed, Reach::Desktops)
             .desktop
             .unwrap()
             .session_id

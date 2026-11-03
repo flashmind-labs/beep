@@ -188,6 +188,29 @@ pub struct UserNotice {
     /// What the user's computers get instead of `notice`, when they read
     /// more from it than phones do.
     pub desktop: Option<Notice>,
+    /// Which of the user's devices get it.
+    pub to: Reach,
+}
+
+/// Which of a user's devices a `UserNotice` goes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    Everyone,
+    /// The computers only, never a phone.
+    Desktops,
+    /// Only the device with this key, such as the one that started a
+    /// coding-agent session.
+    Device(EndpointId),
+}
+
+impl Reach {
+    fn includes(self, id: &EndpointId, kind: &DeviceKind) -> bool {
+        match self {
+            Self::Everyone => true,
+            Self::Desktops => matches!(kind, DeviceKind::Desktop {}),
+            Self::Device(device) => device == *id,
+        }
+    }
 }
 
 impl UserNotice {
@@ -206,15 +229,20 @@ impl UserNotice {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         }
     }
 
-    /// The notice a device of `kind` gets.
-    pub fn for_device(&self, kind: &DeviceKind) -> &Notice {
-        match &self.desktop {
+    /// The notice the device with key `id`, a device of `kind`, gets;
+    /// `None` when it is not one the notice goes to.
+    pub fn for_device(&self, id: &EndpointId, kind: &DeviceKind) -> Option<&Notice> {
+        if !self.to.includes(id, kind) {
+            return None;
+        }
+        Some(match &self.desktop {
             Some(desktop) if matches!(kind, DeviceKind::Desktop {}) => desktop,
             _ => &self.notice,
-        }
+        })
     }
 
     /// Tells the user's devices that group `id` changed.
@@ -883,5 +911,58 @@ impl App {
             llm: &self.llm,
             user,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iroh::SecretKey;
+
+    fn key(n: u8) -> EndpointId {
+        SecretKey::from_bytes(&[n; 32]).public()
+    }
+
+    fn titled(title: &str) -> Notice {
+        Notice {
+            title: title.into(),
+            ..UserNotice::changed("u1", "").notice
+        }
+    }
+
+    #[test]
+    fn a_notice_reaches_only_the_devices_it_names() {
+        let (phone, mac, other_mac) = (key(1), key(2), key(3));
+        let (is_phone, is_mac) = (DeviceKind::Phone {}, DeviceKind::Desktop {});
+        let mut sent = UserNotice {
+            user: "u1".into(),
+            notice: titled("plain"),
+            desktop: Some(titled("for computers")),
+            to: Reach::Everyone,
+        };
+        let got = |sent: &UserNotice, id, kind| sent.for_device(id, kind).map(|n| n.title.clone());
+        assert_eq!(got(&sent, &phone, &is_phone).as_deref(), Some("plain"));
+        assert_eq!(got(&sent, &mac, &is_mac).as_deref(), Some("for computers"));
+
+        sent.to = Reach::Desktops;
+        assert_eq!(got(&sent, &phone, &is_phone), None, "never a phone");
+        assert_eq!(got(&sent, &mac, &is_mac).as_deref(), Some("for computers"));
+        assert_eq!(
+            got(&sent, &other_mac, &is_mac).as_deref(),
+            Some("for computers")
+        );
+
+        sent.to = Reach::Device(phone);
+        assert_eq!(got(&sent, &phone, &is_phone).as_deref(), Some("plain"));
+        assert_eq!(got(&sent, &mac, &is_mac), None);
+
+        sent.to = Reach::Device(mac);
+        assert_eq!(got(&sent, &phone, &is_phone), None);
+        assert_eq!(got(&sent, &mac, &is_mac).as_deref(), Some("for computers"));
+        assert_eq!(
+            got(&sent, &other_mac, &is_mac),
+            None,
+            "only the Mac that started it"
+        );
     }
 }

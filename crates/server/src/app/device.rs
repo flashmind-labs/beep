@@ -1,7 +1,7 @@
 //! Questions for the phone: device queries a tool waits on, and the
 //! approvals a run stops on.
 
-use super::{App, UserNotice};
+use super::{App, Reach, UserNotice};
 use crate::{
     live::LiveRun,
     permissions::ApprovalPayload,
@@ -86,6 +86,7 @@ impl App {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         });
     }
 

@@ -17,7 +17,7 @@ use crate::{
         *,
     },
     router::Cx,
-    store::{AgentImageBytes, AgentImageOf},
+    store::{AgentImageBytes, AgentImageOf, SessionOn},
     tools::machines::command_name,
 };
 use futures::{StreamExt, stream};
@@ -180,6 +180,7 @@ pub(super) async fn resume_agent_session(
         .follows
         .unfollow(&cx.app, &live.host.machine_id, &resume.session);
     let info = link.now().info;
+    started_here(&cx, &live, &agent, &info.id).await;
     Ok(StartedAgent {
         session: beep_session(&live.host(), info),
         why: String::new(),
@@ -235,6 +236,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
             ApiError::bad_request(format!("Could not start {}: {e:#}", agent_name(&agent)))
         })?;
     let info = link.now().info;
+    started_here(&cx, &live, &agent, &info.id).await;
     if let Some(chat) = start.chat {
         live.online.report_to(
             &info.id,
@@ -250,6 +252,22 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
         session: beep_session(&live.host(), info),
         why,
     })
+}
+
+/// Remembers that the caller's device started `session`, so what it asks
+/// and when it finishes go to that device alone. The session runs either
+/// way: a start that was not saved only sends its alerts to the user's
+/// computers, as for a session started outside Beep.
+async fn started_here(cx: &Cx, live: &Live, agent: &str, session: &str) {
+    let on = SessionOn {
+        machine: &live.online.connection.remote_id(),
+        agent,
+        session,
+    };
+    let device = cx.connection.remote_id();
+    if let Err(e) = cx.user.record_agent_start(on, &device).await {
+        log::warn!("agent start not saved; session={session} error={e:#}");
+    }
 }
 
 /// Where Auto would start `preview` now, without starting it.

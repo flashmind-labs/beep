@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, ghChoices, githubAccounts, hostOf, sameServer, teaHas, teaOffers, toolChip, foldOrgs,
-  type CliLogins, type Credential,
+  type CliLogins, type Credential, type CredState,
 } from "../src/credentials.ts";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
@@ -47,6 +47,20 @@ test("each Forgejo server is its own row, with an add button", () => {
   // API keys go to commands and terminals, never to agents.
   assert.match(html, /Agents do not get API keys/);
   assert.doesNotMatch(html, /run agents/);
+});
+
+test("a Forgejo server the server cannot reach is checked from a machine", () => {
+  const html = (checks: CredState["checks"]) => credentialsHtml({ list, providers, edit: null, checks }, machines, esc, ago);
+  assert.match(html({ f2: { state: "checking" } }), /class="dgchip">checking from your machines…/);
+  const valid = html({ f2: { state: "valid", account: "octo", machine: "build-box" } });
+  assert.match(valid, /@octo/);
+  assert.match(valid, /title="The server cannot reach code\.example\.org; build-box can">checked from build-box/);
+  assert.doesNotMatch(valid, /not checked/);
+  const down = html({ f2: { state: "unreachable", message: "tried build-box" } });
+  assert.match(down, /class="dgchip warn" title="tried build-box">not reachable from the server or your machines/);
+  const refused = html({ f2: { state: "refused", machine: "build-box", message: "code.example.org refused the token from build-box." } });
+  assert.match(refused, /class="dgchip err"[^>]*>token refused/);
+  assert.match(refused, /class="derr">code\.example\.org refused the token from build-box\./);
 });
 
 test("a credential the server cannot open asks to be entered again", () => {
