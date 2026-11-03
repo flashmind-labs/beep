@@ -135,7 +135,10 @@ fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
 }
 
 /// Each agent's plan, Claude Code and Codex first.
-fn limits(mut plans: Vec<PlanRow>, names: &HashMap<EndpointId, String>) -> Vec<PlanLimits> {
+pub(super) fn limits(
+    mut plans: Vec<PlanRow>,
+    names: &HashMap<EndpointId, String>,
+) -> Vec<PlanLimits> {
     let rank = |agent: &AgentSlug| {
         PLAN_ORDER
             .iter()
@@ -266,7 +269,7 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
 /// The project a session in `cwd` on the machine `endpoint` belongs to:
 /// the imported project whose folder there holds it, the innermost when
 /// they nest, else the folder's own name.
-fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
+pub(super) fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
     let endpoint = endpoint.to_string();
     let separator = |c: char| c == '/' || c == '\\';
     let cwd = cwd.trim_end_matches(separator);
@@ -291,7 +294,7 @@ fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::usage::LimitWindow;
+    use crate::protocol::node::usage::{Billing, LimitWindow};
     use chrono::{DateTime, Utc};
     use iroh::SecretKey;
     use std::time::SystemTime;
@@ -406,6 +409,7 @@ mod tests {
             cwd: cwd.into(),
             agent: agent.into(),
             day: day(d),
+            billing: Billing::Unknown,
             cost_usd: Some(cost),
             tokens: 1_000,
             unpriced_tokens: 0,
@@ -414,6 +418,7 @@ mod tests {
             agent: agent.into(),
             model: model.into(),
             day: day(d),
+            billing: Billing::Unknown,
             tokens,
             from_logs,
         };

@@ -8,7 +8,6 @@ use crate::{
     projects::{
         fleet::NodeFleet,
         issues::{self, IssueError, IssueWork, ListedPr, OpenIssue},
-        lifecycle::fill_slots,
         model::{ProjectId, RepoName, TaskId, TaskState, WorkerAgent, WorkerId},
         tools::{drop_task, reopen_task},
         worker::stop_worker,
@@ -72,14 +71,14 @@ pub(super) async fn list_project_issues(
     cx: Cx,
     req: ListProjectIssues,
 ) -> Reply<Vec<ProjectIssue>> {
-    project_issues(&cx.app, &cx.user, ProjectId(req.project_id)).await
+    super::project_watch::copied_issues(&cx.app, &cx.user, ProjectId(req.project_id)).await
 }
 
 pub(super) async fn list_project_pull_requests(
     cx: Cx,
     req: ListProjectPullRequests,
 ) -> Reply<Vec<ProjectPullRequest>> {
-    project_pull_requests(&cx.app, &cx.user, ProjectId(req.project_id)).await
+    super::project_watch::copied_pull_requests(&cx.app, &cx.user, ProjectId(req.project_id)).await
 }
 
 pub(super) async fn get_pull_request_head(
@@ -87,10 +86,7 @@ pub(super) async fn get_pull_request_head(
     req: GetPullRequestHead,
 ) -> Reply<PullRequestHead> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
-    let fleet = NodeFleet {
-        app: cx.app.clone(),
-        user: cx.user.clone(),
-    };
+    let fleet = NodeFleet::new(&cx.app, &cx.user);
     let head = issues::pull_request_head(&fleet, &cx.user, &project, req.number)
         .await
         .map_err(issue_refusal)?;
@@ -126,7 +122,7 @@ pub(super) fn issue_refusal(error: IssueError) -> ApiError {
     }
 }
 
-fn issue_view(issue: OpenIssue) -> ProjectIssue {
+pub(super) fn issue_view(issue: OpenIssue) -> ProjectIssue {
     ProjectIssue {
         number: issue.number,
         title: issue.title,
@@ -138,24 +134,7 @@ fn issue_view(issue: OpenIssue) -> ProjectIssue {
     }
 }
 
-/// The open issues of the project no task tracks.
-async fn project_issues(
-    app: &Arc<App>,
-    user: &Arc<User>,
-    id: ProjectId,
-) -> Reply<Vec<ProjectIssue>> {
-    let project = project_of(user, id).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    let open = issues::list_open(&fleet, user, &project)
-        .await
-        .map_err(issue_refusal)?;
-    Ok(open.into_iter().map(issue_view).collect())
-}
-
-fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
+pub(super) fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
     let pr = listed.pr;
     ProjectPullRequest {
         number: pr.number,
@@ -167,23 +146,6 @@ fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
         created_at: pr.created_at.into(),
         updated_at: pr.updated_at.into(),
     }
-}
-
-/// Every open pull request of the project, newest first.
-async fn project_pull_requests(
-    app: &Arc<App>,
-    user: &Arc<User>,
-    id: ProjectId,
-) -> Reply<Vec<ProjectPullRequest>> {
-    let project = project_of(user, id).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    let open = issues::list_open_prs(&fleet, user, &project)
-        .await
-        .map_err(issue_refusal)?;
-    Ok(open.into_iter().map(pull_request_view).collect())
 }
 
 /// How the app asked the worker to start, checked.
@@ -216,10 +178,7 @@ async fn track_issue(
 ) -> Reply<ProjectTask> {
     let project = project_of(user, id).await?;
     let work = start.map(issue_work).transpose()?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let task = issues::track(&fleet, user, &project, number, work)
         .await
         .map_err(issue_refusal)?;
@@ -331,18 +290,11 @@ async fn update_task(
 ) -> Reply<ProjectTask> {
     let task = user.project_task(id).await?.ok_or(ApiError::NotFound {})?;
     let project = project_of(user, task.project).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     match to {
         TaskState::Dropped if task.state.is_open() => {
             let said = drop_task(&fleet, user, &project, &task).await?;
             log::info!("projects: the user dropped a task: {said}");
-            // The slot its worker held may start a queued task.
-            if let Err(error) = fill_slots(&fleet, user).await {
-                log::warn!("projects: queued tasks not started: {error:#}");
-            }
         }
         TaskState::Planned
             if matches!(
@@ -372,13 +324,6 @@ async fn stop(app: &Arc<App>, user: &Arc<User>, id: WorkerId) -> Reply<()> {
         .await?
         .ok_or(ApiError::NotFound {})?;
     stop_worker(app, user, &worker).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    if let Err(error) = fill_slots(&fleet, user).await {
-        log::warn!("projects: queued tasks not started: {error:#}");
-    }
     Ok(())
 }
 

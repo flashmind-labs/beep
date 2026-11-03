@@ -1,7 +1,7 @@
 //! One call to a git host's API with a user's token, and why it failed in
 //! words for the user.
 
-use reqwest::{Client, StatusCode, header};
+use reqwest::{Client, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
@@ -58,33 +58,39 @@ impl Caller<'_> {
             )
             .send()
             .await;
-        let reply = match sent {
-            Ok(reply) => reply,
-            Err(e) if e.is_timeout() => return Err(HostError::Timeout(host)),
-            Err(e) => {
-                log::info!("asking {host} for open items: {e}");
-                return Err(HostError::Unreachable(host));
-            }
-        };
+        let reply = sent.map_err(|e| send_error(&host, &e))?;
         let status = reply.status();
         if !status.is_success() {
-            let out_of_calls = reply
-                .headers()
-                .get("x-ratelimit-remaining")
-                .is_some_and(|left| left.as_bytes() == b"0");
-            return Err(match status {
-                StatusCode::TOO_MANY_REQUESTS => HostError::RateLimited(host),
-                StatusCode::FORBIDDEN if out_of_calls => HostError::RateLimited(host),
-                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => HostError::Refused(host),
-                _ => HostError::Status {
-                    host,
-                    status: status.as_u16(),
-                },
-            });
+            return Err(status_error(host, status, reply.headers()));
         }
         reply.json::<T>().await.map_err(|e| {
             log::info!("reading open items from {host}: {e}");
             HostError::BadReply(host)
         })
+    }
+}
+
+/// Why a call that got no reply failed.
+pub(crate) fn send_error(host: &str, error: &reqwest::Error) -> HostError {
+    if error.is_timeout() {
+        return HostError::Timeout(host.to_owned());
+    }
+    log::info!("asking {host}: {error}");
+    HostError::Unreachable(host.to_owned())
+}
+
+/// Why a reply with the unsuccessful `status` failed.
+pub(crate) fn status_error(host: String, status: StatusCode, headers: &HeaderMap) -> HostError {
+    let out_of_calls = headers
+        .get("x-ratelimit-remaining")
+        .is_some_and(|left| left.as_bytes() == b"0");
+    match status {
+        StatusCode::TOO_MANY_REQUESTS => HostError::RateLimited(host),
+        StatusCode::FORBIDDEN if out_of_calls => HostError::RateLimited(host),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => HostError::Refused(host),
+        _ => HostError::Status {
+            host,
+            status: status.as_u16(),
+        },
     }
 }

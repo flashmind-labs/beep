@@ -3,7 +3,8 @@
 
 use super::{
     Reply,
-    reviews::{online, places, project_row},
+    own_nodes::online,
+    reviews::{places, project_row},
 };
 use crate::{
     imports::checkout_for_worktree,

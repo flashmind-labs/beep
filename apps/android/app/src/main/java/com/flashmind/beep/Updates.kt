@@ -22,7 +22,7 @@ private const val SHOWN_UPDATES = 3
 
 /**
  * What the event triage agent found in the user's apps, on its own card above an empty chat's
- * greeting rather than inside a reply. Tapping one dismisses it and hands its summary to [onOpen];
+ * greeting rather than inside a reply. Tapping one hands it to [onOpen], which opens its chat;
  * the cross only dismisses it. Nothing shows while there are none.
  */
 @Composable
