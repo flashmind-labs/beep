@@ -5,6 +5,7 @@ import type { CheckoutPick } from "./agentpick.ts";
 import { clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
+import { composeField, composeMessage } from "./compose.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
 import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
@@ -521,11 +522,13 @@ export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
+    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell"><div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>${paneFrame()}</div>`;
   startPane(s);
+  const msg = $<HTMLTextAreaElement>("#agmsg");
+  if (msg) composeField(msg, { images: agentAttach, grow: 156 });
   drawAgentAttached();
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
@@ -954,7 +957,7 @@ export function drawAgentBody() {
   tickTurns();
   redrawAgentHints();
   // An ended session goes on from the field: the next message resumes it.
-  const msg = $<HTMLInputElement>("#agmsg"), k = agentKind(s.agent);
+  const msg = $<HTMLTextAreaElement>("#agmsg"), k = agentKind(s.agent);
   if (msg) msg.placeholder = s.status === "ended" ? `Message ${k.name} to continue` : `Message ${k.name}`;
   const close = $("#agclose");
   if (close) close.style.display = s.status === "ended" ? "none" : "";
@@ -1039,7 +1042,7 @@ function drawQueue() {
 /// Takes queued message `i` out; to edit, it goes back in the field.
 function editQueued(i: number, edit: boolean) {
   const [text] = AG.queue.splice(i, 1);
-  const input = $<HTMLInputElement>("#agmsg");
+  const input = $<HTMLTextAreaElement>("#agmsg");
   if (edit && input && text != null) input.value = input.value ? `${text}\n${input.value}` : text;
   drawQueue();
   redrawAgentHints();
@@ -1047,8 +1050,8 @@ function editQueued(i: number, edit: boolean) {
 }
 
 /// Queues a message typed while the turn runs, as flsh does.
-function queueMessage(input: HTMLInputElement) {
-  const text = input.value.trim();
+function queueMessage(input: HTMLTextAreaElement) {
+  const text = composeMessage(input.value);
   if (!text) return;
   AG.queue.push(text);
   input.value = "";
@@ -1066,7 +1069,7 @@ function flushQueue() {
   drawQueue();
   redrawAgentHints();
   if (s.status === "ended" || s.external) {
-    const input = $<HTMLInputElement>("#agmsg");
+    const input = $<HTMLTextAreaElement>("#agmsg");
     if (input && !input.value) input.value = text;
     return;
   }
@@ -1135,7 +1138,7 @@ export async function steerAgent(steer: Steer) {
 }
 
 export async function sendAgentMessage() {
-  const input = $<HTMLInputElement>("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
+  const input = $<HTMLTextAreaElement>("#agmsg"), text = composeMessage(input?.value ?? ""), images = AG.att;
   if (!text && !images.length) return;
   const o = AG.open!, page = AG.page!;
   if (page.session.status === "ended") return continueAgent(input!, text, images);
@@ -1158,7 +1161,7 @@ export async function sendAgentMessage() {
   // A poll may have drawn more since: take out this message, not the last.
   const at = page.entries.indexOf(mine);
   if (at >= 0) page.entries.splice(at, 1);
-  const field = $<HTMLInputElement>("#agmsg");
+  const field = $<HTMLTextAreaElement>("#agmsg");
   if (field && !field.value) field.value = text;
   AG.att = images;
   drawAgentBody();
@@ -1167,7 +1170,7 @@ export async function sendAgentMessage() {
 
 /// Resumes the ended session with `text`, then follows the session that
 /// goes on from it. Images go once it runs again.
-export async function continueAgent(input: HTMLInputElement, text: string, images: Attached[]) {
+export async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[]) {
   const o = AG.open!;
   if (images.length && !text) { AG.note = "Say something to continue the session, then send the images."; return drawAgentBody(); }
   input.value = "";
@@ -1244,10 +1247,10 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); steerAgent({ cancel: null }); return true; }
-    if (e.key === "Enter" && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();
       // While the turn runs, Enter queues; the queue goes when it stops.
-      if (turnRuns()) queueMessage(e.target as HTMLInputElement);
+      if (turnRuns()) queueMessage(e.target as HTMLTextAreaElement);
       else sendAgentMessage();
       return true;
     }
