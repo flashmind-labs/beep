@@ -342,6 +342,26 @@ async fn merged_pr_finishes_the_task() {
 }
 
 #[tokio::test]
+async fn a_failed_check_still_checks_again() {
+    let h = harness().await;
+    h.working(TaskState::Review, minutes_ago(5)).await;
+    h.working(TaskState::Review, minutes_ago(5)).await;
+    h.pr(
+        r#"{"number":7,"url":"https://github.com/acme/widget/pull/7","state":"MERGED",
+        "mergedAt":"2026-11-01T10:00:00Z","reviewDecision":"APPROVED","statusCheckRollup":[],
+        "title":"Spin it","body":"Closes #12"}"#,
+    );
+    h.shell.fail_on("worktree remove");
+    assert!(check(&h.fleet, &h.user, h.project.id, now()).await.is_err());
+    assert!(
+        h.fleet
+            .projects
+            .armed_at(&Due::Check(h.project.id))
+            .is_some()
+    );
+}
+
+#[tokio::test]
 async fn unchanged_checks_post_nothing() {
     let h = harness().await;
     let (task, _) = h.working(TaskState::Review, minutes_ago(5)).await;
