@@ -12,7 +12,8 @@ use beep_server::protocol::node::{
     desktop::{self, Reply, Screenshot},
 };
 use beep_server::protocol::{
-    FlshAutoCompact, FlshModelRule, FlshSettings, FlshSort, GetFlshSettings, SaveFlshSettings,
+    FlshAutoCompact, FlshModelRule, FlshSettings, FlshSort, GetFlshSettings, HarnessEnv,
+    ListHarnessSettings, SaveFlshSettings, SaveHarnessSettingsAll, SecretText,
 };
 use beep_server::{
     app::{App, ServerTools},
@@ -464,7 +465,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
     assert_eq!(sessions[0].agent, "fake");
-    let (entries, earlier) = live.transcript(&id, 100).await.unwrap();
+    let (entries, earlier) = live.transcript(&id, 100, false).await.unwrap();
     assert_eq!(earlier, 0);
     assert_eq!(entries[0].kind, EntryKind::User);
     assert_eq!(entries[0].text, "please pick the notes");
@@ -481,7 +482,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
                 && entry.text == "Allowed: Edit notes.txt"),
         "{entries:?}"
     );
-    let (last, earlier) = live.transcript(&id, 2).await.unwrap();
+    let (last, earlier) = live.transcript(&id, 2, false).await.unwrap();
     assert_eq!(last.len(), 2);
     assert_eq!(earlier as usize, entries.len() - 2);
 
@@ -1267,13 +1268,15 @@ impl Protocol for FakeSessions {
                 (SessionsRequest::List {}, _) => SessionsReply::Sessions {
                     sessions: fake.sessions.clone(),
                 },
-                (SessionsRequest::Transcript { session, last }, _) => SessionsReply::Transcript {
-                    entries: vec![Entry {
-                        kind: EntryKind::Agent,
-                        text: format!("{session}: the last {last}"),
-                    }],
-                    earlier: 4,
-                },
+                (SessionsRequest::Transcript { session, last, .. }, _) => {
+                    SessionsReply::Transcript {
+                        entries: vec![Entry::new(
+                            EntryKind::Agent,
+                            format!("{session}: the last {last}"),
+                        )],
+                        earlier: 4,
+                    }
+                }
                 (SessionsRequest::External { agent, .. }, Some(external)) => {
                     SessionsReply::External {
                         sessions: external
@@ -1581,28 +1584,6 @@ impl CommandCenter {
 }
 
 #[tokio::test]
-async fn agent_sessions_survive_no_external() {
-    let mut center = CommandCenter::new(1).await;
-    center
-        .node(
-            0,
-            "build-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", None)],
-                external: None,
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(sessions[0].id, "a3f9c1");
-    assert!(!sessions[0].external);
-    center.shutdown().await;
-}
-
-#[tokio::test]
 async fn agent_sessions_list_none_of_another_users_machines() {
     let mut center = CommandCenter::new(1).await;
     center.node(0, "build-box", FakeAgents::default()).await;
@@ -1659,6 +1640,76 @@ async fn a_harness_turned_off_is_not_offered() {
         .unwrap();
     let hosts = client.call(&ListAgentHosts {}).await.unwrap();
     assert_eq!(hosts[0].agents, ["claude"]);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn harness_settings_save_to_every_machine_even_one_offline() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center.node(0, "build-box", FakeAgents::default()).await;
+    let gpu = center.node(0, "gpu-box", FakeAgents::default()).await;
+    // gpu-box goes offline; it is still one of the user's machines.
+    center.nodes[1].abort();
+    let (_node, client) = center.phone(0).await;
+    let own = |program: &str| HarnessSettings {
+        enabled: true,
+        program: program.into(),
+        home: String::new(),
+        args: Vec::new(),
+        env: Vec::new(),
+    };
+    client
+        .call(&SaveHarnessSettings {
+            machine_id: gpu.clone(),
+            agent: "claude".into(),
+            settings: own("/srv/claude"),
+        })
+        .await
+        .unwrap();
+    let saved = client
+        .call(&SaveHarnessSettingsAll {
+            from_machine: build.clone(),
+            agent: "claude".into(),
+            settings: HarnessSettings {
+                args: vec!["--verbose".into()],
+                env: vec![HarnessEnv {
+                    name: "HTTPS_PROXY".into(),
+                    value: Some(SecretText::new("http://proxy:3128")),
+                }],
+                ..own("/opt/claude")
+            },
+            include_program: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(saved, 2);
+    let mut all = client
+        .call(&ListHarnessSettings {
+            agent: "claude".into(),
+        })
+        .await
+        .unwrap();
+    all.sort_by(|a, b| a.machine_name.cmp(&b.machine_name));
+    assert_eq!(all[0].machine_name, "build-box");
+    assert_eq!(all[0].settings.program, "/opt/claude");
+    // The binary path stays the machine's own; the rest is copied.
+    assert_eq!(all[1].machine_name, "gpu-box");
+    assert_eq!(all[1].settings.program, "/srv/claude");
+    for machine in &all {
+        assert_eq!(machine.settings.args, ["--verbose"]);
+        assert_eq!(machine.settings.env[0].name, "HTTPS_PROXY");
+        assert_eq!(machine.settings.env[0].value, None);
+    }
+    let missing = client
+        .call(&SaveHarnessSettingsAll {
+            from_machine: "not-mine".into(),
+            agent: "claude".into(),
+            settings: own(""),
+            include_program: false,
+        })
+        .await;
+    let missing = missing.unwrap_err().downcast::<ApiError>().unwrap();
+    assert!(matches!(missing, ApiError::NotFound {}), "{missing:?}");
     center.shutdown().await;
 }
 

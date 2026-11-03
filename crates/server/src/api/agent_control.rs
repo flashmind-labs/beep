@@ -474,9 +474,15 @@ pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<Age
     };
     let last = get.last.clamp(1, MAX_ENTRIES);
     let read_at = started.elapsed();
-    match timeout(NODE_LIMIT, live.online.transcript(&get.session, last)).await {
+    let thoughts = cx.supports(Feature::THOUGHTS);
+    match timeout(
+        NODE_LIMIT,
+        live.online.transcript(&get.session, last, thoughts),
+    )
+    .await
+    {
         Ok(Ok((entries, earlier))) => {
-            view.entries = entries.into_iter().map(entry).collect();
+            view.entries = entries_for(entries, thoughts);
             view.earlier = earlier;
         }
         Ok(Err(e)) => log::warn!("transcript not read; session={} error={e:#}", get.session),
@@ -532,12 +538,22 @@ fn plan_status(status: PlanStatus) -> AgentPlanStatus {
     }
 }
 
+/// The entries an app reads: thoughts only for one that reads them.
+fn entries_for(entries: Vec<agent::Entry>, thoughts: bool) -> Vec<AgentEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| thoughts || entry.kind != agent::EntryKind::Thought)
+        .map(entry)
+        .collect()
+}
+
 fn entry(entry: agent::Entry) -> AgentEntry {
     let kind = match entry.kind {
         agent::EntryKind::User => AgentEntryKind::User {},
         agent::EntryKind::Agent => AgentEntryKind::Agent {},
         agent::EntryKind::Tool => AgentEntryKind::Tool {},
         agent::EntryKind::Question => AgentEntryKind::Question {},
+        agent::EntryKind::Thought => AgentEntryKind::Thought { ms: entry.ms },
         _ => AgentEntryKind::Other {},
     };
     AgentEntry {
@@ -896,6 +912,38 @@ fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_app_that_reads_thoughts_gets_them() {
+        let thought = agent::Entry {
+            kind: agent::EntryKind::Thought,
+            text: "hmm".into(),
+            ms: Some(4000),
+        };
+        let entries = vec![
+            agent::Entry::new(agent::EntryKind::User, "go".into()),
+            thought,
+            agent::Entry::new(agent::EntryKind::Agent, "done".into()),
+        ];
+        let kinds = |thoughts| -> Vec<AgentEntryKind> {
+            entries_for(entries.clone(), thoughts)
+                .into_iter()
+                .map(|entry| entry.kind)
+                .collect()
+        };
+        assert_eq!(
+            kinds(true),
+            [
+                AgentEntryKind::User {},
+                AgentEntryKind::Thought { ms: Some(4000) },
+                AgentEntryKind::Agent {},
+            ]
+        );
+        assert_eq!(
+            kinds(false),
+            [AgentEntryKind::User {}, AgentEntryKind::Agent {}]
+        );
+    }
 
     #[test]
     fn a_checkout_plan_needs_a_plain_base_and_a_node_that_makes_it() {

@@ -347,12 +347,13 @@ export function makeReviews(deps: ReviewDeps) {
   const reading = new Set<string>();
   const tried = new Map<string, number>();
 
-  /// Reads `name` when it is due: never read, or the refresh time passed
-  /// since the last try. Every draw may ask; an action reads anyway.
-  function ensure(name: string) {
+  /// Reads `name` when it is due: never read, or `every` passed since the
+  /// last try (the refresh time by default). Every draw may ask; an action
+  /// reads anyway. The read, when one starts.
+  function ensure(name: string, every = REFRESH_MS): Promise<void> | undefined {
     const last = tried.get(name);
-    const due = last === undefined ? kept.due(name) : Date.now() - last >= REFRESH_MS;
-    if (due && !reading.has(name)) load(name);
+    const due = last === undefined ? kept.due(name, every) : Date.now() - last >= every;
+    if (due && !reading.has(name)) return load(name);
   }
 
   async function load(name: string) {

@@ -79,6 +79,11 @@ impl Feature {
     /// their fixtures. Only the macOS app sends them.
     pub const BRANCH_WORKTREES: Feature = Feature(14);
 
+    /// Reads `AgentEntryKind::Thought`, a coding agent's thought in a
+    /// session's transcript, which `GetAgentSession` gives only to an app
+    /// that reads it. Only the macOS app does.
+    pub const THOUGHTS: Feature = Feature(15);
+
     /// Sends `AgentSteer::Steer`, a message for a coding agent's running
     /// turn that goes once its current tool call finishes. A request, not a
     /// reply: the server reads it from any app, and the wire revision only

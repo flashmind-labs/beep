@@ -7,7 +7,7 @@ import { renderInvitePhone, renderLink } from "./link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "./machines.ts";
 import { harnessTile } from "../harnessicon.ts";
 import { harnessName } from "../providers-state.ts";
-import { back, crumbs, fitPath, isPage, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, SETTINGS_PAGES, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "../settings-nav.ts";
+import { agentSubs, back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, SETTINGS_PAGES, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "../settings-nav.ts";
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "./tools.ts";
 import { show } from "./views.ts";
@@ -354,7 +354,6 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
 
 /// The coding agents Settings lists under Agent accounts, each opening its
 /// versions, switch, binary path, launch arguments and env vars.
-const CODING_AGENTS = ["claude", "codex", "gemini", "pi", "opencode", "flsh"];
 
 function codingAgentsHtml() {
   const row = (agent: string) => `<div class="dset-row" data-sub="${esc(subKey({ kind: "agent", id: agent }))}" role="button" tabindex="0">${harnessTile(agent)}
@@ -386,7 +385,7 @@ function subExists(sub: SettingsSub) {
 function subEntries(page: SettingsPage): SettingsSub[] {
   if (page === "apps") return (A.apps ?? []).filter(a => a.connected).map(a => ({ kind: "app", id: a.slug }));
   if (page === "machines") return (SET.machines ?? MC.list ?? []).map(m => ({ kind: "machine", id: m.id }));
-  if (page === "agents") return CODING_AGENTS.map(id => ({ kind: "agent", id }));
+  if (page === "agents") return agentSubs();
   return [];
 }
 
@@ -397,13 +396,10 @@ function navCount(page: SettingsPage) {
 }
 
 function navHtml(shown: SettingsPage[], path: SettingsPath) {
-  return shown.map(page => {
-    const here = path.page === page;
-    const kids = here ? subEntries(page).map(sub => {
-      const on = path.sub?.kind === sub.kind && path.sub.id === sub.id;
-      return `<button class="cc-si sub" data-sub="${esc(subKey(sub))}"${on ? ' aria-current="true"' : ""}><span class="tt">${esc(subLabel(sub))}</span></button>`;
-    }).join("") : "";
-    return `<button class="cc-si" data-goto="${page}"${here && !path.sub ? ' aria-current="true"' : ""}><span class="tt">${esc(pageLabel(page))}</span>${navCount(page)}</button>${kids}`;
+  return navEntries(shown, path, subEntries).map(({ page, sub, current }) => {
+    const on = current ? ' aria-current="true"' : "";
+    if (sub) return `<button class="cc-si sub" data-sub="${esc(subKey(sub))}"${on}><span class="tt">${esc(subLabel(sub))}</span></button>`;
+    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(pageLabel(page))}</span>${navCount(page)}</button>`;
   }).join("");
 }
 
@@ -443,7 +439,7 @@ function drawSheet() {
   const page = settingsSections(local.set, local.mac, local.linked, true).find(([id]) => id === path.page)?.[1] ?? "";
   const focus = focusKey(el);
   el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><small>Beep for macOS ${esc(local.set.version)}</small><div class="dset-pages">${navHtml(shown, path)}</div></nav>
-    <div class="dset-body"><div class="dset-top"><span class="dset-crumbs">${crumbsHtml(path)}</span><span class="dset-tools"></span><kbd>esc</kbd></div>
+    <div class="dset-body"><div class="dset-top"><span class="dset-crumbs">${crumbsHtml(path)}</span><kbd>esc</kbd></div>
     <div class="dset-page dform">${page}</div></div>`;
   bindNav(el);
   bindSettings(el.querySelector(".dset-page")!);
@@ -533,9 +529,8 @@ function mountPage(path: SettingsPath) {
   const embed = windowHooks?.embedView;
   if (!embed) return;
   if (path.page === "agents" && sub?.kind === "agent") {
-    const tools = SET.root!.querySelector<HTMLElement>(".dset-tools");
-    SET.unembed = embed("providers", box, { agent: sub.id, onPick: (agent: string) => follow("agents", { kind: "agent", id: agent }) },
-      nodes => tools?.replaceChildren(...nodes));
+    // The view draws its machine picker in a toolbar of its own, under the breadcrumb.
+    SET.unembed = embed("providers", box, { agent: sub.id, settings: true });
   } else if (path.page === "instr") {
     SET.unembed = embed("instructions", box, undefined);
   }

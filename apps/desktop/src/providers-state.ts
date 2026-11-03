@@ -133,6 +133,17 @@ export function statusLine(h: HarnessView): { text: string; bad: boolean } {
   return { text: "Installed", bad: false };
 }
 
+/// The one status line atop a harness's own page: as the list says it, but
+/// naming the account it is signed in with.
+export function summaryLine(h: HarnessView): { text: string; bad: boolean } {
+  const s = h.sign_in;
+  if (h.installed && h.settings.enabled && s.state === "signed_in" && s.account) {
+    const plan = s.plan ? ` · ${planName(s.plan)} plan` : "";
+    return { text: `Signed in as ${s.account}${plan}`, bad: false };
+  }
+  return statusLine(h);
+}
+
 /// The list rows: every harness Beep knows, OpenCode only when the machine
 /// has it.
 export function listRows(view: HarnessesView): HarnessRow[] {
@@ -262,4 +273,42 @@ export function envProblem(env: EnvDraft[]) {
     seen.add(name);
   }
   return "";
+}
+
+/// One machine's saved settings for a harness (MachineSettingsView).
+export interface MachineSettings {
+  machine_id: string;
+  machine_name: string;
+  settings: SettingsView;
+}
+
+/// A field "Save to all hosts" copies, and so can differ between machines.
+export type SharedField = "program" | "home" | "args" | "env";
+
+/// A field's value as compared across machines: env vars by their names,
+/// in any order, since the values never come back.
+function fieldKey(settings: SettingsView, field: SharedField) {
+  if (field === "args") return JSON.stringify(settings.args);
+  if (field === "env") return JSON.stringify([...settings.env].sort());
+  return settings[field];
+}
+
+/// The other machines whose saved `field` is not what `machineId` has
+/// saved, by name; empty when it is the same everywhere or the machine is
+/// not in `all`.
+export function differsOn(all: readonly MachineSettings[], machineId: string, field: SharedField): string[] {
+  const own = all.find(m => m.machine_id === machineId);
+  if (!own) return [];
+  const mine = fieldKey(own.settings, field);
+  return all.filter(m => m.machine_id !== machineId && fieldKey(m.settings, field) !== mine).map(m => m.machine_name);
+}
+
+/// "differs on 2 machines", or "" when it does not.
+export function differsLabel(names: readonly string[]) {
+  return names.length ? `differs on ${names.length} machine${names.length === 1 ? "" : "s"}` : "";
+}
+
+/// "Saved to 3 machines".
+export function savedToLabel(n: number) {
+  return `Saved to ${n} machine${n === 1 ? "" : "s"}`;
 }

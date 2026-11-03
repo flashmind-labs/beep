@@ -1002,6 +1002,15 @@ impl User {
         self.store.harness_settings(&self.key, machine_id).await
     }
 
+    /// The user's settings for the harness `agent` on each machine that has
+    /// some saved.
+    pub(crate) async fn harness_settings_of(
+        &self,
+        agent: &str,
+    ) -> Result<Vec<crate::store::HarnessRow>> {
+        self.store.harness_settings_of(&self.key, agent).await
+    }
+
     /// The env vars of the harness `agent` on `machine_id`, opened.
     pub(crate) async fn harness_env(
         &self,

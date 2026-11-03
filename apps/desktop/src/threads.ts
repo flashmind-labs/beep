@@ -438,12 +438,14 @@ export function makeThreads(deps: ThreadDeps) {
   const reading = new Set<string>();
   const tried = new Map<string, number>();
 
-  /// Reads `id` when it is due: never read, or the refresh time passed
-  /// since the last try. Every draw may ask; Refresh reads anyway.
-  function ensure(id: string) {
+  /// Reads `id` when it is due: never read, or `every` passed since the
+  /// last try (the refresh time by default; opening the project asks
+  /// sooner). Every draw may ask; Refresh reads anyway. The read, when
+  /// one starts.
+  function ensure(id: string, every = REFRESH_GAP): Promise<void> | undefined {
     const last = tried.get(id);
-    const due = last === undefined ? kept.due(id) : Date.now() - last >= REFRESH_GAP;
-    if (due && !reading.has(id)) load(id);
+    const due = last === undefined ? kept.due(id, every) : Date.now() - last >= every;
+    if (due && !reading.has(id)) return load(id);
   }
 
   /// The section header's note: a spinner while kept lists read again,

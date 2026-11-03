@@ -12,7 +12,9 @@ import type { MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { since } from "./components/format.ts";
-import { emptyPanel, note, stateChip } from "./components/parts.ts";
+import { emptyPanel, fitRows, note, stateChip } from "./components/parts.ts";
+import type { TileData } from "./board.ts";
+import { PageCache, REFRESH_MS, type SectionStore } from "./pagecache.ts";
 
 /// The current step of a running job (StepRow).
 export interface StepNow {
@@ -94,6 +96,23 @@ export function hostLabel(host: string | null | undefined, hosts: readonly Pick<
   const known = hosts.find(h => h.host === host);
   if (known) return known.kind === "github" ? "GitHub" : "Forgejo";
   return host === "github.com" ? "GitHub" : "Forgejo";
+}
+
+/// The board's Actions tile: the newest runs, a chip on each, and the
+/// host beside a run when the runs come from more than one.
+export function runTile(d: Pick<RunsRow, "runs" | "hosts"> | null | undefined, error = ""): TileData {
+  if (d === undefined) return { count: "", rows: [], empty: "Loading…" };
+  if (d === null) return { count: "", rows: [], empty: "The server needs an update before it shows runs" };
+  if (error && !d.runs.length) return { count: "", rows: [], empty: error };
+  const hosts = d.hosts ?? [];
+  return {
+    count: runsCount(d.runs) || (d.runs.length ? String(d.runs.length) : ""),
+    rows: d.runs.map(r => {
+      const c = runChip(r.state);
+      return { code: r.workflow, text: r.title, url: r.url, chip: { cls: c.cls, text: c.text }, title: hosts.length > 1 ? hostLabel(r.host, hosts) : undefined };
+    }),
+    empty: "No workflow runs yet",
+  };
 }
 
 /// Which run a row is: its host and id, as ids repeat across hosts.
@@ -261,6 +280,8 @@ export interface RunDeps {
   fix: (detail: RunDetail) => void;
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => HTMLElement | null;
+  /// Where the runs are kept between windows; in memory only without it.
+  kept?: SectionStore<RunsRow | null>;
 }
 
 /// One project's runs: undefined while they load, null from a server too
@@ -272,35 +293,49 @@ interface ProjectRuns {
   open: string | null;
   detail: RunDetail | null;
   detailError: string;
-  all: boolean;
   loading: boolean;
 }
 
-/// Rows shown before Show all.
-const SHOWN = 8;
+/// Rows shown before the list scrolls.
+const SHOWN = 5;
 
 type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
 export function makeRuns(deps: RunDeps) {
   const { invoke, h, button, redraw, openUrl, fix } = deps;
+  const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
   const all = new Map<string, ProjectRuns>();
+  /// When each project's runs were last asked for, so a draw asks again
+  /// only once they are old.
+  const tried = new Map<string, number>();
 
+  /// A project's runs, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
     if (!s) {
-      s = { data: undefined, error: "", open: null, detail: null, detailError: "", all: false, loading: false };
+      s = { data: kept.get(id), error: "", open: null, detail: null, detailError: "", loading: false };
       all.set(id, s);
     }
     return s;
   };
 
+  /// Reads `id` when it is due: never read, or `every` passed since the
+  /// last ask (the refresh time by default). The read, when one starts.
+  function ensure(id: string, every = REFRESH_MS): Promise<void> | undefined {
+    const last = tried.get(id);
+    const due = last === undefined ? kept.due(id, every) : Date.now() - last >= every;
+    if (due && !of(id).loading) return load(id);
+  }
+
   async function load(id: string, refresh = false) {
     const s = of(id);
     if (s.loading) return;
     s.loading = true;
+    tried.set(id, Date.now());
     try {
       s.data = await invoke<RunsRow | null>("center_project_runs", { projectId: id, refresh });
       s.error = "";
+      kept.put(id, s.data);
     } catch (e) {
       s.error = reason(e);
       if (s.data === undefined) s.data = { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null };
@@ -399,8 +434,9 @@ export function makeRuns(deps: RunDeps) {
     const chip = runChip(r.state);
     const meta: (HTMLElement | string)[] = [];
     if (r.branch) meta.push(h("span", "", h("code", "", r.branch)));
-    if (r.event) meta.push(h("span", "", r.event));
-    if (r.actor) meta.push(h("span", "", r.actor));
+    // The event and who started it give way first on a narrow list.
+    if (r.event) meta.push(h("span", "ev", r.event));
+    if (r.actor) meta.push(h("span", "ev", r.actor));
     if (going(r.state) && r.progress) {
       meta.push(h("span", "", progressText(r.progress)));
       if (r.progress.jobs > 1) meta.push(h("span", "", `${r.progress.jobs_done} of ${r.progress.jobs} jobs done`));
@@ -417,7 +453,7 @@ export function makeRuns(deps: RunDeps) {
       badge = h("span", "pj-host", hostLabel(r.host, hosts));
       badge.title = `${hostLabel(r.host, hosts)} Actions on ${r.host}`;
     }
-    const el = h("div", `pj-task pj-issue${opened ? " ask" : ""}`,
+    const el = h("div", `pj-task pj-issue pj-runrow${opened ? " ask" : ""}`,
       h("span", "t", badge, link(`${r.workflow} #${r.number}`, r.url), ` ${r.title}`),
       stateChip(chip.cls, chip.text, chip.spin),
       h("span", "m", ...meta),
@@ -431,7 +467,7 @@ export function makeRuns(deps: RunDeps) {
   function section(agent: Agent) {
     const id = agent.project_id;
     const s = of(id);
-    if (s.data === undefined && !s.loading) load(id);
+    ensure(id);
     const d = s.data;
     const box = h("div", "pj-actions");
     box.id = "sec-actions";
@@ -454,12 +490,7 @@ export function makeRuns(deps: RunDeps) {
       return box;
     }
     if (why) box.append(h("div", "cc-err", why));
-    const rows = s.all ? d.runs : d.runs.slice(0, SHOWN);
-    const panel = h("div", "cc-panel", ...rows.map(r => row(id, s, r)));
-    if (d.runs.length > SHOWN) {
-      panel.append(h("div", "pj-task pj-more", h("span", "t dmuted", s.all ? "" : `${d.runs.length - SHOWN} more`),
-        h("span", "acts", button(s.all ? "Show fewer" : `Show all ${d.runs.length}`, "quiet small", () => { s.all = !s.all; redraw(); }))));
-    }
+    const panel = h("div", "cc-panel pj-runbox", fitRows(d.runs.map(r => row(id, s, r)), SHOWN));
     box.append(panel);
     return box;
   }
@@ -468,6 +499,16 @@ export function makeRuns(deps: RunDeps) {
     load,
     tick,
     section,
+    /// The runs of project `id` and why they could not be read, reading
+    /// them the first time.
+    tile: (id: string) => {
+      const s = of(id);
+      ensure(id);
+      return runTile(s.data, s.error);
+    },
+    ensure,
+    loading: (id: string) => of(id).loading,
+    at: (id: string) => kept.at(id),
     /// Each open pull request's checks, once the runs are read.
     checks: (id: string) => of(id).data?.checks ?? null,
     /// Opens run `run` of project `id` on `host`, as a PR row's checks

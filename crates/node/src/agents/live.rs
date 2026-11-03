@@ -8,6 +8,7 @@ use super::{
     image_files,
     images::{Images, Picture, data_url},
     subagent::{Activity, Run, Subagent},
+    tool_diff::diff_text,
     unix_now,
     usage::{UsageHub, claude_rate_limit},
 };
@@ -38,6 +39,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Instant,
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -117,10 +119,21 @@ pub(crate) struct Live {
     /// also shown as an agent image: at most `image_files::MAX_PER_TURN`.
     turn_images: Vec<String>,
     /// The thought arriving now, for the line the summary shows while the
-    /// agent thinks; thoughts are not kept in the transcript.
+    /// agent thinks.
     thought: String,
     /// The last update was part of `thought`.
     in_thought: bool,
+    /// The thought arriving now, as its transcript entry once it has text,
+    /// and when it started; `None` for one replayed by a loaded session,
+    /// whose time is not known.
+    open_thought: Option<OpenThought>,
+}
+
+/// A thought still arriving.
+#[derive(Debug)]
+struct OpenThought {
+    entry: Option<u64>,
+    started: Option<Instant>,
 }
 
 /// The tokens one turn used, as its prompt response says.
@@ -283,6 +296,7 @@ impl Live {
     }
 
     pub(crate) fn push(&mut self, kind: EntryKind, text: &str) {
+        self.end_thought(Instant::now());
         self.in_message = false;
         self.push_entry(kind, cut(text, MAX_ENTRY));
     }
@@ -292,7 +306,7 @@ impl Live {
             self.transcript.pop_front();
             self.dropped += 1;
         }
-        self.transcript.push_back(Entry { kind, text });
+        self.transcript.push_back(Entry::new(kind, text));
         self.dropped + self.transcript.len() as u64 - 1
     }
 
@@ -303,6 +317,7 @@ impl Live {
 
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
+        self.end_thought(Instant::now());
         self.in_message = false;
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
@@ -369,10 +384,24 @@ impl Live {
     /// so the server should hear of it; transcript changes alone are not
     /// sent.
     pub(crate) fn apply(&mut self, update: &SessionUpdate) -> bool {
+        self.apply_at(update, Instant::now())
+    }
+
+    fn apply_at(&mut self, update: &SessionUpdate, now: Instant) -> bool {
         let before = self.info.state.clone();
         let title = self.info.title.clone();
-        if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
-            self.in_thought = false;
+        // Usage, commands and the like arrive in the middle of a thought.
+        let ends_thought = matches!(
+            update,
+            SessionUpdate::AgentMessageChunk(_)
+                | SessionUpdate::UserMessageChunk(_)
+                | SessionUpdate::ToolCall(_)
+                | SessionUpdate::ToolCallUpdate(_)
+                | SessionUpdate::Plan(_)
+                | SessionUpdate::CompactionUpdate(_)
+        );
+        if ends_thought {
+            self.end_thought(now);
         }
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
@@ -410,7 +439,7 @@ impl Live {
                     _ => {}
                 }
             }
-            SessionUpdate::AgentThoughtChunk(chunk) => self.thought_chunk(&chunk.content),
+            SessionUpdate::AgentThoughtChunk(chunk) => self.thought_chunk(&chunk.content, now),
             SessionUpdate::ToolCall(call) => self.tool_call(call),
             SessionUpdate::ToolCallUpdate(update) => self.tool_call_update(update),
             SessionUpdate::Plan(plan) => {
@@ -650,20 +679,66 @@ impl Live {
     }
 
     /// Part of a thought: the summary says "Thinking" until the thought has
-    /// a line to show, then that line.
-    fn thought_chunk(&mut self, content: &ContentBlock) {
+    /// a line to show, then that line. The thought is a transcript entry of
+    /// its own once it has text, so a redacted one shows nothing.
+    fn thought_chunk(&mut self, content: &ContentBlock, now: Instant) {
         if !self.in_thought {
             self.in_thought = true;
             self.thought.clear();
             self.info.state.summary = "Thinking".into();
+            // A loaded session replays its thoughts all at once.
+            let started = (self.info.state.status != Status::Starting).then_some(now);
+            self.open_thought = Some(OpenThought {
+                entry: None,
+                started,
+            });
         }
-        if let ContentBlock::Text(text) = content
-            && self.thought.len() < MAX_THOUGHT
-        {
-            self.thought.push_str(&text.text);
+        if let ContentBlock::Text(text) = content {
+            if self.thought.len() < MAX_THOUGHT {
+                self.thought.push_str(&text.text);
+            }
+            self.thought_text(&text.text);
         }
         if let Some(line) = thought_line(&self.thought) {
             self.info.state.summary = cut(&line, MAX_LINE);
+        }
+    }
+
+    /// Adds `text` to the open thought's entry, made at its first text.
+    fn thought_text(&mut self, text: &str) {
+        let Some(open) = &self.open_thought else {
+            return;
+        };
+        match open.entry {
+            Some(at) => {
+                if let Some(entry) = self.entry_mut(at) {
+                    push_cut(&mut entry.text, text, MAX_ENTRY);
+                }
+            }
+            None if !text.trim().is_empty() => {
+                self.in_message = false;
+                let at = self.push_entry(EntryKind::Thought, cut(text.trim_start(), MAX_ENTRY));
+                if let Some(open) = &mut self.open_thought {
+                    open.entry = Some(at);
+                }
+            }
+            None => {}
+        }
+    }
+
+    /// The thought arriving ended at `now`: its entry says how long it took.
+    pub(crate) fn end_thought(&mut self, now: Instant) {
+        self.in_thought = false;
+        let Some(open) = self.open_thought.take() else {
+            return;
+        };
+        let Some(entry) = open.entry.and_then(|at| self.entry_mut(at)) else {
+            return;
+        };
+        entry.text.truncate(entry.text.trim_end().len());
+        if let Some(started) = open.started {
+            let took = now.saturating_duration_since(started).as_millis();
+            entry.ms = Some(u64::try_from(took).unwrap_or(u64::MAX));
         }
     }
 
@@ -842,7 +917,7 @@ impl Live {
     /// Sets what `tool` showed: its text, and a line for each picture,
     /// kept for the server. Returns the pictures, for `tool_images`.
     fn tool_output(&mut self, tool: &mut ToolCall, content: &[ToolCallContent]) -> Vec<Picture> {
-        let shown = output(content);
+        let shown = output(content, Path::new(&self.info.cwd));
         tool.output = shown.text;
         tool.pictures = shown.pictures.iter().map(Picture::line).collect();
         for picture in &shown.pictures {
@@ -992,8 +1067,9 @@ struct Output {
     links: Vec<String>,
 }
 
-/// What a tool call's `content` shows: its text, images and links.
-fn output(content: &[ToolCallContent]) -> Output {
+/// What a tool call's `content` shows: its text, images and links. An
+/// edit's diff shows its changed lines, its path relative to `cwd`.
+fn output(content: &[ToolCallContent], cwd: &Path) -> Output {
     let mut pictures = Vec::new();
     let mut links = Vec::new();
     let text = content
@@ -1019,7 +1095,12 @@ fn output(content: &[ToolCallContent]) -> Output {
                 }
                 _ => None,
             },
-            ToolCallContent::Diff(diff) => Some(format!("(changed {})", diff.path.display())),
+            ToolCallContent::Diff(diff) => Some(diff_text(
+                cwd,
+                &diff.path,
+                diff.old_text.as_deref(),
+                &diff.new_text,
+            )),
             ToolCallContent::Terminal(_) => Some("(ran in a terminal)".into()),
             _ => None,
         })
@@ -1188,6 +1269,7 @@ mod tests {
     use beep_proto::image_key;
     use futures::FutureExt;
     use serde_json::json;
+    use std::time::Duration;
 
     fn update(value: Value) -> SessionUpdate {
         serde_json::from_value(value).expect("a valid update")
@@ -1207,6 +1289,80 @@ mod tests {
             Arc::default(),
             Arc::default(),
         )
+    }
+
+    fn thought(text: &str) -> SessionUpdate {
+        update(json!({"sessionUpdate": "agent_thought_chunk",
+            "content": {"type": "text", "text": text}}))
+    }
+
+    fn said(text: &str) -> SessionUpdate {
+        update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": text}}))
+    }
+
+    #[test]
+    fn a_thought_is_an_entry_that_says_how_long_it_took() {
+        let mut live = live();
+        live.prompted("fix it");
+        let start = Instant::now();
+        live.apply_at(&thought("**Reading**\n\nThe test "), start);
+        live.apply_at(&thought("expects the old text."), start);
+        // Usage in the middle does not split it.
+        live.apply_at(
+            &update(json!({"sessionUpdate": "usage_update", "used": 10, "size": 100})),
+            start + Duration::from_secs(3),
+        );
+        live.apply_at(&thought(" More."), start + Duration::from_secs(5));
+        let (entries, _) = live.transcript(10);
+        assert_eq!(entries[1].kind, EntryKind::Thought);
+        assert_eq!(entries[1].ms, None, "not over yet");
+        live.apply_at(&said("Fixed."), start + Duration::from_millis(12_400));
+        live.apply_at(&thought("Now the docs.\n"), start + Duration::from_secs(13));
+        live.end_thought(start + Duration::from_secs(15));
+        let (entries, _) = live.transcript(10);
+        let kinds: Vec<_> = entries.iter().map(|entry| entry.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                EntryKind::User,
+                EntryKind::Thought,
+                EntryKind::Agent,
+                EntryKind::Thought
+            ]
+        );
+        assert_eq!(
+            entries[1].text,
+            "**Reading**\n\nThe test expects the old text. More."
+        );
+        assert_eq!(entries[1].ms, Some(12_400));
+        assert_eq!(entries[2].text, "Fixed.");
+        assert_eq!(entries[3].text, "Now the docs.");
+        assert_eq!(entries[3].ms, Some(2_000));
+    }
+
+    #[test]
+    fn a_thought_without_text_or_replayed_has_no_entry_or_time() {
+        let mut live = live();
+        let start = Instant::now();
+        // A loaded session replays a thought: its time is not known.
+        live.apply_at(&thought("Earlier thinking."), start);
+        live.apply_at(&said("Earlier answer."), start + Duration::from_secs(9));
+        live.prompted("go on");
+        live.apply_at(&thought(""), start);
+        live.apply_at(&said("Done."), start + Duration::from_secs(4));
+        let (entries, _) = live.transcript(10);
+        let kinds: Vec<_> = entries.iter().map(|entry| entry.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                EntryKind::Thought,
+                EntryKind::Agent,
+                EntryKind::User,
+                EntryKind::Agent
+            ]
+        );
+        assert_eq!(entries[0].ms, None);
     }
 
     #[test]
@@ -1305,6 +1461,26 @@ mod tests {
             live.tools.len() <= MAX_ENTRIES / 2 + 1,
             "{}",
             live.tools.len()
+        );
+    }
+
+    #[test]
+    fn an_edit_shows_its_diff() {
+        let mut live = live();
+        live.prompted("fix it");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "e1",
+            "title": "Edit `src/login.rs`",
+            "kind": "edit",
+            "status": "completed",
+            "content": [{"type": "diff", "path": "/srv/project/src/login.rs",
+                "oldText": "fn a() {\n    old();\n}", "newText": "fn a() {\n    new();\n}"}]
+        })));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(
+            entries[0].text,
+            "Edit `src/login.rs` [completed]\n[diff] src/login.rs +1 -1\n fn a() {\n-    old();\n+    new();\n }"
         );
     }
 
