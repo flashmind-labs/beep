@@ -1,6 +1,7 @@
 // The pill at the right end of every command center header: how much of
-// each coding agent's plan is left and what the agents cost today. A click
-// opens the details. A server too old to keep usage hides it.
+// each coding agent's plan is used and what the agents cost today. A click
+// opens the details: the plans, then today, this week or this month by
+// project and harness. A server too old to keep usage hides it.
 
 import { agentLabel, el as h } from "./projects-state.ts";
 
@@ -37,15 +38,32 @@ export interface HarnessSpend {
   models: NamedTokens[];
 }
 
-export interface UsageView {
-  limits: PlanLimits[];
-  today: Spend[];
+/// What was spent in one period, by project and by harness.
+export interface Period {
+  total: Spend;
+  tokens: number;
+  projects: Spend[];
   harnesses: HarnessSpend[];
-  week: Spend;
 }
 
-/// Below this much left, a bar turns amber.
-export const WARN_LEFT = 30;
+export interface UsageView {
+  limits: PlanLimits[];
+  today: Period;
+  week: Period;
+  /// Null from a server from before the monthly report.
+  month: Period | null;
+}
+
+export type PeriodKey = "today" | "week" | "month";
+
+export const PERIODS: { key: PeriodKey; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "week", label: "This week" },
+  { key: "month", label: "This month" },
+];
+
+/// Above this much used, a bar turns amber.
+export const WARN_USED = 70;
 /// How often the pill reads the usage again while the window shows.
 export const POLL_MS = 60_000;
 /// After asking the machines to read their plans, how long to wait before
@@ -56,16 +74,16 @@ const HOUR = 60;
 const DAY = 24 * HOUR;
 const WEEK = 7 * DAY;
 
-/// The share of a window still free, 0 to 100, rounded.
-export function windowLeft(w: Pick<UsageWindow, "used_percent">) {
-  const left = 100 - (Number.isFinite(w.used_percent) ? w.used_percent : 0);
-  return Math.round(Math.min(100, Math.max(0, left)));
+/// The share of a window used, 0 to 100, rounded.
+export function windowUsed(w: Pick<UsageWindow, "used_percent">) {
+  const used = Number.isFinite(w.used_percent) ? w.used_percent : 0;
+  return Math.round(Math.min(100, Math.max(0, used)));
 }
 
-/// What a plan has left: the tightest of its windows, or null without any.
-export function planLeft(plan: { windows: Pick<UsageWindow, "used_percent">[] }): number | null {
+/// How much of a plan is used: its tightest window, or null without any.
+export function planUsed(plan: { windows: Pick<UsageWindow, "used_percent">[] }): number | null {
   if (!plan.windows.length) return null;
-  return Math.min(...plan.windows.map(windowLeft));
+  return Math.max(...plan.windows.map(windowUsed));
 }
 
 /// "Claude" and "Codex" in the pill, where space is short.
@@ -129,15 +147,7 @@ export function unpricedLine(unpriced: NamedTokens[]) {
   return unpriced.filter(t => t.tokens > 0).map(t => `${tokenCount(t.tokens)} ${shortName(t.name)} tokens`).join(", ");
 }
 
-/// Today's cost and the tokens no price covers, over every project.
-export function todayTotal(today: Spend[]) {
-  return {
-    cost: today.reduce((n, s) => n + s.cost_usd, 0),
-    tokens: today.reduce((n, s) => n + s.unpriced.reduce((m, t) => m + t.tokens, 0), 0),
-  };
-}
-
-/// One harness's line in Today: its cost when it reports one, then tokens.
+/// One harness's line in a period: its cost when it reports one, then tokens.
 export function harnessLine(spend: HarnessSpend) {
   const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)} tokens` : "";
   if (spend.cost_usd == null) return tokens;
@@ -147,23 +157,29 @@ export function harnessLine(spend: HarnessSpend) {
 /// Whether there is anything to show: any plan read or any spending.
 export function hasUsage(view: UsageView | null): view is UsageView {
   if (!view) return false;
-  return view.limits.some(p => p.windows.length) || view.today.length > 0 || view.harnesses.length > 0 || view.week.cost_usd > 0;
+  const spent = (p: Period | null) => !!p && (p.total.cost_usd > 0 || p.tokens > 0 || p.projects.length > 0 || p.harnesses.length > 0);
+  return view.limits.some(p => p.windows.length) || spent(view.today) || spent(view.week) || spent(view.month);
 }
 
-function bar(left: number, cls: string) {
-  const i = h("i", left < WARN_LEFT ? "warn" : "");
-  i.style.width = `${left}%`;
+/// The periods the popover offers: the month only when the server keeps it.
+export function periods(view: UsageView) {
+  return PERIODS.filter(p => p.key !== "month" || view.month != null);
+}
+
+function bar(used: number, cls: string) {
+  const i = h("i", used > WARN_USED ? "warn" : "");
+  i.style.width = `${used}%`;
   return h("span", cls, i);
 }
 
 function pill(view: UsageView) {
   const parts: Node[] = [];
   for (const plan of view.limits) {
-    const left = planLeft(plan);
-    if (left == null) continue;
-    parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${left}%`)), bar(left, "bar"));
+    const used = planUsed(plan);
+    if (used == null) continue;
+    parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${used}%`), " used"), bar(used, "bar"));
   }
-  parts.push(h("span", "", h("b", "", money(todayTotal(view.today).cost)), " today"));
+  parts.push(h("span", "", h("b", "", money(view.today.total.cost_usd)), " today"));
   return parts;
 }
 
@@ -172,9 +188,9 @@ function limitBlock(plan: PlanLimits, now: number) {
   const head = h("h5", "", h("span", "", name), h("span", "", asOf(plan.as_of, now)));
   head.title = `Read on ${plan.machine_name}`;
   const rows = plan.windows.map(w => {
-    const left = windowLeft(w);
+    const used = windowUsed(w);
     const reset = w.resets_at != null ? ` · resets ${resetName(w.resets_at, now)}` : "";
-    return h("div", "us-lim", h("span", "", windowName(w)), bar(left, "bar"), h("small", "", `${left}% left${reset}`));
+    return h("div", "us-lim", h("span", "", windowName(w)), bar(used, "bar"), h("small", "", `${used}% used${reset}`));
   });
   return h("div", "", head, ...rows);
 }
@@ -185,22 +201,41 @@ function spendRow(name: Node | string, cost: string, extra: string, strong = fal
   return h("div", "us-row", typeof name === "string" ? h(tag, "", name) : name, right);
 }
 
-function popover(view: UsageView, now: number) {
-  const blocks: Node[] = view.limits.filter(p => p.windows.length).map(p => limitBlock(p, now));
-  const total = todayTotal(view.today);
-  const today = h("div", "", h("h5", "", h("span", "", "Today"), h("span", "", "at API prices")));
-  for (const s of view.today) today.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", unpricedLine(s.unpriced)));
-  if (!view.today.length) today.append(h("div", "us-row", h("small", "", "Nothing yet today")));
-  for (const spend of view.harnesses) {
-    const row = spendRow(h("small", "", agentLabel(spend.agent)), "", harnessLine(spend));
-    if (spend.models.length) row.title = spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n");
-    today.append(row);
+function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void) {
+  const period = view[key] ?? view.today;
+  const seg = h("div", "us-seg", ...periods(view).map(p => {
+    const b = h("button", p.key === key ? "on" : "", p.label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(p.key === key));
+    b.addEventListener("click", () => pick(p.key));
+    return b;
+  }));
+  const block = h("div", "", seg);
+  if (period.projects.length) {
+    block.append(h("h5", "", h("span", "", "By project"), h("span", "", "at API prices")));
+    for (const s of period.projects) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", unpricedLine(s.unpriced)));
+  } else if (key === "today") {
+    block.append(h("div", "us-row", h("small", "", "Nothing yet today")));
   }
-  today.append(
-    spendRow("Total", money(total.cost), total.tokens ? `${tokenCount(total.tokens)} tokens` : "", true),
-    spendRow("This week", money(view.week.cost_usd), unpricedLine(view.week.unpriced)),
+  if (period.harnesses.length) {
+    block.append(h("h5", period.projects.length ? "us-sub" : "", h("span", "", "By harness")));
+    for (const spend of period.harnesses) {
+      const row = spendRow(h("small", "", agentLabel(spend.agent)), "", harnessLine(spend));
+      if (spend.models.length) row.title = spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n");
+      block.append(row);
+    }
+  }
+  const tokens = period.tokens ? `${tokenCount(period.tokens)} tokens` : unpricedLine(period.total.unpriced);
+  block.append(spendRow("Total", money(period.total.cost_usd), tokens, true));
+  return block;
+}
+
+function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void, now: number) {
+  const blocks: Node[] = view.limits.filter(p => p.windows.length).map(p => limitBlock(p, now));
+  blocks.push(
+    periodBlock(view, key, pick),
+    h("div", "us-note", "Plans are flat rate: the dollars are what the same work would cost at API prices. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."),
   );
-  blocks.push(today, h("div", "us-note", "Plans are flat rate: the dollars are what the same work would cost at API prices. Agents that report only tokens show tokens."));
   const pop = h("div", "us-pop", ...blocks);
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-label", "Plan usage and cost");
@@ -213,7 +248,9 @@ function popover(view: UsageView, now: number) {
 export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promise<UsageView | null>) {
   let view: UsageView | null = null;
   let open = false;
+  let period: PeriodKey = "today";
   host.classList.add("us");
+  const pick = (key: PeriodKey) => { period = key; draw(); };
 
   const draw = () => {
     if (!hasUsage(view)) {
@@ -224,10 +261,10 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
     host.hidden = false;
     const button = h("button", "us-pill", ...pill(view));
     button.type = "button";
-    button.title = "Plan usage left and cost today";
+    button.title = "Plan usage and cost today";
     button.setAttribute("aria-expanded", String(open));
     button.addEventListener("click", () => toggle(!open));
-    host.replaceChildren(button, ...(open ? [popover(view, Date.now())] : []));
+    host.replaceChildren(button, ...(open ? [popover(view, period, pick, Date.now())] : []));
   };
 
   const load = async (refresh: boolean) => {

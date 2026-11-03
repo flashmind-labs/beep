@@ -1,6 +1,7 @@
 //! What a node's coding agents spend and how much of their plans is left,
 //! kept as the node sends them on one `FollowUsage` stream per connection
-//! (see `beep_proto::node::agent`).
+//! (see `beep_proto::node::agent`), with what sessions spent as the
+//! agents' logs on the node tell it.
 
 use super::Online;
 use crate::{
@@ -16,7 +17,8 @@ impl Online {
     /// once.
     pub(super) async fn keep_usage(&self, user: &User) -> Result<()> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
-        tx.send(&SessionsRequest::FollowUsage {}).await?;
+        tx.send(&SessionsRequest::FollowUsage { history: true })
+            .await?;
         let machine_id = self.connection.remote_id();
         loop {
             let reply = tokio::select! {
@@ -29,10 +31,14 @@ impl Online {
                     continue;
                 }
             };
-            // One not kept is lost; the next report of a plan replaces it.
+            // One not kept is lost; the next report of a plan or a session
+            // replaces it.
             let kept = match reply {
                 SessionsReply::TurnUsage { usage } => {
                     user.add_turn_usage(&machine_id, &usage).await
+                }
+                SessionsReply::SessionSpend { usage } => {
+                    user.save_session_spend(&machine_id, &usage).await
                 }
                 SessionsReply::PlanUsage { usage } => {
                     user.save_plan_usage(&machine_id, &usage).await.map(drop)

@@ -1,5 +1,6 @@
 //! The pill atop every command center page: how much of each coding
-//! agent's plan is left, and what the agents cost today and this week.
+//! agent's plan is used, and what the agents cost today, this week and
+//! this month.
 
 use crate::{
     beep::{Beep, epoch_ms},
@@ -7,7 +8,8 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    AgentSlug, AgentTokens, GetUsage, HarnessSpend, PlanLimits, PlanWindow, ProjectSpend, UsageView,
+    AgentSlug, AgentTokens, GetUsage, GetUsageReport, HarnessSpend, PeriodSpend, PlanLimits,
+    PlanWindow, ProjectSpend, UsageReport, UsageView,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -15,14 +17,23 @@ use tauri::State;
 
 type Service<'a> = State<'a, Arc<Beep>>;
 
-/// `UsageView` as the window reads it, times in milliseconds since the
+/// `UsageReport` as the window reads it, times in milliseconds since the
 /// Unix epoch.
 #[derive(Debug, Serialize)]
 pub struct UsageRow {
     limits: Vec<PlanRow>,
-    today: Vec<SpendRow>,
+    today: PeriodRow,
+    week: PeriodRow,
+    /// `None` from a server from before `GetUsageReport`.
+    month: Option<PeriodRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PeriodRow {
+    total: SpendRow,
+    tokens: u64,
+    projects: Vec<SpendRow>,
     harnesses: Vec<HarnessRow>,
-    week: SpendRow,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,13 +134,60 @@ impl From<HarnessSpend> for HarnessRow {
     }
 }
 
+impl From<PeriodSpend> for PeriodRow {
+    fn from(p: PeriodSpend) -> Self {
+        Self {
+            total: p.total.into(),
+            tokens: p.tokens,
+            projects: p.projects.into_iter().map(Into::into).collect(),
+            harnesses: p.harnesses.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<UsageReport> for UsageRow {
+    fn from(r: UsageReport) -> Self {
+        Self {
+            limits: r.limits.into_iter().map(Into::into).collect(),
+            today: r.today.into(),
+            week: r.week.into(),
+            month: Some(r.month.into()),
+        }
+    }
+}
+
+/// An older server's view: today by project and harness, the week as one
+/// total, no month.
 impl From<UsageView> for UsageRow {
     fn from(v: UsageView) -> Self {
+        let mut unpriced: Vec<AgentTokens> = Vec::new();
+        for tokens in v.today.iter().flat_map(|s| &s.unpriced) {
+            match unpriced.iter_mut().find(|t| t.agent == tokens.agent) {
+                Some(t) => t.tokens += tokens.tokens,
+                None => unpriced.push(tokens.clone()),
+            }
+        }
+        let today = PeriodSpend {
+            total: ProjectSpend {
+                project: String::new(),
+                cost_usd: v.today.iter().map(|s| s.cost_usd).sum(),
+                unpriced,
+            },
+            tokens: v.harnesses.iter().map(|h| h.tokens).sum(),
+            projects: v.today,
+            harnesses: v.harnesses,
+        };
+        let week = PeriodSpend {
+            total: v.week,
+            tokens: 0,
+            projects: Vec::new(),
+            harnesses: Vec::new(),
+        };
         Self {
             limits: v.limits.into_iter().map(Into::into).collect(),
-            today: v.today.into_iter().map(Into::into).collect(),
-            harnesses: v.harnesses.into_iter().map(Into::into).collect(),
-            week: v.week.into(),
+            today: today.into(),
+            week: week.into(),
+            month: None,
         }
     }
 }
@@ -138,6 +196,11 @@ impl From<UsageView> for UsageRow {
 /// the pill hides. `refresh` has the machines read the plans again.
 #[tauri::command]
 pub async fn usage_get(beep: Service<'_>, refresh: bool) -> Result<Option<UsageRow>> {
+    match beep.call(GetUsageReport { refresh }).await {
+        Ok(report) => return Ok(Some(report.into())),
+        Err(e) if unknown_op(&e) => {}
+        Err(e) => return Err(e),
+    }
     match beep.call(GetUsage { refresh }).await {
         Ok(view) => Ok(Some(view.into())),
         Err(e) if unknown_op(&e) => Ok(None),

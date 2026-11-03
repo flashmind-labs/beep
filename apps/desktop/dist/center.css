@@ -618,3 +618,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .us-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-variant-numeric: tabular-nums }
 .us-row > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .us-note { font-size: 11px; color: var(--muted); line-height: 15px }
+.us-seg { display: flex; gap: 2px; padding: 2px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px }
+.us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: 6px; cursor: pointer }
+.us-seg button.on { background: var(--border); color: var(--fg) }
+.us-pop h5.us-sub { margin-top: 8px }
