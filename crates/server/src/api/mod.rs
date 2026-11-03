@@ -316,6 +316,7 @@ pub fn router() -> Router {
         .call(work_files::write_work_file)
         .call(work_diff::get_work_diff)
         .call(work_diff::get_branch_diff)
+        .call(credentials::check_credential)
         .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)

@@ -723,6 +723,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .agpview.arts [hidden] { display: none !important }
 .agartlist { flex: none; max-height: 34%; overflow: auto; display: grid; align-content: start; gap: 1px; padding: 4px; border-bottom: 1px solid var(--border) }
 .agartlist .agpmsg { padding: 12px }
+.agpview.arts.folded .agartlist { flex: 1; max-height: none; border-bottom: 0 }
 .agart { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px }
 .agart:hover { background: rgba(228, 238, 232, .05) } .agart.on { background: rgba(228, 238, 232, .09) }
 .agart .k { flex: none; width: 62px; text-align: center; padding: 1px 0; border-radius: 4px; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); color: var(--muted) }
@@ -819,7 +820,8 @@ button.dachip:hover { border-color: #3A4A41 }
 .dtrun .in { display: flex; flex-direction: column; margin: 2px 0 2px 13px; padding-left: 8px; border-left: 1px solid var(--border) }
 .dtrun .in .dcoderen.tool + .dcoderen.tool { margin-top: 0 }
 @media (prefers-reduced-motion: reduce) { .dtrun .bd, .dtrun .cv { transition: none } }
-.dcoderturn .stats { color: var(--dim); margin-left: 2px }
+.dcoderturn .stats { min-width: 0; color: var(--dim); margin-left: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dcoderturn .hd { min-width: 0 } .dcoderturn .hd > span:first-child, .dcoderturn .hd > svg, .dcoderturn .when { flex: none }
 /* The newest entry, when the reader scrolled up. */
 .dagjump { position: sticky; bottom: 6px; z-index: 2; align-self: center; flex: none; display: inline-flex; align-items: center; gap: 6px; margin-top: auto; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--fg); font: inherit; font-size: 12px; line-height: 18px; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); cursor: pointer }
 .dagjump[hidden] { display: none }
@@ -856,7 +858,12 @@ button.dachip:hover { border-color: #3A4A41 }
 .dthink .tx > :first-child { margin-top: 0 } .dthink .tx > :last-child { margin-bottom: 0 }
 .dthink .tx p { margin: 0 0 6px } .dthink .tx :is(h1, h2, h3, h4) { font-size: 12.5px; margin: 6px 0 2px; color: var(--fg) }
 .dthink .tx pre { font-size: 11.5px; line-height: 17px; white-space: pre-wrap }
-@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none; background: none; color: var(--muted) } .dthink .bd, .dthink .cv { transition: none } }
+/* A thought while it streams: open, its text muted, the newest words lit by a band that follows them like karaoke lyrics. At most 9 lines; it follows the newest, and older lines go out under a fade. */
+.dthink .kk { max-height: calc(1.55em * 9); overflow-y: auto; scrollbar-width: none; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim) }
+.dthink .kk::-webkit-scrollbar { display: none }
+.dthink .kk.ov { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em); mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em) }
+.dthink .kk .n { background: linear-gradient(90deg, var(--dim) 0%, var(--muted) 45%, var(--fg) 85%, #fff 100%); -webkit-background-clip: text; background-clip: text; color: transparent }
+@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none; background: none; color: var(--muted) } .dthink .bd, .dthink .cv { transition: none } .dthink .kk .n { background: none; color: var(--dim) } }
 .dcoderthought { margin-top: -6px; padding-left: 24px; font-size: 12.5px; font-style: italic; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
@@ -928,9 +935,6 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcoderturn button.hd { cursor: pointer } .dcoderturn button.hd:hover { color: var(--fg) }
 .dcoderturn button.hd svg { transition: transform .15s var(--ease) } .dcoderturn button.hd.open svg { transform: rotate(90deg) }
 .dcoderturn .when { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums }
-.dcoderfold { all: unset; cursor: pointer; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; line-height: 20px; color: var(--muted) }
-.dcoderfold:hover { color: var(--fg) }
-.dcoderfold .mk, .dcoderfold .go { display: grid; place-items: center; color: var(--muted) }
 #agentGo { flex: none; align-self: center; font-size: 12.5px }
 /* Images waiting to go to a coding agent, and those sent, as in the mock. */
 .ag-att { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; align-items: center }

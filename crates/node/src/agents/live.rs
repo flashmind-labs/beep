@@ -127,6 +127,10 @@ pub(crate) struct Live {
     /// and when it started; `None` for one replayed by a loaded session,
     /// whose time is not known.
     open_thought: Option<OpenThought>,
+    /// When the agent last did something other than think: the prompt,
+    /// its text, a tool call. Its thinking started then, as agents send
+    /// a thought's text late, often all at once as it ends.
+    active_at: Option<Instant>,
 }
 
 /// A thought still arriving.
@@ -318,6 +322,7 @@ impl Live {
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
         self.end_thought(Instant::now());
+        self.active_at = Some(Instant::now());
         self.in_message = false;
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
@@ -402,6 +407,7 @@ impl Live {
         );
         if ends_thought {
             self.end_thought(now);
+            self.active_at = Some(now);
         }
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
@@ -687,7 +693,8 @@ impl Live {
             self.thought.clear();
             self.info.state.summary = "Thinking".into();
             // A loaded session replays its thoughts all at once.
-            let started = (self.info.state.status != Status::Starting).then_some(now);
+            let started = (self.info.state.status != Status::Starting)
+                .then(|| self.active_at.unwrap_or(now).min(now));
             self.open_thought = Some(OpenThought {
                 entry: None,
                 started,
@@ -1338,7 +1345,51 @@ mod tests {
         assert_eq!(entries[1].ms, Some(12_400));
         assert_eq!(entries[2].text, "Fixed.");
         assert_eq!(entries[3].text, "Now the docs.");
-        assert_eq!(entries[3].ms, Some(2_000));
+        // It started when the text before it arrived.
+        assert_eq!(entries[3].ms, Some(2_600));
+    }
+
+    #[test]
+    fn real_agents_thought_chunks_join_into_one_entry() {
+        let mut live = live();
+        live.prompted("is 391 prime?");
+        let start = Instant::now();
+        // Codex sends a summary's parts with a blank line before each.
+        for chunk in ["\n\n", "**Computing 17 × 23**", "\n\n", "**Checking**"] {
+            live.apply_at(&thought(chunk), start);
+        }
+        live.apply_at(&said("Not prime."), start + Duration::from_secs(2));
+        // Claude Code's summarized thinking arrives cut mid-word.
+        for chunk in ["I'm checking wh", "ether 391 is pr", "ime by factoring it."] {
+            live.apply_at(&thought(chunk), start + Duration::from_secs(3));
+        }
+        live.apply_at(
+            &update(json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
+                "title": "Read notes.md", "kind": "read", "status": "pending"})),
+            start + Duration::from_secs(4),
+        );
+        let (entries, _) = live.transcript(10);
+        let shown: Vec<_> = entries
+            .iter()
+            .map(|entry| (entry.kind, entry.text.as_str(), entry.ms))
+            .collect();
+        assert_eq!(
+            shown[..4],
+            [
+                (EntryKind::User, "is 391 prime?", None),
+                (
+                    EntryKind::Thought,
+                    "**Computing 17 × 23**\n\n**Checking**",
+                    Some(2000)
+                ),
+                (EntryKind::Agent, "Not prime.", None),
+                (
+                    EntryKind::Thought,
+                    "I'm checking whether 391 is prime by factoring it.",
+                    Some(2000)
+                ),
+            ]
+        );
     }
 
     #[test]
