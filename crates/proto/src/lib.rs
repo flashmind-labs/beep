@@ -1226,6 +1226,12 @@ requests! {
     /// machines read them from the agents' own logs. `refresh` as in
     /// `GetUsage`.
     304 GetUsageReport { refresh: bool } => Call<UsageReport>
+    /// The chat about the update `id`, as `ListUpdates` gave it, made on
+    /// the first ask and the same chat after. A new chat opens with Beep
+    /// telling the user the update, so they can reply; Beep answers with
+    /// the update's events in its context. Opening it dismisses the update.
+    /// `NotFound` when the caller has no such update, or it is gone.
+    305 OpenUpdateChat { id: i64 } => Call<Session>
     /// The open pull requests and the open issues no task tracks of
     /// `project_id`, as `ListProjectPullRequests` and `ListProjectIssues`
     /// give them, from the server's copy and with when it was read. The
