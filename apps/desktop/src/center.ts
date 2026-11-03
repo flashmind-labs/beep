@@ -10,7 +10,7 @@ import { pane, type PaneTarget } from "./bar/pane.ts";
 import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
+import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow } from "./home.ts";
 import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { keepLastImport, lastImport, openImportProject } from "./importproject.ts";
@@ -393,16 +393,45 @@ function offlineNote(machines: MachineCard[]) {
 
 function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r, state.home?.projects || []);
-  const right = [r.status === "asking" ? tag("wait", "needs you") : ago(r.started_at)];
-  if (r.kind === "research") {
-    return bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})));
-  }
-  // The pane's agent view follows and answers it.
-  return bare(line(null, title, sub, right, () => go("pane", { agent: r })));
+  const right = [r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r))];
+  const row = r.kind === "research"
+    ? bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})))
+    // The pane's agent view follows and answers it.
+    : bare(line(null, title, sub, right, () => go("pane", { agent: r })));
+  row.dataset.key = runningKey(r);
+  return row;
 }
 
-/// A panel of Running now rows.
-const runningPanel = (running: RunningRow[]) => h("div", "cc-panel", ...running.map(runningRow));
+/// Where each Running now row sat in its panel when last drawn, by key.
+const runningTops = new Map<string, number>();
+/// How long a row takes to slide to its new place.
+const SLIDE_MS = 200;
+
+/// Slides each row of a just drawn panel from where it sat last time to
+/// where it sits now, so a session that moves to the top is seen moving.
+/// Nothing slides when the system asks for less motion.
+function slideRows(panel: HTMLElement) {
+  requestAnimationFrame(() => {
+    if (!panel.isConnected) return;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const top = panel.getBoundingClientRect().top, seen = new Set<string>();
+    for (const row of panel.querySelectorAll<HTMLElement>(":scope > [data-key]")) {
+      const key = row.dataset.key!, now = row.getBoundingClientRect().top - top, was = runningTops.get(key);
+      seen.add(key);
+      runningTops.set(key, now);
+      if (still || was === undefined || was === now) continue;
+      row.animate([{ transform: `translateY(${was - now}px)` }, { transform: "none" }], { duration: SLIDE_MS, easing: "ease-out" });
+    }
+    for (const key of runningTops.keys()) if (!seen.has(key)) runningTops.delete(key);
+  });
+}
+
+/// A panel of Running now rows, the one that moved last first.
+function runningPanel(running: RunningRow[]) {
+  const panel = h("div", "cc-panel", ...byRecent(running).map(runningRow));
+  slideRows(panel);
+  return panel;
+}
 
 function runningSection(running: RunningRow[]) {
   return section("sec-running", "Running now", running.length, null, runningPanel(running));
