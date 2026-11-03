@@ -10,6 +10,8 @@ use tokio::sync::Notify;
 
 mod actions;
 mod agent_images;
+mod agent_session_starts;
+pub(crate) use agent_session_starts::SessionOn;
 mod agent_spend;
 mod agent_usage;
 mod apps;
@@ -532,6 +534,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         97,
         "flsh settings",
         include_str!("../../migrations/0097_flsh_settings.sql"),
+    ),
+    (
+        98,
+        "agent session starts",
+        include_str!("../../migrations/0098_agent_session_starts.sql"),
     ),
 ];
 

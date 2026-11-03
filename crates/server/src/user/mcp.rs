@@ -2,7 +2,7 @@
 
 use super::User;
 use crate::{
-    app::UserNotice,
+    app::{Reach, UserNotice},
     apps::{
         custom_mcp::{
             self, CustomProvider, LIMITS, MAX_LABEL, MAX_SERVERS, MAX_URL, Outcome, check_url,
@@ -79,6 +79,7 @@ impl User {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         };
         // Nobody listening just means the phone is offline; Apps still shows it.
         let _ = self.notifications.send(notice);
@@ -530,6 +531,7 @@ impl User {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         };
         // Nobody listening just means the phone is offline.
         let _ = self.notifications.send(notice);
