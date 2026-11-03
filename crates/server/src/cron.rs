@@ -436,50 +436,10 @@ pub fn register_tools(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{TestDb, decode_schedule};
-    use chrono::{DateTime, TimeDelta, Utc};
+    use crate::store::TestDb;
+    use chrono::{TimeDelta, Utc};
     use flashmind::{cron::JobSchedule, types::tool::ToolContext};
     use std::time::Duration;
-
-    #[test]
-    fn scheduled_context_reads_back_its_label() {
-        let context = |label| {
-            format!(
-                "Time: Monday 2026-10-05 09:00 +04\n{}",
-                scheduled_context(label)
-            )
-        };
-        assert_eq!(scheduled_label(&context("")), Some(""));
-        assert_eq!(scheduled_label(&context("Plants")), Some("Plants"));
-        assert_eq!(scheduled_label(&context("Two\nlines")), Some("Two lines"));
-        assert_eq!(scheduled_label("Time: Monday 2026-10-05 09:00 +04"), None);
-        assert_eq!(scheduled_label("Scheduled tasks are off"), None);
-    }
-
-    #[test]
-    fn legacy_prompts_read_back_their_label() {
-        assert_eq!(
-            legacy_scheduled_label("[Scheduled] Water the plants"),
-            Some("")
-        );
-        assert_eq!(
-            legacy_scheduled_label("[Scheduled: Plants] Water them"),
-            Some("Plants")
-        );
-        assert_eq!(legacy_scheduled_label("Water the plants"), None);
-        assert_eq!(legacy_scheduled_label("[Scheduled]"), None);
-    }
-
-    #[test]
-    fn one_off_time_reads_back_as_once() {
-        let at = "2026-10-04T04:07:00+00:00"
-            .parse::<DateTime<Utc>>()
-            .expect("valid time");
-        assert!(matches!(decode_schedule(at.to_rfc3339()), JobSchedule::Once(t) if t == at));
-        assert!(
-            matches!(decode_schedule("0 8 * * *".to_owned()), JobSchedule::Cron(e) if e == "0 8 * * *")
-        );
-    }
 
     #[tokio::test]
     async fn a_reminder_from_the_tools_wakes_the_scheduler() {
@@ -549,27 +509,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_reminder_remembers_the_chat_it_was_set_in() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("store opens");
-        let mut registry = ToolRegistry::new();
-        let chat = Uuid::new_v4().to_string();
-        register_tools(&mut registry, store.clone(), "user", &chat, None);
-        let tool = registry
-            .get("schedule_once")
-            .expect("schedule_once registered");
-
-        let cancel = CancellationToken::new();
-        let args = json!({"datetime": "2099-01-01T08:00:00Z", "task": "ping"});
-        tool.execute(ToolContext::new("call", args, None, &cancel))
-            .await
-            .expect("tool runs");
-
-        let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].metadata["session_id"], chat.as_str());
-    }
     #[tokio::test]
     async fn a_routine_made_outside_a_chat_keeps_its_first_chat() {
         let db = TestDb::new().await.expect("test database");

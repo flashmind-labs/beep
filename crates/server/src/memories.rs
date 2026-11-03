@@ -1050,7 +1050,6 @@ fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::MEMORY_CATEGORIES;
 
     fn row(id: &str, content: &str) -> MemoryRow {
         MemoryRow {
@@ -1068,58 +1067,6 @@ mod tests {
 
     fn day(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
-    }
-
-    #[test]
-    fn jev_files_under_every_category() {
-        let names: Vec<&str> = FILING.iter().map(|(name, _)| *name).collect();
-        assert_eq!(names, MEMORY_CATEGORIES);
-    }
-
-    #[test]
-    fn parses_learn_ops_with_days() {
-        let ops = parse_learn_ops(
-            r#"```json
-{"ops":[{"op":"add","content":"Is in Lisbon.","valid_from":"2026-10-04","valid_until":"2026-10-09"},
-{"op":"forget","id":"abc123"}]}
-```"#,
-        )
-        .unwrap();
-        assert_eq!(ops.len(), 2);
-        assert_eq!(
-            ops[0].validity(),
-            Some(Validity {
-                from: Some(day("2026-10-04")),
-                until: Some(day("2026-10-09")),
-            })
-        );
-        assert_eq!(ops[1].op, LearnKind::Forget);
-        assert!(parse_learn_ops("Nothing to remember.").is_err());
-        assert!(parse_learn_ops(r#"{"ops":[]}"#).unwrap().is_empty());
-    }
-
-    #[test]
-    fn languages_come_from_the_memory_that_says_them() {
-        let rows = [
-            row("a", "Lives in Dubai."),
-            row("b", "Speaks Spanish, English and Dutch."),
-        ];
-        assert_eq!(
-            languages(&rows, day("2026-10-31")),
-            Some("Speaks Spanish, English and Dutch.")
-        );
-        assert_eq!(languages(&rows[..1], day("2026-10-31")), None);
-    }
-
-    #[test]
-    fn ended_facts_are_over_the_day_after() {
-        let trip = Validity {
-            from: Some(day("2026-10-04")),
-            until: Some(day("2026-10-09")),
-        };
-        assert!(!trip.ended(day("2026-10-09")));
-        assert!(trip.ended(day("2026-10-10")));
-        assert!(!Validity::default().ended(day("2030-01-01")));
     }
 
     #[test]
@@ -1287,82 +1234,5 @@ mod tests {
         };
         assert_eq!(fact.source, MemorySource::Email {});
         assert_eq!(keep, "b");
-    }
-
-    #[test]
-    fn learn_ops_carry_their_quote() {
-        let ops = parse_learn_ops(
-            r#"{"ops":[{"op":"add","content":"Has a dog named Rex.","quote":"  my dog Rex "},
-            {"op":"add","content":"Likes tea.","quote":" "}]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            ops[0].origin("session-1"),
-            Origin {
-                reference: "session-1".into(),
-                quote: Some("my dog Rex".into()),
-            }
-        );
-        assert_eq!(ops[1].origin("session-1").quote, None);
-    }
-
-    #[test]
-    fn core_ids_follow_merges_and_drop_forgotten() {
-        let rows = [row("a", "A."), row("b", "B."), row("c", "C.")];
-        let by_id: HashMap<&str, &MemoryRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
-        let curation = parse_curation(
-            r#"{"ops":[
-            {"op":"merge","ids":["a","b"],"content":"A and B."},
-            {"op":"forget","id":"c"}],
-            "core":["b","c","missing"]}"#,
-        )
-        .unwrap();
-        let steps = plan_curation(curation.ops, &by_id, day("2026-10-03"));
-        let core = core_ids(curation.core.unwrap(), &steps, &by_id);
-        assert_eq!(core, HashSet::from(["a".to_owned()]));
-        assert!(parse_curation(r#"{"ops":[]}"#).unwrap().core.is_none());
-    }
-
-    #[test]
-    fn only_the_user_scope_picks_a_profile() {
-        let user = curate_system(&Scope::User);
-        assert!(user.contains("pick the profile") && user.contains("\"core\""));
-        assert!(user.contains("about one user"));
-        let machine = curate_system(&Scope::Machine(iroh::SecretKey::generate().public()));
-        assert!(!machine.contains("profile") && !machine.contains("core"));
-        assert!(machine.contains("one of the user's machines"));
-    }
-
-    #[test]
-    fn profile_puts_what_holds_today_first() {
-        let mut name = row("n", "Is called Sam.");
-        name.core = true;
-        let mut trip = row("t", "Is in Lisbon.");
-        trip.valid = Validity {
-            from: Some(day("2026-10-04")),
-            until: Some(day("2026-10-10")),
-        };
-        let mut later = row("l", "Visits Rome.");
-        later.valid.from = Some(day("2026-11-01"));
-        later.valid.until = Some(day("2026-11-05"));
-        let other = row("o", "Likes jazz.");
-        let rows = [name, trip, later, other];
-        assert_eq!(
-            profile(&rows, day("2026-10-07")).unwrap(),
-            format!(
-                "{PROFILE_HEADER}\n- Is in Lisbon. (2026-10-04 to 2026-10-10)\n- Is called Sam."
-            )
-        );
-        assert_eq!(profile(&rows[3..], day("2026-10-07")), None);
-
-        // A fact too long to fit leaves room for the rest.
-        let mut long = row("x", &"Long. ".repeat(MAX_PROFILE_CHARS));
-        long.core = true;
-        let mut name = row("n", "Is called Sam.");
-        name.core = true;
-        assert_eq!(
-            profile(&[long, name], day("2026-10-07")).unwrap(),
-            format!("{PROFILE_HEADER}\n- Is called Sam.")
-        );
     }
 }

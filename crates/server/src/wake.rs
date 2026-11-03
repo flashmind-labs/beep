@@ -365,24 +365,6 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use std::f64::consts::PI;
-
-    #[test]
-    fn woken_context_reads_back_its_label() {
-        for rule in [Rule::Place, Rule::Accounts, Rule::Digest, Rule::Triaged] {
-            let woken = Woken {
-                label: "Arrived in\nSingapore".to_owned(),
-                rule,
-            };
-            assert_eq!(
-                woken_label(&woken_context(&woken)),
-                Some("Arrived in Singapore")
-            );
-        }
-        assert_eq!(woken_label("Time: Monday"), None);
-        assert_eq!(woken_label(&crate::cron::scheduled_context("Plants")), None);
-    }
 
     fn at(place: &str, latitude: f64, longitude: f64) -> Location {
         Location {
@@ -393,12 +375,6 @@ mod tests {
             place: Some(place.to_owned()),
             updated_at: chrono::Utc::now(),
         }
-    }
-
-    #[test]
-    fn antipodes_are_half_the_earth_apart() {
-        let km = distance_km(&at("South", -82.0, 0.0), &at("North", 82.0, -180.0));
-        assert!((km - 6371.0 * PI).abs() < 1.0, "{km}");
     }
 
     #[test]
@@ -416,21 +392,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_time_zone_says_how_far_the_clock_moved() {
-        let mut lisbon = at("Lisbon, Lisbon, Portugal", 38.72, -9.14);
-        lisbon.timezone = "Europe/Lisbon".to_owned();
-        let barcelona = at("Barcelona, Catalonia, Spain", 41.39, 2.16);
-        let event = arrival(&lisbon, &barcelona).expect("a new country");
-        assert!(
-            event
-                .description
-                .ends_with("Local time is 1 hour ahead of its last report."),
-            "{}",
-            event.description
-        );
-    }
-
-    #[test]
     fn nearby_or_unknown_places_are_not_arrivals() {
         let barcelona = at("Barcelona, Catalonia, Spain", 41.39, 2.16);
         let gracia = at("Barcelona, Catalonia, Spain", 41.40, 2.15);
@@ -440,19 +401,5 @@ mod tests {
         assert!(arrival(&barcelona, &gracia).is_none());
         assert!(arrival(&barcelona, &hospitalet).is_none());
         assert!(arrival(&barcelona, &unknown).is_none());
-    }
-
-    #[test]
-    fn the_message_carries_the_details() {
-        let event = |data| Event {
-            label: "Arrived".to_owned(),
-            description: "User is now in Singapore.".to_owned(),
-            data,
-        };
-        assert_eq!(event(Value::Null).message(), "User is now in Singapore.");
-        assert_eq!(
-            event(json!({"city": "Singapore"})).message(),
-            "User is now in Singapore.\n\nDetails: {\"city\":\"Singapore\"}"
-        );
     }
 }

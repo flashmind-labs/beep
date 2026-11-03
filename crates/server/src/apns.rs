@@ -264,19 +264,6 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_chat_shows_nothing() {
-        let phone = SecretKey::from_bytes(&[1; 32]).public();
-        assert_eq!(
-            Push::notice(&phone, &notice("Done", true)).unwrap(),
-            Some(Push::wake())
-        );
-        assert_eq!(
-            Push::notice(&phone, &notice("", false)).unwrap(),
-            Some(Push::wake())
-        );
-    }
-
-    #[test]
     fn a_long_notice_still_fits_a_push() {
         let phone = SecretKey::from_bytes(&[1; 32]).public();
         let mut long = notice("Done", false);

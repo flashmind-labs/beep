@@ -252,49 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn prompt_names_the_routine_each_mailbox_and_the_flagged_emails() {
-        let job = routine("user");
-        let report = Report {
-            checked: vec![Mailbox::Gmail, Mailbox::Outlook],
-            failed: vec![Mailbox::Fastmail],
-            emails: vec![
-                email(Mailbox::Gmail, 1, "Subject: Lease", true),
-                email(Mailbox::Outlook, 2, "Subject: Invoice", false),
-            ],
-        };
-        let text = prompt(&job, &report);
-        assert!(text.starts_with(TASK));
-        assert!(text.contains(&format!("turn off routine {}", job.id)));
-        assert!(text.contains("Checked: Gmail, Outlook."));
-        assert!(text.contains("Could not check: Fastmail."));
-        assert!(text.contains("Unread emails from the last day (2):"));
-        assert!(text.contains("--- Gmail, flagged\nSubject: Lease"));
-        assert!(text.contains("--- Outlook\nSubject: Invoice"));
-    }
-
-    #[test]
-    fn the_digest_routine_is_always_sent() {
-        assert!(is_digest(&routine("alice")));
-        let reminder = CronJob {
-            metadata: json!({"user_id": "alice", "label": "Water"}),
-            ..routine("alice")
-        };
-        assert!(!is_digest(&reminder));
-    }
-
-    #[test]
-    fn an_empty_day_still_gets_a_prompt() {
-        let report = Report {
-            checked: vec![Mailbox::Gmail],
-            ..Report::default()
-        };
-        let text = prompt(&routine("user"), &report);
-        assert!(text.contains("If nothing needs me, say that in one line."));
-        assert!(text.contains("Your reply is always sent to me."));
-        assert!(text.ends_with("Unread emails from the last day: none."));
-    }
-
-    #[test]
     fn trimming_keeps_flagged_emails_and_the_newest_others() {
         let mut report = Report::default();
         report

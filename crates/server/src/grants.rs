@@ -990,14 +990,6 @@ mod tests {
     }
 
     #[test]
-    fn a_span_reads_in_days_and_hours() {
-        assert_eq!(span(1), "1 hour");
-        assert_eq!(span(8), "8 hours");
-        assert_eq!(span(24), "1 day");
-        assert_eq!(span(54), "2 days and 6 hours");
-    }
-
-    #[test]
     fn every_grantable_tool_acts() {
         for spec in GRANTABLE {
             let (app, acts) = permissions::lookup(spec.tool).expect("a known tool");

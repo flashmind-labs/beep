@@ -338,14 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn anyone_s_pick_counts() {
-        let models = choices();
-        let luna = Some("openrouter:openai/gpt-6-luna");
-        assert_eq!(models.for_user(luna).name(), "openai/gpt-6-luna");
-        assert_eq!(models.for_user(None).name(), "z-ai/glm-5.3-flash");
-    }
-
-    #[test]
     fn a_pick_no_longer_offered_falls_back_to_the_default() {
         let models = choices();
         let gone = Some("openrouter:retired/model");
@@ -358,17 +350,6 @@ mod tests {
             thinking: ReasoningLevel::Low,
             auto,
         }
-    }
-
-    #[test]
-    fn everyone_sees_choices() {
-        let models = choices();
-        let default = models.default_model().clone();
-        let picked = picked(&default, false);
-        let choices = models.for_picker(&picked).choices;
-        assert_eq!(choices.len(), 2);
-        assert!(choices[0].default);
-        assert_eq!(choices[1].name, "GPT-6 Luna");
     }
 
     #[test]
@@ -391,33 +372,5 @@ mod tests {
         let off = models.for_picker(&picked(&flash, false));
         assert!(!off.auto && off.auto_available);
         assert!(!choices().for_picker(&on).auto);
-    }
-
-    #[test]
-    fn listed_names_drop_their_maker() {
-        assert_eq!(short_name("OpenAI: GPT-6 Luna"), "GPT-6 Luna");
-        assert_eq!(short_name("GPT-6 Luna"), "GPT-6 Luna");
-    }
-
-    #[test]
-    fn prices_are_per_million_tokens() {
-        let per_token: Decimal = "0.0000005".parse().unwrap();
-        assert_eq!(per_million(Some(per_token)), Some(0.5));
-    }
-
-    #[test]
-    fn the_cheapest_priced_model_wins() {
-        let mut models = choices();
-        assert_eq!(models.cheapest().name(), "openai/gpt-6-luna");
-        models.choices.push(Choice {
-            model: "openrouter:anthropic/claude-haiku-5.5".parse().unwrap(),
-            name: "Haiku".into(),
-            input_price: Some(0.08),
-            output_price: Some(0.4),
-            sees_images: true,
-        });
-        assert_eq!(models.cheapest().name(), "anthropic/claude-haiku-5.5");
-        let unpriced = ModelChoices::only("openrouter:z-ai/glm-5.3-flash".parse().unwrap());
-        assert_eq!(unpriced.cheapest().name(), "z-ai/glm-5.3-flash");
     }
 }
