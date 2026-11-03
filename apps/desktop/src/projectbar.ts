@@ -51,11 +51,13 @@ export function barCheckout(pick: CheckoutPick, base: string | null): { label: s
 /// The line under the bar.
 export const BAR_NOTE = "The agent works on its own branch in a new worktree unless you pick the checkout. Its session opens here.";
 
-/// What Work on it or Continue put in the bar: a new worktree on `branch`
-/// (editable) from `base` for an issue, or a pull request's own branch.
+/// What Work on it, Continue or Fix this put in the bar: a new worktree on
+/// `branch` (editable) from `base` for an issue, a pull request's own
+/// branch, or the branch a failed workflow run ran on.
 export type BarTarget =
   | { kind: "issue"; number: number; branch: string; base: string | null }
-  | { kind: "pr"; number: number; branch: string };
+  | { kind: "pr"; number: number; branch: string }
+  | { kind: "run"; number: number; branch: string };
 
 /// What `agent_start` sends as `checkout` for a target.
 export function targetPlan(t: BarTarget) {
@@ -66,7 +68,7 @@ export function targetPlan(t: BarTarget) {
 /// The Folder pill for a target.
 export function targetCheckout(t: BarTarget): { label: string; sub: string } {
   if (t.kind === "issue") return { label: "New worktree", sub: `from ${t.base || "HEAD"}` };
-  return { label: `Worktree ${t.branch}`, sub: `PR #${t.number}` };
+  return { label: `Worktree ${t.branch}`, sub: t.kind === "run" ? `run #${t.number}` : `PR #${t.number}` };
 }
 
 /// Where a target's worktree is on a machine whose checkout is `cwd`: where

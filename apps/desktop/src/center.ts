@@ -42,6 +42,8 @@ import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions
 import { makeFileSync, fileSyncTile } from "./filesync.ts";
 import { makeThreads, issueTile, threadTile, issueBranch, issuePrompt, prPrompt } from "./threads.ts";
 import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow } from "./threads.ts";
+import { fixPrompt, makeRuns, runTarget } from "./runs.ts";
+import type { RunDetail } from "./runs.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
 import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
@@ -1996,6 +1998,31 @@ const thr = makeThreads({
   changed: () => loadProjectAgent(),
 });
 
+/// The project's workflow runs: the Actions section and each PR's checks.
+const runs = makeRuns({
+  invoke, h, button,
+  redraw: () => redrawProjects(),
+  openUrl,
+  fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+});
+
+/// When the page last read the server's copy of each project's lists.
+const listsRead = new Map<string, number>();
+
+/// Every 10 seconds while a project page shows: the runs move on while one
+/// goes, and the PR and issue lists are read from the server's copy once a
+/// minute, which never calls the host itself.
+function tickRepo(name: string) {
+  const agent = agentFor(state.agents, name);
+  if (!agent) return;
+  runs.tick(agent.project_id);
+  const at = listsRead.get(agent.project_id) ?? 0;
+  if (Date.now() - at >= 60000) {
+    listsRead.set(agent.project_id, Date.now());
+    if (at) thr.load(agent.project_id);
+  }
+}
+
 /// The Projects page's element.
 function projectsEl() { return views.get("projects")!.el; }
 
@@ -2061,6 +2088,7 @@ async function act(id: string, call: () => Promise<unknown>) {
 /// Review opens a branch's review, Work on it and Continue fill the bar.
 function repoActs(p: Project): RepoActs {
   const view = state.pview.get(p.name)?.view;
+  const agent = agentFor(state.agents, p.name);
   if (revs.reviews(p.name) === undefined) revs.load(p.name);
   return {
     tasks: view?.tasks ?? [],
@@ -2068,16 +2096,22 @@ function repoActs(p: Project): RepoActs {
     review: agentActs.review,
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
+    checks: agent ? runs.checks(agent.project_id) : null,
+    showRun: (run: number) => {
+      if (!agent) return;
+      runs.show(agent.project_id, run);
+      document.getElementById("sec-actions")?.scrollIntoView({ block: "nearest" });
+    },
   };
 }
 
-/// The repository's open pull requests and issues, under the tasks of a
-/// project with an agent.
+/// The repository's open pull requests and issues, then its workflow runs
+/// across the page, under the tasks of a project with an agent.
 function repoSections(p: Project): Node[] {
   const agent = p.imported ? agentFor(state.agents, p.name) : null;
   if (!agent) return [];
   const acts = repoActs(p);
-  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts))];
+  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts)), runs.section(agent)];
 }
 
 /// The cards the project chat waits on, then Tasks beside Workers, above
@@ -2331,6 +2365,12 @@ async function continuePr(name: string, pr: PullRequestRow) {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
   fillBar(name, prPrompt(pr), { kind: "pr", number: pr.number, branch: head.branch });
+}
+
+/// Fix this: the bar on the failed run's branch (a new branch when it ran
+/// on the default branch), with the failure and its log in the prompt.
+function fixRun(name: string, detail: RunDetail) {
+  fillBar(name, fixPrompt(detail), runTarget(detail.run, baseFor(null, pc.branches.get(name))));
 }
 
 /// The picker above the bar, when open.
@@ -3167,6 +3207,7 @@ async function refresh() {
     drawTop();
     if (state.picked) {
       loadProjectAgent();
+      tickRepo(state.picked);
       const p = filterProjects(projectRows() || [], state.picked)[0];
       if (p && boardOn(p)) terms.load(state.picked);
     } else {
