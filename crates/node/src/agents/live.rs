@@ -33,6 +33,7 @@ use beep_proto::{
 };
 use serde_json::Value;
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
@@ -53,6 +54,8 @@ const MAX_COMMANDS: usize = 200;
 const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
 const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
+/// Claude Code's tool that publishes a page or document as an artifact.
+const ARTIFACT_TOOL: &str = "Artifact";
 
 /// The `_meta` key claude-agent-acp forwards Claude Code's rate limit
 /// events under, in a `usage_update`.
@@ -858,6 +861,18 @@ impl ToolCall {
         }
     }
 
+    /// Its title as its entry shows it. Claude Code's `Artifact` call comes
+    /// titled by the tool's name alone, so the page it publishes is added
+    /// for the apps' Artifacts tab: `Artifact /srv/project/report.html`.
+    fn own_title(&self) -> Cow<'_, str> {
+        match self.paths.first() {
+            Some(path) if self.title == ARTIFACT_TOOL => {
+                Cow::Owned(format!("{} {path}", self.title))
+            }
+            _ => Cow::Borrowed(&self.title),
+        }
+    }
+
     /// Its entry with the steps of the subagent it started: a line
     /// `[steps] N`, then `[step <status>] <title>` for each of the last
     /// `MAX_STEPS`, then `[agent] <name>` when it has one, before what it
@@ -870,9 +885,8 @@ impl ToolCall {
             lines.push_str(line);
         }
         let status = self.shown_status(run);
-        let title = run
-            .and_then(|run| run.task.as_deref())
-            .unwrap_or(&self.title);
+        let own = self.own_title();
+        let title = run.and_then(|run| run.task.as_deref()).unwrap_or(&own);
         let mut text = format!("{title} [{}]", wire_name(&status));
         let run_steps: Vec<Step<'_>> = run
             .map(|run| {
@@ -1347,6 +1361,31 @@ mod tests {
         );
         live.prompted("nothing");
         assert_eq!(live.turn_files(), None);
+    }
+
+    #[test]
+    fn an_artifact_call_names_the_page_it_publishes() {
+        let mut live = live();
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "a1",
+            "title": "Artifact",
+            "kind": "other",
+            "status": "in_progress",
+            "rawInput": {"file_path": "/srv/project/report.html"}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "a1",
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text",
+                "text": "Published https://claude.ai/code/artifact/0000-placeholder"}}]
+        })));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(
+            entries[0].text,
+            "Artifact /srv/project/report.html [completed]\nPublished https://claude.ai/code/artifact/0000-placeholder"
+        );
     }
 
     /// A Read tool call of `path`, as Claude Code's ACP adapter sends it.

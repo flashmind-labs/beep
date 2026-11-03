@@ -5,6 +5,7 @@
 use crate::{
     claude::{self, External},
     found::{self, Agent, Stores},
+    mcp::Launch,
     process,
     provision::spawn_env::{self, Scope},
 };
@@ -28,10 +29,11 @@ use std::{
     fmt::Display,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
+    sync::oneshot,
     task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval},
 };
@@ -49,14 +51,17 @@ mod media_file;
 mod models;
 mod plans;
 mod prices;
+mod reach;
 mod session;
 mod spend;
 mod subagent;
 mod usage;
 mod work_folder;
 
+pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
+pub(crate) use session::{Answered, Asking};
 pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
 use acp::Prompt;
@@ -314,6 +319,11 @@ pub struct Agents {
     settings: harnesses::Settings,
     /// The newest versions of the agents, found lately.
     latest: harnesses::Latest,
+    /// The workspace and the folders shared in `node.toml`, which file
+    /// requests may reach beside the sessions' folders.
+    folders: OnceLock<Vec<PathBuf>>,
+    /// How sessions start the Beep MCP server, once the node serves it.
+    mcp: OnceLock<Arc<Launch>>,
 }
 
 impl Agents {
@@ -330,7 +340,38 @@ impl Agents {
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
+            folders: OnceLock::new(),
+            mcp: OnceLock::new(),
         }
+    }
+
+    /// Gives the sessions started from now on the Beep MCP server, as
+    /// `launch` starts it. Only the first call counts.
+    pub fn serve_mcp(&self, launch: Arc<Launch>) {
+        // A second launch would give the same server.
+        let _ = self.mcp.set(launch);
+    }
+
+    /// Whether `session` is one of this node's and still runs.
+    pub(crate) fn runs(&self, session: &str) -> bool {
+        self.get(session)
+            .is_some_and(|session| session.live.borrow().status() != Status::Ended)
+    }
+
+    /// Puts `question` to the user in `session` and waits for the answer.
+    /// Fails when the session ends or its turn is cancelled first.
+    pub(crate) async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        let (reply, answer) = oneshot::channel();
+        session
+            .order(Command::Ask { question, reply })
+            .await
+            .map_err(anyhow::Error::msg)?;
+        answer
+            .await
+            .context("the question was dropped: the turn was cancelled or the session ended")
     }
 
     /// The last `last` entries of a session this node runs and how many
@@ -761,6 +802,7 @@ impl Agents {
             effort: begin.effort,
             note: begin.note,
             brief: begin.brief,
+            mcp: self.mcp.get().map(|launch| launch.server(&id)),
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),
@@ -1118,63 +1160,79 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             },
         },
         SessionsRequest::File { path, offset } => {
-            let home = dirs::home_dir();
-            let read =
-                spawn_blocking(move || media_file::read_chunk(&path, offset, home.as_deref()))
+            match agents.reachable(&path, reach::Access::Read).await {
+                Ok(real) => {
+                    let read = spawn_blocking(move || {
+                        let real = real.to_str().context("the file's path is not UTF-8")?;
+                        media_file::read_chunk(real, offset, None)
+                    })
                     .await;
-            match read {
-                Ok(Ok(Some(chunk))) => file_reply(chunk),
-                Ok(Ok(None)) => SessionsReply::NoFile {},
-                Ok(Err(e)) => failed(e),
-                Err(e) => SessionsReply::Error {
-                    message: format!("the file read stopped: {e}"),
-                },
+                    match read {
+                        Ok(Ok(Some(chunk))) => file_reply(chunk),
+                        Ok(Ok(None)) => SessionsReply::NoFile {},
+                        Ok(Err(e)) => failed(e),
+                        Err(e) => SessionsReply::Error {
+                            message: format!("the file read stopped: {e}"),
+                        },
+                    }
+                }
+                Err(e) => failed(e),
             }
         }
         SessionsRequest::Folder {
             root,
             path,
             ignored,
-        } => {
-            work_request(move |home| {
-                let root = work_folder::WorkRoot::open(&root, home)?;
-                let folder = work_folder::list(&root, &path, ignored)?;
-                Ok(SessionsReply::Folder { folder })
-            })
-            .await
-        }
+        } => match agents.reachable(&root, reach::Access::Read).await {
+            Ok(real) => {
+                work_request(move || {
+                    let root = work_folder::WorkRoot::at(&real)?;
+                    let folder = work_folder::list(&root, &path, ignored)?;
+                    Ok(SessionsReply::Folder { folder })
+                })
+                .await
+            }
+            Err(e) => failed(e),
+        },
         SessionsRequest::ReadFile {
             root,
             path,
             offset,
             len,
-        } => {
-            work_request(move |home| {
-                let root = work_folder::WorkRoot::open(&root, home)?;
-                Ok(match work_folder::read(&root, &path, offset, len)? {
-                    Some(chunk) => file_reply(chunk),
-                    None => SessionsReply::NoFile {},
+        } => match agents.reachable(&root, reach::Access::Read).await {
+            Ok(real) => {
+                work_request(move || {
+                    let root = work_folder::WorkRoot::at(&real)?;
+                    Ok(match work_folder::read(&root, &path, offset, len)? {
+                        Some(chunk) => file_reply(chunk),
+                        None => SessionsReply::NoFile {},
+                    })
                 })
-            })
-            .await
-        }
+                .await
+            }
+            Err(e) => failed(e),
+        },
         SessionsRequest::WriteFile {
             root,
             path,
             offset,
             size,
             data,
-        } => {
-            work_request(move |home| {
-                let root = work_folder::WorkRoot::open(&root, home)?;
-                let path = work_folder::write(&root, &path, offset, size, &data)?;
-                Ok(SessionsReply::Written { path })
-            })
-            .await
-        }
+        } => match agents.reachable(&root, reach::Access::Write).await {
+            Ok(real) => {
+                work_request(move || {
+                    let root = work_folder::WorkRoot::at(&real)?;
+                    let path = work_folder::write(&root, &path, offset, size, &data)?;
+                    Ok(SessionsReply::Written { path })
+                })
+                .await
+            }
+            Err(e) => failed(e),
+        },
         SessionsRequest::CustomAgents { folder } => {
-            work_request(move |home| {
-                let agents = custom_agents::list(&folder, home)?;
+            let home = dirs::home_dir();
+            work_request(move || {
+                let agents = custom_agents::list(&folder, home.as_deref())?;
                 Ok(SessionsReply::CustomAgents { agents })
             })
             .await
@@ -1220,12 +1278,11 @@ fn file_reply(chunk: media_file::Chunk) -> SessionsReply {
 }
 
 /// Runs `job`, which blocks on a session's working folder, off the async
-/// workers with the node's home; its error becomes the `Error` reply.
+/// workers; its error becomes the `Error` reply.
 async fn work_request(
-    job: impl FnOnce(Option<&Path>) -> Result<SessionsReply> + Send + 'static,
+    job: impl FnOnce() -> Result<SessionsReply> + Send + 'static,
 ) -> SessionsReply {
-    let home = dirs::home_dir();
-    match spawn_blocking(move || job(home.as_deref())).await {
+    match spawn_blocking(job).await {
         Ok(Ok(reply)) => reply,
         Ok(Err(e)) => failed(e),
         Err(e) => SessionsReply::Error {

@@ -19,6 +19,9 @@ pub const PROTOCOL: &str = "sync/1";
 /// what it does not know.
 pub const CONTROLS: &str = "sync-controls/1";
 
+/// Offered beside `PROTOCOL` by a node that takes `Request::Rescan`.
+pub const RESCAN: &str = "sync-rescan/1";
+
 /// The most paths `ProjectStatus::waiting` lists.
 pub const MAX_WAITING: usize = 50;
 
@@ -43,6 +46,10 @@ pub enum Request {
         path: String,
         keep: Keep,
     },
+    /// Scans `project`'s folder now and brings it in line with what the
+    /// node has from its peers, then answers `Rescanned`. Only a node
+    /// offering `RESCAN`.
+    Rescan { project: String },
 }
 
 /// Which side of a conflict `Request::Resolve` keeps.
@@ -88,6 +95,11 @@ pub enum Reply {
     },
     /// The conflict is settled; the next scan syncs the result.
     Resolved {},
+    /// The scan `Request::Rescan` asked for is done; `status` is how the
+    /// project stands after it.
+    Rescanned {
+        status: ProjectStatus,
+    },
     Error {
         message: String,
     },
@@ -234,6 +246,18 @@ mod tests {
         };
         assert_eq!(round_trip(&resolve), resolve);
         assert_eq!(round_trip(&Reply::Resolved {}), Reply::Resolved {});
+        let rescan = Request::Rescan {
+            project: "game".into(),
+        };
+        assert_eq!(round_trip(&rescan), rescan);
+        let rescanned = Reply::Rescanned {
+            status: ProjectStatus {
+                name: "game".into(),
+                state: State::Idle,
+                ..ProjectStatus::default()
+            },
+        };
+        assert_eq!(round_trip(&rescanned), rescanned);
         let status = Reply::Status {
             projects: vec![ProjectStatus {
                 name: "game".into(),

@@ -80,6 +80,10 @@ const ADD_MACHINE: &str = "ADD_MACHINE";
 /// `import_project` as rules keep it: it clones onto a machine with the
 /// user's tokens.
 const IMPORT_PROJECT: &str = "IMPORT_PROJECT";
+/// The Beep MCP server's `run_on` and `send_files`, which coding agents on
+/// the user's machines call (`crate::tools::machines::mcp`).
+pub(crate) const RUN_ON: &str = "RUN_ON";
+pub(crate) const SEND_FILES: &str = "SEND_FILES";
 
 /// Composio tags of tools that create or destroy something. Such a tool
 /// asks first even if the catalog lists it as a read.
@@ -198,7 +202,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     if tool == SEND_FILE {
         return Some((ToolApp::Machines, Acts::WhenToMachine));
     }
-    if tool == ADD_MACHINE || tool == IMPORT_PROJECT {
+    if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
         return Some((ToolApp::Machines, Acts::Always));
     }
     if MediaKind::from_tool(tool).is_some() {
@@ -518,7 +522,7 @@ pub(crate) fn guard(
 }
 
 /// What the user's rules say about one call that acts.
-enum Check {
+pub(crate) enum Check {
     Run,
     /// Not done, with the result the model reads.
     Refuse(String),
@@ -527,7 +531,7 @@ enum Check {
 }
 
 /// What the rules say about `tool`, of `app`, acting with `args`.
-fn check(rules: &Rules, app: &ToolApp, tool: &str, args: &Value) -> Check {
+pub(crate) fn check(rules: &Rules, app: &ToolApp, tool: &str, args: &Value) -> Check {
     match rules.level(app.slug()) {
         PermissionLevel::Allow {} => Check::Run,
         PermissionLevel::ReadOnly {} => Check::Refuse(format!(

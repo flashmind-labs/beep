@@ -693,6 +693,36 @@ button.dachip:hover { border-color: #3A4A41 }
 .agctx button { all: unset; display: block; box-sizing: border-box; width: 100%; cursor: pointer; padding: 5px 10px; border-radius: 5px; font-size: 12px; color: var(--fg) }
 .agctx button:hover, .agctx button:focus { background: rgba(228, 238, 232, .08) }
 .agctx hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px }
+/* The Artifacts tab: what the agent published or wrote, newest first, then the picked one rendered. */
+.agtab[data-mtab="artifacts"] { flex: none }
+.agpview.arts [hidden] { display: none !important }
+.agartlist { flex: none; max-height: 34%; overflow: auto; display: grid; align-content: start; gap: 1px; padding: 4px; border-bottom: 1px solid var(--border) }
+.agartlist .agpmsg { padding: 12px }
+.agart { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px }
+.agart:hover { background: rgba(228, 238, 232, .05) } .agart.on { background: rgba(228, 238, 232, .09) }
+.agart .k { flex: none; width: 62px; text-align: center; padding: 1px 0; border-radius: 4px; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); color: var(--muted) }
+.agart .k.html { color: #E5B567 } .agart .k.md { color: #6FA8DC } .agart .k.svg { color: var(--emerald) }
+.agart .t { flex: 1; min-width: 0; display: grid }
+.agart .t b { font: 600 12px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agart .t small { font: 11px var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agart .r { flex: none; display: grid; justify-items: end; font-size: 11px; color: var(--muted) } .agart .r small { color: var(--dim) }
+.agart .pub { font-size: 10.5px; color: var(--emerald) }
+.agartshow { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto }
+.agartframe-box { flex: 1; min-height: 0; display: flex; background: #fff }
+.agartframe { flex: 1; border: 0; background: #fff }
+.agartimg { flex: 1; min-height: 0; display: grid; place-items: center; padding: 10px; background: radial-gradient(circle at 50% 40%, #16201b, #0b100e) }
+.agartimg img { max-width: 100%; max-height: 100%; object-fit: contain }
+.agartmd { padding: 12px 16px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere }
+.agartmd :is(h1, h2) { font-size: 15px; margin: 12px 0 6px; font-weight: 600 } .agartmd :is(h3, h4, h5, h6) { font-size: 14px; margin: 10px 0 4px; font-weight: 600 }
+.agartmd p { margin: 0 0 8px } .agartmd :is(ul, ol) { margin: 0 0 8px; padding-left: 18px }
+.agartmd a { color: var(--emerald) }
+.agartmd code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+.agartmd pre { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--elev); border: 1px solid var(--border); overflow: auto }
+.agartmd pre code { border: 0; padding: 0; background: none }
+.agartmd table { border-collapse: collapse; margin-bottom: 8px; font-size: 12.5px } .agartmd :is(th, td) { border: 1px solid var(--border); padding: 3px 8px; text-align: left }
+.agartmd blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted) }
+.agartmd img { max-width: 100% }
+.dcoderen.tool.artifact .tt { text-decoration: underline dotted var(--dim); text-underline-offset: 3px }
 /* A file of the Files tab as text, and a terminal tab. */
 .agcode { flex: 1; min-height: 0; overflow: auto }
 .agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--fg); white-space: pre; tab-size: 4 }
