@@ -2,7 +2,7 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, emptyPanel, errorNote, note, stateChip, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -1956,15 +1956,7 @@ function taskColumns(view: ProjectView) {
 
 /// The Board and List switch in the header of a project with an agent.
 function layoutSwitch() {
-  const seg = h("span", "pb-seg");
-  for (const [key, label] of [["board", "Board"], ["list", "List"]]) {
-    const b = h("button", "", label);
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(layout === key));
-    b.addEventListener("click", () => { if (layout !== key) setLayout(key); });
-    seg.append(b);
-  }
-  return seg;
+  return segmented([{ label: "Board", value: "board" }, { label: "List", value: "list" }], layout, key => { if (layout !== key) setLayout(key); });
 }
 
 // ---------- Project agent ----------

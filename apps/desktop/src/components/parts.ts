@@ -35,3 +35,12 @@ export function errorNote(text: string) {
 export function stateChip(cls: string, text: string, spin = false) {
   return el("span", cls ? `pj-st ${cls}` : "pj-st", spin ? el("span", "dspin") : null, text);
 }
+
+/// A segmented control: one button per option, the `current` one pressed.
+export function segmented<T>(options: readonly { label: string; value: T }[], current: T, choose: (value: T) => void) {
+  return el("span", "pb-seg", ...options.map(o => {
+    const b = button(o.label, "", () => choose(o.value));
+    b.setAttribute("aria-pressed", String(o.value === current));
+    return b;
+  }));
+}
