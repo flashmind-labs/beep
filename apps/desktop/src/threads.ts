@@ -14,7 +14,7 @@ import type { TileData } from "./board.ts";
 import { STATE_LABEL, reviewState } from "./review.ts";
 import type { ReviewState, ReviewView } from "./review.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, freshNote, stateChip } from "./components/parts.ts";
+import { emptyPanel, fitRows, freshNote, stateChip } from "./components/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
 import { checksText, going } from "./runs.ts";
 import type { ChecksRow } from "./runs.ts";
@@ -702,7 +702,7 @@ export function makeThreads(deps: ThreadDeps) {
     const shown = withLabels(lines, s.labels);
     const body: HTMLElement[] = [];
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
-    body.push(rowsPanel(agent, "issues", shown, draw, ISSUES_SHOWN, bar));
+    body.push(h("div", "cc-panel", ...(bar ? [bar] : []), fitRows(shown.map(draw), ISSUES_SHOWN)));
     return section(agent, "sec-issues", title, issueCount(lines), body,
       h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
   }
