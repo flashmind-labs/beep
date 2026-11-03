@@ -11,6 +11,7 @@
 pub mod agent_ids;
 mod agent_notice;
 pub mod client;
+pub mod flsh;
 pub mod groups;
 pub mod link;
 pub mod names;
@@ -32,6 +33,10 @@ uniffi::setup_scaffolding!();
 pub use agent_ids::{AgentSlug, ModelId};
 pub use agent_notice::{AgentNoticeKey, NotAgentKey};
 pub use flashmind_types::ReasoningLevel;
+pub use flsh::{
+    FlshAutoCompact, FlshModel, FlshModelRule, FlshQuantization, FlshSettings, FlshSettingsError,
+    FlshSort,
+};
 use link::LinkOffer;
 pub use secret::SecretText;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -1284,6 +1289,14 @@ requests! {
     /// keeps reading the lists every few minutes as before. `NotFound`
     /// when the caller has no such project.
     340 WatchProject { project_id: Uuid } => Stream<ProjectChange>
+    /// The caller's flsh settings (provider routing and compaction), the
+    /// same on every machine. All unset until they save some.
+    370 GetFlshSettings {} => Call<FlshSettings>
+    /// Saves the caller's flsh settings, replacing the ones before, and
+    /// sends them to every machine of theirs online; each writes them to
+    /// flsh's config before it starts flsh. `BadRequest` saying why for a
+    /// value flsh would not take (`FlshSettings::check`).
+    371 SaveFlshSettings { settings: FlshSettings } => Call<()>
 }
 
 /// What `WatchProject` streams.

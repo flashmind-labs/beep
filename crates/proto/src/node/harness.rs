@@ -114,6 +114,11 @@ pub struct HarnessInfo {
 #[serde(default)]
 pub struct AgentSettings {
     pub harnesses: Vec<HarnessConfig>,
+    /// The user's flsh settings, the same on every machine, which the node
+    /// writes to flsh's config before it starts flsh. `None` until the
+    /// user saves some, and from a server before them: the node then
+    /// leaves flsh's config alone.
+    pub flsh: Option<crate::FlshSettings>,
 }
 
 /// How the node starts one harness.
@@ -249,6 +254,19 @@ mod tests {
                 args: vec!["--verbose".into()],
                 ..HarnessConfig::new("codex")
             }],
+            flsh: Some(crate::FlshSettings {
+                zdr: Some(true),
+                quantizations: vec![crate::FlshQuantization::Fp8],
+                sort: Some(crate::FlshSort::Throughput),
+                models: vec![crate::FlshModelRule {
+                    model: "openrouter:vendor/model".parse().unwrap(),
+                    autocompact: crate::FlshAutoCompact {
+                        enabled: true,
+                        tokens: Some(120_000),
+                    },
+                }],
+                ..crate::FlshSettings::default()
+            }),
         };
         let body = rmp_serde::to_vec_named(&settings).unwrap();
         assert_eq!(
