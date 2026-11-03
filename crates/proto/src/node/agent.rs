@@ -457,6 +457,10 @@ pub enum SessionsRequest {
         root: String,
         path: String,
         ignored: bool,
+        /// Above 0, the folders under it too, as `ListWorkTree` asks them,
+        /// answered with `Tree`. A node from before it answers `Folder`.
+        #[serde(default)]
+        depth: u32,
     },
     /// Up to `len` bytes of the file `path` inside `root` from `offset`,
     /// as `ReadWorkFile` asks them. Answered with `File`, `NoFile` or
@@ -619,6 +623,10 @@ pub enum SessionsReply {
     /// The answer to `Folder`.
     Folder {
         folder: crate::WorkFolder,
+    },
+    /// The answer to `Folder` with a `depth`.
+    Tree {
+        tree: crate::WorkTree,
     },
     /// The answer to `WriteFile`: the path inside the root it writes to.
     Written {
@@ -1133,6 +1141,7 @@ mod tests {
             root: "/srv/project".into(),
             path: "src".into(),
             ignored: false,
+            depth: 3,
         };
         let read = SessionsRequest::ReadFile {
             root: "/srv/project".into(),

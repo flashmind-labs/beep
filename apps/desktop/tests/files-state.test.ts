@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_UPLOAD, type Listing, type TreeEntry, failedListing, highlight, languageOf, mentionText, treeRows, uploadParts, uploadRefusal, withMentions,
+  MAX_UPLOAD, type Listing, type TreeEntry, atEdge, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, uploadParts,
+  uploadRefusal, withMentions,
 } from "../src/files-state.ts";
 
 const file = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => ({ name, folder: false, size: 1, ignored: false, change: null, ...o });
@@ -24,6 +25,26 @@ test("open folders show their entries under them", () => {
 test("what is under an ignored folder shows as ignored", () => {
   const rows = treeRows(listings, new Set(["target"]));
   assert.deepEqual(rows.filter(r => r.ignored).map(r => r.path), ["target", "target/app"]);
+});
+
+test("a tree read merges over what was read and finds its edge", () => {
+  const held = new Map(listings);
+  // `src/auth` is not read; `target` is ignored, so it is no edge.
+  assert.ok(atEdge(held, "src"));
+  assert.ok(!atEdge(held, ""));
+  assert.ok(atEdge(held, "src/auth"));
+  mergeTree(held, {
+    folders: [
+      { path: "src", entries: [dir("auth"), file("main.rs")], more: 0, git: true },
+      { path: "src/auth", entries: [file("token.rs", { change: "added" })], more: 0, git: true },
+    ],
+    truncated: false,
+  });
+  assert.ok(!atEdge(held, "src"));
+  assert.equal(held.get("target"), listings.get("target"));
+  const rows = treeRows(held, new Set(["src", "src/auth"]));
+  assert.deepEqual(rows.map(r => r.path), ["src", "src/auth", "src/auth/token.rs", "src/main.rs", "target", "README.md"]);
+  assert.equal(rows[2].change, "added");
 });
 
 test("a filter keeps matching names and the folders on the way", () => {
