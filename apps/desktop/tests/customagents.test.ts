@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentColor, agentMeta, agentPrompt, agentsNote, agentsPlace } from "../src/customagents-state.ts";
+import { agentColor, agentMeta, agentPrompt, agentsPlace } from "../src/customagents-state.ts";
 
 test("the list is read on this Mac's checkout first, else the first one", () => {
   const rows = [
@@ -27,11 +27,4 @@ test("only named or hex colours reach a style", () => {
 test("the meta line says scope, model and tools", () => {
   assert.deepEqual(agentMeta({ scope: "project", model: "opus", tools: ["Read", "Grep"] }), ["project", "opus", "2 tools"]);
   assert.deepEqual(agentMeta({ scope: "user", model: null, tools: ["Read"] }), ["user", "Read"]);
-});
-
-test("the note says where the list was read", () => {
-  const place = { id: "m", name: "build-box", folder: "/srv/project" };
-  const row = (scope: "project" | "user") => ({ name: "a", harness: "claude", scope, description: "", model: null, tools: [], color: null, path: "", prompt: "", prompt_cut: false, error: null });
-  assert.equal(agentsNote([row("project")], place), "in its folder on build-box");
-  assert.equal(agentsNote([row("project"), row("user")], place), "in its folder and yours on build-box");
 });
