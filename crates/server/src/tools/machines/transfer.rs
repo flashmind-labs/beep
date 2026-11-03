@@ -1,8 +1,4 @@
-//! Sending a file or folder from one of the user's machines to another.
-//! Nodes that speak `transfer/1` send it to each other directly over
-//! iroh-blobs; older ones fall back to the `files/1` copy through the
-//! server, files only. Either way nothing is replaced: a taken name gets a
-//! number, as `report (2).pdf`.
+//! Sending a file or folder between the user's machines; a taken name gets a number, never replaced.
 
 use super::{Picked, copy};
 use crate::{
@@ -31,8 +27,7 @@ pub(crate) struct Sent {
     pub(crate) direct: bool,
 }
 
-/// A folder on a machine: `~` is its home, a relative path starts in
-/// `base` (or the home), and the result must be absolute.
+/// A folder on a machine, resolved against `~` or `base`; the result must be absolute.
 pub(crate) fn folder_on_machine(
     folder: &str,
     base: Option<&str>,
@@ -58,8 +53,7 @@ pub(crate) fn folder_on_machine(
     Ok(resolved)
 }
 
-/// Turns node progress into a line now and then for the user: one per 5
-/// percent of each stage.
+/// Turns node progress into a line per 5 percent of each stage.
 struct Reporter<'a> {
     stage: Option<Stage>,
     last: Option<u64>,
@@ -123,9 +117,7 @@ pub(crate) fn size(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[unit])
 }
 
-/// Sends `path` on `source` into `folder` on `target`, both resolved for
-/// their machine. `progress` gets a line now and then; when `cancel`
-/// fires, the target removes what it wrote.
+/// Sends `path` on `source` into `folder` on `target`; on `cancel` the target removes what it wrote.
 pub(crate) async fn send(
     source: &Picked,
     path: &str,
@@ -167,8 +159,7 @@ pub(crate) async fn send(
     })
 }
 
-/// The `files/1` copy for nodes without `transfer/1`: one file, to the
-/// first free name in `folder`.
+/// The `files/1` copy for nodes without `transfer/1`: one file, to the first free name.
 async fn copy_through_server(
     source: &Picked,
     path: &str,

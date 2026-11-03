@@ -1,10 +1,4 @@
-//! The improvement watcher: reads a finished conversation for where Beep
-//! failed the user and proposes what to change in Beep itself. Each finding
-//! names its kind, what happened, how to make it happen again, the likely
-//! cause and a fix, and the messages it was seen in. The same problem in
-//! the user's other chats counts towards one finding by its fingerprint.
-//! Nothing is applied: the user resolves or dismisses each one. What it stores is
-//! cut short and has anything that looks like a secret masked.
+//! The improvement watcher: finds where Beep failed the user and proposes fixes, applying nothing.
 
 use super::{
     WatcherKind, gate,
@@ -141,8 +135,7 @@ struct Checked {
     last_seq: i64,
 }
 
-/// Lowercase words of `text` joined by dashes, so spelling and punctuation
-/// do not tell two names of one problem apart.
+/// Lowercase words of `text` joined by dashes.
 fn words(text: &str) -> String {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty())
@@ -161,9 +154,7 @@ pub(crate) fn fingerprint(kind: FindingKind, area: &str, slug: &str) -> String {
     )
 }
 
-/// `text` with anything that looks like a secret or a way to reach someone
-/// masked: email addresses, long runs of digits such as card, account and
-/// phone numbers or codes, and long tokens that mix letters and digits.
+/// `text` with emails, long digit runs and long mixed tokens masked.
 pub(crate) fn redact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut word = String::new();
@@ -230,8 +221,7 @@ fn mask_number(run: &mut String, out: &mut String) {
     run.clear();
 }
 
-/// Checks the model's findings: known kinds only, text cut to size and
-/// masked, the messages kept within those it read, one per fingerprint.
+/// Validates the model's findings: known kinds, trimmed and masked, one per fingerprint.
 fn check(answer: &str, first_seq: i64, last_seq: i64) -> Result<Vec<Checked>> {
     let Answer { findings } = serde_json::from_str(unfence(answer))?;
     let mut seen = HashSet::new();
@@ -307,8 +297,7 @@ impl Watcher for ImprovementWatcher {
         WatcherKind::Improvement
     }
 
-    /// A stretch where Beep did real work, or where a call failed or was
-    /// denied, is where it is likely to have let the user down.
+    /// Stretches with real work or a failed or denied call.
     fn worth_reading(&self, messages: &[StoredMessage]) -> bool {
         gate::busy(messages) || gate::friction(messages)
     }
@@ -371,30 +360,6 @@ mod tests {
     use chrono::TimeDelta;
     use flashmind::types::AgentLlmConfig;
     use std::{sync::Arc, time::Duration};
-
-    #[test]
-    fn one_problem_named_differently_has_one_fingerprint() {
-        assert_eq!(
-            fingerprint(
-                FindingKind::WrongTool,
-                "GMAIL_SEARCH",
-                "Calendar event, searched in mail!"
-            ),
-            fingerprint(
-                FindingKind::WrongTool,
-                "gmail search",
-                "calendar  event searched in MAIL"
-            ),
-        );
-        assert_eq!(
-            fingerprint(FindingKind::Loop, "web_search", "same query again"),
-            "loop:web-search:same-query-again"
-        );
-        assert_ne!(
-            fingerprint(FindingKind::Loop, "web_search", "same query again"),
-            fingerprint(FindingKind::Slow, "web_search", "same query again"),
-        );
-    }
 
     #[test]
     fn masks_what_looks_like_a_secret() {

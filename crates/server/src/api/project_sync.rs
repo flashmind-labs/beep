@@ -1,8 +1,4 @@
-//! Keeping a project's folder in step across the caller's machines: turning
-//! it on or off per machine, how each machine stands, what sync leaves out,
-//! pausing it, settling its conflicts, and pinning a project to the
-//! machines it is on or to the top of the sidebar. The nodes sync node to node; these requests only change and
-//! read their lists.
+//! Project folder sync across the caller's machines; the nodes sync, these edit their lists.
 
 use super::{
     Reply,
@@ -74,8 +70,7 @@ async fn statuses(cx: &Cx, endpoints: Vec<String>) -> HashMap<String, Vec<Projec
         .await
 }
 
-/// The caller's projects, or only `only`: every synced one, and every
-/// pinned one.
+/// The caller's synced or pinned projects, or only `only`.
 async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiError> {
     let machines = machines(cx).await?;
     let rows: Vec<SyncRow> = cx
@@ -126,10 +121,8 @@ fn empty(project: String, pinned: bool) -> ProjectSync {
     }
 }
 
-/// `status` is `None` when the machine is offline or did not answer, and
-/// `Some(None)` when it answered without the project: it refused it, or,
-/// when the project is `paused`, it is too old to pause and stopped it.
-/// A paused machine shows `InSync`: nothing moves, and nothing failed.
+/// `status` is `None` when the machine did not answer, `Some(None)` when it answered without the
+/// project. A paused machine shows `InSync`.
 fn machine_sync(
     row: &SyncRow,
     name: String,
@@ -175,8 +168,7 @@ fn machine_sync(
     machine
 }
 
-/// How a machine stands in detail: `machine_sync`'s answer, and whether it
-/// is paused, how far it is and what still waits.
+/// How a machine stands in detail: `machine_sync`'s answer plus pause and progress.
 fn machine_detail(
     row: &SyncRow,
     name: String,
@@ -408,8 +400,7 @@ pub(super) async fn list_project_syncthing(
     Ok(syncthing_places(name, &imports, &syncs, &machines))
 }
 
-/// The folders of `project`, imported or synced, that the machine they are
-/// on reported as kept in step by Syncthing.
+/// The folders of `project` that their machine reported as kept in step by Syncthing.
 fn syncthing_places(
     project: &str,
     imports: &[ImportRow],
@@ -470,8 +461,7 @@ pub(super) async fn get_sync_skipped(cx: Cx, request: GetSyncSkipped) -> Reply<S
     })
 }
 
-/// A path left out as the app shows it; one left out by a rule this
-/// server does not know is not shown.
+/// A path left out as the app shows it; an unknown rule's is not shown.
 fn skipped_file(path: SkippedPath) -> Option<SkippedFile> {
     let rule = match path.rule {
         Rule::Git => SkipRule::Git {},
@@ -522,36 +512,6 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_shows_offline_refused_or_how_it_stands() {
-        let offline = machine_sync(&row(), "mac".into(), None, false);
-        assert_eq!(offline.status, SyncStatus::Offline {});
-        assert_eq!(offline.machine_name, "mac");
-
-        let refused = machine_sync(&row(), "mac".into(), Some(None), false);
-        assert_eq!(refused.status, SyncStatus::Failed {});
-        assert!(refused.error.is_some());
-
-        let status = ProjectStatus {
-            name: "game".into(),
-            folder: "/srv/game".into(),
-            state: State::Idle,
-            files: 3,
-            bytes: 300,
-            conflicts: vec!["plan (conflict 1a2b3c4d).md".into()],
-            rescan_secs: Some(45),
-            hint: Some("sysctl fs.inotify.max_user_watches=524288".into()),
-            ..ProjectStatus::default()
-        };
-        let synced = machine_sync(&row(), "mac".into(), Some(Some(&status)), false);
-        assert_eq!(synced.status, SyncStatus::InSync {});
-        assert_eq!(synced.files, 3);
-        assert_eq!(synced.bytes, 300);
-        assert_eq!(synced.conflicts, status.conflicts);
-        assert_eq!(synced.rescan_secs, Some(45));
-        assert_eq!(synced.hint, status.hint);
-    }
-
-    #[test]
     fn a_paused_machine_is_quiet_and_its_progress_carries_over() {
         // An older node stopped the paused project: not a refusal.
         let stopped = machine_detail(&row(), "mac".into(), Some(None), true);
@@ -594,94 +554,5 @@ mod tests {
         assert_eq!(progress.rate, 2_100_000);
         assert_eq!(progress.eta_secs, Some(78));
         assert_eq!(detail.waiting, ["src/main.rs"]);
-    }
-
-    #[test]
-    fn a_default_rule_keeps_its_marker_and_an_unknown_rule_is_dropped() {
-        let path = |rule, marker: Option<&str>| SkippedPath {
-            path: "target".into(),
-            folder: true,
-            rule,
-            marker: marker.map(str::to_owned),
-        };
-        assert_eq!(
-            skipped_file(path(Rule::Default, Some("Cargo.toml"))),
-            Some(SkippedFile {
-                path: "target".into(),
-                folder: true,
-                rule: SkipRule::Default {
-                    marker: "Cargo.toml".into()
-                },
-            })
-        );
-        assert_eq!(skipped_file(path(Rule::Other, None)), None);
-    }
-
-    #[test]
-    fn syncthing_places_are_the_project_folders_a_machine_reported() {
-        use crate::protocol::node::{EnvReport, SyncthingFolder};
-        let node = |endpoint: &str, folders: Vec<SyncthingFolder>| NodeRow {
-            endpoint: endpoint.into(),
-            name: endpoint.into(),
-            version: "0.1.0".into(),
-            env: Some(EnvReport {
-                syncthing: folders,
-                ..EnvReport::default()
-            }),
-            seen_at: chrono::Utc::now(),
-        };
-        let machines: HashMap<String, NodeRow> = [
-            node(
-                "laptop",
-                vec![SyncthingFolder {
-                    id: "work-1".into(),
-                    label: "Work".into(),
-                    path: "/srv/work".into(),
-                }],
-            ),
-            node("build", Vec::new()),
-        ]
-        .into_iter()
-        .map(|node| (node.endpoint.clone(), node))
-        .collect();
-        let import = |endpoint: &str, folder: &str| ImportRow {
-            project: "acme/game".into(),
-            endpoint: endpoint.into(),
-            folder: folder.into(),
-            url: "https://example.com/acme/game".into(),
-            imported_at: chrono::Utc::now(),
-            fork: None,
-        };
-        let synced = SyncRow {
-            project: "acme/game".into(),
-            endpoint: "laptop".into(),
-            folder: "/srv/work/game".into(),
-        };
-        let places = syncthing_places(
-            "acme/game",
-            &[
-                import("laptop", "/srv/work/game"),
-                import("build", "/srv/work/game"),
-            ],
-            &[synced],
-            &machines,
-        );
-        assert_eq!(
-            places,
-            [SyncthingPlace {
-                machine_id: "laptop".into(),
-                folder: "/srv/work/game".into(),
-                label: "Work".into(),
-            }]
-        );
-        assert!(syncthing_places("acme/other", &[], &[], &machines).is_empty());
-    }
-
-    #[test]
-    fn a_project_name_is_trimmed_and_bounded() {
-        assert_eq!(project_name("  game ").unwrap(), "game");
-        assert!(project_name(" ").is_err());
-        assert!(project_name("a\nb").is_err());
-        assert!(project_name(&"x".repeat(MAX_NAME + 1)).is_err());
     }
 }

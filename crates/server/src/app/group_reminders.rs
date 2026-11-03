@@ -1,7 +1,4 @@
-//! Reminders a group sets for itself. Each one is a row in `crons` tied to
-//! the group, kept in the timezone of the member who asked, and when it is
-//! due Beep posts its message into the group and wakes every member. They
-//! stay out of the members' own routines.
+//! Reminders a group sets for itself: `crons` rows tied to the group, posted into it when due.
 
 use super::group_tools::GroupRun;
 use crate::tools::args::text;

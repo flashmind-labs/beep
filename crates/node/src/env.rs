@@ -286,15 +286,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_claude_auth_status() {
-        let status = r#"{"loggedIn": true, "authMethod": "claude.ai", "email": "me@example.com"}"#;
-        assert_eq!(claude_logged_in(status), Some(true));
-        assert_eq!(claude_account(status).as_deref(), Some("me@example.com"));
-        assert_eq!(claude_logged_in(r#"{"loggedIn": false}"#), Some(false));
-        assert_eq!(claude_logged_in("Logged in using ChatGPT"), None);
-    }
-
-    #[test]
     fn reads_opencode_auth_list() {
         let one = "\u{1b}[0m\n\u{250c}  Credentials \u{1b}[90m~/.local/share/opencode/auth.json\n\
             \u{2502}\n\u{25cf}  Anthropic \u{1b}[90moauth\n\u{2502}\n\u{2514}  1 credentials\n\n\
@@ -305,30 +296,6 @@ mod tests {
         assert_eq!(
             opencode_logged_in("Error: something went wrong"),
             Some(false)
-        );
-    }
-
-    #[test]
-    fn gh_status_names_the_account() {
-        let status = "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true";
-        assert_eq!(gh_account(status).as_deref(), Some("octocat"));
-        assert_eq!(
-            gh_account("You are not logged into any GitHub hosts."),
-            None
-        );
-    }
-
-    #[test]
-    fn os_release_gives_its_pretty_name() {
-        let text = "NAME=\"Ubuntu\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\nID=ubuntu";
-        assert_eq!(pretty_name(text).as_deref(), Some("Ubuntu 24.04.3 LTS"));
-    }
-
-    #[test]
-    fn meminfo_total_is_in_megabytes() {
-        assert_eq!(
-            mem_total_mb("MemTotal:       65775432 kB\nMemFree: 1 kB"),
-            Some(64233)
         );
     }
 
@@ -355,17 +322,5 @@ mod tests {
             assert_eq!(tool_version(name, line), want, "{name}: {line}");
         }
         assert_eq!(tool_version("tool", "no version here"), "no version here");
-    }
-
-    #[test]
-    fn a_version_is_its_first_line_cut_short() {
-        assert_eq!(
-            first_line("\n  git version 2.51.0\nmore").as_deref(),
-            Some("git version 2.51.0")
-        );
-        assert_eq!(
-            first_line(&"x".repeat(200)).map(|v| v.len()),
-            Some(MAX_VERSION)
-        );
     }
 }

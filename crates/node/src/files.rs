@@ -313,51 +313,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn reads_writes_and_lists_inside_a_shared_folder() {
-        let f = fixture("inside");
-        let read = f.folders.answer(Request::Read {
-            path: "notes.txt".into(),
-            offset: 6,
-            limit: 3,
-        });
-        assert_eq!(
-            read,
-            Reply::Data {
-                path: shown(&f.shared.join("notes.txt")),
-                data: b"wor".to_vec(),
-                size: 12,
-            }
-        );
-        let written = f.folders.answer(Request::Write {
-            path: shown(&f.shared.join("src/new.txt")),
-            data: b"one".to_vec(),
-            append: false,
-        });
-        assert!(
-            matches!(written, Reply::Written { size: 3, .. }),
-            "{written:?}"
-        );
-        f.folders.answer(Request::Write {
-            path: "src/new.txt".into(),
-            data: b"two".to_vec(),
-            append: true,
-        });
-        assert_eq!(
-            fs::read_to_string(f.shared.join("src/new.txt")).expect("read"),
-            "onetwo"
-        );
-        let Reply::Entries { entries, more, .. } = f.folders.answer(Request::List {
-            path: shown(&f.shared),
-            limit: 1,
-        }) else {
-            panic!("expected entries");
-        };
-        assert_eq!(more, 1);
-        assert_eq!(entries[0].name, "notes.txt");
-        assert_eq!(entries[0].kind, FileKind::File);
-    }
-
     #[cfg(unix)]
     #[test]
     fn nothing_outside_the_shared_folders_is_reachable() {

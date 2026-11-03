@@ -17,17 +17,14 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq)]
 pub struct CredentialRow {
     pub id: String,
-    /// As stored, so a row this server does not understand, such as one a
-    /// newer server saved, still lists.
+    /// As stored, so a kind this server does not know (from a newer server) still lists.
     pub kind: CredentialKind,
     pub env_var: String,
     pub last4: String,
     pub account: Option<String>,
     pub to_machines: bool,
     pub created_at: DateTime<Utc>,
-    /// Its secret no longer opens, such as after the server's key changed,
-    /// or this server does not know its kind. The user has to enter it
-    /// again.
+    /// The secret no longer opens or the kind is unknown; the user must enter it again.
     pub unreadable: bool,
 }
 
@@ -62,16 +59,13 @@ pub struct GitHubAccountRow {
     pub unreadable: bool,
 }
 
-/// A GitHub token to save as the account it signs in as, replacing the
-/// user's account with that login.
+/// A GitHub token to save as the account it signs in as.
 pub struct NewGitHubAccount<'a> {
     pub secret: &'a SecretString,
     pub last4: &'a str,
     pub login: &'a str,
     pub orgs: &'a [String],
-    /// When the user has no account with this login, it takes the default
-    /// account's place instead of being added: what saving "the" GitHub
-    /// token means to an app from before several accounts.
+    /// With no account of this login, replace the default instead of adding (what pre-multi-account apps mean).
     pub replace_default: bool,
 }
 
@@ -80,8 +74,7 @@ const FORGEJO: &str = "forgejo";
 const API_KEY: &str = "api_key";
 const AGENT_TOKEN: &str = "agent_token";
 
-/// A coding agent's token as Agent accounts shows it: everything but the
-/// secret.
+/// A coding agent's token as Agent accounts shows it, without the secret.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentTokenRow {
     pub agent: AgentAccount,
@@ -260,9 +253,7 @@ impl Store {
         credential_from(&row, false)
     }
 
-    /// Seals and saves a GitHub token as the account `new.login`, replacing
-    /// the user's account with that login (it stays the default when it
-    /// was). The user's first account becomes the default.
+    /// Seals and saves a GitHub token as `new.login`, replacing that login's account; the first account becomes the default.
     pub(crate) async fn save_github_account(
         &self,
         user: &UserKey,
@@ -327,9 +318,7 @@ impl Store {
         account_from(&row, false)
     }
 
-    /// The user's GitHub accounts, the default first, then oldest first.
-    /// When none is marked, as after an older server saved one, the
-    /// oldest is the default.
+    /// The user's GitHub accounts, default first then oldest; with none marked, the oldest is the default.
     pub(crate) async fn github_accounts(
         &self,
         user: &UserKey,
@@ -353,8 +342,7 @@ impl Store {
         Ok(accounts)
     }
 
-    /// Makes the user's GitHub account `id` the default; `false` when they
-    /// have no such account.
+    /// Makes GitHub account `id` the default; false when there is no such account.
     pub(crate) async fn set_default_github(&self, user: &UserKey, id: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let found: Option<String> = sqlx::query_scalar(
@@ -381,12 +369,8 @@ impl Store {
         Ok(true)
     }
 
-    /// The user's credentials: git hosts first, then API keys. Each is
-    /// tried with `key`, to mark the ones that no longer open. Of the
-    /// GitHub accounts only the default is listed, as apps from before
-    /// several accounts know one GitHub row (see `github_accounts`).
-    /// Coding agents' tokens are left out: Agent accounts shows them (see
-    /// `agent_tokens`).
+    /// The user's credentials, git hosts then API keys, marking ones `key` cannot open.
+    /// Only the default GitHub account is listed (older apps know one); agent tokens are left out.
     pub(crate) async fn credentials(
         &self,
         user: &UserKey,
@@ -415,8 +399,7 @@ impl Store {
         Ok(out)
     }
 
-    /// The user's coding agents' tokens, each tried with `key` to mark
-    /// one that no longer opens.
+    /// The user's coding agent tokens, marking ones `key` cannot open.
     pub(crate) async fn agent_tokens(
         &self,
         user: &UserKey,
@@ -462,8 +445,7 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
-    /// Keeps `account` as who the user's Forgejo credential `id` signs in
-    /// as, once a host said so; `false` when they have no such one.
+    /// Keeps `account` as the login of Forgejo credential `id`; false when there is no such one.
     pub(crate) async fn set_forgejo_account(
         &self,
         user: &UserKey,
@@ -481,9 +463,7 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
-    /// Removes the user's credential `id`; `false` when they have none.
-    /// Removing the default GitHub account makes the oldest other one the
-    /// default.
+    /// Removes credential `id`; removing the default GitHub account promotes the oldest other.
     pub(crate) async fn remove_credential(&self, user: &UserKey, id: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
@@ -510,9 +490,7 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
-    /// The user's git host tokens (GitHub, Forgejo), opened, with who each
-    /// signs in as. One that does not open is left out and logged, so the
-    /// rest still go.
+    /// The user's git host tokens, opened, with their logins; unopenable ones are logged and skipped.
     pub(crate) async fn git_logins(
         &self,
         user: &UserKey,
@@ -552,8 +530,7 @@ impl Store {
         Ok(out)
     }
 
-    /// The user's credentials meant for their machines, opened. One that
-    /// does not open is left out and logged, so the rest still go.
+    /// The user's machine credentials, opened; unopenable ones are logged and skipped.
     pub(crate) async fn machine_credentials(
         &self,
         user: &UserKey,
@@ -609,9 +586,7 @@ impl Store {
 }
 
 impl Store {
-    /// The user's API keys, opened, by provider. One that does not open, or
-    /// whose provider this server does not know, is left out and logged, so
-    /// the rest still work.
+    /// The user's API keys by provider, opened; unopenable or unknown ones are logged and skipped.
     pub(crate) async fn api_keys(
         &self,
         user: &UserKey,
@@ -656,9 +631,7 @@ pub(crate) struct ApiKey {
     pub(crate) secret: SecretString,
 }
 
-/// Seals the credentials of `source` again for `target`, before an account
-/// merge moves them: what is sealed names its user. One that does not open
-/// is left as it is, unreadable either way.
+/// Reseals `source`'s credentials for `target` before a merge, since the seal names its user; unopenable ones stay as they are.
 pub(super) async fn reseal_for(
     tx: &mut PgConnection,
     key: &CredentialKey,

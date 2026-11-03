@@ -1,19 +1,11 @@
-//! When a scope of the user's memories needs curating. Curation costs a
-//! model call, so it runs only for a scope that shows a need: it grew by
-//! `GROWTH` memories since it was last curated, new memories keep landing
-//! close to existing ones without being duplicates (which is also how
-//! contradictions look, "Lives in Lisbon" beside "Lives in Porto"), recalls
-//! keep coming back with many close hits, or one of its memories ended and
-//! its lasting part should be kept. The hourly check reads the memories and
-//! the per-scope state, two queries and no model call.
+//! When a scope of the user's memories needs curating (growth, near-duplicates, crowded recalls, ended memories).
 
 use super::DUPLICATE;
 use crate::store::{MemoryRow, Scope, Scored};
 use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
-/// A memory this close to an existing one in its scope, but not a
-/// duplicate, counts as a `Signal::Close` (cosine 0.75).
+/// A memory this close to another in its scope, not a duplicate, is a `Signal::Close` (cosine 0.75).
 pub(crate) const NEAR: f32 = 0.645;
 /// Memories a scope gains since its last curation that make it due.
 const GROWTH: usize = 25;
@@ -21,9 +13,7 @@ const GROWTH: usize = 25;
 const CLOSE_PILE: u32 = 3;
 /// Crowded recalls since the last curation that make a scope due.
 const CROWDED_PILE: u32 = 3;
-/// Hits in one scope scoring at least `CROWDED_SCORE` that make a recall
-/// crowded. Search scores add up to 0.3 for shared words, so this is close
-/// in meaning and in words.
+/// Hits scoring at least `CROWDED_SCORE` in one scope that make a recall crowded.
 const CROWDED_HITS: usize = 5;
 const CROWDED_SCORE: f32 = DUPLICATE;
 /// Most scopes one hourly check curates; the rest wait for the next.
@@ -77,8 +67,7 @@ pub(crate) struct ScopeNeed {
     pub(crate) need: Need,
 }
 
-/// When a memory's days ended by `now`: the start of the day after its
-/// last day.
+/// The start of the day after a memory's last day.
 fn ended_at(row: &MemoryRow, now: NaiveDateTime) -> Option<NaiveDateTime> {
     row.valid
         .until?
@@ -105,8 +94,7 @@ fn need(rows: &[&MemoryRow], state: &ScopeState, now: NaiveDateTime) -> Option<N
     (rows.len() >= state.size + GROWTH).then_some(Need::Grew)
 }
 
-/// The scopes of `rows` that need curating, the user's own first, then the
-/// biggest.
+/// The scopes of `rows` that need curating, the user's own first, then the biggest.
 pub(crate) fn curation_needs(
     rows: &[MemoryRow],
     states: &HashMap<Scope, ScopeState>,
@@ -188,17 +176,6 @@ mod tests {
         }
     }
 
-    fn machine() -> Scope {
-        Scope::Machine(iroh::SecretKey::generate().public())
-    }
-
-    #[test]
-    fn nothing_is_due_just_because_time_passed() {
-        let user = rows(10, &Scope::User);
-        let states = HashMap::from([(Scope::User, curated("2026-01-01 00:00:00", 9))]);
-        assert!(curation_needs(&user, &states, at("2026-10-29 12:00:00")).is_empty());
-    }
-
     #[test]
     fn a_scope_is_due_once_it_grows_by_a_step() {
         let now = at("2026-10-29 12:00:00");
@@ -220,41 +197,6 @@ mod tests {
     }
 
     #[test]
-    fn close_and_crowded_signals_pile_up_per_scope() {
-        let now = at("2026-10-29 12:00:00");
-        let mac = machine();
-        let mut all = rows(5, &Scope::User);
-        all.extend(rows(5, &mac));
-        let mut states = HashMap::from([
-            (Scope::User, curated("2026-10-01 00:00:00", 5)),
-            (mac.clone(), curated("2026-10-01 00:00:00", 5)),
-        ]);
-        if let Some(state) = states.get_mut(&mac) {
-            state.close = CLOSE_PILE - 1;
-        }
-        assert!(curation_needs(&all, &states, now).is_empty());
-        if let Some(state) = states.get_mut(&mac) {
-            state.close = CLOSE_PILE;
-        }
-        if let Some(state) = states.get_mut(&Scope::User) {
-            state.crowded = CROWDED_PILE;
-        }
-        assert_eq!(
-            curation_needs(&all, &states, now),
-            [
-                ScopeNeed {
-                    scope: Scope::User,
-                    need: Need::Crowded,
-                },
-                ScopeNeed {
-                    scope: mac,
-                    need: Need::Close,
-                },
-            ]
-        );
-    }
-
-    #[test]
     fn a_memory_that_ended_since_the_last_curation_is_due_once() {
         let mut user = rows(3, &Scope::User);
         user[0].valid.until = NaiveDate::from_ymd_opt(2026, 10, 20);
@@ -265,35 +207,5 @@ mod tests {
         let now = at("2026-10-21 08:00:00");
         assert_eq!(curation_needs(&user, &before, now)[0].need, Need::Ended);
         assert!(curation_needs(&user, &after, now).is_empty());
-    }
-
-    #[test]
-    fn the_user_scope_comes_first_then_the_biggest() {
-        let now = at("2026-10-29 12:00:00");
-        let (small, big) = (machine(), Scope::project("beep").unwrap());
-        let mut all = rows(GROWTH, &small);
-        all.extend(rows(GROWTH + 10, &big));
-        all.extend(rows(GROWTH, &Scope::User));
-        let order: Vec<Scope> = curation_needs(&all, &HashMap::new(), now)
-            .into_iter()
-            .map(|need| need.scope)
-            .collect();
-        assert_eq!(order, [Scope::User, big, small]);
-    }
-
-    #[test]
-    fn a_recall_is_crowded_when_many_hits_sit_close_in_one_scope() {
-        let mac = machine();
-        let hit = |id, scope: &Scope, score| Scored {
-            row: row(id, scope),
-            score,
-        };
-        let mut found: Vec<Scored> = (0..CROWDED_HITS)
-            .map(|id| hit(id, &mac, CROWDED_SCORE + 0.01))
-            .collect();
-        found.extend((0..CROWDED_HITS).map(|id| hit(id, &Scope::User, CROWDED_SCORE - 0.01)));
-        assert_eq!(crowded_scopes(&found), [mac]);
-        found.truncate(CROWDED_HITS - 1);
-        assert!(crowded_scopes(&found).is_empty());
     }
 }

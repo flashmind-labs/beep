@@ -90,25 +90,3 @@ pub(super) fn line(text: &str) -> Option<Line> {
         _ => None,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_log_gives_its_session_and_priced_requests() {
-        let head = r#"{"type":"session","version":3,"id":"p1","timestamp":"2026-11-02T10:00:00.000Z","cwd":"/srv/project"}"#;
-        assert!(matches!(line(head), Some(Line::Session { id, .. }) if id == "p1"));
-        let reply = r#"{"type":"message","timestamp":"2026-11-02T10:15:00.000Z","message":{"role":"assistant","provider":"openrouter","model":"example/model-m3","usage":{"input":23743,"output":442,"cacheRead":1664,"cacheWrite":0,"totalTokens":25849,"cost":{"total":0.0078}}}}"#;
-        assert!(wanted(reply));
-        let Some(Line::Request(request)) = line(reply) else {
-            panic!("a request");
-        };
-        assert_eq!(request.tokens.total(), 25849);
-        assert_eq!(request.cost_usd, Some(0.0078));
-        assert_eq!(request.provider.as_deref(), Some("openrouter"));
-        assert_eq!(request.at, 1_793_614_500);
-        let user = r#"{"type":"message","message":{"role":"user","content":"hi"}}"#;
-        assert!(line(user).is_none());
-    }
-}

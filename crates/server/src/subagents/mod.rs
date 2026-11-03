@@ -1,15 +1,4 @@
-//! Background work: sub-agents run outside the user's turns.
-//!
-//! A sub-agent is a short agent run of some [`Kind`]: its instructions and
-//! limits. One run is a [`Spec`]: the kind, the model from the config, the
-//! tools it may use, the [`Decision`]s it ends with and its task. Runs go
-//! through flashmind's `AgentManager`, which owns the agent loop, its status
-//! and its cancellation; [`Subagents::run`] adds what a server needs on top:
-//! a token budget, a time limit and a typed decision.
-//!
-//! [`Subagents`] owns every task, bounded per user and per [`Pool`]. Event
-//! triage (`crate::events::triage`) is the only kind so far. It also holds
-//! the cards of calls waiting for the user's OK outside a turn.
+//! Background work: sub-agents run outside the user's turns with a token budget, a time limit and a typed decision.
 
 mod approvals;
 mod decision;
@@ -88,8 +77,7 @@ pub struct Spec<D> {
     pub context: Option<String>,
     /// Lets a caller follow and stop the run; `None` when nobody does.
     pub watch: Option<Watch>,
-    /// Checks every call before it runs; `None` only for runs whose tools
-    /// cannot act.
+    /// Checks every call before it runs; `None` only when the tools cannot act.
     pub gate: Option<Arc<dyn ToolGate>>,
 }
 
@@ -190,9 +178,7 @@ impl Subagents {
         }
     }
 
-    /// Starts `work` for `user` in the background, holding one of their
-    /// slots in `pool` until it ends. Refused with [`Busy`] when no slot is
-    /// free or the server is stopping; a stop drops work still running.
+    /// Starts `work` holding one of `user`'s slots in `pool`; [`Busy`] when none is free or the server is stopping.
     pub fn spawn<F>(&self, pool: Pool, user: &str, work: F) -> Result<(), Busy>
     where
         F: Future<Output = ()> + Send + 'static,

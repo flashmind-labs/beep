@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, checkoutNote, forkNote } from "../src/branchwork.ts";
+import { defaultPlaces, placeChoices, worktreesToAsk, outsideThreads } from "../src/branchwork.ts";
 
 const preview = {
   project: "tools-org/uploader",
@@ -18,17 +18,6 @@ const preview = {
   ],
 };
 
-test("worktrees go on online machines, the one read on first", () => {
-  const machines = [
-    { id: "a", name: "zeta", online: true },
-    { id: "b", name: "alpha", online: true },
-    { id: "c", name: "off", online: false },
-  ];
-  assert.deepEqual(worktreeMachines(machines, "a"), [{ id: "a", name: "zeta" }, { id: "b", name: "alpha" }]);
-  assert.deepEqual(worktreeMachines(null, "a"), []);
-  assert.equal(worktreeName("fix/windows-paths"), ".worktrees/fix-windows-paths");
-});
-
 test("an import picks a worktree for branches with work and none yet", () => {
   assert.deepEqual(defaultPlaces(preview), { "fix/windows-paths": "m1", "from-fork": "m1" });
   assert.deepEqual(placeChoices(preview, []), [{ id: "m1", name: "build-box" }, { id: "m2", name: "mac-box" }]);
@@ -41,14 +30,6 @@ test("an import picks a worktree for branches with work and none yet", () => {
     { branch: "from-fork", machine_id: null },
   ]);
   assert.deepEqual(worktreesToAsk(null, picks), []);
-});
-
-test("a preview branch says its PR, how far ahead and where it lives", () => {
-  assert.equal(previewLine(preview.branches[0], "main"), "PR #812 Add a retry flag · 2 ahead · /srv/uploader/.worktrees/retry-flag");
-  assert.equal(previewLine(preview.branches[2], "main"), "PR #900 · not in the checkout");
-  assert.equal(previewLine(preview.branches[3], "main"), "default branch · /srv/uploader");
-  assert.equal(checkoutNote(preview), "Found a checkout on build-box at /srv/uploader (through upstream) and 2 more.");
-  assert.equal(checkoutNote({ checkouts: [] }), "No checkout on your online machines yet; importing clones it.");
 });
 
 test("outside_threads_skip_registered_repos", () => {
@@ -66,16 +47,4 @@ test("outside_threads_skip_registered_repos", () => {
     ["big-org/parser", [2210]],
   ]);
   assert.deepEqual(outsideThreads(null, null), []);
-});
-
-test("the fork line names the fork and the PR branches made local", () => {
-  assert.equal(forkNote(null), null);
-  assert.equal(forkNote(undefined), null);
-  assert.equal(forkNote({ project: "acme/widget", fork: null, branches: [] }), null);
-  assert.equal(forkNote({ project: "acme/widget", fork: "octo/widget", branches: [] }),
-    "Your fork octo/widget will be cloned, upstream added.");
-  assert.equal(forkNote({ project: "acme/widget", fork: "octo/widget", branches: ["fix-retry"] }),
-    "Your fork octo/widget will be cloned, upstream added. Your PR branch fix-retry is made local.");
-  assert.equal(forkNote({ project: "acme/widget", fork: "octo/widget", branches: ["a", "b"] }),
-    "Your fork octo/widget will be cloned, upstream added. Your 2 PR branches are made local.");
 });

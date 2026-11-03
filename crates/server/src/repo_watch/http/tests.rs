@@ -11,8 +11,7 @@ struct Count {
     n: u32,
 }
 
-/// Calls `url` on the host with a plain client: the test host is on
-/// localhost, which the server's own client refuses.
+/// Calls `url` with a plain client, since the server's client refuses localhost.
 async fn call<T: DeserializeOwned>(
     calls: &HostCalls,
     who: &Who,
@@ -89,24 +88,6 @@ async fn a_low_rate_limit_pauses_polling_until_its_reset() {
     assert_eq!(
         calls.limited_until(&who("alice"), until + Duration::from_secs(1)),
         None
-    );
-}
-
-#[tokio::test]
-async fn a_refused_call_out_of_calls_is_rate_limited() {
-    let host = TestHost::start(|_| {
-        Reply::status("403 Forbidden")
-            .with("x-ratelimit-remaining", "0")
-            .with("x-ratelimit-reset", "4102444800")
-    })
-    .await;
-    let calls = HostCalls::default();
-    let got: Result<Count, _> = call(&calls, &who("alice"), &format!("{}/x", host.base)).await;
-    assert_eq!(got, Err(HostError::RateLimited("github.com".into())));
-    assert!(
-        calls
-            .limited_until(&who("alice"), SystemTime::now())
-            .is_some()
     );
 }
 

@@ -1,5 +1,4 @@
-//! The app catalog as one user sees it: their Composio accounts and their
-//! MCP servers.
+//! The app catalog as one user sees it: their Composio accounts and MCP servers.
 
 use super::User;
 use crate::{
@@ -44,10 +43,7 @@ impl User {
         )
     }
 
-    /// Agent tools for the Composio apps `user` has connected. Only the
-    /// connected toolkits are listed: the unfiltered catalog is thousands of
-    /// tools across many pages. A slow or failing Composio gives no tools
-    /// rather than holding up the run.
+    /// Agent tools for the user's connected Composio toolkits; a failing Composio gives none.
     pub async fn app_tools(&self) -> AppTools {
         let Some(composio) = self.composio.as_deref() else {
             return AppTools::default();
@@ -82,8 +78,7 @@ impl User {
         }
     }
 
-    /// Whether a Composio app is connected under the user's outside id.
-    /// `None` without Composio, or when it does not answer.
+    /// Whether a Composio app is connected; `None` without Composio or an answer.
     pub async fn composio_connected(&self) -> Option<bool> {
         let client = self.composio_client()?;
         match connected_slugs(&client, self.external_id()).await {
@@ -95,8 +90,7 @@ impl User {
         }
     }
 
-    /// The synced feeds `user` has connected, from Composio and MCP. An
-    /// outage of either leaves its feeds out.
+    /// The user's connected feeds from Composio and MCP; an outage leaves its feeds out.
     pub async fn feeds(&self) -> Vec<Feed> {
         let mut connected = HashSet::new();
         if let Some(client) = self.composio_client() {
@@ -117,8 +111,7 @@ impl User {
 
     /// The app catalog with what the user connected.
     pub async fn apps(&self) -> Result<Vec<AppIntegration>, ApiError> {
-        // A Composio outage or bad key marks its apps unavailable instead of
-        // failing the list, so apps that do not use Composio still show.
+        // A Composio failure marks its apps unavailable instead of failing the list.
         let (connected, logos) = match (&self.composio, self.composio_client()) {
             (Some(composio), Some(client)) => {
                 let (connected, logos) = tokio::join!(
@@ -173,9 +166,7 @@ impl User {
         Ok(ConnectLink { url })
     }
 
-    /// Starts OAuth for an MCP app. The browser comes back to `redirect_uri`
-    /// on the phone, which passes the result to `finish_app_auth`. `add`
-    /// signs in another account instead of reconnecting the first.
+    /// Starts OAuth for an MCP app, finished by `finish_app_auth`; `add` signs in another account.
     pub async fn start_app_auth(
         &self,
         slug: &str,

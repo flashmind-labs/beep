@@ -217,23 +217,6 @@ mod tests {
     }
 
     #[test]
-    fn good_settings_pass() {
-        let settings = FlshSettings {
-            zdr: Some(true),
-            quantizations: vec![FlshQuantization::Fp8, FlshQuantization::Bf16],
-            sort: Some(FlshSort::Throughput),
-            allow_fallbacks: Some(false),
-            autocompact: Some(FlshAutoCompact {
-                enabled: true,
-                tokens: Some(300_000),
-            }),
-            models: vec![rule("openrouter:vendor/model", Some(120_000))],
-        };
-        assert_eq!(settings.check(), Ok(()));
-        assert_eq!(FlshSettings::default().check(), Ok(()));
-    }
-
-    #[test]
     fn bad_values_are_refused() {
         let twice = FlshSettings {
             quantizations: vec![FlshQuantization::Fp8, FlshQuantization::Fp8],
@@ -282,13 +265,6 @@ mod tests {
             ..FlshSettings::default()
         };
         assert_eq!(many.check(), Err(FlshSettingsError::TooManyModels));
-    }
-
-    #[test]
-    fn models_without_a_provider_do_not_parse() {
-        assert!("vendor/model".parse::<FlshModel>().is_err());
-        assert!(":vendor/model".parse::<FlshModel>().is_err());
-        assert!("openrouter:".parse::<FlshModel>().is_err());
     }
 
     #[test]

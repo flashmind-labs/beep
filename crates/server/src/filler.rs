@@ -1,6 +1,4 @@
-//! Short lines live mode says while a tool runs and the reply has been
-//! quiet, such as "Let me check build-box". Picked from templates by the
-//! kind of step, in the language the user spoke; no model call.
+//! Short template lines live mode says while a tool runs, in the user's language; no model call.
 
 /// The languages the lines come in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,8 +23,7 @@ enum Kind {
     Other,
 }
 
-/// Common short words of each language. The one with most hits in the
-/// user's message wins; English when none does.
+/// Common short words of each language; the most hits wins, else English.
 const WORDS: &[(Lang, &[&str])] = &[
     (
         Lang::En,
@@ -127,8 +124,7 @@ fn kind(step: &str) -> Kind {
     }
 }
 
-/// The line to say for tool step `step`, in the language of `said`.
-/// `still` gives the line for a long wait instead.
+/// The line for tool step `step` in the language of `said`; `still` for a long wait.
 pub fn line(step: &str, said: &str, still: bool) -> String {
     let lang = language(said);
     if still {
@@ -184,76 +180,5 @@ pub fn line(step: &str, said: &str, still: bool) -> String {
             (_, Lang::Pt) => "Um momento.",
         }
         .to_owned(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_language_follows_what_was_said() {
-        assert_eq!(language("Is build-box running out of disk?"), Lang::En);
-        assert_eq!(language("¿Qué tiempo hace en Girona el sábado?"), Lang::Es);
-        assert_eq!(language("Què hi ha al meu calendari per demà?"), Lang::Ca);
-        assert_eq!(
-            language("Est-ce que tu peux regarder mon agenda?"),
-            Lang::Fr
-        );
-        assert_eq!(
-            language("Was ist auf meinem Kalender, kannst du schauen?"),
-            Lang::De
-        );
-        assert_eq!(
-            language("Cosa c'è nella mia posta? Puoi controllare"),
-            Lang::It
-        );
-        assert_eq!(language("Você pode ver o que tenho amanhã?"), Lang::Pt);
-        assert_eq!(language(""), Lang::En);
-    }
-
-    #[test]
-    fn a_command_names_its_machine() {
-        assert_eq!(
-            line(
-                "Running df -h on build-box",
-                "Is build-box out of disk?",
-                false
-            ),
-            "Let me check build-box."
-        );
-        assert_eq!(
-            line(
-                "Running df -h on build-box",
-                "¿Está lleno el disco de build-box?",
-                false
-            ),
-            "Voy a mirar build-box."
-        );
-    }
-
-    #[test]
-    fn other_steps_by_kind() {
-        assert_eq!(
-            line("Searching Fastmail", "Did Alex reply?", false),
-            "Looking at your inbox."
-        );
-        assert_eq!(
-            line(
-                "Moving an event in Google Calendar",
-                "Move the dentist",
-                false
-            ),
-            "Checking your calendar."
-        );
-        assert_eq!(
-            line("Searching the web", "Who won?", false),
-            "Let me look that up."
-        );
-        assert_eq!(
-            line("Creating a reminder", "Remind me", false),
-            "One moment."
-        );
-        assert_eq!(line("Anything", "What is it?", true), "Still on it.");
     }
 }

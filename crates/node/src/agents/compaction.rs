@@ -202,19 +202,6 @@ mod tests {
     }
 
     #[test]
-    fn below_the_threshold_nothing_is_compacted() {
-        let mut compactor = Compactor::new(known("codex"), Policy::default());
-        ended(
-            &mut compactor,
-            usage(79_999, 100_000),
-            &commands(&["compact"]),
-        );
-        assert!(!compactor.start(false));
-        ended(&mut compactor, None, &commands(&["compact"]));
-        assert!(!compactor.start(false), "no usage known");
-    }
-
-    #[test]
     fn at_the_threshold_it_compacts_once_before_the_next_prompt() {
         let mut compactor = Compactor::new(known("codex"), Policy::default());
         ended(

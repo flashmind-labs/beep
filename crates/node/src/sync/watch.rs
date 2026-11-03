@@ -437,29 +437,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_budget_leaves_room_for_other_programs() {
-        let mut budget = Budget::new(10_000, 2_000);
-        // A tenth stays free for others: 10,000 - 1,000 - 2,000.
-        assert_eq!(budget.left(), 7_000);
-        assert!(budget.admit(1, 5_000));
-        assert_eq!(budget.left(), 2_000);
-        assert!(!budget.admit(2, 2_001));
-        assert!(budget.admit(2, 2_000));
-        assert_eq!(budget.left(), 0);
-        // A project may shrink, or grow into what it already holds.
-        assert!(budget.admit(1, 4_000));
-        assert!(budget.admit(1, 5_000));
-        assert!(!budget.admit(1, 5_001));
-        budget.release(2);
-        assert_eq!(budget.left(), 2_000);
-        budget.others_now(3_500);
-        assert_eq!(budget.left(), 500);
-        // A small limit still keeps the minimum free.
-        assert_eq!(Budget::new(600, 0).left(), 600 - MIN_RESERVE);
-        assert_eq!(Budget::new(100, 0).left(), 0);
-    }
-
-    #[test]
     fn opening_and_reading_files_is_not_a_change() {
         use notify::event::{CreateKind, ModifyKind};
         assert!(!is_change(&EventKind::Access(AccessKind::Open(

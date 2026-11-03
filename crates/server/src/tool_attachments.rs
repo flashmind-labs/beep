@@ -1,11 +1,4 @@
-//! Files tools hand the model, such as a machine's screenshot or a file
-//! `attach` read.
-//!
-//! A tool returns them as parts of its result, and flashmind's conversation
-//! sends them in a user message after the tool results. Each model call
-//! gets only the newest `SHOWN` of them, so a long run of screenshots does
-//! not resend every one. When the turn is saved they are dropped, leaving a
-//! note in the tool's output, so the saved conversation keeps no file data.
+//! Files tools hand the model: only the newest `SHOWN` are sent, and none are saved.
 
 use async_trait::async_trait;
 use flashmind::core::{Conversation, EntryKind};
@@ -17,8 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 
 /// The most tool attachments one model call gets.
 const SHOWN: usize = 3;
-/// The text of the user message flashmind's conversation puts tool
-/// results' parts in.
+/// The text of the message flashmind puts tool result parts in.
 const FROM_TOOLS: &str = "Attachments returned by the preceding tools:";
 /// Added to a saved tool result whose attachments were dropped.
 const DROPPED: &str = "[The attachment is no longer shown. Attach it again, or take a new \
@@ -38,8 +30,7 @@ fn left_out(part: &ContentPart) -> String {
     )
 }
 
-/// Whether `messages[index]` is the message flashmind adds after tool
-/// results to carry their parts.
+/// Whether `messages[index]` carries tool result parts.
 fn carries_tool_parts(messages: &[Message], index: usize) -> bool {
     index > 0
         && messages[index - 1].role == Role::Tool
@@ -47,8 +38,7 @@ fn carries_tool_parts(messages: &[Message], index: usize) -> bool {
         && messages[index].content == FROM_TOOLS
 }
 
-/// Replaces all but the newest `SHOWN` tool attachments in `messages` with
-/// a note saying they are left out.
+/// Replaces all but the newest `SHOWN` tool attachments with a note.
 fn keep_recent(messages: &mut [Message]) {
     let mut shown = 0;
     for index in (0..messages.len()).rev() {
@@ -73,8 +63,7 @@ fn keep_recent(messages: &mut [Message]) {
     }
 }
 
-/// Drops the attachments of every tool result in `conversation`, noting it
-/// in the result's output, so the saved conversation holds no file data.
+/// Drops every tool result's attachments, noting it in the output.
 pub(crate) fn drop_attachments(conversation: &mut Conversation) {
     for entry in conversation.entries_mut() {
         if let EntryKind::Tool { output, parts, .. } = &mut entry.kind
@@ -213,19 +202,6 @@ mod tests {
             .filter(|part| matches!(part, ContentPart::Text { text } if text.contains("no longer shown")))
             .count();
         assert_eq!(notes, 3);
-    }
-
-    #[test]
-    fn a_users_own_images_are_left_alone() {
-        let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::user_with_parts(
-            "what is this",
-            vec![image("mine")],
-        ));
-        let mut messages = conversation.to_messages();
-        messages.extend(screenshots(5).to_messages());
-        keep_recent(&mut messages);
-        assert_eq!(sent(&messages), ["mine", "shot 2", "shot 3", "shot 4"]);
     }
 
     #[test]

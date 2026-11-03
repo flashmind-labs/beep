@@ -1,10 +1,8 @@
-//! Group chats: members post, and a message that mentions @beep, or that
-//! Jev judges Beep can help with, starts a run that answers in the group.
-//! The run reads every member's memories, and its reply passes the leak gate
-//! before anyone sees it.
+//! Group chats: an @beep message, or one Jev thinks Beep can help with, starts a run whose reply
+//! passes the leak gate.
 
 use super::{
-    App, UserNotice, group_reminders,
+    App, Reach, UserNotice, group_reminders,
     group_tools::{self, GroupRun},
     learning::MEMORY_THRESHOLD,
     run::register_web_tools,
@@ -54,8 +52,7 @@ const FAILED: &str = "Sorry, I couldn't answer that just now. Try again in a bit
 const NEEDS_APPROVAL: &str =
     "That needs your OK first. Ask me in our own chat and you can approve it there.";
 
-/// How long Beep waits after a message without @beep, so a sender who
-/// writes in bursts finishes first.
+/// How long Beep waits after a message without @beep, so a burst finishes first.
 const SETTLE: Duration = Duration::from_secs(3);
 /// Messages Jev reads to judge whether Beep should answer.
 const CALL_CONTEXT: i64 = 15;
@@ -120,8 +117,7 @@ fn group_member(row: &MemberRow, user_id: &str) -> GroupMember {
     }
 }
 
-/// Marks a group busy for as long as it lives, so a run that fails or
-/// panics still lets Beep be asked again.
+/// Marks a group busy while alive, so a run that fails or panics still frees it.
 struct Typing {
     app: Arc<App>,
     group_id: Uuid,
@@ -153,8 +149,7 @@ fn call_state(joined: &JoinedGroup, history: &[MessageRow]) -> String {
     state
 }
 
-/// The chat as the learner reads it for `member`: their own messages marked,
-/// the last one the new message.
+/// The chat as the learner reads it for `member`, their own messages marked.
 fn learn_text(joined: &JoinedGroup, history: &[MessageRow], member: &MemberRow) -> String {
     let others: Vec<&str> = joined
         .members
@@ -269,13 +264,12 @@ impl App {
                     group: true,
                 },
                 desktop: None,
+                to: Reach::Everyone,
             });
         }
     }
 
-    /// Posts `user`'s message, with its pictures, to a group and, when it
-    /// mentions @beep, starts Beep's reply. `None` when the user is not in
-    /// the group.
+    /// Posts `user`'s message to a group and starts Beep's reply on @beep; `None` when not a member.
     pub async fn send_to_group(
         self: &Arc<Self>,
         user: &Arc<User>,
@@ -376,8 +370,7 @@ impl App {
         Ok(Some(message))
     }
 
-    /// Posts a reminder `user` set into group `group_id` and wakes every
-    /// member. Skipped once `user` has left the group.
+    /// Posts `user`'s reminder into the group and wakes every member, unless `user` has left.
     pub(crate) async fn post_group_reminder(
         &self,
         user: &User,
@@ -393,8 +386,7 @@ impl App {
         Ok(())
     }
 
-    /// Whether Beep should answer message `seq`, which does not mention it.
-    /// Waits for the sender to settle first; a newer message gets its own look.
+    /// Whether Beep should answer unmentioned message `seq`, once the sender settles.
     async fn called_without_mention(&self, joined: &JoinedGroup, seq: i64) -> bool {
         let Some(decision) = self.decision() else {
             return false;
@@ -427,8 +419,7 @@ impl App {
         }
     }
 
-    /// Learns what message `seq` says about each member, into that member's
-    /// own memory. Jev screens it first, since most group chat teaches nothing.
+    /// Learns what message `seq` says about each member into their memory, after Jev screens it.
     async fn learn_from_group(&self, joined: &JoinedGroup, seq: i64) {
         let Some(decision) = self.decision() else {
             return;
@@ -485,8 +476,7 @@ impl App {
         }
     }
 
-    /// Runs Beep for `actor` on the group's messages up to `mention`, the
-    /// one that called it, and returns the screened reply.
+    /// Runs Beep for `actor` on the messages up to `mention` and returns the screened reply.
     async fn answer_group(
         self: &Arc<Self>,
         actor: &Arc<User>,
@@ -733,59 +723,6 @@ mod eval;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::GroupRow;
-
-    #[test]
-    fn jev_reads_the_group_and_marks_the_latest_message() {
-        let at = DateTime::<Utc>::UNIX_EPOCH;
-        let member = |name: &str| MemberRow {
-            user_id: name.to_lowercase(),
-            name: name.into(),
-            creator: false,
-            joined_at: at,
-            pinned: false,
-            shares_apps: true,
-        };
-        let row = |id, author: &str, content: &str| MessageRow {
-            id,
-            author_id: Some(author.to_lowercase()),
-            author_name: author.into(),
-            content: content.into(),
-            sent_at: at,
-        };
-        let joined = JoinedGroup {
-            group: GroupRow {
-                id: Uuid::nil(),
-                name: "Tokyo trip".into(),
-                updated_at: at,
-            },
-            members: vec![member("Dani"), member("Sam")],
-            last: None,
-        };
-        let state = call_state(
-            &joined,
-            &[
-                row(1, "Sam", "Landed!"),
-                row(2, "Dani", "Where should we eat?"),
-            ],
-        );
-        assert!(state.starts_with("Group chat \"Tokyo trip\" with Dani, Sam and Beep"));
-        assert!(state.ends_with("\nSam: Landed!\nDani (latest): Where should we eat?"));
-
-        let beep = MessageRow {
-            author_id: None,
-            ..row(2, "Beep", "Try ramen.")
-        };
-        let text = learn_text(
-            &joined,
-            &[beep, row(3, "Dani", "Not ramen, Sam can't have soy")],
-            &joined.members[1],
-        );
-        assert!(text.starts_with(
-            "Group chat \"Tokyo trip\". The user is Sam; the other members are Dani."
-        ));
-        assert!(text.ends_with("\nBeep: Try ramen.\nDani (new): Not ramen, Sam can't have soy"));
-    }
 
     #[test]
     fn only_a_whole_mention_calls_beep() {

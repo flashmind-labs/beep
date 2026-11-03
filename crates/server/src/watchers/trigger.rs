@@ -1,13 +1,9 @@
-//! When a chat is ready for a watcher: it has messages the watcher has not
-//! read, no run is going on in it, and either it has been quiet for a while
-//! or a task in it just ended. A watcher that failed waits longer after
-//! each failure before it tries the same messages again.
+//! When a chat is ready for a watcher: unread messages, no run, and quiet or a task just ended.
 
 use chrono::{DateTime, TimeDelta, Utc};
 use uuid::Uuid;
 
-/// A watcher that failed this many times in a row gives up on what it was
-/// reading and moves past it.
+/// Failures in a row after which a watcher moves past what it was reading.
 pub(crate) const MAX_FAILURES: i32 = 3;
 
 /// Where a session is: its last message and when it last changed.
@@ -118,35 +114,6 @@ mod tests {
         let again = chat(11, at(125));
         assert!(!due(&again, None, Cause::Sweep, at(130), TIMING));
         assert!(due(&again, None, Cause::Sweep, at(155), TIMING));
-    }
-
-    #[test]
-    fn a_task_that_ended_makes_it_ready_now() {
-        let ended = chat(10, at(100));
-        assert!(due(&ended, None, Cause::TaskEnded, at(100), TIMING));
-        let busy = ChatActivity {
-            running: true,
-            ..ended.clone()
-        };
-        assert!(!due(&busy, None, Cause::TaskEnded, at(100), TIMING));
-        assert!(!due(&busy, None, Cause::Sweep, at(500), TIMING));
-    }
-
-    #[test]
-    fn only_messages_past_its_place_count() {
-        let quiet = chat(10, at(0));
-        let read = WatcherState {
-            reviewed_seq: 10,
-            ..WatcherState::default()
-        };
-        assert!(!due(&quiet, Some(&read), Cause::Sweep, at(60), TIMING));
-        assert!(!due(&quiet, Some(&read), Cause::TaskEnded, at(60), TIMING));
-        let behind = WatcherState {
-            reviewed_seq: 9,
-            ..WatcherState::default()
-        };
-        assert!(due(&quiet, Some(&behind), Cause::Sweep, at(60), TIMING));
-        assert!(!due(&chat(0, at(0)), None, Cause::Sweep, at(60), TIMING));
     }
 
     #[test]

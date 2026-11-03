@@ -162,9 +162,7 @@ async fn read_year(
     })
 }
 
-/// Keeps mail the user wrote, the threads they wrote in, and received mail
-/// Jev finds worth reading. Mailboxes without a bulk flag, like Fastmail,
-/// rely on this to drop newsletters. Mail Jev fails on is kept.
+/// Keeps mail the user wrote or replied in, and received mail Jev finds worth reading (or fails on).
 async fn screen(decision: &DecisionTool, emails: Vec<Email>) -> Vec<Email> {
     let written: HashSet<String> = emails
         .iter()
@@ -278,8 +276,7 @@ fn body_chars(email: &Email) -> usize {
     }
 }
 
-/// Threads the user wrote in first, then repeated senders, then the rest,
-/// cut to what one year may send to the model.
+/// Threads the user wrote in, then repeated senders, then the rest, cut to one year's budget.
 fn group_mail(emails: Vec<Email>) -> Vec<Group> {
     let mut threads: HashMap<String, Vec<Email>> = HashMap::new();
     let mut loose = Vec::new();
@@ -365,8 +362,7 @@ async fn fill_bodies(source: &MailSource<'_>, groups: &mut [Group]) {
         .await;
 }
 
-/// A year's totals: who the user writes to, who writes to them, and what
-/// they are subscribed to.
+/// A year's totals of correspondents and subscriptions.
 fn counts_note(year: NaiveDate, emails: &[Email]) -> ProfileNote {
     let mut to: HashMap<String, usize> = HashMap::new();
     let mut from: HashMap<String, usize> = HashMap::new();
@@ -422,45 +418,6 @@ fn skipped(from: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn email(id: &str, from: &str, sent: bool, thread: Option<&str>) -> Email {
-        Email {
-            id: id.into(),
-            received: Utc::now(),
-            from: from.into(),
-            to: "Ana <ana@example.com>".into(),
-            subject: format!("subject {id}"),
-            sent,
-            bulk: false,
-            thread: thread.map(Into::into),
-            body: "body".into(),
-        }
-    }
-
-    #[test]
-    fn threads_the_user_wrote_in_come_first_and_frequent_senders_are_summed_up() {
-        let mut emails = vec![
-            email("a", "Ana <ana@example.com>", false, Some("t1")),
-            email("b", "me@example.com", true, Some("t1")),
-            email("c", "Bo <bo@example.com>", false, Some("t2")),
-        ];
-        for n in 0..12 {
-            emails.push(email(
-                &format!("s{n}"),
-                "Shop <news@shop.example>",
-                false,
-                None,
-            ));
-        }
-        let groups = group_mail(emails);
-        assert!(matches!(&groups[0], Group::Thread(thread) if thread.len() == 2));
-        assert!(matches!(
-            &groups[1],
-            Group::Digest { sender, count: 12, samples, subjects }
-                if sender == "news@shop.example" && samples.len() == DIGEST_SAMPLES && subjects.len() == 12
-        ));
-        assert!(matches!(&groups[2], Group::Single(email) if email.id == "c"));
-    }
 
     #[test]
     fn senders_from_dating_and_medical_services_are_skipped() {

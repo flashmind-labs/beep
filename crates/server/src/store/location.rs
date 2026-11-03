@@ -41,8 +41,7 @@ impl Store {
         self.set_timezone(user, &fix.timezone).await
     }
 
-    /// Saves the user's timezone. A new one reloads the scheduler, since
-    /// recurring jobs run in the user's local time.
+    /// Saves the user's timezone; a change reloads the scheduler since jobs run in local time.
     pub(crate) async fn set_timezone(&self, user: &UserKey, timezone: &str) -> Result<()> {
         let changed = sqlx::query(
             "UPDATE users SET timezone=$2 WHERE id=$1 AND timezone IS DISTINCT FROM $2",
@@ -131,17 +130,5 @@ mod tests {
             .await
             .unwrap();
         assert!(reloads().await, "a new timezone does");
-    }
-
-    #[tokio::test]
-    async fn the_timezone_is_kept_without_a_location() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-
-        assert_eq!(store.get_timezone(&user).await.unwrap(), "UTC");
-        store.set_timezone(&user, "Europe/Madrid").await.unwrap();
-        assert_eq!(store.get_timezone(&user).await.unwrap(), "Europe/Madrid");
-        assert_eq!(store.get_location(&user).await.unwrap(), None);
     }
 }

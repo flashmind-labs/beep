@@ -1,5 +1,4 @@
-//! Findings: where Beep failed the user, as the improvement watcher found
-//! it in their own chats.
+//! Findings: where the improvement watcher saw Beep fail the user.
 
 use super::Reply;
 use crate::{

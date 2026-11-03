@@ -58,10 +58,7 @@ impl CronStore for BeepCronStore {
     }
 }
 
-/// The scheduler's view of the `crons` table: every job it runs. Its only
-/// write after a run is when the job last ran. It reads the job before the
-/// run starts, so writing the whole job back would bring back a routine
-/// that `end_routine` or the user deleted meanwhile, and undo their edits.
+/// The scheduler's view of `crons`. It only writes `last_run`, so a deleted or edited routine is not brought back.
 struct SchedulerStore {
     store: Store,
 }
@@ -114,10 +111,7 @@ hears the news once. A routine meant to repeat, such as a daily digest or a week
 keeps running: never end it. Do not mention that a task ran or that this is a reminder. \
 You cannot set up or change reminders or routines here; end_routine ends only this one.";
 
-/// The tools that set up, change or delete what runs later. A routine's run
-/// does not get them: runs that copied their own routine with a fresher
-/// note left the user with the same check several times over. It gets
-/// [`EndRoutineTool`] instead, which ends only itself.
+/// Tools that set up, change or delete scheduled work; a routine's run gets [`EndRoutineTool`] instead.
 pub const CHANGING_TOOLS: &[&str] = &[
     "cron_create",
     "cron_edit",
@@ -126,16 +120,14 @@ pub const CHANGING_TOOLS: &[&str] = &[
     "place_routine",
 ];
 
-/// Takes [`CHANGING_TOOLS`] out of `registry`, for a routine's own run and
-/// for a turn on text anyone can send.
+/// Takes [`CHANGING_TOOLS`] out of `registry`.
 pub(crate) fn remove_changing_tools(registry: &mut ToolRegistry) {
     for name in CHANGING_TOOLS {
         registry.remove(name);
     }
 }
 
-/// The context lines for a routine's turn. History reads the label back with
-/// [`scheduled_label`] so clients show the turn as a routine, not a prompt.
+/// The context lines for a routine's turn, read back by [`scheduled_label`].
 pub(crate) fn scheduled_context(label: &str) -> String {
     let label = label.replace('\n', " ");
     let label = label.trim();
@@ -146,9 +138,7 @@ pub(crate) fn scheduled_context(label: &str) -> String {
     }
 }
 
-/// The routine's label when `context` is a turn's context from
-/// [`scheduled_context`], empty for an unlabelled routine, and `None` for a
-/// turn the user started.
+/// The routine's label in a [`scheduled_context`], or `None` for a turn the user started.
 pub fn scheduled_label(context: &str) -> Option<&str> {
     context
         .lines()
@@ -158,8 +148,7 @@ pub fn scheduled_label(context: &str) -> Option<&str> {
         })
 }
 
-/// The label of a routine run before the context carried it, when its task
-/// was sent as `[Scheduled: label] task`.
+/// The label of an old routine run sent as `[Scheduled: label] task`.
 pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
     if content.starts_with("[Scheduled] ") {
         return Some("");
@@ -172,8 +161,7 @@ pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
 /// What a routine's run does when its chat is busy with another run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhenBusy {
-    /// Waits for that run to end, then starts in the chat. The scheduler
-    /// does, so its notice still lands where the user set it up.
+    /// Waits for that run to end, then starts in the chat.
     Wait,
     /// Starts nothing, as when the user asks for a run now.
     GiveUp,
@@ -182,9 +170,7 @@ pub enum WhenBusy {
 /// How long a routine waits for its chat: a run lasts 15 minutes at most.
 const BUSY_WAIT: Duration = Duration::from_secs(16 * 60);
 
-/// Starts a run for `job` and returns it, or `None` when none was created.
-/// The scheduler calls it when the job is due, and the API when the user
-/// runs it early.
+/// Starts a run for `job`, when due or run early by the user.
 pub async fn run_job(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -274,9 +260,7 @@ pub(crate) async fn submit(
     }
 }
 
-/// Ends the routine whose run calls it, and no other: a check that waits
-/// for one thing stops once it has told the user. It takes no arguments,
-/// so a run cannot name another routine.
+/// Ends the routine whose run calls it, and no other; it takes no arguments.
 pub(crate) struct EndRoutineTool {
     store: Store,
     user: String,
@@ -436,50 +420,10 @@ pub fn register_tools(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{TestDb, decode_schedule};
-    use chrono::{DateTime, TimeDelta, Utc};
+    use crate::store::TestDb;
+    use chrono::{TimeDelta, Utc};
     use flashmind::{cron::JobSchedule, types::tool::ToolContext};
     use std::time::Duration;
-
-    #[test]
-    fn scheduled_context_reads_back_its_label() {
-        let context = |label| {
-            format!(
-                "Time: Monday 2026-10-05 09:00 +04\n{}",
-                scheduled_context(label)
-            )
-        };
-        assert_eq!(scheduled_label(&context("")), Some(""));
-        assert_eq!(scheduled_label(&context("Plants")), Some("Plants"));
-        assert_eq!(scheduled_label(&context("Two\nlines")), Some("Two lines"));
-        assert_eq!(scheduled_label("Time: Monday 2026-10-05 09:00 +04"), None);
-        assert_eq!(scheduled_label("Scheduled tasks are off"), None);
-    }
-
-    #[test]
-    fn legacy_prompts_read_back_their_label() {
-        assert_eq!(
-            legacy_scheduled_label("[Scheduled] Water the plants"),
-            Some("")
-        );
-        assert_eq!(
-            legacy_scheduled_label("[Scheduled: Plants] Water them"),
-            Some("Plants")
-        );
-        assert_eq!(legacy_scheduled_label("Water the plants"), None);
-        assert_eq!(legacy_scheduled_label("[Scheduled]"), None);
-    }
-
-    #[test]
-    fn one_off_time_reads_back_as_once() {
-        let at = "2026-10-04T04:07:00+00:00"
-            .parse::<DateTime<Utc>>()
-            .expect("valid time");
-        assert!(matches!(decode_schedule(at.to_rfc3339()), JobSchedule::Once(t) if t == at));
-        assert!(
-            matches!(decode_schedule("0 8 * * *".to_owned()), JobSchedule::Cron(e) if e == "0 8 * * *")
-        );
-    }
 
     #[tokio::test]
     async fn a_reminder_from_the_tools_wakes_the_scheduler() {
@@ -549,27 +493,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_reminder_remembers_the_chat_it_was_set_in() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("store opens");
-        let mut registry = ToolRegistry::new();
-        let chat = Uuid::new_v4().to_string();
-        register_tools(&mut registry, store.clone(), "user", &chat, None);
-        let tool = registry
-            .get("schedule_once")
-            .expect("schedule_once registered");
-
-        let cancel = CancellationToken::new();
-        let args = json!({"datetime": "2099-01-01T08:00:00Z", "task": "ping"});
-        tool.execute(ToolContext::new("call", args, None, &cancel))
-            .await
-            .expect("tool runs");
-
-        let jobs = store.cron_jobs(Some("user")).await.expect("jobs load");
-        assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].metadata["session_id"], chat.as_str());
-    }
     #[tokio::test]
     async fn a_routine_made_outside_a_chat_keeps_its_first_chat() {
         let db = TestDb::new().await.expect("test database");

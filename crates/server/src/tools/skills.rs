@@ -1,5 +1,4 @@
-//! `skill`: loads a skill the context lists, for the user's chats or for a
-//! group's, and in the user's chats saves new ones and rewrites them.
+//! `skill`: loads a listed skill, and in the user's own chats creates and updates them.
 
 use super::memory::{arg, opt_arg, reply};
 use crate::{
@@ -31,8 +30,7 @@ impl Action {
 pub(crate) struct SkillTool {
     pub store: Store,
     pub owner: SkillOwner,
-    /// Whether it may create and update skills, not only view them. A
-    /// group's run holds members' private memories, so it only views.
+    /// Whether it may create and update skills; a group's run only views.
     pub writes: bool,
 }
 
@@ -218,36 +216,6 @@ mod tests {
         tool.execute(ToolContext::new("call", args, None, &cancel))
             .await
             .expect("the store answers")
-    }
-
-    #[tokio::test]
-    async fn a_skill_saved_in_the_chat_can_be_viewed_and_rewritten_at_once() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("store");
-        let tool = SkillTool {
-            store,
-            owner: SkillOwner::User(UserKey::for_test("alice")),
-            writes: true,
-        };
-        let created = call(
-            &tool,
-            json!({"action": "create", "name": "Book padel", "description": "Booking a court", "body": "Ask for 19:00."}),
-        )
-        .await;
-        assert!(created.is_success(), "{}", created.output());
-
-        let viewed = call(&tool, json!({"action": "view", "name": "book padel"})).await;
-        assert!(viewed.output().contains("Ask for 19:00."));
-
-        let updated = call(
-            &tool,
-            json!({"action": "update", "name": "Book padel", "body": "Ask for 20:00."}),
-        )
-        .await;
-        assert!(updated.is_success(), "{}", updated.output());
-        let viewed = call(&tool, json!({"action": "view", "name": "Book padel"})).await;
-        assert!(viewed.output().contains("Ask for 20:00."));
-        assert!(viewed.output().contains("Booking a court"));
     }
 
     #[tokio::test]

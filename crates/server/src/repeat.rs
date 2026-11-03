@@ -1,5 +1,4 @@
-//! Spots a model stuck emitting the same text, or making the same tool call,
-//! over and over.
+//! Spots a model stuck repeating the same text or tool call.
 
 use crate::paging;
 use async_trait::async_trait;
@@ -18,8 +17,7 @@ use std::{
 
 /// How many back-to-back copies of a chunk count as a loop.
 const COPIES: usize = 4;
-/// Shorter chunks are not checked on their own; a short chunk repeated long
-/// enough still shows up as a longer one.
+/// Shortest chunk checked; shorter repeats still show up as longer ones.
 const MIN_PERIOD: usize = 24;
 const MAX_PERIOD: usize = 600;
 /// Only re-check after this many new characters, so the scan stays cheap.
@@ -32,8 +30,7 @@ pub struct RepeatGuard {
 }
 
 impl RepeatGuard {
-    /// Adds streamed text. Returns true once the tail of everything seen is
-    /// one chunk repeated [`COPIES`] times.
+    /// Adds streamed text; true once the tail is one chunk repeated [`COPIES`] times.
     pub fn push(&mut self, delta: &str) -> bool {
         let before = self.tail.len();
         self.tail.extend(delta.chars());
@@ -62,18 +59,13 @@ impl RepeatGuard {
 /// How many times one run may call a tool with the same arguments.
 const SAME_CALLS: usize = 2;
 
-/// How many refused calls end the run. A model that ignores the refusal keeps
-/// making the same call until the deadline otherwise.
+/// How many refused calls end the run.
 const MAX_REFUSALS: usize = 3;
 
-/// Tools that read state that changes between calls, so calling them again
-/// with the same arguments is not a loop.
+/// Tools whose state changes between calls, so repeating them is no loop.
 const LIVE_TOOLS: &[&str] = &["get_location", "get_time", "task_progress"];
 
-/// Wraps every tool in `registry` so a run that calls one with the same
-/// arguments more than [`SAME_CALLS`] times gets an error back instead of
-/// another identical result. Call it once per run, after the last tool is
-/// registered. The returned [`Refusals`] says when to give up on the run.
+/// Refuses calls repeated more than [`SAME_CALLS`] times; call once per run, after the last tool is registered.
 pub fn guard_tool_calls(registry: &mut ToolRegistry) -> Refusals {
     let calls = Arc::new(Mutex::new(HashMap::new()));
     let refusals = Refusals::default();
@@ -98,8 +90,7 @@ pub fn guard_tool_calls(registry: &mut ToolRegistry) -> Refusals {
 pub struct Refusals(Arc<AtomicUsize>);
 
 impl Refusals {
-    /// True once the model has ignored enough refusals that it is not going to
-    /// change course.
+    /// True once the model has ignored enough refusals.
     pub fn exhausted(&self) -> bool {
         self.0.load(Ordering::Relaxed) >= MAX_REFUSALS
     }

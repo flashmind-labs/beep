@@ -1,5 +1,4 @@
-//! What the caller's coding agents cost, metered API spend apart from use
-//! a subscription covered, for the usage popover atop the command center.
+//! What the caller's coding agents cost, metered spend apart from subscription use.
 
 use super::{
     Reply,
@@ -50,9 +49,7 @@ pub(super) async fn get_spend_report(
     })
 }
 
-/// Whether a subscription covered `agent`'s use paid for as `billing`.
-/// Claude Code and Codex mostly run on one, so their unknown use counts as
-/// one; the other harnesses' counts as metered.
+/// Whether a subscription covered `agent`'s use; unknown is one for Claude Code and Codex.
 fn on_subscription(agent: &AgentSlug, billing: Billing) -> bool {
     match billing {
         Billing::Subscription => true,
@@ -156,9 +153,7 @@ fn by_cost(a: f64, b: f64) -> Ordering {
     b.partial_cmp(&a).unwrap_or(Ordering::Equal)
 }
 
-/// The tokens by harness, billing and model from the day `from` on, the
-/// most first: from the logs where an agent has any, else from the turns
-/// Beep watched.
+/// Tokens by harness, billing and model since `from`, most first; logs, else watched turns.
 fn period_models(
     models: &[DayModelRow],
     from: NaiveDate,

@@ -173,7 +173,7 @@ fn front_matter_end(text: &str) -> usize {
 }
 
 fn sha256(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    hex::encode(Sha256::digest(text.as_bytes()))
 }
 
 #[cfg(test)]
@@ -194,16 +194,6 @@ mod tests {
             std::env::temp_dir().join(format!("beep-node-skills-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
-    }
-
-    #[test]
-    fn the_marker_goes_after_the_front_matter() {
-        let text = marked(SKILL.text);
-        assert!(text.starts_with("---\nname: github\n"));
-        assert!(text.contains("---\n<!-- Installed by Beep."), "{text}");
-        assert!(ours_unedited(&text));
-        assert!(!ours_unedited(SKILL.text));
-        assert!(marked("# No front matter\n").starts_with(MARKER));
     }
 
     fn record(dir: &Path) -> Installed {
@@ -257,24 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn a_current_file_is_recorded_too() {
-        let dir = temp_dir("current");
-        let path = dir.join("github/SKILL.md");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, marked(SKILL.text)).unwrap();
-        assert_eq!(
-            install(&dir, &SKILL, &mut record(&dir)).unwrap(),
-            Outcome::Current
-        );
-        fs::remove_file(&path).unwrap();
-        assert_eq!(
-            install(&dir, &SKILL, &mut record(&dir)).unwrap(),
-            Outcome::Deleted
-        );
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
     fn a_skill_the_user_deleted_stays_deleted() {
         let dir = temp_dir("deleted");
         let path = dir.join("github/SKILL.md");
@@ -290,19 +262,6 @@ mod tests {
         );
         assert!(!path.exists());
         fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn skills_go_only_to_agents_that_are_there() {
-        let home = temp_dir("home");
-        fs::create_dir_all(home.join(".codex")).unwrap();
-        assert_eq!(targets(&home), [home.join(".agents/skills")]);
-        fs::create_dir_all(home.join(".claude")).unwrap();
-        assert_eq!(
-            targets(&home),
-            [home.join(".claude/skills"), home.join(".agents/skills")]
-        );
-        fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

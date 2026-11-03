@@ -5,11 +5,17 @@ edition = "2024"
 rust-version = "1.93"
 publish = false
 
+[features]
+default = ["pdf"]
+# Research papers as PDFs, typeset with Typst. Builds that do not need them
+# can leave it out with `--no-default-features`.
+pdf = ["dep:pulldown-cmark", "dep:mitex", "dep:typst", "dep:typst-layout", "dep:typst-pdf", "dep:typst-kit"]
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
-beep-proto = { path = "../proto" }
+beep-proto = { path = "../proto", features = ["logging"] }
 blake3 = "1"
 bytes = "1"
 chacha20poly1305 = "0.10"
@@ -42,20 +48,19 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 toml = "1"
 shlex = "1"
 log = "0.4"
-logforth = { version = "0.30", features = ["starter-log"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 html2text = "0.17"
 imagesize = "0.14"
 jsonwebtoken = "9.3"
-# A research's paper as a PDF: Markdown read with pulldown-cmark, its LaTeX math
-# turned into Typst's with mitex, typeset by Typst with its bundled fonts.
 qrcode = { version = "0.14", default-features = false }
-pulldown-cmark = { version = "0.13", default-features = false }
-mitex = "0.2"
-typst = "0.15"
-typst-layout = "0.15"
-typst-pdf = "0.15"
-typst-kit = { version = "0.15", default-features = false, features = ["embedded-fonts"] }
+# A research's paper as a PDF (the `pdf` feature): Markdown read with pulldown-cmark, its LaTeX math
+# turned into Typst's with mitex, typeset by Typst with its bundled fonts.
+pulldown-cmark = { version = "0.13", default-features = false, optional = true }
+mitex = { version = "0.2", optional = true }
+typst = { version = "0.15", optional = true }
+typst-layout = { version = "0.15", optional = true }
+typst-pdf = { version = "0.15", optional = true }
+typst-kit = { version = "0.15", default-features = false, features = ["embedded-fonts"], optional = true }
 
 [dev-dependencies]
 async-stream = "0.3"

@@ -1,5 +1,4 @@
-//! The user's machines as the project tools see them. The tools reach the
-//! nodes only through [`Fleet`], so tests can stand in for them.
+//! The user's machines as the project tools see them, behind [`Fleet`] so tests can fake them.
 
 use super::{
     Projects,
@@ -55,8 +54,7 @@ pub(crate) trait Fleet: Send + Sync {
     /// The server's project state.
     fn projects(&self) -> &Projects;
 
-    /// Cancels what `agent`'s session `session` on `machine` is doing and
-    /// closes it.
+    /// Cancels and closes `agent`'s session `session` on `machine`.
     async fn close_session(
         &self,
         machine: &EndpointId,
@@ -90,8 +88,7 @@ pub(crate) trait Fleet: Send + Sync {
     /// Where the worker's session stands now, following it if nothing does.
     async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo>;
 
-    /// Follows the worker's session again, reporting to `chat`, and says
-    /// where it stands. Fails when the machine no longer has it.
+    /// Re-follows the worker's session, reporting to `chat`; fails when the machine lost it.
     async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo>;
 }
 
@@ -306,8 +303,7 @@ pub(crate) fn name_of(machines: &[Machine], id: &EndpointId) -> String {
         )
 }
 
-/// What must not reach an issue or a PR: the machines' names and host
-/// names, and their home folders.
+/// What must not reach an issue or PR: machine names, host names and home folders.
 pub(crate) fn public_text(machines: &[Machine]) -> PublicText {
     let names: Vec<String> = machines
         .iter()
@@ -325,8 +321,7 @@ pub(crate) fn public_text(machines: &[Machine]) -> PublicText {
     PublicText::new(&names, &homes)
 }
 
-/// [`public_text`] for one project: also its checkout paths and the
-/// folders its machines share.
+/// [`public_text`] plus one project's checkout paths and its machines' shared folders.
 pub(crate) async fn project_public_text(
     fleet: &dyn Fleet,
     user: &User,

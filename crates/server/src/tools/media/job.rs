@@ -24,9 +24,7 @@ pub(super) enum JobError {
     Failed(anyhow::Error),
 }
 
-/// The first file `stream` yields. Its text goes to `progress` a line at
-/// a time. Gives up after `limit` or once `cancel` fires; dropping the
-/// stream stops its polling.
+/// The first file `stream` yields, giving up after `limit` or on `cancel`.
 pub(super) async fn first_file(
     mut stream: CompletionStream,
     limit: Duration,

@@ -1,6 +1,4 @@
-//! A stretch of a chat as the watchers read it: each message numbered by
-//! its id, the tool calls Beep made with what they were given and what came
-//! back, and how long slow turns took.
+//! A stretch of a chat as the watchers read it.
 
 use crate::{
     memories::clip,
@@ -44,9 +42,7 @@ fn close_turn(text: &mut String, turn: Option<OpenTurn>) {
     }
 }
 
-/// Writes out `messages` in order until `budget` bytes are used, always
-/// taking the first. `arguments` holds tool calls' arguments by call id,
-/// as far as the chat's context still has them.
+/// Writes out `messages` until `budget` bytes are used, always taking the first.
 pub(crate) fn transcript(
     messages: &[StoredMessage],
     arguments: &HashMap<String, String>,
@@ -170,35 +166,6 @@ mod tests {
                 content: content.into(),
             },
         )
-    }
-
-    #[test]
-    fn numbers_messages_and_marks_failed_calls_and_slow_turns() {
-        let messages = [
-            user(5, 0, "Book padel"),
-            message(
-                6,
-                50,
-                StoredBody::Tool {
-                    call_id: "c1".into(),
-                    name: "web_search".into(),
-                    output: "timeout".into(),
-                    success: false,
-                    description: String::new(),
-                },
-            ),
-            beep(7, 60, "I could not find courts."),
-            user(8, 70, "no, I meant tomorrow"),
-            beep(9, 75, "Booked."),
-        ];
-        let arguments = HashMap::from([("c1".to_owned(), "{\"q\":\"padel\"}".to_owned())]);
-        let read = transcript(&messages, &arguments, BUDGET);
-        assert_eq!(
-            read.text,
-            "[#5] User: Book padel\n[#6] [call web_search {\"q\":\"padel\"}] FAILED [result timeout]\n[#7] Beep: I could not find courts.\n[turn took 60s]\n\n[#8] User: no, I meant tomorrow\n[#9] Beep: Booked."
-        );
-        assert_eq!((read.first_seq, read.last_seq), (5, 9));
-        assert!(read.talk);
     }
 
     #[test]

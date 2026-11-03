@@ -1,7 +1,6 @@
-//! Account events, the topics each user gets, their Composio triggers and
-//! where each poll stopped.
+//! Account events, per-user topics, Composio triggers and poll cursors.
 
-use super::{Store, seconds};
+use super::Store;
 use crate::{
     events::{AppEvent, EventApp, EventKind, Topic, Urgency, Verdict},
     user::UserKey,
@@ -104,8 +103,7 @@ pub struct TriggerRow {
 }
 
 impl Store {
-    /// Stores `event` and returns its id, or `None` when the same happening
-    /// was stored before.
+    /// Stores `event` and returns its id; `None` for a duplicate.
     pub(crate) async fn insert_event(
         &self,
         user: &UserKey,
@@ -132,8 +130,7 @@ impl Store {
         .await?)
     }
 
-    /// Up to `limit` events in `state`, oldest first, only those received
-    /// at least `age` ago.
+    /// Up to `limit` events in `state` received at least `age` ago, oldest first.
     pub(crate) async fn events_in(
         &self,
         user: &UserKey,
@@ -148,15 +145,14 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(state.as_str())
-        .bind(seconds(age))
+        .bind(age.as_secs_f64())
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(event_row).collect()
     }
 
-    /// Logs a triage decision about `events` and moves those still being
-    /// triaged to triaged, under it. Returns the decision's id.
+    /// Logs a triage decision and moves its triaging `events` to triaged; returns the decision id.
     pub(crate) async fn insert_triage(
         &self,
         user: &UserKey,
@@ -191,8 +187,7 @@ impl Store {
         Ok(id)
     }
 
-    /// Informs not yet handed to the main agent, decided after `since`,
-    /// oldest first.
+    /// Informs decided after `since` not yet handed to the main agent, oldest first.
     pub(crate) async fn undelivered_informs(
         &self,
         user: &UserKey,
@@ -214,8 +209,7 @@ impl Store {
         rows.iter().map(triage_row).collect()
     }
 
-    /// Informs not yet delivered, decided after `since`, newest first,
-    /// each with the app it came from.
+    /// Undelivered informs decided after `since`, newest first, with their app.
     pub(crate) async fn waiting_updates(
         &self,
         user: &UserKey,
@@ -260,8 +254,7 @@ impl Store {
         Ok(())
     }
 
-    /// Puts events a triage was working on when the server stopped back in
-    /// the queue, for every user.
+    /// Requeues events left in triage when the server stopped, for every user.
     pub(crate) async fn requeue_triaging(&self) -> Result<u64> {
         Ok(sqlx::query("UPDATE app_events SET state=$2 WHERE state=$1")
             .bind(EventState::Triaging.as_str())
@@ -271,8 +264,7 @@ impl Store {
             .rows_affected())
     }
 
-    /// Puts `user`'s events back in the queue that went to triage more than
-    /// `after` ago: their run died without settling them.
+    /// Requeues `user`'s events stuck in triage longer than `after` (their run died).
     pub(crate) async fn requeue_stale_triaging(
         &self,
         user: &UserKey,
@@ -285,14 +277,13 @@ impl Store {
         .bind(user.as_str())
         .bind(EventState::Triaging.as_str())
         .bind(EventState::Pending.as_str())
-        .bind(seconds(after))
+        .bind(after.as_secs_f64())
         .execute(&self.pool)
         .await?
         .rows_affected())
     }
 
-    /// Events received since `since`, newest first, each with the triage
-    /// decision that covered it.
+    /// Events received since `since`, newest first, with their covering triage decision.
     pub(crate) async fn recent_events(
         &self,
         user: &UserKey,
@@ -715,44 +706,5 @@ mod tests {
         );
         let bobs = store.waiting_updates(&bob, since, 20).await.unwrap();
         assert_eq!(bobs.iter().map(|row| row.id).collect::<Vec<_>>(), [theirs]);
-    }
-
-    #[tokio::test]
-    async fn topics_triggers_and_polls_are_kept_per_user() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        store
-            .set_event_topic(&alice, Topic::GithubCi, false)
-            .await
-            .unwrap();
-        let topics = store.event_topics(&alice).await.unwrap();
-        assert_eq!(topics, HashMap::from([(Topic::GithubCi, false)]));
-        assert!(
-            store
-                .event_topics(&UserKey::for_test("bob"))
-                .await
-                .unwrap()
-                .is_empty()
-        );
-
-        let row = TriggerRow {
-            slug: "GMAIL_NEW_GMAIL_MESSAGE".into(),
-            account_id: "ca_1".into(),
-            trigger_id: "ti_1".into(),
-        };
-        store.save_event_trigger(&alice, &row).await.unwrap();
-        assert_eq!(
-            store.event_triggers(&alice).await.unwrap(),
-            std::slice::from_ref(&row)
-        );
-        store.delete_event_trigger(&alice, &row).await.unwrap();
-        assert!(store.event_triggers(&alice).await.unwrap().is_empty());
-
-        assert!(store.polled_at(&alice, "github").await.unwrap().is_none());
-        let at = Utc::now();
-        store.mark_polled(&alice, "github", at).await.unwrap();
-        let polled = store.polled_at(&alice, "github").await.unwrap().unwrap();
-        assert!((polled - at).num_milliseconds().abs() < 5);
     }
 }

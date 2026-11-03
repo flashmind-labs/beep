@@ -1,7 +1,4 @@
-//! The messages the apps show, one row per step of a chat: a user message,
-//! a tool call, a reply, an approval card, a group message. A session turn's
-//! steps point at the message that opened it, which keeps what the turn ran
-//! with in `turns`.
+//! Chat steps as apps show them, one row each; a turn's steps point at its opening message, which holds `turns`.
 
 use super::{
     RunStatus, Store,
@@ -96,8 +93,7 @@ pub enum StepBody {
         name: String,
         output: String,
         success: bool,
-        /// What it showed while it ran, such as "Recalling memories".
-        /// Empty when not recorded.
+        /// What it showed while running, such as "Recalling memories"; empty when not recorded.
         description: String,
     },
     /// The turn stopped to ask before a tool call.
@@ -171,8 +167,7 @@ pub enum StoredBody {
         name: String,
         output: String,
         success: bool,
-        /// What it showed while it ran, such as "Recalling memories".
-        /// Empty when not recorded.
+        /// What it showed while running, such as "Recalling memories"; empty when not recorded.
         description: String,
     },
     Approval {
@@ -348,8 +343,7 @@ fn stored(row: &PgRow) -> Result<StoredMessage> {
     })
 }
 
-/// Saves `steps` in `chat` in order and returns their ids. A step before
-/// the first one that opens a turn belongs to `turn`, the turn they carry on.
+/// Saves `steps` in `chat` in order, returning ids; steps before the first turn opener belong to `turn`.
 pub(super) async fn insert_steps(
     tx: &mut PgConnection,
     chat: Uuid,
@@ -465,8 +459,7 @@ pub(super) async fn latest_turn(tx: &mut PgConnection, chat: Uuid) -> Result<Opt
     )
 }
 
-/// Deletes the approval cards still showing in `chat` and logs them gone.
-/// A new turn answers or skips them.
+/// Deletes `chat`'s pending approval cards and logs them gone.
 pub(super) async fn drop_approvals(tx: &mut PgConnection, chat: Uuid) -> Result<Vec<Bumped>> {
     let gone: Vec<i64> = sqlx::query_scalar(
         "DELETE FROM messages WHERE chat_id = $1 AND role = 'approval' RETURNING id",
@@ -477,8 +470,7 @@ pub(super) async fn drop_approvals(tx: &mut PgConnection, chat: Uuid) -> Result<
     log_messages(tx, chat, &gone, UpdateOp::Deleted, Readers::Members).await
 }
 
-/// Changes what turn `turn` ran with: adds `reasoning` to its reasoning and
-/// sets the rest, then logs its opening message again.
+/// Updates turn `turn`: appends `reasoning`, sets the rest, and relogs its opening message.
 pub(super) async fn patch_turn(
     tx: &mut PgConnection,
     chat: Uuid,
@@ -526,9 +518,7 @@ impl Store {
         .transpose()
     }
 
-    /// What each tool step of `chat` showed while it ran, oldest first.
-    /// Steps without a description are left out. The caller checks the
-    /// user may read it.
+    /// Tool step labels of `chat`, oldest first, unlabeled ones skipped; the caller checks access.
     pub(crate) async fn tool_labels(&self, chat: Uuid) -> Result<Vec<ToolLabel>> {
         let rows = sqlx::query(
             "SELECT c.call_id, c.description
@@ -549,8 +539,7 @@ impl Store {
             .collect()
     }
 
-    /// Every message of `chat`, oldest first, with their pictures. The
-    /// caller checks the user may read it.
+    /// Every message of `chat` with pictures, oldest first; the caller checks access.
     pub(crate) async fn chat_messages(&self, chat: Uuid) -> Result<Vec<StoredMessage>> {
         let rows = sqlx::query(&format!(
             "SELECT {COLUMNS} FROM {JOINS} WHERE m.chat_id = $1 ORDER BY m.id"
@@ -561,8 +550,7 @@ impl Store {
         self.complete(rows).await
     }
 
-    /// At most `limit` messages of `chat` after the message `after`, oldest
-    /// first, leaving out those sent before `since`.
+    /// At most `limit` messages of `chat` after `after`, oldest first, skipping those before `since`.
     pub(crate) async fn chat_messages_after(
         &self,
         chat: Uuid,
@@ -584,9 +572,7 @@ impl Store {
         self.complete(rows).await
     }
 
-    /// The card each of `chats` waits on: the chat's latest run waits for
-    /// the user's OK, and its latest approval is what it asks. Oldest
-    /// first, each with its chat.
+    /// The approval card each of `chats` waits on, oldest first.
     pub(crate) async fn open_approvals(
         &self,
         user: &UserKey,

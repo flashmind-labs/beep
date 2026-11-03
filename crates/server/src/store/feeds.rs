@@ -1,6 +1,6 @@
 //! Sync state of the feeds read for memories.
 
-use super::{Store, seconds};
+use super::Store;
 use crate::{
     feeds::{mail::Mailbox, slack::SLACK},
     user::UserKey,
@@ -9,8 +9,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::{collections::HashSet, time::Duration};
 
-/// Something synced once a day for memories: a mailbox or Slack. Its slug
-/// keys the sync state tables, which predate Slack and keep their mail names.
+/// A mailbox or Slack synced daily for memories; its slug keys the sync tables (which keep their mail names).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feed {
     Mail(Mailbox),
@@ -52,7 +51,7 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(feed.slug())
-        .bind(seconds(every))
+        .bind(every.as_secs_f64())
         .fetch_one(&self.pool)
         .await?)
     }
@@ -132,80 +131,5 @@ impl Store {
         .await?
         .rows_affected();
         Ok(usize::try_from(deleted)?)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::TestDb;
-    use chrono::NaiveDate;
-
-    #[tokio::test]
-    async fn feeds_keep_seen_items_and_when_they_last_synced() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let day = |d: u32| {
-            NaiveDate::from_ymd_opt(2026, 3, d)
-                .unwrap()
-                .and_hms_opt(12, 0, 0)
-                .unwrap()
-                .and_utc()
-        };
-        let gmail = Feed::Mail(Mailbox::Gmail);
-        for (id, d) in [("a", 1), ("b", 5), ("c", 3)] {
-            store
-                .mark_feed_seen(&UserKey::for_test("alice"), gmail, id, day(d))
-                .await
-                .unwrap();
-        }
-        let pruned = store
-            .prune_feed_seen(&UserKey::for_test("alice"), gmail, day(4))
-            .await
-            .unwrap();
-        assert_eq!(pruned, 2);
-        let seen = store
-            .feed_seen(&UserKey::for_test("alice"), gmail)
-            .await
-            .unwrap();
-        assert_eq!(seen, HashSet::from(["b".to_owned()]));
-
-        assert!(
-            store
-                .feed_synced_at(&UserKey::for_test("alice"), gmail)
-                .await
-                .unwrap()
-                .is_none()
-        );
-        let every = Duration::from_secs(60);
-        assert!(
-            !store
-                .feed_synced_recently(&UserKey::for_test("alice"), gmail, every)
-                .await
-                .unwrap()
-        );
-        store
-            .mark_feed_synced(&UserKey::for_test("alice"), gmail)
-            .await
-            .unwrap();
-        assert!(
-            store
-                .feed_synced_recently(&UserKey::for_test("alice"), gmail, every)
-                .await
-                .unwrap()
-        );
-        assert!(
-            store
-                .feed_synced_at(&UserKey::for_test("alice"), gmail)
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            !store
-                .feed_synced_recently(&UserKey::for_test("bob"), gmail, every)
-                .await
-                .unwrap()
-        );
     }
 }

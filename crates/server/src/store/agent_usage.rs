@@ -1,6 +1,4 @@
-//! What coding agent sessions on the user's machines spent, per session
-//! and day in the user's timezone, and how much of each agent's plan is
-//! left, as nodes report them (see `crate::nodes::usage`).
+//! Agent session spend per session and local day, and each agent's remaining plan, as nodes report them.
 
 use super::Store;
 use crate::{
@@ -23,8 +21,7 @@ const MAX_TURN_COST: f64 = 10_000.0;
 /// The most windows one plan keeps.
 const MAX_WINDOWS: usize = 16;
 
-/// What the sessions in one folder of one machine spent with one agent,
-/// today or earlier this week.
+/// What one folder's sessions on one machine spent with one agent, today or earlier this week.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SpendRow {
     pub(crate) endpoint: EndpointId,
@@ -81,8 +78,7 @@ pub(super) fn agent_of(row: &PgRow) -> Result<AgentSlug> {
 }
 
 impl Store {
-    /// Adds one finished turn to its session's day, `endpoint` being the
-    /// node that ran it.
+    /// Adds one finished turn, run on `endpoint`, to its session's day.
     pub(crate) async fn add_turn_usage(
         &self,
         user: &UserKey,
@@ -157,8 +153,7 @@ impl Store {
         Ok(())
     }
 
-    /// What the user's sessions spent this week, from Monday, by machine,
-    /// folder and agent, today apart.
+    /// This week's spend from Monday by machine, folder and agent, today apart.
     pub(crate) async fn week_spend(&self, user: &UserKey) -> Result<Vec<SpendRow>> {
         let rows = sqlx::query(&format!(
             "WITH t AS (SELECT {TODAY} AS today)
@@ -206,8 +201,7 @@ impl Store {
             .collect()
     }
 
-    /// Keeps `plan` as read on `endpoint`, unless a fresher report of the
-    /// same agent is kept. Says whether it was kept.
+    /// Keeps `plan` from `endpoint` unless a fresher report for the agent exists; says whether it was kept.
     pub(crate) async fn save_plan_usage(
         &self,
         user: &UserKey,

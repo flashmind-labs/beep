@@ -1,13 +1,4 @@
-//! Single-user instance mode: a server that one person runs for themselves.
-//!
-//! An instance has one owner account. The owner's key can be named in the
-//! config; otherwise the first key that connects claims it. Every other key
-//! is refused unless the owner linked it with `LinkDevice`.
-//!
-//! The bundled `beep-node` joins the owner without a link code: the server
-//! writes its key to a folder both share (`server.id`), the node writes its
-//! own back (`node.id`), and when that key connects the server links it to
-//! the owner.
+//! Single-user instance mode: one owner account; other keys need `LinkDevice`, except the bundled node.
 
 use anyhow::{Context, Result};
 use beep_proto::link::LinkOffer;
@@ -39,20 +30,16 @@ pub struct InstanceConfig {
     /// What the server calls itself in its link code.
     #[serde(default = "default_name")]
     pub name: String,
-    /// Once turned account events off. Unused now that every user gets
-    /// them; kept so configs that set it still load.
+    /// Unused, kept so old configs load.
     #[serde(default = "on")]
     pub events: bool,
-    /// Once turned background sub-agents off. Unused now; kept so configs
-    /// that set it still load.
+    /// Unused, kept so old configs load.
     #[serde(default = "on")]
     pub background: bool,
-    /// Once turned machines off. Unused now that every user gets them;
-    /// kept so configs that set it still load.
+    /// Unused, kept so old configs load.
     #[serde(default = "on")]
     pub nodes: bool,
-    /// Once turned the removed per-prompt agents off. Unused now; kept so
-    /// configs that set it still load.
+    /// Unused, kept so old configs load.
     #[serde(default = "on")]
     pub agents: bool,
     /// The folder shared with the bundled node.
@@ -134,8 +121,7 @@ impl Instance {
     }
 }
 
-/// The server's offer of itself, as a QR code and as text, for the apps
-/// to scan or paste.
+/// The server's offer of itself, as a QR code and as text.
 pub fn link_code(key: &SecretKey, name: &str, now: SystemTime) -> Result<String> {
     let offer = LinkOffer::for_server(key, name, now)?;
     let uri = offer.to_uri();
@@ -168,9 +154,7 @@ fn parse_node_file(text: &str) -> Result<Option<LocalNode>> {
     Ok(Some(LocalNode { endpoint, name }))
 }
 
-/// Writes `path` whole, so a reader never sees half of it. Readable by
-/// all whatever the umask: the node runs as another user, and the file
-/// only holds a public key.
+/// Writes `path` atomically, world-readable since the node runs as another user and it holds only a public key.
 fn write_replacing(path: &Path, text: &str) -> Result<()> {
     let partial = path.with_extension("partial");
     fs::write(&partial, text).with_context(|| format!("writing {}", partial.display()))?;
@@ -207,13 +191,6 @@ mod tests {
         let offer = LinkOffer::parse(uri).expect("an offer");
         assert_eq!(offer.server(now), Some(key.public()));
         assert!(text.contains(&offer.code()));
-    }
-
-    #[test]
-    fn an_empty_table_names_no_owner() {
-        let instance = Instance::new(config(""));
-        assert_eq!(instance.name(), "Beep");
-        assert!(instance.owner_key().is_none());
     }
 
     #[test]

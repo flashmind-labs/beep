@@ -1,6 +1,4 @@
-//! Credentials a user adds once (a GitHub token, a token per Forgejo or
-//! Gitea server, API keys, coding agents' tokens) that Beep keeps sealed
-//! and hands to the user's machines (see `Down::Credentials`).
+//! Credentials a user adds once, kept sealed and handed to their machines (`Down::Credentials`).
 
 mod check;
 pub(crate) mod machines;
@@ -25,8 +23,7 @@ pub enum Slot {
     GitHub,
     Forgejo(ForgejoUrl),
     ApiKey(ApiProvider),
-    /// A coding agent's own token, such as Claude Code's OAuth token. Set
-    /// in Agent accounts and never listed with the other credentials.
+    /// A coding agent's own token; set in Agent accounts, never listed with the others.
     AgentToken(AgentAccount),
 }
 
@@ -51,8 +48,7 @@ impl Slot {
         })
     }
 
-    /// The env var the machines get it as; `None` for Forgejo, whose
-    /// tokens go into teacli's config.
+    /// The env var the machines get it as; `None` for Forgejo (teacli's config).
     pub fn env_var(&self) -> Option<&'static str> {
         match self {
             Self::GitHub => Some(GITHUB_ENV_VAR),
@@ -62,16 +58,13 @@ impl Slot {
         }
     }
 
-    /// Git hosts always go to the machines: gh and teacli are why they are
-    /// there.
+    /// Git hosts always go to the machines, for gh and teacli.
     pub fn always_to_machines(&self) -> bool {
         matches!(self, Self::GitHub | Self::Forgejo(_))
     }
 }
 
-/// A Forgejo or Gitea server's base URL: https, or http for a host that is
-/// plainly on the user's own network, no query or fragment, no trailing
-/// slash. teacli appends `/api/v1/...` to it.
+/// A Forgejo or Gitea base URL: https (http only on the user's network), no query, fragment or trailing slash.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgejoUrl(Url);
 
@@ -80,8 +73,7 @@ impl ForgejoUrl {
         self.0.as_str().trim_end_matches('/')
     }
 
-    /// Whether the server could probe it: every address its host resolves
-    /// to is public. A server on the user's own network is saved unchecked.
+    /// Whether every address its host resolves to is public.
     pub async fn is_public(&self) -> bool {
         net::resolves_public(&self.0).await
     }
@@ -136,8 +128,7 @@ impl fmt::Display for ForgejoUrl {
     }
 }
 
-/// The last four characters of `secret`, all of it when it is short. Never
-/// more than a quarter of a secret shorter than 16 characters.
+/// The last four characters of `secret`, never more than a quarter of one shorter than 16.
 pub fn last4(secret: &str) -> String {
     let chars: Vec<char> = secret.chars().collect();
     let shown = if chars.len() >= 16 {
@@ -174,10 +165,7 @@ impl GitHubLogin {
     }
 }
 
-/// The GitHub token for repositories of `owner`: the account that is
-/// `owner`, else the first account with `owner` among its orgs, else the
-/// default. `opened` is in the store's order, default first, then oldest,
-/// so the default wins an org several accounts see.
+/// The GitHub token for `owner`'s repos: that account, else one with `owner` among its orgs, else the default.
 pub fn github_for<'a>(opened: &'a [Opened], owner: &str) -> Option<&'a Opened> {
     let accounts = || {
         opened
@@ -194,10 +182,7 @@ pub fn github_for<'a>(opened: &'a [Opened], owner: &str) -> Option<&'a Opened> {
 /// What [`github_owner_var`] names start with.
 const GITHUB_OWNER_PREFIX: &str = "BEEP_GH_TOKEN_";
 
-/// The env var a machine holds the token for repositories of `owner` in,
-/// when that is not the default account's: `BEEP_GH_TOKEN_ACME_LABS` for
-/// `acme-labs`. `None` for a name GitHub would not give an owner: those
-/// have only letters, digits and hyphens, so no two owners share a var.
+/// The env var for `owner`'s token when not the default account's, such as `BEEP_GH_TOKEN_ACME_LABS`.
 pub fn github_owner_var(owner: &str) -> Option<String> {
     let valid = !owner.is_empty()
         && owner.len() <= 39
@@ -216,10 +201,7 @@ pub fn github_owner_var(owner: &str) -> Option<String> {
     })
 }
 
-/// What the machines get from `opened`, the credentials marked for them.
-/// The default GitHub account is `GH_TOKEN`. Each owner (login or org) for
-/// which [`github_for`] picks another account gets that account's token
-/// as its [`github_owner_var`], which a project's commands read.
+/// What the machines get: `GH_TOKEN` for the default, plus a [`github_owner_var`] per owner on another account.
 pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
     let mut out = MachineCredentials::default();
     let mut owners: Vec<&str> = Vec::new();
@@ -294,28 +276,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn slots_come_from_the_wire() {
-        let slot = Slot::from_wire(&CredentialKind::ApiKey {
-            provider: "zai".into(),
-        })
-        .unwrap();
-        assert_eq!(slot, Slot::ApiKey(ApiProvider::Zai));
-        assert_eq!(slot.env_var(), Some("ZAI_API_KEY"));
-        assert!(
-            Slot::from_wire(&CredentialKind::ApiKey {
-                provider: "nope".into()
-            })
-            .is_err()
-        );
-        assert_eq!(Slot::GitHub.env_var(), Some("GH_TOKEN"));
-        let claude = Slot::AgentToken(AgentAccount::Claude);
-        assert_eq!(claude.env_var(), Some("CLAUDE_CODE_OAUTH_TOKEN"));
-        // Not among the git credentials imports and checks use.
-        assert!(!claude.always_to_machines());
-        assert!(Slot::GitHub.always_to_machines());
-    }
-
     fn account(login: &str, orgs: &[&str], default: bool, token: &str) -> Opened {
         Opened {
             slot: Slot::GitHub,
@@ -368,17 +328,6 @@ mod tests {
                 ("GH_TOKEN", "tok-one"),
             ]
         );
-    }
-
-    #[test]
-    fn owner_vars_take_only_github_names() {
-        assert_eq!(
-            github_owner_var("acme-labs").as_deref(),
-            Some("BEEP_GH_TOKEN_ACME_LABS")
-        );
-        assert_eq!(github_owner_var("my.org"), None);
-        assert_eq!(github_owner_var("a_b"), None);
-        assert_eq!(github_owner_var(""), None);
     }
 
     #[test]

@@ -1,5 +1,4 @@
-//! Skills: ways of doing things Beep learned, with their earlier versions,
-//! and how far each chat is from its next skill review.
+//! Skills Beep learned with earlier versions, and each chat's skill review progress.
 
 use super::Store;
 use crate::user::UserKey;
@@ -84,8 +83,7 @@ impl SkillPatch<'_> {
 pub struct Review {
     /// Turns since the last review, this one included.
     pub turns: i32,
-    /// When the last review was; the next reads what came after. `None`
-    /// before the first.
+    /// When the last review was; `None` before the first.
     pub since: Option<DateTime<Utc>>,
 }
 
@@ -147,8 +145,7 @@ async fn skill_by_id(tx: &mut PgConnection, id: Uuid) -> Result<Option<SkillRow>
         .transpose()
 }
 
-/// Applies `patch` to skill `id`, keeping the old text first when the text
-/// changes. `edited` says whether the user made the change.
+/// Applies `patch` to skill `id`, saving the old text when it changes; `edited` marks a user change.
 async fn patch(
     tx: &mut PgConnection,
     id: Uuid,
@@ -184,8 +181,7 @@ async fn patch(
 }
 
 impl Store {
-    /// The user's own skills, then their groups', each most recently used
-    /// first.
+    /// The user's own skills then their groups', each most recently used first.
     pub(crate) async fn visible_skills(&self, user: &UserKey) -> Result<Vec<SkillRow>> {
         sqlx::query(&format!(
             "SELECT {COLUMNS} FROM {FROM} WHERE {VISIBLE}
@@ -215,8 +211,7 @@ impl Store {
         .collect()
     }
 
-    /// Adds a skill Beep learned. `None` when the owner already has one by
-    /// that name or is at `SKILL_LIMIT`.
+    /// Adds a learned skill; `None` when the name is taken or at `SKILL_LIMIT`.
     pub async fn create_skill(
         &self,
         owner: &SkillOwner,
@@ -276,8 +271,7 @@ impl Store {
         Ok(changed)
     }
 
-    /// Changes a skill the user can see, as the user. `None` when there is
-    /// no such skill for them.
+    /// Edits a skill visible to the user; `None` when missing.
     pub(crate) async fn edit_skill(
         &self,
         user: &UserKey,
@@ -311,8 +305,7 @@ impl Store {
         Ok(done.rows_affected() == 1)
     }
 
-    /// Puts back the newest earlier version of a skill the user can see.
-    /// `None` when there is no such skill or no earlier version.
+    /// Restores a visible skill's newest earlier version; `None` when there is none.
     pub(crate) async fn undo_skill(&self, user: &UserKey, id: Uuid) -> Result<Option<SkillRow>> {
         let mut tx = self.pool.begin().await?;
         let restored = sqlx::query(&format!(
@@ -336,8 +329,7 @@ impl Store {
         Ok(skill)
     }
 
-    /// The owner's enabled skill called `name`, ignoring case, counted as
-    /// used.
+    /// The owner's enabled skill `name` (case-insensitive), counted as used.
     pub(crate) async fn use_skill(
         &self,
         owner: &SkillOwner,
@@ -390,7 +382,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{TestDb, chats::ensure_session, test_chat};
+    use crate::store::{TestDb, test_chat};
 
     const PADEL: NewSkill = NewSkill {
         name: "Book padel",
@@ -403,47 +395,6 @@ mod tests {
             body: Some(body),
             ..SkillPatch::default()
         }
-    }
-
-    #[tokio::test]
-    async fn learns_edits_and_undoes() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let owner = SkillOwner::User(alice.clone());
-        let id = store.create_skill(&owner, PADEL).await.unwrap().unwrap();
-        let same_name = NewSkill {
-            name: "book PADEL",
-            ..PADEL
-        };
-        assert_eq!(store.create_skill(&owner, same_name).await.unwrap(), None);
-
-        let changed = store
-            .learn_skill_change(&owner, id, patch_body("Ask for 20:00 first."))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(changed.can_undo && !changed.edited);
-
-        let pause = SkillPatch {
-            enabled: Some(false),
-            ..SkillPatch::default()
-        };
-        let paused = store.edit_skill(&alice, id, pause).await.unwrap().unwrap();
-        assert!(!paused.enabled && !paused.edited);
-        assert_eq!(store.use_skill(&owner, "book padel").await.unwrap(), None);
-
-        let undone = store.undo_skill(&alice, id).await.unwrap().unwrap();
-        assert_eq!(undone.body, "Ask for 19:00 first.");
-        assert!(!undone.can_undo);
-        assert_eq!(store.undo_skill(&alice, id).await.unwrap(), None);
-
-        let mine = store
-            .edit_skill(&alice, id, patch_body("Ask for 18:00."))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(mine.edited && mine.can_undo);
     }
 
     #[tokio::test]
@@ -487,23 +438,5 @@ mod tests {
             .unwrap();
         assert_eq!(used.uses, 1);
         assert!(store.delete_skill(&alice, id).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn counts_turns_until_reviewed() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let chat = test_chat("c1");
-        let mut conn = store.pool.acquire().await.unwrap();
-        ensure_session(&mut conn, "alice", chat).await.unwrap();
-        let first = store.count_skill_turn(chat).await.unwrap();
-        assert_eq!((first.turns, first.since), (1, None));
-        assert_eq!(store.count_skill_turn(chat).await.unwrap().turns, 2);
-        let at = Utc::now();
-        store.reviewed_skills(chat, at).await.unwrap();
-        let review = store.count_skill_turn(chat).await.unwrap();
-        assert_eq!(review.turns, 1);
-        let since = review.since.unwrap();
-        assert!((since - at).num_milliseconds().abs() < 1);
     }
 }

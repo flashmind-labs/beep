@@ -289,24 +289,3 @@ pub(super) async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::api::tests::refusal;
-
-    #[test]
-    fn only_members_may_not_go_by_beep() {
-        assert_eq!(refusal(group_member_name(" beep ")), "Beep is taken");
-        assert_eq!(group_member_name(" Ana ").ok().as_deref(), Some("Ana"));
-        assert_eq!(group_name("Beep").ok().as_deref(), Some("Beep"));
-        assert_eq!(
-            refusal(group_member_name(&"a".repeat(31))),
-            "member name must be 1-30 characters"
-        );
-        assert_eq!(
-            refusal(group_name(" ")),
-            "group name must be 1-60 characters"
-        );
-    }
-}

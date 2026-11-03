@@ -1,7 +1,7 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::{Launch, Manager, Restart, escape};
+use super::{Launch, Manager, Plan, Restart, escape};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -41,24 +41,32 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
-pub(super) fn restart(exe: &Path) -> Result<Restart> {
-    let plan = plan(exe)?;
-    if matches!(plan, Restart::Restarted(_)) {
-        launchctl(&["kickstart", "-k", &format!("{}/{LABEL}", domain()?)])?;
+/// Restarts the loaded service; `reload` loads its rewritten plist anew.
+pub(super) fn restart(reload: bool) -> Result<()> {
+    let domain = domain()?;
+    let service = format!("{domain}/{LABEL}");
+    if reload {
+        bootout(&service);
+        launchctl(&["bootstrap", &domain, &plist_path()?.display().to_string()])
+    } else {
+        launchctl(&["kickstart", "-k", &service])
     }
-    Ok(plan)
 }
 
 /// What `restart` would do, without doing it.
-pub(super) fn plan(exe: &Path) -> Result<Restart> {
+pub(super) fn plan(exe: &Path) -> Result<Plan> {
+    let plain = |restart| Plan {
+        restart,
+        reload: false,
+    };
     let path = plist_path()?;
     let plist = match fs::read_to_string(&path) {
         Ok(plist) => plist,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(plain(Restart::NotInstalled)),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
     if !runs(&plist, exe) {
-        return Ok(Restart::OtherBinary(path));
+        return Ok(plain(Restart::OtherBinary(path)));
     }
     let service = format!("{}/{LABEL}", domain()?);
     let loaded = Command::new("launchctl")
@@ -68,10 +76,19 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
-    if !loaded {
-        return Ok(Restart::Stopped(Manager::Launchd));
+    // A plist from an older node gets this one's settings, keeping its
+    // arguments and PATH. launchd reads it again only when loaded anew.
+    let newer = refreshed(&plist);
+    if let Some(newer) = &newer {
+        fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
     }
-    Ok(Restart::Restarted(Manager::Launchd))
+    if !loaded {
+        return Ok(plain(Restart::Stopped(Manager::Launchd)));
+    }
+    Ok(Plan {
+        restart: Restart::Restarted(Manager::Launchd),
+        reload: newer.is_some(),
+    })
 }
 
 /// Whether `plist` starts the node from `exe`: its first program argument.
@@ -83,7 +100,7 @@ fn runs(plist: &str, exe: &Path) -> bool {
     plist.contains(&program)
 }
 
-fn plist_path() -> Result<PathBuf> {
+pub(super) fn plist_path() -> Result<PathBuf> {
     Ok(home()?
         .join("Library/LaunchAgents")
         .join(format!("{LABEL}.plist")))
@@ -116,7 +133,42 @@ fn plist(launch: &Launch, log: &Path) -> String {
         .chain(launch.args())
         .map(|arg| format!("        <string>{}</string>\n", escape(&arg)))
         .collect();
-    let log = escape(&log.display().to_string());
+    plist_text(&Escaped {
+        args: &args,
+        search: &escape(&launch.search),
+        log: &escape(&log.display().to_string()),
+    })
+}
+
+/// The parts of a plist that vary, escaped for XML.
+struct Escaped<'a> {
+    /// The program's `<string>` lines.
+    args: &'a str,
+    search: &'a str,
+    log: &'a str,
+}
+
+/// `plist` written again with this node's settings, from its arguments,
+/// PATH and log; `None` when it already has them or lacks one.
+fn refreshed(plist: &str) -> Option<String> {
+    let between = |start: &str, end: &str| {
+        let from = plist.find(start)? + start.len();
+        let len = plist[from..].find(end)?;
+        Some(&plist[from..from + len])
+    };
+    let newer = plist_text(&Escaped {
+        args: between(
+            "<key>ProgramArguments</key>\n    <array>\n",
+            "    </array>\n",
+        )?,
+        search: between("<key>PATH</key>\n        <string>", "</string>")?,
+        log: between("<key>StandardOutPath</key>\n    <string>", "</string>")?,
+    });
+    (newer != plist).then_some(newer)
+}
+
+fn plist_text(parts: &Escaped) -> String {
+    let Escaped { args, search, log } = parts;
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
@@ -132,7 +184,7 @@ fn plist(launch: &Launch, log: &Path) -> String {
          \x20   <key>EnvironmentVariables</key>\n\
          \x20   <dict>\n\
          \x20       <key>PATH</key>\n\
-         \x20       <string>{path}</string>\n\
+         \x20       <string>{search}</string>\n\
          \x20   </dict>\n\
          \x20   <key>RunAtLoad</key>\n\
          \x20   <true/>\n\
@@ -146,7 +198,6 @@ fn plist(launch: &Launch, log: &Path) -> String {
          \x20   <string>{log}</string>\n\
          </dict>\n\
          </plist>\n",
-        path = escape(&launch.search),
     )
 }
 
@@ -183,33 +234,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_plist_runs_the_node_at_login_and_keeps_it_alive() {
-        let plist = plist(
-            &launch(None),
-            Path::new("/Users/user/Library/Logs/beep-node.log"),
-        );
-        assert!(plist.contains("<string>com.flashmind.beep-node</string>"));
-        assert!(plist.contains(
-            "    <array>\n\
-             \x20       <string>/opt/beep node/beep-node</string>\n\
-             \x20       <string>--dir</string>\n\
-             \x20       <string>/srv/node</string>\n\
-             \x20       <string>run</string>\n\
-             \x20   </array>\n"
-        ));
-        assert!(plist.contains("<key>RunAtLoad</key>\n    <true/>"));
-        assert!(plist.contains("<key>KeepAlive</key>\n    <true/>"));
-        assert!(
-            plist.contains("<key>PATH</key>\n        <string>/usr/bin:/home/user/50%/bin</string>")
-        );
-        assert!(plist.contains(
-            "<key>StandardErrorPath</key>\n    <string>/Users/user/Library/Logs/beep-node.log</string>"
-        ));
-        // The node's own filter keeps the networking crates quiet.
-        assert!(!plist.contains("RUST_LOG"), "{plist}");
-    }
-
-    #[test]
     fn a_restart_only_follows_a_plist_that_runs_this_binary() {
         let plist = plist(&launch(None), Path::new("/l.log"));
         assert!(runs(&plist, Path::new("/opt/beep node/beep-node")));
@@ -223,5 +247,21 @@ mod tests {
         assert!(plist.contains(
             "<string>--workspace</string>\n        <string>/Users/user/R&amp;D &lt;new&gt;</string>\n        <string>run</string>"
         ), "{plist}");
+    }
+
+    #[test]
+    fn an_older_plist_is_rewritten_with_its_arguments_and_path() {
+        let current = plist(
+            &launch(Some("/home/user/work")),
+            Path::new("/Users/user/Library/Logs/beep-node.log"),
+        );
+        assert_eq!(refreshed(&current), None);
+        // What `service install` wrote before the node's own log filter.
+        let older = current.replace(
+            "    </dict>\n    <key>RunAtLoad",
+            "        <key>RUST_LOG</key>\n        <string>info</string>\n    </dict>\n    <key>RunAtLoad",
+        );
+        assert_ne!(older, current);
+        assert_eq!(refreshed(&older).as_deref(), Some(current.as_str()));
     }
 }

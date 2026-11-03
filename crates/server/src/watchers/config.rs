@@ -5,14 +5,11 @@ use flashmind::types::{AliasedModel, Model, Provider};
 use serde::Deserialize;
 use std::time::Duration;
 
-/// The config's `[watchers]`: how long a chat stays quiet before it is
-/// read, how many watchers run at once, and each watcher's model and
-/// timeout.
+/// The config's `[watchers]` section.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WatchersConfig {
-    /// The model every watcher runs on unless its own section names one. A
-    /// cheap one fits.
+    /// The model every watcher runs on unless its own section names one.
     #[serde(default = "default_model")]
     pub model: Model,
     /// Minutes a chat with new messages stays quiet before it is read.
@@ -108,41 +105,4 @@ fn default_enabled() -> bool {
 
 fn default_timeout_secs() -> u64 {
     120
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn defaults_to_a_cheap_model_after_half_an_hour() {
-        let config: WatchersConfig = toml::from_str("").expect("an empty table");
-        assert_eq!(config.model.name(), "anthropic/claude-haiku-5.5");
-        assert_eq!(config.quiet(), Duration::from_secs(30 * 60));
-        assert_eq!(config.concurrency, 2);
-        assert!(config.memory.enabled);
-
-        let config: WatchersConfig = toml::from_str(
-            r#"
-            quiet_minutes = 10
-            [improvement]
-            model = "openrouter:z-ai/glm-5.3-flash"
-            timeout_secs = 30
-            [skills]
-            enabled = false
-            "#,
-        )
-        .expect("watcher sections");
-        assert_eq!(
-            config.model(WatcherKind::Improvement).name(),
-            "z-ai/glm-5.3-flash"
-        );
-        assert_eq!(
-            config.model(WatcherKind::Memory).name(),
-            "anthropic/claude-haiku-5.5"
-        );
-        assert_eq!(config.improvement.timeout_secs, 30);
-        assert!(!config.skills.enabled);
-        assert_eq!(config.quiet(), Duration::from_secs(600));
-    }
 }

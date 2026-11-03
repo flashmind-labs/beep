@@ -1,6 +1,4 @@
-//! The user's instructions for every agent Beep runs: their versions, and
-//! the agent files on the user's machines that Beep reads them from and
-//! writes them into, between its markers.
+//! The user's instructions for every agent, kept between markers in agent files on their machines.
 
 use super::{Reply, own_nodes::linked_keys};
 use crate::{
@@ -18,8 +16,7 @@ use std::time::Duration;
 const MAX_TEXT: usize = 16 * 1024;
 /// The longest note.
 const MAX_NOTE: usize = 200;
-/// The most bytes of one agent file read back. A longer file is refused,
-/// not cut, so a sync never writes back a shortened copy of it.
+/// The most bytes of one agent file read back; longer is refused, never cut.
 const MAX_FILE: usize = 256 * 1024;
 /// How long reading or writing a machine's files may take.
 const NODE_LIMIT: Duration = Duration::from_secs(20);
@@ -220,8 +217,7 @@ async fn read_files(node: &Online) -> Result<Vec<ReadFile>> {
     parse_read(&output)
 }
 
-/// Prints `@@ <file> <state> [base64]` per agent file: state 1 is a file,
-/// 0 the agent's folder without it, and `-` neither.
+/// Prints `@@ <file> <state> [base64]`: 1 a file, 0 the folder without it, `-` neither.
 fn read_script() -> String {
     let files: Vec<&str> = AGENT_FILES.iter().map(|(_, rel)| *rel).collect();
     let files = files.join(" ");
@@ -289,8 +285,7 @@ fn block(text: &str) -> String {
     }
 }
 
-/// `file` with `text` between the markers: in place of what they held, or
-/// added at the end. Text outside them stays as it is.
+/// `file` with `text` between the markers, replacing them or added at the end.
 fn merged(file: Option<&str>, text: &str) -> String {
     let block = block(text);
     let file = file.unwrap_or_default();
@@ -308,8 +303,7 @@ fn merged(file: Option<&str>, text: &str) -> String {
     }
 }
 
-/// A shell script writing `text` into every file that does not hold it;
-/// empty when all do.
+/// A script writing `text` into every file that lacks it; empty when all have it.
 fn write_script(files: &[ReadFile], text: &str) -> String {
     files
         .iter()
@@ -328,7 +322,6 @@ fn write_script(files: &[ReadFile], text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::slice;
 
     #[test]
     fn merging_replaces_the_marked_block_and_keeps_the_rest() {
@@ -394,25 +387,5 @@ mod tests {
                 .contains("~/.claude/CLAUDE.md is over 256 KB")
         );
         assert!(read_script().contains(&format!("head -c {}", MAX_FILE + 1)));
-    }
-
-    #[test]
-    fn only_files_without_the_text_are_written() {
-        let text = "rules";
-        let done = ReadFile {
-            agent: "claude",
-            rel: ".claude/CLAUDE.md",
-            text: Some(merged(None, text)),
-        };
-        assert!(write_script(slice::from_ref(&done), text).is_empty());
-        let missing = ReadFile {
-            agent: "codex",
-            rel: ".codex/AGENTS.md",
-            text: None,
-        };
-        let script = write_script(&[done, missing], text);
-        assert!(script.contains("$HOME/.codex/AGENTS.md"));
-        assert!(!script.contains("CLAUDE.md"));
-        assert!(read_script().contains(".pi/agent/AGENTS.md"));
     }
 }

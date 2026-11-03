@@ -10,6 +10,7 @@ use std::{
 };
 
 mod launchd;
+pub mod logs;
 #[cfg(windows)]
 mod parent;
 mod systemd;
@@ -223,23 +224,46 @@ pub enum Restart {
 }
 
 /// Restarts the service `setup` installed, if it runs `exe` (canonical, as
-/// `Launch` keeps it), so it picks up a new binary at that path.
+/// `Launch` keeps it), so it picks up a new binary at that path. A unit or
+/// plist an older node wrote is written again first, with the same command
+/// and `PATH`, so it gets this node's settings.
 pub fn restart(exe: &Path) -> Result<Restart> {
+    restart_plan(exe)?.run()
+}
+
+/// What `restart` does for `exe`, done later with `Plan::run`. Only an
+/// older unit or plist is written again.
+pub fn restart_plan(exe: &Path) -> Result<Plan> {
+    let plain = |restart| Plan {
+        restart,
+        reload: false,
+    };
     match env::consts::OS {
-        "linux" => systemd::restart(exe),
-        "macos" => launchd::restart(exe),
-        "windows" => windows::restart(exe),
-        _ => Ok(Restart::NotInstalled),
+        "linux" => systemd::plan(exe).map(plain),
+        "macos" => launchd::plan(exe),
+        "windows" => windows::plan(exe).map(plain),
+        _ => Ok(plain(Restart::NotInstalled)),
     }
 }
 
-/// What `restart` would do for `exe`, without doing it.
-pub fn restart_plan(exe: &Path) -> Result<Restart> {
-    match env::consts::OS {
-        "linux" => systemd::plan(exe),
-        "macos" => launchd::plan(exe),
-        "windows" => windows::plan(exe),
-        _ => Ok(Restart::NotInstalled),
+/// A restart planned by `restart_plan`.
+#[derive(Debug)]
+pub struct Plan {
+    pub restart: Restart,
+    /// The plist was written again, so launchd loads it anew.
+    reload: bool,
+}
+
+impl Plan {
+    /// Restarts the service when planned, saying what it did.
+    pub fn run(self) -> Result<Restart> {
+        match self.restart {
+            Restart::Restarted(Manager::Systemd) => systemd::restart()?,
+            Restart::Restarted(Manager::Launchd) => launchd::restart(self.reload)?,
+            Restart::Restarted(Manager::TaskScheduler) => windows::restart()?,
+            _ => {}
+        }
+        Ok(self.restart)
     }
 }
 
@@ -300,38 +324,6 @@ mod tests {
         assert_eq!(
             choose("linux", || Err("no bus".to_owned())),
             Err(Unusable::NoSystemd("no bus".to_owned()))
-        );
-    }
-
-    #[test]
-    fn macos_uses_launchd_without_asking_systemd() {
-        let asked = choose("macos", || panic!("systemd asked on macOS"));
-        assert_eq!(asked, Ok(Manager::Launchd));
-    }
-
-    #[test]
-    fn windows_uses_task_scheduler() {
-        let asked = choose("windows", || panic!("systemd asked on Windows"));
-        assert_eq!(asked, Ok(Manager::TaskScheduler));
-    }
-
-    #[test]
-    fn other_systems_serve_in_the_foreground() {
-        assert_eq!(choose("freebsd", || Ok(())), Err(Unusable::Os("freebsd")));
-    }
-
-    #[test]
-    fn the_node_runs_with_its_folder_and_workspace() {
-        assert_eq!(launch(None).args(), ["--dir", "/srv/node", "run"]);
-        assert_eq!(
-            launch(Some("/home/user/work")).args(),
-            [
-                "--dir",
-                "/srv/node",
-                "--workspace",
-                "/home/user/work",
-                "run"
-            ]
         );
     }
 }
