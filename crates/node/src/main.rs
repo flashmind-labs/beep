@@ -98,6 +98,12 @@ enum Command {
         /// Only says whether a newer version is out.
         #[arg(long)]
         check: bool,
+        /// Restarts at once, without waiting for agent turns to finish.
+        #[arg(long)]
+        now: bool,
+        /// The most minutes to wait for agent turns to finish.
+        #[arg(long, default_value_t = 30)]
+        wait: u64,
     },
     /// Claude Code hooks that tell the node when a session started outside
     /// Beep ends a turn or waits for the user. Install edits Claude Code's
@@ -323,7 +329,14 @@ async fn main() -> Result<()> {
         Command::Service {
             action: ServiceAction::Uninstall,
         } => service::uninstall(),
-        Command::Update { check } => Ok(update::update(check).await?),
+        Command::Update { check, now, wait } => {
+            let options = update::Options {
+                check,
+                wait: (!now).then(|| Duration::from_secs(wait.saturating_mul(60))),
+                dir,
+            };
+            Ok(update::update(options).await?)
+        }
         Command::Hooks { action, settings } => {
             let settings = match settings {
                 Some(path) => path,

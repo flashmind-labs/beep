@@ -3,7 +3,7 @@
 //! transcript, which stays here.
 
 use super::{
-    acp::wire_name,
+    acp::{Prompt, wire_name},
     compaction::{COMPACTED_ENTRY, Usage},
     image_files,
     images::{Images, Picture, data_url},
@@ -81,6 +81,9 @@ pub(crate) struct Live {
     /// The agent's own id for the session, once it gave one: for Claude
     /// Code, the transcript's name.
     pub(crate) agent_session: Option<String>,
+    /// The prompts still waiting when the node stopped, to send once it
+    /// resumes the session.
+    pub(super) held: Vec<Prompt>,
     /// How full the context window is, as the agent last said. Kept on
     /// the node: the server is not told.
     pub(crate) context: Option<Usage>,

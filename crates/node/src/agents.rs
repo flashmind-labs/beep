@@ -38,7 +38,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::oneshot,
+    sync::{oneshot, watch},
     task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval},
 };
@@ -59,6 +59,7 @@ mod models;
 mod plans;
 mod prices;
 mod reach;
+mod restart;
 mod session;
 mod spend;
 mod subagent;
@@ -70,6 +71,7 @@ mod work_folder;
 pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
+pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};
 pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
@@ -78,7 +80,7 @@ use alerts::AlertHub;
 use compaction::Route;
 use images::Images;
 use models::ModelCache;
-use session::{Command, Session, Start};
+use session::{Command, NodeMode, Session, Start};
 use spend::Spend;
 use usage::{Plans, UsageHub};
 
@@ -358,6 +360,12 @@ pub struct Agents {
     mcp: OnceLock<Arc<Launch>>,
     /// Set once the node is stopping.
     stopping: Arc<AtomicBool>,
+    /// True while an update waits for the sessions to be idle: prompts
+    /// wait instead of starting turns.
+    holding: watch::Sender<bool>,
+    /// Set once the server sent the user's agent settings, which resumed
+    /// sessions start with.
+    settled: watch::Sender<bool>,
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
@@ -386,6 +394,8 @@ impl Agents {
             folders: OnceLock::new(),
             mcp: OnceLock::new(),
             stopping: Arc::default(),
+            holding: watch::Sender::new(false),
+            settled: watch::Sender::new(false),
             sighted: AsyncMutex::default(),
         }
     }
@@ -494,6 +504,12 @@ impl Agents {
     /// before; sessions start with them from now on.
     pub fn set_settings(&self, settings: AgentSettings) {
         self.settings.set(settings);
+    }
+
+    /// The server sent the user's settings: sessions held over a restart
+    /// may start.
+    pub fn settings_arrived(&self) {
+        self.settled.send_replace(true);
     }
 
     /// The models the agent `name` can run on here; `None` when this node
@@ -937,7 +953,10 @@ impl Agents {
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),
-            stopping: self.stopping.clone(),
+            node: NodeMode {
+                stopping: self.stopping.clone(),
+                holding: self.holding.subscribe(),
+            },
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());

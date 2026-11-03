@@ -59,10 +59,21 @@ pub(super) fn restart(exe: &Path) -> Result<Restart> {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
+    // A plist from an older node gets this one's settings, keeping its
+    // arguments and PATH. launchd reads it again only when loaded anew.
+    let newer = refreshed(&plist);
+    if let Some(newer) = &newer {
+        fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
+    }
     if !loaded {
         return Ok(Restart::Stopped(Manager::Launchd));
     }
-    launchctl(&["kickstart", "-k", &service])?;
+    if newer.is_some() {
+        bootout(&service);
+        launchctl(&["bootstrap", &domain()?, &path.display().to_string()])?;
+    } else {
+        launchctl(&["kickstart", "-k", &service])?;
+    }
     Ok(Restart::Restarted(Manager::Launchd))
 }
 
@@ -108,7 +119,42 @@ fn plist(launch: &Launch, log: &Path) -> String {
         .chain(launch.args())
         .map(|arg| format!("        <string>{}</string>\n", escape(&arg)))
         .collect();
-    let log = escape(&log.display().to_string());
+    plist_text(&Escaped {
+        args: &args,
+        search: &escape(&launch.search),
+        log: &escape(&log.display().to_string()),
+    })
+}
+
+/// The parts of a plist that vary, escaped for XML.
+struct Escaped<'a> {
+    /// The program's `<string>` lines.
+    args: &'a str,
+    search: &'a str,
+    log: &'a str,
+}
+
+/// `plist` written again with this node's settings, from its arguments,
+/// PATH and log; `None` when it already has them or lacks one.
+fn refreshed(plist: &str) -> Option<String> {
+    let between = |start: &str, end: &str| {
+        let from = plist.find(start)? + start.len();
+        let len = plist[from..].find(end)?;
+        Some(&plist[from..from + len])
+    };
+    let newer = plist_text(&Escaped {
+        args: between(
+            "<key>ProgramArguments</key>\n    <array>\n",
+            "    </array>\n",
+        )?,
+        search: between("<key>PATH</key>\n        <string>", "</string>")?,
+        log: between("<key>StandardOutPath</key>\n    <string>", "</string>")?,
+    });
+    (newer != plist).then_some(newer)
+}
+
+fn plist_text(parts: &Escaped) -> String {
+    let Escaped { args, search, log } = parts;
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
@@ -124,7 +170,7 @@ fn plist(launch: &Launch, log: &Path) -> String {
          \x20   <key>EnvironmentVariables</key>\n\
          \x20   <dict>\n\
          \x20       <key>PATH</key>\n\
-         \x20       <string>{path}</string>\n\
+         \x20       <string>{search}</string>\n\
          \x20   </dict>\n\
          \x20   <key>RunAtLoad</key>\n\
          \x20   <true/>\n\
@@ -138,7 +184,6 @@ fn plist(launch: &Launch, log: &Path) -> String {
          \x20   <string>{log}</string>\n\
          </dict>\n\
          </plist>\n",
-        path = escape(&launch.search),
     )
 }
 
@@ -215,5 +260,21 @@ mod tests {
         assert!(plist.contains(
             "<string>--workspace</string>\n        <string>/Users/user/R&amp;D &lt;new&gt;</string>\n        <string>run</string>"
         ), "{plist}");
+    }
+
+    #[test]
+    fn an_older_plist_is_rewritten_with_its_arguments_and_path() {
+        let current = plist(
+            &launch(Some("/home/user/work")),
+            Path::new("/Users/user/Library/Logs/beep-node.log"),
+        );
+        assert_eq!(refreshed(&current), None);
+        // What `service install` wrote before the node's own log filter.
+        let older = current.replace(
+            "    </dict>\n    <key>RunAtLoad",
+            "        <key>RUST_LOG</key>\n        <string>info</string>\n    </dict>\n    <key>RunAtLoad",
+        );
+        assert_ne!(older, current);
+        assert_eq!(refreshed(&older).as_deref(), Some(current.as_str()));
     }
 }
