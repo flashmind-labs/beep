@@ -19,12 +19,27 @@ pub(crate) struct RunsReply {
 }
 
 impl RunsReply {
-    pub(crate) fn runs(self) -> Vec<WorkflowRun> {
+    pub(crate) fn runs(self) -> Vec<ListedRun> {
         self.workflow_runs
             .into_iter()
-            .map(HostRun::into_run)
+            .map(|run| {
+                let sha = run.head_sha.clone().unwrap_or_default();
+                ListedRun {
+                    run: run.into_run(),
+                    sha,
+                }
+            })
             .collect()
     }
+}
+
+/// A run as the list gives it, with the commit it ran on, which the wire's
+/// run does not carry.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ListedRun {
+    pub(crate) run: WorkflowRun,
+    /// Empty when the host does not say.
+    pub(crate) sha: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -84,6 +99,9 @@ pub(crate) struct HostRun {
     updated_at: Option<String>,
     #[serde(default)]
     pull_requests: Vec<PullRef>,
+    /// Forgejo: `commit_sha`.
+    #[serde(default, alias = "commit_sha")]
+    head_sha: Option<String>,
 }
 
 impl HostRun {
@@ -316,31 +334,70 @@ pub(crate) struct PrHeadRef<'a> {
 pub(crate) fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrChecks> {
     prs.iter()
         .filter_map(|pr| {
-            let mut workflows = HashSet::new();
-            let newest: Vec<&WorkflowRun> = runs
-                .iter()
-                .filter(|run| {
+            decide(
+                pr.number,
+                runs.iter().filter(|run| {
                     run.pull_requests.contains(&pr.number)
                         || (!pr.head.is_empty()
                             && run.branch == pr.head
                             && run.event.starts_with("pull_request"))
-                })
-                .filter(|run| workflows.insert(run.workflow.as_str()))
-                .collect();
-            let decided = newest
-                .iter()
-                .find(|run| run.state == RunState::Failed {})
-                .or_else(|| newest.iter().find(|run| run.state.going()))
-                .or_else(|| newest.iter().find(|run| run.state == RunState::Passed {}))
-                .or_else(|| newest.first())?;
-            Some(PrChecks {
-                number: pr.number,
-                state: decided.state,
-                run_id: decided.id,
-                progress: decided.progress.clone(),
-            })
+                }),
+            )
         })
         .collect()
+}
+
+/// An open pull request's head on a host other than its own: the branch,
+/// and the commit its own host's checks ran on, when known.
+pub(crate) struct MirrorHead<'a> {
+    pub(crate) number: u64,
+    pub(crate) branch: &'a str,
+    /// Empty when unknown: then any run on the branch counts.
+    pub(crate) sha: &'a str,
+}
+
+/// How each pull request's head stands on a host it was pushed to but is
+/// not opened on, such as a Forgejo mirror of a GitHub repository: that
+/// host's pull request numbers are not this one's, so its runs count by the
+/// head branch and, where both hosts name it, the same commit.
+pub(crate) fn mirror_checks(runs: &[ListedRun], heads: &[MirrorHead<'_>]) -> Vec<PrChecks> {
+    heads
+        .iter()
+        .filter(|head| !head.branch.is_empty())
+        .filter_map(|head| {
+            decide(
+                head.number,
+                runs.iter()
+                    .filter(|listed| listed.run.branch == head.branch)
+                    .filter(|listed| {
+                        head.sha.is_empty() || listed.sha.is_empty() || listed.sha == head.sha
+                    })
+                    .map(|listed| &listed.run),
+            )
+        })
+        .collect()
+}
+
+/// The checks of pull request `number` from its runs, newest first: the
+/// newest run of each workflow, a failed one deciding, else a going one,
+/// else a passed one.
+fn decide<'a>(number: u64, runs: impl Iterator<Item = &'a WorkflowRun>) -> Option<PrChecks> {
+    let mut workflows = HashSet::new();
+    let newest: Vec<&WorkflowRun> = runs
+        .filter(|run| workflows.insert(run.workflow.as_str()))
+        .collect();
+    let decided = newest
+        .iter()
+        .find(|run| run.state == RunState::Failed {})
+        .or_else(|| newest.iter().find(|run| run.state.going()))
+        .or_else(|| newest.iter().find(|run| run.state == RunState::Passed {}))
+        .or_else(|| newest.first())?;
+    Some(PrChecks {
+        number,
+        state: decided.state,
+        run_id: decided.id,
+        progress: decided.progress.clone(),
+    })
 }
 
 /// The lines of a log kept for a failed job.

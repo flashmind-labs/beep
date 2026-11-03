@@ -277,6 +277,17 @@ pub(crate) enum CenterTarget {
     /// A coding agent's session, as a Running now row names it.
     Agent(Box<AgentTarget>),
     Providers,
+    /// The Projects page on `project`, or every project with `None`, as a
+    /// project window hands over another project.
+    Projects {
+        project: Option<String>,
+    },
+    Terminals,
+    Research,
+    /// A new chat that starts with `prompt`, as a project window's ⌘K asks.
+    Ask {
+        prompt: String,
+    },
 }
 
 /// A coding agent's session to open, shaped as the window's Running now
@@ -1183,6 +1194,29 @@ mod tests {
         let done = AgentTarget::notified(&key("s1", None));
         assert_eq!(done.status, "idle");
         assert_eq!(done.id, "s1");
+    }
+
+    #[test]
+    fn a_project_window_hands_its_targets_to_the_main_window() {
+        let read = |json: &str| serde_json::from_str::<CenterTarget>(json).ok();
+        assert_eq!(
+            read(r#"{"projects":{"project":"org/site"}}"#),
+            Some(CenterTarget::Projects {
+                project: Some("org/site".into())
+            })
+        );
+        assert_eq!(
+            read(r#"{"projects":{"project":null}}"#),
+            Some(CenterTarget::Projects { project: None })
+        );
+        assert_eq!(read(r#""terminals""#), Some(CenterTarget::Terminals));
+        assert_eq!(read(r#""research""#), Some(CenterTarget::Research));
+        assert_eq!(
+            read(r#"{"ask":{"prompt":"hi"}}"#),
+            Some(CenterTarget::Ask {
+                prompt: "hi".into()
+            })
+        );
     }
     use beep_proto::Approval;
     use std::time::{Duration, SystemTime};

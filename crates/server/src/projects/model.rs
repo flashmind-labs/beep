@@ -51,7 +51,7 @@ row_id!(
 );
 
 /// Longest owner or repository part of a [`RepoName`].
-const MAX_REPO_PART: usize = 100;
+pub(crate) const MAX_REPO_PART: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum RepoNameError {

@@ -1289,6 +1289,19 @@ requests! {
     /// keeps reading the lists every few minutes as before. `NotFound`
     /// when the caller has no such project.
     340 WatchProject { project_id: Uuid } => Stream<ProjectChange>
+    /// As `ListProjectRuns`, from every host `project_id`'s repository is
+    /// on: its GitHub and Forgejo hosts, from its roles, its imports and
+    /// its checkout's remotes. One push to a repository mirrored on both
+    /// runs on both, so the runs of each are merged newest first and each
+    /// names its host. A host that cannot be read gives its own error in
+    /// `HostedRuns::hosts` and the others still show. `ListProjectRuns`
+    /// gives the primary host's alone. `NotFound` when the caller has no
+    /// such project.
+    360 ListProjectRunsAll { project_id: Uuid, refresh: bool } => Call<HostedRuns>
+    /// As `GetProjectRun`, for the run `run_id` on `host`, as
+    /// `HostedRun::host` names it. `BadRequest` saying why when the
+    /// project's repository is not on that host.
+    361 GetProjectRunOn { project_id: Uuid, host: String, run_id: u64 } => Call<ProjectRunDetail>
     /// The caller's flsh settings (provider routing and compaction), the
     /// same on every machine. All unset until they save some.
     370 GetFlshSettings {} => Call<FlshSettings>
@@ -1297,6 +1310,56 @@ requests! {
     /// flsh's config before it starts flsh. `BadRequest` saying why for a
     /// value flsh would not take (`FlshSettings::check`).
     371 SaveFlshSettings { settings: FlshSettings } => Call<()>
+}
+
+/// What `ListProjectRunsAll` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostedRuns {
+    /// Every host's runs, newest first.
+    pub runs: Vec<HostedRun>,
+    /// How the newest runs of each open pull request stand, per host: a
+    /// pull request's head pushed to both hosts has checks on both.
+    pub checks: Vec<HostedChecks>,
+    /// The hosts read, the primary one first.
+    pub hosts: Vec<RunsHost>,
+    /// Why no host could be read at all, such as a project with no GitHub
+    /// or Forgejo host.
+    pub error: Option<String>,
+}
+
+/// A run and the host it ran on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostedRun {
+    /// As `RunsHost::host`.
+    pub host: String,
+    pub run: WorkflowRun,
+}
+
+/// A pull request's checks on one host.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostedChecks {
+    /// As `RunsHost::host`.
+    pub host: String,
+    pub checks: PrChecks,
+}
+
+/// One host a project's runs are read from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunsHost {
+    /// `github.com`, or a Forgejo server's host, such as `forge.example.com`.
+    pub host: String,
+    pub kind: GitHostKind,
+    /// `org/repo` on that host.
+    pub repo: String,
+    /// The host the project's issues and pull requests are on, the one
+    /// `ListProjectRuns` reads.
+    pub primary: bool,
+    /// When its run list was last read.
+    pub synced_at: Option<SystemTime>,
+    /// Why its runs could not be read; its runs are the ones read before.
+    pub error: Option<String>,
+    /// As `ProjectRuns::rate_limited_until`, for this host.
+    pub rate_limited_until: Option<SystemTime>,
 }
 
 /// What `WatchProject` streams.

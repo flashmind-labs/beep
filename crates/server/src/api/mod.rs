@@ -41,7 +41,7 @@ mod memories;
 mod own_nodes;
 mod project_groups;
 mod project_import;
-mod project_sync;
+pub(crate) mod project_sync;
 mod project_watch;
 mod projects;
 mod research;
@@ -330,6 +330,8 @@ pub fn router() -> Router {
         .call(project_watch::get_project_lists)
         .call(project_watch::list_project_runs)
         .call(project_watch::get_project_run)
+        .call(project_watch::list_project_runs_all)
+        .call(project_watch::get_project_run_on)
         .stream(project_watch::watch_project)
 }
 

@@ -195,6 +195,16 @@ impl Projects {
         new
     }
 
+    /// Forgets that question `id` of `worker`'s was handled, so it is
+    /// handled again when it next shows up.
+    pub(crate) fn forget_question(&self, worker: WorkerId, id: u32) {
+        if let Some(seen) = lock(&self.seen).get_mut(&worker)
+            && seen.question == Some(id)
+        {
+            seen.question = None;
+        }
+    }
+
     pub(crate) fn arm(&self, due: Due, at: DateTime<Utc>) {
         lock(&self.schedule).arm(due, at);
         self.armed.notify_one();

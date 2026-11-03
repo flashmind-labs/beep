@@ -85,25 +85,37 @@ impl Store {
     }
 
     /// Keeps the pictures `user` sent with a message, in order, and returns
-    /// what clients see of them. The message goes out again with them.
+    /// what clients see of them. The message goes out again with them. All
+    /// are kept or, on an error, none.
     pub(crate) async fn save_pictures(
         &self,
         user: &UserKey,
         of: PicturesOf,
         pictures: &[NewPicture<'_>],
     ) -> Result<Vec<ImageRef>> {
+        let mut staged = Vec::with_capacity(pictures.len());
+        let kept = self.stage_pictures(user, of, pictures, &mut staged).await;
+        self.attach_staged(of, staged, kept).await
+    }
+
+    async fn stage_pictures(
+        &self,
+        user: &UserKey,
+        of: PicturesOf,
+        pictures: &[NewPicture<'_>],
+        staged: &mut Vec<String>,
+    ) -> Result<Vec<ImageRef>> {
         let mut saved = Vec::with_capacity(pictures.len());
         for (position, picture) in pictures.iter().enumerate() {
             let id = Uuid::new_v4().simple().to_string();
             sqlx::query(
-                "INSERT INTO files (id, user_id, chat_id, message_id, name, mime, data,
+                "INSERT INTO files (id, user_id, chat_id, name, mime, data,
                                     position, width, height)
-                 VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9)",
+                 VALUES ($1, $2, $3, $4, $5, '', $6, $7, $8)",
             )
             .bind(&id)
             .bind(user.as_str())
             .bind(of.chat)
-            .bind(of.message)
             .bind(format!("picture-{}", position + 1))
             .bind(picture.mime)
             .bind(i32::try_from(position)?)
@@ -111,7 +123,8 @@ impl Store {
             .bind(i32::try_from(picture.height)?)
             .execute(&self.pool)
             .await?;
-            self.put_blob(&id, picture.data).await?;
+            staged.push(id.clone());
+            self.blobs.put(&id, picture.data).await?;
             saved.push(ImageRef {
                 id,
                 mime: picture.mime.to_owned(),
@@ -119,53 +132,85 @@ impl Store {
                 height: picture.height,
             });
         }
-        if !saved.is_empty() {
-            let mut tx = self.pool.begin().await?;
-            let bumped = log_messages(
-                &mut tx,
-                of.chat,
-                &[of.message],
-                UpdateOp::Message,
-                Readers::Members,
-            )
-            .await?;
-            tx.commit().await?;
-            self.announce(&bumped);
-        }
         Ok(saved)
     }
 
     /// Keeps the files `user` sent with a message, in order. The message goes
-    /// out again, so other devices fetch them.
+    /// out again, so other devices fetch them. All are kept or, on an error,
+    /// none.
     pub(crate) async fn save_attachments(
         &self,
         user: &UserKey,
         of: PicturesOf,
         files: &[NewAttachment<'_>],
     ) -> Result<()> {
-        if files.is_empty() {
-            return Ok(());
-        }
+        let mut staged = Vec::with_capacity(files.len());
+        let kept = self.stage_attachments(user, of, files, &mut staged).await;
+        self.attach_staged(of, staged, kept).await
+    }
+
+    async fn stage_attachments(
+        &self,
+        user: &UserKey,
+        of: PicturesOf,
+        files: &[NewAttachment<'_>],
+        staged: &mut Vec<String>,
+    ) -> Result<()> {
         for (position, file) in files.iter().enumerate() {
             let id = Uuid::new_v4().simple().to_string();
             sqlx::query(
-                "INSERT INTO files (id, user_id, chat_id, message_id, name, mime, data,
+                "INSERT INTO files (id, user_id, chat_id, name, mime, data,
                                     position, attached, size)
-                 VALUES ($1, $2, $3, $4, $5, $6, '', $7, true, $8)",
+                 VALUES ($1, $2, $3, $4, $5, '', $6, true, $7)",
             )
             .bind(&id)
             .bind(user.as_str())
             .bind(of.chat)
-            .bind(of.message)
             .bind(file.name)
             .bind(file.mime)
             .bind(i32::try_from(position)?)
             .bind(i64::try_from(file.data.len())?)
             .execute(&self.pool)
             .await?;
-            self.put_blob(&id, file.data).await?;
+            staged.push(id.clone());
+            self.blobs.put(&id, file.data).await?;
+        }
+        Ok(())
+    }
+
+    /// Gives the `staged` files, rows without a message so far, to message
+    /// `of` in one transaction, once `kept` says all were written. On an
+    /// error they are dropped instead. One left by a crash has no message,
+    /// so it expires like a sent file.
+    async fn attach_staged<T>(
+        &self,
+        of: PicturesOf,
+        staged: Vec<String>,
+        kept: Result<T>,
+    ) -> Result<T> {
+        let attached = match kept {
+            Ok(kept) => self.attach(of, &staged).await.map(|()| kept),
+            Err(error) => Err(error),
+        };
+        if attached.is_err()
+            && !staged.is_empty()
+            && let Err(error) = self.drop_staged(&staged).await
+        {
+            log::warn!("files: unable to drop files of a failed save: {error:#}");
+        }
+        attached
+    }
+
+    async fn attach(&self, of: PicturesOf, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
         }
         let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE files SET message_id = $1 WHERE id = ANY($2)")
+            .bind(of.message)
+            .bind(ids)
+            .execute(&mut *tx)
+            .await?;
         let bumped = log_messages(
             &mut tx,
             of.chat,
@@ -177,6 +222,14 @@ impl Store {
         tx.commit().await?;
         self.announce(&bumped);
         Ok(())
+    }
+
+    async fn drop_staged(&self, ids: &[String]) -> Result<()> {
+        sqlx::query("DELETE FROM files WHERE id = ANY($1) AND message_id IS NULL")
+            .bind(ids)
+            .execute(&self.pool)
+            .await?;
+        self.blobs.delete(ids).await
     }
 
     /// Marks the prompt `of.message` of `user`'s chat as said aloud.
@@ -349,8 +402,13 @@ fn by_message(rows: &[PgRow]) -> Result<Vec<SentImages>> {
 mod tests {
     use super::*;
     use crate::{
-        store::{NewMessage, TestDb, TurnsToDelete, test_chat, test_turn},
+        store::{Blobs, NewMessage, PgBlobs, TestDb, TurnsToDelete, test_chat, test_turn},
         user::User,
+    };
+    use async_trait::async_trait;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     fn picture(data: &[u8]) -> NewPicture<'_> {
@@ -395,6 +453,85 @@ mod tests {
 
         alice.delete_session(s1).await.unwrap();
         assert!(alice.file_part(&id, 0, 100).await.unwrap().is_none());
+    }
+
+    /// Blobs in Postgres whose second write fails.
+    struct SecondPutFails {
+        inner: PgBlobs,
+        puts: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Blobs for SecondPutFails {
+        async fn put(&self, id: &str, data: &[u8]) -> Result<()> {
+            let put = self.puts.fetch_add(1, Ordering::Relaxed);
+            if put == 1 {
+                anyhow::bail!("the blob store is down");
+            }
+            self.inner.put(id, data).await
+        }
+
+        async fn part(&self, id: &str, offset: u64, len: u64) -> Result<Option<FilePart>> {
+            self.inner.part(id, offset, len).await
+        }
+
+        async fn delete(&self, ids: &[String]) -> Result<()> {
+            self.inner.delete(ids).await
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_save_keeps_none_of_the_messages_files() {
+        let db = TestDb::new().await.unwrap();
+        let mut store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let s1 = test_chat("s1");
+        let one = test_turn(&store, &alice, s1, "one", 1000).await.unwrap();
+        let of = PicturesOf {
+            chat: s1,
+            message: one,
+        };
+        let pool = store.pool().clone();
+        let fails = || {
+            Arc::new(SecondPutFails {
+                inner: PgBlobs::new(pool.clone()),
+                puts: AtomicUsize::new(0),
+            })
+        };
+        let rows = || async {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM files")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        };
+
+        store.blobs = fails();
+        store
+            .save_pictures(&alice, of, &[picture(b"one"), picture(b"two")])
+            .await
+            .expect_err("the second picture fails");
+        assert_eq!(rows().await, 0);
+        assert!(store.session_pictures(&alice, s1).await.unwrap().is_empty());
+
+        store.blobs = fails();
+        let files = [
+            NewAttachment {
+                name: "a.pdf",
+                mime: "application/pdf",
+                data: b"a",
+            },
+            NewAttachment {
+                name: "b.pdf",
+                mime: "application/pdf",
+                data: b"b",
+            },
+        ];
+        store
+            .save_attachments(&alice, of, &files)
+            .await
+            .expect_err("the second file fails");
+        assert_eq!(rows().await, 0);
+        assert!(store.session_files(&alice, s1).await.unwrap().is_empty());
     }
 
     #[tokio::test]

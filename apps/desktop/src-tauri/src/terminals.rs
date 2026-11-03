@@ -241,15 +241,24 @@ impl From<TerminalEvent> for TermEvent {
     }
 }
 
-/// The terminals the window follows, by id, each with where its keys go.
-/// A second attach to the same terminal replaces the first.
+/// The terminals the windows follow, by terminal and view, each with
+/// where its keys go. Two views of one terminal, such as a session's pane
+/// and the Terminals page, keep a stream each; a view attaching again
+/// replaces only its own older stream.
 #[derive(Default)]
 pub struct Attached(Mutex<Following>);
 
 #[derive(Default)]
 struct Following {
     next: u64,
-    by_id: HashMap<Uuid, Follow>,
+    by_view: HashMap<Viewer, Follow>,
+}
+
+/// One view of one terminal. The window names its views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct Viewer {
+    terminal: Uuid,
+    view: Uuid,
 }
 
 struct Follow {
@@ -263,25 +272,34 @@ impl Attached {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn follow(&self, id: Uuid, input: mpsc::Sender<TerminalInput>) -> u64 {
+    fn follow(&self, viewer: Viewer, input: mpsc::Sender<TerminalInput>) -> u64 {
         let mut following = self.lock();
         following.next += 1;
         let serial = following.next;
-        following.by_id.insert(id, Follow { serial, input });
+        following.by_view.insert(viewer, Follow { serial, input });
         serial
     }
 
-    fn unfollow(&self, id: Uuid, serial: u64) {
+    fn unfollow(&self, viewer: Viewer, serial: u64) {
         let mut following = self.lock();
-        if following.by_id.get(&id).is_some_and(|f| f.serial == serial) {
-            following.by_id.remove(&id);
+        if following
+            .by_view
+            .get(&viewer)
+            .is_some_and(|f| f.serial == serial)
+        {
+            following.by_view.remove(&viewer);
         }
     }
 
-    fn input(&self, id: Uuid) -> Result<mpsc::Sender<TerminalInput>> {
+    /// Drops `viewer`'s keys, which finishes its stream.
+    fn detach(&self, viewer: Viewer) {
+        self.lock().by_view.remove(&viewer);
+    }
+
+    fn input(&self, viewer: Viewer) -> Result<mpsc::Sender<TerminalInput>> {
         self.lock()
-            .by_id
-            .get(&id)
+            .by_view
+            .get(&viewer)
             .map(|follow| follow.input.clone())
             .ok_or_else(|| DesktopError::BadRequest("The terminal is not attached.".into()))
     }
@@ -290,24 +308,26 @@ impl Attached {
 /// Forgets an attach once its stream ends, however it ends.
 struct Unfollow<'a> {
     attached: &'a Attached,
-    id: Uuid,
+    viewer: Viewer,
     serial: u64,
 }
 
 impl Drop for Unfollow<'_> {
     fn drop(&mut self) {
-        self.attached.unfollow(self.id, self.serial);
+        self.attached.unfollow(self.viewer, self.serial);
     }
 }
 
-/// Follows terminal `id` from byte `from` of its output into `on_event`,
-/// sending up what `terminal_input` and `terminal_resize` give, until it
-/// ends or `terminal_detach`.
+/// Follows terminal `id` in `view` from byte `from` of its output into
+/// `on_event`, sending up what `terminal_input` and `terminal_resize` give
+/// for that view, until it ends or `terminal_detach`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn terminal_attach(
     beep: Service<'_>,
     attached: State<'_, Attached>,
     id: Uuid,
+    view: Uuid,
     from: u64,
     cols: u32,
     rows: u32,
@@ -323,10 +343,11 @@ pub async fn terminal_attach(
         .await
         .map_err(outdated)?;
     let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
-    let serial = attached.follow(id, input_tx);
+    let viewer = Viewer { terminal: id, view };
+    let serial = attached.follow(viewer, input_tx);
     let _unfollow = Unfollow {
         attached: &attached,
-        id,
+        viewer,
         serial,
     };
     on_event.send(TermEvent::Attached)?;
@@ -356,8 +377,13 @@ pub async fn terminal_attach(
 
 /// Keys typed into attached terminal `id`, in pieces the server takes.
 #[tauri::command]
-pub async fn terminal_input(attached: State<'_, Attached>, id: Uuid, data: String) -> Result<()> {
-    let input = attached.input(id)?;
+pub async fn terminal_input(
+    attached: State<'_, Attached>,
+    id: Uuid,
+    view: Uuid,
+    data: String,
+) -> Result<()> {
+    let input = attached.input(Viewer { terminal: id, view })?;
     for piece in keys(data.as_bytes()) {
         input
             .send(piece)
@@ -380,20 +406,22 @@ fn keys(data: &[u8]) -> Vec<TerminalInput> {
 pub async fn terminal_resize(
     attached: State<'_, Attached>,
     id: Uuid,
+    view: Uuid,
     cols: u32,
     rows: u32,
 ) -> Result<()> {
-    let input = attached.input(id)?;
+    let input = attached.input(Viewer { terminal: id, view })?;
     input
         .send(TerminalInput::Resize { cols, rows })
         .await
         .map_err(|_| DesktopError::BadRequest("The terminal is no longer attached.".into()))
 }
 
-/// Stops following terminal `id`; it keeps running on its machine.
+/// Stops following terminal `id` in `view`; it keeps running on its
+/// machine, and other views of it stay attached.
 #[tauri::command]
-pub fn terminal_detach(attached: State<'_, Attached>, id: Uuid) {
-    attached.lock().by_id.remove(&id);
+pub fn terminal_detach(attached: State<'_, Attached>, id: Uuid, view: Uuid) {
+    attached.detach(Viewer { terminal: id, view });
 }
 
 #[cfg(test)]
@@ -435,13 +463,46 @@ mod tests {
     #[test]
     fn an_older_attach_ending_leaves_a_newer_one() {
         let attached = Attached::default();
-        let id = Uuid::nil();
+        let viewer = Viewer {
+            terminal: Uuid::nil(),
+            view: Uuid::nil(),
+        };
         let (first, _) = mpsc::channel(1);
-        let old = attached.follow(id, first);
+        let old = attached.follow(viewer, first);
         let (second, _) = mpsc::channel(1);
-        attached.follow(id, second);
-        attached.unfollow(id, old);
-        assert!(attached.input(id).is_ok());
+        attached.follow(viewer, second);
+        attached.unfollow(viewer, old);
+        assert!(attached.input(viewer).is_ok());
+    }
+
+    // Two views of one terminal used to share one slot, so each attach
+    // finished the other's stream and they reattached in turn forever.
+    #[test]
+    fn two_views_of_a_terminal_keep_their_own_streams() {
+        let attached = Attached::default();
+        let terminal = Uuid::from_u128(1);
+        let pane = Viewer {
+            terminal,
+            view: Uuid::from_u128(2),
+        };
+        let page = Viewer {
+            terminal,
+            view: Uuid::from_u128(3),
+        };
+        let (pane_tx, pane_rx) = mpsc::channel(1);
+        attached.follow(pane, pane_tx);
+        let (page_tx, _page_rx) = mpsc::channel(1);
+        attached.follow(page, page_tx);
+        assert!(
+            !pane_rx.is_closed(),
+            "the page attaching kept the pane's stream"
+        );
+        attached.detach(page);
+        assert!(
+            attached.input(pane).is_ok(),
+            "the page detaching kept the pane"
+        );
+        assert!(!pane_rx.is_closed());
     }
 
     #[test]

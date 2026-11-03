@@ -3,12 +3,13 @@
 //! YAML frontmatter (Claude Code, OpenCode, pi, flsh), Codex role files,
 //! and the agent tables of `opencode.json` and Codex's `config.toml`. They
 //! are read in the project folder, then in each harness's folder in the
-//! home. A file whose real path leads outside the folder it was found in
-//! is not read.
+//! home. The project folder is checked against the node's work folders
+//! before it gets here (`reach::Access::Work`). A harness folder in the
+//! home, a definitions folder or a file whose real path leads outside the
+//! folder it was found in is not read.
 
 mod parse;
 
-use super::media_file::resolve;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     CustomAgent, CustomAgentHarness, CustomAgentScope, MAX_CUSTOM_AGENT_PROMPT, MAX_CUSTOM_AGENTS,
@@ -132,15 +133,14 @@ impl Base {
     }
 }
 
-/// The custom agents for the project folder `folder`, absolute or starting
-/// `~/` for `home`, then the user's own in `home`. Blocks on the file
-/// system.
-pub(super) fn list(folder: &str, home: Option<&Path>) -> Result<Vec<CustomAgent>> {
-    let full = resolve(folder, home)?;
-    let root =
-        fs::canonicalize(&full).with_context(|| format!("the folder {folder} is not there"))?;
+/// The custom agents for the project folder `folder`, already resolved
+/// and checked as a work folder, then the user's own in `home`. Blocks on
+/// the file system.
+pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent>> {
+    let root = fs::canonicalize(folder)
+        .with_context(|| format!("the folder {} is not there", folder.display()))?;
     if !root.is_dir() {
-        bail!("{folder} is not a folder");
+        bail!("{} is not a folder", folder.display());
     }
     let mut reader = Reader::default();
     let project = Base {
@@ -151,18 +151,24 @@ pub(super) fn list(folder: &str, home: Option<&Path>) -> Result<Vec<CustomAgent>
     for place in PROJECT {
         reader.read(&project, place);
     }
-    if let Some(home) = home {
-        for at in USER {
-            let Ok(root) = fs::canonicalize(home.join(at.folder)) else {
-                continue;
-            };
-            let base = Base {
-                root,
-                scope: CustomAgentScope::User {},
-                shown: format!("~/{}/", at.folder),
-            };
-            reader.read(&base, &at.place);
+    let Some(home) = home.and_then(|home| fs::canonicalize(home).ok()) else {
+        return Ok(reader.agents);
+    };
+    for at in USER {
+        let Ok(root) = fs::canonicalize(home.join(at.folder)) else {
+            continue;
+        };
+        // A harness folder linked out of the home is not read.
+        if !root.starts_with(&home) {
+            log::debug!("custom agents: ~/{} leads outside the home", at.folder);
+            continue;
         }
+        let base = Base {
+            root,
+            scope: CustomAgentScope::User {},
+            shown: format!("~/{}/", at.folder),
+        };
+        reader.read(&base, &at.place);
     }
     Ok(reader.agents)
 }
@@ -235,6 +241,25 @@ impl Reader {
     }
 
     fn read_folder(&mut self, base: &Base, place: &Place, folder: &Path, ext: &str) {
+        match fs::canonicalize(folder) {
+            Ok(real) if !real.starts_with(&base.root) => {
+                let source = Source {
+                    base,
+                    harness: place.harness,
+                    path: base.show(folder),
+                    stem: place.rel.to_owned(),
+                };
+                return self.push(source.error(
+                    "the folder leads outside its harness folder, so it is not read".to_owned(),
+                ));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => return,
+            Err(e) => {
+                log::debug!("custom agents: cannot open {}: {e}", folder.display());
+                return;
+            }
+        }
         let entries = match fs::read_dir(folder) {
             Ok(entries) => entries,
             Err(e) if e.kind() == ErrorKind::NotFound => return,
@@ -388,7 +413,7 @@ mod tests {
 
     struct Setup {
         _dir: TempDir,
-        project: String,
+        project: PathBuf,
         home: PathBuf,
     }
 
@@ -399,7 +424,7 @@ mod tests {
         fs::create_dir_all(&project).expect("project made");
         fs::create_dir_all(&home).expect("home made");
         Setup {
-            project: project.to_str().expect("temp paths are UTF-8").to_owned(),
+            project,
             home,
             _dir: dir,
         }
@@ -537,8 +562,7 @@ mod tests {
     fn the_home_as_project_lists_each_file_once() {
         let s = setup();
         write(&s.home, ".claude/agents/a.md", "---\nname: a\n---\nA.");
-        let home = s.home.to_str().unwrap();
-        let agents = list(home, Some(&s.home)).unwrap();
+        let agents = list(&s.home, Some(&s.home)).unwrap();
         assert_eq!(names(&agents), [("claude", "a")]);
         assert_eq!(agents[0].scope, CustomAgentScope::Project {});
     }
@@ -555,8 +579,60 @@ mod tests {
     #[test]
     fn a_missing_folder_is_refused() {
         let s = setup();
-        let missing = format!("{}/nope", s.project);
-        assert!(list(&missing, None).is_err());
-        assert!(list("relative/path", None).is_err());
+        assert!(list(&s.project.join("nope"), None).is_err());
+        fs::write(s.project.join("file"), "").unwrap();
+        assert!(list(&s.project.join("file"), None).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_in_a_home_agents_folder_pointing_outside_is_refused() {
+        let s = setup();
+        let outside = TempDir::new().unwrap();
+        write(
+            outside.path(),
+            "secret.md",
+            "---\nname: secret\n---\nPrivate.",
+        );
+        write(
+            &s.home,
+            ".claude/agents/mine.md",
+            "---\nname: mine\n---\nMe.",
+        );
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.md"),
+            s.home.join(".claude/agents/out.md"),
+        )
+        .unwrap();
+        let agents = list(&s.project, Some(&s.home)).unwrap();
+        assert_eq!(names(&agents), [("claude", "mine"), ("claude", "out")]);
+        assert_eq!(agents[0].prompt, "Me.");
+        let out = &agents[1];
+        assert_eq!(out.scope, CustomAgentScope::User {});
+        assert!(out.error.as_deref().unwrap().contains("outside"));
+        assert!(out.prompt.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_home_agents_folder_linked_outside_is_not_listed() {
+        let s = setup();
+        let outside = TempDir::new().unwrap();
+        write(
+            outside.path(),
+            "agents/secret.md",
+            "---\nname: secret\n---\nPrivate.",
+        );
+        // The definitions folder inside the harness folder links out.
+        fs::create_dir_all(s.home.join(".claude")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("agents"), s.home.join(".claude/agents"))
+            .unwrap();
+        // The harness folder itself links out of the home.
+        std::os::unix::fs::symlink(outside.path(), s.home.join(".agents")).unwrap();
+        let agents = list(&s.project, Some(&s.home)).unwrap();
+        assert_eq!(agents.len(), 1, "{agents:?}");
+        assert_eq!(agents[0].path, "~/.claude/agents");
+        assert!(agents[0].error.as_deref().unwrap().contains("outside"));
+        assert!(agents.iter().all(|a| a.prompt.is_empty()));
     }
 }
