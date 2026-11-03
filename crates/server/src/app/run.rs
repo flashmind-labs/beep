@@ -711,6 +711,10 @@ impl App {
             loop {
                 // Flashmind removes memory entries after each agent pass.
                 memory_context::restore(&mut conversation, &recalled, false);
+                // What the model said and thought since its last tool calls,
+                // which a stopped run would otherwise lose.
+                let mut said = String::new();
+                let mut thought = String::new();
                 let status = {
                     let stream = agent.start(
                         &mut conversation,
@@ -752,6 +756,7 @@ impl App {
                                 if quiet_since.is_some() {
                                     continue;
                                 }
+                                said.push_str(&delta);
                                 timer.output(Output::Text);
                                 let delta = if mem::take(&mut after_tool)
                                     && !reply.is_empty()
@@ -770,6 +775,7 @@ impl App {
                                     break RunStatus::Looped;
                                 }
                                 timer.output(Output::Reasoning);
+                                thought.push_str(&delta);
                                 RunEvent::ReasoningDelta { delta }
                             }
                             Some(AgentEvent::ToolStart {
@@ -778,6 +784,8 @@ impl App {
                                 humanized,
                             }) => {
                                 timer.output(Output::Tool);
+                                said.clear();
+                                thought.clear();
                                 tools_running += 1;
                                 after_tool = true;
                                 RunEvent::ToolStarted {
@@ -875,6 +883,9 @@ impl App {
                         }
                     }
                 };
+                if matches!(status, RunStatus::Cancelled | RunStatus::Interrupted) {
+                    failed_tools.extend(keep_stopped(&mut conversation, said, thought));
+                }
                 // A failed check gets the agent one more pass to fix it.
                 if let Some(since) = quiet_since {
                     drop_text_since(&mut conversation, since);
@@ -1385,6 +1396,39 @@ impl App {
         }
     }
 }
+
+/// What the user saw of a run they stopped, kept in `conversation` so the
+/// chat shows it and the model reads it next turn: each call still running
+/// answered as stopped, then the text and reasoning streamed since the last
+/// tool calls, ending in a note that the user stopped it. Returns the
+/// stopped calls.
+pub(super) fn keep_stopped(
+    conversation: &mut Conversation,
+    said: String,
+    thought: String,
+) -> Vec<String> {
+    let open: Vec<String> = permissions::open_calls(conversation)
+        .into_iter()
+        .map(|call| call.id)
+        .collect();
+    permissions::close_open_calls(conversation, STOPPED_CALL);
+    let said = said.trim_end();
+    let content = if said.is_empty() {
+        STOPPED.to_owned()
+    } else {
+        format!("{said}\n\n{STOPPED}")
+    };
+    let thought = Some(thought).filter(|thought| !thought.trim().is_empty());
+    conversation.add(ConversationEntry::assistant_with_reasoning(
+        content, thought,
+    ));
+    open
+}
+
+/// A call's result when the user stopped the run while it ran.
+const STOPPED_CALL: &str = "Stopped by the user before it finished.";
+/// The note a stopped turn ends with.
+pub(super) const STOPPED: &str = "_Stopped_";
 
 /// Firecrawl's page tools. Each run gets its own cache, so `web_search_read`
 /// only reaches pages this run crawled.
