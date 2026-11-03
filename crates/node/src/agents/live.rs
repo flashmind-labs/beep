@@ -7,6 +7,7 @@ use super::{
     compaction::{COMPACTED_ENTRY, Usage},
     image_files,
     images::{Images, Picture, data_url},
+    unix_now,
     usage::{UsageHub, claude_rate_limit},
 };
 use agent_client_protocol::schema::{
@@ -34,7 +35,6 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -258,6 +258,9 @@ impl Live {
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
         self.turn_images.clear();
+        // A tool whose entry left the transcript has nothing left to show.
+        let dropped = self.dropped;
+        self.tools.retain(|_, tool| tool.entry >= dropped);
         let state = &mut self.info.state;
         state.status = Status::Working;
         state.summary = "Thinking".into();
@@ -884,12 +887,6 @@ fn detail(input: &Value) -> Option<String> {
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.
-pub(super) fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
-}
-
 pub(crate) fn cut(text: &str, max: usize) -> String {
     let mut out = String::new();
     push_cut(&mut out, text, max);
@@ -1093,6 +1090,27 @@ mod tests {
                 mime: "image/png".into(),
                 data: png,
             })
+        );
+    }
+
+    #[test]
+    fn tool_calls_go_with_their_entries() {
+        let mut live = live();
+        for n in 0..MAX_ENTRIES {
+            live.prompted("again");
+            live.apply(&update(json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": format!("t{n}"),
+                "title": "Run the tests",
+                "kind": "execute",
+                "status": "completed",
+            })));
+        }
+        live.prompted("once more");
+        assert!(
+            live.tools.len() <= MAX_ENTRIES / 2 + 1,
+            "{}",
+            live.tools.len()
         );
     }
 

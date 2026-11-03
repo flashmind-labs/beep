@@ -97,7 +97,9 @@ impl Spend {
     /// the sessions the server has not heard of as they stand, the newest
     /// first. Blocking: run it with `spawn_blocking`.
     pub(crate) fn pass(&self, now: u64) -> Vec<SessionSpend> {
-        let since = now.saturating_sub(WINDOW_SECS);
+        // On an hour: the server replaces each reported hour whole, so a
+        // window starting within one would shrink it to what came after.
+        let since = now.saturating_sub(WINDOW_SECS) / 3600 * 3600;
         let mut guard = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
         let ledger = guard.get_or_insert_with(|| match &self.path {
             Some(path) => Ledger::load(path),

@@ -131,6 +131,15 @@ struct Inner {
     serving: Arc<AtomicUsize>,
 }
 
+/// Stops `running` and waits for its task, which saves its state, a while.
+async fn halt(running: Running) -> Arc<Shared> {
+    running.shared.stop();
+    if timeout(STOP_LIMIT, running.task).await.is_err() {
+        log::warn!("{} did not stop in time", running.shared.name());
+    }
+    running.shared
+}
+
 /// Counts one pull served while it lives.
 pub(super) struct Serving(Arc<AtomicUsize>);
 
@@ -251,6 +260,7 @@ impl Syncs {
         let mut refused = Vec::new();
         let mut kept = Vec::new();
         let mut stopping = Vec::new();
+        let mut replaced = Vec::new();
         let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
         {
             let mut running = self.inner.lock();
@@ -284,7 +294,12 @@ impl Syncs {
                 kept.push(project);
                 continue;
             }
-            stopping.extend(self.inner.lock().remove(&project.name));
+            // Stopped before its replacement starts: the same folder named
+            // another way has the same key, watches and state file.
+            let old = self.inner.lock().remove(&project.name);
+            if let Some(old) = old {
+                replaced.push(halt(old).await);
+            }
             let was_held = self
                 .inner
                 .held()
@@ -327,6 +342,9 @@ impl Syncs {
         }
         for stopped in stopping {
             self.stop(stopped).await;
+        }
+        for old in replaced {
+            self.forget(&old).await;
         }
         let config = Config { projects: kept };
         let saved = serde_json::to_vec_pretty(&config)
@@ -372,12 +390,15 @@ impl Syncs {
     }
 
     async fn stop(&self, running: Running) {
-        running.shared.stop();
-        let name = running.shared.name().to_owned();
-        if timeout(STOP_LIMIT, running.task).await.is_err() {
-            log::warn!("{name} did not stop in time");
-        }
-        let key = running.shared.key();
+        let shared = halt(running).await;
+        self.forget(&shared).await;
+    }
+
+    /// Forgets the state of the stopped project `shared`, unless its folder
+    /// runs again under the same key.
+    async fn forget(&self, shared: &Shared) {
+        let name = shared.name();
+        let key = shared.key();
         // The same folder may have started again under the same key.
         if self
             .inner
@@ -389,7 +410,7 @@ impl Syncs {
         }
         // A project turned off forgets its folder: started again, it scans
         // from nothing, so a folder emptied meanwhile deletes nothing.
-        let file = running.shared.file().to_owned();
+        let file = shared.file().to_owned();
         let removed = spawn_blocking(move || match fs::remove_file(&file) {
             Err(e) if e.kind() != ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -471,11 +492,7 @@ impl Syncs {
         let _one = self.inner.configuring.lock().await;
         let running = std::mem::take(&mut *self.inner.lock());
         for running in running.into_values() {
-            running.shared.stop();
-            let name = running.shared.name().to_owned();
-            if timeout(STOP_LIMIT, running.task).await.is_err() {
-                log::warn!("{name} did not stop in time");
-            }
+            halt(running).await;
         }
     }
 

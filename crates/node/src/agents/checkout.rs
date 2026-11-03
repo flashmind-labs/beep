@@ -370,11 +370,11 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     /// A temporary repository with one commit on `main`.
-    fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {
+    pub(in crate::agents) fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::Builder::new()
             .prefix(&format!("beep-checkout-{name}"))
             .tempdir()
@@ -406,7 +406,7 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).trim().to_owned()
     }
 
-    fn current(dir: &Path) -> String {
+    pub(in crate::agents) fn current(dir: &Path) -> String {
         run(dir, &["branch", "--show-current"])
     }
 

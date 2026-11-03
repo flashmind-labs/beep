@@ -125,8 +125,6 @@ fn plist(launch: &Launch, log: &Path) -> String {
          \x20   <dict>\n\
          \x20       <key>PATH</key>\n\
          \x20       <string>{path}</string>\n\
-         \x20       <key>RUST_LOG</key>\n\
-         \x20       <string>info</string>\n\
          \x20   </dict>\n\
          \x20   <key>RunAtLoad</key>\n\
          \x20   <true/>\n\
@@ -199,6 +197,8 @@ mod tests {
         assert!(plist.contains(
             "<key>StandardErrorPath</key>\n    <string>/Users/user/Library/Logs/beep-node.log</string>"
         ));
+        // The node's own filter keeps the networking crates quiet.
+        assert!(!plist.contains("RUST_LOG"), "{plist}");
     }
 
     #[test]
