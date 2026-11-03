@@ -23,7 +23,8 @@ import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
-import { makeTerminals, terminalTile } from "./terminals.ts";
+import { ALL, byMachine, makeTerminals, terminalNote, terminalTile, terminalWhere, terminalsCount } from "./terminals.ts";
+import type { MachineTerminals, TerminalRow } from "./terminals.ts";
 import { makeScreen } from "./termview.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
@@ -97,6 +98,7 @@ const IC = {
   pr: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V10a3 3 0 00-3-3h-4M13 4.5L10.5 7 13 9.5"/></svg>',
   issue: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
   rout: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  term: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
   folder: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 014.5 5H10l2 2.5h7.5A1.5 1.5 0 0121 9v9.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/></svg>',
 };
 
@@ -395,6 +397,68 @@ const runningPanel = (running: RunningRow[]) => h("div", "cc-panel", ...running.
 
 function runningSection(running: RunningRow[]) {
   return section("sec-running", "Running now", running.length, null, runningPanel(running));
+}
+
+// ---------- Terminals ----------
+
+/// Every terminal on every machine: the Terminals page, and Home's section.
+const allTerms = makeTerminals({
+  invoke, Channel, makeScreen, h, button, ago,
+  redraw: () => {
+    if (shown === "terminals") { drawTerminals(); drawTop(); }
+    else if (shown === "home") draw();
+    drawSide();
+  },
+});
+
+/// The machines terminals are listed under, as Home has them.
+const termMachines = () => (state.home?.machines || []).map(m => ({ id: m.id, name: m.name, online: m.online }));
+
+/// Opens the Terminals page with terminal `id`, or the New terminal form on
+/// machine `newOn`.
+function openTerminals(to: { id: string } | { newOn: string | null } | null) {
+  go("terminals");
+  if (to && "id" in to) allTerms.show(to.id);
+  else if (to) allTerms.newOn(to.newOn);
+}
+
+/// One machine's panel on Home: its name, how many run, New, then a row per
+/// terminal.
+function terminalsPanel(m: MachineTerminals<TerminalRow>) {
+  const running = m.terms.filter(t => t.state === "running").length;
+  const add = button("New", "small", e => { e.stopPropagation(); openTerminals({ newOn: m.id }); });
+  add.disabled = !m.online;
+  const head = h("div", "cc-row tl-mh", h("span", "t", h("b", "", m.name),
+    h("span", "", !m.online ? "Offline" : m.terms.length ? `${running} running` : "No terminals")), h("span", "r", add));
+  const rows = m.terms.map(t => {
+    const row = h("button", "cc-row tl-row", h("span", `ddot${t.state === "running" && m.online ? "" : " off"}`),
+      h("span", "t", h("b", "", t.name), h("span", "", terminalWhere(t))), h("span", "r", terminalNote(t, ago)));
+    row.type = "button";
+    row.title = `${t.machine_name}: ${t.command} in ${t.cwd}`;
+    row.addEventListener("click", () => openTerminals({ id: t.id }));
+    return row;
+  });
+  return h("div", "cc-panel tl-mp", head, ...rows);
+}
+
+/// Home's Terminals: a panel per machine that is online or has terminals.
+function terminalsSection(list: TerminalRow[]) {
+  const groups = byMachine(termMachines(), list).filter(m => m.online || m.terms.length);
+  const all = button("All terminals", "quiet small", () => openTerminals(null));
+  return section("sec-terminals", "Terminals", list.length ? terminalsCount(groups) : "", all,
+    h("div", "cc-cols tl-home", ...groups.map(terminalsPanel)));
+}
+
+/// The Terminals page into its view, keeping the list's scroll.
+function drawTerminals() {
+  const el = views.get("terminals")?.el;
+  if (!el) return;
+  const view = h("div", "cc-view tl-view", ...allTerms.machinesPanel(termMachines()));
+  const old = el.querySelector(":scope > .cc-view");
+  const top = old?.querySelector(".tl-list")?.scrollTop ?? 0;
+  if (old) old.replaceWith(view); else el.append(view);
+  const list = view.querySelector(".tl-list");
+  if (list) list.scrollTop = top;
 }
 
 // ---------- Needs you ----------
@@ -795,6 +859,9 @@ function drawSide() {
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
+  // Terminals on every machine, once the server lists them.
+  const termList = allTerms.list(ALL);
+  if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
@@ -1379,8 +1446,9 @@ function page(home: HomeView, wide: boolean) {
     coming: () => comingSection(coming!),
     projects: () => projectsSection(projectRows() || []),
     git: () => gitSection(state.git!),
+    terminals: () => terminalsSection(allTerms.list(ALL) || []),
   };
-  const laid = { ...home, git: state.git };
+  const laid = { ...home, git: state.git, terminals: allTerms.list(ALL) };
   const cols = wide && homeColumns(laid);
   if (cols) {
     const col = (keys: HomeSection[]) => h("div", "", ...keys.map(k => make[k]()));
@@ -1487,6 +1555,24 @@ registerView("home", {
   el: $("#home-box"),
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
   mount() { refresh(); refreshGit(); },
+});
+
+registerView("terminals", {
+  title() {
+    const list = allTerms.list(ALL);
+    const sub = list ? terminalsCount(byMachine(termMachines(), list)) : "";
+    const add = button("New terminal", "pri small", () => allTerms.newOn(termMachines().find(m => m.online)?.id || null));
+    return { title: "Terminals", sub, tools: list === null ? [] : [add] };
+  },
+  mount() {
+    drawTerminals();
+    allTerms.load(ALL);
+    refresh();
+  },
+  unmount() {
+    // Detached, not stopped: they keep running on their machines.
+    allTerms.stop();
+  },
 });
 
 // ---------- Projects ----------
@@ -2688,6 +2774,9 @@ async function refresh() {
     loading = false;
   }
   draw();
+  // Every terminal's state refreshes with Home, while Home or the
+  // Terminals page shows, or before the first list for the sidebar.
+  if (state.home?.machines && (shown === "home" || shown === "terminals" || allTerms.list(ALL) === undefined)) allTerms.load(ALL);
   // A project's agent refreshes with Home: on focus, on notices and every
   // 10 seconds while the window shows.
   if (shown === "projects") {
