@@ -3,7 +3,7 @@
 //! on the session. The node checks every path stays inside the folder;
 //! the server passes the parts through and keeps nothing.
 
-use super::{Reply, agent_control::live_host};
+use super::{Reply, agent_control::live_host_back};
 use crate::{
     nodes::{NodeFile, NodeWork, WorkRead, WorkWrite},
     protocol::{
@@ -26,7 +26,7 @@ fn refused(machine: &str, message: &str) -> ApiError {
 }
 
 pub(super) async fn list_work_folder(cx: Cx, list: ListWorkFolder) -> Reply<WorkFolder> {
-    let live = live_host(&cx, &list.machine_id).await?;
+    let live = live_host_back(&cx, &list.machine_id).await?;
     let machine = &live.host.machine_name;
     match live
         .online
@@ -40,7 +40,7 @@ pub(super) async fn list_work_folder(cx: Cx, list: ListWorkFolder) -> Reply<Work
 }
 
 pub(super) async fn read_work_file(cx: Cx, read: ReadWorkFile) -> Reply<AgentFileChunk> {
-    let live = live_host(&cx, &read.machine_id).await?;
+    let live = live_host_back(&cx, &read.machine_id).await?;
     let machine = &live.host.machine_name;
     let len = read
         .len
@@ -73,7 +73,7 @@ pub(super) async fn write_work_file(cx: Cx, write: WriteWorkFile) -> Reply<Strin
     if write.data.len() > AGENT_FILE_CHUNK {
         return Err(ApiError::bad_request("A part of the file is too large."));
     }
-    let live = live_host(&cx, &write.machine_id).await?;
+    let live = live_host_back(&cx, &write.machine_id).await?;
     let machine = &live.host.machine_name;
     let part = WorkWrite {
         root: write.root,

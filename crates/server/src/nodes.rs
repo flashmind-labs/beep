@@ -33,9 +33,13 @@ use std::{
     collections::HashMap,
     fmt,
     sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
-use tokio::{sync::Notify, task::JoinSet, time::timeout};
+use tokio::{
+    sync::Notify,
+    task::JoinSet,
+    time::{Instant, timeout, timeout_at},
+};
 use tokio_util::task::AbortOnDropHandle;
 
 mod agent;
@@ -124,7 +128,21 @@ pub struct Nodes {
     pub deliveries: Deliveries,
     /// What project sync keeps between pushes.
     pub sync: SyncState,
+    /// When each node that is offline now last dropped its connection.
+    left: Mutex<HashMap<EndpointId, Instant>>,
+    /// Woken when a node connects or drops, for calls waiting on one.
+    changed: Notify,
 }
+
+/// How long after a node drops a call still waits for it to come back:
+/// long enough for a restart, such as after `beep-node update`.
+const LEFT_LATELY: Duration = Duration::from_secs(60);
+/// How long a call waits in all for a node to come back.
+pub(crate) const RECONNECT_WAIT: Duration = Duration::from_secs(20);
+/// The first and longest pause between looks at a node coming back, on top
+/// of the wake-up a new connection gives.
+const FIRST_LOOK: Duration = Duration::from_millis(250);
+const LAST_LOOK: Duration = Duration::from_secs(4);
 
 impl Nodes {
     fn lock(&self) -> MutexGuard<'_, HashMap<EndpointId, Online>> {
@@ -200,8 +218,74 @@ impl Nodes {
 
     fn insert(&self, node: EndpointId, online: Online) {
         // A node that reconnects replaces its old connection.
-        if let Some(old) = self.lock().insert(node, online) {
+        let old = self.lock().insert(node, online);
+        if let Some(old) = old {
             old.connection.close(VarInt::from_u32(0), b"replaced");
+        }
+        self.left().remove(&node);
+        self.changed.notify_waiters();
+    }
+
+    fn left(&self) -> MutexGuard<'_, HashMap<EndpointId, Instant>> {
+        self.left.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `node` is offline now but dropped its connection within
+    /// `LEFT_LATELY`, as a node that restarts does.
+    fn left_lately(&self, node: &EndpointId) -> bool {
+        self.left()
+            .get(node)
+            .is_some_and(|at| at.elapsed() < LEFT_LATELY)
+    }
+
+    /// The node `node` (its key as the store keeps it) once it is back
+    /// online, when it dropped its connection lately; waits up to
+    /// `RECONNECT_WAIT`. `None` for a node that has been offline for a
+    /// while, or did not come back in time.
+    pub(crate) async fn back_online(&self, node: &str) -> Option<Online> {
+        let id: EndpointId = node.parse().ok()?;
+        if let Some(online) = self.online(node) {
+            return Some(online);
+        }
+        if !self.left_lately(&id) {
+            return None;
+        }
+        self.reconnected(&id, None, Instant::now() + RECONNECT_WAIT)
+            .await
+    }
+
+    /// `node`'s open connection other than `than` (a `stable_id`), waiting
+    /// for one until `until`. Woken when a node connects or drops, and
+    /// looks again after a pause that grows from `FIRST_LOOK` to
+    /// `LAST_LOOK`, since a connection can close without either.
+    pub(crate) async fn reconnected(
+        &self,
+        node: &EndpointId,
+        than: Option<usize>,
+        until: Instant,
+    ) -> Option<Online> {
+        let mut pause = FIRST_LOOK;
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            // Registered before the look, so a connection that comes in
+            // between still wakes it.
+            changed.as_mut().enable();
+            let current = self.lock().get(node).cloned();
+            if let Some(online) = current.filter(|online| {
+                online.connection.close_reason().is_none()
+                    && than != Some(online.connection.stable_id())
+            }) {
+                return Some(online);
+            }
+            let now = Instant::now();
+            if now >= until {
+                return None;
+            }
+            let look = until.min(now + pause);
+            // Either wake-up leads to another look.
+            let _ = timeout_at(look, changed).await;
+            pause = (pause * 2).min(LAST_LOOK);
         }
     }
 
@@ -209,22 +293,30 @@ impl Nodes {
     /// `CLOSE_REVOKED`) or its account merged into another and it must sign
     /// in again (`0`).
     pub fn forget(&self, node: &EndpointId, reason: u32) {
-        if let Some(online) = self.lock().remove(node) {
+        let removed = self.lock().remove(node);
+        if let Some(online) = removed {
             online
                 .connection
                 .close(VarInt::from_u32(reason), b"signed out");
         }
+        self.changed.notify_waiters();
     }
 
     /// Forgets `node` if `connection` is still the one it holds.
     fn remove(&self, node: &EndpointId, connection: &Connection) {
-        let mut nodes = self.lock();
-        if nodes
-            .get(node)
-            .is_some_and(|online| online.connection.stable_id() == connection.stable_id())
-        {
-            nodes.remove(node);
+        let removed = {
+            let mut nodes = self.lock();
+            let current = nodes
+                .get(node)
+                .is_some_and(|online| online.connection.stable_id() == connection.stable_id());
+            current && nodes.remove(node).is_some()
+        };
+        if removed {
+            let mut left = self.left();
+            left.retain(|_, at| at.elapsed() < LEFT_LATELY);
+            left.insert(*node, Instant::now());
         }
+        self.changed.notify_waiters();
     }
 }
 
