@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     api::work::pending_approvals,
     projects::{
-        model::{IssueHost, MachinePath, WorkerAgent, WorkerState},
+        model::{MachinePath, WorkerAgent, WorkerState},
         testing::machine_id,
     },
     store::{CreateRun, FinishedTurn, NewTask, NewWorker, RunStatus, Step, StepBody, TurnRecord},
@@ -118,14 +118,6 @@ async fn other_users_cannot_list_track_or_dismiss_issues() {
         track_issue(&h.app, &h.bob, project, 12, None).await
     ));
     assert!(is_not_found(dismiss_issue(&h.bob, project, 12).await));
-    let github = IssueHost::Github;
-    assert!(
-        h.alice
-            .dismissed_issues(project, &github)
-            .await
-            .unwrap()
-            .is_empty()
-    );
     assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
     // Alice's own project without a host lists nothing.
     assert!(

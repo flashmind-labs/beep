@@ -226,15 +226,13 @@ async fn track_issue(
     Ok(task_view(task))
 }
 
-/// Hides the issue `number` from the project's list.
+/// Older apps' Not now. Hides nothing: the issue list follows the host.
 async fn dismiss_issue(user: &User, id: ProjectId, number: u64) -> Reply<()> {
     let project = project_of(user, id).await?;
     if i64::try_from(number).is_err() {
         return Err(ApiError::bad_request("No issue has that number."));
     }
-    issues::dismiss(user, &project, number)
-        .await
-        .map_err(issue_refusal)
+    issues::dismiss(user, &project).await.map_err(issue_refusal)
 }
 
 /// The agent of the project `name`, made with its chat on the first ask.

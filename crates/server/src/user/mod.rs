@@ -1904,23 +1904,6 @@ impl User {
             .await
     }
 
-    pub(crate) async fn dismiss_issue(
-        &self,
-        project: ProjectId,
-        host: &IssueHost,
-        number: u64,
-    ) -> Result<()> {
-        self.store.dismiss_issue(project, host, number).await
-    }
-
-    pub(crate) async fn dismissed_issues(
-        &self,
-        project: ProjectId,
-        host: &IssueHost,
-    ) -> Result<Vec<u64>> {
-        self.store.dismissed_issues(project, host).await
-    }
-
     pub(crate) async fn note_issue_comment(&self, task: TaskId, once: bool) -> Result<bool> {
         self.store.note_issue_comment(task, once).await
     }

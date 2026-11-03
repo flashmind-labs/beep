@@ -879,45 +879,6 @@ impl Store {
         end(tx, keep, done).await
     }
 
-    /// Hides the open issue `number` on `host` from the project's issue list.
-    pub(crate) async fn dismiss_issue(
-        &self,
-        project: ProjectId,
-        host: &IssueHost,
-        number: u64,
-    ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO project_dismissed_issues (project_id, host, number) VALUES ($1, $2, $3)
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(project.0)
-        .bind(host.stored())
-        .bind(i64::try_from(number)?)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// The issue numbers on `host` the user dismissed in the project.
-    pub(crate) async fn dismissed_issues(
-        &self,
-        project: ProjectId,
-        host: &IssueHost,
-    ) -> Result<Vec<u64>> {
-        let numbers: Vec<i64> = sqlx::query_scalar(
-            "SELECT number FROM project_dismissed_issues WHERE project_id=$1 AND host=$2
-             ORDER BY number",
-        )
-        .bind(project.0)
-        .bind(host.stored())
-        .fetch_all(&self.pool)
-        .await?;
-        numbers
-            .into_iter()
-            .map(|number| Ok(u64::try_from(number)?))
-            .collect()
-    }
-
     /// Notes that Beep commented on the task's issue. With `once`, only
     /// when it had not yet; says whether it noted it.
     pub(crate) async fn note_issue_comment(&self, id: TaskId, once: bool) -> Result<bool> {

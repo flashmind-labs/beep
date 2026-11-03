@@ -2,7 +2,7 @@
 // board's Issues tile and the Pull requests tile's rows, and the project
 // page's Pull requests and Issues sections: every open PR with Let the
 // agent reply, Continue and Review; every open issue, an untracked one with
-// Work on it, Plan, Discuss and Not now, a tracked one with its task; a
+// Work on it, Plan and Discuss, a tracked one with its task; a
 // thread of the user's gets Let the agent reply when someone wrote after
 // them, and Discuss. center.ts draws the page; this file keeps the state.
 import type { invoke as Invoke } from "./tauri.ts";
@@ -446,13 +446,6 @@ export function makeThreads(deps: ThreadDeps) {
     });
   }
 
-  function dismiss(agent: Agent, number: number) {
-    return act(agent.project_id, `i${number}`, async () => {
-      await invoke("center_dismiss_issue", { projectId: agent.project_id, number });
-      const s = of(agent.project_id);
-      s.issues = (s.issues || []).filter(i => i.number !== number);
-    });
-  }
 
   function link(text: string, url: string) {
     const a = h("a", "", text);
@@ -541,7 +534,7 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// The Issues section: every open issue, one no task tracks with Work on
-  /// it, Plan, Discuss and Not now, a task's with its task.
+  /// it, Plan and Discuss, a task's with its task.
   function issuesSection(agent: Agent, ctx: RepoActs) {
     const s = of(agent.project_id);
     if (s.issues === undefined) load(agent.project_id);
@@ -567,7 +560,6 @@ export function makeThreads(deps: ThreadDeps) {
         button("Work on it", "pri", () => ctx.workOn(i)),
         button("Plan", "", () => track(agent, n)),
         button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)),
-        button("Not now", "", () => dismiss(agent, n)),
       ];
       for (const b of buttons) b.disabled = busy;
       buttons[0].title = "Start a coding agent on a new branch for this issue";
@@ -577,7 +569,7 @@ export function makeThreads(deps: ThreadDeps) {
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
     body.push(rowsPanel(agent, "issues", lines, draw));
     return section(agent, "sec-issues", title, issueCount(lines), body,
-      h("small", "dmuted", "Not now hides an issue here; it stays open on the host. Issue text is the author's, and the agent treats it as data."));
+      h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
   }
 
   /// The user's pull requests and issues, with replies and chats.

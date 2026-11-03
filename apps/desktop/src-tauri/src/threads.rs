@@ -8,7 +8,7 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    DismissProjectIssue, GetProjectThread, GetPullRequestHead, GitItemKind, IssueStart,
+    GetProjectThread, GetPullRequestHead, GitItemKind, IssueStart,
     ListProjectIssues, ListProjectPullRequests, ListProjectThreads, ListThreadChats,
     OpenThreadChat, ProjectIssue, ProjectPullRequest, ProjectThread, PullRequestHead,
     ReplyToThread, ThreadChat, ThreadPost, ThreadView, TrackProjectIssue,
@@ -229,13 +229,6 @@ pub async fn center_track_issue(
         .await
         .map_err(outdated)?;
     Ok(task.id)
-}
-
-#[tauri::command]
-pub async fn center_dismiss_issue(beep: Service<'_>, project_id: Uuid, number: u64) -> Result<()> {
-    beep.call(DismissProjectIssue { project_id, number })
-        .await
-        .map_err(outdated)
 }
 
 /// The user's open pull requests and issues in the project; `None` from a

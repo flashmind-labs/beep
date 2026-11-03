@@ -294,10 +294,15 @@ mod tests {
             )
             .await
             .expect("a checkout");
-        store
-            .dismiss_issue(project, &IssueHost::Github, 3)
-            .await
-            .expect("dismissed");
+        // Rows older apps' Not now left behind.
+        sqlx::query(
+            "INSERT INTO project_dismissed_issues (project_id, host, number) VALUES ($1, $2, 3)",
+        )
+        .bind(project.0)
+        .bind(IssueHost::Github.stored())
+        .execute(&store.pool)
+        .await
+        .expect("dismissed");
         let task = store
             .create_tasks(
                 project,
