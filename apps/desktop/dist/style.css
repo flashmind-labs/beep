@@ -750,3 +750,4 @@ button.dachip:hover { border-color: #3A4A41 }
 /* Harness badges show each agent's own logo; OpenCode keeps letters. */
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }
+.agc-menuopen > .dhints { visibility: hidden }

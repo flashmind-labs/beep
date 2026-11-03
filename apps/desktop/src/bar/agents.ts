@@ -106,7 +106,7 @@ interface OpenAgent {
 /// The start form.
 export interface AgentForm {
   prompt: string;
-  /// A machine id, or "auto".
+  /// A machine id, or "" until one is picked.
   machine: string;
   agent: string | null;
   cwd: string;
@@ -184,7 +184,7 @@ interface AgentState {
 export const AG: AgentState = {
   readError: "",
   hosts: null, sessions: [], error: "", busy: false,
-  form: { prompt: "", machine: "auto", agent: null, cwd: "", chat: null },
+  form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
