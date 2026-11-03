@@ -18,23 +18,23 @@ use beep_server::{
     nodes::{self, Follower, Online, StartOn},
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
-        AgentModels, AgentNoticeKey, AgentStatus, AgentSteer, AgentTokens, ApiError,
-        CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind,
-        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
-        GetUsageReport, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
-        ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
-        ListMachines, ListMemoryScopes, ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
-        WorkEntry, WorkFolder, WriteWorkFile, image_key,
+        AgentModels, AgentNoticeKey, AgentSteer, AgentTokens, ApiError, CreateNodeToken,
+        CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind, GetAgentFile, GetAgentImage,
+        GetAgentSession, GetNodeToken, GetSpendReport, GetUsage, GetUsageReport, GitChange,
+        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
+        ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource,
+        PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken,
+        SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload, WorkEntry, WorkFolder,
+        WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
             agent::{
                 Alert, AlertKind, AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event,
-                ExternalSession, ModelList, ModelOption, ModelPick, OptionKind, Presence, Question,
-                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
-                Status, StopReason,
+                ExternalSession, ModelList, ModelOption, ModelPick, OptionKind, Question, Request,
+                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
+                StopReason,
             },
             usage::{
                 Billing, HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage,
@@ -1481,19 +1481,6 @@ fn beep_session(id: &str, question: Option<u32>) -> SessionInfo {
     }
 }
 
-fn external_session(id: &str, presence: Presence) -> ExternalSession {
-    ExternalSession {
-        id: id.into(),
-        agent: "claude".into(),
-        cwd: "/srv/project".into(),
-        title: Some("Write the docs".into()),
-        started_at: 1_760_000_100,
-        last_activity: 1_760_000_200,
-        presence,
-        ..ExternalSession::default()
-    }
-}
-
 /// A server that takes nodes and phones, with `users` users.
 struct CommandCenter {
     _db: TestDb,
@@ -1609,31 +1596,6 @@ async fn agent_sessions_survive_no_external() {
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     assert_eq!(sessions[0].id, "a3f9c1");
     assert!(!sessions[0].external);
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn agent_sessions_drop_stopped_external() {
-    let mut center = CommandCenter::new(1).await;
-    center
-        .node(
-            0,
-            "mac-box",
-            FakeAgents {
-                external: Some(vec![
-                    external_session("stopped", Presence::Stopped),
-                    external_session("recent", Presence::Recent),
-                    external_session("waiting", Presence::Waiting),
-                ]),
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(sessions[0].id, "waiting");
-    assert_eq!(sessions[0].status, AgentStatus::Waiting {});
     center.shutdown().await;
 }
 

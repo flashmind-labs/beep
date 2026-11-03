@@ -50,9 +50,61 @@ export function folded(t: Turn, running: boolean, opened: boolean) {
   return !running && !opened && t.steps.length > 0;
 }
 
-export type ToolKind = "command" | "edit" | "read" | "search" | "web" | "other";
+export type ToolKind = "command" | "edit" | "read" | "search" | "web" | "beep" | "other";
+
+/// A call to the session's own Beep tools, read from the title the node
+/// words it in (`Beep: Run on build-box: cargo test`): what it did, done
+/// and while it runs, the machine, the command, prompt, project, job or
+/// question, and how many files it sends. Fields it has none of are "".
+export interface BeepCall {
+  done: string;
+  doing: string;
+  machine: string;
+  detail: string;
+  files: string;
+}
+
+const BEEP_PREFIX = "Beep: ";
+
+/// The Beep call a tool title names, or null for any other tool.
+export function beepCall(title: string): BeepCall | null {
+  const t = title.trim();
+  if (!t.startsWith(BEEP_PREFIX)) return null;
+  const rest = t.slice(BEEP_PREFIX.length);
+  const call = (done: string, doing: string, o: Partial<BeepCall> = {}): BeepCall => {
+    const machine = o.machine === "a machine" ? "" : o.machine ?? "";
+    return { done, doing, machine, detail: o.detail ?? "", files: o.files ?? "" };
+  };
+  let m: RegExpExecArray | null;
+  if (rest === "List machines") return call("Listed machines", "Listing machines");
+  if ((m = /^Run on (.+?)(?:: ([\s\S]*))?$/.exec(rest))) return call("Ran on", "Running on", { machine: m[1], detail: m[2] });
+  if ((m = /^Start (\S+|an agent) on (.+?)(?:: ([\s\S]*))?$/.exec(rest))) return call(`Started ${m[1]} on`, `Starting ${m[1]} on`, { machine: m[2], detail: m[3] });
+  if ((m = /^Sync (.+?)(?: to (.+))?$/.exec(rest))) return call("Synced", "Syncing", { detail: m[1], machine: m[2] });
+  if ((m = /^Send (\d+) (files?) to (.+)$/.exec(rest))) return call("Sent files to", "Sending files to", { machine: m[3], files: `${m[1]} ${m[2]}` });
+  if ((m = /^Check job ?(.*)$/.exec(rest))) return call("Checked job", "Checking job", { detail: m[1] });
+  if ((m = /^Cancel job ?(.*)$/.exec(rest))) return call("Cancelled job", "Cancelling job", { detail: m[1] });
+  if ((m = /^Ask(?:: ([\s\S]*))?$/.exec(rest))) return call("Asked you", "Asking you", { detail: m[1] });
+  return call(rest, rest);
+}
+
+const BEEP_VERBS: Record<string, [string, string]> = {
+  List: ["Listed", "Listing"], Run: ["Ran", "Running"], Start: ["Started", "Starting"], Sync: ["Synced", "Syncing"],
+  Send: ["Sent", "Sending"], Check: ["Checked", "Checking"], Cancel: ["Cancelled", "Cancelling"], Ask: ["Asked", "Asking"],
+};
+
+/// A Beep call's title as one line in the past tense, or while it runs in
+/// the present: "Ran on build-box: cargo test". Null for any other tool.
+export function beepLine(title: string, running = false) {
+  const t = title.trim();
+  if (!t.startsWith(BEEP_PREFIX)) return null;
+  const rest = t.slice(BEEP_PREFIX.length);
+  const first = /^[A-Za-z]+/.exec(rest)?.[0] ?? "";
+  const verb = BEEP_VERBS[first];
+  return verb ? verb[running ? 1 : 0] + rest.slice(first.length) : rest;
+}
 
 const NAMED: Record<string, ToolKind> = {
+  beep: "beep",
   bash: "command", shell: "command", exec: "command", run: "command", terminal: "command", execute: "command",
   edit: "edit", multiedit: "edit", write: "edit", notebookedit: "edit", delete: "edit", move: "edit", create: "edit", patch: "edit",
   read: "read", view: "read", cat: "read", open: "read",
@@ -95,6 +147,7 @@ export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.step
     { kind: "read", text: files("read") && `read ${plural(files("read"), "file", "files")}` },
     { kind: "search", text: of("search").length && `searched ${of("search").length === 1 ? "once" : `${of("search").length} times`}` },
     { kind: "web", text: of("web").length && `made ${plural(of("web").length, "web request", "web requests")}` },
+    { kind: "beep", text: of("beep").length && `used Beep ${of("beep").length === 1 ? "once" : `${of("beep").length} times`}` },
     { kind: "other", text: of("other").length && `used ${plural(of("other").length, "other tool", "other tools")}` },
   ];
   const named = kinds.filter(k => k.text).slice(0, 2);
@@ -112,6 +165,11 @@ export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.step
 /// first and "…", unless `whole` asks for all of it.
 export function stepLabel(text: string, running = false, whole = false) {
   const { title } = parseTool(text);
+  const beep = beepLine(title, running);
+  if (beep != null) {
+    const lines = beep.split("\n");
+    return whole || lines.length === 1 ? beep : `${lines[0]} …`;
+  }
   const lines = title.trim().split("\n");
   const line = whole ? title.trim() : lines.length > 1 ? `${lines[0]} …` : lines[0];
   const named = /^([A-Za-z]+): ([\s\S]*)$/.exec(line);

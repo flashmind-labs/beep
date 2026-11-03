@@ -5,7 +5,10 @@
 //! are kept.
 
 use super::subagents;
-use crate::agents::{Picture, block_picture, cut};
+use crate::{
+    agents::{Picture, block_picture, cut},
+    mcp::calls::Tool as BeepTool,
+};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 use std::{
@@ -384,6 +387,9 @@ fn artifact_link(text: &str) -> Option<&str> {
 pub(super) fn tool_line(block: &Value) -> String {
     let name = block["name"].as_str().unwrap_or("tool");
     let input = &block["input"];
+    if let Some(tool) = BeepTool::of_name(name) {
+        return cut(&tool.title(Some(input)), MAX_TOOL);
+    }
     let detail = [
         "command",
         "file_path",
@@ -537,6 +543,13 @@ pub(super) mod tests {
 
     /// A fabricated transcript in Claude Code's format.
     pub(crate) const FIXTURE: &str = include_str!("fixtures/session.jsonl");
+
+    #[test]
+    fn a_beep_call_reads_in_words() {
+        let block = serde_json::json!({"type": "tool_use", "name": "mcp__beep__send_files",
+            "input": {"machine": "build-box", "paths": ["a.png", "b.png"]}});
+        assert_eq!(tool_line(&block), "Beep: Send 2 files to build-box");
+    }
 
     #[test]
     fn a_transcript_reads_as_prompts_text_and_tool_lines() {

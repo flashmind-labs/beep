@@ -206,10 +206,10 @@ fn host_of_url(url: &str) -> Option<IssueHost> {
 
 /// Where a project's issues host was found, and the machines that can
 /// reach it.
-struct HostAndMachines {
-    host: IssueHost,
+pub(crate) struct HostAndMachines {
+    pub(crate) host: IssueHost,
     /// The home checkout's machine, else the machines it was imported on.
-    machines: Vec<EndpointId>,
+    pub(crate) machines: Vec<EndpointId>,
     /// Whether the machines are the home checkout's.
     home: bool,
 }
@@ -217,7 +217,7 @@ struct HostAndMachines {
 /// A project set up with a home checkout uses its issues role and that
 /// checkout's machine; one only imported uses the host of its web page and
 /// the machines it is on. `None` when it has no GitHub or Forgejo host.
-async fn host_and_machines(
+pub(crate) async fn host_and_machines(
     user: &User,
     project: &ProjectRow,
 ) -> Result<Option<HostAndMachines>, IssueError> {
