@@ -43,6 +43,7 @@ mod pasted_image;
 mod presence;
 mod products;
 mod project_groups;
+mod project_live;
 mod projects;
 mod research;
 mod reviews;
@@ -327,6 +328,8 @@ fn main() {
             runs::center_project_lists,
             runs::center_project_runs,
             runs::center_project_run,
+            project_live::follow_project,
+            project_live::unfollow_project,
             reviews::project_branches,
             branches::preview_import,
             branches::find_import_fork,
@@ -496,6 +499,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
     app.manage(Recent::default());
+    app.manage(project_live::Followed::default());
     app.manage(research::Pending::default());
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());

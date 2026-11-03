@@ -380,6 +380,8 @@ export interface ThreadDeps {
   changed: () => unknown;
   /// Where the lists are kept between windows; in memory only without it.
   kept?: SectionStore<KeptThreads>;
+  /// The chip saying whether the project is live or polling.
+  mode?: (id: string) => HTMLElement | null;
 }
 
 /// A project's lists as the page cache keeps them.
@@ -559,7 +561,7 @@ export function makeThreads(deps: ThreadDeps) {
   function section(agent: Agent, id: string, title: string, count: string, body: HTMLElement[], note?: HTMLElement) {
     const box = h("div");
     box.id = id;
-    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
+    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), deps.mode?.(agent.project_id) ?? null, button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
     if (note) box.append(note);
     return box;
   }

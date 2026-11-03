@@ -694,6 +694,8 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .us-pop h5.us-sub { margin-top: 8px }
 /* When the server last read a section's list; the Actions section across the page under PRs and Issues. */
 .cc-sec small.sw-age { color: var(--dim); margin-left: auto }
+.cc-sec small.sw-mode { font-size: 11px; font-weight: 500; white-space: nowrap; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; cursor: default }
+.cc-sec small.sw-mode.live { color: var(--emerald); border-color: rgba(59,155,122,.45) }
 .pj-actions { margin-top: 14px }
 .pj-chk { color: var(--muted) }
 .pj-chk.run { color: var(--emerald); display: inline-flex; gap: 5px; align-items: center }
