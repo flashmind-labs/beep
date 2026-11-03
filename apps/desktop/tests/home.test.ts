@@ -35,23 +35,23 @@ test("the OS line prefers the version", () => {
 
 test("a running agent shows its title, then agent, repo and machine", () => {
   const r = { kind: "agent" as const, agent: "claude", title: "Fix the build", cwd: "/srv/project/widget-fix/src", machine_id: "m1", machine_name: "build-box" };
-  assert.deepEqual(runningLine(r), { title: "Fix the build", sub: "Claude Code · src · build-box" });
+  assert.deepEqual(runningLine(r), { title: "Fix the build", sub: "src · build-box" });
   const projects = [
     { name: "org/widget", machine_id: "m1", folder: "/srv/project/widget-fix" },
     { name: "org/other", machine_id: "m2", folder: "/srv/project/widget-fix/src" },
   ];
-  assert.deepEqual(runningLine(r, projects), { title: "Fix the build", sub: "Claude Code · widget · build-box" });
-  assert.deepEqual(runningLine({ ...r, title: null, cwd: "" }), { title: "Claude Code", sub: "Claude Code · build-box" });
+  assert.deepEqual(runningLine(r, projects), { title: "Fix the build", sub: "widget · build-box" });
+  assert.deepEqual(runningLine({ ...r, title: null, cwd: "" }), { title: "Claude Code", sub: "build-box" });
 });
 
 test("a running agent names its repo by the remote's full path, groups and all", () => {
   const r = { kind: "agent" as const, agent: "claude", title: "Fix it", cwd: "/srv/project/wallet/.worktrees/fix", machine_id: "m1", machine_name: "build-box" };
   const at = (url: string) => [{ name: "tech/wallet", url, machine_id: "m1", folder: "/srv/project/wallet" }];
-  assert.equal(runningLine(r, at("https://gitlab.example/acme/tech/wallet.git")).sub, "Claude Code · acme/tech/wallet · build-box");
-  assert.equal(runningLine(r, at("git@gitlab.example:acme/tech/wallet.git")).sub, "Claude Code · acme/tech/wallet · build-box");
-  assert.equal(runningLine(r, at("https://github.com/acme/wallet")).sub, "Claude Code · acme/wallet · build-box");
+  assert.equal(runningLine(r, at("https://gitlab.example/acme/tech/wallet.git")).sub, "acme/tech/wallet · build-box");
+  assert.equal(runningLine(r, at("git@gitlab.example:acme/tech/wallet.git")).sub, "acme/tech/wallet · build-box");
+  assert.equal(runningLine(r, at("https://github.com/acme/wallet")).sub, "acme/wallet · build-box");
   // No remote: the short name.
-  assert.equal(runningLine(r, at("")).sub, "Claude Code · wallet · build-box");
+  assert.equal(runningLine(r, at("")).sub, "wallet · build-box");
 });
 
 test("a remote's path drops the host, the port and .git", () => {
