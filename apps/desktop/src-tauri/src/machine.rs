@@ -6,12 +6,13 @@
 use crate::{beep::Beep, desktop, state::LinkState};
 use beep_node::{
     link::{self, Offers},
+    mcp,
     provision::Provision,
 };
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -74,19 +75,30 @@ pub struct Machine {
     link: Arc<Mutex<Link>>,
     /// The computer name, read once.
     name: String,
-    /// gh, teacli and the skills, in the node's own folder, and the
-    /// credentials the server sends while the link is up.
+    home: Arc<NodeHome>,
+}
+
+/// The node's own folder and what it keeps there.
+struct NodeHome {
+    /// Holds the Beep MCP server's socket, `mcp.sock`.
+    dir: PathBuf,
+    /// gh, teacli and the skills, and the credentials the server sends
+    /// while the link is up.
     provision: Arc<Provision>,
 }
 
 impl Machine {
-    /// The machine whose node keeps its tools and teacli config in `dir`.
+    /// The machine whose node keeps its tools, teacli config and sockets
+    /// in `dir`.
     pub fn new(dir: &Path) -> Self {
         Self {
             task: Mutex::default(),
             link: Arc::default(),
             name: crate::computer_name(),
-            provision: Provision::new(dir),
+            home: Arc::new(NodeHome {
+                dir: dir.to_path_buf(),
+                provision: Provision::new(dir),
+            }),
         }
     }
 
@@ -118,14 +130,14 @@ impl Machine {
             *task = Some(async_runtime::spawn(stay_linked(
                 beep.clone(),
                 self.link.clone(),
-                self.provision.clone(),
+                self.home.clone(),
                 self.name.clone(),
             )));
         } else if !wanted {
             if let Some(task) = task.take() {
                 task.abort();
                 // Off: the Mac keeps no token for the agents.
-                let provision = self.provision.clone();
+                let provision = self.home.provision.clone();
                 async_runtime::spawn(async move { provision.forget().await });
             }
             let now = if beep.use_mac() {
@@ -155,20 +167,22 @@ fn lock(link: &Mutex<Link>) -> MutexGuard<'_, Link> {
 }
 
 /// Keeps the node link up, waiting longer after each failure, until aborted.
-async fn stay_linked(
-    beep: Arc<Beep>,
-    shared: Arc<Mutex<Link>>,
-    provision: Arc<Provision>,
-    name: String,
-) {
+async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHome>, name: String) {
     let set = |now: Status| *lock(&shared) = Link::new(now);
     // Installs gh, teacli and the agent skills, and takes the credentials
     // the server sends; the work stops with this task.
-    let _provision = provision.start();
+    let _provision = home.provision.start();
     // The same as `beep-node` serves, with agents found on the login
     // shell's PATH (the app adopts it at start), plus desktop control.
-    let mut offers = Offers::local(&[], provision);
+    let mut offers = Offers::local(&[], home.provision.clone());
     offers.extra.push(Arc::new(desktop::Desktop));
+    // The agents' Beep MCP server: sessions run this app's executable as
+    // its command (`mcp_command`), which pipes to the socket in the node's
+    // folder. It stops with this task.
+    if let Err(e) = std::fs::create_dir_all(&home.dir) {
+        log::warn!("not serving the Beep MCP server: {e}");
+    }
+    let _mcp = mcp::start(&home.dir, &offers);
     let mut wait = FIRST_RETRY;
     loop {
         // A Mac removed from the account has nothing to sign in with.
