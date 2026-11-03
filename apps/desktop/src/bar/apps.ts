@@ -1,4 +1,4 @@
-import { $, $$, bar, esc, h, ICON, invoke, listen, S } from "./core.ts";
+import { bar, esc, h, ICON, invoke, listen, S } from "./core.ts";
 import { hints } from "./hints.ts";
 import { plural } from "../components/format.ts";
 
@@ -114,12 +114,55 @@ const listTop = (loaded: unknown) => A.error ? `<div class="derr" style="padding
 /// Stops waiting for a browser sign-in.
 const cancelSignIn = () => invoke("cancel_app_sign_in").catch(() => {});
 
+// ---------- Where Apps draws ----------
+
+/// A page Apps shows, as `S.view` names it.
+export type AppsView = "apps" | "appperms" | "mcp";
+
+/// The window's Settings sheet shows Apps in its right pane: `root` is the
+/// box Apps draws into instead of the page, `view` what it shows there,
+/// and `opened` tells Settings when Apps opens another page (an app or a
+/// server, by `id`) so its breadcrumb follows.
+interface AppsHost {
+  root: HTMLElement;
+  view: AppsView | null;
+  opened(view: AppsView, id: string | null): void;
+}
+let host: AppsHost | null = null;
+
+/// Draws Apps into `root` from now on, until `appsOut` or until `root`
+/// leaves the page. The page's own view (`S.view`) is left alone.
+export function appsIn(root: HTMLElement, opened: AppsHost["opened"]) {
+  host = { root, view: null, opened };
+}
+export function appsOut() {
+  host = null;
+}
+const hosted = () => (host?.root.isConnected ? host : null);
+const root = () => hosted()?.root ?? bar;
+const q = <T extends Element = HTMLElement>(sel: string) => root().querySelector<T>(sel);
+/// Whether Apps shows `view`, in Settings or on the page.
+const viewIs = (view: AppsView) => {
+  const at = hosted();
+  return at ? at.view === view : S.view === view;
+};
+function showView(view: AppsView, id: string | null) {
+  const at = hosted();
+  if (!at) return void (S.view = view);
+  at.view = view;
+  at.opened(view, id);
+}
+/// Settings has its own back link and Esc.
+const backHint = () => (hosted() ? "" : hints([["esc", "back"]]));
+
 export function renderApps() {
-  S.view = "apps";
+  showView("apps", null);
   A.open = null;
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>
-    <div class="dlist dapps" id="alist"></div>${hints([["esc", "back"]])}`;
-  $$("#alist").addEventListener("click", appsClick);
+  // In Settings the breadcrumb names the page.
+  const head = hosted() ? "" : `<div class="dhead"><span class="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>`;
+  root().innerHTML = `${head}
+    <div class="dlist dapps" id="alist"></div>${backHint()}`;
+  q("#alist")!.addEventListener("click", appsClick);
   drawApps();
   loadApps();
 }
@@ -140,7 +183,7 @@ export async function loadApps() {
   if (A.waiting && A.servers?.find(m => m.id === A.waiting)?.connected) A.waiting = null;
   // A Composio sign-in ends on the web page; the app shows up connected here.
   if (A.connecting && A.apps?.find(a => a.slug === A.connecting)?.connected) stopConnecting();
-  if (S.view === "apps") drawApps();
+  if (viewIs("apps")) drawApps();
 }
 
 export async function loadAccounts(app: App) {
@@ -165,7 +208,7 @@ function appRow(app: App) {
 }
 
 export function drawApps() {
-  const list = $("#alist");
+  const list = q("#alist");
   if (!list) return;
   const apps = A.apps ?? [];
   const connected = apps.filter(a => a.connected), more = apps.filter(a => !a.connected);
@@ -174,14 +217,14 @@ export function drawApps() {
   if (more.length) html += `<div class="dsec">${connected.length ? "More apps" : "Available"}</div>` + more.map(appRow).join("");
   if (A.servers) html += drawServers(A.servers);
   // Redrawing keeps what is typed in the add form.
-  const fields = ["#mname", "#murl"], typed = fields.map(id => $<HTMLInputElement>(id)?.value), focus = document.activeElement?.id;
+  const fields = ["#mname", "#murl"], typed = fields.map(id => q<HTMLInputElement>(id)?.value), focus = document.activeElement?.id;
   list.innerHTML = html;
   logoFallbacks(list);
   fields.forEach((id, i) => {
-    const input = $<HTMLInputElement>(id), value = typed[i];
+    const input = q<HTMLInputElement>(id), value = typed[i];
     if (value != null && input) input.value = value;
   });
-  if (focus) $("#" + focus)?.focus();
+  if (focus) q("#" + focus)?.focus();
 }
 
 export function hostOf(url: string) {
@@ -217,8 +260,8 @@ export function drawServers(servers: McpServer[]) {
 }
 
 export async function addServer() {
-  const name = $<HTMLInputElement>("#mname")?.value.trim(), url = $<HTMLInputElement>("#murl")?.value.trim();
-  if (!name || !url) return (name ? $("#murl") : $("#mname"))?.focus();
+  const name = q<HTMLInputElement>("#mname")?.value.trim(), url = q<HTMLInputElement>("#murl")?.value.trim();
+  if (!name || !url) return (name ? q("#murl") : q("#mname"))?.focus();
   A.busy = "new";
   A.addError = "";
   drawApps();
@@ -231,7 +274,7 @@ export async function addServer() {
   }
   A.busy = null;
   await loadApps();
-  if (A.adding) $("#murl")?.focus();
+  if (A.adding) q("#murl")?.focus();
 }
 
 export async function serverAction(kind: "connect" | "remove", id: string) {
@@ -256,14 +299,14 @@ export async function serverAction(kind: "connect" | "remove", id: string) {
 listen<string | null>("mcp-signed-in", e => {
   A.waiting = null;
   if (e.payload) A.error = `Sign-in did not finish: ${e.payload}`;
-  if (S.view === "apps") loadApps();
+  if (viewIs("apps")) loadApps();
 });
 
 export async function appsClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const d = target.closest<HTMLElement>("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove],[data-mopen]")?.dataset;
   if (d) {
-    if (d.mnew != null) { A.adding = true; A.addError = ""; drawApps(); return $("#mname")?.focus(); }
+    if (d.mnew != null) { A.adding = true; A.addError = ""; drawApps(); return q("#mname")?.focus(); }
     if (d.mclose != null) { A.adding = false; A.addError = ""; return drawApps(); }
     if (d.madd != null) return addServer();
     if (d.mcancel != null) { A.waiting = null; return drawApps(); }
@@ -304,7 +347,7 @@ export async function connectApp(app: App | undefined) {
   if (app.kind === "fastmail") return stopConnecting();
   const until = Date.now() + 10 * 60e3;
   A.poll = setInterval(() => {
-    if (Date.now() > until || S.view !== "apps") return stopConnecting();
+    if (Date.now() > until || !viewIs("apps")) return stopConnecting();
     loadApps();
   }, 3000);
 }
@@ -322,25 +365,25 @@ export function stopConnecting() {
 /// off, and Remove.
 export async function renderMcpServer(server: McpServer | undefined) {
   if (!server) return;
-  S.view = "mcp";
+  showView("mcp", server.id);
   Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
-  bar.innerHTML = `<div class="dhead">${letterLogo(server.name)}<span class="tt"><b>${esc(server.name)}</b><small class="dmono">${esc(server.url)}</small></span></div>
-    <div class="dlist dapps" id="tlist"></div>${hints([["esc", "back"]])}`;
-  $$("#tlist").addEventListener("click", mcpClick);
+  root().innerHTML = `<div class="dhead">${letterLogo(server.name)}<span class="tt"><b>${esc(server.name)}</b><small class="dmono">${esc(server.url)}</small></span></div>
+    <div class="dlist dapps" id="tlist"></div>${backHint()}`;
+  q("#tlist")!.addEventListener("click", mcpClick);
   drawMcpTools();
   try {
     A.tools = await invoke<McpTools>("list_mcp_tools", { id: server.id });
   } catch (e) {
     A.error = String(e);
   }
-  if (S.view === "mcp" && A.server === server) drawMcpTools();
+  if (viewIs("mcp") && A.server === server) drawMcpTools();
 }
 
 /// "search_pages" reads as "Search pages", as on the phone.
 export const mcpToolLabel = (name: string) => name.replace(/[_-]/g, " ").trim().replace(/^./, c => c.toUpperCase());
 
 export function drawMcpTools() {
-  const list = $("#tlist"), t = A.tools;
+  const list = q("#tlist"), t = A.tools;
   if (!list) return;
   let html = listTop(t);
   if (t) {
@@ -369,7 +412,7 @@ export async function setTool(name: string, enabled: boolean) {
   } catch (e) {
     A.error = String(e);
   }
-  if (S.view === "mcp" && A.server === server) drawMcpTools();
+  if (viewIs("mcp") && A.server === server) drawMcpTools();
 }
 
 export async function mcpClick(e: MouseEvent) {
@@ -398,17 +441,17 @@ export async function mcpClick(e: MouseEvent) {
 // ---------- An app's permissions ----------
 
 /// The view is still on `app`'s permissions.
-const permsOn = (app: App) => S.view === "appperms" && A.open === app;
+const permsOn = (app: App) => viewIs("appperms") && A.open === app;
 
 export async function renderAppPermissions(app: App | undefined) {
   if (!app) return;
-  S.view = "appperms";
+  showView("appperms", app.slug);
   A.open = app;
   A.perms = null;
-  bar.innerHTML = `<div class="dhead">${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>What Beep may do here</small></span></div>
-    <div class="dlist dapps" id="plist"></div>${hints([["esc", "back"]])}`;
-  logoFallbacks(bar);
-  $$("#plist").addEventListener("click", permsClick);
+  root().innerHTML = `<div class="dhead">${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>What Beep may do here</small></span></div>
+    <div class="dlist dapps" id="plist"></div>${backHint()}`;
+  logoFallbacks(root());
+  q("#plist")!.addEventListener("click", permsClick);
   A.removing = null;
   drawPerms();
   const accounts = app.kind === "fastmail" ? loadAccounts(app) : null;
@@ -469,7 +512,7 @@ export async function removeAccount(app: App, id: string) {
 }
 
 export function drawPerms() {
-  const list = $("#plist"), app = A.open, p = A.perms;
+  const list = q("#plist"), app = A.open, p = A.perms;
   if (!list || !app) return;
   const accounts = A.accounts[app.slug];
   let html = listTop(p);
@@ -537,5 +580,5 @@ export async function permsClick(e: MouseEvent) {
     A.perms = p;
     A.error = String(err);
   }
-  if (S.view === "appperms") drawPerms();
+  if (viewIs("appperms")) drawPerms();
 }

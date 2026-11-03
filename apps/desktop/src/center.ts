@@ -3086,7 +3086,8 @@ export function openSettings(section?: string) {
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
   const keys = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); closeSettings(); }
+    // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
+    if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
     else if (e.metaKey && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
     e.stopImmediatePropagation();
@@ -3095,20 +3096,56 @@ export function openSettings(section?: string) {
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
   sheet.focus();
-  pane.settings(sheet)
-    .then(() => { if (section) showSection(scrim, section); })
-    .catch(e => console.warn("settings:", e));
+  pane.settings(sheet, section).catch(e => console.warn("settings:", e));
 }
 
-/// Scrolls the open sheet to `section`, such as "machines".
+/// Shows page `section` of the open sheet, such as "machines".
 function showSection(scrim: HTMLElement, section: string) {
   scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
+}
+
+/// A window view the Settings sheet draws in its right pane, such as
+/// Coding agents under Agent accounts, and where its header buttons go.
+let embedded: { name: string; tools?: (nodes: Node[]) => void } | null = null;
+
+/// Mounts view `name` into `root` in the sheet. What it returns mounts the
+/// view back into its own element when the window shows it.
+function embedView(name: string, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void) {
+  const view = views.get(name);
+  if (!view) return () => {};
+  const mine = { name, tools };
+  unembed();
+  embedded = mine;
+  view.mount(root, arg as ViewArg);
+  drawEmbedTools();
+  return () => {
+    if (embedded !== mine) return;
+    unembed();
+  };
+}
+
+function unembed() {
+  const was = embedded;
+  embedded = null;
+  if (was && shown === was.name) {
+    const view = views.get(was.name)!;
+    view.mount(view.el, shownArg);
+    drawTop();
+  }
+}
+
+function drawEmbedTools() {
+  const view = embedded?.tools && views.get(embedded.name);
+  if (!view) return;
+  const head = typeof view.title === "function" ? view.title() : null;
+  embedded!.tools!(head?.tools ?? []);
 }
 
 export function closeSettings() {
   if (!settingsOpen) return;
   const { scrim, keys, back } = settingsOpen;
   settingsOpen = null;
+  unembed();
   window.removeEventListener("keydown", keys, true);
   scrim.remove();
   if (back?.isConnected) back.focus();
@@ -3127,7 +3164,10 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
-registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => { if (shown === "providers") drawTop(); } });
+registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => {
+  if (shown === "providers") drawTop();
+  if (embedded?.name === "providers") drawEmbedTools();
+} });
 
 // ---------- Keys ----------
 
@@ -3196,6 +3236,7 @@ pane.connect({
     closeSettings();
     if (view) go("pane", view);
   },
+  embedView,
   newChat: newChatHere,
   goBack: (from: BackTo) => go(from.view, from.arg as ViewArg),
   chatTop(session) {
