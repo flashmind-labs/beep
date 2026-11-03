@@ -1,5 +1,4 @@
-//! The models every user can pick for their own turns. Whoever has not
-//! picked one runs on the server default.
+//! The models users can pick for their turns; the server default otherwise.
 
 use crate::{
     config::ProjectConfig,
@@ -71,9 +70,7 @@ impl ModelChoices {
         }
     }
 
-    /// Looks up names, prices and vision in the provider's model list. A
-    /// choice the provider does not list is left out with a warning. Without
-    /// a list every choice stays, unpriced.
+    /// Looks up names, prices and vision; unlisted choices are dropped, or kept unpriced without a list.
     pub async fn resolve(
         provider: &dyn LlmProvider,
         default: Model,
@@ -124,8 +121,7 @@ impl ModelChoices {
         self
     }
 
-    /// Lets Jev pick among these models, each with what it is good for. A
-    /// model that is not offered is left out with a warning.
+    /// Lets Jev pick among these models; unoffered ones are dropped with a warning.
     pub fn with_auto(mut self, mut described: HashMap<Model, String>) -> Self {
         self.auto = self
             .choices
@@ -144,9 +140,7 @@ impl ModelChoices {
         self
     }
 
-    /// Turns research on with these role models. Each must be offered: a
-    /// role whose model is not turns research off with a warning, and a
-    /// scout choice that is not is left out.
+    /// Turns research on with these role models; an unoffered role model turns it off.
     pub fn with_research(mut self, configured: Option<ResearchConfig>) -> Self {
         let Some(mut config) = configured else {
             return self;
@@ -230,9 +224,7 @@ impl ModelChoices {
         &self.choices[0].model
     }
 
-    /// The offered model with the lowest input and output price together,
-    /// for small checks such as a review's verifier. Models without a
-    /// price come after priced ones; with none priced, the default.
+    /// The cheapest offered model; unpriced ones last, the default when none is priced.
     pub fn cheapest(&self) -> &Model {
         self.choices
             .iter()
@@ -252,8 +244,7 @@ impl ModelChoices {
             .find(|model| model.to_string() == id)
     }
 
-    /// The model a user's turns run on, from what they picked. A pick that
-    /// is no longer offered falls back to the default.
+    /// The model for a user's pick, or the default when it is no longer offered.
     pub fn for_user(&self, picked: Option<&str>) -> &Model {
         picked
             .and_then(|id| self.find(id))
@@ -308,8 +299,7 @@ impl Choice {
     }
 }
 
-/// A listed name without its maker, which the provider puts first:
-/// "OpenAI: GPT-6 Luna" reads "GPT-6 Luna".
+/// A listed name without its maker: "OpenAI: GPT-6 Luna" reads "GPT-6 Luna".
 fn short_name(name: &str) -> String {
     name.split_once(": ")
         .map_or(name, |(_, short)| short)

@@ -1,14 +1,4 @@
-//! The evening digest: the day's unread email, with what needs the user first.
-//!
-//! The daily mail sync flags emails that look like they need the user (see
-//! `feeds::mail`). The digest is a routine of its own kind, made once when
-//! the user's first mailbox syncs, that runs at 18:00 in the user's timezone.
-//! It syncs the mailboxes first so the day's late mail is in, then lists the
-//! mail still unread from the last day, plus older flagged mail still unread,
-//! and wakes the agent in its chat with all of it, the flagged emails marked.
-//! The agent picks what needs the user. It always replies, so a quiet day
-//! reads as "nothing needs you" rather than as silence. The user turns it off
-//! like any routine, on the Routines screen or by asking Beep.
+//! The evening digest: a routine at 18:00 local that wakes the agent with the day's unread mail, flagged first.
 
 use crate::{
     app::App,
@@ -170,8 +160,7 @@ struct Report {
 }
 
 impl Report {
-    /// Newest first, keeping every flagged email and at most `MAX_EMAILS`
-    /// in all otherwise.
+    /// Newest first, keeping every flagged email and at most `MAX_EMAILS` in all otherwise.
     fn trim(&mut self) {
         self.emails
             .sort_by(|a, b| b.flagged.cmp(&a.flagged).then(b.received.cmp(&a.received)));

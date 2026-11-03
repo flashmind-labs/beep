@@ -20,8 +20,7 @@ pub(super) async fn list_memory_reads(cx: Cx, _: ListMemoryReads) -> Reply<Vec<M
     Ok(profile::memory_reads(&cx.user.memory_rows().await?))
 }
 
-/// Machines are named as the store last knew them, so a memory about a
-/// machine whose node row is gone has no name.
+/// A memory about a machine whose node row is gone has no name.
 pub(super) async fn list_memory_scopes(cx: Cx, _: ListMemoryScopes) -> Reply<Vec<ScopedMemory>> {
     let rows = cx.user.memory_rows().await?;
     let machines = rows
@@ -96,8 +95,7 @@ fn skill_id(id: &str) -> Result<Uuid, ApiError> {
     id.parse().map_err(|_| ApiError::NotFound {})
 }
 
-/// `text` trimmed, or a bad request when it is empty or longer than `max`
-/// characters.
+/// `text` trimmed, refused when empty or longer than `max` characters.
 fn skill_text<'a>(text: &'a str, what: &str, max: usize) -> Result<&'a str, ApiError> {
     let text = text.trim();
     if text.is_empty() || text.chars().count() > max {

@@ -1,14 +1,9 @@
-//! Composio trigger events without a public webhook: the server opens the
-//! same realtime channel Composio's SDKs use for `triggers.subscribe()`.
+//! Composio trigger events without a public webhook, over the realtime channel Composio's SDKs use.
 //!
-//! Composio hands out a Pusher key, cluster and project id at
-//! `internal/sdk/realtime/credentials`. The server connects to Pusher, has
-//! Composio sign the private channel `private-<project>_triggers` at
-//! `internal/sdk/realtime/auth`, subscribes, and then gets every trigger
-//! event of the project as `trigger_to_client`, or in pieces as
-//! `chunked-trigger_to_client` when it is long. Each event names the
-//! Composio user, which is the account's outside id. A dropped connection
-//! is opened again with backoff.
+//! Credentials come from `internal/sdk/realtime/credentials`; Composio signs
+//! `private-<project>_triggers` at `internal/sdk/realtime/auth`. Events arrive as
+//! `trigger_to_client` or `chunked-trigger_to_client`, naming the account's outside id. A dropped
+//! connection reconnects with backoff.
 
 use super::{
     normalize::{self, TriggerMessage},
@@ -32,8 +27,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message as Frame};
 const REALTIME_URL: &str = "https://backend.composio.dev/api/v3/internal/sdk/realtime";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-/// How long Pusher's answer to a ping may take before the connection is
-/// given up.
+/// How long a Pusher pong may take before the connection is dropped.
 const PONG_TIMEOUT: Duration = Duration::from_secs(30);
 /// Pusher's default when it does not say.
 const ACTIVITY_TIMEOUT: Duration = Duration::from_secs(120);
@@ -86,8 +80,7 @@ struct Credentials {
 #[derive(Deserialize)]
 struct ChannelAuth {
     auth: String,
-    /// Composio signs the channel as a presence channel: the signature
-    /// covers this too, so the subscribe must carry it unchanged.
+    /// Presence channel data; Composio's signature covers it, so it must be sent unchanged.
     #[serde(default)]
     channel_data: Option<String>,
 }
@@ -212,8 +205,7 @@ async fn listen(app: &App, composio: &Composio) -> Result<()> {
     }
 }
 
-/// The websocket address for `credentials`, refusing a cluster that is not
-/// a plain name.
+/// The websocket URL for `credentials`; refuses a cluster that is not a plain name.
 fn pusher_url(credentials: &Credentials) -> Result<String> {
     let plain = |text: &str| {
         !text.is_empty()
@@ -274,8 +266,7 @@ struct Chunked {
 }
 
 impl Chunks {
-    /// Takes one `{id, index, chunk, final}` piece, and returns the whole
-    /// payload once every piece is in.
+    /// Adds one `{id, index, chunk, final}` piece; returns the payload once complete.
     fn add(&mut self, piece: &Value) -> Option<Value> {
         let id = piece["id"].as_str()?;
         let index = usize::try_from(piece["index"].as_u64()?).ok()?;

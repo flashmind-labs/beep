@@ -245,8 +245,7 @@ async fn stop_project_worker_is_idempotent() {
     ));
 }
 
-/// Parks a turn of `chat` on a card from the Project app, as a project
-/// chat's gated exec does. Returns the run's id.
+/// Parks a turn of `chat` on a Project app card and returns the run's id.
 async fn park(h: &Harness, chat: Uuid, call: &str) -> String {
     let key = UserKey::for_test(h.alice.id());
     let CreateRun::Created(run) = h

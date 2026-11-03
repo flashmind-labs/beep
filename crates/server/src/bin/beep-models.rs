@@ -1,6 +1,4 @@
-//! Lists the OpenRouter models a Beep run could use: ones that call tools,
-//! answer in text and cost at most the given USD per million output tokens,
-//! newest first. Copy an id into `model_choices` as `openrouter:<id>`.
+//! Lists tool-calling OpenRouter models under a given USD per million output tokens, newest first.
 
 use anyhow::{Context, Result, ensure};
 use chrono::DateTime;

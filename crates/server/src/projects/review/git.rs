@@ -1,5 +1,4 @@
-//! What git on a machine says about a project's branches and one branch's
-//! diff: the shell scripts that ask, and reading their output.
+//! Git scripts for a project's branches and one branch's diff, and parsing their output.
 
 use super::super::commands::quote;
 use crate::protocol::ProjectBranch;
@@ -18,8 +17,7 @@ const MAX_FILES: u32 = 2000;
 /// The most of the head's `.gitattributes` read, in bytes.
 const MAX_ATTRIBUTES: u32 = 64 * 1024;
 
-/// The lines that find the default branch (`origin`'s HEAD, else
-/// `fallback`) into `$d` and its commit into `$base`.
+/// Sets `$d` to the default branch (`origin`'s HEAD, else `fallback`) and `$base` to its commit.
 fn base_lines(fallback: &str) -> String {
     format!(
         "d=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); \
@@ -30,8 +28,7 @@ fn base_lines(fallback: &str) -> String {
     )
 }
 
-/// Lists the checkout's branches with their last commit and worktree,
-/// then how far each commit is from the default branch. Reads only.
+/// Lists branches with last commit, worktree and distance from the default branch. Read-only.
 pub(crate) fn branches_script(folder: &str, default: &str) -> String {
     let refs = "refs/heads refs/remotes/origin";
     format!(
@@ -61,8 +58,7 @@ fn at(secs: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(secs)
 }
 
-/// The branches `branches_script` printed, the default first, then newest
-/// commit first, and the default branch's name.
+/// Parses `branches_script`: default first then newest, and the default branch's name.
 pub(crate) fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
     let mut default = None;
     let mut refs = Vec::new();
@@ -154,9 +150,7 @@ pub(crate) fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>
     Ok((default, branches))
 }
 
-/// Fetches, then prints what a review needs of `branch` against the
-/// default branch: its head, where it forked, whether it merges, and the
-/// changed files. Changes nothing in the checkout.
+/// Fetches, then prints `branch`'s head, merge base, mergeability and changed files. Read-only.
 pub(crate) fn review_script(folder: &str, branch: &str, default: &str) -> String {
     let branch = quote(branch);
     format!(
@@ -290,9 +284,7 @@ pub(crate) fn parse_facts(output: &str) -> Result<Facts, FactsError> {
     })
 }
 
-/// Fetches `branch` and prints its local and `origin` heads, and whether
-/// `origin`'s is behind `reviewed` (pushed before the review's local
-/// commits). Changes nothing in the checkout.
+/// Fetches `branch`, prints its local and `origin` heads and whether `origin` is behind `reviewed`.
 pub(crate) fn head_script(folder: &str, branch: &str, reviewed: &str) -> String {
     format!(
         "cd -- {folder} || exit 3; b={branch}; r={reviewed}; \
@@ -311,8 +303,7 @@ pub(crate) fn head_script(folder: &str, branch: &str, reviewed: &str) -> String 
 pub(crate) struct HeadNow {
     /// The local branch's head, else `origin`'s; `None` when it is gone.
     pub(crate) head: Option<String>,
-    /// Whether it moved since the review: the local branch is elsewhere, or
-    /// `origin` has commits the review did not read.
+    /// Moved since the review: local head differs, or `origin` has unread commits.
     pub(crate) stale: bool,
 }
 
@@ -341,8 +332,7 @@ pub(crate) fn parse_head(output: &str, reviewed: &str) -> HeadNow {
     }
 }
 
-/// Makes a detached worktree of `folder` at `head` in `worktree`, kept out
-/// of the checkout's `git status`, for reviewers to read.
+/// Makes a detached worktree at `head` for reviewers, hidden from the checkout's `git status`.
 pub(crate) fn add_review_worktree(folder: &str, worktree: &str, head: &str) -> String {
     format!(
         "cd -- {folder} || exit 3; \

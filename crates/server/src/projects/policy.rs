@@ -32,20 +32,17 @@ pub(crate) struct WorkerScope<'a> {
     pub(crate) branch: &'a str,
     pub(crate) default_branch: &'a str,
     pub(crate) visibility: Visibility,
-    /// Whether the project app's level is Allow, which lets the worker push
-    /// its own branch and open a pull request without asking.
+    /// Project is Allow, so the worker may push its branch and open a PR unasked.
     pub(crate) outside_allowed: bool,
     pub(crate) public_text: &'a PublicText,
-    /// Whether the worker edited a build file since the user last allowed
-    /// a build: the build runs that file, so it asks.
+    /// The worker edited a build file since the last allowed build, so builds ask.
     pub(crate) build_edited: bool,
 }
 
 const FORCE_REFUSAL: &str =
     "Force pushes are not allowed. Push without force, or ask in your last message.";
 const EDIT_VERBS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
-/// Shell syntax that runs, redirects or expands. Braces and globs can name
-/// paths the command line does not show, as in `rm {x,../..}`.
+/// Shell syntax that runs, redirects or expands; braces and globs can hide paths (`rm {x,../..}`).
 const SHELL_SYNTAX: [&str; 14] = [
     ";", "|", "`", "$", ">", "<", "&", "\n", "{", "}", "*", "?", "[", "]",
 ];
@@ -86,8 +83,7 @@ fn action(question: &Question) -> Action<'_> {
     Action::Command(detail.unwrap_or_else(|| text.strip_prefix("Run ").unwrap_or(text).trim()))
 }
 
-/// Whether `question` edits a file a build or test runs, such as
-/// `build.rs`, a Makefile or `package.json`, or a git hook.
+/// Whether `question` edits a file a build or test runs (`build.rs`, Makefile, git hook...).
 pub(crate) fn edits_build_file(question: &Question) -> bool {
     let Action::Edit { detail, title_rest } = action(question) else {
         return false;
@@ -145,8 +141,7 @@ const BUILD_FILES: [&str; 30] = [
 ];
 /// Endings of build files, as `rules.mk` or `app.gradle.kts`.
 const BUILD_ENDINGS: [&str; 5] = [".mk", ".cmake", ".gradle", ".gradle.kts", ".bzl"];
-/// Script endings of tool configs such as `vite.config.ts`, which the tool
-/// runs as code.
+/// Extensions of tool configs that run as code, such as `vite.config.ts`.
 const CONFIG_SCRIPTS: [&str; 6] = ["js", "ts", "mjs", "cjs", "mts", "cts"];
 
 fn is_build_file(name: &str) -> bool {
@@ -162,8 +157,7 @@ fn is_build_file(name: &str) -> bool {
             .is_some_and(|(stem, ext)| CONFIG_SCRIPTS.contains(&ext) && stem.ends_with(".config"))
 }
 
-/// Whether `question` runs a build, a test or a git command that runs
-/// hooks: what a build file edit holds back until the user allows it.
+/// Whether `question` runs a build, test or hook-running git command.
 pub(crate) fn runs_build(question: &Question) -> bool {
     let Action::Command(command) = action(question) else {
         return false;
@@ -178,20 +172,16 @@ fn runs_build_words(words: &[&str]) -> bool {
     is_check_or_build(words) || matches!(words, ["git", "commit" | "push", ..])
 }
 
-/// The longest UTF-8 character: a cut at a character boundary can leave this
-/// many bytes less than the limit.
+/// Longest UTF-8 character: a cut at a char boundary can fall this many bytes short.
 const UTF8_CHAR: usize = 4;
 
-/// Whether the agent cut `text` short. The node cuts a long input to
-/// [`MAX_QUESTION_LINE`] bytes without a marker, so anything that long may be
-/// the start of something longer, give or take the last character. Go's `./...` pattern is not a cut.
+/// Whether the node may have cut `text`: near [`MAX_QUESTION_LINE`] or `...` (not Go's `/...`).
 fn is_cut(text: &str) -> bool {
     text.len() > MAX_QUESTION_LINE - UTF8_CHAR || (text.ends_with("...") && !text.ends_with("/..."))
 }
 
-/// An edit is fine inside the worktree and outside any `.git`. The raw path
-/// in `detail` is judged alone, relative to the worktree; without one, the
-/// title must name an absolute path.
+/// An edit is fine inside the worktree, outside any `.git`; `detail` is judged relative to the
+/// worktree, else the title must name an absolute path.
 fn judge_edit(detail: Option<&str>, title_rest: &str, scope: &WorkerScope<'_>) -> Verdict {
     // A drive letter, an alternate data stream or a Windows separator: the
     // path may not be where it looks.
@@ -215,8 +205,7 @@ fn judge_edit(detail: Option<&str>, title_rest: &str, scope: &WorkerScope<'_>) -
     }
 }
 
-/// Whether `path` has a `.git` part: a repository's own files can name a
-/// config that git runs.
+/// Whether `path` has a `.git` part, whose files can name a config git runs.
 fn has_git_part(path: &str) -> bool {
     // Case-insensitive filesystems fold case; Windows drops trailing dots and
     // spaces and also answers to the short name `git~1`.
@@ -319,8 +308,7 @@ fn allow_if_outside_allowed(scope: &WorkerScope<'_>) -> Verdict {
     }
 }
 
-/// A pull request with its text inline, so it can be checked for private
-/// details, aimed at the project's own repository.
+/// A PR on the project's own repository with its text inline, so it can be checked.
 fn judge_pr_create(command: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
     if scope.visibility == Visibility::Public || !pr_args_are_plain(args, scope) {
         return Verdict::AskUser;
@@ -360,8 +348,7 @@ fn pr_args_are_plain(args: &[&str], scope: &WorkerScope<'_>) -> bool {
     true
 }
 
-/// `rm` of paths strictly inside the worktree. Relative paths count from the
-/// worktree, which is where the worker runs.
+/// `rm` of paths strictly inside the worktree (relative paths start there).
 fn judge_rm(args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
     let paths: Vec<&str> = args
         .iter()
@@ -380,8 +367,7 @@ fn judge_rm(args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
     }
 }
 
-/// Whether `path` is in the worktree. Relative paths count from the
-/// worktree, which is where the worker runs.
+/// Whether `path` is in the worktree (relative paths start there).
 fn path_is_inside(path: &str, scope: &WorkerScope<'_>) -> bool {
     if path.contains('$') || path.starts_with('~') || has_git_part(path) {
         return false;
@@ -393,8 +379,7 @@ fn path_is_inside(path: &str, scope: &WorkerScope<'_>) -> bool {
     path.split('/').all(|part| part != "..")
 }
 
-/// Whether the arguments of a check or build name only paths in the
-/// worktree, and none of the options that run or write elsewhere.
+/// Whether build or check arguments name only worktree paths and no option that runs elsewhere.
 fn args_stay_inside(words: &[&str], scope: &WorkerScope<'_>) -> bool {
     // Compared without dashes: Go takes `-exec` and `--exec` alike.
     const ELSEWHERE: [&str; 7] = [
@@ -415,8 +400,7 @@ fn args_stay_inside(words: &[&str], scope: &WorkerScope<'_>) -> bool {
     })
 }
 
-/// Read-only git, `add` and `commit`. Options before the subcommand, such as
-/// `-c` and `-C`, are not understood and ask.
+/// Read-only git, `add` and `commit`; options before the subcommand (`-c`, `-C`) ask.
 fn judge_git(sub: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
     // Options that write a file or run a program named in the repository.
     const WRITES: [&str; 4] = ["--output", "--ext-diff", "--textconv", "--no-index"];
@@ -454,9 +438,8 @@ fn judge_git(sub: &str, args: &[&str], scope: &WorkerScope<'_>) -> Verdict {
     }
 }
 
-/// `--pathspec-from-file`, or an abbreviation of it that is not ambiguous
-/// with `--pathspec-file-nul`, reads a list from a file, and git echoes the
-/// lines it cannot use. `-` reads stdin.
+/// `--pathspec-from-file` (or an unambiguous prefix) must name a worktree file, since git
+/// echoes lines it cannot use. `-` reads stdin.
 fn pathspec_file_stays_inside(args: &[&str], scope: &WorkerScope<'_>) -> bool {
     const OPTION: &str = "pathspec-from-file";
     // Shorter prefixes are ambiguous, so git rejects them.
@@ -481,8 +464,7 @@ fn pathspec_file_stays_inside(args: &[&str], scope: &WorkerScope<'_>) -> bool {
     true
 }
 
-/// `git commit` reads a message from `-F`, `--file` or `--template`; those
-/// files must be in the worktree.
+/// Files `git commit` reads via `-F`, `--file` or `--template` must be in the worktree.
 fn commit_files_stay_inside(args: &[&str], scope: &WorkerScope<'_>) -> bool {
     let mut args = args.iter().copied();
     while let Some(arg) = args.next() {

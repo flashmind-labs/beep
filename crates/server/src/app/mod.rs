@@ -63,8 +63,7 @@ use uuid::Uuid;
 /// How long a stop waits for its run to save.
 const STOPPING_WAIT: Duration = Duration::from_secs(10);
 
-/// The server's shared state: storage, users, the model and the
-/// integrations every request and background task works through.
+/// The server's shared state: storage, users, models and integrations.
 pub struct App {
     pub store: Store,
     /// Notices for the phones; each stream keeps only its user's.
@@ -117,16 +116,13 @@ pub struct App {
     pub watchers: crate::watchers::Hub,
     /// Seals and opens users' credentials.
     pub credential_key: CredentialKey,
-    /// Each user's open PRs and issues on their git hosts, kept a few
-    /// minutes.
+    /// Each user's open PRs and issues on their git hosts, cached a few minutes.
     pub git_items: crate::git_items::GitBoard,
-    /// Each project's pull requests, issues and workflow runs, kept and
-    /// read again in the background while someone looks at them.
+    /// Each project's PRs, issues and workflow runs, refreshed while someone looks.
     pub repo_watch: crate::repo_watch::RepoWatch,
 }
 
-/// Optional tools and integrations that need server credentials, and the
-/// single-user instance settings, as `App::new` takes them.
+/// Optional server-credentialed tools and single-user settings, as `App::new` takes them.
 #[derive(Default)]
 pub struct ServerTools {
     pub search: Option<Arc<SearchTool>>,
@@ -147,8 +143,7 @@ pub struct ServerTools {
     pub mistral: Option<Arc<dyn LlmProvider>>,
     /// Runs the server for one owner; `None` serves everyone.
     pub instance: Option<InstanceConfig>,
-    /// Seals users' credentials (see `crate::credentials`). `None` makes a
-    /// key that lasts as long as the process, for tests.
+    /// Seals users' credentials; `None` makes a process-lifetime key, for tests.
     pub credential_key: Option<CredentialKey>,
 }
 
@@ -175,8 +170,7 @@ pub enum Admission {
     Revoked,
     /// A single-user server's key that is not one of its owner's.
     NotInvited,
-    /// A key nobody linked, on a single-user server with an owner: it may
-    /// only join the owner's account with a code (see `crate::guest`).
+    /// An unlinked key on a single-user server with an owner: it may only join with a code.
     Guest,
 }
 
@@ -185,8 +179,7 @@ pub enum Admission {
 pub struct UserNotice {
     pub user: String,
     pub notice: Notice,
-    /// What the user's computers get instead of `notice`, when they read
-    /// more from it than phones do.
+    /// What the user's computers get instead of `notice`, when it differs.
     pub desktop: Option<Notice>,
     /// Which of the user's devices get it.
     pub to: Reach,
@@ -198,8 +191,7 @@ pub enum Reach {
     Everyone,
     /// The computers only, never a phone.
     Desktops,
-    /// Only the device with this key, such as the one that started a
-    /// coding-agent session.
+    /// Only the device with this key, such as one that started a coding-agent session.
     Device(EndpointId),
 }
 
@@ -214,8 +206,7 @@ impl Reach {
 }
 
 impl UserNotice {
-    /// Tells the user's phones that `session_id` changed, or the chat list
-    /// when it is empty, so a second phone shows the same chats.
+    /// Tells the user's phones `session_id` changed, or the chat list when empty.
     pub fn changed(user: &str, session_id: &str) -> Self {
         Self {
             user: user.to_owned(),
@@ -233,8 +224,7 @@ impl UserNotice {
         }
     }
 
-    /// The notice the device with key `id`, a device of `kind`, gets;
-    /// `None` when it is not one the notice goes to.
+    /// The notice device `id` of `kind` gets; `None` when the notice is not for it.
     pub fn for_device(&self, id: &EndpointId, kind: &DeviceKind) -> Option<&Notice> {
         if !self.to.includes(id, kind) {
             return None;
@@ -260,16 +250,14 @@ pub struct Message {
     pub cron_id: Option<String>,
     /// A routine's label, empty when it has none. Set for routine runs only.
     pub scheduled: Option<String>,
-    /// A routine whose reply always reaches the user, as if it had called
-    /// `notify_user`. Set for the evening digest only.
+    /// A routine whose reply always reaches the user; set for the evening digest only.
     pub always_sent: bool,
     /// An event's label when an event woke the agent (see `crate::wake`).
     pub woken: Option<Woken>,
     pub images: Vec<String>,
     /// Other files sent with the message, such as a PDF.
     pub files: Vec<Upload>,
-    /// The recording a held reply came as. `message` holds its transcript;
-    /// the recording itself is not kept.
+    /// The recording a held reply came as; `message` holds its transcript.
     pub voice: Option<Upload>,
     /// Said aloud in live mode; `message` is what was heard.
     pub spoken: bool,
@@ -285,14 +273,12 @@ pub struct Message {
     pub platform: Option<Platform>,
     /// What the app draws under a reply, so the run gets those tools.
     pub draws: Draws,
-    /// The lead's turn that tells the user a research ended. It runs in
-    /// the background and notifies like a routine.
+    /// The lead's background turn telling the user a research ended.
     pub finished_research: bool,
 }
 
 impl Message {
-    /// Something the user typed, rather than a routine, an event or an
-    /// answer to a card.
+    /// Something the user typed, not a routine, event or card answer.
     pub(crate) fn is_prompt(&self) -> bool {
         self.cron_id.is_none()
             && self.scheduled.is_none()
@@ -307,16 +293,14 @@ impl Message {
     }
 }
 
-/// What an app draws under a reply beyond text and images. A run only gets
-/// the tools whose results its app can show.
+/// What an app draws under a reply; a run only gets tools whose results its app shows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Draws {
     /// `show_chart` and `show_stock_chart`.
     pub charts: bool,
     /// `show_cards`.
     pub cards: bool,
-    /// Source chips: the app shows the web pages a reply used under it, so
-    /// the model need not list them.
+    /// Source chips: the app shows the web pages a reply used, so the model need not list them.
     pub sources: bool,
 }
 
@@ -325,14 +309,12 @@ pub struct Draws {
 pub struct Answer {
     pub call_id: String,
     pub decision: ApprovalDecision,
-    /// With `Allow`, the action also runs without asking for the rest of
-    /// the chat.
+    /// With `Allow`, the action also runs without asking for the rest of the chat.
     pub for_session: bool,
 }
 
 impl Message {
-    /// The run's request id. Answers are keyed by the call, so answering
-    /// twice returns the same run.
+    /// The run's request id, keyed by the call so answering twice returns the same run.
     pub(crate) fn request(&self) -> String {
         match &self.answer {
             Some(answer) => format!("approval:{}", answer.call_id),
@@ -430,9 +412,7 @@ impl App {
             .collect()
     }
 
-    /// The user `endpoint` is, made and started on its first connection.
-    /// `None` for a key that was linked and then removed, or one a
-    /// single-user server refuses.
+    /// The user `endpoint` is, started on first connection; `None` for a removed or refused key.
     pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
         Ok(match self.admit(endpoint).await? {
             Admission::SignedIn(signed_in) => Some(signed_in),
@@ -440,9 +420,7 @@ impl App {
         })
     }
 
-    /// Who `endpoint` signs in as. A key nobody linked makes its own
-    /// account, except on a single-user server, where only the first one
-    /// may, and only when the config names no other owner.
+    /// Who `endpoint` signs in as; an unlinked key makes its own account unless single-user rules forbid.
     pub async fn admit(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Admission> {
         let Some(instance) = &self.instance else {
             return Ok(match self.store.sign_in(endpoint).await? {
@@ -476,10 +454,7 @@ impl App {
         })
     }
 
-    /// Who a key that must already be linked signs in as: `None` for a
-    /// revoked key or one nobody linked, which `sign_in` would give an
-    /// account of its own. On a single-user server the bundled node is
-    /// linked to the owner here, and only the owner's keys sign in.
+    /// Who an already-linked key signs in as; `None` for a revoked or unlinked key.
     pub async fn sign_in_linked(
         self: &Arc<Self>,
         endpoint: &EndpointId,
@@ -541,8 +516,7 @@ impl App {
         Ok(owner)
     }
 
-    /// Makes `endpoint`, which no account has, the owner's new account when
-    /// nobody owns the instance yet and the config names no other key.
+    /// Makes `endpoint` the owner's new account when nobody owns the instance and the config allows.
     async fn claim_new(
         &self,
         instance: &Instance,
@@ -562,9 +536,7 @@ impl App {
         Ok(claimed)
     }
 
-    /// Whether `account`, which `endpoint` signs into, owns the instance. An
-    /// account made before the server ran for one owner claims it when
-    /// nobody has, if the config names no owner or names this key.
+    /// Whether `account` owns the instance, claiming it when unowned and the config allows this key.
     async fn owns(
         &self,
         instance: &Instance,
@@ -586,8 +558,7 @@ impl App {
         Ok(self.instance_owner().await?.as_deref() == Some(account.id.as_str()))
     }
 
-    /// Links `endpoint` to the owner when it is the bundled node's key.
-    /// False when it is not, or nobody owns the instance yet.
+    /// Links `endpoint` to the owner when it is the bundled node's key; `false` otherwise.
     async fn link_local_node(
         self: &Arc<Self>,
         instance: &Instance,
@@ -622,8 +593,7 @@ impl App {
         }
     }
 
-    /// Starts every user that signed in before, so their crons and feeds
-    /// run without a connection.
+    /// Starts every known user, so their crons and feeds run without a connection.
     pub async fn start_users(self: &Arc<Self>) -> Result<()> {
         for account in self.store.accounts().await? {
             self.start_user(&account);
@@ -631,8 +601,7 @@ impl App {
         Ok(())
     }
 
-    /// After `source` merged into `target`: stops the gone account and
-    /// starts the target again, so it picks up an outside id it took over.
+    /// After `source` merged into `target`: stops the gone account and restarts the target.
     pub async fn merged(self: &Arc<Self>, source: &str, target: &str) -> Result<()> {
         let account = self
             .store
@@ -752,8 +721,7 @@ impl App {
         self.runs.lock().await.get(id).cloned()
     }
 
-    /// Waits up to `limit` for the run going on in `user`'s `chat` to be
-    /// saved. `true` once the chat has none, `false` when it still has one.
+    /// Waits up to `limit` for `chat`'s run to be saved; `false` when one is still going.
     pub(crate) async fn run_ended(&self, user: &User, chat: Uuid, limit: Duration) -> Result<bool> {
         let Some(run) = user.active_run(chat).await? else {
             return Ok(true);
@@ -767,8 +735,7 @@ impl App {
         Ok(true)
     }
 
-    /// Stops the run and returns once it is saved, so the app that stopped it
-    /// can send the chat's next message right after.
+    /// Stops the run and returns once it is saved, so the next message can follow at once.
     pub async fn cancel(&self, id: &str) {
         if let Some(live) = self.live(id).await {
             live.cancel.cancel();
@@ -806,8 +773,7 @@ impl App {
         self.models.for_user(picked.as_deref()).clone()
     }
 
-    /// How long the model reasons on `user`'s turns: their pick, else the
-    /// config's.
+    /// How long the model reasons on `user`'s turns: their pick, else the config's.
     pub(crate) async fn thinking_for(&self, user: &User) -> ReasoningLevel {
         let picked = user.thinking().await.unwrap_or_else(|e| {
             log::warn!(
@@ -819,8 +785,7 @@ impl App {
         picked.unwrap_or(self.llm.reasoning)
     }
 
-    /// The model that describes images: the configured vision model, or
-    /// `own`, the assistant's, when it sees images.
+    /// The image describer: the configured vision model, or `own` when it sees images.
     fn describer(&self, user: &User, own: &Model, sees_images: bool) -> Option<Describer> {
         let model = self
             .vision_model
@@ -838,8 +803,7 @@ impl App {
         compaction::compact_idle(&self.store, self.summarizer()).await;
     }
 
-    /// Compacts `session` in the background when the last prompt of its turn
-    /// on `model` reached the limit, so the next message starts small.
+    /// Compacts `session` in the background when its last prompt on `model` hit the limit.
     pub(super) fn compact_after_turn(
         self: &Arc<Self>,
         session: SessionRef,

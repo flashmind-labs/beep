@@ -1,5 +1,4 @@
-//! A project chat's turn: its prompt, what kind of turn it is, and the
-//! context block that tells the agent where the project stands.
+//! A project chat's turn: its prompt, its kind and the context block.
 
 use super::{
     commands::{HostCommand, OwnedIssue, parse_owned_issues},
@@ -66,16 +65,13 @@ pub(crate) fn turn_kind(message: &Message) -> TurnKind {
 /// How long filing missed issues may hold up the start of a turn.
 const MIRROR_BUDGET: Duration = Duration::from_secs(30);
 
-/// The start of each project turn: files the issues earlier tries missed,
-/// then gives the context block.
+/// Each project turn's start: files missed issues, then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
     let fleet = Arc::new(NodeFleet::new(app, user));
     start_with(fleet, user, project, MIRROR_BUDGET).await
 }
 
-/// `start` on `fleet`, waiting at most `budget` for the missed issues. The
-/// filing goes on past it, and those it does not get to wait for a later
-/// turn.
+/// `start` on `fleet`, waiting at most `budget` for missed issues; filing goes on past it.
 pub(crate) async fn start_with(
     fleet: Arc<dyn Fleet>,
     user: &Arc<User>,
@@ -101,8 +97,7 @@ pub(crate) async fn start_with(
     context_with(fleet.as_ref(), user, project).await
 }
 
-/// What the agent is told each turn of a chat about one thread: the thread
-/// read again now.
+/// What the agent is told each turn of a thread chat: the thread read again now.
 pub(crate) async fn thread_context(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -239,8 +234,7 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
     ctx
 }
 
-/// For each checkout Syncthing keeps in step, a line saying so and with
-/// which machines, the others sharing its Syncthing folder.
+/// A line per Syncthing-synced checkout naming the machines sharing its folder.
 fn syncthing_lines(project: &str, machines: &[Machine], checkouts: &[CheckoutRow]) -> Vec<String> {
     let mut lines = Vec::new();
     for checkout in checkouts {
@@ -326,9 +320,7 @@ async fn memories(ctx: &mut String, user: &User, project: &ProjectRow) {
     }
 }
 
-/// The persona files in the home checkout's `.agents/`, each read as a
-/// persona or with why it does not read as one. Empty when the folder or
-/// the machine is not there.
+/// The home checkout's `.agents/` personas, or why each does not parse; empty if unreachable.
 pub(crate) async fn read_personas(
     fleet: &dyn Fleet,
     home: &CheckoutRow,

@@ -1,6 +1,4 @@
-//! What the tool schemas of one model request cost. Every request carries
-//! each tool's name, description and JSON schema, so this is paid on every
-//! step of every turn.
+//! What the tool schemas of one model request cost.
 
 use crate::apps::{CATALOG, custom_mcp};
 use flashmind::types::{ToolDefinition, ToolRegistry};
@@ -20,8 +18,7 @@ pub enum Source {
 }
 
 impl Source {
-    /// The source of the tool named `name`. Composio's wrappers lowercase
-    /// the slug, so the catalog is matched in upper case.
+    /// The source of tool `name`, matched in upper case.
     pub fn of(name: &str) -> Self {
         let slug = name.to_ascii_uppercase();
         if custom_mcp::is_custom(name) {
@@ -131,8 +128,7 @@ impl Display for Costs {
     }
 }
 
-/// Logs at debug what the tools of `registry` add to each request of a
-/// `kind` run, such as "coordinator", "routine" or a sub-agent's kind.
+/// Logs at debug what `registry`'s tools add to each request of a `kind` run.
 pub(crate) fn log(kind: &str, registry: &ToolRegistry) {
     if !log::log_enabled!(log::Level::Debug) {
         return;

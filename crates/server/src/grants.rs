@@ -1,20 +1,5 @@
-//! Grants: narrow, standing permissions the user approves once, ahead of
-//! time, for one routine. "Whenever Ana replies, reply back" becomes a
-//! routine and a grant that lets each of its runs send one reply in that
-//! thread, to Ana only, without asking.
-//!
-//! The agent asks for a grant with [`RequestGrantTool`] while it sets the
-//! routine up; the user answers the same approval card any acting call
-//! shows. What the card shows is what is saved: the server builds both
-//! from the call's arguments, and nothing changes a grant afterwards.
-//!
-//! When a routine's run makes an acting call that would ask, the
-//! permission path first tries [`RoutineGrants::claim`]. A call passes only
-//! when every argument it gives is held by the grant: recipients must be
-//! among the approved addresses, pinned arguments such as a thread id must
-//! be exactly the approved value, and only the text may be written freely.
-//! Anything else asks as before. A routine's run reads mail anyone can
-//! send, so these checks, not the model, are what keeps a grant narrow.
+//! Grants: narrow standing permissions the user approves once for one routine.
+//! A call passes only when every argument it gives is held by the grant; these checks, not the model, keep it narrow.
 
 use crate::{
     app::{Reach, UserNotice},
@@ -43,8 +28,7 @@ use uuid::Uuid;
 /// The tool the agent asks for a grant with.
 pub(crate) const REQUEST_GRANT: &str = "request_grant";
 
-/// How long a grant lasts unless the agent asks for another span. Every
-/// grant expires: the longest is a week.
+/// Default grant span; every grant expires within a week.
 const DEFAULT_HOURS: u32 = 8;
 const MAX_HOURS: u32 = 7 * 24;
 /// Most calls one run may make under one grant.
@@ -71,18 +55,14 @@ impl Literal {
     }
 }
 
-/// How the arguments of a tool that can be granted are held to a grant.
-/// An argument in none of the lists, such as an attachment or a sender,
-/// makes a call fall outside every grant.
+/// How a grantable tool's arguments are held; an unlisted argument puts a call outside every grant.
 struct Grantable {
     tool: &'static str,
     /// Who receives. Every address in them must be one the grant allows.
     recipients: &'static [&'static str],
-    /// At least one of these must name a recipient, so the tool never falls
-    /// back to one the call does not name.
+    /// At least one must name a recipient.
     primary: &'static [&'static str],
-    /// May be pinned to one exact value. A call must give every pinned
-    /// value, and one the grant leaves unpinned only as `fixed` allows.
+    /// May be pinned to one exact value; unpinned ones only as `fixed` allows.
     pinnable: &'static [&'static str],
     /// Pins every grant of the tool must have.
     required: &'static [&'static str],
@@ -96,10 +76,7 @@ struct Grantable {
     noun: &'static str,
 }
 
-/// Every tool a grant can name: the ones that send mail and say in their
-/// arguments who to. A reply that goes to whoever wrote the original, such
-/// as `OUTLOOK_REPLY_EMAIL`, cannot be held to a recipient, so it is left
-/// out. Checked against `just tool-schema`.
+/// Every tool a grant can name: mail senders whose arguments name the recipients.
 const GRANTABLE: &[Grantable] = &[
     Grantable {
         tool: "GMAIL_REPLY_TO_THREAD",
@@ -160,8 +137,7 @@ fn grantable(tool: &ToolSlug) -> Option<&'static Grantable> {
     GRANTABLE.iter().find(|spec| spec.tool == tool.as_str())
 }
 
-/// What a grant holds a call to. Saved as JSON with the grant and never
-/// changed after the user approved it.
+/// What a grant holds a call to, never changed after approval.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Constraints {
     /// Every address a call may send to, lowercased.
@@ -171,8 +147,7 @@ pub(crate) struct Constraints {
 }
 
 impl Constraints {
-    /// The constraints the agent asked for, or why `spec`'s tool cannot be
-    /// granted with them.
+    /// The constraints the agent asked for, or why they cannot be granted.
     fn new(
         spec: &Grantable,
         recipients: &[String],
@@ -267,10 +242,7 @@ fn absent(value: &Value) -> bool {
     }
 }
 
-/// The addresses `value` names, lowercased: one address or several
-/// separated by commas, a list of them, or Fastmail's `{"name", "email"}`
-/// objects. `None` when any part is not a plain address, so a call that
-/// hides one in a display name or a second separator matches nothing.
+/// The lowercased plain addresses `value` names; `None` if any part is not a plain address.
 fn addresses(value: &Value) -> Option<Vec<String>> {
     match value {
         Value::String(text) => text.split(',').map(address).collect(),
@@ -362,10 +334,7 @@ struct Asked {
     card: Approval,
 }
 
-/// Asks the user for a grant. The first call stops the turn on an approval
-/// card; once the user allows it, the same call runs again and saves the
-/// grant. Only turns that can set up routines get it, and a routine's own
-/// runs do not, so text a routine reads cannot ask for one.
+/// Asks the user for a grant on an approval card. Never given to a routine's own runs, so text it reads cannot ask.
 pub(crate) struct RequestGrantTool {
     pub(crate) user: Arc<User>,
     /// The call the user just allowed, which saves its grant.
@@ -536,9 +505,7 @@ struct Card<'a> {
     hours: u32,
 }
 
-/// The card that asks for a grant: the routine, what each run may do, to
-/// whom, in which thread, and when it ends. Pinned ids are read back, so
-/// the user sees the thread's subject rather than its id.
+/// The card asking for a grant, with pinned ids read back so the user sees the thread's subject.
 async fn card(
     user: &User,
     spec: &Grantable,
@@ -627,8 +594,7 @@ async fn card(
     }
 }
 
-/// A grant's lifetime as the card says it: "8 hours", "1 day", "2 days and
-/// 6 hours".
+/// A grant's lifetime as the card says it, such as "2 days and 6 hours".
 fn span(hours: u32) -> String {
     let unit = |n: u32, one: &str| {
         if n == 1 {
@@ -650,8 +616,7 @@ pub(crate) struct Used {
     pub(crate) text: String,
 }
 
-/// The grants of one routine's run: which calls they let through, and what
-/// those did, for the chat once the run ends.
+/// The grants of one routine's run: which calls they let through, and what those did.
 pub(crate) struct RoutineGrants {
     user: Arc<User>,
     routine: Uuid,
@@ -671,10 +636,7 @@ impl RoutineGrants {
         }
     }
 
-    /// The grant that lets call `call_id` of `tool` with `args` through,
-    /// with the use recorded against this run; `None` when no grant in
-    /// force matches or the run has used its share, and the call asks. A
-    /// grant that cannot be read counts as none.
+    /// The grant in force that lets this call through, recording its use; `None` when the call must ask.
     pub(crate) async fn claim(&self, tool: &str, args: &Value, call_id: &str) -> Option<GrantRow> {
         let slug = ToolSlug::new(tool);
         let spec = grantable(&slug)?;
@@ -713,9 +675,7 @@ impl RoutineGrants {
         None
     }
 
-    /// Tells the user what a call `grant` let through did, sent text
-    /// included: a notification now, and a message in the routine's chat
-    /// once the run ends.
+    /// Tells the user what a granted call did: a notification now, a chat message when the run ends.
     pub(crate) fn report(&self, grant: &GrantRow, tool: &str, args: &Value) {
         let slug = ToolSlug::new(tool);
         let (app, action) = match permissions::lookup(slug.as_str()) {
@@ -1149,8 +1109,7 @@ mod tests {
             ))
         }
 
-        /// Calls the guarded reply tool in `grants`' run; true when it ran
-        /// without asking.
+        /// Calls the guarded reply tool; true when it ran without asking.
         async fn call(&self, grants: &Arc<RoutineGrants>, call_id: &str, args: Value) -> bool {
             let rules = self.user.app_rules().await.expect("rules");
             let tool = permissions::guard(

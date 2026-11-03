@@ -1,7 +1,4 @@
-//! A key nobody linked, on a single-user server: it gets no account, only
-//! the two calls that join the owner's with a code the owner's device
-//! shows. Joining links the key to the owner's account and closes the
-//! connection, so it signs in again as one of the owner's devices.
+//! A key nobody linked on a single-user server: it may only join the owner's account with a code.
 
 use crate::{
     app::App,

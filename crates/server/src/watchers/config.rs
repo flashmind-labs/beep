@@ -5,14 +5,11 @@ use flashmind::types::{AliasedModel, Model, Provider};
 use serde::Deserialize;
 use std::time::Duration;
 
-/// The config's `[watchers]`: how long a chat stays quiet before it is
-/// read, how many watchers run at once, and each watcher's model and
-/// timeout.
+/// The config's `[watchers]` section.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WatchersConfig {
-    /// The model every watcher runs on unless its own section names one. A
-    /// cheap one fits.
+    /// The model every watcher runs on unless its own section names one.
     #[serde(default = "default_model")]
     pub model: Model,
     /// Minutes a chat with new messages stays quiet before it is read.

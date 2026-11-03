@@ -24,8 +24,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// Searches once, then answers. The first search waits for a permit, so the
-/// test can follow the run from its start.
+/// Searches once, then answers; the first search waits for a permit so the test sees the start.
 struct Searcher {
     go: Arc<Semaphore>,
 }

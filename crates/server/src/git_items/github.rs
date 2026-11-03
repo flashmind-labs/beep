@@ -53,8 +53,7 @@ impl Query {
         }
     }
 
-    /// Whether its hits are items of their own; the others only mark items
-    /// the first ones found.
+    /// Whether its hits are items of their own rather than marks on others.
     fn lists(self) -> bool {
         matches!(
             self,
