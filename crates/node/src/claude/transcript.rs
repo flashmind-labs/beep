@@ -1,8 +1,8 @@
 //! Claude Code's transcripts: one JSON object per line in
 //! `<config>/projects/<folder slug>/<session id>.jsonl`. A long session's
 //! file runs to tens of megabytes, mostly request records, so only its tail
-//! is read, and only prompts, the agent's text, tool calls and turn ends
-//! are kept.
+//! is read, and only prompts, the agent's text and thinking, tool calls and
+//! turn ends are kept.
 
 use super::subagents;
 use crate::{
@@ -46,6 +46,11 @@ pub(super) struct Digest {
     /// Unix seconds of the first and last timestamped lines.
     pub(super) first_at: Option<u64>,
     pub(super) last_at: Option<u64>,
+    /// Unix milliseconds of the line before the one being read, from when
+    /// a thought that follows it started.
+    before_ms: Option<u64>,
+    /// Unix milliseconds of the line being read.
+    line_ms: Option<u64>,
     pub(super) entries: Vec<Entry>,
     /// The entry of each tool call, by its id, to mark the failed ones.
     tools: HashMap<String, usize>,
@@ -127,10 +132,14 @@ impl Digest {
         if value["isSidechain"].as_bool() == Some(true) {
             return;
         }
-        if let Some(at) = value["timestamp"].as_str().and_then(unix_seconds) {
+        let at_ms = value["timestamp"].as_str().and_then(unix_millis);
+        if let Some(at_ms) = at_ms {
+            let at = at_ms / 1000;
             self.first_at.get_or_insert(at);
             self.last_at = Some(at);
         }
+        self.before_ms = self.line_ms.take().or(self.before_ms);
+        self.line_ms = at_ms;
         if let Some(cwd) = value["cwd"].as_str() {
             self.cwd = Some(cwd.to_owned());
         }
@@ -230,6 +239,7 @@ impl Digest {
                         _ => self.push(EntryKind::Agent, text),
                     }
                 }
+                Some("thinking") => self.thinking(block["thinking"].as_str().unwrap_or("")),
                 Some("tool_use") => {
                     let id = block["id"].as_str();
                     // A subagent's call written again is the same call.
@@ -263,6 +273,38 @@ impl Digest {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// A thinking block, as a thought entry that says how long it took:
+    /// from the line before it to its own. Claude Code writes each block
+    /// once it is whole, so its line is when the thought ended. A block
+    /// kept without its text (thinking display `omitted`) shows nothing,
+    /// as a live session's does; thoughts in a row read as one.
+    fn thinking(&mut self, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let took = match (self.before_ms, self.line_ms) {
+            (Some(start), Some(end)) => end.checked_sub(start),
+            _ => None,
+        };
+        match self.entries.last_mut() {
+            Some(last) if last.kind == EntryKind::Thought => {
+                let joined = format!("{}\n\n{text}", last.text);
+                last.text = cut(&joined, MAX_ENTRY);
+                last.ms = match (last.ms, took) {
+                    (Some(before), Some(took)) => Some(before.saturating_add(took)),
+                    _ => None,
+                };
+            }
+            _ => {
+                self.push(EntryKind::Thought, text);
+                if let Some(entry) = self.entries.last_mut() {
+                    entry.ms = took;
+                }
             }
         }
     }
@@ -408,6 +450,12 @@ pub(super) fn tool_line(block: &Value) -> String {
 
 /// Unix seconds of an RFC 3339 UTC time such as `2026-10-29T12:34:56.789Z`.
 pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
+    unix_millis(text).map(|ms| ms / 1000)
+}
+
+/// Unix milliseconds of an RFC 3339 UTC time such as
+/// `2026-10-29T12:34:56.789Z`.
+fn unix_millis(text: &str) -> Option<u64> {
     let (date, time) = text.split_once('T')?;
     let mut date = date.split('-');
     let year: i64 = date.next()?.parse().ok()?;
@@ -417,7 +465,15 @@ pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
     let mut time = time.split(':');
     let hour: i64 = time.next()?.parse().ok()?;
     let minute: i64 = time.next()?.parse().ok()?;
-    let second: i64 = time.next()?.split('.').next()?.parse().ok()?;
+    let seconds = time.next()?;
+    let (second, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
+    let second: i64 = second.parse().ok()?;
+    // Milliseconds from the first three digits of the fraction.
+    let mut millis: i64 = 0;
+    for (i, digit) in fraction.chars().take(3).enumerate() {
+        let digit = i64::from(digit.to_digit(10)?);
+        millis += digit * [100, 10, 1][i];
+    }
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
@@ -429,7 +485,7 @@ pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
     let doy = (153 * mp + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe - 719_468;
-    u64::try_from(days * 86_400 + hour * 3600 + minute * 60 + second).ok()
+    u64::try_from((days * 86_400 + hour * 3600 + minute * 60 + second) * 1000 + millis).ok()
 }
 
 /// The complete lines at the end of a file.
@@ -568,6 +624,7 @@ pub(super) mod tests {
             shown,
             [
                 (EntryKind::User, "fix the flaky test in tests/net.rs"),
+                (EntryKind::Thought, "secret reasoning"),
                 (EntryKind::Agent, "Looking at the test first."),
                 (EntryKind::Tool, "Read: /srv/project/tests/net.rs"),
                 (EntryKind::Tool, "Bash: cargo test net (failed)"),
@@ -580,6 +637,63 @@ pub(super) mod tests {
             ]
         );
         assert_eq!(digest.first_at, Some(1_793_260_800));
+        // Its thinking took from the prompt's line to its own.
+        assert_eq!(digest.entries[1].ms, Some(5000));
+    }
+
+    #[test]
+    fn thinking_blocks_read_as_thoughts_that_say_how_long_they_took() {
+        let line = |at: &str, content: serde_json::Value| {
+            serde_json::json!({"type": "assistant", "timestamp": at,
+                "message": {"content": content}})
+            .to_string()
+        };
+        let prompt = serde_json::json!({"type": "user", "timestamp": "2026-10-29T08:00:00.250Z",
+            "message": {"role": "user", "content": "is 391 prime?"}});
+        let text = [
+            prompt.to_string(),
+            line(
+                "2026-10-29T08:00:03.000Z",
+                serde_json::json!([{"type": "thinking", "thinking": "Try 17.", "signature": "sig"}]),
+            ),
+            line(
+                "2026-10-29T08:00:04.500Z",
+                serde_json::json!([{"type": "thinking", "thinking": "**Found it**\n\n17 x 23 = 391.", "signature": "sig"}]),
+            ),
+            line(
+                "2026-10-29T08:00:05.000Z",
+                serde_json::json!([{"type": "text", "text": "No: 17 x 23."}]),
+            ),
+            // Thinking display `omitted` keeps only the signature.
+            line(
+                "2026-10-29T08:00:09.000Z",
+                serde_json::json!([{"type": "thinking", "thinking": "", "signature": "sig"},
+                    {"type": "redacted_thinking", "data": "opaque"}]),
+            ),
+            line(
+                "2026-10-29T08:00:10.000Z",
+                serde_json::json!([{"type": "text", "text": "Anything else?"}]),
+            ),
+        ]
+        .join("\n");
+        let digest = Digest::read(&text);
+        let shown: Vec<(EntryKind, &str, Option<u64>)> = digest
+            .entries
+            .iter()
+            .map(|entry| (entry.kind, entry.text.as_str(), entry.ms))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (EntryKind::User, "is 391 prime?", None),
+                (
+                    EntryKind::Thought,
+                    "Try 17.\n\n**Found it**\n\n17 x 23 = 391.",
+                    Some(4250)
+                ),
+                (EntryKind::Agent, "No: 17 x 23.\n\nAnything else?", None),
+            ]
+        );
     }
 
     #[test]
@@ -591,6 +705,11 @@ pub(super) mod tests {
         );
         assert_eq!(unix_seconds("2000-03-01T12:00:00Z"), Some(951_912_000));
         assert_eq!(unix_seconds("yesterday"), None);
+        assert_eq!(
+            unix_millis("2026-10-29T00:00:01.25Z"),
+            Some(1_793_232_001_250)
+        );
+        assert_eq!(unix_millis("2026-10-29T00:00:01Z"), Some(1_793_232_001_000));
     }
 
     #[test]
@@ -624,7 +743,7 @@ pub(super) mod tests {
         let path = dir.join("s.jsonl");
         std::fs::write(&path, FIXTURE).unwrap();
         let read = entries(&path, 3).unwrap();
-        assert_eq!(read.earlier, 7);
+        assert_eq!(read.earlier, 8);
         assert_eq!(read.entries[2].text, "All 42 tests pass now.");
         assert!(read.pictures.is_empty());
         assert_eq!(started_at(&path).unwrap(), Some(1_793_260_800));
