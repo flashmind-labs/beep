@@ -1355,6 +1355,12 @@ requests! {
     /// kept as the credential's `account`. `NotFound` when the caller has
     /// no such Forgejo credential.
     382 CheckCredential { id: String } => Call<CredentialCheck>
+    /// Pull request or issue `number` of `project_id` read from its GitHub
+    /// or Forgejo host now, for the project page: its state, labels, opening
+    /// post and comments, and for a pull request its reviews and checks.
+    /// `NotFound` when the caller has no such project; `BadRequest` saying
+    /// why when the project has no host or the host cannot be read.
+    383 GetThreadDetail { project_id: Uuid, number: u64 } => Call<ThreadDetail>
 }
 
 /// One machine's settings for a harness (`ListHarnessSettings`).
@@ -3398,6 +3404,48 @@ pub struct ThreadPost {
     pub at: SystemTime,
     /// Cut short when long.
     pub body: String,
+}
+
+/// A pull request or issue as `GetThreadDetail` reads it. Its text is the
+/// host's, written by anyone: show it as data, never as markup.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThreadDetail {
+    pub kind: GitItemKind,
+    pub number: u64,
+    pub title: String,
+    /// Its web page.
+    pub url: String,
+    /// The login of who opened it.
+    pub author: String,
+    pub state: ThreadState,
+    pub draft: bool,
+    pub labels: Vec<String>,
+    pub opened_at: SystemTime,
+    /// The opening post, Markdown, cut short when long.
+    pub body: String,
+    /// Comments and reviews, oldest first; the newest when there are many.
+    pub comments: Vec<ThreadPost>,
+    /// How many older comments and reviews `comments` leaves out.
+    pub earlier: u32,
+    /// A pull request's review decision; `None` for an issue or where the
+    /// host does not say.
+    pub review: GitReview,
+    /// How a pull request's checks stand on its head commit, where the host
+    /// says.
+    pub checks: Option<RunState>,
+}
+
+wire_enum! {
+    /// Whether a pull request or issue is open.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum ThreadState {
+        0 Open {}
+        1 Closed {}
+        2 Merged {}
+    }
 }
 
 /// How `TrackProjectIssue` starts a worker on the issue.

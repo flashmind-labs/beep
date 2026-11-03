@@ -334,6 +334,7 @@ fn main() {
             threads::center_open_thread_chat,
             threads::center_thread_chats,
             threads::center_thread_view,
+            threads::center_thread_detail,
             runs::center_project_lists,
             runs::center_project_runs,
             runs::center_project_run,

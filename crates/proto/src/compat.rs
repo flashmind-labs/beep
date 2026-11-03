@@ -119,6 +119,7 @@ sample_struct! {
     ThreadChat { chat_id, kind, repo, number, title }
     ThreadView { kind, number, title, url, author, body, needs_reply, comments, earlier }
     ThreadPost { author, at, body }
+    ThreadDetail { kind, number, title, url, author, state, draft, labels, opened_at, body, comments, earlier, review, checks }
     AgentImage { name, file_id, mime, key }
     ProjectGroup { id, name, paths }
     AgentImageData { key, mime, data }

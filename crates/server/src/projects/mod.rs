@@ -25,6 +25,7 @@ mod schedule;
 mod service;
 #[cfg(test)]
 pub(crate) mod testing;
+pub(crate) mod thread_detail;
 pub(crate) mod threads;
 pub(crate) mod tools;
 pub(crate) mod turn;

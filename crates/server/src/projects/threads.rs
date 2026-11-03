@@ -450,7 +450,7 @@ pub(crate) async fn read(
 }
 
 /// `text` trimmed and cut to at most `max` bytes, "..." marking a cut.
-fn clipped(text: &str, max: usize) -> String {
+pub(super) fn clipped(text: &str, max: usize) -> String {
     let text = text.trim();
     let cut = head(text, max);
     if cut.len() < text.len() {

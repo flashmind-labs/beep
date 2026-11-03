@@ -116,6 +116,26 @@ pub fn to_html(markdown: &str) -> String {
     clean
 }
 
+/// Markdown someone else wrote, such as an issue on a code host, as HTML.
+/// Raw HTML in it shows as text and images are left out, so nothing in it
+/// runs or loads.
+pub fn untrusted_html(markdown: &str) -> String {
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_GFM;
+    let events = Parser::new_ext(markdown, options).map(|event| match event {
+        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+        other => other,
+    });
+    let mut out = String::with_capacity(markdown.len() * 3 / 2);
+    html::push_html(&mut out, events);
+    ammonia::Builder::default()
+        .rm_tags(["img"])
+        .clean(&out)
+        .to_string()
+}
+
 fn row_mark(i: usize) -> String {
     format!("{ROW_MARK}{i}{ROW_MARK}")
 }
@@ -489,6 +509,16 @@ fn escape_prices(out: &mut String, text: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn untrusted_markdown_shows_raw_html_as_text() {
+        let html = super::untrusted_html(
+            "**hi** <script>alert(1)</script>\n\n![x](https://example.com/t.png) <img src=x onerror=alert(1)>",
+        );
+        assert!(html.contains("<strong>hi</strong>"), "{html}");
+        assert!(html.contains("&lt;script&gt;"), "{html}");
+        assert!(!html.contains("<img"), "{html}");
+    }
+
     use super::*;
 
     #[test]
