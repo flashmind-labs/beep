@@ -235,6 +235,9 @@ sample_struct! {
     AgentHarness { agent, installed, runnable, version, latest, program, home_var, home_default, sign_in, install, settings }
     HarnessSettings { enabled, program, home, args, env }
     HarnessEnv { name, value }
+    FlshSettings { zdr, quantizations, sort, allow_fallbacks, autocompact, models }
+    FlshAutoCompact { enabled, tokens }
+    FlshModelRule { model, autocompact }
     ProjectSyncDetail { project, pinned, paused, machines }
     MachineSyncDetail { sync, paused, progress, waiting, can_resolve }
     SyncProgress { files_done, files_total, bytes_done, bytes_total, rate, eta_secs }
@@ -289,6 +292,19 @@ sample_values! {
     String => ["text".to_owned()]
     AgentSlug => [AgentSlug::from("text")]
     ModelId => [ModelId::from("text")]
+    FlshModel => ["openrouter:vendor/model".parse().expect("a valid model")]
+    FlshSort => [FlshSort::Price, FlshSort::Throughput, FlshSort::Latency]
+    FlshQuantization => [
+        FlshQuantization::Int4,
+        FlshQuantization::Int8,
+        FlshQuantization::Fp4,
+        FlshQuantization::Fp6,
+        FlshQuantization::Fp8,
+        FlshQuantization::Fp16,
+        FlshQuantization::Bf16,
+        FlshQuantization::Fp32,
+        FlshQuantization::Unknown,
+    ]
     Uuid => [Uuid::from_u128(0x0123_4567_89ab_cdef_0123_4567_89ab_cdef)]
     SystemTime => [UNIX_EPOCH + Duration::from_millis(1_760_000_000_123)]
     ReasoningLevel => [
