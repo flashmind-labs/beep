@@ -47,6 +47,7 @@ import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow
 import { fixPrompt, makeRuns, runTarget } from "./runs.ts";
 import type { RunDetail } from "./runs.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
+import { windowTakes } from "./windowkeys.ts";
 import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, withoutResearch, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./bar/researches.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
@@ -3421,11 +3422,16 @@ document.addEventListener("keydown", e => {
   // ⌘W closes this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
   if (key === "w" && !e.shiftKey) { e.preventDefault(); invoke("center_close_window").catch(() => window.close()); return; }
-  if (key === "k") { e.preventDefault(); return openPalette(); }
-  if (key === ",") { e.preventDefault(); return openSettings(); }
-  const to = PANE_KEYS[key];
-  // ⌘M on the start form picks the model there.
-  if (to && !(key === "m" && shown === "pane" && paneOn().view === "agentnew")) { e.preventDefault(); return go("pane", to); }
+  // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
+  if (windowTakes(key, shown === "pane" ? paneOn().view : undefined)) {
+    e.preventDefault();
+    if (key === "k") return openPalette();
+    if (key === ",") return openSettings();
+    // ⌘R opens the window's Research page, not the bar's list.
+    if (key === "r") return go("research");
+    const to = PANE_KEYS[key];
+    if (to) return go("pane", to);
+  }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
