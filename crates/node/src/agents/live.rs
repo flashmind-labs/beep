@@ -4,14 +4,15 @@
 
 use super::{
     acp::wire_name,
+    compaction::{COMPACTED_ENTRY, Usage},
     images::{Images, Picture, data_url},
 };
 use agent_client_protocol::schema::{
     MaybeUndefined,
     v1::{
-        ContentBlock, PlanEntryStatus, RequestPermissionRequest, SessionUpdate,
-        ToolCall as AcpToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
-        ToolCallUpdate, ToolKind,
+        CompactionId, CompactionStatus, CompactionUpdate, ContentBlock, PlanEntryStatus,
+        RequestPermissionRequest, SessionUpdate, ToolCall as AcpToolCall, ToolCallContent,
+        ToolCallId, ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -21,7 +22,7 @@ use beep_proto::node::agent::{
 };
 use serde_json::Value;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::Path,
     sync::Arc,
 };
@@ -35,6 +36,10 @@ const MAX_LAST_MESSAGE: usize = 4 * 1024;
 /// The most files and plan entries reported.
 const MAX_FILES: usize = 50;
 const MAX_PLAN: usize = 30;
+/// The most commands kept of those the agent advertises.
+const MAX_COMMANDS: usize = 200;
+/// The most compactions remembered, so an update of one is shown once.
+const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
 const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
 
@@ -49,6 +54,16 @@ pub(crate) struct Live {
     /// The agent's own id for the session, once it gave one: for Claude
     /// Code, the transcript's name.
     pub(crate) agent_session: Option<String>,
+    /// How full the context window is, as the agent last said. Kept on
+    /// the node: the server is not told.
+    pub(crate) usage: Option<Usage>,
+    /// The names of the slash commands the agent advertises, such as
+    /// `compact`.
+    pub(crate) commands: Vec<String>,
+    /// The agent compacted the conversation since the session last asked.
+    compacted: bool,
+    /// The compactions already shown in the transcript.
+    compactions: HashSet<CompactionId>,
     transcript: VecDeque<Entry>,
     /// Entries dropped from the front of `transcript`.
     dropped: u64,
@@ -231,9 +246,63 @@ impl Live {
                     self.info.title = Some(cut(new, MAX_LINE));
                 }
             }
+            SessionUpdate::UsageUpdate(usage) => {
+                self.usage = Some(Usage {
+                    used: usage.used,
+                    size: usage.size,
+                });
+            }
+            SessionUpdate::AvailableCommandsUpdate(update) => {
+                self.commands = update
+                    .available_commands
+                    .iter()
+                    .take(MAX_COMMANDS)
+                    .map(|command| cut(&command.name, MAX_LINE))
+                    .collect();
+            }
+            SessionUpdate::CompactionUpdate(update) => self.compaction(update),
             _ => {}
         }
         self.info.state != before || self.info.title != title
+    }
+
+    /// Whether the agent compacted the conversation since the last ask.
+    pub(crate) fn take_compacted(&mut self) -> bool {
+        std::mem::take(&mut self.compacted)
+    }
+
+    /// A compaction started or ended: a finished one shows once in the
+    /// transcript, and the usage before it no longer holds.
+    fn compaction(&mut self, update: &CompactionUpdate) {
+        let failed = match &update.status {
+            CompactionStatus::InProgress => {
+                self.info.state.summary = "Compacting the conversation".into();
+                return;
+            }
+            CompactionStatus::Completed => false,
+            CompactionStatus::Failed => true,
+            _ => return,
+        };
+        if self.compactions.len() >= MAX_COMPACTIONS {
+            self.compactions.clear();
+        }
+        if !self.compactions.insert(update.compaction_id.clone()) {
+            return;
+        }
+        if failed {
+            let why = match &update.error {
+                MaybeUndefined::Value(error) => format!(": {error}"),
+                _ => String::new(),
+            };
+            self.push(
+                EntryKind::Other,
+                &format!("[compacting the conversation failed{why}]"),
+            );
+            return;
+        }
+        self.push(EntryKind::Other, COMPACTED_ENTRY);
+        self.usage = None;
+        self.compacted = true;
     }
 
     fn user_chunk(&mut self, text: &str) {
@@ -627,6 +696,41 @@ mod tests {
         let (entries, earlier) = live.transcript(2);
         assert_eq!(earlier, MAX_ENTRIES as u64 + 1);
         assert_eq!(entries[1].text, (MAX_ENTRIES + 2).to_string());
+    }
+
+    #[test]
+    fn usage_commands_and_compactions_are_kept() {
+        let mut live = live();
+        assert!(!live.apply(&update(
+            json!({"sessionUpdate": "usage_update", "used": 900, "size": 1000})
+        )));
+        assert_eq!(
+            live.usage,
+            Some(Usage {
+                used: 900,
+                size: 1000
+            })
+        );
+        live.apply(&update(
+            json!({"sessionUpdate": "available_commands_update",
+            "availableCommands": [{"name": "compact", "description": "Compact"}]}),
+        ));
+        assert_eq!(live.commands, ["compact"]);
+        let compaction = |status: &str| {
+            update(
+                json!({"sessionUpdate": "compaction_update", "compactionId": "c1", "status": status}),
+            )
+        };
+        assert!(live.apply(&compaction("in_progress")));
+        live.apply(&compaction("completed"));
+        live.apply(&compaction("completed"));
+        let (entries, _) = live.transcript(10);
+        assert_eq!(entries.len(), 1, "shown once");
+        assert_eq!(entries[0].kind, EntryKind::Other);
+        assert_eq!(entries[0].text, COMPACTED_ENTRY);
+        assert_eq!(live.usage, None, "the usage before no longer holds");
+        assert!(live.take_compacted());
+        assert!(!live.take_compacted());
     }
 
     #[test]
