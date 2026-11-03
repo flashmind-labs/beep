@@ -72,6 +72,8 @@ const MAX_ASKED: usize = 2000;
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
+/// Why a session ended with the node.
+pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
@@ -508,7 +510,7 @@ impl Actor {
         // alert about.
         let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
         let reason = match end {
-            Ok(End::NodeStopped) => super::ledger::NODE_STOPPED.to_owned(),
+            Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),
             Ok(End::Closed) => "closed".to_owned(),
             Ok(End::Unstoppable(within)) => format!(
                 "the agent did not stop within {} s, so Beep stopped it; send a message to continue",

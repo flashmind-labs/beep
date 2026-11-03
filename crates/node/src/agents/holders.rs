@@ -56,16 +56,10 @@ pub(super) fn held_open(_file: &Path) -> Option<bool> {
 
 /// What a session found in the agents' logs is doing, once what only its
 /// log said is checked: `presence` as listed, `pid` the process seen
-/// running it, `beep_started` when this node started it (so it ran here
-/// and ended with Beep or the node), and `held` whether a process has its
-/// file open, when known. A recent write alone does not make a session
-/// live when nothing holds it or Beep ran it.
-pub(super) fn settle(
-    presence: Presence,
-    pid: Option<u32>,
-    beep_started: bool,
-    held: Option<bool>,
-) -> Presence {
+/// running it, and `held` whether a process has its file open, when
+/// known. A recent write alone does not make a session live when nothing
+/// holds it.
+pub(super) fn settle(presence: Presence, pid: Option<u32>, held: Option<bool>) -> Presence {
     if pid.is_some() {
         return presence;
     }
@@ -74,7 +68,6 @@ pub(super) fn settle(
         Some(true) if presence.is_live() => presence,
         Some(true) => Presence::Running,
         Some(false) if presence.is_live() => Presence::Stopped,
-        None if beep_started && presence == Presence::Recent => Presence::Stopped,
         _ => presence,
     }
 }
@@ -86,37 +79,23 @@ mod tests {
     #[test]
     fn a_recent_write_with_nothing_holding_it_is_stopped() {
         assert_eq!(
-            settle(Presence::Recent, None, false, Some(false)),
+            settle(Presence::Recent, None, Some(false)),
             Presence::Stopped
         );
-        assert_eq!(
-            settle(Presence::Recent, None, false, Some(true)),
-            Presence::Recent
-        );
-    }
-
-    #[test]
-    fn a_session_beep_ran_is_not_live_on_its_log_alone() {
-        assert_eq!(
-            settle(Presence::Recent, None, true, None),
-            Presence::Stopped
-        );
-        // Without that, a recent write still counts when nothing can say.
-        assert_eq!(
-            settle(Presence::Recent, None, false, None),
-            Presence::Recent
-        );
+        assert_eq!(settle(Presence::Recent, None, Some(true)), Presence::Recent);
+        // When nothing can say, a recent write still counts.
+        assert_eq!(settle(Presence::Recent, None, None), Presence::Recent);
     }
 
     #[test]
     fn a_process_seen_running_it_stays_live() {
         assert_eq!(
-            settle(Presence::Working, Some(41), true, Some(false)),
+            settle(Presence::Working, Some(41), Some(false)),
             Presence::Working
         );
         // Quiet, but still loaded somewhere.
         assert_eq!(
-            settle(Presence::Stopped, None, false, Some(true)),
+            settle(Presence::Stopped, None, Some(true)),
             Presence::Running
         );
     }

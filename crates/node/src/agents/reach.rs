@@ -118,8 +118,6 @@ impl Agents {
                 .values()
                 .map(|session| PathBuf::from(session.info().cwd)),
         );
-        // Sessions Beep ran here before the node restarted.
-        work.extend(self.ledger.folders());
         work.extend(sighted);
         let logs = LogRoots::locate();
         let read = [
@@ -402,38 +400,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(real, fs::canonicalize(&asked).unwrap());
-    }
-
-    /// The Files tab of a session Beep ran before the node restarted
-    /// answers from the ledger, without a look in the agents' logs, which
-    /// took longer than the server waits on a machine with gigabytes of
-    /// them.
-    #[tokio::test]
-    async fn a_folder_beep_ran_before_a_restart_is_reached_without_the_logs() {
-        let node = TempDir::new().unwrap();
-        let project = TempDir::new().unwrap();
-        fs::write(project.path().join("notes.md"), "notes").unwrap();
-        let before = Agents::new(Vec::new());
-        before.keep_ledger(node.path()).await;
-        before.ledger.record(super::super::Entry {
-            id: "da193d".into(),
-            agent_session: None,
-            agent: "codex".into(),
-            cwd: project.path().to_owned(),
-            started_at: 1,
-            ended: None,
-        });
-        before.ledger.save().await.unwrap();
-
-        let after = Agents::new(Vec::new());
-        after.keep_ledger(node.path()).await;
-        let asked = project.path().join("notes.md");
-        let real = after
-            .reachable(asked.to_str().unwrap(), Access::Read)
-            .await
-            .unwrap();
-        assert_eq!(real, fs::canonicalize(&asked).unwrap());
-        assert!(after.sighted.lock().await.is_none(), "the logs were read");
     }
 
     /// Requests close together share one look in the agents' logs.
