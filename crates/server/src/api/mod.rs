@@ -297,6 +297,7 @@ pub fn router() -> Router {
         .call(threads::list_thread_chats)
         .call(agent_control::list_agent_images)
         .call(agent_control::get_agent_image)
+        .call(agent_control::get_agent_file)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)

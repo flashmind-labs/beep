@@ -12,7 +12,7 @@ use super::{
     machines::machine_capability,
 };
 use crate::{
-    nodes::{Follower, Online, StartOn, agent_name},
+    nodes::{Follower, NodeFile, Online, StartOn, agent_name},
     protocol::{
         node::agent::{self, PlanStatus, Request, SessionInfo},
         *,
@@ -651,6 +651,36 @@ pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentIm
         mime: image.mime,
         data: image.data,
     })
+}
+
+/// Part of a media file on one of the caller's machines, read from its
+/// node on each call; nothing is kept.
+pub(super) async fn get_agent_file(cx: Cx, get: GetAgentFile) -> Reply<AgentFileChunk> {
+    if media_mime(&get.path).is_none() {
+        return Err(ApiError::bad_request(
+            "Only pictures, videos, 3D models and PDFs can be shown.",
+        ));
+    }
+    let live = live_host(&cx, &get.machine_id).await?;
+    let read = live
+        .online
+        .agent_file(&get.path, get.offset)
+        .await
+        .map_err(|e| {
+            // A node from before `File` closes the stream.
+            ApiError::bad_request(format!(
+                "Could not read the file from {}: {e:#}. Updating beep-node there may help.",
+                live.host.machine_name
+            ))
+        })?;
+    match read {
+        NodeFile::Chunk { size, mime, data } => Ok(AgentFileChunk { size, mime, data }),
+        NodeFile::Missing => Err(ApiError::NotFound {}),
+        NodeFile::Refused(message) => Err(ApiError::bad_request(format!(
+            "{} could not read the file: {message}",
+            live.host.machine_name
+        ))),
+    }
 }
 
 /// The models `list.agent` can run on `list.machine_id`, as its node finds

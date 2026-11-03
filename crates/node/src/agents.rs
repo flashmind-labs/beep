@@ -42,6 +42,7 @@ mod harnesses;
 mod image_files;
 mod images;
 mod live;
+mod media_file;
 mod models;
 mod plans;
 mod session;
@@ -994,6 +995,26 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 message: format!("could not read session {session}: {e:#}"),
             },
         },
+        SessionsRequest::File { path, offset } => {
+            let home = dirs::home_dir();
+            let read =
+                spawn_blocking(move || media_file::read_chunk(&path, offset, home.as_deref()))
+                    .await;
+            match read {
+                Ok(Ok(Some(chunk))) => SessionsReply::File {
+                    size: chunk.size,
+                    mime: chunk.mime.to_owned(),
+                    data: chunk.data,
+                },
+                Ok(Ok(None)) => SessionsReply::NoFile {},
+                Ok(Err(e)) => SessionsReply::Error {
+                    message: format!("{e:#}"),
+                },
+                Err(e) => SessionsReply::Error {
+                    message: format!("the file read stopped: {e}"),
+                },
+            }
+        }
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
             None => SessionsReply::Error {
