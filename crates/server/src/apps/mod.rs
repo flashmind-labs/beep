@@ -103,7 +103,10 @@ const fn composio(
     }
 }
 
-/// Shown in this order.
+/// Shown in this order. GitHub, Linear, Todoist and SharePoint are left out:
+/// Composio's GitHub tools were mistaken for gh, which projects use. An
+/// account a user connected to one of them before is not shown and gives the
+/// agent no tools.
 pub(crate) const CATALOG: &[CatalogApp] = &[
     composio(
         "gmail",
@@ -218,19 +221,6 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
         ],
     ),
     composio(
-        "share_point",
-        "SharePoint",
-        "Sites, lists and documents",
-        &[
-            read("SHARE_POINT_SEARCH_FILES"),
-            read("SHARE_POINT_LIST_SITES"),
-            read("SHARE_POINT_GET_SITE_PAGE_CONTENT"),
-            read("SHARE_POINT_GET_FILE_BY_SERVER_RELATIVE_URL"),
-            act("SHARE_POINT_CREATE_LIST_ITEM_BY_ID"),
-            act("SHARE_POINT_UPDATE_LIST_ITEM"),
-        ],
-    ),
-    composio(
         SLACK,
         "Slack",
         "Read and send messages",
@@ -246,48 +236,6 @@ pub(crate) const CATALOG: &[CatalogApp] = &[
             read_over_hints("SLACK_OPEN_DM"),
             act("SLACK_SEND_MESSAGE"),
             act("SLACK_ADD_REACTION_TO_AN_ITEM"),
-        ],
-    ),
-    composio(
-        "github",
-        "GitHub",
-        "Issues, pull requests and repos",
-        &[
-            read("GITHUB_SEARCH_ISSUES"),
-            read("GITHUB_GET_AN_ISSUE"),
-            read("GITHUB_GET_ISSUE_COMMENTS"),
-            act("GITHUB_CREATE_AN_ISSUE"),
-            act("GITHUB_CREATE_AN_ISSUE_COMMENT"),
-            read("GITHUB_LIST_PULL_REQUESTS"),
-            read("GITHUB_GET_A_PULL_REQUEST"),
-            read("GITHUB_LIST_NOTIFICATIONS"),
-            read("GITHUB_GET_REPOSITORY_CONTENT"),
-        ],
-    ),
-    composio(
-        "linear",
-        "Linear",
-        "Track and update issues",
-        &[
-            read("LINEAR_SEARCH_ISSUES"),
-            read("LINEAR_GET_LINEAR_ISSUE"),
-            act("LINEAR_CREATE_LINEAR_ISSUE"),
-            act("LINEAR_UPDATE_ISSUE"),
-            read("LINEAR_LIST_COMMENTS"),
-            act("LINEAR_CREATE_LINEAR_COMMENT"),
-        ],
-    ),
-    composio(
-        "todoist",
-        "Todoist",
-        "Manage tasks and projects",
-        &[
-            read("TODOIST_FILTER_TASKS"),
-            read("TODOIST_GET_ALL_TASKS"),
-            read("TODOIST_GET_ALL_PROJECTS"),
-            act("TODOIST_CREATE_TASK"),
-            act("TODOIST_UPDATE_TASK"),
-            act("TODOIST_CLOSE_TASK"),
         ],
     ),
     CatalogApp {
@@ -614,15 +562,11 @@ mod tests {
                 "microsoft_teams",
                 "one_drive",
                 "excel",
-                "share_point",
                 "slack",
-                "github",
-                "linear",
-                "todoist",
                 "fastmail"
             ]
         );
-        let (composio, fastmail) = list.split_at(13);
+        let (composio, fastmail) = list.split_at(9);
         assert!(
             composio
                 .iter()
@@ -636,12 +580,12 @@ mod tests {
             .await
             .unwrap();
         let list = alice.apps().await.unwrap();
-        assert!(list[13].connected);
+        assert!(list[9].connected);
         User::for_test(store.clone(), "bob")
             .save_mcp_credentials("fastmail", json!({"client_id": "c"}))
             .await
             .unwrap();
-        assert!(alice.apps().await.unwrap()[13].connected);
+        assert!(alice.apps().await.unwrap()[9].connected);
     }
 
     #[tokio::test]
