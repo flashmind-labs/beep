@@ -1,7 +1,7 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
 import { modelMachine } from "./agentmodels.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "./core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../projects-state.ts";
@@ -209,6 +209,8 @@ function drawPicker() {
 }
 
 addEventListener("resize", () => { if (S.view === "agentnew") placeMenu(); });
+// The menu floats over the page, so it follows its pill when the form scrolls.
+addEventListener("scroll", () => { if (S.view === "agentnew") placeMenu(); }, { capture: true, passive: true });
 
 /// Project, Machine and Folder under the box, with whichever menu is open.
 function drawUnder() {
@@ -229,13 +231,23 @@ function drawUnder() {
   if (f.baseTyping) bindBaseField();
 }
 
-/// Lines the open menu up under its pill, inside the row.
+/// Places the open menu by its pill, over the page so nothing clips it:
+/// below when it fits above the key hints, else above, scrolling inside.
 function placeMenu() {
   const f = AG.form;
-  const pill = f.open === "project" ? "#agprojb" : f.open === "host" ? "#aghostb" : f.open === "folder" ? "#agfoldb" : null;
-  const menu = $<HTMLElement>("#agunder > .agc-menu"), under = $("#agunder"), anchor = pill ? $<HTMLElement>(pill) : null;
-  if (!menu || !under || !anchor) return;
-  menu.style.left = `${Math.max(0, Math.min(anchor.offsetLeft, under.clientWidth - menu.offsetWidth))}px`;
+  const pill = f.open === "project" ? "#agprojb" : f.open === "host" ? "#aghostb" : f.open === "folder" ? "#agfoldb" : f.open === "base" ? "#agbaseb" : null;
+  const menu = $<HTMLElement>("#agunder > .agc-menu"), anchor = pill ? $<HTMLElement>(pill) : null;
+  if (!menu || !anchor) return;
+  menu.classList.add("float");
+  menu.style.maxHeight = "";
+  const a = anchor.getBoundingClientRect(), hints = bar.querySelector(":scope > .dhints")?.getBoundingClientRect();
+  const view = bar.getBoundingClientRect();
+  const at = placeMenuAt(a, { width: menu.offsetWidth, height: menu.scrollHeight },
+    { top: Math.max(0, view.top), bottom: Math.min(innerHeight, hints ? hints.top : view.bottom), width: innerWidth });
+  menu.style.top = `${at.top}px`;
+  menu.style.left = `${at.left}px`;
+  menu.style.maxHeight = `${at.maxHeight}px`;
+  menu.classList.toggle("up", at.up);
 }
 
 /// The Project menu: the user's projects, then none.
@@ -325,8 +337,8 @@ function hostMenu() {
   const f = AG.form;
   if (f.open !== "host") return "";
   const rows = machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
-  return `<div class="agc-menu" role="menu"><button data-agm="auto" class="${f.machine === "auto" ? "on" : ""}"><span></span>Auto<small>best fit</small></button><hr>
-    ${rows.map(m => `<button data-agm="${esc(m.id)}" class="${f.machine === m.id ? "on" : ""}"${m.enabled ? "" : " disabled"}><span class="dot${m.online ? "" : " off"}"></span>${esc(m.name)}<small>${esc(m.note)}</small></button>`).join("")}</div>`;
+  return `<div class="agc-menu cols" role="menu"><button data-agm="auto" class="${f.machine === "auto" ? "on" : ""}"><span></span><span>Auto</span><small>best fit</small></button><hr>
+    ${rows.map(m => `<button data-agm="${esc(m.id)}" class="${f.machine === m.id ? "on" : ""}"${m.enabled ? "" : " disabled"}><span class="dot${m.online ? "" : " off"}"></span><span>${esc(m.name)}</span><small>${esc(m.note)}</small></button>`).join("")}</div>`;
 }
 
 /// Whether the folder is one of the project's checkouts on the machine

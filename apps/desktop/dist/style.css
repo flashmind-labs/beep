@@ -739,6 +739,13 @@ button.dachip:hover { border-color: #3A4A41 }
 .agc-menu .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald) }
 .agc-menu .dot.off { background: var(--dim) }
 .agc-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0 }
+/* Placed by its pill over the page (placeMenu), so no box clips it. */
+.agc-menu.float { position: fixed; z-index: 40; right: auto; bottom: auto; overscroll-behavior: contain }
+/* The machine menu's harness column lines up across rows. */
+.agc-menu.cols { display: grid; grid-template-columns: 10px auto minmax(0, 1fr); column-gap: 8px }
+.agc-menu.cols > button { grid-column: 1 / -1; grid-template-columns: subgrid }
+.agc-menu.cols > hr { grid-column: 1 / -1; width: 100% }
+.agc-menu.cols small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 @media (max-width: 520px) { .agc-pick { grid-template-columns: 48px minmax(0, 1fr) } .agc-think { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border) } }
 /* Harness badges show each agent's own logo; OpenCode keeps letters. */
 .cc-ag.mark, .dcoderav.mark { padding: 0 }

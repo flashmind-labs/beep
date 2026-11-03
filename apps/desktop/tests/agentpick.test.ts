@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/bar/agentmodels.ts";
-import { baseFor, baseRows, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, folderPill, folderRows, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, placePopover, projectAt, projectFolders, railOf, startPlace, tildePath } from "../src/bar/agentpick.ts";
+import { placeMenuAt, baseFor, baseRows, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, folderPill, folderRows, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, placePopover, projectAt, projectFolders, railOf, startPlace, tildePath } from "../src/bar/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -240,4 +240,20 @@ test("the picker opens above its pill, else below, else cut to the roomier side,
   assert.equal(narrow.left, 8, "kept inside on the left");
   const left = placePopover({ top: 500, left: 0, width: 60, height: 30 }, size, view);
   assert.equal(left.left, 8);
+});
+
+test("a menu opens below its pill when it fits, else above, cut to the room", () => {
+  const area = { top: 0, bottom: 600, width: 800 };
+  const low = placeMenuAt({ top: 100, left: 40, width: 80, height: 20 }, { width: 240, height: 200 }, area);
+  assert.deepEqual(low, { top: 124, left: 40, maxHeight: 468, up: false });
+  // Near the hints: no room below, so it opens upward.
+  const high = placeMenuAt({ top: 500, left: 40, width: 80, height: 20 }, { width: 240, height: 200 }, area);
+  assert.equal(high.up, true);
+  assert.equal(high.top, 296);
+  // Too tall either way: the roomier side, scrolling.
+  const tall = placeMenuAt({ top: 400, left: 700, width: 80, height: 20 }, { width: 240, height: 900 }, area);
+  assert.equal(tall.up, true);
+  assert.equal(tall.maxHeight, 388);
+  assert.equal(tall.top, 8);
+  assert.equal(tall.left, 552);
 });
