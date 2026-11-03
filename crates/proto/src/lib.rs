@@ -1170,6 +1170,15 @@ requests! {
     /// machines every few minutes; `refresh` asks the online ones to read
     /// them again now, and the answer comes before they did.
     294 GetUsage { refresh: bool } => Call<UsageView>
+    /// Whether importing `repo` (`org/repo` or its URL) clones the
+    /// caller's fork of it rather than the repository itself: their fork on
+    /// the same host, found with their token there, and the head branches
+    /// of their open pull requests from it, which the import makes local
+    /// branches. The import adds the repository as the remote `upstream`.
+    /// `fork` is `None` when they have no fork, no token for the host, or
+    /// the host could not be read. Read on each call. `BadRequest` saying
+    /// why when `repo` is malformed.
+    295 FindImportFork { repo: String } => Call<ImportFork>
     /// Part of a media file on the caller's online machine `machine_id`,
     /// such as a video, 3D model, PDF or picture a coding agent made.
     /// `path` is absolute or starts `~/` (the node's home). Gives up to
@@ -1182,6 +1191,18 @@ requests! {
     /// another type, a file too large, or a node too old to read files
     /// (updating beep-node may help).
     300 GetAgentFile { machine_id: String, path: String, offset: u64 } => Call<AgentFileChunk>
+}
+
+/// What `FindImportFork` found.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportFork {
+    /// `org/repo`, the repository asked about.
+    pub project: String,
+    /// The caller's fork, `login/repo`; `None` when it is not cloned.
+    pub fork: Option<String>,
+    /// The head branches of the caller's open pull requests from the fork.
+    pub branches: Vec<String>,
 }
 
 /// What `GetUsage` gives.

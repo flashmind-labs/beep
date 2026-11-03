@@ -8,8 +8,10 @@
 mod checks;
 mod clone;
 mod folder;
+mod fork;
 mod found;
 mod gone;
+mod link;
 mod place;
 mod preview;
 mod remove;
@@ -21,7 +23,9 @@ pub use checks::Checkouts;
 pub(crate) use found::MachineFound;
 pub(crate) use preview::{checkout_for_worktree, preview};
 pub(crate) use remove::remove_project;
-pub(crate) use service::{Import, browse, found_projects, import, imported, project_machines};
+pub(crate) use service::{
+    Import, browse, find_fork, found_projects, import, imported, project_machines,
+};
 pub(crate) use tool::ImportProjectTool;
 
 use thiserror::Error;
