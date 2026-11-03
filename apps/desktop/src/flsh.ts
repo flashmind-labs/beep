@@ -109,7 +109,7 @@ export function flshPanel(deps: FlshDeps) {
     };
 
     const out: Node[] = [h("h4", "", "OpenRouter routing"),
-      h("div", "hv-note", "The same on every machine. Written to flsh's config.toml there before flsh starts; your other keys stay.")];
+      h("div", "hv-note", "These apply to every machine at once: each writes them to flsh's config.toml before it starts flsh; your other keys stay.")];
 
     out.push(field("Zero data retention", "Only endpoints that keep no prompts. Default: your OpenRouter account setting.",
       seg<boolean | null>([["Account setting", null], ["Require", true], ["Off", false]], d.zdr, "Zero data retention", v => set({ zdr: v }))));
