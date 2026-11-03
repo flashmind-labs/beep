@@ -754,3 +754,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pw-tabs button:hover, .pw-tabs button:focus-visible { color: var(--fg) }
 .pw-tabs button[aria-current="true"] { color: var(--fg); border-bottom-color: var(--emerald) }
 .pw .pb-back { display: none }
+button.cc-note.in-go { width: 100%; text-align: left; font: inherit; font-size: 12.5px; cursor: pointer }
+button.cc-note.in-go:hover { border-color: #3A4A41 }
+.cc-note.in-go .go { margin-left: auto; color: var(--emerald); white-space: nowrap }
