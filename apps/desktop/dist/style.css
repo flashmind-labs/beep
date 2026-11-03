@@ -759,6 +759,26 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcrumb { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); padding-bottom: 8px; border-bottom: 1px solid var(--border); white-space: nowrap }
 .dcrumb #agparent { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis } .dcrumb #agparent:hover { color: var(--fg) }
 .dcrumb b { font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis } .dcrumb .sp { flex: 1 }
+/* A thought: one line, "Thinking" with a sweep while it arrives, "Thought for 12s" once done; a click opens its text. */
+.dthink { display: grid; min-width: 0 }
+.dthink > button { all: unset; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 1px 0; font-size: 12.5px; color: var(--muted); cursor: pointer }
+.dthink > button:hover { color: var(--fg) } .dthink > button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
+.dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
+.dthink.live .lb { background: linear-gradient(90deg, var(--dim) 0%, var(--dim) 35%, var(--fg) 50%, var(--dim) 65%, var(--dim) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: dthinksweep 1.8s linear infinite }
+@keyframes dthinksweep { from { background-position: 100% 0 } to { background-position: -150% 0 } }
+.dthink .ln { min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dthink .cv { display: grid; flex: none; color: var(--dim); transition: transform .2s var(--ease, ease) }
+.dthink .cv svg { width: 12px; height: 12px }
+.dthink.open .cv { transform: rotate(90deg) }
+.dthink .bd { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .22s ease, opacity .22s ease }
+.dthink.open .bd { grid-template-rows: 1fr; opacity: 1 }
+.dthink .bd > div { overflow: hidden; min-height: 0 }
+.dthink:not(.open) .bd { visibility: hidden; transition: grid-template-rows .22s ease, opacity .22s ease, visibility 0s .22s }
+.dthink .tx { margin: 4px 0 2px 5px; padding: 1px 0 1px 12px; border-left: 2px solid var(--border); font-size: 12.5px; line-height: 1.55; color: var(--muted); white-space: normal; overflow-wrap: anywhere }
+.dthink .tx > :first-child { margin-top: 0 } .dthink .tx > :last-child { margin-bottom: 0 }
+.dthink .tx p { margin: 0 0 6px } .dthink .tx :is(h1, h2, h3, h4) { font-size: 12.5px; margin: 6px 0 2px; color: var(--fg) }
+.dthink .tx pre { font-size: 11.5px; line-height: 17px; white-space: pre-wrap }
+@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none; background: none; color: var(--muted) } .dthink .bd, .dthink .cv { transition: none } }
 .dcoderthought { margin-top: -6px; padding-left: 24px; font-size: 12.5px; font-style: italic; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
