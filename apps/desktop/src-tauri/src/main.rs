@@ -13,6 +13,7 @@ mod center;
 mod cli_login;
 mod commands;
 mod credentials;
+mod custom_agents;
 mod desktop;
 mod devices;
 mod error;
@@ -43,6 +44,7 @@ mod project_groups;
 mod projects;
 mod research;
 mod reviews;
+mod runs;
 mod state;
 mod sync;
 mod terminals;
@@ -58,7 +60,7 @@ mod work_files;
 
 use anyhow::Context;
 use beep::{Beep, Field, Notices};
-use beep_proto::{Notice, Session, link::MAX_NAME};
+use beep_proto::{AgentNoticeKey, Notice, Session, link::MAX_NAME};
 use groups::GroupApproval;
 use iroh::EndpointId;
 use state::{LinkState, NoticeVoice, StateFile};
@@ -69,6 +71,7 @@ use std::{
     path::PathBuf,
     process::Command,
     sync::{Arc, Mutex, PoisonError},
+    time::Instant,
 };
 use tauri::{
     ActivationPolicy, App, AppHandle, Emitter, Manager, RunEvent, WindowEvent,
@@ -137,6 +140,10 @@ fn main() {
                         .state::<center::Shown>()
                         .clear(window.label());
                 }
+                window
+                    .app_handle()
+                    .state::<center::AgentsShown>()
+                    .clear(window.label());
                 research::closed(window.app_handle(), window.label());
             }
             _ => {}
@@ -159,6 +166,7 @@ fn main() {
             work_files::agent_tree_text,
             work_files::agent_tree_save,
             work_files::agent_tree_upload,
+            custom_agents::custom_agents,
             agents::agent_steer,
             center::open_center,
             center::center_home,
@@ -167,12 +175,14 @@ fn main() {
             center::center_close_window,
             center::center_answer_agent,
             center::center_dismiss_updates,
+            center::center_open_update_chat,
             center::center_open,
             center::center_pending,
             center::center_open_project_window,
             center::center_window_project,
             palette::center_palette,
             palette::center_palette_branches,
+            palette::center_palette_prs,
             palette::center_palette_sessions,
             palette::center_find,
             commands::status,
@@ -282,6 +292,9 @@ fn main() {
             threads::center_open_thread_chat,
             threads::center_thread_chats,
             threads::center_thread_view,
+            runs::center_project_lists,
+            runs::center_project_runs,
+            runs::center_project_run,
             reviews::project_branches,
             branches::preview_import,
             branches::find_import_fork,
@@ -347,6 +360,7 @@ fn main() {
             commands::fit_orb,
             commands::live_sheet,
             commands::set_send_on_pause,
+            commands::set_agent_notices,
             commands::live_chats,
             commands::start_over,
             commands::resize_bar,
@@ -458,6 +472,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(update::Updates::default());
     app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
+    app.manage(center::AgentsShown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());
     app.manage(waiting::WaitingList::default());
@@ -550,6 +565,7 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
                 query_id: query_id.to_owned(),
             };
             let _ = app.emit("work-resolved", resolved);
+            voice.withdrawn(query_id);
             continue;
         }
         if notice.group {
@@ -559,6 +575,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         if notice.changed {
             let _ = app.emit("sessions-changed", notice.session_id);
             tauri::async_runtime::spawn(refresh_recent(app.clone()));
+            continue;
+        }
+        if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
+            agent_notice(&app, &beep, &key, &notice);
             continue;
         }
         // Background work asks only through a notice, so its chat keeps a
@@ -575,6 +595,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         ) {
             continue;
         }
+        // While live mode is on in the orb, an approval asks there.
+        let Some(notice) = voice.approval_notice(notice) else {
+            continue;
+        };
         match voice.wants(&notice) {
             NoticeVoice::Aloud => {
                 tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
@@ -620,15 +644,40 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
     notify(app, &notice);
 }
 
+/// A coding agent asked something or finished a turn. The tray looks at
+/// what waits again, and the notice shows unless agent notices are off or
+/// the session is on screen.
+fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Notice) {
+    app.state::<waiting::WaitingList>().poke();
+    if !beep.agent_notices() {
+        return;
+    }
+    let focused = focused_center_label(app);
+    let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
+    if bar::is_open(app) {
+        on_screen.push(bar::LABEL);
+    }
+    let shown = app.state::<center::AgentsShown>();
+    if shown.shows(&on_screen, key, Instant::now()) {
+        return;
+    }
+    notify(app, notice);
+}
+
+/// The label of the command center window with focus, the main one or a
+/// project's; nothing while none has focus.
+fn focused_center_label(app: &AppHandle) -> Option<String> {
+    app.webview_windows()
+        .into_iter()
+        .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false))
+        .map(|(label, _)| label)
+}
+
 /// What the command center window with focus shows, the main one or a
 /// project's; nothing while none has focus.
 fn focused_center(app: &AppHandle) -> center::Showing {
-    let focused = app
-        .webview_windows()
-        .into_iter()
-        .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false));
-    match focused {
-        Some((label, _)) => app.state::<center::Shown>().get(&label),
+    match focused_center_label(app) {
+        Some(label) => app.state::<center::Shown>().get(&label),
         None => center::Showing::default(),
     }
 }

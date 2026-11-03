@@ -5,8 +5,9 @@
 //! message is written once per content block, each copy with the same
 //! usage, so copies are told apart by message and request id.
 
-use super::{Line, Request};
+use super::{Line, Request, billing::claude_cloud};
 use crate::{agents::prices::Tokens, claude::unix_seconds};
+use beep_proto::node::usage::Billing;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -91,6 +92,11 @@ pub(super) fn line(text: &str) -> Option<Line> {
         first.copy_from_slice(&hash.as_bytes()[..8]);
         u64::from_le_bytes(first)
     });
+    let billing = if claude_cloud(message.id.as_deref(), &model) {
+        Billing::Metered
+    } else {
+        Billing::Unknown
+    };
     Some(Line::Request(Request {
         session: entry.session_id,
         cwd: entry.cwd,
@@ -100,6 +106,8 @@ pub(super) fn line(text: &str) -> Option<Line> {
         cost_usd: None,
         key,
         total: None,
+        provider: None,
+        billing,
     }))
 }
 
@@ -121,6 +129,12 @@ mod tests {
         assert_eq!(request.at, 1_793_614_500);
         assert!(request.key.is_some());
         assert_eq!(request.cwd.as_deref(), Some("/srv/project"));
+        assert_eq!(request.billing, Billing::Unknown);
+        let bedrock = LINE.replace("msg_1", "msg_bdrk_1");
+        let Some(Line::Request(request)) = line(&bedrock) else {
+            panic!("a request");
+        };
+        assert_eq!(request.billing, Billing::Metered);
     }
 
     #[test]

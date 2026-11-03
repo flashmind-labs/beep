@@ -132,6 +132,9 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dcard .kv span:nth-child(even) { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto }
 .dcard .acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px }
 .dapp { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; font-weight: 600; flex: none; background: var(--surface); border: 1px solid var(--border) }
+/* An approval card's app tile holding the app's logo, as Apps shows it. */
+.dapp.logo { background: var(--elev); overflow: hidden }
+.dapp.logo img { width: 100%; height: 100%; object-fit: contain; display: block }
 
 .dsec { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); padding: 6px 18px 4px; border-top: 1px solid var(--border) }
 .dlist { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 2px; padding: 0 8px 10px; scrollbar-width: none }

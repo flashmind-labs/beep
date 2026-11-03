@@ -134,6 +134,7 @@ async fn main() -> Result<()> {
     beep_server::compaction::start(app.clone());
     beep_server::titles::start(app.clone());
     beep_server::projects::start(app.clone());
+    beep_server::repo_watch::start(&app);
     beep_server::memories::start_purge(app.clone());
     beep_server::store::start_pruning(app.store.clone());
     beep_server::events::start(

@@ -78,6 +78,7 @@ impl User {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         };
         // Nobody listening just means the phone is offline; Apps still shows it.
         let _ = self.notifications.send(notice);
@@ -473,10 +474,7 @@ impl User {
             Err(error) => {
                 permit.finish(custom_mcp::outcome_of(&error));
                 log::info!("mcp: no sign-in; server={name} error={error:#}");
-                return Err(ApiError::bad_request(format!(
-                    "Beep could not connect to {}. It needs a sign-in Beep does not support,                      or the URL is wrong.",
-                    custom.label
-                )));
+                return Err(ApiError::bad_request(no_sign_in(&custom.label)));
             }
         };
         permit.finish(Outcome::Ok);
@@ -531,6 +529,7 @@ impl User {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         };
         // Nobody listening just means the phone is offline.
         let _ = self.notifications.send(notice);
@@ -772,6 +771,14 @@ fn server_info(row: &McpServerRow) -> Option<McpServer> {
     let defs = config_of(row, custom).cached_tools;
     let tools = enabled_names(&row.name, &defs, custom.tools.as_deref());
     Some(info(&row.name, custom, ready(row), tools))
+}
+
+/// Why a custom server that offers no usable sign-in was not added.
+fn no_sign_in(label: &str) -> String {
+    format!(
+        "Beep could not connect to {label}. It needs a sign-in Beep does not support, \
+         or the URL is wrong."
+    )
 }
 
 #[cfg(test)]
@@ -1034,5 +1041,14 @@ mod tests {
         // Disconnecting does not wait on it either.
         user.disconnect_app(FASTMAIL).await.unwrap();
         assert!(user.app_accounts(FASTMAIL).await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_no_sign_in_message_reads_as_one_sentence() {
+        assert_eq!(
+            no_sign_in("Docs"),
+            "Beep could not connect to Docs. It needs a sign-in Beep does not support, or the \
+             URL is wrong."
+        );
     }
 }

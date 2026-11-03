@@ -3,6 +3,7 @@ import { grow } from "./chat.ts";
 import { copy, renderChats } from "./chats.ts";
 import { $, $$, bar, changed, esc, G, GROUP_VIEWS, h, ICON, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
+import { appTile, fillAppTiles } from "../applogo.ts";
 import { fillPics, picRow } from "./media.ts";
 import { dayDiff } from "./memories.ts";
 
@@ -266,9 +267,10 @@ function groupMessage(m: GroupMessage) {
 /// Beep asks the member whose apps it would use. The card waits on the group.
 function groupApproval(a: GroupApproval) {
   const card = h(`<div class="dcard">
-    <div class="head"><span class="dapp">${esc((a.app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(a.action)}?</b><small>${esc(a.app)} asks you first</small></div></div>
+    <div class="head">${appTile(a.app)}<div style="flex:1;min-width:0;display:grid"><b>${esc(a.action)}?</b><small>${esc(a.app)} asks you first</small></div></div>
     ${a.fields.length ? `<div class="kv">${a.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-allow="1">Allow</button><button class="dbtn warn" data-allow="">Deny</button></div></div>`);
+  fillAppTiles(card);
   card.querySelectorAll<HTMLElement>("[data-allow]").forEach(btn => btn.addEventListener("click", async () => {
     const allow = !!btn.dataset.allow;
     G.approvals.get(a.group_id)?.delete(a.query_id);

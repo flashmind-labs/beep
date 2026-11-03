@@ -120,6 +120,9 @@ pub struct App {
     /// Each user's open PRs and issues on their git hosts, kept a few
     /// minutes.
     pub git_items: crate::git_items::GitBoard,
+    /// Each project's pull requests, issues and workflow runs, kept and
+    /// read again in the background while someone looks at them.
+    pub repo_watch: crate::repo_watch::RepoWatch,
 }
 
 /// Optional tools and integrations that need server credentials, and the
@@ -182,6 +185,9 @@ pub enum Admission {
 pub struct UserNotice {
     pub user: String,
     pub notice: Notice,
+    /// What the user's computers get instead of `notice`, when they read
+    /// more from it than phones do.
+    pub desktop: Option<Notice>,
 }
 
 impl UserNotice {
@@ -199,6 +205,15 @@ impl UserNotice {
                 changed: true,
                 group: false,
             },
+            desktop: None,
+        }
+    }
+
+    /// The notice a device of `kind` gets.
+    pub fn for_device(&self, kind: &DeviceKind) -> &Notice {
+        match &self.desktop {
+            Some(desktop) if matches!(kind, DeviceKind::Desktop {}) => desktop,
+            _ => &self.notice,
         }
     }
 
@@ -364,6 +379,7 @@ impl App {
             watchers: crate::watchers::Hub::default(),
             credential_key: credential_key.unwrap_or_else(CredentialKey::random),
             git_items: crate::git_items::GitBoard::new(),
+            repo_watch: crate::repo_watch::RepoWatch::default(),
         })
     }
 

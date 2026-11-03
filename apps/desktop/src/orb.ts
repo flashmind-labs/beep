@@ -1,10 +1,13 @@
 // The orb window: live mode while the bar is hidden. It follows the same
 // `live` events as the bar. A click brings the bar back; × cancels the
-// reply, or leaves. When the reply waits for an OK, a card under the orb
-// asks; clicking the card, not a button, opens the bar on that chat.
+// reply, or leaves. When the reply, background work or another chat waits
+// for an OK, a card under the orb asks, one at a time; clicking the card,
+// not a button, opens the bar on that chat.
 // Outside live mode, a new notice can show here too, when Voice notes asks
 // first: a card with Play, Open and ×, which goes after 20 seconds alone.
 import { invoke, Channel, listen } from "./tauri.ts";
+import { OrbAsks } from "./approvals.ts";
+import { appTile, fillAppTiles } from "./applogo.ts";
 
 /// A field of an approval card.
 interface Field {
@@ -20,10 +23,12 @@ interface Asking {
   fields: Field[];
 }
 
-/// The approval live mode waits on, and its chat (Rust's `Waiting`).
+/// An approval waiting while live mode is on, and its chat (Rust's `Waiting`).
 interface Waiting {
   session: string;
   approval: Asking;
+  /// Background work asked it: answered with `answer_work`.
+  work: boolean;
 }
 
 /// A new notice the card offers (Rust's `NoticeCard`).
@@ -52,7 +57,8 @@ type LiveEvent =
   | { kind: "sent" }
   | { kind: "left" }
   | ({ kind: "approval" } & Waiting)
-  | { kind: "answered"; query_id: string };
+  | { kind: "answered"; query_id: string }
+  | { kind: "withdrawn"; query_id: string };
 
 const byId = (id: string) => document.getElementById(id)!;
 const orb = byId("orb");
@@ -98,7 +104,8 @@ function draw(v: LiveView) {
 
 // ---------- Approval ----------
 
-let waiting: Waiting | null = null;
+/// What waits, the first on the card.
+const asks = new OrbAsks<Waiting>();
 let failure = "";
 
 // ---------- Notes ----------
@@ -140,6 +147,7 @@ function fit() {
   requestAnimationFrame(() => {
     // The card's bottom plus its margin: the body's own height is never
     // less than the window's, so it would not shrink for a shorter card.
+    const waiting = asks.shown;
     const last = notice ? noticeEl : waiting ? card : note.hidden ? null : note;
     const height = last ? Math.ceil(last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom)) : ORB;
     const width = waiting || notice ? WITH_CARD : last ? WITH_NOTE : ORB;
@@ -164,47 +172,57 @@ function showCard(el: HTMLElement, shown: boolean) {
 }
 
 function drawAsk() {
+  const waiting = asks.shown;
   if (!waiting) return showCard(card, false);
   const { app, action, fields } = waiting.approval;
   const grant = forRoutine(action);
-  const shown = fields.slice(0, FIELDS), more = fields.length - shown.length;
-  card.innerHTML = `<div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div class="tt"><b title="${esc(action)}?">${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
+  const shown = fields.slice(0, FIELDS), more = fields.length - shown.length, behind = asks.count - 1;
+  const from = waiting.work ? "Background work asks first" : `${esc(app)} asks first`;
+  card.innerHTML = `<div class="head">${appTile(app)}<div class="tt"><b title="${esc(action)}?">${esc(action)}?</b><small>${from}</small></div></div>
     ${shown.length ? `<div class="kv">${shown.map(f => `<span>${esc(clip(f.label, 24))}</span><span title="${esc(f.value)}">${esc(clip(f.value.replace(/\s+/g, " "), 120))}</span>`).join("")}</div>` : ""}
     ${more > 0 ? `<div class="more">${more} more in the chat</div>` : ""}
+    ${behind > 0 ? `<div class="more">${behind} more waiting after this</div>` : ""}
     ${failure ? `<div class="err">${esc(failure)}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow</button>${grant ? "" : '<button class="dbtn" data-d="always">Always</button>'}<button class="dbtn warn" data-d="deny">Deny</button></div>`;
+    <div class="acts"><button class="dbtn pri" data-d="allow">Allow</button>${grant ? "" : '<button class="dbtn" data-d="always">Always</button>'}<button class="dbtn warn" data-d="deny">Deny</button>${grant ? "" : '<button class="dbtn wide" data-d="session">Allow for this session</button>'}</div>`;
   onButtons(card, "d", answer);
+  fillAppTiles(card).then(fit);
   showCard(card, true);
 }
 
-/// Shows `w`'s card, or drops the card for null; either clears a failure.
-function ask(w: Waiting | null) {
-  waiting = w;
-  failure = "";
+/// Shows `w`'s card, or counts it behind the one up, unless it is there
+/// already or was answered here.
+function ask(w: Waiting) {
+  if (!asks.add(w)) return;
+  if (asks.count === 1) failure = "";
   drawAsk();
 }
 
-/// Answers from the orb. The run it resumes shows in the chat when it is
-/// opened, so nothing here follows it. The bar hears of the answer from Rust.
+/// Answers the card from the orb. The run it resumes shows in the chat when
+/// it is opened, so nothing here follows it. The bar hears of the answer
+/// from Rust.
 async function answer(decision: string) {
-  const asked = waiting;
+  const asked = asks.answer();
   if (!asked) return;
-  ask(null);
+  failure = "";
+  drawAsk();
+  const queryId = asked.approval.query_id;
   try {
-    await invoke("answer_approval", { session: asked.session, queryId: asked.approval.query_id, decision, onEvent: new Channel() });
+    if (asked.work) await invoke("answer_work", { session: asked.session, queryId, decision });
+    else await invoke("answer_approval", { session: asked.session, queryId, decision, onEvent: new Channel() });
   } catch (err) {
-    // Still waiting, unless something newer took its place.
-    if (waiting) return;
-    waiting = asked;
+    // Back on the card, with why.
+    asks.failed(asked);
     failure = String(err);
     drawAsk();
   }
 }
 
-/// Drops the card for `queryId`, or any card when it is left out.
-function clear(queryId?: string) {
-  if (!waiting || (queryId && waiting.approval.query_id !== queryId)) return;
-  ask(null);
+/// Drops the card for `queryId`, answered or withdrawn elsewhere.
+function clear(queryId: string) {
+  const first = asks.shown?.approval.query_id === queryId;
+  if (!asks.remove(queryId)) return;
+  if (first) failure = "";
+  drawAsk();
 }
 
 // ---------- A new notice ----------
@@ -252,6 +270,7 @@ listen<NoticeCard>("notice-card", e => {
 });
 
 card.addEventListener("click", () => {
+  const waiting = asks.shown;
   if (waiting) invoke("open_approval", { session: waiting.session }).catch(ignore);
 });
 
@@ -259,14 +278,17 @@ listen<LiveEvent>("live", e => {
   const v = e.payload;
   if (v.kind === "view") draw(v);
   else if (v.kind === "level") orb.style.setProperty("--lvl", Math.min(1, v.level).toFixed(3));
-  else if (v.kind === "approval") ask({ session: v.session, approval: v.approval });
-  else if (v.kind === "answered") clear(v.query_id);
+  else if (v.kind === "approval") ask({ session: v.session, approval: v.approval, work: v.work });
+  else if (v.kind === "answered" || v.kind === "withdrawn") clear(v.query_id);
   else if (v.kind === "toast") showToast(v.text);
   else if (v.kind === "soon") soon(v.ms);
-  // A new spoken message leaves the question unanswered; leaving ends it.
-  else if (v.kind === "sent" || v.kind === "left") clear();
   if (v.kind === "sent") soon(null);
+  // Leaving ends every question here; Rust shows those still waiting as
+  // notifications.
   if (v.kind === "left") {
+    asks.clear();
+    failure = "";
+    drawAsk();
     live = false;
     clearTimeout(toastTimer);
     toast = null;
@@ -285,7 +307,7 @@ x.addEventListener("click", e => {
   if (notice && !live) return noticeAct("dismiss");
   invoke("cancel_live").catch(ignore);
 });
-// An approval that came before this window was made.
-invoke<Waiting | null>("live_approval").then(w => { if (w && !waiting) ask(w); }).catch(ignore);
+// Approvals that came before this window was made.
+invoke<Waiting[]>("live_approval").then(ws => { for (const w of ws ?? []) ask(w); }).catch(ignore);
 // A notice card that came before this window was made.
 invoke<NoticeCard | null>("notice_card").then(c => { if (c && !notice) { notice = c; drawNotice(); } }).catch(ignore);

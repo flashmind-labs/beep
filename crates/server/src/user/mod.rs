@@ -186,9 +186,20 @@ impl User {
     /// The user's date in their timezone, UTC when unknown.
     pub async fn today(&self) -> NaiveDate {
         let now = Utc::now();
-        match self.get_timezone().await.map(|tz| tz.parse::<Tz>()) {
-            Ok(Ok(tz)) => now.with_timezone(&tz).date_naive(),
-            _ => now.date_naive(),
+        match self.timezone().await {
+            Some(tz) => now.with_timezone(&tz).date_naive(),
+            None => now.date_naive(),
+        }
+    }
+
+    /// The user's saved timezone; `None` when it does not read.
+    pub(crate) async fn timezone(&self) -> Option<Tz> {
+        match self.get_timezone().await {
+            Ok(name) => name.parse().ok(),
+            Err(e) => {
+                log::warn!("timezone not read; user={} error={e:#}", self.id());
+                None
+            }
         }
     }
 

@@ -7,8 +7,9 @@
 
 use super::{
     Reply,
-    agent_sessions::{IN_FLIGHT, NODE_LIMIT, linked_keys},
+    agent_sessions::{IN_FLIGHT, NODE_LIMIT},
     credentials::trimmed,
+    own_nodes::{linked_keys, online},
 };
 use crate::{
     credentials::{Slot, last4},
@@ -319,13 +320,6 @@ fn refusal(agent: AgentAccount, secret: &str) -> Option<&'static str> {
 }
 
 /// The caller's machine `endpoint` when it is online now.
-fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
-    cx.app
-        .nodes
-        .online(endpoint)
-        .filter(|node| node.user == cx.user.id())
-}
-
 /// The caller's linked machine `endpoint`, online now; `NotFound` otherwise.
 async fn linked_online(cx: &Cx, endpoint: &str) -> Reply<Online> {
     if !linked_keys(cx).await?.contains(endpoint) {

@@ -6,6 +6,8 @@ import { drawChats, loadChats, touch } from "./chats.ts";
 import { coderCard } from "./codercard.ts";
 import { composeField } from "./compose.ts";
 import { $, $$, bar, changed, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "./core.ts";
+import { AnsweredIds } from "../approvals.ts";
+import { appTile, fillAppTiles } from "../applogo.ts";
 import type { ChatBody, LiveEntry, PendingApproval, Step, Turn } from "./core.ts";
 import { chatHints, drawStop, refreshHints } from "./hints.ts";
 import { loadTurnAgent, sourceRow } from "./history.ts";
@@ -302,14 +304,21 @@ export function toolOutput(turn: Turn, x: ToolOutput, route: string | null) {
 /// its card has no Always, and the Always key allows it.
 export const forRoutine = (action: string | null | undefined) => /for a routine$/.test(action ?? "");
 
+/// Turn approvals answered in this window. A chat redrawn from the server
+/// before the resumed run saved its result still lists the approval, and a
+/// replayed run streams it again; neither brings the card back.
+export const answeredTurns = new AnsweredIds();
+
 export function approvalCard(id: string | null, turn: Turn, { query_id, app, action, fields }: Asking) {
+  if (answeredTurns.has(query_id)) return;
   const grant = forRoutine(action);
   const card = h(`<div class="dcard">
-    <div class="head"><span class="dapp">${esc((app || "?")[0].toUpperCase())}</span><div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
+    <div class="head">${appTile(app)}<div style="flex:1;min-width:0;display:grid"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
   card.querySelectorAll<HTMLElement>("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d as Decision)));
+  fillAppTiles(card);
   turn.append(card);
   const e = entry(id);
   e.approval = { queryId: query_id, turn, card, grant };
@@ -552,6 +561,7 @@ export async function watchRun(id: string | null) {
 /// readies its turn for the run the answer resumes.
 export function settle(id: string | null, e: LiveEntry, pending: PendingApproval, decision: Decision) {
   e.approval = null;
+  answeredTurns.mark(pending.queryId, id);
   const said = pending.grant
     ? { allow: "Allowed for this routine", deny: "Denied" }[decision as "allow" | "deny"]
     : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
@@ -569,7 +579,10 @@ export async function answer(decision: Decision) {
   if (pending.grant && (decision === "always" || decision === "session")) decision = "allow";
   const turn = settle(id, e, pending, decision);
   await stopping.get(id);
-  await runTurn(id, turn, invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) }));
+  const answered = invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) })
+    // Not answered after all: the card may come back with the chat.
+    .catch(err => { answeredTurns.forget(pending.queryId); throw err; });
+  await runTurn(id, turn, answered);
 }
 
 /// Follows run `runId` into `turn`: one an answer given in the orb resumed,

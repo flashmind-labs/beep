@@ -12,7 +12,7 @@ use crate::protocol::{
     ToolLabel, TurnInfo,
 };
 use crate::user::UserKey;
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use flashmind::types::ReasoningLevel;
 use sqlx::{PgConnection, Row, postgres::PgRow};
@@ -20,7 +20,8 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// What a message is, as `messages.role` names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr, strum::EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum Role {
     User,
     Assistant,
@@ -33,28 +34,12 @@ pub enum Role {
 
 impl Role {
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Assistant => "assistant",
-            Self::Tool => "tool",
-            Self::Scheduled => "scheduled",
-            Self::Approval => "approval",
-            Self::Member => "member",
-            Self::Beep => "beep",
-        }
+        self.into()
     }
 
     fn parse(role: &str) -> Result<Self> {
-        Ok(match role {
-            "user" => Self::User,
-            "assistant" => Self::Assistant,
-            "tool" => Self::Tool,
-            "scheduled" => Self::Scheduled,
-            "approval" => Self::Approval,
-            "member" => Self::Member,
-            "beep" => Self::Beep,
-            _ => bail!("unknown message role {role}"),
-        })
+        role.parse()
+            .map_err(|_| anyhow!("unknown message role {role}"))
     }
 }
 

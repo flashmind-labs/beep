@@ -12,8 +12,8 @@ use super::{App, UserNotice, group::said, run::web_tools};
 use crate::{
     apps::{CatalogApp, markdown},
     decision::DecisionTool,
-    feeds::mail::clip,
     leak::{Gate, Said, Secret},
+    memories::clip,
     permissions::{self, Rules, ToolApp, ToolSlug},
     protocol::{Approval, Notice, PendingApproval},
     tools::group_memory::{Member, Secrets},
@@ -404,6 +404,7 @@ impl App {
                 changed: false,
                 group: true,
             },
+            desktop: None,
         });
     }
 

@@ -15,27 +15,30 @@ use beep_server::{
     app::{App, ServerTools},
     client::{Client, Node},
     models::ModelChoices,
-    nodes::{self, Online, StartOn},
+    nodes::{self, Follower, Online, StartOn},
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
-        AgentModels, AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, DeviceKind,
-        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetUsage, GetUsageReport,
-        GitChange, HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels,
-        ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource,
-        PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken,
-        SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload, WorkEntry, WorkFolder,
-        WriteWorkFile, image_key,
+        AgentModels, AgentNoticeKey, AgentStatus, AgentSteer, AgentTokens, ApiError,
+        CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind,
+        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
+        GetUsageReport, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
+        ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability,
+        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
+        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
+        WorkEntry, WorkFolder, WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
             agent::{
-                AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event, ExternalSession,
-                ModelList, ModelOption, ModelPick, OptionKind, Presence, Question, Request,
-                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
-                StopReason,
+                Alert, AlertKind, AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event,
+                ExternalSession, ModelList, ModelOption, ModelPick, OptionKind, Presence, Question,
+                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
+                Status, StopReason,
             },
-            usage::{HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage},
+            usage::{
+                Billing, HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage,
+            },
         },
         setup::SetupToken,
     },
@@ -53,7 +56,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::mpsc,
+    sync::{Notify, mpsc},
     time::{sleep, timeout},
 };
 
@@ -1077,6 +1080,68 @@ async fn machine_details_of_a_user_without_machines_are_empty() {
     router.shutdown().await.unwrap();
 }
 
+#[tokio::test]
+async fn a_session_that_asks_or_finishes_notifies_unless_a_chat_hears_of_it() {
+    let mut center = CommandCenter::new(1).await;
+    let mut notices = center.app.notifications.subscribe();
+    let alert = |session: &str, kind: AlertKind| Alert {
+        session: session.into(),
+        agent: "claude".into(),
+        title: Some("Fix the login test".into()),
+        cwd: "/srv/project".into(),
+        kind,
+    };
+    let finished = AlertKind::TurnEnded {
+        stop_reason: StopReason::EndTurn,
+        last_message: "All tests pass.".into(),
+        error: None,
+    };
+    let fake = FakeAgents {
+        alerts: Some(vec![
+            alert("owned1", finished.clone()),
+            alert("a3f9c1", finished),
+        ]),
+        ..FakeAgents::default()
+    };
+    let go = fake.alerts_go.clone();
+    let machine = center.node(0, "build-box", fake).await;
+    // A session a chat started reports to that chat instead.
+    let online = online(&center.app, &machine).await;
+    online.report_to(
+        "owned1",
+        Follower {
+            user: center.users[0].clone(),
+            chat: uuid::Uuid::new_v4(),
+            node: "build-box".into(),
+            agent: "claude".into(),
+        },
+    );
+    go.notify_one();
+    let sent = timeout(Duration::from_secs(20), async {
+        loop {
+            let sent = notices.recv().await.expect("the notices go on");
+            if !sent.notice.title.is_empty() {
+                return sent;
+            }
+        }
+    })
+    .await
+    .expect("a notice arrives");
+    assert_eq!(sent.user, center.users[0].id());
+    assert_eq!(sent.notice.title, "Claude Code on build-box finished");
+    assert_eq!(sent.notice.body, "Fix the login test: All tests pass.");
+    assert_eq!(sent.notice.session_id, "");
+    let key: AgentNoticeKey = sent
+        .desktop
+        .expect("computers get the session")
+        .session_id
+        .parse()
+        .unwrap();
+    assert_eq!(key.session, "a3f9c1", "the chat's session told nobody");
+    assert_eq!(key.machine_id, machine);
+    center.shutdown().await;
+}
+
 /// What a fake node's `agents/1` and `claude/1` answer.
 #[derive(Clone, Default)]
 struct FakeAgents {
@@ -1102,6 +1167,10 @@ struct FakeAgents {
     /// What `FollowUsage` sends before it holds the stream; `None` closes
     /// it, as a node from before it does.
     usage: Option<Vec<SessionsReply>>,
+    /// What `FollowAlerts` sends once `alerts_go` is notified, before it
+    /// holds the stream; `None` closes it, as a node from before it does.
+    alerts: Option<Vec<Alert>>,
+    alerts_go: Arc<Notify>,
 }
 
 impl FakeAgents {
@@ -1142,6 +1211,20 @@ impl Protocol for FakeSessions {
                         session: session.clone(),
                         mime: "image/png".into(),
                         data: data.clone(),
+                    })
+                    .await?;
+                }
+                while rx.recv::<SessionsRequest>().await?.is_some() {}
+                return Ok(());
+            }
+            if matches!(request, SessionsRequest::FollowAlerts {}) {
+                let Some(alerts) = &fake.alerts else {
+                    return Ok(());
+                };
+                fake.alerts_go.notified().await;
+                for alert in alerts {
+                    tx.send(&SessionsReply::Alert {
+                        alert: alert.clone(),
                     })
                     .await?;
                 }
@@ -1272,6 +1355,26 @@ impl Protocol for FakeSessions {
                     }),
                 (SessionsRequest::WriteFile { path, .. }, _) => SessionsReply::Written {
                     path: format!("{path}.taken"),
+                },
+                (SessionsRequest::CustomAgents { folder }, _) if folder.starts_with("/srv") => {
+                    SessionsReply::CustomAgents {
+                        agents: vec![CustomAgent {
+                            name: "reviewer".into(),
+                            harness: CustomAgentHarness::Claude {},
+                            scope: CustomAgentScope::Project {},
+                            description: "Reviews a branch".into(),
+                            model: Some("opus".into()),
+                            tools: vec!["Read".into()],
+                            color: Some("blue".into()),
+                            path: ".claude/agents/reviewer.md".into(),
+                            prompt: "Review it.".into(),
+                            prompt_cut: false,
+                            error: None,
+                        }],
+                    }
+                }
+                (SessionsRequest::CustomAgents { folder }, _) => SessionsReply::Error {
+                    message: format!("the folder {folder} is not there"),
                 },
                 _ => SessionsReply::Error {
                     message: "not faked".into(),
@@ -1971,6 +2074,38 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
         missing.downcast::<ApiError>().unwrap(),
         ApiError::NotFound {}
     ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_projects_custom_agents_are_read_through_its_node() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center.node(0, "build-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let agents = client
+        .call(&ListCustomAgents {
+            machine_id: build.clone(),
+            folder: "/srv/project".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].name, "reviewer");
+    assert_eq!(agents[0].harness, CustomAgentHarness::Claude {});
+    let missing = ListCustomAgents {
+        machine_id: build.clone(),
+        folder: "/gone".into(),
+    };
+    let error = client.call(&missing).await.unwrap_err();
+    let error = error.downcast::<ApiError>().unwrap();
+    assert!(matches!(error, ApiError::BadRequest { .. }), "{error:?}");
+    let elsewhere = ListCustomAgents {
+        machine_id: "no-such-machine".into(),
+        folder: "/srv/project".into(),
+    };
+    let error = client.call(&elsewhere).await.unwrap_err();
+    let error = error.downcast::<ApiError>().unwrap();
+    assert!(matches!(error, ApiError::NotFound {}), "{error:?}");
     center.shutdown().await;
 }
 
@@ -2684,22 +2819,24 @@ async fn sessions_read_from_the_logs_count_once() {
         .unwrap()
         .as_secs();
     let hour = now / 3600 * 3600;
-    let spend = |session: &str, agent: &str, cost: f64| SessionsReply::SessionSpend {
-        usage: SessionSpend {
-            agent: agent.into(),
-            session: session.into(),
-            cwd: "/srv/work/widget".into(),
-            since: now - 35 * 24 * 3600,
-            hours: vec![HourSpend {
-                hour,
-                model: format!("{agent}-model").into(),
-                input_tokens: 1_000,
-                output_tokens: 500,
-                cost_usd: cost,
-                ..HourSpend::default()
-            }],
-        },
-    };
+    let spend =
+        |session: &str, agent: &str, cost: f64, billing: Billing| SessionsReply::SessionSpend {
+            usage: SessionSpend {
+                agent: agent.into(),
+                session: session.into(),
+                cwd: "/srv/work/widget".into(),
+                since: now - 35 * 24 * 3600,
+                hours: vec![HourSpend {
+                    hour,
+                    model: format!("{agent}-model").into(),
+                    input_tokens: 1_000,
+                    output_tokens: 500,
+                    cost_usd: cost,
+                    billing,
+                    ..HourSpend::default()
+                }],
+            },
+        };
     // A turn Beep watched of a session its log also covers.
     let watched = SessionsReply::TurnUsage {
         usage: TurnUsage {
@@ -2720,10 +2857,11 @@ async fn sessions_read_from_the_logs_count_once() {
             FakeAgents {
                 usage: Some(vec![
                     watched,
-                    spend("c-41", "claude", 2.25),
+                    spend("c-41", "claude", 2.25, Billing::Unknown),
                     // Read again, the session replaces what was kept of it.
-                    spend("c-41", "claude", 3.0),
-                    spend("x-9", "codex", 0.5),
+                    spend("c-41", "claude", 3.0, Billing::Unknown),
+                    spend("x-9", "codex", 0.5, Billing::Unknown),
+                    spend("f-2", "flsh", 1.25, Billing::Metered),
                 ]),
                 ..FakeAgents::default()
             },
@@ -2737,7 +2875,7 @@ async fn sessions_read_from_the_logs_count_once() {
                 .call(&GetUsageReport { refresh: true })
                 .await
                 .unwrap();
-            if (report.month.total.cost_usd - 3.5).abs() < 1e-9 {
+            if (report.month.total.cost_usd - 4.75).abs() < 1e-9 {
                 return report;
             }
             sleep(Duration::from_millis(20)).await;
@@ -2746,13 +2884,42 @@ async fn sessions_read_from_the_logs_count_once() {
     .await
     .expect("the sessions were kept");
     for period in [&report.today, &report.week, &report.month] {
-        assert!((period.total.cost_usd - 3.5).abs() < 1e-9);
-        assert_eq!(period.tokens, 3_000);
+        assert!((period.total.cost_usd - 4.75).abs() < 1e-9);
+        assert_eq!(period.tokens, 4_500);
         assert_eq!(period.projects.len(), 1);
         assert_eq!(period.projects[0].project, "widget");
         let agents: Vec<&str> = period.harnesses.iter().map(|h| h.agent.as_str()).collect();
-        assert_eq!(agents, ["claude", "codex"]);
+        assert_eq!(agents, ["claude", "flsh", "codex"]);
         assert_eq!(period.harnesses[0].models[0].model, "claude-model");
+    }
+
+    // Claude Code and Codex that could not tell count as subscriptions:
+    // only flsh's metered dollars are spent.
+    let bill = client
+        .call(&GetSpendReport { refresh: false })
+        .await
+        .unwrap();
+    for period in [&bill.today, &bill.week, &bill.month] {
+        assert!((period.cost_usd - 1.25).abs() < 1e-9);
+        assert_eq!(period.metered_tokens, 1_500);
+        assert_eq!(period.subscription_tokens, 3_000);
+        let shown: Vec<(&str, bool, Option<f64>)> = period
+            .harnesses
+            .iter()
+            .map(|h| (h.agent.as_str(), h.subscription, h.cost_usd))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("flsh", false, Some(1.25)),
+                ("claude", true, None),
+                ("codex", true, None)
+            ]
+        );
+        assert_eq!(period.harnesses[1].models[0].model, "claude-model");
+        let widget = &period.projects[0];
+        assert!((widget.cost_usd - 1.25).abs() < 1e-9);
+        assert_eq!(widget.subscription.len(), 2);
     }
 
     for node in &center.nodes {

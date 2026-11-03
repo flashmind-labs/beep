@@ -249,6 +249,7 @@ impl Harness {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         };
         self.app.notifications.send(notice).unwrap();
     }
@@ -1195,6 +1196,72 @@ async fn the_user_edits_pauses_undoes_and_deletes_a_skill() {
 /// The computer Alice links to her account.
 fn macbook() -> SecretKey {
     SecretKey::from_bytes(&[7; 32])
+}
+
+/// Collects every notice a node takes.
+fn notices() -> (OnNotice, mpsc::UnboundedReceiver<Notice>) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let on_notice: OnNotice = Arc::new(move |notice: Notice| tx.send(notice).is_ok());
+    (on_notice, rx)
+}
+
+/// The next notice titled `title`, skipping the others.
+async fn next_titled(rx: &mut mpsc::UnboundedReceiver<Notice>, title: &str) -> Notice {
+    timeout(Duration::from_secs(20), async {
+        loop {
+            let notice = rx.recv().await.expect("the inbox is open");
+            if notice.title == title {
+                return notice;
+            }
+        }
+    })
+    .await
+    .expect("the notice arrives")
+}
+
+#[tokio::test]
+async fn a_computer_gets_the_notice_meant_for_computers() {
+    let h = Harness::new().await;
+    let server = h.router.endpoint().id();
+    let (phone_notice, mut phone_notices) = notices();
+    let phone_node = h.node(alice(), phone_notice).await;
+    h.introduce(&phone_node);
+    let phone = phone_node.connect().await.unwrap();
+    let offer = LinkOffer::sign(&macbook(), server, "MacBook", SystemTime::now()).unwrap();
+    phone.call(&LinkDevice { offer }).await.unwrap();
+    let (desk_notice, mut desk_notices) = notices();
+    let desk_node = h.node(macbook(), desk_notice).await;
+    h.introduce(&desk_node);
+    let _desk = desk_node.connect().await.unwrap();
+
+    let title = "Claude Code on build-box finished";
+    let plain = Notice {
+        title: title.into(),
+        body: "Fix the login test: done".into(),
+        session_id: String::new(),
+        app: None,
+        approval: None,
+        changed: false,
+        group: false,
+    };
+    let key = "agent::ab12:claude:a3f9c1:build-box";
+    h.app
+        .notifications
+        .send(UserNotice {
+            user: h.alice_id.clone(),
+            notice: plain.clone(),
+            desktop: Some(Notice {
+                session_id: key.into(),
+                ..plain.clone()
+            }),
+        })
+        .unwrap();
+    assert_eq!(next_titled(&mut phone_notices, title).await, plain);
+    assert_eq!(
+        next_titled(&mut desk_notices, title).await.session_id,
+        key,
+        "the computer can open the session"
+    );
 }
 
 #[tokio::test]

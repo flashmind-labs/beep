@@ -2,7 +2,7 @@
 //! the agent files on the user's machines that Beep reads them from and
 //! writes them into, between its markers.
 
-use super::{Reply, agent_sessions::linked_keys};
+use super::{Reply, own_nodes::linked_keys};
 use crate::{
     nodes::Online,
     protocol::*,

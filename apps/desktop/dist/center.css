@@ -186,18 +186,65 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-foot { display: flex; align-items: center; gap: 6px }
 .cc-foot > button { margin-left: auto; min-height: 22px; padding: 0 5px; display: grid; place-items: center }
 
-/* Settings, a sheet over the window, as in the mock. */
+/* Settings, a sheet over the window, as in the mock: the pages on the left,
+   only the picked one on the right, under its breadcrumb. */
 .cc-set-scrim { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center }
-.cc-set { width: min(720px, 86%); height: min(520px, 84%); display: grid; grid-template-columns: 170px minmax(0, 1fr); border-radius: 14px; border: 1px solid var(--border); background: #121815; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; outline: 0 }
-.cc-set .dset-nav { padding: 14px 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; overflow-y: auto }
-.cc-set .dset-nav > b { padding: 0 10px 10px; font-size: 15px; font-weight: 600 }
-.cc-set .dset-body { padding: 16px 20px; overflow: auto; min-width: 0; scrollbar-width: thin }
-.cc-set .dset-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px }
+.cc-set { width: min(1040px, 92%); height: min(720px, 88%); display: grid; grid-template-columns: 218px minmax(0, 1fr); border-radius: 14px; border: 1px solid var(--border); background: #121815; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; outline: 0 }
+.cc-set .dset-nav { padding: 14px 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; background: rgba(255,255,255,.012); scrollbar-width: thin }
+.cc-set .dset-nav > b { padding: 0 10px; font-size: 15px; font-weight: 600 }
+.cc-set .dset-nav > small { padding: 2px 10px 10px; font-size: 11.5px; color: var(--muted) }
+.cc-set .dset-pages { display: flex; flex-direction: column; gap: 2px }
+.cc-set .dset-pages .cc-si { padding: 6px 10px }
+.cc-set .dset-pages .cc-si.sub { padding: 4px 10px 4px 24px; font-size: 12.5px; color: var(--muted) }
+.cc-set .dset-pages .cc-si.sub[aria-current="true"] { color: var(--fg) }
+.cc-set .dset-body { display: flex; flex-direction: column; min-width: 0; min-height: 0 }
+.cc-set .dset-body > .cc-skel { margin: 14px 24px }
+.cc-set .dset-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--border) }
 .cc-set .dset-top .tt { display: grid }
 .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
 .cc-set .dset-top small { font-size: 12px; color: var(--muted) }
 .cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7 }
-.cc-set .cc-skel { margin: 14px 0 }
+.cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
+.cc-set .dset-crumbs > svg { flex: none; color: var(--dim) }
+.cc-set .dset-crumb { all: unset; cursor: pointer; font-size: 15px; color: var(--muted) }
+.cc-set .dset-crumb:hover, .cc-set .dset-crumb:focus-visible { color: var(--fg) }
+.cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted) }
+.cc-set .dset-back:hover, .cc-set .dset-back:focus-visible { color: var(--fg) }
+.cc-set .dset-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; min-width: 0 }
+.cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
+.cc-set .dset-page > section { max-width: 780px }
+/* The breadcrumb names the page, so its section title does not repeat it. */
+.cc-set .dset-page > section > .dsec.flat:first-child { display: none }
+.cc-set .dset-host > .cc-view { padding: 0; overflow: visible }
+.cc-set .dset-host > .dhead { padding: 0 0 12px; border-bottom: 0 }
+.cc-set .dset-host > .dlist { padding: 0; overflow: visible }
+.cc-set .hv { grid-template-columns: 230px minmax(0, 1fr) }
+.cc-set .hv-f { grid-template-columns: minmax(0, 1fr) 260px }
+.cc-set .dset-h { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 16px 0 6px }
+.cc-set .dset-box { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 0 0 14px }
+.cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; outline: none }
+.cc-set .dset-row:last-child { border-bottom: 0 }
+.cc-set .dset-row:hover { background: rgba(255,255,255,.025) }
+.cc-set .dset-row:focus-visible { box-shadow: inset 0 0 0 2px var(--emerald) }
+.cc-set .dset-row .tt { display: grid; min-width: 0 }
+.cc-set .dset-row b { font-weight: 500; font-size: 13.5px }
+.cc-set .dset-row small { font-size: 12px; color: var(--muted); line-height: 17px }
+.cc-set .dset-row > svg { color: var(--muted) }
+.cc-set .dset-box .dmach { padding: 10px 14px }
+.cc-set .dmach[data-machine] { cursor: pointer; outline: none }
+.cc-set .dmach[data-machine]:hover { background: rgba(255,255,255,.025) }
+.cc-set .dmach[data-machine]:focus-visible { box-shadow: inset 0 0 0 2px var(--emerald) }
+.cc-set .dmach[data-machine] .nm > svg { margin-left: auto; color: var(--muted) }
+.cc-set .dset-kv { display: grid; grid-template-columns: 170px minmax(0, 1fr); font-size: 13px }
+.cc-set .dset-kv > span { padding: 8px 14px; border-bottom: 1px solid var(--border); min-width: 0; overflow-wrap: anywhere }
+.cc-set .dset-kv > span:nth-child(odd) { color: var(--muted) }
+.cc-set .dset-kv > span:nth-last-child(-n+2) { border-bottom: 0 }
+.cc-set .dset-tbl { display: table; width: 100%; border-collapse: collapse; font-size: 13px }
+.cc-set .dset-tbl th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--border) }
+.cc-set .dset-tbl td { padding: 7px 14px; border-bottom: 1px solid var(--border) }
+.cc-set .dset-tbl tr:last-child td { border-bottom: 0 }
+.cc-set .dset-rm { padding: 0 }
+.cc-set .dset-rm .nm .dbtn { margin-left: 0 }
 .cc-set section { scroll-margin-top: 4px }
 @media (max-width: 560px) { .cc-set { grid-template-columns: minmax(0, 1fr) } .cc-set .dset-nav { display: none } }
 
@@ -276,6 +323,19 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
 .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
 @container (max-width: 640px) { .pj-cols { grid-template-columns: minmax(0, 1fr) } }
+/* Custom agents: under Agents in the same column, a row per agent with its harness, colour and scope. */
+.ca-col > div + div { margin-top: 14px }
+.ca-row { cursor: pointer }
+.ca-row:hover, .ca-row:focus-visible { background: var(--elev); outline: none }
+.ca-row.bad { cursor: default; background: none }
+.ca-row .t { display: flex; align-items: center; gap: 6px }
+.ca-row .t b { font-weight: 500; flex: none }
+.ca-ic.cc-ag { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; flex: none; display: inline-grid }
+.ca-dot { flex: none }
+.ca-desc { color: var(--muted); font-weight: 400; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.ca-sheet .am-head b { display: flex; align-items: center; gap: 8px }
+.ca-about { font-size: 13px; margin: 0 0 10px }
+.ca-prompt { margin: 0 0 12px; padding: 10px 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; line-height: 18px; background: var(--elev); border: 1px solid var(--border); border-radius: 8px }
 .pj-issue .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; align-items: center }
 .pj-task + .pj-task { border-top: 1px solid var(--border) }
@@ -632,3 +692,22 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: 6px; cursor: pointer }
 .us-seg button.on { background: var(--border); color: var(--fg) }
 .us-pop h5.us-sub { margin-top: 8px }
+/* When the server last read a section's list; the Actions section across the page under PRs and Issues. */
+.cc-sec small.sw-age { color: var(--dim); margin-left: auto }
+.pj-actions { margin-top: 14px }
+.pj-chk { color: var(--muted) }
+.pj-chk.run { color: var(--emerald); display: inline-flex; gap: 5px; align-items: center }
+.pj-chk.bad, .pj-task .m a.pj-chk.bad { color: #E9B949 }
+.pj-run { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--elev) }
+.pj-jobs { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; align-items: baseline }
+.pj-jobs b { font-weight: 500 }
+.pj-jobs b.bad { color: #E9B949 }
+.pj-jobs small { color: var(--muted) }
+.pj-steps { display: grid; gap: 2px; font-size: 12px }
+.pj-step { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center }
+.pj-step small { color: var(--muted) }
+.pj-step.bad { color: #E9B949 }
+.pj-step.skip { color: var(--dim) }
+.pj-log small { color: var(--muted); font-size: 11px }
+.pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: 7px; background: rgba(0,0,0,.25); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; user-select: text }
+.pj-run .acts { display: flex; gap: 6px }

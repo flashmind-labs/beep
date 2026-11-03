@@ -22,7 +22,7 @@ use crate::{
     app::App,
     apps::mcp::FASTMAIL,
     decision::{Criteria, DecisionTool},
-    memories::{Reading, ReadingKind},
+    memories::{Reading, ReadingKind, clip},
     store::{AttentionItem, Feed},
     user::User,
 };
@@ -786,10 +786,6 @@ fn addresses(value: &Value) -> String {
         )
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-pub(crate) fn clip(text: &str, chars: usize) -> String {
-    text.chars().take(chars).collect()
 }
 
 #[cfg(test)]

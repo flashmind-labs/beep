@@ -8,6 +8,7 @@ use beep_proto::node::agent;
 use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};
 use strum::{Display, EnumString, IntoStaticStr, VariantNames};
+use url::Url;
 use uuid::Uuid;
 
 /// Most live workers in one project.
@@ -222,11 +223,6 @@ impl TaskSlug {
         worktree.join(&format!(".beep/incoming/{}", self.0))
     }
 
-    /// Where the task's outputs go in the `home` checkout.
-    pub(crate) fn outputs(&self, home: &MachinePath) -> MachinePath {
-        home.join(&format!(".beep/outputs/{}", self.0))
-    }
-
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -366,6 +362,16 @@ impl IssueHost {
         }
     }
 
+    /// The host a remote or web page on `hostname` is on: GitHub for
+    /// `github.com` or `www.github.com`, else a Forgejo server.
+    pub(crate) fn of_hostname(hostname: &str) -> Option<IssueHost> {
+        let hostname = hostname.to_ascii_lowercase();
+        if is_github(&hostname) {
+            return Some(Self::Github);
+        }
+        ForgejoHost::parse(&hostname).map(Self::Forgejo)
+    }
+
     pub(crate) fn from_stored(text: &str) -> Option<IssueHost> {
         if text == "github" {
             return Some(Self::Github);
@@ -373,6 +379,38 @@ impl IssueHost {
         let host = text.strip_prefix("forgejo:")?;
         ForgejoHost::parse(host).map(Self::Forgejo)
     }
+}
+
+/// A remote URL's host, without port or user, and its path.
+pub(crate) fn remote_parts(remote: &str) -> Option<(String, String)> {
+    if remote.contains("://") {
+        let url = Url::parse(remote).ok()?;
+        return Some((url.host_str()?.to_owned(), url.path().to_owned()));
+    }
+    // scp-like: [user@]host:path
+    let (host, path) = remote.split_once(':')?;
+    let host = host.rsplit('@').next()?;
+    Some((host.to_owned(), path.to_owned()))
+}
+
+/// "GitHub", or "Forgejo at <host>", as the agent and the user read it.
+impl fmt::Display for IssueHost {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Github => f.write_str("GitHub"),
+            Self::Forgejo(host) => write!(f, "Forgejo at {}", host.as_str()),
+        }
+    }
+}
+
+/// The number at the end of a pull request's URL.
+pub(crate) fn pr_number(url: &str) -> Option<u64> {
+    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
+}
+
+/// Whether `hostname`, lowercased, is GitHub's.
+pub(crate) fn is_github(hostname: &str) -> bool {
+    matches!(hostname, "github.com" | "www.github.com")
 }
 
 /// Which hosts a project files its issues and opens its PRs on. `None` keeps
@@ -520,10 +558,6 @@ mod tests {
         assert_eq!(
             slug.incoming(&worktree).as_str(),
             "/srv/project/.worktrees/fix-it/.beep/incoming/fix-it"
-        );
-        assert_eq!(
-            slug.outputs(&checkout).as_str(),
-            "/srv/project/.beep/outputs/fix-it"
         );
     }
 

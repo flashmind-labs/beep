@@ -7,6 +7,8 @@ use std::ops::Range;
 const SNIPPET_BEFORE: usize = 40;
 /// Characters a snippet keeps from the start of the match.
 const SNIPPET_AFTER: usize = 100;
+/// U+212A, which lowercases to `k`.
+const KELVIN: char = '\u{212A}';
 
 /// The words around the first place `query` appears in `text`, ignoring
 /// case, or `None` when it does not.
@@ -16,6 +18,17 @@ pub fn match_snippet(text: &str, query: &str) -> Option<String> {
 
 /// Where `query` first appears in `text`, ignoring case.
 pub fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
+    // Comparing char by char lowercases every character of every message,
+    // which is slow over a long history. For a plain ASCII query the bytes
+    // can be compared instead: the only other character whose lowercase is
+    // ASCII is the Kelvin sign, so text that has one takes the slow way.
+    if !query.is_empty() && query.is_ascii() && !text.contains(KELVIN) {
+        return text
+            .as_bytes()
+            .windows(query.len())
+            .position(|w| w.eq_ignore_ascii_case(query.as_bytes()))
+            .map(|at| at..at + query.len());
+    }
     text.char_indices().find_map(|(start, _)| {
         let mut rest = text[start..].char_indices();
         for wanted in query.chars() {
@@ -66,5 +79,20 @@ mod tests {
         assert!(snippet.contains("Kimpton"));
         assert_eq!(find_ignoring_case("ÉCOLE", "école"), Some(0..6));
         assert_eq!(match_snippet("no match", "boiler"), None);
+    }
+
+    #[test]
+    fn ascii_queries_match_like_any_other() {
+        assert_eq!(
+            find_ignoring_case("Deploy the SERVER", "server"),
+            Some(11..17)
+        );
+        assert_eq!(find_ignoring_case("naïve Server", "server"), Some(7..13));
+        assert_eq!(find_ignoring_case("short", "longer than it"), None);
+        // The Kelvin sign lowercases to k, so it still matches.
+        assert_eq!(
+            find_ignoring_case("10 \u{212A}elvin", "kelvin"),
+            Some(3..11)
+        );
     }
 }

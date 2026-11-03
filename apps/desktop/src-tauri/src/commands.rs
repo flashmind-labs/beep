@@ -185,9 +185,9 @@ pub(crate) async fn answer_chat(
     followed
 }
 
-/// What the orb's approval card shows, if live mode waits on one.
+/// The approvals the orb's card shows while live mode is on, oldest first.
 #[tauri::command]
-pub fn live_approval(voice: State<'_, Arc<Voice>>) -> Option<Waiting> {
+pub fn live_approval(voice: State<'_, Arc<Voice>>) -> Vec<Waiting> {
     voice.waiting()
 }
 
@@ -704,6 +704,8 @@ pub struct Settings {
     notice_voice: NoticeVoice,
     /// In live mode a pause sends, rather than only "send".
     send_on_pause: bool,
+    /// Coding agents notify when they ask or finish a turn.
+    agent_notices: bool,
 }
 
 #[tauri::command]
@@ -714,6 +716,7 @@ pub fn settings(app: AppHandle, beep: Service<'_>) -> Settings {
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         notice_voice: beep.notice_voice(),
         send_on_pause: beep.send_on_pause(),
+        agent_notices: beep.agent_notices(),
     }
 }
 
@@ -728,6 +731,12 @@ pub fn set_notice_voice(beep: Service<'_>, choice: NoticeVoice) {
 pub fn set_send_on_pause(beep: Service<'_>, voice: State<'_, Arc<Voice>>, enabled: bool) {
     beep.set_send_on_pause(enabled);
     voice.set_end_mode();
+}
+
+/// Whether coding agents notify when they ask or finish a turn.
+#[tauri::command]
+pub fn set_agent_notices(beep: Service<'_>, enabled: bool) {
+    beep.set_agent_notices(enabled);
 }
 
 /// A tap in the live view: interrupts Beep, or leaves while listening.

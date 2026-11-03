@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { asOf, harnessLine, hasUsage, money, periods, planName, planUsed, resetName, shortName, tokenCount, unpricedLine, windowName, windowUsed, type Period, type UsageView } from "../src/usage.ts";
+import { asOf, harnessLine, harnessName, hasUsage, projectExtra, money, periods, planName, planUsed, resetName, shortName, tokenCount, unpricedLine, windowName, windowUsed, type Period, type UsageView } from "../src/usage.ts";
 
 const none: Period = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
 const empty: UsageView = { limits: [], today: none, week: none, month: none };
@@ -56,6 +56,16 @@ test("the month shows only when the server keeps it", () => {
 test("a harness shows dollars only when it reports them", () => {
   assert.equal(harnessLine({ agent: "claude", cost_usd: 1.75, tokens: 5_000, models: [] }), "$1.75 · 5K tokens");
   assert.equal(harnessLine({ agent: "codex", cost_usd: null, tokens: 900_000, models: [] }), "0.9M tokens");
+});
+
+test("subscription use shows as tokens under its own line", () => {
+  const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 1_023_500_000, models: [] };
+  assert.equal(harnessName(covered), "Claude Code, subscription");
+  assert.equal(harnessLine(covered), "1023.5M tokens");
+  assert.equal(harnessLine({ ...covered, cost_usd: 361.58 }), "1023.5M tokens");
+  const project = { project: "widget", cost_usd: 2.1, unpriced: [], metered_tokens: 800_000, subscription: [{ name: "claude", tokens: 210_000_000 }] };
+  assert.equal(projectExtra(project, true), "0.8M API tokens · 210M subscription tokens");
+  assert.equal(projectExtra({ ...project, unpriced: [{ name: "codex", tokens: 1_100_000 }] }, false), "1.1M Codex tokens");
 });
 
 test("the pill hides with nothing to show or an old server", () => {

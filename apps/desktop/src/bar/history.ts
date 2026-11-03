@@ -1,5 +1,5 @@
 import { askFiles } from "./attach.ts";
-import { approvalCard, body, drawLatest, drawSteps, failed, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
+import { answeredTurns, approvalCard, body, drawLatest, drawSteps, failed, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
 import { $$, changed, esc, h, invoke, live, queued, S, windowHooks } from "./core.ts";
 import type { ChatBody, Step, Turn } from "./core.ts";
@@ -78,6 +78,9 @@ export async function refreshSession(id: string) {
 }
 
 export function drawHistory(id: string, turns: HistoryTurn[]) {
+  // Approvals answered here stay gone until the server stops listing them.
+  const asking = new Set(answeredTurns.keep(id, turns.flatMap(t => t.role === "approval" ? [t.query_id] : []), q => q));
+  turns = turns.filter(t => t.role !== "approval" || asking.has(t.query_id));
   const b = body()!;
   b.innerHTML = "";
   let turn: Turn | null = null, last: { turn: Turn; replies: string[] } | null = null;

@@ -3,7 +3,9 @@
 //! pass is bounded in files and bytes; what is left waits for the next.
 
 use super::{
-    Line, claude, codex, databases,
+    Line,
+    billing::{AccountFiles, Accounts},
+    claude, codex, databases,
     ledger::{Database, Ledger, LogFile, Part, SessionKey, Stamp},
     pi,
 };
@@ -40,17 +42,33 @@ pub(crate) struct Roots {
     pub(crate) flsh: Option<PathBuf>,
     /// OpenCode's database, or its data folder of them.
     pub(crate) opencode: Option<PathBuf>,
+    /// The files that tell how each agent signs in.
+    pub(crate) accounts: AccountFiles,
 }
 
 impl Roots {
     pub(crate) fn locate() -> Self {
         let logs = LogRoots::locate();
+        let accounts = AccountFiles {
+            claude: crate::claude::config_dir(),
+            codex: logs.codex.as_ref().map(|home| home.join("auth.json")),
+            pi: logs.pi_agent.as_ref().map(|dir| dir.join("auth.json")),
+            opencode: logs.opencode.as_deref().map(|root| {
+                let data = if root.is_file() {
+                    root.parent().unwrap_or(root)
+                } else {
+                    root
+                };
+                data.join("auth.json")
+            }),
+        };
         Self {
             claude: crate::claude::projects_dir(),
             codex: logs.codex.map(|home| home.join("sessions")),
             pi: logs.pi,
             flsh: logs.flsh,
             opencode: logs.opencode,
+            accounts,
         }
     }
 }
@@ -64,6 +82,7 @@ struct Listed {
 
 /// Reads what changed, logs written since `since` (Unix seconds) only.
 pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
+    let accounts = &mut Accounts::read(&roots.accounts);
     let mut listed = list_logs(roots, since);
     let paths: HashSet<&Path> = listed.iter().map(|log| log.path.as_path()).collect();
     let before = ledger.logs.len();
@@ -82,7 +101,7 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
             .logs
             .entry(log.path.clone())
             .or_insert_with(|| LogFile::new(log.agent));
-        match read_log(entry, &log, &mut budget) {
+        match read_log(entry, &log, &mut budget, accounts) {
             Ok(touched) => {
                 ledger.changed = true;
                 ledger
@@ -95,7 +114,7 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
             Err(e) => log::debug!("agent log not read; path={} error={e}", log.path.display()),
         }
     }
-    read_databases(ledger, roots, since);
+    read_databases(ledger, roots, since, accounts);
 }
 
 /// Every log of every agent written since `since`.
@@ -180,7 +199,12 @@ fn collect(
 
 /// Reads what `log` gained since `entry` last read it, at most `budget`
 /// bytes, which it takes down. The sessions it added to.
-fn read_log(entry: &mut LogFile, log: &Listed, budget: &mut u64) -> io::Result<BTreeSet<String>> {
+fn read_log(
+    entry: &mut LogFile,
+    log: &Listed,
+    budget: &mut u64,
+    accounts: &mut Accounts,
+) -> io::Result<BTreeSet<String>> {
     let mut touched = BTreeSet::new();
     if log.stamp.len < entry.read {
         // Rewritten shorter: read it again from the start.
@@ -222,7 +246,7 @@ fn read_log(entry: &mut LogFile, log: &Listed, budget: &mut u64) -> io::Result<B
             continue;
         };
         if let Some(parsed) = parse(log.agent, text)
-            && let Some(session) = entry.take(parsed)
+            && let Some(session) = entry.take(parsed, accounts)
         {
             touched.insert(session);
         }
@@ -302,7 +326,7 @@ fn database_stamp(path: &Path) -> io::Result<Stamp> {
 }
 
 /// Reads each database that changed again, whole from `since`.
-fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64) {
+fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut Accounts) {
     let listed = list_databases(roots);
     let paths: HashSet<&Path> = listed.iter().map(|(_, path)| path.as_path()).collect();
     let before = ledger.databases.len();
@@ -320,8 +344,8 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64) {
             continue;
         }
         let read = match agent {
-            Agent::OpenCode => databases::opencode(path, since),
-            _ => databases::flsh(path, since),
+            Agent::OpenCode => databases::opencode(path, since, accounts),
+            _ => databases::flsh(path, since, accounts),
         };
         let entry = ledger.databases.entry(path.clone()).or_insert(Database {
             agent: Some(*agent),

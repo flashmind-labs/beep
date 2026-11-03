@@ -41,8 +41,11 @@ import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { makeFileSync, fileSyncTile } from "./filesync.ts";
+import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace, makeCustomAgents } from "./customagents.ts";
 import { makeThreads, issueTile, threadTile, issueBranch, issuePrompt, prPrompt } from "./threads.ts";
 import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow } from "./threads.ts";
+import { fixPrompt, makeRuns, runTarget } from "./runs.ts";
+import type { RunDetail } from "./runs.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
 import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
@@ -642,11 +645,15 @@ function dismissUpdates(ids: number[]) {
   });
 }
 
-/// Starts a new chat with the update's summary in the composer, not sent.
+/// Opens the update's chat, where Beep's first message tells it and the
+/// user replies; the same chat each time. A server too old to make one
+/// gets a new chat with the summary in the composer instead.
 async function openUpdate(u: UpdateRow) {
   dismissUpdates([u.id]);
-  go("pane", { chat: { session: null } });
   try {
+    const session = await invoke<string | null>("center_open_update_chat", { id: u.id });
+    if (session) return go("pane", { chat: { session } });
+    go("pane", { chat: { session: null } });
     await pane.draft(u.summary);
   } catch (e) {
     console.warn("opening an update:", e);
@@ -1884,7 +1891,31 @@ function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), agentsSection(running)), whereSection(p, rows, !!machines)];
+  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))), whereSection(p, rows, !!machines)];
+}
+
+/// The project's custom agents: the named agents its folder defines for
+/// each harness on one machine, and the user's own there.
+const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent });
+
+/// "Custom agents", read on this Mac's checkout or else the first machine
+/// with one. Named apart from "Agents", the ones running now.
+function customAgentsSection(rows: WhereRow[]) {
+  const place = agentsPlace(rows);
+  const { body, note, count } = cags.view(place);
+  return section("sec-custom-agents", "Custom agents", count || "", place ? button("Reload", "quiet small", () => cags.reload(place)) : null, body,
+    note && h("small", "", note));
+}
+
+/// Start on a custom agent: the bar on the machine it was read on, with
+/// its harness picked and "Use the <name> agent to " to finish.
+function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
+  const name = state.picked;
+  if (!name) return;
+  if (pc.project !== name) drawProjectComp(name);
+  pc.machine = place.id;
+  pc.picked.agent = a.harness;
+  fillBar(name, agentPrompt(a.name), null);
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -1965,7 +1996,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     prs: () => [thr.prsSection(agent, repoActs(p)), ...thr.threadsPanel(agent)],
     issues: () => [thr.issuesSection(agent, repoActs(p))],
     machines: () => [whereSection(p, rows, known)],
-    agents: () => [agentsSection(running), sessionsSection(p, running)],
+    agents: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
     sync: () => fsync.panel(p.name),
     branches: () => revs.branchesPanel(p.name),
@@ -2067,6 +2098,21 @@ const thr = makeThreads({
   kept: keptSection("threads"),
 });
 
+/// The project's workflow runs: the Actions section and each PR's checks.
+const runs = makeRuns({
+  invoke, h, button,
+  redraw: () => redrawProjects(),
+  openUrl,
+  fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+});
+
+/// Every 10 seconds while a project page shows: the runs move on, but only
+/// while one goes.
+function tickRepo(name: string) {
+  const agent = agentFor(state.agents, name);
+  if (agent) runs.tick(agent.project_id);
+}
+
 /// The Projects page's element.
 function projectsEl() { return views.get("projects")!.el; }
 
@@ -2132,6 +2178,7 @@ async function act(id: string, call: () => Promise<unknown>) {
 /// Review opens a branch's review, Work on it and Continue fill the bar.
 function repoActs(p: Project): RepoActs {
   const view = state.pview.get(p.name)?.view;
+  const agent = agentFor(state.agents, p.name);
   revs.ensure(p.name);
   return {
     tasks: view?.tasks ?? [],
@@ -2139,16 +2186,22 @@ function repoActs(p: Project): RepoActs {
     review: agentActs.review,
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
+    checks: agent ? runs.checks(agent.project_id) : null,
+    showRun: (run: number) => {
+      if (!agent) return;
+      runs.show(agent.project_id, run);
+      document.getElementById("sec-actions")?.scrollIntoView({ block: "nearest" });
+    },
   };
 }
 
-/// The repository's open pull requests and issues, under the tasks of a
-/// project with an agent.
+/// The repository's open pull requests and issues, then its workflow runs
+/// across the page, under the tasks of a project with an agent.
 function repoSections(p: Project): Node[] {
   const agent = p.imported ? agentFor(state.agents, p.name) : null;
   if (!agent) return [];
   const acts = repoActs(p);
-  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts))];
+  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts)), runs.section(agent)];
 }
 
 /// The cards the project chat waits on, then Tasks beside Workers, above
@@ -2375,7 +2428,7 @@ function barExisting(name: string, place: { machine_id: string; cwd: string }) {
 
 /// Fills the bar for project `name` with `text` and `target`, on the
 /// machine last picked, and brings it into view.
-function fillBar(name: string, text: string, target: BarTarget) {
+function fillBar(name: string, text: string, target: BarTarget | null) {
   if (pc.project !== name) drawProjectComp(name);
   pc.target = target;
   projectComp.input.value = text;
@@ -2402,6 +2455,12 @@ async function continuePr(name: string, pr: PullRequestRow) {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
   fillBar(name, prPrompt(pr), { kind: "pr", number: pr.number, branch: head.branch });
+}
+
+/// Fix this: the bar on the failed run's branch (a new branch when it ran
+/// on the default branch), with the failure and its log in the prompt.
+function fixRun(name: string, detail: RunDetail) {
+  fillBar(name, fixPrompt(detail), runTarget(detail.run, baseFor(null, pc.branches.get(name))));
 }
 
 /// The picker above the bar, when open.
@@ -3086,7 +3145,8 @@ export function openSettings(section?: string) {
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
   const keys = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); closeSettings(); }
+    // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
+    if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
     else if (e.metaKey && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
     e.stopImmediatePropagation();
@@ -3095,20 +3155,56 @@ export function openSettings(section?: string) {
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
   sheet.focus();
-  pane.settings(sheet)
-    .then(() => { if (section) showSection(scrim, section); })
-    .catch(e => console.warn("settings:", e));
+  pane.settings(sheet, section).catch(e => console.warn("settings:", e));
 }
 
-/// Scrolls the open sheet to `section`, such as "machines".
+/// Shows page `section` of the open sheet, such as "machines".
 function showSection(scrim: HTMLElement, section: string) {
   scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
+}
+
+/// A window view the Settings sheet draws in its right pane, such as
+/// Coding agents under Agent accounts, and where its header buttons go.
+let embedded: { name: string; tools?: (nodes: Node[]) => void } | null = null;
+
+/// Mounts view `name` into `root` in the sheet. What it returns mounts the
+/// view back into its own element when the window shows it.
+function embedView(name: string, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void) {
+  const view = views.get(name);
+  if (!view) return () => {};
+  const mine = { name, tools };
+  unembed();
+  embedded = mine;
+  view.mount(root, arg as ViewArg);
+  drawEmbedTools();
+  return () => {
+    if (embedded !== mine) return;
+    unembed();
+  };
+}
+
+function unembed() {
+  const was = embedded;
+  embedded = null;
+  if (was && shown === was.name) {
+    const view = views.get(was.name)!;
+    view.mount(view.el, shownArg);
+    drawTop();
+  }
+}
+
+function drawEmbedTools() {
+  const view = embedded?.tools && views.get(embedded.name);
+  if (!view) return;
+  const head = typeof view.title === "function" ? view.title() : null;
+  embedded!.tools!(head?.tools ?? []);
 }
 
 export function closeSettings() {
   if (!settingsOpen) return;
   const { scrim, keys, back } = settingsOpen;
   settingsOpen = null;
+  unembed();
   window.removeEventListener("keydown", keys, true);
   scrim.remove();
   if (back?.isConnected) back.focus();
@@ -3127,7 +3223,10 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
-registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => { if (shown === "providers") drawTop(); } });
+registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => {
+  if (shown === "providers") drawTop();
+  if (embedded?.name === "providers") drawEmbedTools();
+} });
 
 // ---------- Keys ----------
 
@@ -3196,6 +3295,7 @@ pane.connect({
     closeSettings();
     if (view) go("pane", view);
   },
+  embedView,
   newChat: newChatHere,
   goBack: (from: BackTo) => go(from.view, from.arg as ViewArg),
   chatTop(session) {
@@ -3255,6 +3355,7 @@ async function refresh() {
     drawTop();
     if (state.picked) {
       loadProjectAgent();
+      tickRepo(state.picked);
       const p = filterProjects(projectRows() || [], state.picked)[0];
       if (p && boardOn(p) && onScreen()) terms.load(state.picked);
     } else {

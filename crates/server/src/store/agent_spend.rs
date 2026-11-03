@@ -10,14 +10,14 @@ use super::{
 use crate::{
     protocol::{
         AgentSlug, ModelId,
-        node::usage::{MAX_SESSION_HOURS, SessionSpend},
+        node::usage::{Billing, MAX_SESSION_HOURS, SessionSpend},
     },
     user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use iroh::EndpointId;
-use sqlx::Row;
+use sqlx::{Row, postgres::PgRow};
 
 /// The longest agent, model or session name kept, and the longest folder.
 const MAX_NAME: usize = 200;
@@ -53,6 +53,8 @@ pub(crate) struct DaySpendRow {
     pub(crate) cwd: String,
     pub(crate) agent: AgentSlug,
     pub(crate) day: NaiveDate,
+    /// How it was paid for; `Unknown` for the turns Beep watched.
+    pub(crate) billing: Billing,
     /// `None` when none of it was priced.
     pub(crate) cost_usd: Option<f64>,
     pub(crate) tokens: u64,
@@ -65,9 +67,15 @@ pub(crate) struct DayModelRow {
     pub(crate) agent: AgentSlug,
     pub(crate) model: ModelId,
     pub(crate) day: NaiveDate,
+    /// How it was paid for; `Unknown` for the turns Beep watched.
+    pub(crate) billing: Billing,
     pub(crate) tokens: u64,
     /// From the agents' logs, rather than the turns Beep watched.
     pub(crate) from_logs: bool,
+}
+
+fn billing_of(row: &PgRow) -> Result<Billing> {
+    Ok(Billing::from_name(&row.try_get::<String, _>("billing")?))
 }
 
 fn name(what: &str, value: &str, max: usize) -> Result<()> {
@@ -106,6 +114,7 @@ impl Store {
         let mut cache_write = Vec::new();
         let mut costs = Vec::new();
         let mut unpriced = Vec::new();
+        let mut billings = Vec::new();
         for hour in &spend.hours {
             let Some(at) = i64::try_from(hour.hour)
                 .ok()
@@ -129,6 +138,7 @@ impl Store {
             cache_write.push(i64::try_from(hour.cache_write_tokens)?);
             costs.push(hour.cost_usd);
             unpriced.push(i64::try_from(hour.unpriced_tokens)?);
+            billings.push(hour.billing.as_str());
         }
         let mut tx = self.pool.begin().await?;
         sqlx::query(
@@ -145,13 +155,15 @@ impl Store {
         sqlx::query(
             "INSERT INTO agent_session_usage (user_id, endpoint_id, agent, session, cwd, hour,
                  model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                 cost_usd, unpriced_tokens)
+                 cost_usd, unpriced_tokens, billing)
              SELECT $1, $2, $3, $4, $5, h.hour, h.model, h.input, h.output, h.cache_read,
-                 h.cache_write, h.cost, h.unpriced
+                 h.cache_write, h.cost, h.unpriced, h.billing
              FROM UNNEST($6::timestamptz[], $7::text[], $8::bigint[], $9::bigint[],
-                 $10::bigint[], $11::bigint[], $12::float8[], $13::bigint[])
-                 AS h(hour, model, input, output, cache_read, cache_write, cost, unpriced)
-             ON CONFLICT (user_id, endpoint_id, agent, session, hour, model) DO UPDATE SET
+                 $10::bigint[], $11::bigint[], $12::float8[], $13::bigint[], $14::text[])
+                 AS h(hour, model, input, output, cache_read, cache_write, cost, unpriced,
+                     billing)
+             ON CONFLICT (user_id, endpoint_id, agent, session, hour, model, billing)
+             DO UPDATE SET
                  cwd=excluded.cwd, input_tokens=excluded.input_tokens,
                  output_tokens=excluded.output_tokens,
                  cache_read_tokens=excluded.cache_read_tokens,
@@ -171,6 +183,7 @@ impl Store {
         .bind(&cache_write)
         .bind(&costs)
         .bind(&unpriced)
+        .bind(&billings)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -195,8 +208,8 @@ impl Store {
     }
 
     /// What the user's agents spent each day of `periods`, by machine,
-    /// folder and agent: from the logs, and from the turns Beep watched of
-    /// sessions no log covers that day.
+    /// folder, agent and billing: from the logs, and from the turns Beep
+    /// watched of sessions no log covers that day.
     pub(crate) async fn day_spend(
         &self,
         user: &UserKey,
@@ -205,7 +218,7 @@ impl Store {
         let rows = sqlx::query(&format!(
             "WITH tz AS (SELECT {TIMEZONE} AS name),
              h AS (
-                 SELECT s.endpoint_id, s.cwd, s.agent, s.session,
+                 SELECT s.endpoint_id, s.cwd, s.agent, s.session, s.billing,
                      (s.hour AT TIME ZONE tz.name)::date AS day,
                      SUM(s.cost_usd) AS cost,
                      SUM(s.input_tokens + s.output_tokens + s.cache_read_tokens
@@ -213,15 +226,15 @@ impl Store {
                      SUM(s.unpriced_tokens) AS unpriced
                  FROM agent_session_usage s, tz
                  WHERE s.user_id=$1 AND s.hour >= ($2::date::timestamp AT TIME ZONE tz.name)
-                 GROUP BY 1, 2, 3, 4, 5)
-             SELECT endpoint_id, cwd, agent, day, SUM(cost) AS cost,
+                 GROUP BY 1, 2, 3, 4, 5, 6)
+             SELECT endpoint_id, cwd, agent, billing, day, SUM(cost) AS cost,
                  SUM(tokens)::BIGINT AS tokens, SUM(unpriced)::BIGINT AS unpriced
              FROM (
-                 SELECT endpoint_id, cwd, agent, day,
+                 SELECT endpoint_id, cwd, agent, billing, day,
                      CASE WHEN tokens > unpriced THEN cost END AS cost, tokens, unpriced
                  FROM h
                  UNION ALL
-                 SELECT u.endpoint_id, u.cwd, u.agent, u.day, u.cost_usd, u.tokens,
+                 SELECT u.endpoint_id, u.cwd, u.agent, 'unknown', u.day, u.cost_usd, u.tokens,
                      u.unpriced_tokens
                  FROM agent_usage u
                  WHERE u.user_id=$1 AND u.day >= $2 AND NOT EXISTS (
@@ -229,7 +242,7 @@ impl Store {
                          AND h.session=u.agent_session AND h.day=u.day)
              ) x
              WHERE day >= $2 AND day <= $3
-             GROUP BY endpoint_id, cwd, agent, day"
+             GROUP BY endpoint_id, cwd, agent, billing, day"
         ))
         .bind(user.as_str())
         .bind(periods.start())
@@ -243,6 +256,7 @@ impl Store {
                     cwd: row.try_get("cwd")?,
                     agent: agent_of(row)?,
                     day: row.try_get("day")?,
+                    billing: billing_of(row)?,
                     cost_usd: row.try_get("cost")?,
                     tokens: u64::try_from(row.try_get::<i64, _>("tokens")?)?,
                     unpriced_tokens: u64::try_from(row.try_get::<i64, _>("unpriced")?)?,
@@ -260,16 +274,17 @@ impl Store {
     ) -> Result<Vec<DayModelRow>> {
         let rows = sqlx::query(&format!(
             "WITH tz AS (SELECT {TIMEZONE} AS name)
-             SELECT agent, model, day, tokens, from_logs FROM (
-                 SELECT s.agent, s.model, (s.hour AT TIME ZONE tz.name)::date AS day,
+             SELECT agent, model, billing, day, tokens, from_logs FROM (
+                 SELECT s.agent, s.model, s.billing,
+                     (s.hour AT TIME ZONE tz.name)::date AS day,
                      SUM(s.input_tokens + s.output_tokens + s.cache_read_tokens
                          + s.cache_write_tokens)::BIGINT AS tokens,
                      true AS from_logs
                  FROM agent_session_usage s, tz
                  WHERE s.user_id=$1 AND s.hour >= ($2::date::timestamp AT TIME ZONE tz.name)
-                 GROUP BY 1, 2, 3
+                 GROUP BY 1, 2, 3, 4
                  UNION ALL
-                 SELECT agent, model, day, tokens, false FROM agent_model_usage
+                 SELECT agent, model, 'unknown', day, tokens, false FROM agent_model_usage
                  WHERE user_id=$1 AND day >= $2
              ) x
              WHERE day >= $2 AND day <= $3
@@ -286,6 +301,7 @@ impl Store {
                     agent: agent_of(row)?,
                     model: ModelId::new(row.try_get::<String, _>("model")?),
                     day: row.try_get("day")?,
+                    billing: billing_of(row)?,
                     tokens: u64::try_from(row.try_get::<i64, _>("tokens")?)?,
                     from_logs: row.try_get("from_logs")?,
                 })
