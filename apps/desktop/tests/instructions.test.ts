@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, agentName, mineLayer } from "../src/instructions-state.ts";
+import { sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, agentName, mineLayer } from "../src/instructions-state.ts";
 
 test("an agent file loses Beep's own block when imported", () => {
   const file = "# Mine\n- Run the checks.\n\n<!-- beep:start -->\n- Write plainly.\n<!-- beep:end -->\n\n## After\n";
@@ -36,6 +36,26 @@ test("a machine is synced when every agent file on it is", () => {
   assert.deepEqual(syncSummary(read), { machines: 2, synced: 1 });
   assert.equal(fileState({ synced: false, text: null }).text, "Not written yet");
   assert.equal(fileState({ synced: false, text: "x" }).cls, "warn");
+  assert.equal(fileState({ synced: true, text: "x" }).text, "Synced");
+});
+
+test("before the first save no file is out of sync", () => {
+  // Nothing saved means nothing to write: neutral states, never a warning.
+  assert.deepEqual(fileState({ synced: false, text: null }, false), { cls: "", text: "Not written yet" });
+  assert.deepEqual(fileState({ synced: false, text: "# Mine\n" }, false), { cls: "", text: "Has its own text" });
+  assert.equal(fileState({ synced: false, text: "# Mine\n" }, true).text, "Not synced");
+});
+
+test("write to all machines picks the machines that miss the newest version", () => {
+  const file = (synced: boolean) => ({ agent: "claude", path: "~/.claude/CLAUDE.md", text: "x", synced });
+  const m = (machine_id: string, files: ReturnType<typeof file>[], error: string | null = null) => ({ machine_id, machine_name: machine_id, files, error });
+  assert.deepEqual(behind([
+    m("build-box", [file(true), file(false)]),
+    m("mac-box", [file(true)]),
+    m("gpu-box", [], "offline"),
+    m("win-box", []),
+  ]), ["build-box"]);
+  assert.deepEqual(behind(null), []);
 });
 
 test("the layer for your instructions says which version and where", () => {
