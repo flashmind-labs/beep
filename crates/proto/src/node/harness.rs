@@ -6,6 +6,10 @@
 //! Like the rest of the node link these are msgpack maps, so either side
 //! may add a field with `#[serde(default)]`.
 
+mod output;
+
+pub use output::{clean_output, failure_line};
+
 use super::EnvSecret;
 use serde::{Deserialize, Serialize};
 
