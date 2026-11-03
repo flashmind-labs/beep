@@ -464,6 +464,13 @@ pub enum SessionsRequest {
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
+    /// The custom agents the harnesses define for the project folder
+    /// `folder` and in the node's home, as `ListCustomAgents` asks them.
+    /// Answered with `CustomAgents`, or `Error` saying why. A node from
+    /// before it closes the stream.
+    CustomAgents {
+        folder: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -544,6 +551,10 @@ pub enum SessionsReply {
     /// The answer to `WriteFile`: the path inside the root it writes to.
     Written {
         path: String,
+    },
+    /// The answer to `CustomAgents`.
+    CustomAgents {
+        agents: Vec<crate::CustomAgent>,
     },
 }
 

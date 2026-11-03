@@ -107,7 +107,9 @@ async fn other_users_cannot_list_track_or_dismiss_issues() {
     let h = harness().await;
     let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
     let project = ProjectId(agent.project_id);
-    assert!(is_not_found(project_issues(&h.app, &h.bob, project).await));
+    assert!(is_not_found(
+        super::super::project_watch::copied_issues(&h.app, &h.bob, project).await
+    ));
     let start = IssueStart {
         agent: "claude".to_owned(),
         node_id: None,
@@ -121,7 +123,7 @@ async fn other_users_cannot_list_track_or_dismiss_issues() {
     assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
     // Alice's own project without a host lists nothing.
     assert!(
-        project_issues(&h.app, &h.alice, project)
+        super::super::project_watch::copied_issues(&h.app, &h.alice, project)
             .await
             .unwrap()
             .is_empty()
