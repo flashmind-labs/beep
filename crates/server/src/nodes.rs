@@ -52,6 +52,7 @@ mod sync;
 mod tasks;
 mod terminals;
 pub mod transfer;
+mod update;
 mod usage;
 mod webhook;
 

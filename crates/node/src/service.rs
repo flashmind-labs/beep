@@ -233,6 +233,16 @@ pub fn restart(exe: &Path) -> Result<Restart> {
     }
 }
 
+/// What `restart` would do for `exe`, without doing it.
+pub fn restart_plan(exe: &Path) -> Result<Restart> {
+    match env::consts::OS {
+        "linux" => systemd::plan(exe),
+        "macos" => launchd::plan(exe),
+        "windows" => windows::plan(exe),
+        _ => Ok(Restart::NotInstalled),
+    }
+}
+
 impl Manager {
     /// The command that starts the installed service, for a hint.
     pub fn start_command(self) -> &'static str {

@@ -32,6 +32,7 @@ pub mod sync;
 pub mod terminal;
 pub mod tools;
 pub mod transfer;
+pub mod update;
 pub mod usage;
 pub mod webhook;
 
@@ -449,6 +450,15 @@ impl LinkTx {
     pub async fn send<T: Serialize>(&mut self, message: &T) -> Result<()> {
         let body = rmp_serde::to_vec_named(message)?;
         self.0.send(body.into()).await?;
+        Ok(())
+    }
+
+    /// Finishes the stream and waits until the peer read all of it or
+    /// stopped reading.
+    pub async fn finish(self) -> Result<()> {
+        let mut send = self.0.into_inner();
+        send.finish()?;
+        send.stopped().await?;
         Ok(())
     }
 }

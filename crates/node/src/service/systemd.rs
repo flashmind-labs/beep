@@ -60,6 +60,15 @@ pub(super) fn uninstall() -> Result<()> {
 }
 
 pub(super) fn restart(exe: &Path) -> Result<Restart> {
+    let plan = plan(exe)?;
+    if matches!(plan, Restart::Restarted(_)) {
+        systemctl(&["restart", UNIT])?;
+    }
+    Ok(plan)
+}
+
+/// What `restart` would do, without doing it.
+pub(super) fn plan(exe: &Path) -> Result<Restart> {
     let path = unit_path()?;
     let unit = match fs::read_to_string(&path) {
         Ok(unit) => unit,
@@ -72,7 +81,6 @@ pub(super) fn restart(exe: &Path) -> Result<Restart> {
     if !active() {
         return Ok(Restart::Stopped(Manager::Systemd));
     }
-    systemctl(&["restart", UNIT])?;
     Ok(Restart::Restarted(Manager::Systemd))
 }
 

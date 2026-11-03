@@ -3,7 +3,11 @@
 //! `install.ps1` does on an upgrade, for the binary that is running wherever
 //! it lives: the same archives, checked against the release's `SHA256SUMS`.
 
-use crate::service::{self, Restart};
+use crate::{
+    link::{Protocol, Session},
+    service::{self, Restart},
+};
+use beep_proto::node::{LinkRx, LinkTx, update};
 use reqwest::{Client, StatusCode, Url};
 use rustls::{ClientConfig, RootCertStore};
 use sha2::{Digest, Sha256};
@@ -14,7 +18,10 @@ use std::{
     io::{self, Cursor, ErrorKind, Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering as AtomicOrdering},
+    },
     time::Duration,
 };
 use tokio::task::{JoinError, spawn_blocking};
@@ -235,10 +242,8 @@ impl Target {
 /// restarts its service. With `check`, only says whether there is one.
 pub async fn update(check: bool) -> Result<(), Error> {
     let base = base();
-    let current: Version = CURRENT.parse()?;
     let client = client()?;
-    let latest = fetch(&client, &url(&base, "latest.txt")?).await?;
-    let latest: Version = String::from_utf8_lossy(&latest).parse()?;
+    let Newest { current, latest } = newest(&client, &base).await?;
     match current.cmp(&latest) {
         Ordering::Equal => {
             println!("beep-node {current} is the newest");
@@ -254,7 +259,59 @@ pub async fn update(check: bool) -> Result<(), Error> {
         }
         Ordering::Less => {}
     }
+    println!(
+        "Downloading beep-node {latest} for {}",
+        Target::current()?.triple()
+    );
+    let exe = install(&client, &base, &latest).await?;
+    println!("Installed {}", exe.display());
 
+    let restarted = {
+        let exe = exe.clone();
+        spawn_blocking(move || service::restart(&exe)).await?
+    };
+    let restarted = restarted.map_err(|source| Error::Restart {
+        version: latest.clone(),
+        source,
+    })?;
+    println!("{}", said(&restarted, &latest));
+    Ok(())
+}
+
+/// What restarting did, in words for the user.
+fn said(restart: &Restart, latest: &Version) -> String {
+    match restart {
+        Restart::Restarted(_) => format!("Restarted the beep-node service on {latest}."),
+        Restart::Stopped(manager) => format!(
+            "The beep-node service is stopped, so it was left so. Start it on {latest} with:\n  {}",
+            manager.start_command()
+        ),
+        Restart::OtherBinary(file) => format!(
+            "The beep-node service ({}) runs another binary, so it was not restarted.",
+            file.display()
+        ),
+        Restart::NotInstalled => "beep-node is not installed as a service here, so nothing was \
+             restarted. A beep-node still running keeps the old version until it restarts."
+            .to_owned(),
+    }
+}
+
+/// This binary's version and the newest release's.
+struct Newest {
+    current: Version,
+    latest: Version,
+}
+
+async fn newest(client: &Client, base: &str) -> Result<Newest, Error> {
+    let current: Version = CURRENT.parse()?;
+    let latest = fetch(client, &url(base, "latest.txt")?).await?;
+    let latest: Version = String::from_utf8_lossy(&latest).parse()?;
+    Ok(Newest { current, latest })
+}
+
+/// Downloads `latest`, checks it against the release's `SHA256SUMS` and
+/// puts it in place of this binary, whose path it gives.
+async fn install(client: &Client, base: &str, latest: &Version) -> Result<PathBuf, Error> {
     let target = Target::current()?;
     let exe = env::current_exe()
         .and_then(|exe| exe.canonicalize())
@@ -267,10 +324,9 @@ pub async fn update(check: bool) -> Result<(), Error> {
     let probe = exe.clone();
     spawn_blocking(move || writable(&probe)).await??;
 
-    let archive = target.archive(&latest);
-    println!("Downloading beep-node {latest} for {}", target.triple());
-    let packed = fetch(&client, &url(&base, &format!("{latest}/{archive}"))?).await?;
-    let sums = fetch(&client, &url(&base, &format!("{latest}/SHA256SUMS"))?).await?;
+    let archive = target.archive(latest);
+    let packed = fetch(client, &url(base, &format!("{latest}/{archive}"))?).await?;
+    let sums = fetch(client, &url(base, &format!("{latest}/SHA256SUMS"))?).await?;
     let installed = exe.clone();
     spawn_blocking(move || {
         verify(&archive, &packed, &String::from_utf8_lossy(&sums))?;
@@ -278,32 +334,108 @@ pub async fn update(check: bool) -> Result<(), Error> {
         replace(&installed, &binary)
     })
     .await??;
-    println!("Installed {}", exe.display());
+    Ok(exe)
+}
 
-    let restarted = {
-        let exe = exe.clone();
-        spawn_blocking(move || service::restart(&exe)).await?
+/// Set while an update from Beep runs, so a second one is refused.
+static UPDATING: AtomicBool = AtomicBool::new(false);
+
+/// `update/1`: what `beep-node update` does, asked by the server. Only the
+/// CLI's node offers it.
+pub struct Updates;
+
+impl Protocol for Updates {
+    fn name(&self) -> &str {
+        update::PROTOCOL
+    }
+
+    fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
+        Box::pin(serve(tx, rx))
+    }
+}
+
+async fn serve(tx: LinkTx, mut rx: LinkRx) -> anyhow::Result<()> {
+    let Some(update::Request::Update {}) = rx.recv::<update::Request>().await? else {
+        return Ok(());
     };
-    let restarted = restarted.map_err(|source| Error::Restart {
+    if UPDATING.swap(true, AtomicOrdering::SeqCst) {
+        let mut tx = tx;
+        tx.send(&update::Event::Failed {
+            reason: "An update is already running on this machine.".into(),
+        })
+        .await?;
+        return tx.finish().await;
+    }
+    let done = remote().await;
+    UPDATING.store(false, AtomicOrdering::SeqCst);
+    let (event, restart) = match done {
+        Ok(Remote { event, restart }) => (event, restart),
+        Err(e) => {
+            // With its causes, as one line.
+            let reason = format!("{:#}", anyhow::Error::new(e));
+            log::warn!("update failed: {reason}");
+            (update::Event::Failed { reason }, None)
+        }
+    };
+    let mut tx = tx;
+    tx.send(&event).await?;
+    // The answer reaches the server before the restart drops the link.
+    if let Err(e) = tx.finish().await {
+        log::debug!("the server did not read the update's answer: {e:#}");
+    }
+    if let Some(exe) = restart {
+        log::info!("restarting the service on the new binary");
+        match spawn_blocking(move || service::restart(&exe)).await? {
+            Ok(_) => {}
+            Err(e) => log::warn!("the service did not restart: {e:#}"),
+        }
+    }
+    Ok(())
+}
+
+/// What an update from Beep did, and the binary to restart on when the
+/// service should.
+struct Remote {
+    event: update::Event,
+    restart: Option<PathBuf>,
+}
+
+async fn remote() -> Result<Remote, Error> {
+    let base = base();
+    let client = client()?;
+    let Newest { current, latest } = newest(&client, &base).await?;
+    if current >= latest {
+        return Ok(Remote {
+            event: update::Event::Newest {
+                version: current.to_string(),
+            },
+            restart: None,
+        });
+    }
+    log::info!("updating beep-node {current} to {latest}");
+    let exe = install(&client, &base, &latest).await?;
+    let plan = {
+        let exe = exe.clone();
+        spawn_blocking(move || service::restart_plan(&exe)).await?
+    }
+    .map_err(|source| Error::Restart {
         version: latest.clone(),
         source,
     })?;
-    match restarted {
-        Restart::Restarted(_) => println!("Restarted the beep-node service on {latest}."),
-        Restart::Stopped(manager) => println!(
-            "The beep-node service is stopped, so it was left so. Start it on {latest} with:\n  {}",
-            manager.start_command()
-        ),
-        Restart::OtherBinary(file) => println!(
-            "The beep-node service ({}) runs another binary, so it was not restarted.",
-            file.display()
-        ),
-        Restart::NotInstalled => println!(
-            "beep-node is not installed as a service here, so nothing was restarted. \
-             A beep-node still running keeps the old version until it restarts."
-        ),
-    }
-    Ok(())
+    let restarting = matches!(plan, Restart::Restarted(_));
+    Ok(Remote {
+        event: update::Event::Installed {
+            from: current.to_string(),
+            to: latest.to_string(),
+            restarting,
+            note: if restarting {
+                String::new()
+            } else {
+                said(&plan, &latest)
+            },
+        },
+        restart: restarting.then_some(exe),
+    })
 }
 
 /// The release folder, without a trailing slash.

@@ -11,6 +11,7 @@ use crate::{
     router::Cx,
     store::NodeRow,
 };
+use futures::{StreamExt, stream::FuturesOrdered};
 use iroh::EndpointId;
 use std::collections::HashSet;
 
@@ -60,6 +61,95 @@ pub(super) async fn remove_machine(
         return Err(ApiError::NotFound {});
     }
     unlink(&cx, key).await
+}
+
+/// Has one of the caller's online machines update its beep-node. Another
+/// account's machine is `NotFound`, as one that does not exist.
+pub(super) async fn update_machine(
+    cx: Cx,
+    UpdateMachine {
+        machine_id,
+        stop_sessions,
+    }: UpdateMachine,
+) -> Reply<MachineUpdate> {
+    let owned = cx
+        .user
+        .nodes()
+        .await?
+        .into_iter()
+        .find(|node| node.endpoint == machine_id)
+        .ok_or(ApiError::NotFound {})?;
+    let online = cx
+        .app
+        .nodes
+        .online(&machine_id)
+        .filter(|online| online.user == cx.user.id())
+        .ok_or_else(|| ApiError::bad_request(format!("{} is offline.", owned.name)))?;
+    if !online.updatable() {
+        return Err(ApiError::bad_request(format!(
+            "This beep-node cannot be updated from Beep. Run `beep-node update` on {}.",
+            owned.name
+        )));
+    }
+    if !stop_sessions {
+        match online.running_agent_sessions().await {
+            Ok(0) => {}
+            Ok(running) => return Err(ApiError::bad_request(sessions_stop(running))),
+            Err(e) => {
+                log::info!("agent sessions not counted; node={machine_id} error={e:#}");
+                return Err(ApiError::bad_request(
+                    "Could not tell whether agent sessions are running there; they would stop.",
+                ));
+            }
+        }
+    }
+    let updated = online.update().await.map_err(|e| {
+        log::info!("node update failed; node={machine_id} error={e:#}");
+        ApiError::bad_request(format!("{e:#}"))
+    })?;
+    log::info!(
+        "node updated; node={machine_id} from={} to={} restarting={}",
+        updated.from,
+        updated.to,
+        updated.restarting
+    );
+    Ok(MachineUpdate {
+        from: updated.from,
+        to: updated.to,
+        restarting: updated.restarting,
+        note: updated.note,
+    })
+}
+
+/// The caller's online machines that `update_machine` can update.
+pub(super) async fn list_updatable_machines(
+    cx: Cx,
+    _: ListUpdatableMachines,
+) -> Reply<Vec<UpdatableMachine>> {
+    Ok(cx
+        .app
+        .nodes
+        .of_user(cx.user.id())
+        .into_iter()
+        .filter(|online| online.updatable())
+        .map(|online| async move {
+            UpdatableMachine {
+                id: online.connection.remote_id().to_string(),
+                // Uncounted, the update itself asks.
+                agent_sessions: online.running_agent_sessions().await.unwrap_or(0),
+            }
+        })
+        .collect::<FuturesOrdered<_>>()
+        .collect()
+        .await)
+}
+
+/// What an update would stop, as the refusal says it.
+fn sessions_stop(running: u32) -> String {
+    match running {
+        1 => "1 agent session is running and will stop.".to_owned(),
+        n => format!("{n} agent sessions are running and will stop."),
+    }
 }
 
 /// The caller's own machines, like `list_machines`. A machine that has

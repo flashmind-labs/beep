@@ -74,7 +74,7 @@ use location::{
 };
 use machines::{
     create_node_token, get_node_token, list_machine_details, list_machine_stats, list_machines,
-    remove_machine, revoke_node_token,
+    list_updatable_machines, remove_machine, revoke_node_token, update_machine,
 };
 use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
@@ -284,6 +284,8 @@ pub fn router() -> Router {
         .call(create_node_token)
         .call(revoke_node_token)
         .call(remove_machine)
+        .call(update_machine)
+        .call(list_updatable_machines)
         .call(get_node_token)
         .call(credentials::list_credentials)
         .call(credentials::save_credential)

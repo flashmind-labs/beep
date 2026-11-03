@@ -6,9 +6,12 @@ use crate::{
     error::{DesktopError, Result},
     projects::unknown_op,
 };
-use beep_proto::{ListMachines, Machine, MachineEnv, RemoveMachine};
+use beep_proto::{
+    ListMachines, ListUpdatableMachines, Machine, MachineEnv, MachineUpdate, RemoveMachine,
+    UpdatableMachine, UpdateMachine,
+};
 use serde::Serialize;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tauri::State;
 
 type Service<'a> = State<'a, Arc<Beep>>;
@@ -67,6 +70,39 @@ pub async fn remove_machine(beep: Service<'_>, id: String) -> Result<()> {
     match beep.call(RemoveMachine { machine_id: id }).await {
         Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
             "The server needs an update before machines can be removed here.".into(),
+        )),
+        done => done,
+    }
+}
+
+/// How long a node has to download and install a release.
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(6 * 60);
+
+/// The machines Update works on, with the agent sessions it would stop.
+/// None from a server without it.
+#[tauri::command]
+pub async fn updatable_machines(beep: Service<'_>) -> Result<Vec<UpdatableMachine>> {
+    match beep.call(ListUpdatableMachines {}).await {
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        listed => listed,
+    }
+}
+
+/// Has one of the account's machines update its beep-node and restart.
+/// `stop_sessions` once the user agreed to stop its agent sessions.
+#[tauri::command]
+pub async fn update_machine(
+    beep: Service<'_>,
+    id: String,
+    stop_sessions: bool,
+) -> Result<MachineUpdate> {
+    let request = UpdateMachine {
+        machine_id: id,
+        stop_sessions,
+    };
+    match beep.call_within(request, UPDATE_TIMEOUT).await {
+        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
+            "The server needs an update before machines can be updated here.".into(),
         )),
         done => done,
     }
