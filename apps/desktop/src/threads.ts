@@ -295,9 +295,25 @@ export function issueCount(lines: readonly Pick<IssueLine, "task">[]) {
 
 /// The rows a section shows: all of them once Show all was clicked, else
 /// the first `SHOWN`; `hidden` counts the rest.
-export function firstRows<T>(rows: readonly T[], all: boolean): { rows: T[]; hidden: number } {
-  if (all || rows.length <= SHOWN) return { rows: [...rows], hidden: 0 };
-  return { rows: rows.slice(0, SHOWN), hidden: rows.length - SHOWN };
+export function firstRows<T>(rows: readonly T[], all: boolean, limit = SHOWN): { rows: T[]; hidden: number } {
+  if (all || rows.length <= limit) return { rows: [...rows], hidden: 0 };
+  return { rows: rows.slice(0, limit), hidden: rows.length - limit };
+}
+
+/// The issues the Issues section shows before Show all.
+export const ISSUES_SHOWN = 3;
+
+/// Every label on the open issues, with how many carry it, most used first.
+export function issueLabels(lines: readonly Pick<IssueLine, "issue">[]) {
+  const counts = new Map<string, number>();
+  for (const l of lines) for (const label of l.issue?.labels || []) counts.set(label, (counts.get(label) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count }));
+}
+
+/// The lines whose issue carries any of `picked`; all of them when none is.
+export function withLabels<T extends Pick<IssueLine, "issue">>(lines: readonly T[], picked: ReadonlySet<string>): T[] {
+  if (!picked.size) return [...lines];
+  return lines.filter(l => (l.issue?.labels || []).some(label => picked.has(label)));
 }
 
 /// The longest slug of a title an issue's branch takes.
@@ -374,6 +390,8 @@ interface ProjectThreads {
   busy: Set<string>;
   failed: Map<string, string>;
   all: Set<string>;
+  /// The labels the Issues section is filtered to; none shows every issue.
+  labels: Set<string>;
 }
 
 /// The project agent the lists belong to.
@@ -389,7 +407,7 @@ export function makeThreads(deps: ThreadDeps) {
     let s = all.get(id);
     if (!s) {
       const k = kept.get(id);
-      s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set() };
+      s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set(), labels: new Set() };
       all.set(id, s);
     }
     return s;
@@ -511,14 +529,14 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// The rows, the first `SHOWN` until Show all.
-  function rowsPanel<T>(agent: Agent, key: string, lines: readonly T[], draw: (line: T) => HTMLElement) {
+  function rowsPanel<T>(agent: Agent, key: string, lines: readonly T[], draw: (line: T) => HTMLElement, limit = SHOWN, head?: HTMLElement) {
     const s = of(agent.project_id);
-    const { rows, hidden } = firstRows(lines, s.all.has(key));
-    const out = rows.map(draw);
+    const { rows, hidden } = firstRows(lines, s.all.has(key), limit);
+    const out = head ? [head, ...rows.map(draw)] : rows.map(draw);
     if (hidden) {
       out.push(h("div", "pj-task pj-more", h("span", "t dmuted", `${hidden} more`),
         h("span", "acts", button(`Show all ${lines.length}`, "quiet small", () => { s.all.add(key); redraw(); }))));
-    } else if (s.all.has(key) && lines.length > SHOWN) {
+    } else if (s.all.has(key) && lines.length > limit) {
       out.push(h("div", "pj-task pj-more", h("span", "t"), h("span", "acts", button("Show fewer", "quiet small", () => { s.all.delete(key); redraw(); }))));
     }
     return h("div", "cc-panel", ...out);
@@ -603,11 +621,31 @@ export function makeThreads(deps: ThreadDeps) {
       ];
       for (const b of buttons) b.disabled = busy;
       buttons[0].title = "Start a coding agent on a new branch for this issue";
-      return h("div", "pj-task pj-issue", h("span", "t", code, ` ${i.title}`), h("span", "m", issueMeta(i, ago)), actsEl(s, [`i${n}`, `d${n}`], buttons));
+      const meta = h("span", "m", issueMeta({ ...i, labels: [] }, ago), ...(i.labels || []).map(labelChip));
+      return h("div", "pj-task pj-issue", h("span", "t", code, ` ${i.title}`), meta, actsEl(s, [`i${n}`, `d${n}`], buttons));
     };
+    // A label on a row or in the bar narrows the list to it; again widens.
+    const toggle = (label: string) => {
+      if (!s.labels.delete(label)) s.labels.add(label);
+      redraw();
+    };
+    const labelChip = (label: string) => {
+      const b = h("button", `pj-label${s.labels.has(label) ? " on" : ""}`, label);
+      b.title = s.labels.has(label) ? "Show every issue again" : `Show only issues labeled ${label}`;
+      b.addEventListener("click", () => toggle(label));
+      return b;
+    };
+    const labels = issueLabels(lines);
+    for (const picked of [...s.labels]) if (!labels.some(l => l.name === picked)) s.labels.delete(picked);
+    const bar = labels.length
+      ? h("div", "pj-labels", h("span", "lbl", "Labels"),
+        ...labels.flatMap(l => [labelChip(l.name), h("small", "", String(l.count))]),
+        s.labels.size ? button("Clear", "quiet small", () => { s.labels.clear(); redraw(); }) : null)
+      : undefined;
+    const shown = withLabels(lines, s.labels);
     const body: HTMLElement[] = [];
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
-    body.push(rowsPanel(agent, "issues", lines, draw));
+    body.push(rowsPanel(agent, "issues", shown, draw, ISSUES_SHOWN, bar));
     return section(agent, "sec-issues", title, issueCount(lines), body,
       h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
   }

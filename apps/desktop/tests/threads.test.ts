@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN, makeThreads, type ThreadDeps } from "../src/threads.ts";
+import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueLabels, withLabels, ISSUES_SHOWN, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN, makeThreads, type ThreadDeps } from "../src/threads.ts";
 import type { KeptThreads } from "../src/threads.ts";
 import { PageCache } from "../src/pagecache.ts";
 
@@ -202,4 +202,18 @@ test("a failed read keeps the last good lists in the cache", async () => {
   await thr.load("p1");
   assert.deepEqual(kept.get("p1")?.issues?.map(i => i.number), [1]);
   assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1]);
+});
+
+test("the Issues section shows the first three until Show all", () => {
+  const rows = [1, 2, 3, 4, 5];
+  assert.deepEqual(firstRows(rows, false, ISSUES_SHOWN), { rows: [1, 2, 3], hidden: 2 });
+  assert.equal(firstRows(rows, true, ISSUES_SHOWN).hidden, 0);
+});
+
+test("labels are counted across issues and filter the list to any picked one", () => {
+  const line = (n: number, labels: string[]) => ({ issue: { labels } as never as import("../src/threads.ts").IssueRow, n });
+  const lines = [line(1, ["bug", "ios"]), line(2, ["bug"]), line(3, ["enhancement"]), { issue: null, n: 4 }];
+  assert.deepEqual(issueLabels(lines), [{ name: "bug", count: 2 }, { name: "enhancement", count: 1 }, { name: "ios", count: 1 }]);
+  assert.deepEqual(withLabels(lines, new Set()).map(l => l.n), [1, 2, 3, 4]);
+  assert.deepEqual(withLabels(lines, new Set(["ios", "enhancement"])).map(l => l.n), [1, 3]);
 });
