@@ -25,6 +25,7 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet, hash_map::RandomState},
     env,
+    fmt::Display,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
@@ -1027,9 +1028,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         } if agent == "claude" => {
             match agents.external.list(limit, session, agents.owned()).await {
                 Ok(sessions) => SessionsReply::External { sessions },
-                Err(e) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Err(e) => failed(e),
             }
         }
         SessionsRequest::External { agent, .. } => SessionsReply::Error {
@@ -1037,16 +1036,12 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         },
         SessionsRequest::Folders { limit } => match agents.found_folders(limit).await {
             Ok(folders) => SessionsReply::Folders { folders },
-            Err(e) => SessionsReply::Error {
-                message: format!("{e:#}"),
-            },
+            Err(e) => failed(e),
         },
         SessionsRequest::InFolders { folders, limit } => {
             match agents.sessions_in(folders, limit).await {
                 Ok(sessions) => SessionsReply::External { sessions },
-                Err(e) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Err(e) => failed(e),
             }
         }
         SessionsRequest::Watch { sessions } => {
@@ -1077,15 +1072,9 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 spawn_blocking(move || media_file::read_chunk(&path, offset, home.as_deref()))
                     .await;
             match read {
-                Ok(Ok(Some(chunk))) => SessionsReply::File {
-                    size: chunk.size,
-                    mime: chunk.mime.to_owned(),
-                    data: chunk.data,
-                },
+                Ok(Ok(Some(chunk))) => file_reply(chunk),
                 Ok(Ok(None)) => SessionsReply::NoFile {},
-                Ok(Err(e)) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Ok(Err(e)) => failed(e),
                 Err(e) => SessionsReply::Error {
                     message: format!("the file read stopped: {e}"),
                 },
@@ -1112,11 +1101,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             work_request(move |home| {
                 let root = work_folder::WorkRoot::open(&root, home)?;
                 Ok(match work_folder::read(&root, &path, offset, len)? {
-                    Some(chunk) => SessionsReply::File {
-                        size: chunk.size,
-                        mime: chunk.mime.to_owned(),
-                        data: chunk.data,
-                    },
+                    Some(chunk) => file_reply(chunk),
                     None => SessionsReply::NoFile {},
                 })
             })
@@ -1150,9 +1135,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 Ok(()) => SessionsReply::Harnesses {
                     report: agents.harnesses(false).await,
                 },
-                Err(e) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Err(e) => failed(e),
             }
         }
         other => SessionsReply::Error {
@@ -1160,6 +1143,22 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         },
     };
     tx.send(&reply).await
+}
+
+/// The reply saying `e`, with its causes.
+fn failed(e: impl Display) -> SessionsReply {
+    SessionsReply::Error {
+        message: format!("{e:#}"),
+    }
+}
+
+/// The reply carrying a chunk of a file.
+fn file_reply(chunk: media_file::Chunk) -> SessionsReply {
+    SessionsReply::File {
+        size: chunk.size,
+        mime: chunk.mime.to_owned(),
+        data: chunk.data,
+    }
 }
 
 /// Runs `job`, which blocks on a session's working folder, off the async
@@ -1170,9 +1169,7 @@ async fn work_request(
     let home = dirs::home_dir();
     match spawn_blocking(move || job(home.as_deref())).await {
         Ok(Ok(reply)) => reply,
-        Ok(Err(e)) => SessionsReply::Error {
-            message: format!("{e:#}"),
-        },
+        Ok(Err(e)) => failed(e),
         Err(e) => SessionsReply::Error {
             message: format!("the folder work stopped: {e}"),
         },
