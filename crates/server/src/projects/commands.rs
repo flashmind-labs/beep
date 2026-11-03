@@ -6,7 +6,7 @@
 //! [`HostCommand::leaks`] first.
 
 use super::model::{
-    ForgejoHost, IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility,
+    IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility, remote_parts,
 };
 use crate::{credentials::github_owner_var, leak::PublicText, nodes::Online};
 use anyhow::{Context, Result, anyhow, bail};
@@ -188,24 +188,16 @@ pub(crate) fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupErro
     })
 }
 
-/// The host of `url` when it is a remote of `name`: `owner/repo` with an
-/// optional `.git`, ignoring case.
+/// The host of `url` when it is a remote of `name`: a path ending in
+/// `owner/repo`, with an optional `.git`, ignoring case. A Forgejo server
+/// under a sub-path puts its own segments before them.
 fn remote_host(url: &str, name: &RepoName) -> Option<String> {
-    let (host, path) = match url.split_once("://") {
-        Some((_, rest)) => {
-            let (authority, path) = rest.split_once('/')?;
-            let host = authority.rsplit('@').next()?;
-            (host.split(':').next()?, path)
-        }
-        None => {
-            let (authority, path) = url.split_once(':')?;
-            (authority.rsplit('@').next()?, path)
-        }
-    };
+    let (host, path) = remote_parts(url)?;
     let path = path.trim_matches('/');
     let path = path.strip_suffix(".git").unwrap_or(path);
-    path.eq_ignore_ascii_case(&name.to_string())
-        .then(|| host.to_ascii_lowercase())
+    let path = format!("/{path}").to_ascii_lowercase();
+    let tail = format!("/{name}").to_ascii_lowercase();
+    path.ends_with(&tail).then(|| host.to_ascii_lowercase())
 }
 
 /// What goes before a `gh` command for `repo` (`owner/repo`) so it runs as
@@ -223,11 +215,8 @@ pub(crate) fn gh_account(repo: &str) -> String {
 /// One role: what config says, else what the remote's host is.
 fn role(configured: &str, remote_host: &str) -> Result<Option<IssueHost>, SetupError> {
     let from_host = || {
-        if remote_host == "github.com" {
-            return Ok(Some(IssueHost::Github));
-        }
-        ForgejoHost::parse(remote_host)
-            .map(|host| Some(IssueHost::Forgejo(host)))
+        IssueHost::of_hostname(remote_host)
+            .map(Some)
             .ok_or_else(|| SetupError::BadHost(remote_host.to_owned()))
     };
     match configured {
@@ -1281,7 +1270,9 @@ mod tests {
     }
 
     fn forgejo() -> IssueHost {
-        IssueHost::Forgejo(ForgejoHost::parse("git.example.com").expect("a host"))
+        IssueHost::Forgejo(
+            crate::projects::model::ForgejoHost::parse("git.example.com").expect("a host"),
+        )
     }
 
     #[test]
@@ -1358,6 +1349,20 @@ mod tests {
         let setup = parse_setup(&out, &repo()).expect("a setup");
         assert_eq!(setup.roles.issues, Some(github()));
         assert_eq!(setup.roles.prs, Some(forgejo()));
+    }
+
+    #[test]
+    fn setup_reads_a_forgejo_remote_under_a_sub_path() {
+        let out = setup_out("https://git.example.com/forge/acme/widget.git", "", "", "");
+        let setup = parse_setup(&out, &repo()).expect("a setup");
+        assert_eq!(setup.roles.issues, Some(forgejo()));
+    }
+
+    #[test]
+    fn setup_reads_www_github_as_github() {
+        let out = setup_out("https://www.github.com/acme/widget", "", "", "");
+        let setup = parse_setup(&out, &repo()).expect("a setup");
+        assert_eq!(setup.roles.issues, Some(github()));
     }
 
     #[test]

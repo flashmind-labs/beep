@@ -134,10 +134,7 @@ pub(crate) async fn prepare(
     task: &TaskRow,
     request: &StartRequest,
 ) -> Result<Prepared, StartError> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let mut base = request
         .base
         .clone()
@@ -444,10 +441,7 @@ async fn relabel_running(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow,
     if task.issue_foreign {
         return;
     }
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let home = match fleet::home_shell(&fleet, user, project).await {
         Ok(home) => home,
         Err(why) => {
@@ -460,7 +454,7 @@ async fn relabel_running(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow,
         add: Some(LABEL_RUNNING),
         remove: &[LABEL_BLOCKED],
     };
-    if let Err(error) = run_host(home.shell.as_ref(), host, project, command).await {
+    if let Err(error) = run_host(home.as_ref(), host, project, command).await {
         log::warn!("projects: unable to label the issue running: {error:#}");
     }
 }
@@ -647,19 +641,24 @@ pub(crate) async fn stop_worker(
     user: &Arc<User>,
     worker: &WorkerRow,
 ) -> Result<()> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     stop_worker_on(&fleet, user, worker).await
 }
 
-/// [`stop_worker`] through `fleet`.
+/// [`stop_worker`] through `fleet`. The slot it held may start a queued
+/// task.
 pub(crate) async fn stop_worker_on(
     fleet: &dyn Fleet,
-    user: &User,
+    user: &Arc<User>,
     worker: &WorkerRow,
 ) -> Result<()> {
+    end_worker(fleet, user, worker).await?;
+    super::lifecycle::refill(fleet, user).await;
+    Ok(())
+}
+
+/// [`stop_worker_on`] without starting queued tasks.
+pub(crate) async fn end_worker(fleet: &dyn Fleet, user: &User, worker: &WorkerRow) -> Result<()> {
     let Some(current) = user.project_worker(worker.id).await? else {
         return Ok(());
     };
@@ -677,9 +676,9 @@ pub(crate) async fn stop_worker_on(
         user.set_worker_state(current.id, WorkerState::Ended)
             .await?;
         if let Some(task) = user.project_task(current.task).await?
-            && task.state == TaskState::Running
+            && let Some(project) = user.project(task.project).await?
         {
-            user.set_task_state(task.id, TaskState::Blocked).await?;
+            lifecycle::block(fleet, user, &project, &task).await?;
         }
     }
     Ok(())

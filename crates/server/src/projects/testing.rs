@@ -41,6 +41,8 @@ pub(crate) struct FakeShell {
     rules: Mutex<Vec<(String, CommandOutput)>>,
     /// Commands holding this text never finish.
     hangs: Mutex<Option<String>>,
+    /// Commands holding this text fail as if the machine dropped.
+    fails: Mutex<Option<String>>,
     /// Commands holding the text wait for its signal before they answer.
     blocks: Mutex<Vec<(String, Arc<Notify>)>>,
     /// Signalled when a command starts waiting for its signal.
@@ -50,6 +52,10 @@ pub(crate) struct FakeShell {
 impl FakeShell {
     pub(crate) fn hang_on(&self, holds: &str) {
         *self.hangs.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds.to_owned());
+    }
+
+    pub(crate) fn fail_on(&self, holds: &str) {
+        *self.fails.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds.to_owned());
     }
 
     /// Makes commands holding `holds` wait until the returned signal fires.
@@ -113,6 +119,14 @@ impl Shell for FakeShell {
             .clone();
         if hangs.is_some_and(|holds| command.contains(&holds)) {
             std::future::pending::<()>().await;
+        }
+        let fails = self
+            .fails
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if fails.is_some_and(|holds| command.contains(&holds)) {
+            bail!("the machine dropped");
         }
         let block = self
             .blocks
@@ -232,7 +246,6 @@ pub(crate) enum FakeAttach {
     Fails,
     /// The machine no longer has the session.
     Refused,
-    Info(Box<SessionInfo>),
 }
 
 fn take<T: Clone>(list: &Mutex<Vec<T>>) -> Vec<T> {
@@ -418,7 +431,6 @@ impl Fleet for FakeFleet {
                 reason: format!("there is no session {:?}", worker.session),
             }
             .into()),
-            FakeAttach::Info(info) => Ok((**info).clone()),
         }
     }
 }

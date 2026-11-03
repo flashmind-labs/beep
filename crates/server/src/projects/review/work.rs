@@ -81,10 +81,7 @@ pub(crate) async fn start_fix(
     project: &ProjectRow,
     fix: Fix,
 ) -> Result<TaskRow> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let request = StartRequest {
         machine: fix.machine,
         agent: fix.agent,

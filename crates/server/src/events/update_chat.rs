@@ -4,7 +4,7 @@
 
 use super::pipeline::{clipped, write_event};
 use crate::{
-    feeds::mail::clip,
+    memories::clip,
     store::{UpdateChatSeed, UpdateDetail},
     user::User,
 };

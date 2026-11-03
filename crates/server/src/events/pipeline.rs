@@ -9,7 +9,8 @@ use super::{
 };
 use crate::{
     app::App,
-    feeds::mail::clip,
+    lock,
+    memories::clip,
     research::RoleModel,
     store::{EventRow, EventState},
     subagents::Pool,
@@ -25,7 +26,7 @@ use std::{
     collections::HashMap,
     fmt::Write,
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -178,10 +179,6 @@ impl Hub {
         }
         due
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Starts the worker, the sweep and, with Composio, the realtime channel.

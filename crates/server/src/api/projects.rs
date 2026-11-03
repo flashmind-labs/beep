@@ -8,7 +8,6 @@ use crate::{
     projects::{
         fleet::NodeFleet,
         issues::{self, IssueError, IssueWork, ListedPr, OpenIssue},
-        lifecycle::fill_slots,
         model::{ProjectId, RepoName, TaskId, TaskState, WorkerAgent, WorkerId},
         tools::{drop_task, reopen_task},
         worker::stop_worker,
@@ -87,10 +86,7 @@ pub(super) async fn get_pull_request_head(
     req: GetPullRequestHead,
 ) -> Reply<PullRequestHead> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
-    let fleet = NodeFleet {
-        app: cx.app.clone(),
-        user: cx.user.clone(),
-    };
+    let fleet = NodeFleet::new(&cx.app, &cx.user);
     let head = issues::pull_request_head(&fleet, &cx.user, &project, req.number)
         .await
         .map_err(issue_refusal)?;
@@ -182,10 +178,7 @@ async fn track_issue(
 ) -> Reply<ProjectTask> {
     let project = project_of(user, id).await?;
     let work = start.map(issue_work).transpose()?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let task = issues::track(&fleet, user, &project, number, work)
         .await
         .map_err(issue_refusal)?;
@@ -297,18 +290,11 @@ async fn update_task(
 ) -> Reply<ProjectTask> {
     let task = user.project_task(id).await?.ok_or(ApiError::NotFound {})?;
     let project = project_of(user, task.project).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     match to {
         TaskState::Dropped if task.state.is_open() => {
             let said = drop_task(&fleet, user, &project, &task).await?;
             log::info!("projects: the user dropped a task: {said}");
-            // The slot its worker held may start a queued task.
-            if let Err(error) = fill_slots(&fleet, user).await {
-                log::warn!("projects: queued tasks not started: {error:#}");
-            }
         }
         TaskState::Planned
             if matches!(
@@ -338,13 +324,6 @@ async fn stop(app: &Arc<App>, user: &Arc<User>, id: WorkerId) -> Reply<()> {
         .await?
         .ok_or(ApiError::NotFound {})?;
     stop_worker(app, user, &worker).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    if let Err(error) = fill_slots(&fleet, user).await {
-        log::warn!("projects: queued tasks not started: {error:#}");
-    }
     Ok(())
 }
 

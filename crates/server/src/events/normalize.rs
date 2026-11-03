@@ -3,7 +3,8 @@
 //! Gmail message seen by its trigger and by a poll is stored once.
 
 use super::model::{AppEvent, DedupeKey, EventApp, EventKind, Source};
-use crate::feeds::mail::{BULK_LABELS, Email, Mailbox, clip, timestamp};
+use crate::feeds::mail::{BULK_LABELS, Email, Mailbox, timestamp};
+use crate::memories::clip;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 

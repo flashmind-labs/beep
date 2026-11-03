@@ -1350,6 +1350,7 @@ impl CustomAgentScope {
             Self::User {} => "user",
         }
     }
+}
 
 /// What `GetProjectLists` gives.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

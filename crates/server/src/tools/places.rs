@@ -1,3 +1,4 @@
+use super::args::text;
 use crate::{
     places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
     store::{Location, NewPlace, NewPlaceRoutine, SavedPlace},
@@ -55,13 +56,6 @@ fn place_json(place: &SavedPlace, here: Option<&Location>) -> Value {
         "routines": place.routines,
         "distance_m": here.map(|fix| places::distance_to(place, fix).round()),
     })
-}
-
-fn text<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
 }
 
 #[async_trait]

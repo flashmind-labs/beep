@@ -1,4 +1,4 @@
-use super::file::clean_name;
+use super::{args::text, file::clean_name};
 use crate::{
     fetch::{content_type, follow_public},
     user::User,
@@ -104,13 +104,7 @@ impl SendImageTool {
     /// Checks or saves one requested image, and returns it as the phone reads
     /// it, or why it cannot be sent.
     async fn send_one(&self, image: &Value) -> Result<Value, String> {
-        let field = |key| {
-            image
-                .get(key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-        };
+        let field = |key| text(image, key);
         let caption: String = field("caption").unwrap_or("").chars().take(200).collect();
         match (field("url"), field("path")) {
             (Some(url), None) => match check(url).await {
