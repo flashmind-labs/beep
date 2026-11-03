@@ -2,7 +2,7 @@
 //! tool of that name runs one locally, in the foreground or as a background
 //! task the node keeps (see `process`).
 
-use super::{Machines, Need, in_parameter};
+use super::{Machines, Need, command_name, in_parameter};
 use crate::{
     nodes::Exited,
     permissions::shorten,
@@ -135,7 +135,12 @@ impl Tool for ExecTool {
         Some(DEFAULT_LIMIT.as_secs() + 60)
     }
     fn humanize(&self, args: &Value) -> String {
-        step(args)
+        let named = args.get("in").and_then(Value::as_str).map(command_name);
+        let machine = named.or_else(|| {
+            let workspace = self.machines.app.nodes.workspace(self.machines.user.id())?;
+            Some(command_name(&workspace.name))
+        });
+        step(args, machine.as_deref())
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args: Args = match serde_json::from_value(ctx.args.clone()) {
@@ -325,13 +330,20 @@ pub(super) fn task_lines(lines: &[String], earlier: bool) -> String {
     out
 }
 
-/// The step's label: "Running" and the command's first line, cut short, so
-/// the chat shows what ran; just `STEP` without one.
-fn step(args: &Value) -> String {
+/// The step's label: "Running on build-box:" and the command's first line,
+/// cut short, so the chat shows what ran where; just `STEP` without one.
+fn step(args: &Value, machine: Option<&str>) -> String {
     let command = args.get("command").and_then(Value::as_str).unwrap_or("");
-    match command.lines().map(str::trim).find(|line| !line.is_empty()) {
-        Some(line) => format!("Running {}", shorten(line, STEP_COMMAND_CHARS)),
-        None => STEP.to_owned(),
+    let line = command.lines().map(str::trim).find(|line| !line.is_empty());
+    match (line, machine) {
+        (Some(line), Some(machine)) => {
+            format!(
+                "Running on {machine}: {}",
+                shorten(line, STEP_COMMAND_CHARS)
+            )
+        }
+        (Some(line), None) => format!("Running {}", shorten(line, STEP_COMMAND_CHARS)),
+        (None, _) => STEP.to_owned(),
     }
 }
 
@@ -345,13 +357,20 @@ mod tests {
     #[test]
     fn the_step_names_the_command() {
         assert_eq!(
-            step(&json!({ "command": "\n  ssh build-box journalctl -u app\necho done" })),
+            step(
+                &json!({ "command": "\n  ssh build-box journalctl -u app\necho done" }),
+                None
+            ),
             "Running ssh build-box journalctl -u app"
         );
-        assert_eq!(step(&json!({ "command": "  " })), STEP);
+        assert_eq!(
+            step(&json!({ "command": "df -h /" }), Some("build-box")),
+            "Running on build-box: df -h /"
+        );
+        assert_eq!(step(&json!({ "command": "  " }), Some("build-box")), STEP);
         let long = "x".repeat(100);
         assert_eq!(
-            step(&json!({ "command": long })),
+            step(&json!({ "command": long }), None),
             format!("Running {}...", "x".repeat(80))
         );
     }
