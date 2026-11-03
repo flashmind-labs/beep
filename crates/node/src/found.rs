@@ -28,6 +28,7 @@ use std::{
 };
 
 mod codex;
+mod codex_run;
 mod flsh;
 mod git;
 mod memo;
@@ -188,6 +189,24 @@ impl Stores {
             seen.title = title;
         }
         describe(seen, now)
+    }
+
+    /// What the first of `threads` with a rollout here did, for a Codex
+    /// subagent's entry; `None` when Codex has no folder or no rollout of
+    /// them.
+    pub(crate) fn codex_run(&self, threads: &[String]) -> Option<crate::agents::SubagentRun> {
+        let root = self.codex.as_deref()?;
+        let path = threads
+            .iter()
+            .find_map(|thread| codex_run::rollout(root, thread))?;
+        codex_run::read(&path)
+            .inspect_err(|e| {
+                log::debug!(
+                    "subagent rollout not read; path={} error={e}",
+                    path.display()
+                )
+            })
+            .ok()
     }
 
     /// The file of session `id`, of `agent` when given; `None` for one not
