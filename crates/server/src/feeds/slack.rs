@@ -16,7 +16,8 @@
 use crate::{
     app::App,
     decision::{Criteria, DecisionTool},
-    feeds::mail::{clip, text},
+    feeds::mail::text,
+    memories::clip,
     memories::{Reading, ReadingKind},
     store::Feed,
     user::User,

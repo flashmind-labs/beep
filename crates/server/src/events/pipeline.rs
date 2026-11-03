@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     app::App,
-    feeds::mail::clip,
+    memories::clip,
     research::RoleModel,
     store::{EventRow, EventState},
     subagents::Pool,
