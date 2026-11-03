@@ -170,18 +170,38 @@ impl Agents {
     }
 }
 
-/// Claude Code's temp folder for this user:`claude-<uid>` in the temp
-/// folder, `/tmp` on Linux and `$TMPDIR` on macOS.
+/// Claude Code's temp folder for this user. See [`claude_temp_in`].
 pub(super) fn claude_temp() -> Option<PathBuf> {
     #[cfg(unix)]
     {
         let uid = rustix::process::getuid().as_raw();
-        Some(std::env::temp_dir().join(format!("claude-{uid}")))
+        Some(claude_temp_in(
+            std::env::var_os(CLAUDE_TEMP_VAR).as_deref(),
+            uid,
+        ))
     }
     #[cfg(not(unix))]
     {
         None
     }
+}
+
+/// What moves Claude Code's temp folder.
+#[cfg(unix)]
+const CLAUDE_TEMP_VAR: &str = "CLAUDE_CODE_TMPDIR";
+
+/// Claude Code's temp folder for `uid`: `claude-<uid>` in `set`, the
+/// value of `CLAUDE_CODE_TMPDIR`, or else in `/tmp`. Claude Code uses
+/// `/tmp` on macOS too, never `TMPDIR` or the per-user
+/// `/var/folders/.../T/`, so the folder does not depend on the
+/// environment launchd gives the node's service. A `CLAUDE_CODE_TMPDIR`
+/// set only in the user's shell is not seen by the service.
+#[cfg(unix)]
+fn claude_temp_in(set: Option<&std::ffi::OsStr>, uid: u32) -> PathBuf {
+    let base = set
+        .filter(|base| !base.is_empty())
+        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+    base.join(format!("claude-{uid}"))
 }
 
 #[cfg(test)]
@@ -348,10 +368,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn claude_codes_temp_folder_is_named_by_uid() {
+    fn claude_codes_temp_folder_is_in_tmp_by_uid() {
+        use std::ffi::OsStr;
+        // Wherever TMPDIR points, as it does under launchd on macOS.
+        assert_eq!(claude_temp_in(None, 501), Path::new("/tmp/claude-501"));
+        assert_eq!(
+            claude_temp_in(Some(OsStr::new("")), 1000),
+            Path::new("/tmp/claude-1000")
+        );
+        assert_eq!(
+            claude_temp_in(Some(OsStr::new("/srv/scratch")), 501),
+            Path::new("/srv/scratch/claude-501")
+        );
         let uid = rustix::process::getuid().as_raw();
-        let temp = claude_temp().unwrap();
-        assert_eq!(temp, std::env::temp_dir().join(format!("claude-{uid}")));
+        let set = std::env::var_os(CLAUDE_TEMP_VAR);
+        assert_eq!(claude_temp(), Some(claude_temp_in(set.as_deref(), uid)));
     }
 
     #[tokio::test]
