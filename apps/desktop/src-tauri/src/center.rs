@@ -13,11 +13,12 @@ use crate::{
     view_cache::{View, ViewCache},
 };
 use beep_proto::{
-    AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
-    DismissUpdates, ImportedProject, ListCrons, ListImportedProjects, ListMachineDetails,
-    ListMachineStats, ListMachines, ListPendingApprovals, ListResearches, ListUpdates, Machine,
-    MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
-    OpenUpdateChat, PendingApproval, ResearchStatus, ResearchSummary, Session,
+    AgentNoticeKey, AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate,
+    ChatApproval, Cron, DismissUpdates, ImportedProject, ListCrons, ListImportedProjects,
+    ListMachineDetails, ListMachineStats, ListMachines, ListPendingApprovals, ListResearches,
+    ListUpdates, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu,
+    MachineSession, MachineStats, OpenUpdateChat, PendingApproval, ResearchStatus, ResearchSummary,
+    Session,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +26,7 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::{Duration, Instant},
 };
 use tauri::{
     ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, State,
@@ -319,6 +321,22 @@ impl AgentTarget {
             last_activity: 0,
             external: false,
         })
+    }
+
+    /// The session a coding-agent notice is about: asking while its
+    /// question waits, idle once a turn ended.
+    pub(crate) fn notified(key: &AgentNoticeKey) -> Box<Self> {
+        let mut target = Self::asking(
+            &key.machine_id,
+            &key.machine_name,
+            &key.agent,
+            &key.session,
+            None,
+        );
+        if key.question.is_none() {
+            target.status = "idle".into();
+        }
+        target
     }
 }
 
@@ -1056,6 +1074,65 @@ pub(crate) struct Seen {
     pub(crate) window: Option<String>,
 }
 
+/// How long after a webview last read an agent session it still counts as
+/// shown there. The open session view reads it every 1.5 s while it works
+/// and every 10 s once quiet.
+const AGENT_SHOWN_FOR: Duration = Duration::from_secs(12);
+
+/// The coding-agent session each webview's session view last read, and
+/// when, by webview label.
+#[derive(Debug, Default)]
+pub(crate) struct AgentsShown(Mutex<HashMap<String, ShownAgent>>);
+
+#[derive(Debug)]
+struct ShownAgent {
+    machine_id: String,
+    agent: String,
+    session: String,
+    at: Instant,
+}
+
+impl AgentsShown {
+    fn views(&self) -> MutexGuard<'_, HashMap<String, ShownAgent>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Webview `label` read `session` of `agent` on `machine_id` at `at`.
+    pub(crate) fn read(
+        &self,
+        label: &str,
+        machine_id: &str,
+        agent: &str,
+        session: &str,
+        at: Instant,
+    ) {
+        let shown = ShownAgent {
+            machine_id: machine_id.to_owned(),
+            agent: agent.to_owned(),
+            session: session.to_owned(),
+            at,
+        };
+        self.views().insert(label.to_owned(), shown);
+    }
+
+    /// Forgets webview `label`'s session view, when it closes.
+    pub(crate) fn clear(&self, label: &str) {
+        self.views().remove(label);
+    }
+
+    /// Whether one of `labels`, the webviews on screen, read the session
+    /// `key` is about lately, as of `now`.
+    pub(crate) fn shows(&self, labels: &[&str], key: &AgentNoticeKey, now: Instant) -> bool {
+        let views = self.views();
+        labels.iter().any(|label| {
+            views.get(*label).is_some_and(|shown| {
+                key.is_session(&shown.machine_id, &shown.agent, &shown.session)
+                    && now.saturating_duration_since(shown.at) < AGENT_SHOWN_FOR
+            })
+        })
+    }
+}
+
 /// Whether the chat `id` is on screen in the bar or the window, so its
 /// messages need no notice.
 pub(crate) fn on_screen(seen: &Seen, id: &str) -> bool {
@@ -1065,6 +1142,48 @@ pub(crate) fn on_screen(seen: &Seen, id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn key(session: &str, question: Option<u32>) -> AgentNoticeKey {
+        AgentNoticeKey {
+            machine_id: "m1".into(),
+            agent: "claude".into(),
+            session: session.into(),
+            question,
+            machine_name: "build-box".into(),
+        }
+    }
+
+    #[test]
+    fn an_agent_session_counts_as_shown_while_its_view_reads_it() {
+        let shown = AgentsShown::default();
+        let at = Instant::now();
+        shown.read("center", "m1", "claude", "s1", at);
+        let s1 = key("s1", None);
+        assert!(shown.shows(&["center"], &s1, at + Duration::from_secs(5)));
+        assert!(
+            !shown.shows(&["center"], &s1, at + AGENT_SHOWN_FOR),
+            "a view that stopped reading has moved on"
+        );
+        assert!(
+            !shown.shows(&["bar"], &s1, at),
+            "only where it is on screen"
+        );
+        assert!(!shown.shows(&["center"], &key("s2", None), at));
+        shown.clear("center");
+        assert!(!shown.shows(&["center"], &s1, at));
+    }
+
+    #[test]
+    fn a_notice_opens_its_agent_session() {
+        let asking = AgentTarget::notified(&key("s1", Some(2)));
+        assert_eq!(
+            asking,
+            AgentTarget::asking("m1", "build-box", "claude", "s1", None)
+        );
+        let done = AgentTarget::notified(&key("s1", None));
+        assert_eq!(done.status, "idle");
+        assert_eq!(done.id, "s1");
+    }
     use beep_proto::Approval;
     use std::time::{Duration, SystemTime};
 

@@ -54,6 +54,13 @@ pub struct AccountKey {
     pub linked_at: DateTime<Utc>,
 }
 
+/// A key that signs into an account now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveKey {
+    pub endpoint_id: String,
+    pub kind: DeviceKind,
+}
+
 /// A key to link to an account.
 pub struct NewKey<'a> {
     pub endpoint: EndpointId,
@@ -214,14 +221,23 @@ impl Store {
         Ok(())
     }
 
-    /// Every key that signs into account `user`, for pushing notices.
-    pub async fn live_keys(&self, user: &str) -> Result<Vec<String>> {
-        Ok(sqlx::query_scalar(
-            "SELECT endpoint_id FROM user_keys WHERE user_id=$1 AND revoked_at IS NULL",
+    /// Every key that signs into account `user` and the device it is, for
+    /// pushing notices.
+    pub async fn live_keys(&self, user: &str) -> Result<Vec<LiveKey>> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT endpoint_id, kind FROM user_keys WHERE user_id=$1 AND revoked_at IS NULL
+             ORDER BY is_primary DESC, created_at",
         )
         .bind(user)
         .fetch_all(&self.pool)
-        .await?)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(endpoint_id, kind)| LiveKey {
+                endpoint_id,
+                kind: DeviceKind::parse(&kind).unwrap_or_default(),
+            })
+            .collect())
     }
 }
 
@@ -323,7 +339,19 @@ mod tests {
         assert_eq!(keys.len(), 2);
         assert!(keys[0].primary);
         assert_eq!(keys[0].endpoint_id, phone.to_string());
-        assert_eq!(store.live_keys(&user).await.unwrap().len(), 2);
+        assert_eq!(
+            store.live_keys(&user).await.unwrap(),
+            [
+                LiveKey {
+                    endpoint_id: phone.to_string(),
+                    kind: DeviceKind::Phone {},
+                },
+                LiveKey {
+                    endpoint_id: desktop.to_string(),
+                    kind: DeviceKind::Desktop {},
+                },
+            ]
+        );
 
         // The phone's own key and a used key cannot be linked again.
         for endpoint in [phone, desktop] {
@@ -372,7 +400,10 @@ mod tests {
         assert_eq!(store.sign_in(&desktop).await.unwrap(), SignIn::Revoked);
         assert_eq!(
             store.live_keys(&user).await.unwrap(),
-            vec![phone.to_string()]
+            [LiveKey {
+                endpoint_id: phone.to_string(),
+                kind: DeviceKind::Phone {},
+            }]
         );
         assert!(
             !store

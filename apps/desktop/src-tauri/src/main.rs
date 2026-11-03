@@ -60,7 +60,7 @@ mod work_files;
 
 use anyhow::Context;
 use beep::{Beep, Field, Notices};
-use beep_proto::{Notice, Session, link::MAX_NAME};
+use beep_proto::{AgentNoticeKey, Notice, Session, link::MAX_NAME};
 use groups::GroupApproval;
 use iroh::EndpointId;
 use state::{LinkState, NoticeVoice, StateFile};
@@ -71,6 +71,7 @@ use std::{
     path::PathBuf,
     process::Command,
     sync::{Arc, Mutex, PoisonError},
+    time::Instant,
 };
 use tauri::{
     ActivationPolicy, App, AppHandle, Emitter, Manager, RunEvent, WindowEvent,
@@ -139,6 +140,10 @@ fn main() {
                         .state::<center::Shown>()
                         .clear(window.label());
                 }
+                window
+                    .app_handle()
+                    .state::<center::AgentsShown>()
+                    .clear(window.label());
                 research::closed(window.app_handle(), window.label());
             }
             _ => {}
@@ -355,6 +360,7 @@ fn main() {
             commands::fit_orb,
             commands::live_sheet,
             commands::set_send_on_pause,
+            commands::set_agent_notices,
             commands::live_chats,
             commands::start_over,
             commands::resize_bar,
@@ -466,6 +472,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(update::Updates::default());
     app.manage(machine::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
+    app.manage(center::AgentsShown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());
     app.manage(waiting::WaitingList::default());
@@ -570,6 +577,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
             tauri::async_runtime::spawn(refresh_recent(app.clone()));
             continue;
         }
+        if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
+            agent_notice(&app, &beep, &key, &notice);
+            continue;
+        }
         // Background work asks only through a notice, so its chat keeps a
         // card for the question.
         if let Some(question) =
@@ -633,15 +644,40 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
     notify(app, &notice);
 }
 
+/// A coding agent asked something or finished a turn. The tray looks at
+/// what waits again, and the notice shows unless agent notices are off or
+/// the session is on screen.
+fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Notice) {
+    app.state::<waiting::WaitingList>().poke();
+    if !beep.agent_notices() {
+        return;
+    }
+    let focused = focused_center_label(app);
+    let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
+    if bar::is_open(app) {
+        on_screen.push(bar::LABEL);
+    }
+    let shown = app.state::<center::AgentsShown>();
+    if shown.shows(&on_screen, key, Instant::now()) {
+        return;
+    }
+    notify(app, notice);
+}
+
+/// The label of the command center window with focus, the main one or a
+/// project's; nothing while none has focus.
+fn focused_center_label(app: &AppHandle) -> Option<String> {
+    app.webview_windows()
+        .into_iter()
+        .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false))
+        .map(|(label, _)| label)
+}
+
 /// What the command center window with focus shows, the main one or a
 /// project's; nothing while none has focus.
 fn focused_center(app: &AppHandle) -> center::Showing {
-    let focused = app
-        .webview_windows()
-        .into_iter()
-        .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false));
-    match focused {
-        Some((label, _)) => app.state::<center::Shown>().get(&label),
+    match focused_center_label(app) {
+        Some(label) => app.state::<center::Shown>().get(&label),
         None => center::Showing::default(),
     }
 }

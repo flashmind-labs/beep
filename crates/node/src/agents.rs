@@ -37,6 +37,7 @@ use tokio::{
 };
 
 mod acp;
+mod alerts;
 mod checkout;
 mod compaction;
 mod custom_agents;
@@ -59,6 +60,7 @@ pub(crate) use live::cut;
 pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
 use acp::Prompt;
+use alerts::AlertHub;
 use compaction::Route;
 use images::Images;
 use models::ModelCache;
@@ -302,6 +304,8 @@ pub struct Agents {
     images: Arc<Images>,
     /// What sessions spend and how much of the agents' plans is left.
     usage: Arc<UsageHub>,
+    /// What sessions did that the user would want to hear about.
+    alerts: Arc<AlertHub>,
     /// What sessions spent, from the agents' own logs.
     spend: Arc<Spend>,
     /// The models each agent offers, found lately.
@@ -321,6 +325,7 @@ impl Agents {
             stores: Stores::locate(),
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
             spend: Arc::new(Spend::locate()),
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
@@ -758,6 +763,7 @@ impl Agents {
             brief: begin.brief,
             images: self.images.clone(),
             usage: self.usage.clone(),
+            alerts: self.alerts.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
@@ -1092,6 +1098,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             return agents.external.watch(tx, rx, sessions).await;
         }
         SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
+        SessionsRequest::FollowAlerts {} => return send_alerts(tx, rx, &agents.alerts).await,
         SessionsRequest::FollowUsage { history } => {
             return send_usage(tx, rx, &agents, history).await;
         }
@@ -1243,6 +1250,19 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
                     data: unsent.picture.data.clone(),
                 })
                 .await?;
+            }
+            // The server sends nothing more; anything is its goodbye.
+            _ = rx.recv::<SessionsRequest>() => return Ok(()),
+        }
+    }
+}
+
+/// Sends the server each alert as it comes, until it closes the stream.
+async fn send_alerts(mut tx: LinkTx, mut rx: LinkRx, alerts: &AlertHub) -> Result<()> {
+    loop {
+        tokio::select! {
+            alert = alerts.next() => {
+                tx.send(&SessionsReply::Alert { alert }).await?;
             }
             // The server sends nothing more; anything is its goodbye.
             _ = rx.recv::<SessionsRequest>() => return Ok(()),

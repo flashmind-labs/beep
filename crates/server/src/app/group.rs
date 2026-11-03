@@ -268,6 +268,7 @@ impl App {
                     changed: false,
                     group: true,
                 },
+                desktop: None,
             });
         }
     }

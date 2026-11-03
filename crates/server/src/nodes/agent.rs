@@ -133,7 +133,7 @@ impl AgentLinks {
     }
 
     /// The chat `session` reports to.
-    fn owner(&self, session: &str) -> Option<Follower> {
+    pub(super) fn owner(&self, session: &str) -> Option<Follower> {
         self.owners().get(session).cloned()
     }
 
