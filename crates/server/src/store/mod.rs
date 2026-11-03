@@ -507,6 +507,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "agent session usage",
         include_str!("../../migrations/0082_agent_session_usage.sql"),
     ),
+    (
+        86,
+        "agent spend billing",
+        include_str!("../../migrations/0086_agent_spend_billing.sql"),
+    ),
 ];
 
 /// The last migration before the transcripts go. The backfill reads them
