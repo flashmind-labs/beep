@@ -8,7 +8,10 @@ use crate::{
     agents::prices::{self, Tokens},
     found::Agent,
 };
-use beep_proto::node::usage::{HourSpend, MAX_SESSION_HOURS, SessionSpend};
+use beep_proto::{
+    ModelId,
+    node::usage::{HourSpend, MAX_SESSION_HOURS, SessionSpend},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -35,7 +38,7 @@ pub(super) struct SessionKey {
 pub(super) struct BucketKey {
     /// Unix seconds at the start of the hour.
     pub(super) hour: u64,
-    pub(super) model: String,
+    pub(super) model: ModelId,
 }
 
 /// What was spent in one bucket.
@@ -168,7 +171,7 @@ impl LogFile {
                 part.buckets
                     .entry(BucketKey {
                         hour,
-                        model: model.clone(),
+                        model: ModelId::new(model.as_str()),
                     })
                     .or_default()
                     .add(&model, &request.tokens, request.cost_usd);
@@ -283,7 +286,7 @@ impl Ledger {
             })
             .collect();
         Some(SessionSpend {
-            agent: key.agent.as_str().to_owned(),
+            agent: key.agent.slug(),
             session: key.session.clone(),
             cwd,
             since,

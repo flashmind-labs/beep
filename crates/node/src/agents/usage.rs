@@ -6,7 +6,10 @@
 //! and a running Claude Code session updates it as its rate limit events
 //! come.
 
-use beep_proto::node::usage::{LimitWindow, PlanUsage, TurnUsage};
+use beep_proto::{
+    AgentSlug,
+    node::usage::{LimitWindow, PlanUsage, TurnUsage},
+};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -18,7 +21,7 @@ use tokio::sync::{Notify, watch};
 const MAX_UNSENT: usize = 500;
 
 /// The plan usage of each agent, by agent.
-pub(crate) type Plans = BTreeMap<String, PlanUsage>;
+pub(crate) type Plans = BTreeMap<AgentSlug, PlanUsage>;
 
 #[derive(Debug)]
 pub(crate) struct UsageHub {
@@ -81,13 +84,13 @@ impl UsageHub {
 
     /// Puts `windows`, seen `at` (Unix seconds), into `agent`'s report,
     /// replacing the same windows and keeping the others.
-    pub(crate) fn update_windows(&self, agent: &str, windows: Vec<LimitWindow>, at: u64) {
+    pub(crate) fn update_windows(&self, agent: &AgentSlug, windows: Vec<LimitWindow>, at: u64) {
         if windows.is_empty() {
             return;
         }
         self.plans.send_if_modified(|plans| {
-            let plan = plans.entry(agent.to_owned()).or_insert_with(|| PlanUsage {
-                agent: agent.to_owned(),
+            let plan = plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
+                agent: agent.clone(),
                 ..PlanUsage::default()
             });
             let before = plan.clone();
@@ -158,7 +161,7 @@ mod tests {
     fn a_rate_limit_event_updates_its_windows_only() {
         let hub = UsageHub::default();
         hub.set_plan(PlanUsage {
-            agent: "claude".into(),
+            agent: AgentSlug::CLAUDE,
             plan: Some("max".into()),
             windows: vec![
                 LimitWindow {
@@ -181,7 +184,7 @@ mod tests {
             "rateLimitType": "seven_day",
             "unifiedWindows": {"seven_day": {"utilization": 0.02, "resetsAt": 300, "status": "allowed"}},
         });
-        hub.update_windows("claude", claude_rate_limit(&event), 60);
+        hub.update_windows(&AgentSlug::CLAUDE, claude_rate_limit(&event), 60);
         let plans = hub.plans();
         let plan = &plans.borrow()["claude"];
         assert_eq!(plan.plan.as_deref(), Some("max"));

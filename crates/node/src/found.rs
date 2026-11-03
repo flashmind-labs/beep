@@ -11,7 +11,10 @@
 //! file changes, so listing again reads only what changed.
 
 use crate::agents::cut;
-use beep_proto::node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder};
+use beep_proto::{
+    AgentSlug,
+    node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
+};
 use std::{
     cmp::Reverse,
     collections::HashMap,
@@ -77,6 +80,11 @@ impl Agent {
             Self::Flsh => "flsh",
             Self::OpenCode => "opencode",
         }
+    }
+
+    /// The slug the wire names it by.
+    pub(crate) fn slug(self) -> AgentSlug {
+        AgentSlug::from(self.as_str())
     }
 
     pub(crate) fn from_name(name: &str) -> Option<Self> {

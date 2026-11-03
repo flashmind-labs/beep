@@ -3,13 +3,20 @@
 //! the user's agents spent each day of this month: the logs, and the turns
 //! Beep watched (`agent_usage`) that no log of the same session covers.
 
-use super::Store;
+use super::{
+    Store,
+    agent_usage::{agent_of, endpoint_of},
+};
 use crate::{
-    protocol::node::usage::{MAX_SESSION_HOURS, SessionSpend},
+    protocol::{
+        AgentSlug, ModelId,
+        node::usage::{MAX_SESSION_HOURS, SessionSpend},
+    },
     user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use iroh::EndpointId;
 use sqlx::Row;
 
 /// The longest agent, model or session name kept, and the longest folder.
@@ -42,9 +49,9 @@ impl Periods {
 /// one day.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DaySpendRow {
-    pub(crate) endpoint: String,
+    pub(crate) endpoint: EndpointId,
     pub(crate) cwd: String,
-    pub(crate) agent: String,
+    pub(crate) agent: AgentSlug,
     pub(crate) day: NaiveDate,
     /// `None` when none of it was priced.
     pub(crate) cost_usd: Option<f64>,
@@ -55,8 +62,8 @@ pub(crate) struct DaySpendRow {
 /// The tokens one model of one agent used on one day.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DayModelRow {
-    pub(crate) agent: String,
-    pub(crate) model: String,
+    pub(crate) agent: AgentSlug,
+    pub(crate) model: ModelId,
     pub(crate) day: NaiveDate,
     pub(crate) tokens: u64,
     /// From the agents' logs, rather than the turns Beep watched.
@@ -76,10 +83,11 @@ impl Store {
     pub(crate) async fn save_session_spend(
         &self,
         user: &UserKey,
-        endpoint: &str,
+        endpoint: &EndpointId,
         spend: &SessionSpend,
     ) -> Result<()> {
-        name("agent", &spend.agent, MAX_NAME)?;
+        name("agent", spend.agent.as_str(), MAX_NAME)?;
+        let endpoint = endpoint.to_string();
         name("session", &spend.session, MAX_NAME)?;
         if spend.cwd.len() > MAX_FOLDER {
             bail!("the folder is too long");
@@ -106,8 +114,8 @@ impl Store {
             else {
                 continue;
             };
-            if hour.model.is_empty()
-                || hour.model.len() > MAX_NAME
+            if hour.model.as_str().is_empty()
+                || hour.model.as_str().len() > MAX_NAME
                 || !hour.cost_usd.is_finite()
                 || !(0.0..=MAX_HOUR_COST).contains(&hour.cost_usd)
             {
@@ -128,8 +136,8 @@ impl Store {
              WHERE user_id=$1 AND endpoint_id=$2 AND agent=$3 AND session=$4 AND hour >= $5",
         )
         .bind(user.as_str())
-        .bind(endpoint)
-        .bind(&spend.agent)
+        .bind(&endpoint)
+        .bind(spend.agent.as_str())
         .bind(&spend.session)
         .bind(since)
         .execute(&mut *tx)
@@ -151,8 +159,8 @@ impl Store {
                  cost_usd=excluded.cost_usd, unpriced_tokens=excluded.unpriced_tokens",
         )
         .bind(user.as_str())
-        .bind(endpoint)
-        .bind(&spend.agent)
+        .bind(&endpoint)
+        .bind(spend.agent.as_str())
         .bind(&spend.session)
         .bind(&spend.cwd)
         .bind(&hours)
@@ -231,9 +239,9 @@ impl Store {
         rows.iter()
             .map(|row| {
                 Ok(DaySpendRow {
-                    endpoint: row.try_get("endpoint_id")?,
+                    endpoint: endpoint_of(row)?,
                     cwd: row.try_get("cwd")?,
-                    agent: row.try_get("agent")?,
+                    agent: agent_of(row)?,
                     day: row.try_get("day")?,
                     cost_usd: row.try_get("cost")?,
                     tokens: u64::try_from(row.try_get::<i64, _>("tokens")?)?,
@@ -275,8 +283,8 @@ impl Store {
         rows.iter()
             .map(|row| {
                 Ok(DayModelRow {
-                    agent: row.try_get("agent")?,
-                    model: row.try_get("model")?,
+                    agent: agent_of(row)?,
+                    model: ModelId::new(row.try_get::<String, _>("model")?),
                     day: row.try_get("day")?,
                     tokens: u64::try_from(row.try_get::<i64, _>("tokens")?)?,
                     from_logs: row.try_get("from_logs")?,

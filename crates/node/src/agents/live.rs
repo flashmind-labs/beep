@@ -19,12 +19,15 @@ use agent_client_protocol::schema::{
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::node::{
-    agent::{
-        AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question, SessionInfo,
-        Status, StopReason,
+use beep_proto::{
+    AgentSlug,
+    node::{
+        agent::{
+            AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question,
+            SessionInfo, Status, StopReason,
+        },
+        usage::{ModelTokens, TurnUsage},
     },
-    usage::{ModelTokens, TurnUsage},
 };
 use serde_json::Value;
 use std::{
@@ -170,7 +173,7 @@ impl Live {
         }
         self.usage.record(TurnUsage {
             session: self.info.id.clone(),
-            agent: self.info.agent.clone(),
+            agent: AgentSlug::new(self.info.agent.as_str()),
             cwd: self.info.cwd.clone(),
             at: unix_now(),
             cost_usd,
@@ -203,7 +206,7 @@ impl Live {
         }
         if let Some(info) = meta.and_then(|meta| meta.get(CLAUDE_RATE_LIMIT)) {
             self.usage
-                .update_windows("claude", claude_rate_limit(info), unix_now());
+                .update_windows(&AgentSlug::CLAUDE, claude_rate_limit(info), unix_now());
         }
     }
 
