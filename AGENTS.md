@@ -152,6 +152,9 @@ https://releases.flashmind.com/beep/node/. Machines install it with:
 
 then link with `beep-node setup <token>`. Rerunning the installer upgrades
 in place and restarts the service. There is no Intel Mac build.
+`beep-node update` does the same from the node itself: it checks
+`latest.txt`, verifies the archive against `SHA256SUMS`, swaps its own binary
+and restarts the service `setup` installed (`--check` only reports).
 
 On Windows, `crates/node/install.ps1` does the same from PowerShell
 (`irm https://releases.flashmind.com/beep/node/install.ps1 | iex`): it
