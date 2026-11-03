@@ -8,6 +8,7 @@ import type { MakeButton, MakeEl } from "./projects-state.ts";
 import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView } from "./providers-state.ts";
 import { emptyPanel } from "./components/parts.ts";
+import { flshPanel } from "./flsh.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean }
@@ -47,6 +48,7 @@ export function registerProviders(deps: ProvidersDeps) {
   /// Settings' breadcrumb, told of the agent picked, and the last it was told.
   let onPick: ((agent: string) => void) | null = null;
   let reported: string | null = null;
+  const flsh = flshPanel({ invoke, h, button, redraw: () => draw() });
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
@@ -302,6 +304,8 @@ export function registerProviders(deps: ProvidersDeps) {
     };
     refreshSave();
     box.append(h("div", "hv-acts", saveBtn, discard, problem));
+    // flsh's own settings are the same on every machine and save apart.
+    if (hv.agent === "flsh") box.append(...flsh.render());
     return box;
   }
 

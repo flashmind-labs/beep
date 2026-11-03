@@ -651,6 +651,15 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .hv-stat { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); padding: 6px 0 }
 .hv-acts { display: flex; gap: 8px; align-items: center; margin-top: 6px }
 .hv-note { font-size: 12px; line-height: 17px; color: var(--muted); margin-top: 8px }
+/* flsh's own settings under its runtime ones. */
+.fl-seg, .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
+.fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
+.fl-row { display: flex; gap: 8px; align-items: center }
+.fl-tbl { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px }
+.fl-tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border) }
+.fl-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle }
+.fl-tbl td:first-child { width: 50% }
+.fl-tbl td:last-child { text-align: right; width: 1% ; white-space: nowrap }
 .cc-ag.pi { color: #B18CE0 } .cc-ag.gemini { color: #6FA8DC } .cc-ag.flsh { color: #3B9B7A } .cc-ag.opencode { color: #E9B949 }
 /* Terminals on every machine: Home's panel per machine, and the page's
    machine list beside the open terminal. */

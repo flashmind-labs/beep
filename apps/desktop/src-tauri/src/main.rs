@@ -19,6 +19,7 @@ mod desktop;
 mod devices;
 mod error;
 mod file_sync;
+mod flsh_settings;
 mod gh_sign_in;
 mod git_items;
 mod grants;
@@ -274,6 +275,8 @@ fn main() {
             harnesses::agent_harnesses,
             harnesses::harness_settings_save,
             harnesses::agent_harness_update,
+            flsh_settings::flsh_settings_get,
+            flsh_settings::flsh_settings_save,
             agent_accounts::save_agent_token,
             agent_accounts::revoke_agent_token,
             agent_accounts::claude_sign_in,
