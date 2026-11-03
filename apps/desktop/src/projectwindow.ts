@@ -38,6 +38,7 @@ export const PROJECT_TABS: readonly { key: string | null; label: string }[] = [
   { key: "branches", label: "Branches" },
   { key: "prs", label: "Pull requests" },
   { key: "issues", label: "Issues" },
+  { key: "actions", label: "Actions" },
   { key: "machines", label: "Machines" },
   { key: "terminals", label: "Terminals" },
   { key: "sync", label: "File sync" },

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checksText, failedAt, fixPrompt, going, hostCounts, hostLabel, progressText, runChip, runKey, runSpan, runTarget, runsCount, span, type HostRow, type RunDetail, type RunJobRow, type RunRow } from "../src/runs.ts";
+import { checksText, failedAt, fixPrompt, going, hostCounts, hostLabel, progressText, runChip, runKey, runSpan, runTarget, runTile, runsCount, span, type HostRow, type RunDetail, type RunJobRow, type RunRow } from "../src/runs.ts";
 import { targetCheckout, targetPlan } from "../src/projectbar.ts";
 
 const NOW = 1_800_000_000_000;
@@ -124,4 +124,13 @@ test("Fix this on a mirror's run names its host and the tool to read it with", (
   assert.match(prompt, /forge\.example\.com\/mirrors\/widget\/actions\/runs\/4/);
   assert.match(prompt, /It ran on Forgejo Actions; read it with teacli\./);
   assert.doesNotMatch(fixPrompt({ run: run(), jobs: [], log: null }), /It ran on/);
+});
+
+test("the board's Actions tile lists runs with a chip and counts what goes", () => {
+  assert.equal(runTile(undefined).empty, "Loading…");
+  assert.equal(runTile({ runs: [] }).empty, "No workflow runs yet");
+  const t = runTile({ runs: [run(), run({ id: 2, state: "running", title: "Ship it" })] });
+  assert.equal(t.count, "1 running · 1 failed");
+  assert.deepEqual(t.rows.map(r => [r.code, r.text, r.chip?.text]), [["CI", "Bump gradle", "failed"], ["CI", "Ship it", "running"]]);
+  assert.equal(t.rows[0].url, "https://github.com/acme/widget/actions/runs/9001");
 });
