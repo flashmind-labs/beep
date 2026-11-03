@@ -33,12 +33,6 @@ export type ModelField =
 /// How long a machine's list is kept here; the node keeps it as long.
 export const MODELS_KEPT_MS = 5 * 60 * 1000;
 
-/// The machine to list models on: the one picked, else the one Auto would
-/// pick, when it has said. `null` when there is none yet.
-export function modelMachine(machine: string, autoPick: string | null): string | null {
-  return machine === "auto" ? autoPick : machine;
-}
-
 /// The field for `list`: `undefined` while it is asked, `null` when the
 /// machine could not say (a server or node too old, or an error).
 export function modelField(list: AgentModels | null | undefined): ModelField {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type AgentModels, modelField, modelMachine } from "../src/bar/agentmodels.ts";
+import { type AgentModels, modelField } from "../src/bar/agentmodels.ts";
 
 const listed: AgentModels = {
   pick: "listed",
@@ -29,10 +29,4 @@ test("the field hides when none can be picked or the machine cannot say", () => 
   assert.deepEqual(modelField({ pick: "fixed", current: null, models: [] }), { kind: "hidden" });
   assert.deepEqual(modelField(null), { kind: "hidden" });
   assert.deepEqual(modelField(undefined), { kind: "loading" });
-});
-
-test("models are listed on the picked machine, or where Auto would start", () => {
-  assert.equal(modelMachine("m1", null), "m1");
-  assert.equal(modelMachine("auto", "m2"), "m2");
-  assert.equal(modelMachine("auto", null), null);
 });
