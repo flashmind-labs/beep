@@ -1163,6 +1163,11 @@ impl User {
         self.store.terminals(&self.key, project).await
     }
 
+    /// Every terminal, of any project or none, oldest first.
+    pub(crate) async fn all_terminals(&self) -> Result<Vec<crate::store::TerminalRow>> {
+        self.store.all_terminals(&self.key).await
+    }
+
     pub(crate) async fn terminal(&self, id: Uuid) -> Result<Option<crate::store::TerminalRow>> {
         self.store.terminal(&self.key, id).await
     }
