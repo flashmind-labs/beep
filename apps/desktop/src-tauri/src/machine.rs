@@ -80,7 +80,8 @@ pub struct Machine {
 
 /// The node's own folder and what it keeps there.
 struct NodeHome {
-    /// Holds the Beep MCP server's socket, `mcp.sock`.
+    /// The node's folder; its MCP socket goes here, or in a short per-user
+    /// folder when this path is too long for one.
     dir: PathBuf,
     /// gh, teacli and the skills, and the credentials the server sends
     /// while the link is up.
@@ -177,8 +178,8 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
     let mut offers = Offers::local(&[], home.provision.clone());
     offers.extra.push(Arc::new(desktop::Desktop));
     // The agents' Beep MCP server: sessions run this app's executable as
-    // its command (`mcp_command`), which pipes to the socket in the node's
-    // folder. It stops with this task.
+    // its command (`mcp_command`), which pipes to the socket the node
+    // bound, named in the session's environment. It stops with this task.
     if let Err(e) = std::fs::create_dir_all(&home.dir) {
         log::warn!("not serving the Beep MCP server: {e}");
     }
