@@ -2617,7 +2617,10 @@ wire_enum! {
     /// `PromptImages` is `Prompt` with images after the text, as
     /// `check_agent_images` allows them; `text` may then be empty. A
     /// server older than `Feature::AGENT_IMAGES` refuses it, and so does an
-    /// agent that takes no images.
+    /// agent that takes no images. `Configure` switches the running session
+    /// to `model` and thinking `effort` (either may be `None` to keep it),
+    /// from its next turn; a server older than `Feature::AGENT_CONFIGURE`
+    /// refuses it, and so does a node or agent that cannot switch.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentSteer {
@@ -2625,6 +2628,7 @@ wire_enum! {
         1 Cancel {}
         2 Close {}
         3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
+        4 Configure { model: Option<String>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
     }
 }
 

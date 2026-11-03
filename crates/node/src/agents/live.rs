@@ -45,6 +45,9 @@ const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
 const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
 
+/// The most of a thought kept to find its line.
+const MAX_THOUGHT: usize = 8 * 1024;
+
 /// ACP tool kinds that change files.
 const EDIT_KINDS: &[ToolKind] = &[ToolKind::Edit, ToolKind::Delete, ToolKind::Move];
 
@@ -80,6 +83,11 @@ pub(crate) struct Live {
     turn_start: u64,
     /// Image files the agent linked to this turn, as it named them.
     turn_links: Vec<String>,
+    /// The thought arriving now, for the line the summary shows while the
+    /// agent thinks; thoughts are not kept in the transcript.
+    thought: String,
+    /// The last update was part of `thought`.
+    in_thought: bool,
 }
 
 /// The image files a finished turn named, for the session to read and
@@ -212,6 +220,9 @@ impl Live {
     pub(crate) fn apply(&mut self, update: &SessionUpdate) -> bool {
         let before = self.info.state.clone();
         let title = self.info.title.clone();
+        if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
+            self.in_thought = false;
+        }
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
                 ContentBlock::Text(text) => self.message_chunk(&text.text),
@@ -248,11 +259,7 @@ impl Live {
                     _ => {}
                 }
             }
-            SessionUpdate::AgentThoughtChunk(_) => {
-                if self.info.state.summary.is_empty() {
-                    self.info.state.summary = "Thinking".into();
-                }
-            }
+            SessionUpdate::AgentThoughtChunk(chunk) => self.thought_chunk(&chunk.content),
             SessionUpdate::ToolCall(call) => self.tool_call(call),
             SessionUpdate::ToolCallUpdate(update) => self.tool_call_update(update),
             SessionUpdate::Plan(plan) => {
@@ -447,6 +454,24 @@ impl Live {
                 self.push_entry(EntryKind::Agent, lines.trim_start().to_owned());
                 self.in_message = false;
             }
+        }
+    }
+
+    /// Part of a thought: the summary says "Thinking" until the thought has
+    /// a line to show, then that line.
+    fn thought_chunk(&mut self, content: &ContentBlock) {
+        if !self.in_thought {
+            self.in_thought = true;
+            self.thought.clear();
+            self.info.state.summary = "Thinking".into();
+        }
+        if let ContentBlock::Text(text) = content
+            && self.thought.len() < MAX_THOUGHT
+        {
+            self.thought.push_str(&text.text);
+        }
+        if let Some(line) = thought_line(&self.thought) {
+            self.info.state.summary = cut(&line, MAX_LINE);
         }
     }
 
@@ -715,6 +740,48 @@ fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The line a thought shows while it arrives: its last bold heading
+/// (`**Planning the fix**`), else its first sentence once that is whole.
+/// `None` until there is one.
+fn thought_line(text: &str) -> Option<String> {
+    let mut heading = None;
+    let mut rest = text;
+    while let Some(start) = rest.find("**") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("**") else {
+            break;
+        };
+        let bold = after[..end].trim();
+        if !bold.is_empty() && !bold.contains('\n') {
+            heading = Some(bold);
+        }
+        rest = &after[end + 2..];
+    }
+    if let Some(heading) = heading {
+        return Some(heading.to_owned());
+    }
+    let text = text.trim_start();
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        let end = match c {
+            '\n' => Some(at),
+            '.' | '!' | '?' if chars.peek().is_some_and(|(_, next)| next.is_whitespace()) => {
+                Some(at + c.len_utf8())
+            }
+            _ => None,
+        };
+        if let Some(end) = end {
+            let line: String = text[..end]
+                .chars()
+                .filter(|c| !matches!(c, '*' | '`'))
+                .collect();
+            let line = line.trim();
+            return (!line.is_empty()).then(|| line.to_owned());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -1027,5 +1094,27 @@ mod tests {
     fn cutting_keeps_characters_whole() {
         assert_eq!(cut("héllo", 2), "h");
         assert_eq!(cut("hi", 10), "hi");
+    }
+
+    #[test]
+    fn a_thought_shows_its_heading_or_first_whole_sentence() {
+        assert_eq!(
+            thought_line("**Planning the fix**\n\nI will"),
+            Some("Planning the fix".into())
+        );
+        assert_eq!(
+            thought_line("**Reading**\n\nok. **Running the tests** now"),
+            Some("Running the tests".into())
+        );
+        assert_eq!(
+            thought_line("Let me check `src/main.rs`. Then"),
+            Some("Let me check src/main.rs.".into())
+        );
+        assert_eq!(thought_line("Looking at e.g"), None, "not whole yet");
+        assert_eq!(thought_line("**Half"), None);
+        assert_eq!(
+            thought_line("First line\nsecond"),
+            Some("First line".into())
+        );
     }
 }

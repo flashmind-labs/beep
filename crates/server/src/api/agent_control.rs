@@ -558,6 +558,7 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     // costs nothing more.
     let request = node_request(steer.steer)?;
     let images = matches!(request, Request::PromptImages { .. });
+    let configure = matches!(request, Request::Configure { .. });
     let live = live_host(&cx, &steer.machine_id).await?;
     let listed = limited(live.online.agent_sessions()).await?;
     if !listed
@@ -577,6 +578,10 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
         if images && error.contains("unknown request") {
             ApiError::bad_request(
                 "beep-node on that machine is too old to send images. Update it, or send text.",
+            )
+        } else if configure && error.contains("unknown request") {
+            ApiError::bad_request(
+                "beep-node on that machine is too old to switch a running session's model. Update it.",
             )
         } else {
             ApiError::bad_request(error)
@@ -786,6 +791,14 @@ fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
         }
         AgentSteer::Cancel {} => Request::Cancel {},
         AgentSteer::Close {} => Request::Close {},
+        AgentSteer::Configure {
+            model: None,
+            effort: None,
+        } => return Err(ApiError::bad_request("Nothing to switch.")),
+        AgentSteer::Configure { model, effort } => Request::Configure {
+            model: model.map(|m| m.trim().to_owned()).filter(|m| !m.is_empty()),
+            effort: effort.map(Into::into),
+        },
     })
 }
 
