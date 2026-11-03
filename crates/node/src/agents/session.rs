@@ -954,8 +954,13 @@ impl Actor {
     }
 
     fn turn_done(&mut self, cx: &ConnectionTo<Agent>, stop: StopReason, error: Option<String>) {
-        // A turn that ends leaves no question open.
-        self.asked.clear();
+        // A turn that ends leaves no question open. A dropped responder
+        // sends nothing, so each is answered cancelled.
+        while let Some(asked) = self.asked.pop_front() {
+            if let Err(e) = asked.responder.respond(acp::cancelled()) {
+                log::debug!("an open question was not cancelled: {e}");
+            }
+        }
         let mut files = None;
         self.live.send_modify(|live| {
             live.info.turns += 1;
@@ -1422,6 +1427,52 @@ cat > /dev/null
         assert_eq!(question.options.len(), 2);
         let sent = std::fs::read_to_string(&log).unwrap();
         assert!(!sent.contains("session/set_mode"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that puts a choice to the user, then ends its turn without
+    /// waiting for it, logs the answer the node gives and exits.
+    const ABANDONING_ADAPTER: &str = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+read -r line
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"}]}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r line; log "$1"
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
+        let dir = temp("abandons");
+        let log = dir.join("sent.jsonl");
+        let session = Session::start(Start {
+            id: "b4e0d4".into(),
+            kind: &script("pi", ABANDONING_ADAPTER, &log),
+            cwd: &dir,
+            prompt: Some("go".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            images: Arc::default(),
+            usage: Arc::default(),
+        })
+        .unwrap();
+        let mut live = session.live.clone();
+        // The adapter exits once it hears the answer; without one it waits.
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            live.wait_for(|live| live.status() == Status::Ended),
+        )
+        .await
+        .expect("the question was never answered")
+        .unwrap();
+        let sent = std::fs::read_to_string(&log).unwrap();
+        let answer: Value = serde_json::from_str(sent.trim()).unwrap();
+        assert_eq!(answer["id"], "p1");
+        assert_eq!(answer["result"]["outcome"]["outcome"], "cancelled");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
