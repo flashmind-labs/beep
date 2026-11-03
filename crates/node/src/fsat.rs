@@ -19,8 +19,8 @@ mod windows;
 use windows as imp;
 
 pub(crate) use imp::{
-    Dir, ctime_ns, id_of_metadata, id_of_path, is_executable, mtime_ns, open_no_follow, private,
-    rename, rename_new, set_mode, volume,
+    Dir, ctime_ns, id_of_metadata, id_of_path, is_executable, mtime_ns, open_no_follow, open_read,
+    private, rename, rename_new, set_mode, volume,
 };
 
 /// Which file on which disk. On Windows an id read from `Metadata` is

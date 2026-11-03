@@ -174,11 +174,7 @@ pub(super) fn verify(path: &Path, expected: &str) -> Result<()> {
         }
         hasher.update(&buf[..read]);
     }
-    let found: String = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let found = format!("{:x}", hasher.finalize());
     ensure!(
         found.eq_ignore_ascii_case(expected),
         "{} has SHA-256 {found}, not the pinned {expected}",

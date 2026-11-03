@@ -246,9 +246,21 @@ pub(crate) fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     std::fs::set_permissions(path, Permissions::from_mode(mode))
 }
 
-/// Opens `path` with `options`, failing if it is a link.
+/// Opens `path` with `options`, failing if it is a link. Never waits: a
+/// pipe with nothing on its other end fails or opens at once.
 pub(crate) fn open_no_follow(options: &mut OpenOptions, path: &Path) -> io::Result<File> {
-    options.custom_flags(libc::O_NOFOLLOW).open(path)
+    options
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+}
+
+/// Opens `path` to read. Never waits: a pipe with nothing on its other end
+/// opens at once rather than when a writer comes, so check it is a file.
+pub(crate) fn open_read(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
 }
 
 /// Makes a file `options` create readable by its owner only.

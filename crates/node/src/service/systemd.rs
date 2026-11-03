@@ -115,7 +115,6 @@ fn unit(launch: &Launch) -> String {
          Restart=always\n\
          RestartSec=5\n\
          Environment={}\n\
-         Environment=RUST_LOG=info\n\
          \n\
          [Install]\n\
          WantedBy=default.target\n",
@@ -214,6 +213,8 @@ mod tests {
         assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/user/50%%/bin\"\n"));
         assert!(unit.contains("Restart=always\n"));
         assert!(unit.contains("WantedBy=default.target"));
+        // The node's own filter keeps the networking crates quiet.
+        assert!(!unit.contains("RUST_LOG"), "{unit}");
     }
 
     #[test]

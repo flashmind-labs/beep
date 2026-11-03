@@ -185,3 +185,18 @@ fn logs_older_than_the_window_are_not_read() {
     // Seen from two months on, every log is old; the OpenCode messages too.
     assert!(spend.pass(NOW + 60 * 24 * 3600).is_empty());
 }
+
+#[test]
+fn the_window_starts_on_an_hour() {
+    let fixture = fixture();
+    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    // The window starts after ses_a's message (1_793_614_600) but within
+    // its hour, which the server replaces whole.
+    let reports = spend.pass(1_793_614_650 + WINDOW_SECS);
+    let sessions = by_session(&reports);
+    let a = sessions
+        .get("ses_a")
+        .expect("the hour's first message counts");
+    assert_eq!(a.since % 3600, 0);
+    assert!((cost(a) - 3.0).abs() < 1e-9, "{a:?}");
+}
