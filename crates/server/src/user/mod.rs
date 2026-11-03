@@ -1468,6 +1468,12 @@ impl User {
         self.store.remove_agent_token(&self.key, agent).await
     }
 
+    /// Keeps `account` as who the Forgejo credential `id` signs in as;
+    /// `false` when the user has no such one.
+    pub(crate) async fn set_forgejo_account(&self, id: &str, account: &str) -> Result<bool> {
+        self.store.set_forgejo_account(&self.key, id, account).await
+    }
+
     /// `false` when the user has no credential `id`.
     pub async fn remove_credential(&self, id: &str) -> Result<bool> {
         self.store.remove_credential(&self.key, id).await
