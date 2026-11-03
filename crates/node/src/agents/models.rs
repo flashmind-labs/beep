@@ -177,7 +177,7 @@ async fn ask(child: &mut tokio::process::Child, cwd: &Path) -> Result<Offered> {
             acp::transport(stdin, stdout, oversized),
             async |cx: ConnectionTo<agent_client_protocol::Agent>| {
                 cx.send_request(acp::initialize()).block_task().await?;
-                let request = acp::new_session(cwd)?;
+                let request = acp::new_session(cwd, Vec::new())?;
                 cx.send_request(request).block_task().await
             },
         )

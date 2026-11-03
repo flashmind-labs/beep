@@ -30,6 +30,7 @@ pub mod process;
 pub mod shell;
 pub mod sync;
 pub mod terminal;
+pub mod tools;
 pub mod transfer;
 pub mod usage;
 
@@ -123,14 +124,16 @@ pub enum Up {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Down {
-    Welcome {},
+    Welcome {
+        /// The server takes `tools/1` streams from the node. A server from
+        /// before them leaves it out, and a node from before them skips it.
+        #[serde(default)]
+        tools: bool,
+    },
     /// The node's setup token was claimed: its key now signs into
     /// `account` (the account's name) as the machine `name`. Sent before the
     /// welcome, only to a node whose hello carried `setup`.
-    Linked {
-        account: String,
-        name: String,
-    },
+    Linked { account: String, name: String },
     /// The user's credentials meant for their machines, sent after the
     /// welcome and again whenever they change, each time in full. Only to
     /// a node whose hello says it takes them. The node keeps them in
@@ -561,6 +564,30 @@ mod tests {
         };
         let body = rmp_serde::to_vec_named(&hello).unwrap();
         assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), hello);
+    }
+
+    #[test]
+    fn an_older_node_reads_a_welcome_that_offers_tools() {
+        // What a node from before `tools` knew.
+        #[derive(Debug, Deserialize)]
+        enum OldDown {
+            Welcome {},
+        }
+        let body = rmp_serde::to_vec_named(&Down::Welcome { tools: true }).unwrap();
+        assert!(matches!(
+            rmp_serde::from_slice::<OldDown>(&body),
+            Ok(OldDown::Welcome {})
+        ));
+        // And a newer node reads an older server's welcome.
+        #[derive(Serialize)]
+        enum Older {
+            Welcome {},
+        }
+        let body = rmp_serde::to_vec_named(&Older::Welcome {}).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<Down>(&body).unwrap(),
+            Down::Welcome { tools: false }
+        );
     }
 
     #[test]

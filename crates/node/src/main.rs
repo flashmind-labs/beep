@@ -1,6 +1,8 @@
 //! The `beep-node` command line.
 
-use beep_node::{agents::Agents, claude::hooks, env, link, local, service, setup, state, update};
+use beep_node::{
+    agents::Agents, claude::hooks, env, link, local, mcp, service, setup, state, update,
+};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -112,6 +114,14 @@ enum Command {
     Hook {
         /// The hook's event; the input on stdin names it too.
         event: Option<String>,
+    },
+    /// Run by a coding agent the node started: the Beep MCP server on
+    /// stdio, served by the running node.
+    #[command(hide = true)]
+    Mcp {
+        /// The node's id of the agent's session.
+        #[arg(long)]
+        session: String,
     },
     /// Lists the Claude Code sessions on this machine started outside Beep.
     Sessions {
@@ -313,6 +323,7 @@ async fn main() -> Result<()> {
             println!("{text}");
             Ok(())
         }
+        Command::Mcp { session } => mcp::pipe(&dir, &session).await,
         Command::Hook { event: _ } => {
             hooks::forward(&dir).await;
             Ok(())
