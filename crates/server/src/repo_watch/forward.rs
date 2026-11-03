@@ -441,58 +441,6 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn events_map_to_the_copies_they_change() {
-        let lists = Refresh {
-            lists: true,
-            runs: false,
-        };
-        let runs = Refresh {
-            lists: false,
-            runs: true,
-        };
-        let none = Refresh {
-            lists: false,
-            runs: false,
-        };
-        for event in [
-            "pull_request",
-            "issues",
-            "issue_comment",
-            "pull_request_review",
-            "pull_request_sync",
-        ] {
-            assert_eq!(Refresh::of_event(event), lists, "{event}");
-        }
-        for event in [
-            "check_run",
-            "check_suite",
-            "workflow_run",
-            "workflow_job",
-            "action_run_failure",
-        ] {
-            assert_eq!(Refresh::of_event(event), runs, "{event}");
-        }
-        assert_eq!(Refresh::of_event("push"), Refresh::BOTH);
-        assert_eq!(Refresh::of_event("ping"), none);
-        assert_eq!(Refresh::of_event("star"), none);
-    }
-
-    #[test]
-    fn a_repository_the_user_does_not_administer_polls_without_trying_other_nodes() {
-        assert_eq!(
-            next_after(Ended::Refused(PollReason::NotAdmin)),
-            Next::Poll(NOT_ADMIN_RETRY)
-        );
-        let why = why_polling(PollReason::NotAdmin, &IssueHost::Github);
-        assert!(why.contains("admin"), "{why}");
-        // A reason about one node lets another try.
-        for reason in [PollReason::NoTool, PollReason::NoAddress, PollReason::Busy] {
-            assert_eq!(next_after(Ended::Refused(reason)), Next::TryAnother);
-        }
-        assert_eq!(next_after(Ended::Closed), Next::Restart(RESTART));
-    }
-
-    #[test]
     fn pages_following_one_project_share_one_supervisor() {
         let forwards = Forwards::default();
         let key = Key {

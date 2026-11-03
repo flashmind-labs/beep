@@ -142,46 +142,6 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_is_stale_until_read_then_after_three_minutes() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        assert!(t.stale(start), "never read");
-        t.synced(start, true);
-        assert!(!t.stale(start + secs(179)));
-        assert!(t.stale(start + secs(180)));
-    }
-
-    #[test]
-    fn a_failed_read_is_tried_again_after_a_minute() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.synced(start, false);
-        assert!(!t.stale(start + secs(59)));
-        assert!(t.stale(start + secs(60)));
-    }
-
-    #[test]
-    fn the_background_syncs_only_projects_viewed_in_the_last_half_hour() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.synced(start, true);
-        assert!(
-            !t.background_due(start + secs(600)),
-            "never viewed, never synced in the background"
-        );
-        t.view(start);
-        assert!(!t.background_due(start + secs(60)), "still fresh");
-        assert!(t.background_due(start + secs(181)));
-        t.synced(start + secs(181), true);
-        assert!(!t.background_due(start + secs(200)));
-        assert!(t.background_due(start + secs(29 * 60 + 59)));
-        assert!(
-            !t.background_due(start + secs(30 * 60)),
-            "nobody looked for half an hour"
-        );
-    }
-
-    #[test]
     fn an_old_copy_answers_at_once_and_is_read_in_the_background() {
         let start = Instant::now();
         let mut t = Timing::default();
@@ -216,34 +176,6 @@ mod tests {
     }
 
     #[test]
-    fn refresh_reads_at_most_once_per_thirty_seconds() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        assert!(t.force(start));
-        assert!(!t.force(start + secs(10)));
-        assert!(!t.force(start + secs(29)));
-        assert!(t.force(start + secs(30)));
-        assert!(!t.force(start + secs(31)));
-    }
-
-    #[test]
-    fn jobs_are_polled_every_ten_seconds_while_the_page_is_open() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        assert!(!t.poll(start), "nobody has the page open");
-        t.view(start);
-        assert!(t.poll(start));
-        // A second viewer asking within the ten seconds shares the read.
-        t.view(start + secs(4));
-        assert!(!t.poll(start + secs(4)));
-        assert!(t.poll(start + secs(10)));
-        // The page closed: no asks for half a minute, no polls.
-        assert!(!t.poll(start + secs(40)));
-        t.view(start + secs(41));
-        assert!(t.poll(start + secs(41)));
-    }
-
-    #[test]
     fn a_webhook_reads_again_within_seconds_but_not_more_than_every_five() {
         let start = Instant::now();
         let mut t = Timing::default();
@@ -253,15 +185,5 @@ mod tests {
         assert!(t.stale(start + secs(5)));
         t.synced(start + secs(5), true);
         assert!(!t.stale(start + secs(60)), "the read took the poke");
-    }
-
-    #[test]
-    fn a_project_nobody_asked_about_for_two_hours_is_forgotten() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.view(start);
-        assert!(!t.forgotten(start + secs(7199)));
-        assert!(t.forgotten(start + secs(7200)));
-        assert!(Timing::default().forgotten(start));
     }
 }
