@@ -564,6 +564,7 @@ async fn attach(live: Arc<Live>, from: u64, mut tx: LinkTx, mut rx: LinkRx) -> R
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     fn started(reply: Reply) -> TaskId {
         match reply {
             Reply::Started { task } => task.id,
@@ -572,6 +573,7 @@ mod tests {
     }
 
     /// Waits until the terminal's output so far holds `needle`.
+    #[cfg(unix)]
     async fn wait_for_output(live: &Live, needle: &str) -> String {
         let mut changed = live.changed.subscribe();
         timeout(Duration::from_secs(20), async {

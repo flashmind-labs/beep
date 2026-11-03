@@ -144,8 +144,8 @@ losing it means installed apps can no longer update.
 `just node-release 0.1.1` sets the version in `crates/node/Cargo.toml`,
 updates both lockfiles, commits and tags `node-v0.1.1`. Pushing the tag runs
 `.forgejo/workflows/node.yml`: static Linux musl builds (x86_64, aarch64)
-from the Dockerfile's `node-dist` stage, an Apple silicon build on the Mac
-runner, then a Forgejo release and an upload to R2 at
+from the Dockerfile's `node-dist` stage, a Windows x86_64 zip, an Apple
+silicon build on the Mac runner, then a Forgejo release and an upload to R2 at
 https://releases.flashmind.com/beep/node/. Machines install it with:
 
     curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh
@@ -160,7 +160,9 @@ On Windows, `crates/node/install.ps1` does the same from PowerShell
 (`irm https://releases.flashmind.com/beep/node/install.ps1 | iex`): it
 installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
 `%LOCALAPPDATA%\Programs\beep-node`, and `setup` registers the scheduled task
-"Beep node". The release workflow has no Windows job yet.
+"Beep node". The release builds that zip on the host runner with cargo-xwin
+(the Dockerfile's `node-dist-windows` stage). Updates move the running exe
+aside to `beep-node.exe.old`, removed by the next update.
 
 ## iOS app
 
