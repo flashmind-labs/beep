@@ -1156,6 +1156,93 @@ requests! {
     /// none (`project` empty), oldest first, with how each stands now.
     /// Terminals of an offline machine are `Offline`.
     293 ListAllTerminals {} => Call<Vec<Terminal>>
+    /// What the caller's coding agents cost today and this week, by
+    /// project, and how much of each agent's plan is left, for the pill
+    /// atop the command center. The plans are read on the caller's
+    /// machines every few minutes; `refresh` asks the online ones to read
+    /// them again now, and the answer comes before they did.
+    294 GetUsage { refresh: bool } => Call<UsageView>
+}
+
+/// What `GetUsage` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageView {
+    /// One per agent whose plan a machine reported, the freshest report
+    /// of any machine: Claude Code, then Codex.
+    pub limits: Vec<PlanLimits>,
+    /// Today's spending in the caller's timezone, by project, the most
+    /// expensive first.
+    pub today: Vec<ProjectSpend>,
+    /// Today's spending by harness, only those that spent anything.
+    pub harnesses: Vec<HarnessSpend>,
+    /// The whole week so far, from Monday.
+    pub week: ProjectSpend,
+}
+
+/// How much of one coding agent's plan is used.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanLimits {
+    /// `claude` or `codex`.
+    pub agent: String,
+    /// The plan, such as `max` or `pro`, when the agent says.
+    pub plan: Option<String>,
+    /// The machine that read it.
+    pub machine_name: String,
+    /// When it was read.
+    pub as_of: SystemTime,
+    /// The shortest window first.
+    pub windows: Vec<PlanWindow>,
+}
+
+/// One rate limit window of a plan.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanWindow {
+    /// How long the window is: 300 for five hours, 10080 for a week.
+    pub minutes: u32,
+    /// How much of it is used, from 0 to 100.
+    pub used_percent: f64,
+    pub resets_at: Option<SystemTime>,
+    /// What it is limited to, such as `Opus`; `None` for the whole plan.
+    pub scope: Option<String>,
+}
+
+/// What coding agents spent in one project, or in all of them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectSpend {
+    /// `org/repo`, else the folder's name; empty for a total.
+    pub project: String,
+    /// At API prices, in US dollars: an estimate on a flat-rate plan.
+    pub cost_usd: f64,
+    /// The tokens of the agents that report no cost, such as Codex.
+    pub unpriced: Vec<AgentTokens>,
+}
+
+/// The tokens one agent used.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTokens {
+    pub agent: String,
+    pub tokens: u64,
+}
+
+/// What one coding agent harness spent today.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HarnessSpend {
+    /// Its slug, such as `claude`.
+    pub agent: String,
+    /// At API prices, in US dollars, when it reports a cost; `None` for
+    /// one that reports tokens only, such as Codex.
+    pub cost_usd: Option<f64>,
+    /// Every token its turns used.
+    pub tokens: u64,
+    /// The tokens by model, the most first, when it says.
+    pub models: Vec<ModelSpend>,
+}
+
+/// The tokens one model used.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelSpend {
+    pub model: String,
+    pub tokens: u64,
 }
 
 /// The coding agent harnesses on one machine, as `ListAgentHarnesses`

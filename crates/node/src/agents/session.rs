@@ -8,7 +8,8 @@ use super::{
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     image_files,
     images::{Images, Picture},
-    live::{Live, TurnFiles, cut},
+    live::{Live, TurnFiles, TurnTokens, cut},
+    usage::UsageHub,
 };
 use crate::{
     process::{GroupLeader, STOP_GRACE, command, own_group},
@@ -28,7 +29,9 @@ use beep_proto::AgentAccount;
 use beep_proto::node::agent::{
     AnswerOption, Effort, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
 };
+use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use serde_json::Value;
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
@@ -96,6 +99,8 @@ pub(super) struct Start<'a> {
     pub(super) note: Option<String>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
+    /// Where what its turns spend goes.
+    pub(super) usage: Arc<UsageHub>,
 }
 
 impl Session {
@@ -110,6 +115,7 @@ impl Session {
             effort,
             note,
             images,
+            usage,
         } = start;
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
@@ -155,7 +161,7 @@ impl Session {
                 .map_or(0, |since| since.as_secs()),
             ..SessionInfo::default()
         };
-        let mut first = Live::new(info, images);
+        let mut first = Live::new(info, images, usage);
         if let Some(note) = note {
             first.push(EntryKind::Other, &note);
         }
@@ -339,6 +345,8 @@ impl Actor {
         child.stop(STOP_GRACE).await;
         drop(held);
         self.live.send_modify(|live| {
+            // A cost the agent reported after its last turn still counts.
+            live.spent(TurnTokens::default());
             live.info.question = None;
             live.info.state.status = Status::Ended;
             live.info.state.queued = 0;
@@ -549,6 +557,8 @@ impl Actor {
                 return Ok(Some(End::Failed(format!("the agent did not start: {e}"))));
             }
             Reply::Prompt(result) => {
+                let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
+                self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
                     Ok(done) => (
                         StopReason::from_acp(&acp::wire_name(&done.stop_reason)),
@@ -894,7 +904,7 @@ impl Actor {
         }
         let live = self.live.borrow();
         self.compactor.turn_ended(TurnEnd {
-            usage: live.usage,
+            usage: live.context,
             commands: &live.commands,
         });
         drop(live);
@@ -924,7 +934,7 @@ impl Actor {
         self.send(cx, acp::prompt(session, &prompt), Reply::Compacted);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
-            live.usage = None;
+            live.context = None;
             live.take_compacted();
             let state = &mut live.info.state;
             state.status = Status::Working;
@@ -941,6 +951,8 @@ impl Actor {
         result: Result<PromptResponse, agent_client_protocol::Error>,
     ) {
         self.compactor.finished();
+        let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
+        self.live.send_modify(|live| live.spent(tokens));
         let line = match result {
             Ok(done) => {
                 let stop = StopReason::from_acp(&acp::wire_name(&done.stop_reason));
@@ -989,6 +1001,35 @@ impl Actor {
             live.info.state.queued = queued;
         });
     }
+}
+
+/// The tokens a turn used: `_meta.quota` as claude-agent-acp and
+/// codex-acp give it, `token_count.totalTokens` with `model_usage` rows by
+/// model, else the response's own `usage`, which any agent may send.
+/// Nothing from an agent that says neither.
+fn turn_tokens(done: &PromptResponse) -> TurnTokens {
+    let total = |count: &Value| count.get("totalTokens").and_then(Value::as_u64);
+    let quota = done.meta.as_ref().and_then(|meta| meta.get("quota"));
+    let models = quota
+        .and_then(|quota| quota.get("model_usage"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            Some(ModelTokens {
+                model: cut(row.get("model")?.as_str()?, MAX_MODEL_NAME),
+                tokens: total(row.get("token_count")?)?,
+            })
+        })
+        .filter(|row| row.tokens > 0)
+        .take(MAX_TURN_MODELS)
+        .collect();
+    let total = quota
+        .and_then(|quota| quota.get("token_count"))
+        .and_then(total)
+        .or_else(|| done.usage.as_ref().map(|usage| usage.total_tokens))
+        .unwrap_or(0);
+    TurnTokens { total, models }
 }
 
 /// Refuses a prompt the queue has no room for: too many waiting already,
@@ -1052,7 +1093,37 @@ mod tests {
 
     use super::*;
     use beep_proto::Upload;
-    use serde_json::Value;
+
+    #[test]
+    fn turn_tokens_read_the_quota_then_the_usage() {
+        let response = |value: Value| -> PromptResponse { serde_json::from_value(value).unwrap() };
+        let quota = response(serde_json::json!({
+            "stopReason": "end_turn",
+            "_meta": {"quota": {
+                "token_count": {"totalTokens": 1200, "inputTokens": 1000},
+                "model_usage": [
+                    {"model": "gpt-5-codex", "token_count": {"totalTokens": 1200}},
+                    {"model": "idle", "token_count": {"totalTokens": 0}},
+                ],
+            }},
+        }));
+        let read = turn_tokens(&quota);
+        assert_eq!(read.total, 1200);
+        assert_eq!(
+            read.models,
+            [ModelTokens {
+                model: "gpt-5-codex".into(),
+                tokens: 1200
+            }]
+        );
+        let usage = response(serde_json::json!({
+            "stopReason": "end_turn",
+            "usage": {"totalTokens": 77, "inputTokens": 70, "outputTokens": 7},
+        }));
+        assert_eq!(turn_tokens(&usage).total, 77);
+        let none = response(serde_json::json!({"stopReason": "end_turn"}));
+        assert_eq!(turn_tokens(&none), TurnTokens::default());
+    }
 
     fn options() -> Vec<AnswerOption> {
         let option = |id: &str, name: &str, kind| AnswerOption {
@@ -1160,6 +1231,7 @@ cat > /dev/null
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1227,6 +1299,7 @@ cat > /dev/null
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1270,6 +1343,7 @@ cat > /dev/null
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1315,6 +1389,7 @@ cat > /dev/null
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -1350,6 +1425,7 @@ read -r line
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         })
         .unwrap()
     }
@@ -1493,6 +1569,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -1649,6 +1726,7 @@ cat > /dev/null
             effort: None,
             note: None,
             images: Arc::default(),
+            usage: Arc::default(),
         }
     }
 

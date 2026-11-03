@@ -10,6 +10,7 @@ use tokio::sync::Notify;
 
 mod actions;
 mod agent_images;
+mod agent_usage;
 mod apps;
 mod backfill;
 mod blobs;
@@ -70,6 +71,7 @@ mod watchers;
 
 pub use actions::ActionRow;
 pub(crate) use agent_images::{AgentImageBytes, AgentImageOf};
+pub(crate) use agent_usage::{ModelRow, PlanRow, SpendRow};
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
@@ -487,6 +489,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         79,
         "agent images again",
         include_str!("../../migrations/0079_agent_images.sql"),
+    ),
+    (
+        80,
+        "agent usage",
+        include_str!("../../migrations/0080_agent_usage.sql"),
     ),
 ];
 

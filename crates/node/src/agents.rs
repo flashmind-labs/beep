@@ -5,8 +5,11 @@
 use crate::{
     claude::{self, External},
     found::{self, Agent, Stores},
+    process,
+    provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result};
+use beep_proto::AgentAccount;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
@@ -14,17 +17,24 @@ use beep_proto::node::{
         SessionInfo, SessionsReply, SessionsRequest, State, Status,
     },
     harness::{AgentSettings, HarnessReport},
+    usage::PlanUsage,
 };
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet, hash_map::RandomState},
+    env,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
+    str::FromStr,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
-use tokio::task::spawn_blocking;
+use tokio::{
+    task::spawn_blocking,
+    time::{Instant, MissedTickBehavior, interval},
+};
 
 mod acp;
 mod checkout;
@@ -34,7 +44,9 @@ mod image_files;
 mod images;
 mod live;
 mod models;
+mod plans;
 mod session;
+mod usage;
 
 pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
@@ -43,6 +55,7 @@ use acp::Prompt;
 use images::Images;
 use models::ModelCache;
 use session::{Command, Session, Start};
+use usage::{Plans, UsageHub};
 
 /// The most sessions running at once.
 const MAX_RUNNING: usize = 8;
@@ -61,6 +74,10 @@ const DEFAULT_IN_FOLDERS: usize = 50;
 const MAX_ASKED_FOLDERS: usize = 32;
 /// The largest picture `Image` answers, under the link's frame limit.
 const MAX_IMAGE: usize = 7 * 1024 * 1024;
+/// How often the plans' usage is read while the server follows it, and
+/// the least time between two reads it asks for.
+const PLAN_EVERY: Duration = Duration::from_secs(5 * 60);
+const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -225,6 +242,8 @@ pub struct Agents {
     stores: Stores,
     /// The pictures sessions' transcripts show, by session.
     images: Arc<Images>,
+    /// What sessions spend and how much of the agents' plans is left.
+    usage: Arc<UsageHub>,
     /// The models each agent offers, found lately.
     models: ModelCache,
     /// The user's settings for each agent, applied when one starts.
@@ -241,6 +260,7 @@ impl Agents {
             external: External::locate(),
             stores: Stores::locate(),
             images: Arc::default(),
+            usage: Arc::default(),
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
@@ -262,6 +282,53 @@ impl Agents {
             .configured(kind)
             .unwrap_or_else(|_| kind.clone());
         Some(self.models.get(name, models::find(kind)).await)
+    }
+
+    /// The CLI of the agent `name`, with `args`, as a plan read starts it:
+    /// signed in as the agent's sessions are, with the user's settings for
+    /// it. `None` when this node does not run it or the user turned it off.
+    fn cli(&self, name: &str, args: &[&str]) -> Option<tokio::process::Command> {
+        let kind = self.kinds.iter().find(|kind| kind.name == name)?;
+        let kind = self.settings.configured(kind).ok()?;
+        let program = harnesses::find(name)?;
+        let mut command = process::command(program);
+        let account = AgentAccount::from_str(name).ok();
+        spawn_env::apply(&mut command, Scope::Agent(account));
+        command
+            .args(args)
+            .envs(&kind.env)
+            .current_dir(env::temp_dir());
+        Some(command)
+    }
+
+    /// How much of each agent's plan is left, read from the CLIs of the
+    /// agents this node runs. One that cannot say is left out.
+    async fn read_plans(&self) -> Vec<PlanUsage> {
+        let claude = self.cli("claude", plans::CLAUDE_ARGS);
+        let codex = self.cli("codex", plans::CODEX_ARGS);
+        let (claude, codex) = tokio::join!(
+            async {
+                match claude {
+                    Some(command) => plans::read_claude(command).await,
+                    None => Ok(None),
+                }
+            },
+            async {
+                match codex {
+                    Some(command) => plans::read_codex(command).await,
+                    None => Ok(None),
+                }
+            },
+        );
+        [("claude", claude), ("codex", codex)]
+            .into_iter()
+            .filter_map(|(agent, read)| {
+                read.unwrap_or_else(|e| {
+                    log::debug!("{agent} plan usage not read: {e:#}");
+                    None
+                })
+            })
+            .collect()
     }
 
     /// What this node finds of each agent harness it knows.
@@ -568,6 +635,7 @@ impl Agents {
             effort: begin.effort,
             note: begin.note,
             images: self.images.clone(),
+            usage: self.usage.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
@@ -910,6 +978,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             return agents.external.watch(tx, rx, sessions).await;
         }
         SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
+        SessionsRequest::FollowUsage {} => return send_usage(tx, rx, &agents).await,
         SessionsRequest::Image { session, key } => match agents.image(&session, &key).await {
             Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
                 mime: picture.mime.clone(),
@@ -970,6 +1039,53 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
             }
             // The server sends nothing more; anything is its goodbye.
             _ = rx.recv::<SessionsRequest>() => return Ok(()),
+        }
+    }
+}
+
+/// Sends the server what finished turns spent and each agent's plan
+/// usage, reading the plans every `PLAN_EVERY` and when the server asks,
+/// until the server closes the stream.
+async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents) -> Result<()> {
+    let mut plans = agents.usage.plans();
+    let mut sent = Plans::new();
+    let mut every = interval(PLAN_EVERY);
+    every.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // A read runs a CLI or two; it runs beside the loop, not in it.
+    let mut reading: Option<BoxFuture<'_, Vec<PlanUsage>>> = None;
+    let mut last_read: Option<Instant> = None;
+    loop {
+        tokio::select! {
+            turn = agents.usage.next_turn() => {
+                tx.send(&SessionsReply::TurnUsage { usage: turn }).await?;
+            }
+            Ok(()) = plans.changed() => {
+                let now = plans.borrow_and_update().clone();
+                for plan in now.values().filter(|plan| sent.get(&plan.agent) != Some(plan)) {
+                    tx.send(&SessionsReply::PlanUsage { usage: plan.clone() }).await?;
+                }
+                sent = now;
+            }
+            _ = every.tick(), if reading.is_none() => {
+                reading = Some(Box::pin(agents.read_plans()));
+            }
+            Some(read) = async { Some(reading.as_mut()?.await) }, if reading.is_some() => {
+                reading = None;
+                last_read = Some(Instant::now());
+                for plan in read {
+                    agents.usage.set_plan(plan);
+                }
+            }
+            message = rx.recv::<SessionsRequest>() => match message {
+                Ok(Some(SessionsRequest::RefreshPlanUsage {})) => {
+                    let recent = last_read.is_some_and(|at| at.elapsed() < PLAN_REFRESH_GAP);
+                    if reading.is_none() && !recent {
+                        reading = Some(Box::pin(agents.read_plans()));
+                    }
+                }
+                // Anything else is the server's goodbye.
+                _ => return Ok(()),
+            },
         }
     }
 }

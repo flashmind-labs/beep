@@ -30,6 +30,7 @@ import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { ALL, byMachine, makeTerminals, terminalNote, terminalTile, terminalWhere, terminalsCount } from "./terminals.ts";
 import type { MachineTerminals, TerminalRow } from "./terminals.ts";
+import { mountUsage, type UsageView } from "./usage.ts";
 import { makeScreen } from "./termview.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
@@ -2821,6 +2822,7 @@ registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: ()
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
+mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
 
 initPalette({ go, jump, pane, settings: openSettings, providers: () => go("providers"), project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 

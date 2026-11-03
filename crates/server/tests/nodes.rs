@@ -18,8 +18,8 @@ use beep_server::{
     nodes::{self, Online, StartOn},
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentImageData, AgentModel, AgentModelPick, AgentModels,
-        AgentStatus, AgentSteer, ApiError, CreateNodeToken, DeviceKind, GetAgentImage,
-        GetAgentSession, GetNodeToken, HarnessSettings, ListAgentHosts, ListAgentImages,
+        AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, DeviceKind, GetAgentImage,
+        GetAgentSession, GetNodeToken, GetUsage, HarnessSettings, ListAgentHosts, ListAgentImages,
         ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
         ListMemoryScopes, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
         RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings, StartAgentSession,
@@ -33,6 +33,7 @@ use beep_server::{
                 SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
                 StopReason,
             },
+            usage::{LimitWindow, ModelTokens, PlanUsage, TurnUsage},
         },
         setup::SetupToken,
     },
@@ -47,7 +48,7 @@ use flashmind::types::{
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets, protocol::Router};
 use std::{
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     sync::mpsc,
@@ -1093,6 +1094,9 @@ struct FakeAgents {
     /// What `Models` answers; `None` closes the stream unanswered, as a
     /// node from before it does.
     models: Option<ModelList>,
+    /// What `FollowUsage` sends before it holds the stream; `None` closes
+    /// it, as a node from before it does.
+    usage: Option<Vec<SessionsReply>>,
 }
 
 impl FakeAgents {
@@ -1137,6 +1141,17 @@ impl Protocol for FakeSessions {
                     .await?;
                 }
                 while rx.recv::<SessionsRequest>().await?.is_some() {}
+                return Ok(());
+            }
+            if matches!(request, SessionsRequest::FollowUsage {}) {
+                let Some(usage) = &fake.usage else {
+                    return Ok(());
+                };
+                for reply in usage {
+                    tx.send(reply).await?;
+                }
+                // Asks to read the plans again are taken and dropped.
+                while let Some(SessionsRequest::RefreshPlanUsage {}) = rx.recv().await? {}
                 return Ok(());
             }
             if let SessionsRequest::Models { agent } = &request {
@@ -2341,5 +2356,115 @@ async fn agent_models_come_from_the_node_and_reach_the_start() {
     );
     let refused = client.call(&in_worktree("a b")).await.unwrap_err();
     assert!(bad_request(refused));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn what_agents_spend_and_their_plans_reach_the_pill() {
+    let mut center = CommandCenter::new(2).await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let turn =
+        |session: &str, agent: &str, cost: Option<f64>, tokens: u64| SessionsReply::TurnUsage {
+            usage: TurnUsage {
+                session: session.into(),
+                agent: agent.into(),
+                cwd: "/srv/work/widget".into(),
+                at: now,
+                cost_usd: cost,
+                tokens,
+                models: vec![ModelTokens {
+                    model: format!("{agent}-model"),
+                    tokens,
+                }],
+            },
+        };
+    let plan = |at: u64, used: f64| SessionsReply::PlanUsage {
+        usage: PlanUsage {
+            agent: "claude".into(),
+            plan: Some("max".into()),
+            windows: vec![LimitWindow {
+                minutes: 300,
+                used_percent: used,
+                resets_at: Some(now + 3600),
+                scope: None,
+            }],
+            at,
+        },
+    };
+    center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                usage: Some(vec![
+                    turn("a3f9c1", "claude", Some(1.5), 4_000),
+                    turn("a3f9c1", "claude", Some(0.25), 1_000),
+                    turn("b7e2d0", "codex", None, 900_000),
+                    plan(now - 60, 38.0),
+                ]),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    // A machine whose plan report is older does not replace the fresher.
+    center
+        .node(
+            0,
+            "mac",
+            FakeAgents {
+                usage: Some(vec![plan(now - 600, 90.0)]),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    // A node from before `FollowUsage` closes the stream.
+    center.node(0, "old", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    // Polls: keeping the reports has no signal to wait on.
+    let view = timeout(Duration::from_secs(20), async {
+        loop {
+            let view = client.call(&GetUsage { refresh: true }).await.unwrap();
+            let codex = view.harnesses.iter().any(|h| h.agent == "codex");
+            let claude = view.harnesses.iter().any(|h| h.tokens == 5_000);
+            if codex && claude && !view.limits.is_empty() {
+                return view;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the usage was kept");
+    assert_eq!(view.today.len(), 1);
+    assert_eq!(view.today[0].project, "widget");
+    assert!((view.today[0].cost_usd - 1.75).abs() < 1e-9);
+    assert_eq!(
+        view.today[0].unpriced,
+        [AgentTokens {
+            agent: "codex".into(),
+            tokens: 900_000
+        }]
+    );
+    assert!((view.week.cost_usd - 1.75).abs() < 1e-9);
+    let claude = &view.harnesses[0];
+    assert_eq!(
+        (claude.agent.as_str(), claude.cost_usd),
+        ("claude", Some(1.75))
+    );
+    assert_eq!(claude.models[0].model, "claude-model");
+    assert_eq!(view.harnesses[1].cost_usd, None);
+    assert_eq!(view.limits.len(), 1);
+    assert_eq!(view.limits[0].windows[0].used_percent, 38.0);
+    assert_eq!(view.limits[0].machine_name, "build-box");
+    // Another user sees none of it.
+    let (_other, theirs) = center.phone(1).await;
+    let none = theirs.call(&GetUsage { refresh: false }).await.unwrap();
+    assert!(none.today.is_empty() && none.limits.is_empty() && none.harnesses.is_empty());
+
+    for node in &center.nodes {
+        node.abort();
+    }
     center.shutdown().await;
 }
