@@ -7,16 +7,13 @@
 
 use crate::{
     agents::{Agents, OpenSession},
-    local_socket::{self, Listener, Stream},
+    local_socket::{Listener, Stream},
     terminal::OpenTerminal,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{fs, io::ErrorKind, path::Path, sync::Arc, time::Duration};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines, ReadHalf, WriteHalf, split},
-    time::timeout,
-};
+use std::{fs, io::ErrorKind, path::Path, sync::Arc};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
 
 /// The socket an update reaches the node on, in the node's folder.
 const SOCKET: &str = "control.sock";
@@ -98,53 +95,69 @@ async fn answer(stream: Stream, agents: &Agents) -> Result<()> {
     Ok(())
 }
 
-/// The running node holding its prompts while this lives.
-pub(crate) struct Holding {
-    _read: Lines<BufReader<ReadHalf<Stream>>>,
-    _write: WriteHalf<Stream>,
-}
-
-/// How the node in a folder took an update's request to hold still.
-pub(crate) enum Drained {
-    /// No node runs there, or one too old to be asked.
-    NoNode,
-    /// Its sessions are idle; it holds new prompts.
-    Idle(Holding),
-    /// A turn still ran after the wait; it holds new prompts.
-    TimedOut(Holding),
-}
-
-/// Asks the node in `dir` to hold new prompts and waits up to `limit` for
-/// its sessions to be idle.
-pub(crate) async fn drain(dir: &Path, limit: Duration) -> Drained {
-    let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
-        return Drained::NoNode;
+/// The update's side: only the CLI updates itself.
+#[cfg(feature = "cli")]
+mod client {
+    use super::*;
+    use crate::local_socket;
+    use std::time::Duration;
+    use tokio::{
+        io::{Lines, ReadHalf, WriteHalf},
+        time::timeout,
     };
-    let (read, mut write) = split(stream);
-    if write
-        .write_all(format!("{DRAIN}\n").as_bytes())
-        .await
-        .is_err()
-    {
-        return Drained::NoNode;
+
+    /// The running node holding its prompts while this lives.
+    pub(crate) struct Holding {
+        _read: Lines<BufReader<ReadHalf<Stream>>>,
+        _write: WriteHalf<Stream>,
     }
-    let mut lines = BufReader::new(read).lines();
-    match timeout(limit, lines.next_line()).await {
-        Ok(Ok(Some(line))) if line == IDLE => Drained::Idle(Holding {
-            _read: lines,
-            _write: write,
-        }),
-        Ok(_) => Drained::NoNode,
-        Err(_) => Drained::TimedOut(Holding {
-            _read: lines,
-            _write: write,
-        }),
+
+    /// How the node in a folder took an update's request to hold still.
+    pub(crate) enum Drained {
+        /// No node runs there, or one too old to be asked.
+        NoNode,
+        /// Its sessions are idle; it holds new prompts.
+        Idle(Holding),
+        /// A turn still ran after the wait; it holds new prompts.
+        TimedOut(Holding),
+    }
+
+    /// Asks the node in `dir` to hold new prompts and waits up to `limit` for
+    /// its sessions to be idle.
+    pub(crate) async fn drain(dir: &Path, limit: Duration) -> Drained {
+        let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
+            return Drained::NoNode;
+        };
+        let (read, mut write) = split(stream);
+        if write
+            .write_all(format!("{DRAIN}\n").as_bytes())
+            .await
+            .is_err()
+        {
+            return Drained::NoNode;
+        }
+        let mut lines = BufReader::new(read).lines();
+        match timeout(limit, lines.next_line()).await {
+            Ok(Ok(Some(line))) if line == IDLE => Drained::Idle(Holding {
+                _read: lines,
+                _write: write,
+            }),
+            Ok(_) => Drained::NoNode,
+            Err(_) => Drained::TimedOut(Holding {
+                _read: lines,
+                _write: write,
+            }),
+        }
     }
 }
+#[cfg(feature = "cli")]
+pub(crate) use client::{Drained, Holding, drain};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     #[test]
     fn what_was_open_is_read_once() {
