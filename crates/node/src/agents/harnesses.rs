@@ -2,7 +2,7 @@
 //! knows (version, newest version, where it is, its sign-in), updating
 //! one, and the user's settings for each, applied when one starts.
 
-use super::{Adapter, AgentKind, KNOWN};
+use super::{Adapter, AgentKind, KNOWN, unix_now};
 use crate::{
     AsyncMutex,
     env::{claude_logged_in, opencode_logged_in, output},
@@ -18,7 +18,7 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::{Mutex, MutexGuard, PoisonError},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 use tokio::time::timeout;
 
@@ -171,9 +171,7 @@ impl Latest {
             }
         }
         found.at = Some(Instant::now());
-        found.checked_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_secs());
+        found.checked_at = unix_now();
         (found.versions.clone(), found.checked_at)
     }
 }

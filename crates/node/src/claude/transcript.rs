@@ -4,6 +4,7 @@
 //! is read, and only prompts, the agent's text, tool calls and turn ends
 //! are kept.
 
+use super::subagents;
 use crate::agents::{Picture, block_picture, cut};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
@@ -45,12 +46,32 @@ pub(super) struct Digest {
     pub(super) entries: Vec<Entry>,
     /// The entry of each tool call, by its id, to mark the failed ones.
     tools: HashMap<String, usize>,
+    /// The subagents tool calls started, by the call's id.
+    pub(super) spawns: HashMap<String, Spawn>,
     /// Turns that ended in this stretch.
     pub(super) turns_ended: u32,
     /// The pictures the user's prompts held, each shown as its image line,
     /// when asked for; without, prompts show no images.
     pub(super) pictures: Option<Vec<Picture>>,
 }
+
+/// A tool call that started a subagent (Claude Code's `Agent`, `Task`
+/// before it), as the session's own file has it.
+#[derive(Debug, Default)]
+pub(super) struct Spawn {
+    /// Its entry among the digest's.
+    pub(super) entry: usize,
+    /// What it was asked to do, in a few words.
+    pub(super) description: Option<String>,
+    /// Its `subagent_type`: `Explore`, or a custom agent's name.
+    pub(super) agent: Option<String>,
+    /// The id the subagent's file is named by, once its result said it.
+    pub(super) agent_id: Option<String>,
+    pub(super) failed: bool,
+}
+
+/// The tools that start a subagent.
+const SPAWN_TOOLS: [&str; 2] = ["Agent", "Task"];
 
 impl Digest {
     /// Reads every complete line of `text`.
@@ -140,6 +161,11 @@ impl Digest {
                     if block["is_error"].as_bool() == Some(true) {
                         self.tool_failed(id);
                     }
+                    if let Some(spawn) = self.spawns.get_mut(id)
+                        && let Some(agent_id) = value["toolUseResult"]["agentId"].as_str()
+                    {
+                        spawn.agent_id = Some(agent_id.to_owned());
+                    }
                     self.tool_pictures(id, &block["content"]);
                 }
                 if let Some(pictures) = &mut self.pictures {
@@ -192,10 +218,32 @@ impl Digest {
                     }
                 }
                 Some("tool_use") => {
+                    let id = block["id"].as_str();
+                    // A subagent's call written again is the same call.
+                    if id.is_some_and(|id| self.spawns.contains_key(id)) {
+                        continue;
+                    }
                     let line = tool_line(block);
                     self.push(EntryKind::Tool, &line);
-                    if let Some(id) = block["id"].as_str() {
-                        self.tools.insert(id.to_owned(), self.entries.len() - 1);
+                    let entry = self.entries.len() - 1;
+                    let Some(id) = id else {
+                        continue;
+                    };
+                    self.tools.insert(id.to_owned(), entry);
+                    if block["name"]
+                        .as_str()
+                        .is_some_and(|name| SPAWN_TOOLS.contains(&name))
+                    {
+                        let input = &block["input"];
+                        self.spawns.insert(
+                            id.to_owned(),
+                            Spawn {
+                                entry,
+                                description: text_field(input, "description"),
+                                agent: text_field(input, "subagent_type"),
+                                ..Spawn::default()
+                            },
+                        );
                     }
                 }
                 _ => {}
@@ -204,6 +252,9 @@ impl Digest {
     }
 
     fn tool_failed(&mut self, id: &str) {
+        if let Some(spawn) = self.spawns.get_mut(id) {
+            spawn.failed = true;
+        }
         if let Some(entry) = self
             .tools
             .get(id)
@@ -281,7 +332,7 @@ fn prompt_text(text: &str) -> Option<String> {
 }
 
 /// A tool call as one line, such as `Bash: cargo test`.
-fn tool_line(block: &Value) -> String {
+pub(super) fn tool_line(block: &Value) -> String {
     let name = block["name"].as_str().unwrap_or("tool");
     let input = &block["input"];
     let detail = [
@@ -376,22 +427,18 @@ pub(super) fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Tai
 
 /// The digest of the end of a file, reading back far enough for `entries`
 /// entries when it can.
-pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<(Digest, bool)> {
+pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<Digest> {
     digest_tail_with(path, entries, Digest::read)
 }
 
-fn digest_tail_with(
-    path: &Path,
-    entries: usize,
-    read: fn(&str) -> Digest,
-) -> io::Result<(Digest, bool)> {
+fn digest_tail_with(path: &Path, entries: usize, read: fn(&str) -> Digest) -> io::Result<Digest> {
     let mut window = FIRST_WINDOW;
     loop {
         let tail = read_tail(path, window)?;
         let digest = read(&tail.text);
         let enough = digest.entries.len() > entries && digest.prompt().is_some();
         if tail.whole || enough || window >= MAX_WINDOW {
-            return Ok((digest, tail.whole));
+            return Ok(digest);
         }
         window *= 4;
     }
@@ -423,9 +470,10 @@ pub(crate) struct Excerpt {
 /// The last `last` entries of the transcript at `path`, with the pictures
 /// their image lines show.
 pub(super) fn entries(path: &Path, last: usize) -> io::Result<Excerpt> {
-    let (mut digest, _) = digest_tail_with(path, last, Digest::with_pictures)?;
+    let mut digest = digest_tail_with(path, last, Digest::with_pictures)?;
     let skip = digest.entries.len().saturating_sub(last);
-    let entries = digest.entries.split_off(skip);
+    let mut entries = digest.entries.split_off(skip);
+    subagents::attach(path, &digest.spawns, &mut entries, skip);
     Ok(Excerpt {
         entries,
         earlier: skip as u64,

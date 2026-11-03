@@ -287,6 +287,11 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-task .m code { font-family: var(--mono); font-size: 11px }
 .pj-task .acts { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
 .pj-task .acts .dbtn.quiet:first-child { margin-left: -9px }
+.pj-label { font: inherit; font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer }
+.pj-label:hover { color: var(--fg) }
+.pj-label.on { color: var(--fg); border-color: #9DC3F0; background: rgba(157,195,240,.12) }
+.pj-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 7px 11px; border-bottom: 1px solid var(--border) }
+.pj-labels .lbl, .pj-labels small { font-size: 11px; color: var(--muted) }
 .pj-st { font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; display: inline-flex; gap: 5px; align-items: center }
 .pj-st.running { color: var(--emerald); border-color: rgba(59,155,122,.45) }
 .pj-st.review { color: #9DC3F0; border-color: rgba(157,195,240,.45) }
@@ -322,6 +327,11 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pb-h:hover, .pb-h:focus-visible { color: var(--emerald) }
 .pb-h svg { opacity: .8; flex: none }
 .pb-h .c { margin-left: auto; font-weight: 500; color: var(--muted); font-size: 12px; white-space: nowrap }
+.pb-h .sw-age { font-weight: 400 }
+/* How fresh a section's kept data is: its age, or a spinner while it reads again. */
+.sw-age { font-size: 11px; color: var(--muted); white-space: nowrap }
+.dspin.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none; vertical-align: middle }
+.cc-sec h4 .sw-spin, .cc-sec h4 .sw-age { margin-left: 8px; letter-spacing: 0; text-transform: none; font-weight: 400 }
 .pb-rows { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column }
 .pb-r { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; line-height: 16px; min-width: 0; border-top: 1px solid var(--border) }
 .pb-r .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }

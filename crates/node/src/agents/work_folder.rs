@@ -14,7 +14,7 @@ use beep_proto::{
 use ignore::WalkBuilder;
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
@@ -274,7 +274,8 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
     let Some(full) = root.find(&names(path)?)? else {
         return Ok(None);
     };
-    let mut file = File::open(&full).with_context(|| format!("could not open {path}"))?;
+    let mut file =
+        crate::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
     let meta = file
         .metadata()
         .with_context(|| format!("could not read {path}"))?;

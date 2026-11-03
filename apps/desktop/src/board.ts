@@ -8,7 +8,8 @@ import type { TaskRow, WorkerRow } from "./project.ts";
 import { machineSync } from "./home.ts";
 import type { RunningAgent, SyncRow } from "./home.ts";
 import { el } from "./projects-state.ts";
-import { svgEl as icon } from "./components/parts.ts";
+import { freshNote, svgEl as icon } from "./components/parts.ts";
+import type { Freshness } from "./pagecache.ts";
 import type { SessionRow, WhereRow } from "./projects-state.ts";
 
 /// A chip on a tile row: its class and text.
@@ -46,6 +47,9 @@ export interface TileOptions {
   menu?: ((row: TileRow, e: MouseEvent) => void) | null;
   /// Clicking a row with an `id` and no `url` opens it with this.
   open?: ((row: TileRow) => void) | null;
+  /// How fresh the tile's data is: a spinner while kept data reads again,
+  /// else its age once that matters.
+  fresh?: Freshness | null;
 }
 
 /// Rows a tile shows before its full list.
@@ -188,7 +192,7 @@ function row(r: TileRow, { openUrl, menu, open }: TileOptions) {
 /// One tile: its header opens the full list with `open(key)`.
 export function tile(key: string, title: string, data: TileData, open: (key: string) => void, opts: TileOptions = {}) {
   const shown = opts.rows ?? TILE_ROWS;
-  const head = el("button", "pb-h", icon(ICONS[key] || ICONS.tasks), el("span", "", title), el("span", "c", data.count || ""));
+  const head = el("button", "pb-h", icon(ICONS[key] || ICONS.tasks), el("span", "", title), opts.fresh ? freshNote(opts.fresh) : null, el("span", "c", data.count || ""));
   head.type = "button";
   head.title = `All ${title.toLowerCase()}`;
   head.addEventListener("click", () => open(key));

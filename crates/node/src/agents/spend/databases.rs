@@ -11,13 +11,11 @@
 
 use super::ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL};
 use crate::agents::prices::Tokens;
+use crate::found::open_database;
 use beep_proto::ModelId;
-use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
-use std::{collections::BTreeMap, path::Path, time::Duration};
+use std::{collections::BTreeMap, path::Path};
 
-/// How long a locked database is waited on.
-const BUSY: Duration = Duration::from_millis(200);
 /// The most rows one database gives in a pass.
 const MAX_ROWS: i64 = 50_000;
 
@@ -52,15 +50,6 @@ struct FlshTotals {
     cost_unknown: bool,
 }
 
-fn open(database: &Path) -> rusqlite::Result<Connection> {
-    let conn = Connection::open_with_flags(
-        database,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.busy_timeout(BUSY)?;
-    Ok(conn)
-}
-
 fn count(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
 }
@@ -68,7 +57,7 @@ fn count(value: i64) -> u64 {
 /// What each OpenCode session in `database` spent from `since` (Unix
 /// seconds) on, by session.
 pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<String, Part>> {
-    let conn = open(database)?;
+    let conn = open_database(database)?;
     let mut statement = conn.prepare(OPENCODE)?;
     let since_ms = i64::try_from(since.saturating_mul(1000)).unwrap_or(i64::MAX);
     let mut rows = statement.query([since_ms, MAX_ROWS])?;
@@ -111,7 +100,7 @@ pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap
 /// seconds) on spent, by session. A database from before flsh kept usage
 /// has no `total_usage` and fails.
 pub(super) fn flsh(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<String, Part>> {
-    let conn = open(database)?;
+    let conn = open_database(database)?;
     let mut statement = conn.prepare(FLSH)?;
     let since = i64::try_from(since).unwrap_or(i64::MAX);
     let mut rows = statement.query([since, MAX_ROWS])?;
@@ -178,6 +167,7 @@ pub(super) fn flsh(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<Str
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     /// An OpenCode database with two sessions' messages.
     pub(crate) fn opencode_database(path: &Path) {

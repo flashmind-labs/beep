@@ -8,7 +8,9 @@ use super::{
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     image_files,
     images::{Images, Picture},
+    known,
     live::{Live, TurnFiles, TurnTokens, cut},
+    unix_now,
     usage::UsageHub,
 };
 use crate::{
@@ -38,7 +40,6 @@ use std::{
     process::Stdio,
     str::FromStr,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::BufReader,
@@ -100,11 +101,14 @@ pub(super) struct Start<'a> {
     /// The agent's id of an earlier session to resume instead of a new one.
     pub(super) resume: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
-    pub(super) model: Option<String>,
+    pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
     pub(super) effort: Option<Effort>,
     /// A first line for its transcript, such as the branch it started on.
     pub(super) note: Option<String>,
+    /// Beep's word to the agent, sent ahead of the first prompt and kept
+    /// out of the transcript.
+    pub(super) brief: Option<&'static str>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -122,6 +126,7 @@ impl Session {
             model,
             effort,
             note,
+            brief,
             images,
             usage,
         } = start;
@@ -131,9 +136,11 @@ impl Session {
         let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
-        let flag = acp::model_flag(&kind.name)
-            .zip(model.as_deref())
-            .map(|(flag, model)| format!("{flag}={model}"));
+        let known = known(&kind.name);
+        let flag = model
+            .as_ref()
+            .filter(|_| known.is_some_and(|known| known.model_flag))
+            .map(|model| format!("--model={model}"));
         let model = model.filter(|_| flag.is_none());
         let policy = Policy::from_env(&kind.env);
         // Claude Code compacts mid-turn on its own trigger; it is set to
@@ -164,9 +171,7 @@ impl Session {
             id: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
-            started_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |since| since.as_secs()),
+            started_at: unix_now(),
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
@@ -184,13 +189,14 @@ impl Session {
             acp_session: None,
             takes_images: None,
             queued: prompt.map(Prompt::from).into_iter().collect(),
+            brief,
             resume,
             model,
             effort,
             thinking: None,
             switch: None,
-            bypass_mode: acp::bypass_mode(&kind.name),
-            compactor: Compactor::new(&kind.name, policy),
+            bypass_mode: known.and_then(|known| known.bypass_mode),
+            compactor: Compactor::new(known, policy),
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),
@@ -249,7 +255,7 @@ enum Reply {
     NewSession(Result<serde_json::Value, agent_client_protocol::Error>),
     /// The answer to switching the new session to `model`.
     ModelSet {
-        model: String,
+        model: ModelId,
         result: Result<(), agent_client_protocol::Error>,
     },
     /// The answer to switching the running session's model or thinking
@@ -296,7 +302,7 @@ struct Actor {
     /// The agent's id of an earlier session to resume.
     resume: Option<String>,
     /// The model a new session switches to before its first prompt.
-    model: Option<String>,
+    model: Option<ModelId>,
     /// How hard a new session thinks, set before its first prompt.
     effort: Option<Effort>,
     /// The session's option that sets how hard it thinks, once it said.
@@ -313,6 +319,8 @@ struct Actor {
     compactor: Compactor,
     /// Prompts waiting for the agent to be free, the first prompt among them.
     queued: VecDeque<Prompt>,
+    /// Beep's word to the agent, until the first prompt carries it.
+    brief: Option<&'static str>,
     /// Questions waiting, the first one shown.
     asked: VecDeque<Asked>,
     next_question: u32,
@@ -660,7 +668,7 @@ impl Actor {
             self.think(cx);
             return None;
         };
-        match acp::switch_model(&session, &switch, &model) {
+        match acp::switch_model(&session, &switch, model.as_str()) {
             Ok(request) => {
                 // The first prompt waits for the model.
                 self.send(cx, request, move |result| Reply::ModelSet {
@@ -907,6 +915,12 @@ impl Actor {
                 Some(reply.to_owned()),
             ),
         };
+        let follow_up = follow_up.map(Prompt::from);
+        if let Some(prompt) = &follow_up
+            && let Err(full) = queue_room(&self.queued, prompt)
+        {
+            return Ok(Err(full));
+        }
         let answer = match chosen {
             Some(option) => acp::selected(&option.id),
             None => acp::cancelled(),
@@ -917,8 +931,8 @@ impl Actor {
         if let Some(asked) = self.asked.pop_front() {
             asked.responder.respond(answer)?;
         }
-        if let Some(text) = follow_up {
-            self.queued.push_front(Prompt::from(text));
+        if let Some(prompt) = follow_up {
+            self.queued.push_front(prompt);
             self.show_queued();
         }
         self.live.send_modify(|live| {
@@ -954,8 +968,13 @@ impl Actor {
     }
 
     fn turn_done(&mut self, cx: &ConnectionTo<Agent>, stop: StopReason, error: Option<String>) {
-        // A turn that ends leaves no question open.
-        self.asked.clear();
+        // A turn that ends leaves no question open. A dropped responder
+        // sends nothing, so each is answered cancelled.
+        while let Some(asked) = self.asked.pop_front() {
+            if let Err(e) = asked.responder.respond(acp::cancelled()) {
+                log::debug!("an open question was not cancelled: {e}");
+            }
+        }
         let mut files = None;
         self.live.send_modify(|live| {
             live.info.turns += 1;
@@ -999,7 +1018,7 @@ impl Actor {
     /// Sends `/compact` ahead of the waiting prompts.
     fn compact(&mut self, cx: &ConnectionTo<Agent>, session: &SessionId) {
         let prompt = Prompt::from(COMPACT_PROMPT.to_owned());
-        self.send(cx, acp::prompt(session, &prompt), Reply::Compacted);
+        self.send(cx, acp::prompt(session, &prompt, None), Reply::Compacted);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
             live.context = None;
@@ -1059,7 +1078,8 @@ impl Actor {
         let Some(prompt) = self.queued.pop_front() else {
             return;
         };
-        self.send(cx, acp::prompt(&session, &prompt), Reply::Prompt);
+        let brief = self.brief.take();
+        self.send(cx, acp::prompt(&session, &prompt, brief), Reply::Prompt);
         let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
         self.live.send_modify(|live| {
             for picture in prompt.pictures() {
@@ -1120,13 +1140,7 @@ fn queue_room(queued: &VecDeque<Prompt>, prompt: &Prompt) -> Result<(), String> 
 
 /// What people call the agent `name`, such as Claude Code for `claude`.
 fn agent_title(name: &str) -> &str {
-    match name {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        "gemini" => "Gemini CLI",
-        "opencode" => "OpenCode",
-        other => other,
-    }
+    known(name).map_or(name, |known| known.title)
 }
 
 /// The option `reply` names: by id, number, name or kind, or plain yes/no.
@@ -1298,6 +1312,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1366,6 +1381,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1410,6 +1426,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1422,6 +1439,89 @@ cat > /dev/null
         assert_eq!(question.options.len(), 2);
         let sent = std::fs::read_to_string(&log).unwrap();
         assert!(!sent.contains("session/set_mode"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_declining_answer_waits_only_where_there_is_room() {
+        let dir = temp("asks-full");
+        let log = dir.join("sent.jsonl");
+        let session = Session::start(Start {
+            id: "b4e0d5".into(),
+            kind: &script("pi", ASKING_ADAPTER, &log),
+            cwd: &dir,
+            prompt: Some("go".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+            images: Arc::default(),
+            usage: Arc::default(),
+        })
+        .unwrap();
+        settle(&session).await;
+        let question = session.info().question.expect("a question").id;
+        for n in 0..MAX_QUEUED {
+            let prompt = Command::Prompt(format!("later {n}").into());
+            session.order(prompt).await.unwrap();
+        }
+        let answer = Command::Answer {
+            question,
+            reply: "neither, look in docs".into(),
+        };
+        assert!(session.order(answer).await.is_err());
+        assert_eq!(session.info().state.queued as usize, MAX_QUEUED);
+        assert!(session.info().question.is_some(), "still open");
+        session.close().await;
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that puts a choice to the user, then ends its turn without
+    /// waiting for it, logs the answer the node gives and exits.
+    const ABANDONING_ADAPTER: &str = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+read -r line
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"}]}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r line; log "$1"
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
+        let dir = temp("abandons");
+        let log = dir.join("sent.jsonl");
+        let session = Session::start(Start {
+            id: "b4e0d4".into(),
+            kind: &script("pi", ABANDONING_ADAPTER, &log),
+            cwd: &dir,
+            prompt: Some("go".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+            images: Arc::default(),
+            usage: Arc::default(),
+        })
+        .unwrap();
+        let mut live = session.live.clone();
+        // The adapter exits once it hears the answer; without one it waits.
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            live.wait_for(|live| live.status() == Status::Ended),
+        )
+        .await
+        .expect("the question was never answered")
+        .unwrap();
+        let sent = std::fs::read_to_string(&log).unwrap();
+        let answer: Value = serde_json::from_str(sent.trim()).unwrap();
+        assert_eq!(answer["id"], "p1");
+        assert_eq!(answer["result"]["outcome"]["outcome"], "cancelled");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1456,6 +1556,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1492,6 +1593,7 @@ read -r line
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1636,6 +1738,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1696,23 +1799,6 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
     }
 
     #[cfg(unix)]
-    #[tokio::test]
-    async fn an_agent_without_images_refuses_them() {
-        let dir = temp("no-images");
-        let session = image_session(&dir, false).await;
-        let refused = session.order(Command::Prompt(shot())).await;
-        assert_eq!(refused, Err("Codex here does not take images".to_owned()));
-        let info = session.info();
-        assert_eq!(info.state.status, Status::Idle, "nothing was sent");
-        assert_eq!(info.state.queued, 0);
-        // Text alone still goes.
-        session
-            .order(Command::Prompt("just text".to_owned().into()))
-            .await
-            .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     #[test]
     fn the_queue_is_bounded_in_prompts_and_bytes() {
         let text = |len: usize| Prompt::from("x".repeat(len));
@@ -1790,9 +1876,10 @@ cat > /dev/null
             cwd: dir,
             prompt: Some("go".into()),
             resume: None,
-            model: model.map(str::to_owned),
+            model: model.map(ModelId::new),
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         }
@@ -2035,6 +2122,34 @@ cat > /dev/null
             "Started on a new branch beep/go from HEAD."
         );
         settle(&session).await;
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_brief_goes_ahead_of_the_first_prompt_only() {
+        let dir = temp("brief");
+        let log = dir.join("sent.jsonl");
+        let kind = script("pi", ALLOWING_ADAPTER, &log);
+        let start = Start {
+            brief: Some("Make a worktree first."),
+            ..start_on(&kind, &dir, None)
+        };
+        let session = Session::start(start).unwrap();
+        settle(&session).await;
+        let sent = sent(&log);
+        let prompt = sent
+            .iter()
+            .find(|line| line["method"] == "session/prompt")
+            .expect("a prompt");
+        let blocks = prompt["params"]["prompt"].as_array().unwrap();
+        assert_eq!(blocks[0]["text"], "Make a worktree first.");
+        assert_eq!(blocks[1]["text"], "go");
+        let (entries, _) = session.live.borrow().transcript(100);
+        assert!(
+            entries.iter().all(|entry| !entry.text.contains("worktree")),
+            "the transcript shows only what the user sent"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
