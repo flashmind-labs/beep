@@ -12,7 +12,8 @@ import type { MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { since } from "./components/format.ts";
-import { emptyPanel, note, stateChip } from "./components/parts.ts";
+import { emptyPanel, fitRows, note, stateChip } from "./components/parts.ts";
+import type { TileData } from "./board.ts";
 
 /// The current step of a running job (StepRow).
 export interface StepNow {
@@ -94,6 +95,23 @@ export function hostLabel(host: string | null | undefined, hosts: readonly Pick<
   const known = hosts.find(h => h.host === host);
   if (known) return known.kind === "github" ? "GitHub" : "Forgejo";
   return host === "github.com" ? "GitHub" : "Forgejo";
+}
+
+/// The board's Actions tile: the newest runs, a chip on each, and the
+/// host beside a run when the runs come from more than one.
+export function runTile(d: Pick<RunsRow, "runs" | "hosts"> | null | undefined, error = ""): TileData {
+  if (d === undefined) return { count: "", rows: [], empty: "Loading…" };
+  if (d === null) return { count: "", rows: [], empty: "The server needs an update before it shows runs" };
+  if (error && !d.runs.length) return { count: "", rows: [], empty: error };
+  const hosts = d.hosts ?? [];
+  return {
+    count: runsCount(d.runs) || (d.runs.length ? String(d.runs.length) : ""),
+    rows: d.runs.map(r => {
+      const c = runChip(r.state);
+      return { code: r.workflow, text: r.title, url: r.url, chip: { cls: c.cls, text: c.text }, title: hosts.length > 1 ? hostLabel(r.host, hosts) : undefined };
+    }),
+    empty: "No workflow runs yet",
+  };
 }
 
 /// Which run a row is: its host and id, as ids repeat across hosts.
@@ -272,12 +290,11 @@ interface ProjectRuns {
   open: string | null;
   detail: RunDetail | null;
   detailError: string;
-  all: boolean;
   loading: boolean;
 }
 
-/// Rows shown before Show all.
-const SHOWN = 8;
+/// Rows shown before the list scrolls.
+const SHOWN = 5;
 
 type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
@@ -288,7 +305,7 @@ export function makeRuns(deps: RunDeps) {
   const of = (id: string) => {
     let s = all.get(id);
     if (!s) {
-      s = { data: undefined, error: "", open: null, detail: null, detailError: "", all: false, loading: false };
+      s = { data: undefined, error: "", open: null, detail: null, detailError: "", loading: false };
       all.set(id, s);
     }
     return s;
@@ -454,12 +471,7 @@ export function makeRuns(deps: RunDeps) {
       return box;
     }
     if (why) box.append(h("div", "cc-err", why));
-    const rows = s.all ? d.runs : d.runs.slice(0, SHOWN);
-    const panel = h("div", "cc-panel", ...rows.map(r => row(id, s, r)));
-    if (d.runs.length > SHOWN) {
-      panel.append(h("div", "pj-task pj-more", h("span", "t dmuted", s.all ? "" : `${d.runs.length - SHOWN} more`),
-        h("span", "acts", button(s.all ? "Show fewer" : `Show all ${d.runs.length}`, "quiet small", () => { s.all = !s.all; redraw(); }))));
-    }
+    const panel = h("div", "cc-panel", fitRows(d.runs.map(r => row(id, s, r)), SHOWN));
     box.append(panel);
     return box;
   }
@@ -468,6 +480,13 @@ export function makeRuns(deps: RunDeps) {
     load,
     tick,
     section,
+    /// The runs of project `id` and why they could not be read, reading
+    /// them the first time.
+    tile: (id: string) => {
+      const s = of(id);
+      if (s.data === undefined && !s.loading) load(id);
+      return runTile(s.data, s.error);
+    },
     /// Each open pull request's checks, once the runs are read.
     checks: (id: string) => of(id).data?.checks ?? null,
     /// Opens run `run` of project `id` on `host`, as a PR row's checks
