@@ -3,7 +3,10 @@
 //! `install.ps1` does on an upgrade, for the binary that is running wherever
 //! it lives: the same archives, checked against the release's `SHA256SUMS`.
 
-use crate::service::{self, Restart};
+use crate::{
+    restart::{self, Drained},
+    service::{self, Restart},
+};
 use reqwest::{Client, StatusCode, Url};
 use rustls::{ClientConfig, RootCertStore};
 use sha2::{Digest, Sha256};
@@ -233,7 +236,20 @@ impl Target {
 
 /// `beep-node update`: installs the newest release over this binary and
 /// restarts its service. With `check`, only says whether there is one.
-pub async fn update(check: bool) -> Result<(), Error> {
+/// How `beep-node update` runs.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Only says whether a newer version is out.
+    pub check: bool,
+    /// How long to wait for the node's agent sessions to be idle before
+    /// restarting it; `None` restarts at once.
+    pub wait: Option<Duration>,
+    /// The node's folder, where the running node is asked to wait.
+    pub dir: PathBuf,
+}
+
+pub async fn update(options: Options) -> Result<(), Error> {
+    let Options { check, wait, dir } = options;
     let base = base();
     let current: Version = CURRENT.parse()?;
     let client = client()?;
@@ -271,13 +287,19 @@ pub async fn update(check: bool) -> Result<(), Error> {
     println!("Downloading beep-node {latest} for {}", target.triple());
     let packed = fetch(&client, &url(&base, &format!("{latest}/{archive}"))?).await?;
     let sums = fetch(&client, &url(&base, &format!("{latest}/SHA256SUMS"))?).await?;
-    let installed = exe.clone();
-    spawn_blocking(move || {
+    let binary = spawn_blocking(move || {
         verify(&archive, &packed, &String::from_utf8_lossy(&sums))?;
-        let binary = unpack(target, &archive, &packed)?;
-        replace(&installed, &binary)
+        unpack(target, &archive, &packed)
     })
     .await??;
+
+    // Kept until the restart, so the node holds new prompts until then.
+    let _holding = match wait {
+        Some(limit) => wait_for_idle(&dir, limit).await,
+        None => None,
+    };
+    let installed = exe.clone();
+    spawn_blocking(move || replace(&installed, &binary)).await??;
     println!("Installed {}", exe.display());
 
     let restarted = {
@@ -304,6 +326,26 @@ pub async fn update(check: bool) -> Result<(), Error> {
         ),
     }
     Ok(())
+}
+
+/// Asks the running node to finish its agents' turns and hold new prompts,
+/// waiting up to `limit`. What holds them, while the node does.
+async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::Holding> {
+    println!(
+        "Waiting up to {} min for the agent sessions to finish their turns \
+         (`--now` skips this); new prompts wait until the restart",
+        limit.as_secs().div_ceil(60)
+    );
+    match restart::drain(dir, limit).await {
+        Drained::NoNode => None,
+        Drained::Idle(holding) => Some(holding),
+        Drained::TimedOut(holding) => {
+            println!(
+                "A turn still runs; restarting anyway. Its session resumes after the restart."
+            );
+            Some(holding)
+        }
+    }
 }
 
 /// The release folder, without a trailing slash.

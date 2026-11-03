@@ -7,6 +7,7 @@ use crate::{
     files::Folders,
     mcp::{self, Upstream},
     provision::Provision,
+    restart::{self, Reopen},
     shell,
     state::State,
     stats, tasks, terminal,
@@ -154,6 +155,22 @@ pub async fn serve(
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
     let _mcp = mcp::start(&state.dir, &offers);
+    // `beep-node update` asks the node to hold still over another one.
+    let agents = offers.agents.clone();
+    let control_dir = state.dir.clone();
+    let _control = AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Err(e) = restart::listen(&control_dir, agents).await {
+            log::warn!("updates cannot wait for idle sessions: {e:#}");
+        }
+    }));
+    // What was open before a restart opens again: terminals now, sessions
+    // once the server sent the agent settings they start with.
+    let reopen = Reopen::take(&state.dir);
+    terminal::reopen(reopen.terminals);
+    let agents = offers.agents.clone();
+    let _reopen = AbortOnDropHandle::new(tokio::spawn(async move {
+        agents.reopen(reopen.sessions).await;
+    }));
     let stay = async {
         let mut wait = FIRST_RETRY;
         loop {
@@ -179,8 +196,18 @@ pub async fn serve(
     if let Some(provision) = &offers.provision {
         provision.forget().await;
     }
+    // Noted while they still run: the service manager ends them once the
+    // node exits.
+    let terminals = terminal::running();
     log::info!("stopping the agent sessions");
     offers.agents.shutdown().await;
+    let reopen = Reopen {
+        sessions: offers.agents.stopped_sessions(),
+        terminals,
+    };
+    if let Err(e) = reopen.save(&state.dir) {
+        log::warn!("what was open will not open again: {e:#}");
+    }
     if let Some(transfers) = started
         && let Err(e) = transfers.shutdown().await
     {
@@ -479,7 +506,10 @@ async fn serve_linked(
                     Some(provision) => provision.apply(credentials).await,
                     None => log::debug!("credentials came to a node that does not take them"),
                 },
-                Ok(Some(Down::AgentSettings(settings))) => offers.agents.set_settings(settings),
+                Ok(Some(Down::AgentSettings(settings))) => {
+                    offers.agents.set_settings(settings);
+                    offers.agents.settings_arrived();
+                }
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
