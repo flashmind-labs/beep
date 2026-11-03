@@ -16,6 +16,10 @@ use crate::{
     },
     push::CLOSE_REVOKED,
     store::{Claim, ClaimNode, ClaimedNode, LinkKey, NewKey, NewNode, NodeRow},
+    tools::machines::{
+        Machines,
+        mcp::{self, Calls},
+    },
     user::User,
 };
 use anyhow::{Context, Result, bail};
@@ -31,7 +35,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak},
     time::SystemTime,
 };
-use tokio::{sync::Notify, time::timeout};
+use tokio::{sync::Notify, task::JoinSet, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
 mod agent;
@@ -70,6 +74,8 @@ pub(crate) const MACHINES_HEADER: &str = "The user's machines (exec, process, de
     machine whose OS and `can` list fit the task: iOS, iPadOS and macOS builds, Xcode and the \
     iOS simulator need a macOS machine that can xcode, whichever machine is the default:";
 const CLOSE_UNAVAILABLE: u32 = 503;
+/// The most calls one node's agents have running through the server.
+const MAX_TOOL_CALLS: usize = 16;
 
 /// A node with its connection open.
 #[derive(Clone)]
@@ -421,7 +427,7 @@ async fn serve(
         })
         .await?;
     }
-    tx.send(&Down::Welcome {}).await?;
+    tx.send(&Down::Welcome { tools: true }).await?;
     log::info!(
         "node connected; user={} name={:?} version={} offers={:?} workspace={:?}",
         user.id(),
@@ -504,8 +510,34 @@ async fn serve(
             }
         }))
     };
+    // The calls its agents make through the Beep MCP server, each on a
+    // stream the node opens. They end with the connection.
+    let mut calls = JoinSet::new();
     loop {
         tokio::select! {
+            stream = connection.accept_bi() => {
+                let Ok((send, recv)) = stream else {
+                    return Ok(());
+                };
+                if calls.len() >= MAX_TOOL_CALLS {
+                    log::warn!("refused an agent tool call; node={endpoint}: {MAX_TOOL_CALLS} already run");
+                    continue;
+                }
+                let calls_from = Calls {
+                    machines: Machines {
+                        app: app.clone(),
+                        user: user.clone(),
+                    },
+                    caller: endpoint.to_string(),
+                };
+                let (tx, rx) = link(send, recv);
+                calls.spawn(mcp::serve(calls_from, tx, rx));
+            }
+            Some(ended) = calls.join_next() => match ended {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::debug!("agent tool call failed; node={endpoint} error={e:#}"),
+                Err(e) => log::warn!("agent tool call task failed; node={endpoint} error={e}"),
+            },
             message = rx.recv::<Up>() => match message {
                 Ok(Some(Up::Env(env))) => {
                     // A report that fails to save is not worth dropping the node.

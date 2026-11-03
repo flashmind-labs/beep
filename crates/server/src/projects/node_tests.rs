@@ -171,6 +171,7 @@ impl World {
             agents: Arc::new(Agents::new(vec![fake_claude()])),
             extra: vec![Arc::new(folders) as Arc<dyn Protocol>],
             provision: None,
+            tools: Default::default(),
         };
         let node = Endpoint::builder(presets::N0)
             .secret_key(key.clone())
@@ -968,6 +969,7 @@ async fn reconnect_reattaches_and_fails_lost_sessions() {
         agents: Arc::default(),
         extra: vec![Arc::new(Restarted { kept }) as Arc<dyn Protocol>],
         provision: None,
+        tools: Default::default(),
     };
     world.reconnect(&mut node, offers).await;
     let posted = posted_until(&world, |posted| {

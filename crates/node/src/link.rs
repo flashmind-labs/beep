@@ -5,6 +5,7 @@ use crate::{
     agents::{AgentKind, Agents},
     env,
     files::Folders,
+    mcp::{self, Launch, Upstream},
     provision::Provision,
     shell,
     state::State,
@@ -116,6 +117,7 @@ pub async fn serve(
             Ok(transfers) => {
                 offers.extra.push(Arc::new(transfers.syncs()));
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
+                offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
                 started = Some(transfers);
             }
@@ -137,6 +139,24 @@ pub async fn serve(
             log::warn!("not taking Claude Code hooks: {e:#}");
         }
     }));
+    // The agents' Beep MCP server runs this binary against a socket in the
+    // node's folder.
+    let _mcp = match std::env::current_exe().and_then(std::path::absolute) {
+        Ok(exe) => {
+            let dir = std::path::absolute(&state.dir).unwrap_or_else(|_| state.dir.clone());
+            let launch = Arc::new(Launch::new(exe, dir));
+            let (agents, upstream) = (offers.agents.clone(), offers.tools.clone());
+            Some(AbortOnDropHandle::new(tokio::spawn(async move {
+                if let Err(e) = mcp::listen(launch, agents, upstream).await {
+                    log::warn!("not serving the Beep MCP server: {e:#}");
+                }
+            })))
+        }
+        Err(e) => {
+            log::warn!("not serving the Beep MCP server: this binary is not found: {e}");
+            None
+        }
+    };
     let stay = async {
         let mut wait = FIRST_RETRY;
         loop {
@@ -251,6 +271,9 @@ pub struct Offers {
     /// Takes the user's credentials and installs the tools they are for.
     /// Without it the node does not ask for credentials.
     pub provision: Option<Arc<Provision>>,
+    /// The server's connection for the Beep MCP server's calls, set while
+    /// one that takes them is connected.
+    pub tools: Upstream,
 }
 
 impl Offers {
@@ -262,6 +285,7 @@ impl Offers {
             agents: Arc::new(Agents::new(crate::agents::detect(agents))),
             extra: Vec::new(),
             provision: Some(provision),
+            tools: Upstream::default(),
         }
     }
 
@@ -286,6 +310,8 @@ pub struct Linked {
     offers: Offers,
     /// What the hello's setup token gave, when it carried one.
     claimed: Option<Claimed>,
+    /// The server takes `tools/1` calls.
+    tools: bool,
     /// The workspace the hello named, measured first for free disk.
     workspace: Option<PathBuf>,
 }
@@ -331,9 +357,9 @@ async fn open_as(
     })
     .await?;
     let mut claimed = None;
-    loop {
+    let tools = loop {
         match rx.recv::<Down>().await {
-            Ok(Some(Down::Welcome {})) => break,
+            Ok(Some(Down::Welcome { tools })) => break tools,
             Ok(Some(Down::Linked { account, name })) if hello.setup.is_some() => {
                 claimed = Some(Claimed { account, name });
             }
@@ -343,7 +369,7 @@ async fn open_as(
                 None => bail!("the server closed before its welcome"),
             },
         }
-    }
+    };
     log::info!("connected as {name:?}");
     Ok(Linked {
         connection,
@@ -351,6 +377,7 @@ async fn open_as(
         rx,
         offers: offers.clone(),
         claimed,
+        tools,
         workspace: hello.workspace.map(PathBuf::from),
     })
 }
@@ -390,10 +417,15 @@ impl Linked {
             mut rx,
             offers,
             claimed: _,
+            tools,
             workspace,
         } = self;
         let measured: Vec<PathBuf> = workspace.into_iter().chain(dirs::home_dir()).collect();
+        if tools {
+            offers.tools.set(Some(connection.clone()));
+        }
         let served = serve_linked(&connection, &mut tx, &mut rx, &offers, &measured).await;
+        offers.tools.set(None);
         // Revoked or only cut off, the node keeps no token it cannot hear
         // about being removed; the server sends them again on reconnecting.
         if let Some(provision) = &offers.provision {

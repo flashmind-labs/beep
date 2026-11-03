@@ -1,13 +1,14 @@
-//! The local socket hooks reach the node on: a Unix socket in the node's
-//! folder, or on Windows a named pipe whose name comes from that path.
+//! The local sockets hooks and the MCP server reach the node on: a Unix
+//! socket in the node's folder, or on Windows a named pipe whose name
+//! comes from that path.
 
 use anyhow::{Context, Result};
 use std::{io, path::Path};
 
 #[cfg(unix)]
-pub(super) use unix::{Listener, Stream, connect, is_listening};
+pub(crate) use unix::{Listener, Stream, connect, is_listening};
 #[cfg(windows)]
-pub(super) use windows::{Listener, Stream, connect, is_listening};
+pub(crate) use windows::{Listener, Stream, connect, is_listening};
 
 #[cfg(unix)]
 mod unix {
@@ -16,13 +17,13 @@ mod unix {
     use std::fs;
     use tokio::net::{UnixListener, UnixStream};
 
-    pub(in crate::claude) type Stream = UnixStream;
+    pub(crate) type Stream = UnixStream;
 
-    pub(in crate::claude) struct Listener(UnixListener);
+    pub(crate) struct Listener(UnixListener);
 
     impl Listener {
         /// Listens on `socket`, replacing one a stopped node left.
-        pub(in crate::claude) fn bind(socket: &Path) -> Result<Self> {
+        pub(crate) fn bind(socket: &Path) -> Result<Self> {
             match fs::remove_file(socket) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -34,16 +35,16 @@ mod unix {
             Ok(Self(listener))
         }
 
-        pub(in crate::claude) async fn accept(&mut self) -> io::Result<Stream> {
+        pub(crate) async fn accept(&mut self) -> io::Result<Stream> {
             Ok(self.0.accept().await?.0)
         }
     }
 
-    pub(in crate::claude) async fn connect(socket: &Path) -> io::Result<Stream> {
+    pub(crate) async fn connect(socket: &Path) -> io::Result<Stream> {
         UnixStream::connect(socket).await
     }
 
-    pub(in crate::claude) fn is_listening(socket: &Path) -> bool {
+    pub(crate) fn is_listening(socket: &Path) -> bool {
         std::os::unix::net::UnixStream::connect(socket).is_ok()
     }
 }
@@ -64,7 +65,7 @@ mod windows {
     };
 
     /// What a connection reads from and writes to.
-    pub(in crate::claude) enum Stream {
+    pub(crate) enum Stream {
         Server(NamedPipeServer),
         Client(NamedPipeClient),
     }
@@ -119,13 +120,13 @@ mod windows {
     /// A pipe instance waiting for the next hook. The default security
     /// lets only this user (and administrators) write to it, and remote
     /// clients are refused.
-    pub(in crate::claude) struct Listener {
+    pub(crate) struct Listener {
         name: String,
         next: NamedPipeServer,
     }
 
     impl Listener {
-        pub(in crate::claude) fn bind(socket: &Path) -> Result<Self> {
+        pub(crate) fn bind(socket: &Path) -> Result<Self> {
             let name = pipe_name(socket);
             let next = ServerOptions::new()
                 .first_pipe_instance(true)
@@ -135,7 +136,7 @@ mod windows {
             Ok(Self { name, next })
         }
 
-        pub(in crate::claude) async fn accept(&mut self) -> io::Result<Stream> {
+        pub(crate) async fn accept(&mut self) -> io::Result<Stream> {
             self.next.connect().await?;
             let fresh = ServerOptions::new()
                 .reject_remote_clients(true)
@@ -144,7 +145,7 @@ mod windows {
         }
     }
 
-    pub(in crate::claude) async fn connect(socket: &Path) -> io::Result<Stream> {
+    pub(crate) async fn connect(socket: &Path) -> io::Result<Stream> {
         ClientOptions::new()
             .open(pipe_name(socket))
             .map(Stream::Client)
@@ -152,7 +153,7 @@ mod windows {
 
     /// Whether a node has the pipe open. Opening it takes one connection,
     /// which the node drops as an empty message.
-    pub(in crate::claude) fn is_listening(socket: &Path) -> bool {
+    pub(crate) fn is_listening(socket: &Path) -> bool {
         std::fs::OpenOptions::new()
             .write(true)
             .open(pipe_name(socket))
@@ -161,7 +162,7 @@ mod windows {
 }
 
 /// Where hooks connect, for messages: the socket, or the pipe it names.
-pub(super) fn shown(socket: &Path) -> String {
+pub(crate) fn shown(socket: &Path) -> String {
     #[cfg(windows)]
     return windows::pipe_name(socket);
     #[cfg(unix)]

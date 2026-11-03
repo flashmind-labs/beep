@@ -22,7 +22,7 @@ use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
     on_receive_request,
     schema::v1::{
-        CancelNotification, InitializeResponse, LoadSessionRequest, PromptResponse,
+        CancelNotification, InitializeResponse, LoadSessionRequest, McpServer, PromptResponse,
         RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SessionConfigId,
         SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest,
     },
@@ -62,6 +62,8 @@ const MAX_STDERR_LINE: usize = 64 * 1024;
 const ORDERS: usize = 16;
 /// Updates and questions from the agent waiting for the session's task.
 const EVENTS: usize = 64;
+/// The longest text of a question the node asks.
+const MAX_ASKED: usize = 2000;
 
 /// What a stream asks of a session.
 #[derive(Debug)]
@@ -78,6 +80,31 @@ pub(super) enum Command {
         model: Option<ModelId>,
         effort: Option<Effort>,
     },
+    /// Puts a question of the node's own to the user, as the agent's are:
+    /// `ask_user` or an approval for the Beep MCP server. The answer goes
+    /// to `reply`; it is dropped when the session ends or the turn is
+    /// cancelled.
+    Ask {
+        question: Asking,
+        reply: oneshot::Sender<Answered>,
+    },
+}
+
+/// A question the node asks in a session.
+#[derive(Debug)]
+pub(crate) struct Asking {
+    pub(crate) text: String,
+    pub(crate) detail: Option<String>,
+    pub(crate) options: Vec<AnswerOption>,
+}
+
+/// The user's answer to an `Asking`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Answered {
+    /// One of the options.
+    Picked(AnswerOption),
+    /// Their own words instead.
+    Said(String),
 }
 
 struct Order {
@@ -111,6 +138,9 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, sent ahead of the first prompt and kept
     /// out of the transcript.
     pub(super) brief: Option<&'static str>,
+    /// The Beep MCP server for the agent, passed in `session/new` and
+    /// `session/load`. With it the brief also says what its tools are.
+    pub(super) mcp: Option<McpServer>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -131,10 +161,16 @@ impl Session {
             effort,
             note,
             brief,
+            mcp,
             images,
             usage,
             alerts,
         } = start;
+        let brief = match (brief, &mcp) {
+            (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::mcp::BRIEF)),
+            (None, Some(_)) => Some(crate::mcp::BRIEF.to_owned()),
+            (brief, None) => brief.map(str::to_owned),
+        };
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
         let model = model.filter(|_| resume.is_none());
@@ -197,6 +233,7 @@ impl Session {
             takes_images: None,
             queued: prompt.map(Prompt::from).into_iter().collect(),
             brief,
+            mcp_servers: mcp.into_iter().collect(),
             resume,
             model,
             effort,
@@ -294,7 +331,26 @@ enum Reply {
 /// A permission question waiting for its answer.
 struct Asked {
     question: Question,
-    responder: Responder<RequestPermissionResponse>,
+    waiting: Waiting,
+}
+
+/// Who waits for a question's answer.
+enum Waiting {
+    /// The agent, on its `session/request_permission`.
+    Agent(Responder<RequestPermissionResponse>),
+    /// The node, for a question of its own (`Command::Ask`).
+    Node(oneshot::Sender<Answered>),
+}
+
+impl Waiting {
+    /// Answers that the question was dropped. The node hears it as its
+    /// sender going away.
+    fn cancel(self) -> Result<(), agent_client_protocol::Error> {
+        match self {
+            Self::Agent(responder) => responder.respond(acp::cancelled()),
+            Self::Node(_) => Ok(()),
+        }
+    }
 }
 
 struct Actor {
@@ -330,7 +386,9 @@ struct Actor {
     /// Prompts waiting for the agent to be free, the first prompt among them.
     queued: VecDeque<Prompt>,
     /// Beep's word to the agent, until the first prompt carries it.
-    brief: Option<&'static str>,
+    brief: Option<String>,
+    /// The MCP servers the agent's session gets.
+    mcp_servers: Vec<McpServer>,
     /// Questions waiting, the first one shown.
     asked: VecDeque<Asked>,
     next_question: u32,
@@ -632,7 +690,7 @@ impl Actor {
         initialized: &InitializeResponse,
     ) -> Option<End> {
         let Some(session) = self.resume.take() else {
-            match acp::new_session(&self.cwd) {
+            match acp::new_session(&self.cwd, self.mcp_servers.clone()) {
                 Ok(request) => self.send(cx, request, Reply::NewSession),
                 Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
             }
@@ -643,12 +701,16 @@ impl Actor {
         let id = session.clone();
         match acp::resume_method(initialized) {
             Some(ResumeMethod::Resume) => {
-                self.send(cx, ResumeSessionRequest::new(id, cwd), |result| {
+                let request =
+                    ResumeSessionRequest::new(id, cwd).mcp_servers(self.mcp_servers.clone());
+                self.send(cx, request, |result| {
                     Reply::Resumed(session, result.map(drop))
                 });
             }
             Some(ResumeMethod::Load) => {
-                self.send(cx, LoadSessionRequest::new(id, cwd), |result| {
+                let request =
+                    LoadSessionRequest::new(id, cwd).mcp_servers(self.mcp_servers.clone());
+                self.send(cx, request, |result| {
                     Reply::Resumed(session, result.map(drop))
                 });
             }
@@ -786,7 +848,7 @@ impl Actor {
                 self.queued.clear();
                 self.show_queued();
                 while let Some(asked) = self.asked.pop_front() {
-                    asked.responder.respond(acp::cancelled())?;
+                    asked.waiting.cancel()?;
                 }
                 if let Some(session) = &self.acp_session
                     && self.live.borrow().status() != Status::Idle
@@ -797,6 +859,16 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Close => Ok(Ok(())),
+            Command::Ask { question, reply } => {
+                let question = Question {
+                    id: 0,
+                    text: cut(&question.text, MAX_ASKED),
+                    detail: question.detail.map(|detail| cut(&detail, MAX_ASKED)),
+                    options: question.options,
+                };
+                self.put(question, Waiting::Node(reply));
+                Ok(Ok(()))
+            }
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
         }
     }
@@ -888,7 +960,13 @@ impl Actor {
         request: &RequestPermissionRequest,
         responder: Responder<RequestPermissionResponse>,
     ) {
-        let question = self.live.borrow().question(self.next_question, request);
+        let question = self.live.borrow().question(0, request);
+        self.put(question, Waiting::Agent(responder));
+    }
+
+    /// Shows `question` once those before it are answered, numbered next.
+    fn put(&mut self, mut question: Question, waiting: Waiting) {
+        question.id = self.next_question;
         self.next_question += 1;
         self.live.send_modify(|live| {
             let detail = question
@@ -901,10 +979,7 @@ impl Actor {
                 &format!("Asked: {}{detail}", question.text),
             );
         });
-        self.asked.push_back(Asked {
-            question,
-            responder,
-        });
+        self.asked.push_back(Asked { question, waiting });
         self.show_question();
     }
 
@@ -919,6 +994,30 @@ impl Actor {
             )));
         }
         let options = &asked.question.options;
+        if matches!(asked.waiting, Waiting::Node(_)) {
+            // The node's own question takes any words as the answer.
+            let answered = match choose(options, reply) {
+                Some(option) => Answered::Picked(option.clone()),
+                None => Answered::Said(reply.trim().to_owned()),
+            };
+            let name = match &answered {
+                Answered::Picked(option) => option.name.clone(),
+                Answered::Said(text) => cut(text, MAX_ASKED),
+            };
+            if let Some(Asked {
+                waiting: Waiting::Node(sender),
+                ..
+            }) = self.asked.pop_front()
+            {
+                // The call that asked may have given up; the answer stands.
+                let _ = sender.send(answered);
+            }
+            self.live.send_modify(|live| {
+                live.push(EntryKind::Question, &format!("Answered: {name}"));
+            });
+            self.show_question();
+            return Ok(Ok(()));
+        }
         let (chosen, follow_up) = match choose(options, reply) {
             Some(option) => (Some(option), None),
             // Anything else declines and goes to the agent as its next prompt.
@@ -943,8 +1042,12 @@ impl Actor {
         let name = chosen
             .map_or("declined", |option| option.name.as_str())
             .to_owned();
-        if let Some(asked) = self.asked.pop_front() {
-            asked.responder.respond(answer)?;
+        if let Some(Asked {
+            waiting: Waiting::Agent(responder),
+            ..
+        }) = self.asked.pop_front()
+        {
+            responder.respond(answer)?;
         }
         if let Some(prompt) = follow_up {
             self.queued.push_front(prompt);
@@ -1006,7 +1109,7 @@ impl Actor {
         // A turn that ends leaves no question open. A dropped responder
         // sends nothing, so each is answered cancelled.
         while let Some(asked) = self.asked.pop_front() {
-            if let Err(e) = asked.responder.respond(acp::cancelled()) {
+            if let Err(e) = asked.waiting.cancel() {
                 log::debug!("an open question was not cancelled: {e}");
             }
         }
@@ -1123,7 +1226,11 @@ impl Actor {
             return;
         };
         let brief = self.brief.take();
-        self.send(cx, acp::prompt(&session, &prompt, brief), Reply::Prompt);
+        self.send(
+            cx,
+            acp::prompt(&session, &prompt, brief.as_deref()),
+            Reply::Prompt,
+        );
         let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
         self.live.send_modify(|live| {
             for picture in prompt.pictures() {
@@ -1357,6 +1464,7 @@ cat > /dev/null
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1394,6 +1502,143 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// An adapter that starts a session and ends its first turn at once.
+    const PLAIN_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_agent_gets_the_beep_mcp_server_in_new_and_load() {
+        let dir = temp("mcp");
+        let launch = crate::mcp::Launch::new("/usr/local/bin/beep-node".into(), dir.clone());
+        let start = |kind: &AgentKind, resume: Option<&str>| {
+            Session::start(Start {
+                id: "a3f9c1".into(),
+                kind,
+                cwd: &dir,
+                prompt: Some("hello".into()),
+                resume: resume.map(str::to_owned),
+                model: None,
+                effort: None,
+                note: None,
+                brief: None,
+                mcp: Some(launch.server("a3f9c1")),
+                images: Arc::default(),
+                usage: Arc::default(),
+                alerts: Arc::default(),
+            })
+            .unwrap()
+        };
+        let log = dir.join("new.jsonl");
+        let session = start(&script("fake", PLAIN_ADAPTER, &log), None);
+        settle(&session).await;
+        let new = sent(&log);
+        assert_eq!(new[1]["method"], "session/new");
+        let server = &new[1]["params"]["mcpServers"][0];
+        assert_eq!(server["name"], "beep");
+        assert_eq!(server["command"], "/usr/local/bin/beep-node");
+        assert_eq!(
+            server["args"],
+            serde_json::json!([
+                "--dir",
+                dir.display().to_string(),
+                "mcp",
+                "--session",
+                "a3f9c1"
+            ])
+        );
+        assert_eq!(server["env"][0]["name"], crate::mcp::TOKEN_ENV);
+        assert_eq!(server["env"][0]["value"].as_str().map(str::len), Some(64));
+        // The first prompt tells the agent what the tools are for.
+        assert_eq!(new[2]["method"], "session/prompt");
+        let brief = new[2]["params"]["prompt"][0]["text"].as_str().unwrap();
+        assert_eq!(brief, crate::mcp::BRIEF);
+
+        let log = dir.join("load.jsonl");
+        let resumed = start(
+            &fake("claude", &log),
+            Some("0f3c2a9e-1111-4222-8333-944455556666"),
+        );
+        settle(&resumed).await;
+        let load = sent(&log);
+        assert_eq!(load[1]["method"], "session/load");
+        assert_eq!(load[1]["params"]["mcpServers"][0]["name"], "beep");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
+        let dir = temp("node-asks");
+        let log = dir.join("sent.jsonl");
+        let session = Session::start(Start {
+            id: "a3f9c1".into(),
+            kind: &script("fake", PLAIN_ADAPTER, &log),
+            cwd: &dir,
+            prompt: Some("hello".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+            mcp: None,
+            images: Arc::default(),
+            usage: Arc::default(),
+            alerts: Arc::default(),
+        })
+        .unwrap();
+        settle(&session).await;
+        let ask = |reply| Command::Ask {
+            question: Asking {
+                text: "Which branch?".into(),
+                detail: None,
+                options: options(),
+            },
+            reply,
+        };
+        let (reply, answer) = oneshot::channel();
+        session.order(ask(reply)).await.unwrap();
+        let shown = session.info().question.expect("the question shows");
+        assert_eq!(shown.text, "Which branch?");
+        assert_eq!(session.info().state.status, Status::Asking);
+        session
+            .order(Command::Answer {
+                question: shown.id,
+                reply: "always".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            answer.await.unwrap(),
+            Answered::Picked(options()[1].clone())
+        );
+        assert!(session.info().question.is_none());
+        let (reply, answer) = oneshot::channel();
+        session.order(ask(reply)).await.unwrap();
+        let shown = session.info().question.expect("the question shows");
+        session
+            .order(Command::Answer {
+                question: shown.id,
+                reply: "the release branch".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            answer.await.unwrap(),
+            Answered::Said("the release branch".into())
+        );
+        // Nothing went to the agent: the node asked, not the agent.
+        assert_eq!(sent(&log).len(), 3);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// An adapter that writes `$BEEP_FAKE_MODE` to `$1.env`, asks
     /// permission on its first prompt, then ends the turn once answered.
     const ALLOWING_ADAPTER: &str = r#"
@@ -1427,6 +1672,7 @@ cat > /dev/null
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1473,6 +1719,7 @@ cat > /dev/null
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1504,6 +1751,7 @@ cat > /dev/null
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1553,6 +1801,7 @@ read -r line; log "$1"
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1606,6 +1855,7 @@ cat > /dev/null
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1644,6 +1894,7 @@ read -r line
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1790,6 +2041,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
@@ -1932,6 +2184,7 @@ cat > /dev/null
             effort: None,
             note: None,
             brief: None,
+            mcp: None,
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
