@@ -18,7 +18,7 @@ use crate::{
         },
         link,
     },
-    protocol::{CustomAgent, WorkFolder},
+    protocol::{CustomAgent, WorkDiff, WorkFolder, node::agent::DiffAsk},
     transport::READ_TIMEOUT,
 };
 use anyhow::{Context, Result, bail};
@@ -107,6 +107,8 @@ pub struct StartOn {
 /// How long a node has to list an agent's models: it may start the agent
 /// to ask, and npx may first download its adapter.
 const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a node has to read a diff: git may walk a large checkout.
+const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Unreadable messages in a row before a link gives up.
 const MAX_BAD_MESSAGES: u32 = 8;
@@ -596,10 +598,31 @@ impl Online {
         }
     }
 
+    /// What changed in the checkout `ask.root` on the node. An error when
+    /// the node could not be asked, as one from before `Diff` cannot.
+    pub(crate) async fn work_diff(&self, ask: DiffAsk) -> Result<NodeWork<WorkDiff>> {
+        match self
+            .sessions_request_within(SessionsRequest::Diff { ask }, DIFF_TIMEOUT)
+            .await?
+        {
+            SessionsReply::Diff { diff } => Ok(NodeWork::Done(diff)),
+            SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+            _ => bail!("the node answered something else"),
+        }
+    }
+
     async fn sessions_request(&self, request: SessionsRequest) -> Result<SessionsReply> {
+        self.sessions_request_within(request, READ_TIMEOUT).await
+    }
+
+    async fn sessions_request_within(
+        &self,
+        request: SessionsRequest,
+        limit: Duration,
+    ) -> Result<SessionsReply> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&request).await?;
-        timeout(READ_TIMEOUT, rx.recv())
+        timeout(limit, rx.recv())
             .await
             .context("the node did not answer")??
             .context("the node closed the stream")

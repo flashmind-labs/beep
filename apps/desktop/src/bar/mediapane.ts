@@ -14,6 +14,7 @@ import type { Artifact } from "../artifacts-state.ts";
 import type { ModelView } from "../model3d.ts";
 import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artpane.ts";
 import { changeListeners, esc, h, ICON, invoke, PANE, S } from "./core.ts";
+import { changesView, dropChanges, madeChangesView, reloadChanges } from "./changespane.ts";
 import { closeFilesMenu, filesView } from "./filespane.ts";
 import { fileSize, openViewer } from "./media.ts";
 import { attach, dropTerm, forgetTerm, killTerm, openTerm, type PaneTerm, termStatus } from "./paneterm.ts";
@@ -77,6 +78,7 @@ interface PaneSession {
 
 const SUBS = "subagents";
 const FILES = "files";
+const CHANGES = "changes";
 const ARTS = "artifacts";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 const ARROW_STEP = 24;
@@ -107,10 +109,13 @@ function saveLayout() {
   try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
 }
 
-const ICONS: Record<TabKind | "subagents" | "files" | "artifacts", string> = {
+type Fixed = "subagents" | "files" | "changes" | "artifacts";
+
+const ICONS: Record<TabKind | Fixed, string> = {
   // filespane.ts imports this module, so its folder icon is repeated here
   // rather than read before that module has run.
   files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  changes: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v8M8 8h8M8 18h8"/></svg>',
   text: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>',
   term: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
   image: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-8 8"/></svg>',
@@ -152,6 +157,7 @@ export function startPane(s: PaneSession) {
   closeAll();
   P.session = s;
   P.on = { right: FILES, bottom: FILES };
+  dropChanges();
   P.subs = "";
   P.subCount = 0;
   P.moved.clear();
@@ -186,11 +192,11 @@ function dropTab(t: MediaTab) {
 }
 
 // Leaving the session view lets go of what its tabs hold.
-changeListeners.push(() => { if (S.view !== "agent") { closeAll(); P.watch?.disconnect(); P.watch = null; } });
+changeListeners.push(() => { if (S.view !== "agent") { closeAll(); dropChanges(); P.watch?.disconnect(); P.watch = null; } });
 
 /// Every tab's id, in the order the tab strips show them.
 function tabIds() {
-  return [FILES, ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
+  return [FILES, CHANGES, ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
 }
 
 /// The tabs in each dock, as the shell's width lets them sit.
@@ -429,10 +435,11 @@ function drawDock(d: Dock, ids: string[]) {
   // The tab on screen went: the newest one here.
   if (!ids.includes(P.on[d])) P.on[d] = ids.at(-1) ?? FILES;
   const on = P.on[d];
-  const tab = (id: string, kind: TabKind | "subagents" | "files" | "artifacts", name: string, extra: string) =>
+  const tab = (id: string, kind: TabKind | Fixed, name: string, extra: string) =>
     `<button class="agtab${on === id ? " on" : ""}" role="tab" aria-selected="${on === id}" data-mtab="${esc(id)}" title="${esc(name)}">${ICONS[kind]}<span>${esc(name)}</span>${extra}</button>`;
   tabs.innerHTML = ids.map(id => {
     if (id === FILES) return tab(FILES, FILES, "Files", "");
+    if (id === CHANGES) return tab(CHANGES, CHANGES, "Changes", "");
     if (id === SUBS) return tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`);
     if (id === ARTS) return tab(ARTS, ARTS, "Artifacts", `<small>${artifactCount()}</small>`);
     const t = P.tabs.find(x => x.id === id)!;
@@ -445,8 +452,8 @@ function drawDock(d: Dock, ids: string[]) {
   pane.querySelector('[data-pact="fold"]')!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
   const strip = document.getElementById(`agpstrip-${d}`)!;
   const shown = P.tabs.find(t => t.id === on);
-  const fixed = on === SUBS ? SUBS : on === ARTS ? ARTS : FILES;
-  const label = shown ? shown.name : { [SUBS]: "Subagents", [ARTS]: "Artifacts", [FILES]: "Files" }[fixed];
+  const fixed = on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
+  const label = shown ? shown.name : { [SUBS]: "Subagents", [ARTS]: "Artifacts", [CHANGES]: "Changes", [FILES]: "Files" }[fixed];
   strip.innerHTML = `${ICONS[shown?.kind ?? fixed]}<span>${esc(label)}</span><small>${ids.length}</small>`;
   // The Files view is made once per session, wherever it sits.
   const made = filesView();
@@ -456,6 +463,12 @@ function drawDock(d: Dock, ids: string[]) {
     if (filesEl.parentElement !== views) views.prepend(filesEl);
     filesEl.hidden = on !== FILES;
     if (on !== FILES) closeFilesMenu();
+  }
+  // The Changes view is made the first time it shows, as it runs git.
+  const changesEl = on === CHANGES ? changesView() : madeChangesView();
+  if (changesEl && ids.includes(CHANGES)) {
+    if (changesEl.parentElement !== views) views.append(changesEl);
+    changesEl.hidden = on !== CHANGES;
   }
   // So is the Artifacts view, while there are any.
   const artsEl = artifactsView();
@@ -492,7 +505,10 @@ function paneClick(e: MouseEvent, d: Dock) {
   const tab = target.closest<HTMLElement>("[data-mtab]");
   if (tab) {
     if (P.dragged) return;
-    P.on[d] = tab.dataset.mtab!;
+    const id = tab.dataset.mtab!;
+    // Shown again, the changes are read again.
+    if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
+    P.on[d] = id;
     return draw();
   }
   const act = target.closest<HTMLElement>("[data-pact]")?.dataset.pact;

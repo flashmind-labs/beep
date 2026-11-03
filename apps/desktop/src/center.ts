@@ -40,6 +40,7 @@ import { ALL, byMachine, makeTerminals, terminalNote, terminalTile, terminalWher
 import type { MachineTerminals, TerminalRow } from "./terminals.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { makeScreen } from "./termview.ts";
+import { openBranchDiff } from "./diffsheet.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
@@ -2302,6 +2303,7 @@ const revs = makeReviews({
   openUrl,
   openTile: (key: string) => openTile(key),
   machines: () => state.home?.machines || [],
+  diff: openBranchDiff,
   kept: keptSection("branches"),
 });
 
@@ -2364,6 +2366,7 @@ const agentActs = {
   outcome: (id: string) => pa.outcomes.get(id),
   openUrl,
   review: (branch: string) => { if (state.picked) revs.openBranch(state.picked, branch); },
+  diff: (branch: string) => { if (state.picked) openBranchDiff(state.picked, branch); },
   /// Merge… on a task in review asks the project agent to merge once the
   /// branch's newest review allows it and the branch has not moved since;
   /// otherwise it opens the review, which says what stands in the way.

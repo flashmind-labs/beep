@@ -58,6 +58,7 @@ mod spend;
 mod subagent;
 mod tool_diff;
 mod usage;
+mod work_diff;
 mod work_folder;
 
 pub(crate) use acp::{Line, LineReader};
@@ -1267,6 +1268,18 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                     work_request(move || {
                         let agents = custom_agents::list(&real, home.as_deref())?;
                         Ok(SessionsReply::CustomAgents { agents })
+                    })
+                    .await
+                }
+                Err(e) => failed(e),
+            }
+        }
+        SessionsRequest::Diff { ask } => {
+            match agents.reachable(&ask.root, reach::Access::Diff).await {
+                Ok(real) => {
+                    work_request(move || {
+                        let diff = work_diff::read(&real, &ask)?;
+                        Ok(SessionsReply::Diff { diff })
                     })
                     .await
                 }
