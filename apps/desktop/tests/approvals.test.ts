@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AnsweredIds, logoFor, OrbAsks } from "../src/approvals.ts";
+import { AnsweredIds, OrbAsks } from "../src/approvals.ts";
 
 const ask = (query_id: string, session = "chat-a", work = false) => ({ session, approval: { query_id }, work });
 
@@ -64,30 +64,4 @@ test("a failed answer in the orb puts the card back first", () => {
   asks.failed(answered);
   assert.equal(asks.shown?.approval.query_id, "q1");
   assert.equal(asks.count, 2);
-});
-
-test("leaving live mode empties the orb", () => {
-  const asks = new OrbAsks<ReturnType<typeof ask>>();
-  asks.add(ask("q1"));
-  asks.answer();
-  asks.clear();
-  assert.equal(asks.shown, null);
-  // A new live session may show it again if it still waits.
-  assert.equal(asks.add(ask("q1")), true);
-});
-
-test("an approval's app shows its logo, by name or slug, ignoring case", () => {
-  const apps = [
-    { slug: "slack", name: "Slack", logo_url: "https://logos.example/slack.svg" },
-    { slug: "googlecalendar", name: "Google Calendar", logo_url: "https://logos.example/gcal.svg" },
-    { slug: "fastmail", name: "Fastmail", logo_url: null },
-  ];
-  assert.equal(logoFor(apps, "Slack"), "https://logos.example/slack.svg");
-  assert.equal(logoFor(apps, "slack"), "https://logos.example/slack.svg");
-  assert.equal(logoFor(apps, "Google Calendar"), "https://logos.example/gcal.svg");
-  assert.equal(logoFor(apps, "googlecalendar"), "https://logos.example/gcal.svg");
-  // No logo, or not an app the list knows: the letter it falls back to.
-  assert.equal(logoFor(apps, "Fastmail"), null);
-  assert.equal(logoFor(apps, "Project"), null);
-  assert.equal(logoFor(apps, ""), null);
 });

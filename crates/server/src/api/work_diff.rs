@@ -1,11 +1,8 @@
-//! The diff viewer: what changed in a coding agent session's checkout, or
-//! on a project's branch. The node runs git where the checkout is, checks
-//! the folder is in its reach and caps what it sends; the server passes the
-//! diff through and keeps nothing.
+//! The diff viewer for a session's checkout or a project's branch; the node runs git.
 
 use super::{
     Reply,
-    agent_control::live_host,
+    agent_control::live_host_back,
     own_nodes::online,
     reviews::{places, project_row},
 };
@@ -23,7 +20,7 @@ fn unreachable_node(machine: &str, e: &anyhow::Error) -> ApiError {
 }
 
 pub(super) async fn get_work_diff(cx: Cx, request: GetWorkDiff) -> Reply<WorkDiff> {
-    let live = live_host(&cx, &request.machine_id).await?;
+    let live = live_host_back(&cx, &request.machine_id).await?;
     let machine = &live.host.machine_name;
     let ask = DiffAsk {
         root: request.root,

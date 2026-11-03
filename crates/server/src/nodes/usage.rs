@@ -1,7 +1,4 @@
-//! What a node's coding agents spend and how much of their plans is left,
-//! kept as the node sends them on one `FollowUsage` stream per connection
-//! (see `beep_proto::node::agent`), with what sessions spent as the
-//! agents' logs on the node tell it.
+//! What a node's coding agents spend and how much of their plans is left.
 
 use super::Online;
 use crate::{
@@ -11,10 +8,7 @@ use crate::{
 use anyhow::{Result, bail};
 
 impl Online {
-    /// Keeps what the node reports until the stream or the connection
-    /// ends, asking it to read the plans again whenever `refresh_usage`
-    /// is called. A node from before `FollowUsage` closes the stream at
-    /// once.
+    /// Keeps what the node reports until the stream or connection ends.
     pub(super) async fn keep_usage(&self, user: &User) -> Result<()> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::FollowUsage { history: true })
@@ -31,8 +25,7 @@ impl Online {
                     continue;
                 }
             };
-            // One not kept is lost; the next report of a plan or a session
-            // replaces it.
+            // One not kept is lost; the next report replaces it.
             let kept = match reply {
                 SessionsReply::TurnUsage { usage } => {
                     user.add_turn_usage(&machine_id, &usage).await
@@ -51,8 +44,7 @@ impl Online {
         }
     }
 
-    /// Asks the node to read its agents' plans again now, when it follows
-    /// usage. It answers on its own time.
+    /// Asks the node to read its agents' plans again; it answers on its own time.
     pub(crate) fn refresh_usage(&self) {
         self.usage_refresh.notify_one();
     }

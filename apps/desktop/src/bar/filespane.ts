@@ -5,7 +5,7 @@
 // as a mention; files dropped on a folder upload there; right-click has
 // the rest.
 
-import { type GitChange, type Listing, type TreeFolder, type TreeRow, parentPath, treeRows } from "../files-state.ts";
+import { type GitChange, type Listing, type TreeFolder, type TreeRow, failedListing, parentPath, treeRows } from "../files-state.ts";
 import { resolvePath } from "../media-state.ts";
 import { esc, h, invoke } from "./core.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./mediapane.ts";
@@ -112,8 +112,7 @@ async function load(dir: string) {
     if (!dir) F.git = got.git;
   } catch (e) {
     if (F.key !== key) return;
-    const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
-    F.listings.set(dir, { entries: had?.entries ?? null, more: 0, error: /unknown op|not serve|update/i.test(text) ? "Update Beep's server and beep-node on that machine to browse its files." : text });
+    F.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
   }
   draw();
 }

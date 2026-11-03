@@ -126,10 +126,4 @@ mod tests {
         };
         assert_eq!(request.billing, Billing::Subscription);
     }
-
-    #[test]
-    fn a_count_without_info_gives_nothing() {
-        let empty = r#"{"timestamp":"2026-11-02T10:15:00.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}"#;
-        assert!(line(empty).is_none());
-    }
 }

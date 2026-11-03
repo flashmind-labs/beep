@@ -3,7 +3,7 @@ use crate::{
     models::ModelChoices,
     protocol::{DeviceKind, MemorySource, RunEvent, WebSource},
     search::SearchTool,
-    store::{Account, Fact, TestDb},
+    store::{Account, Fact, StoredBody, TestDb},
 };
 use async_trait::async_trait;
 use flashmind::types::{
@@ -24,8 +24,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// Searches once, then answers. The first search waits for a permit, so the
-/// test can follow the run from its start.
+/// Searches once, then answers; the first search waits for a permit so the test sees the start.
 struct Searcher {
     go: Arc<Semaphore>,
 }
@@ -315,6 +314,123 @@ async fn a_reply_keeps_the_sources_of_its_web_searches() {
         .expect("the chat is alice's");
     let asked = history.first().expect("the prompt is kept");
     assert_eq!(kept[0].message, asked.timestamp());
+}
+
+/// Says something, then waits forever on its first turn; answers the next
+/// once let go, keeping what each was sent.
+struct Stalls {
+    go: Arc<Semaphore>,
+    turns: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl LlmProvider for Stalls {
+    fn name(&self) -> &str {
+        "test"
+    }
+    fn provider(&self) -> Provider {
+        Provider::OpenAi
+    }
+    fn complete(&self, request: CompletionRequest) -> CompletionStream {
+        let main = request.tools.iter().any(|tool| tool.name == "memory");
+        let first = main && {
+            let mut turns = self.turns.lock().expect("the turns are available");
+            let sent = request
+                .messages
+                .iter()
+                .map(|message| message.content.as_str());
+            turns.push(sent.collect::<Vec<_>>().join("\n"));
+            turns.len() == 1
+        };
+        let go = self.go.clone();
+        Box::pin(async_stream::stream! {
+            if first {
+                yield Ok(StreamEvent::ContentDelta("That disk scan will take".into()));
+                std::future::pending::<()>().await;
+            }
+            if main {
+                let _permit = go.acquire().await;
+            }
+            yield Ok(StreamEvent::ContentDelta(if main { "Okay." } else { "{}" }.into()));
+            yield Ok(StreamEvent::Finished(FinishReason::Stop));
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_stopped_turn_keeps_what_it_said() {
+    let db = TestDb::new().await.expect("a test database");
+    let store = db.store().await.expect("a store");
+    let go = Arc::new(Semaphore::new(0));
+    let provider = Arc::new(Stalls {
+        go: go.clone(),
+        turns: Mutex::new(Vec::new()),
+    });
+    let model = "openai:test".parse().expect("a model name");
+    let models = ModelChoices::resolve(provider.as_ref(), model, Vec::new()).await;
+    let app = App::new(
+        store,
+        provider.clone(),
+        AgentLlmConfig::new("openai:test".parse().expect("a model name")),
+        ServerTools::default(),
+        models,
+    );
+    let user = app.user_for(&Account {
+        id: "alice".into(),
+        external_id: "alice".into(),
+    });
+    let chat = Uuid::new_v4();
+    let crate::store::CreateRun::Created(run) =
+        app.submit(&user, message(chat)).await.expect("submitted")
+    else {
+        panic!("the run was not created");
+    };
+    let live = app.live(&run.id).await.expect("the run is live");
+    let mut events = live.subscribe(0);
+    timeout(Duration::from_secs(30), async {
+        let mut backlog = std::mem::take(&mut events.backlog).into_iter();
+        loop {
+            let event = match backlog.next() {
+                Some(event) => event,
+                None => events.live.recv().await.expect("the run streams"),
+            };
+            if matches!(event.event, RunEvent::TextDelta { .. }) {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the model starts to answer");
+    app.cancel(&run.id).await;
+
+    let kept = user
+        .session_messages(chat)
+        .await
+        .expect("messages read")
+        .expect("the chat is alice's");
+    let said = kept.iter().any(|message| {
+        matches!(&message.body, StoredBody::Assistant { content }
+            if *content == format!("That disk scan will take\n\n{}", super::STOPPED))
+    });
+    assert!(said, "the stopped reply is kept: {kept:?}");
+
+    let crate::store::CreateRun::Created(run) =
+        app.submit(&user, message(chat)).await.expect("submitted")
+    else {
+        panic!("the second run was not created");
+    };
+    let live = app.live(&run.id).await.expect("the run is live");
+    go.add_permits(1);
+    timeout(Duration::from_secs(30), live.done.cancelled())
+        .await
+        .expect("the second run finishes");
+    let turns = provider.turns.lock().expect("the turns are available");
+    assert!(
+        turns
+            .get(1)
+            .is_some_and(|sent| sent.contains("That disk scan will take")),
+        "the next turn reads the stopped one"
+    );
 }
 
 #[test]

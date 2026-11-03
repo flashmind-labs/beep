@@ -1,6 +1,6 @@
 //! Sync state of the feeds read for memories.
 
-use super::{Store, seconds};
+use super::Store;
 use crate::{
     feeds::{mail::Mailbox, slack::SLACK},
     user::UserKey,
@@ -9,8 +9,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::{collections::HashSet, time::Duration};
 
-/// Something synced once a day for memories: a mailbox or Slack. Its slug
-/// keys the sync state tables, which predate Slack and keep their mail names.
+/// A mailbox or Slack synced daily for memories; its slug keys the sync tables (which keep their mail names).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Feed {
     Mail(Mailbox),
@@ -52,7 +51,7 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(feed.slug())
-        .bind(seconds(every))
+        .bind(every.as_secs_f64())
         .fetch_one(&self.pool)
         .await?)
     }

@@ -1,5 +1,4 @@
-//! The chat about one update the event triage agent kept for the user,
-//! made the first time they open it and reopened after.
+//! The chat about one kept triage update, made on first open.
 
 use super::{
     Store,
@@ -53,8 +52,7 @@ pub(crate) struct UpdateChat {
 }
 
 impl Store {
-    /// The update `id` of `user` with its events; `None` when it is not
-    /// theirs or is not something the triage agent passed on.
+    /// Update `id` of `user` with its events; `None` when not theirs or not passed on.
     pub(crate) async fn update_detail(
         &self,
         user: &UserKey,
@@ -93,9 +91,7 @@ impl Store {
         Ok(Some(UpdateDetail { update, events }))
     }
 
-    /// The chat about update `id`, made from `seed` when it has none, and
-    /// the update marked seen. Two callers at once get the same chat.
-    /// `None` when the update is not one of the user's.
+    /// The chat about update `id`, made from `seed` if needed, marking it seen; `None` when not the user's.
     pub(crate) async fn open_update_chat(
         &self,
         user: &UserKey,

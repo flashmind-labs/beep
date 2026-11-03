@@ -1,8 +1,5 @@
-//! Calls to a git host's Actions API that spare its rate limit: each reply
-//! is kept with its ETag and asked for again with `If-None-Match`, so an
-//! unchanged list comes back as a 304, which GitHub does not count. The
-//! rate limit each reply reports is kept per token, so polling stops while
-//! it runs low.
+//! Rate-limit-friendly Actions API calls: replies are cached by ETag (a 304 is free on GitHub),
+//! and each token's reported rate limit pauses polling while low.
 
 use crate::git_items::{Caller, HostError, send_error, status_error};
 use bytes::Bytes;
@@ -37,8 +34,7 @@ pub(crate) struct Limit {
     pub(crate) reset: SystemTime,
 }
 
-/// Who a call is made for: the cache and the rate limit are kept apart per
-/// user and account, so no reply reaches another token.
+/// Who a call is for; cache and rate limit are kept per user and account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Who(pub(crate) String);
 
@@ -72,8 +68,7 @@ impl HostCalls {
         }
     }
 
-    /// `GET url` read as JSON, from the kept copy when the host says it is
-    /// unchanged.
+    /// `GET url` as JSON, from the cached copy when unchanged.
     pub(crate) async fn get_json<T: DeserializeOwned>(
         &self,
         caller: &Caller<'_>,
@@ -87,8 +82,7 @@ impl HostCalls {
         })
     }
 
-    /// `GET url` with the token and the kept ETag, if any: the body, the
-    /// kept one after a 304.
+    /// `GET url` with the token and cached ETag; the cached body after a 304.
     async fn get(&self, caller: &Caller<'_>, who: &Who, url: &str) -> Result<Bytes, HostError> {
         let host = caller.host.to_owned();
         let key = format!("{} {url}", who.0);
@@ -145,8 +139,7 @@ impl HostCalls {
         Ok(body)
     }
 
-    /// A refused call that ran out of calls: no polling until the reset,
-    /// or for a minute when the host does not say.
+    /// After a rate-limited refusal, no polling until the reset, or for a minute if unknown.
     fn note_limited(&self, who: &Who, headers: &HeaderMap, now: SystemTime) {
         let out = headers
             .get("x-ratelimit-remaining")
@@ -188,9 +181,7 @@ impl HostCalls {
         kept.tagged.insert(key, Tagged { etag, body, used });
     }
 
-    /// The end of the text at `url`, at most `keep` bytes, reading at most
-    /// `max` bytes. A redirect, which GitHub answers logs with, is followed
-    /// once without the token: it points at a signed storage URL.
+    /// The last `keep` bytes of `url`, reading at most `max`; a redirect is followed once without the token.
     pub(crate) async fn tail(
         &self,
         caller: &Caller<'_>,

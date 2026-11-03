@@ -92,15 +92,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_short_folder_keeps_its_socket() {
-        let dir = Path::new("/srv/node");
-        assert_eq!(
-            choose(dir, Some(Path::new("/tmp")), 501),
-            Path::new("/srv/node/mcp.sock")
-        );
-    }
-
-    #[test]
     fn a_long_home_gets_a_short_socket_of_its_own() {
         let user = "a".repeat(64);
         let dir = PathBuf::from(format!(

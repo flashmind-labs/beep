@@ -252,6 +252,11 @@ test-db:
 test: test-db
     BEEP_TEST_DATABASE_URL={{test_db_url}} cargo test -p beep-server
 
+# End-to-end tests on Boat VMs: `just e2e` runs every scenario, `just e2e
+# sync` one. It makes the VMs, runs, and deletes them (see tests/e2e/README.md).
+e2e scenario="all" action="run":
+    tests/e2e/e2e.sh {{scenario}} {{action}}
+
 # Print app tools' arguments: `just tool-schema GMAIL_MOVE_TO_TRASH
 # FASTMAIL_DELETE_EMAIL`, or `just tool-schema --list outlook` for a toolkit.
 tool-schema *args:

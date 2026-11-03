@@ -1,5 +1,4 @@
-//! Opens a node's `webhook/1` session, which forwards one repository's
-//! webhook for live project updates (see `crate::repo_watch::forward`).
+//! A node's `webhook/1` session, forwarding one repository's webhook.
 
 use super::Online;
 use crate::protocol::node::{
@@ -20,8 +19,7 @@ impl Online {
         self.connection.remote_id()
     }
 
-    /// Asks the node to watch a repository: the session lasts as long as
-    /// the returned stream.
+    /// Asks the node to watch a repository for as long as the returned stream lives.
     pub(crate) async fn watch_webhook(&self, watch: &Watch) -> Result<(LinkTx, LinkRx)> {
         let (mut tx, rx) = self.open_stream(PROTOCOL).await?;
         tx.send(watch).await?;

@@ -7,7 +7,10 @@ use beep_node::{
 use anyhow::{Context, Result};
 use beep_proto::logging::{self, RollingFile};
 use clap::{Parser, Subcommand};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 #[derive(Parser)]
 #[command(version, about = "Lets Beep run work on this machine")]
@@ -120,6 +123,22 @@ enum Command {
     Sessions {
         #[arg(long, default_value_t = 20)]
         limit: u32,
+    },
+    /// Shows the service's log, without the info lines of iroh and the
+    /// networking crates under it (warnings and errors still show).
+    Logs {
+        /// How far back to start, such as 45s, 30m, 1h or 2d.
+        #[arg(long, default_value = "1h", value_parser = service::logs::parse_since)]
+        since: Duration,
+        /// Keeps printing new lines as they are written.
+        #[arg(short, long)]
+        follow: bool,
+        /// Shows only the last N lines, after leaving out the noise.
+        #[arg(short = 'n', long, value_name = "N")]
+        lines: Option<usize>,
+        /// Shows every line, the networking crates' too.
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -313,6 +332,20 @@ async fn main() -> Result<()> {
                 );
             }
             Ok(())
+        }
+        Command::Logs {
+            since,
+            follow,
+            lines,
+            all,
+        } => {
+            let options = service::logs::LogOptions {
+                since,
+                follow,
+                lines,
+                all,
+            };
+            tokio::task::spawn_blocking(move || service::logs::show(&options)).await?
         }
         Command::Env => {
             println!("{:#?}", env::probe().await);

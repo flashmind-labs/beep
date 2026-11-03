@@ -1,7 +1,5 @@
-//! `branch_review`: act on a finished branch review. `post` puts its open
-//! findings on the pull request as one review with inline comments, and
-//! `merge` squash-merges the pull request. Both always ask, and the card
-//! shows what goes out: every comment, or the pull request with its checks.
+//! `branch_review`: `post` the open findings as one inline PR review, or `merge` (squash) the PR.
+//! Both always ask, and the card shows exactly what goes out.
 
 use super::{Planned, ProjectTools, card, field, gated, leaked, on_home};
 use crate::{
@@ -63,8 +61,7 @@ fn short(sha: &str) -> &str {
     sha.get(..7).unwrap_or(sha)
 }
 
-/// The inline comment for one finding; `None` for one with no line, which
-/// goes in the review's summary instead.
+/// The inline comment for one finding; `None` without a line (it goes in the summary).
 fn inline(finding: &ReviewFindingRow) -> Option<InlineComment> {
     let severity: &'static str = finding.severity.into();
     Some(InlineComment {
@@ -74,8 +71,7 @@ fn inline(finding: &ReviewFindingRow) -> Option<InlineComment> {
     })
 }
 
-/// The review's summary: the agent's text, then the findings that name no
-/// line.
+/// The review's summary: the agent's text, then the findings without a line.
 fn summary(body: &str, open: &[&ReviewFindingRow]) -> String {
     let mut out = body.trim().to_owned();
     let loose: Vec<String> = open

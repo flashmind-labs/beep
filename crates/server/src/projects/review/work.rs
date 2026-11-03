@@ -1,5 +1,4 @@
-//! What a review asks of the project: the reviewed branch's pull request,
-//! and a task whose worker fixes the open findings.
+//! What a review asks of the project: the branch's PR and a task to fix open findings.
 
 use super::super::{
     commands::{ChecksState, HostCommand, parse_pr},
@@ -29,9 +28,7 @@ fn checks(state: ChecksState) -> ReviewChecks {
     }
 }
 
-/// The open pull request of `branch` into `base`, read on `machine` with
-/// the project's host CLI. `None` when the project has no GitHub or
-/// Forgejo host or the branch has no open one.
+/// The open PR of `branch` into `base`, via the host CLI on `machine`; `None` if no host or PR.
 pub(crate) async fn find_pr(
     machine: &Online,
     user: &User,
@@ -72,9 +69,7 @@ pub(crate) struct Fix {
     pub(crate) machine: Option<String>,
 }
 
-/// Makes the task and starts its worker, as tracking an issue does: a
-/// start that fails is reported in the project chat and the task stays
-/// planned. Gives the task as it stands.
+/// Makes the fix task and starts its worker; a failed start is reported and the task stays planned.
 pub(crate) async fn start_fix(
     app: &Arc<App>,
     user: &Arc<User>,

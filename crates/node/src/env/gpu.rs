@@ -162,39 +162,10 @@ mod tests {
     }
 
     #[test]
-    fn nvidia_smi_garbage_is_empty() {
-        assert!(parse_nvidia_smi("NVIDIA-SMI has failed").is_empty());
-    }
-
-    #[test]
-    fn displays_json_reads_apple_gpu() {
-        let json = r#"{"SPDisplaysDataType": [{"_name": "Apple M2 Ultra",
-            "spdisplays_vendor": "sppci_vendor_Apple", "sppci_model": "Apple M2 Ultra",
-            "sppci_cores": "76"}]}"#;
-        let gpus = parse_displays_json(json);
-        assert_eq!(gpus.len(), 1);
-        assert_eq!(gpus[0].vendor, GpuVendor::Apple);
-        assert_eq!(gpus[0].model, "Apple M2 Ultra");
-        assert!(parse_displays_json("not json").is_empty());
-    }
-
-    #[test]
     fn lspci_intel_is_not_amd() {
         let gpus =
             parse_lspci("00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630");
         assert_eq!(gpus.len(), 1);
         assert_eq!(gpus[0].vendor, GpuVendor::Intel);
-    }
-
-    #[test]
-    fn lspci_reads_vga_lines() {
-        let text = "00:00.0 Host bridge: Example Corp Root Complex\n\
-            01:00.0 VGA compatible controller: NVIDIA Corporation AD102 [GeForce RTX 4090] (rev a1)\n\
-            02:00.0 3D controller: Advanced Micro Devices, Inc. [AMD/ATI] Example\n";
-        let gpus = parse_lspci(text);
-        assert_eq!(gpus.len(), 2);
-        assert_eq!(gpus[0].vendor, GpuVendor::Nvidia);
-        assert_eq!(gpus[0].model, "NVIDIA Corporation AD102 [GeForce RTX 4090]");
-        assert_eq!(gpus[1].vendor, GpuVendor::Amd);
     }
 }

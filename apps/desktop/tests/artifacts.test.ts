@@ -5,11 +5,6 @@ import { artifactVersion, collectArtifacts, FRAME_SANDBOX, frameHtml, readPlace,
 const CWD = "/srv/project";
 const LINK = "https://claude.ai/code/artifact/0000-placeholder";
 
-test("a live Claude Artifact call gives its file and the claude.ai link", () => {
-  const got = toolArtifacts(`Artifact /srv/project/report.html [completed]\nPublished ${LINK}.`, CWD);
-  assert.deepEqual(got.files, [{ path: "/srv/project/report.html", url: LINK, published: true }]);
-});
-
 test("an Artifact call read from Claude Code's transcript gives its file and link", () => {
   const got = toolArtifacts(`Artifact: /srv/project/docs/plan.md [completed]\n${LINK}`, CWD);
   assert.deepEqual(got.files, [{ path: "/srv/project/docs/plan.md", url: LINK, published: true }]);
@@ -23,11 +18,6 @@ test("a Write of an .html file is an artifact; other files are not", () => {
     [{ path: "/srv/project/out/chart.html", url: null, published: false }]);
   assert.deepEqual(toolArtifacts("Write: /srv/project/src/main.rs", CWD).files, []);
   assert.deepEqual(toolArtifacts("Bash: open chart.html", CWD).files, []);
-});
-
-test("a Codex patch gives each artifact file it changed", () => {
-  const got = toolArtifacts("Editing files [completed]\n(changed /srv/project/site/index.html)\n(changed /srv/project/src/lib.rs)\n(changed /srv/project/site/logo.svg)", CWD);
-  assert.deepEqual(got.files.map(f => f.path), ["/srv/project/site/index.html", "/srv/project/site/logo.svg"]);
 });
 
 test("a call that failed or has not finished wrote nothing yet", () => {

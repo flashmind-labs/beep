@@ -1,7 +1,4 @@
-//! Live transcription: speech goes in as it is said and words come back as
-//! they are recognized. `RealtimeStt` is the seam a provider plugs into;
-//! until one is configured the server has `Unavailable`, and `Transcribe`
-//! answers that it cannot listen.
+//! Live transcription; `RealtimeStt` is the provider seam, `Unavailable` without one.
 
 use futures::future::BoxFuture;
 use thiserror::Error;
@@ -11,8 +8,7 @@ mod mistral;
 
 pub use mistral::MistralStt;
 
-/// Audio chunks waiting for the provider. At 16 kHz a chunk is usually
-/// 20 to 100 ms, so this holds a few seconds.
+/// Audio chunks waiting for the provider, a few seconds' worth.
 pub const AUDIO_QUEUE: usize = 64;
 /// Words waiting for the client.
 pub const HEARD_QUEUE: usize = 64;
@@ -36,8 +32,7 @@ pub enum SttError {
     Provider,
 }
 
-/// One live transcription. Send 16 kHz mono 16-bit little-endian PCM into
-/// `audio` and drop it when the speech ends; `heard` then ends with `Done`.
+/// One live transcription: send 16 kHz mono 16-bit LE PCM into `audio`, drop it to end.
 pub struct Session {
     pub audio: Sender<Vec<u8>>,
     pub heard: Receiver<Result<Heard, SttError>>,
@@ -59,8 +54,7 @@ impl RealtimeStt for Unavailable {
 
 #[cfg(test)]
 pub mod fake {
-    //! A transcriber for tests: each chunk of audio is heard as the word
-    //! "word", and the end as all of them.
+    //! A test transcriber that hears each chunk as "word".
 
     use super::{AUDIO_QUEUE, HEARD_QUEUE, Heard, RealtimeStt, Session, SttError};
     use futures::future::BoxFuture;

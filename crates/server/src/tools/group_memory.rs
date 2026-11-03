@@ -1,7 +1,4 @@
-//! Memory tools for a group chat. Beep reads every member's memories, but
-//! each hit is recorded as a secret so the leak gate can check the reply
-//! against it. Facts can be stored for any member, such as a plan the group
-//! made, and default to the member who asked.
+//! Memory tools for a group chat; each hit is recorded as a secret for the leak gate.
 
 use super::memory::{fact, fact_schema, opt_arg, reply};
 use crate::{
@@ -32,8 +29,7 @@ pub struct Member {
 /// The memories a group run has read, for the leak gate.
 pub type Secrets = Arc<Mutex<Vec<Secret>>>;
 
-/// Whether a memory may enter a group run. Mail and Slack hold other
-/// people's words, so they stay in the member's own chats.
+/// Whether a memory may enter a group run; mail and Slack stay in the member's own chats.
 pub(crate) fn shareable(source: MemorySource) -> bool {
     matches!(source, MemorySource::User {} | MemorySource::Learned {})
 }

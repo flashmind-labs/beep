@@ -1,5 +1,4 @@
-//! A fake fleet for the project tests: machines with recording shells and
-//! shared files kept in memory.
+//! A fake fleet for project tests: recording shells and in-memory shared files.
 
 use super::{
     Projects,
@@ -33,8 +32,7 @@ use std::{
 use tokio::sync::Notify;
 use uuid::Uuid;
 
-/// A shell that records each command and answers the first rule whose text
-/// the command holds, else exits 0 printing nothing.
+/// A shell that records commands and answers by the first matching rule, else exits 0 silently.
 #[derive(Default)]
 pub(crate) struct FakeShell {
     ran: Mutex<Vec<String>>,
@@ -153,8 +151,7 @@ impl Shell for FakeShell {
     }
 }
 
-/// A shell that runs `prefix` before each command, so a test can put
-/// stand-ins on a node's `PATH` without changing the process environment.
+/// A shell that runs `prefix` first, so a test can put fakes on `PATH` without touching env.
 pub(crate) struct Prefixed {
     pub(crate) prefix: String,
     pub(crate) shell: Arc<dyn Shell>,

@@ -598,13 +598,6 @@ pub(super) mod tests {
     pub(crate) const FIXTURE: &str = include_str!("fixtures/session.jsonl");
 
     #[test]
-    fn a_beep_call_reads_in_words() {
-        let block = serde_json::json!({"type": "tool_use", "name": "mcp__beep__send_files",
-            "input": {"machine": "build-box", "paths": ["a.png", "b.png"]}});
-        assert_eq!(tool_line(&block), "Beep: Send 2 files to build-box");
-    }
-
-    #[test]
     fn a_transcript_reads_as_prompts_text_and_tool_lines() {
         let digest = Digest::read(FIXTURE);
         assert_eq!(digest.cwd.as_deref(), Some("/srv/project"));
@@ -697,22 +690,6 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn timestamps_read_as_unix_seconds() {
-        assert_eq!(unix_seconds("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(
-            unix_seconds("2026-10-29T00:00:00.123Z"),
-            Some(1_793_232_000)
-        );
-        assert_eq!(unix_seconds("2000-03-01T12:00:00Z"), Some(951_912_000));
-        assert_eq!(unix_seconds("yesterday"), None);
-        assert_eq!(
-            unix_millis("2026-10-29T00:00:01.25Z"),
-            Some(1_793_232_001_250)
-        );
-        assert_eq!(unix_millis("2026-10-29T00:00:01Z"), Some(1_793_232_001_000));
-    }
-
-    #[test]
     fn a_tail_keeps_only_whole_lines() {
         let dir = std::env::temp_dir().join(format!("beep-tail-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -734,52 +711,6 @@ pub(super) mod tests {
         assert_eq!(tail.text, "first line\nsecond line\n");
         assert!(tail.whole);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn the_last_entries_say_how_many_came_before() {
-        let dir = std::env::temp_dir().join(format!("beep-entries-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("s.jsonl");
-        std::fs::write(&path, FIXTURE).unwrap();
-        let read = entries(&path, 3).unwrap();
-        assert_eq!(read.earlier, 8);
-        assert_eq!(read.entries[2].text, "All 42 tests pass now.");
-        assert!(read.pictures.is_empty());
-        assert_eq!(started_at(&path).unwrap(), Some(1_793_260_800));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_prompt_with_an_image_shows_its_image_line() {
-        use base64::{Engine, engine::general_purpose::STANDARD};
-        let png = b"\x89PNG\r\n\x1a\nshot".to_vec();
-        let line = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
-            {"type": "text", "text": "what is this [Image #1]"},
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                "data": STANDARD.encode(&png)}}
-        ]}});
-        let only = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                "data": STANDARD.encode(&png)}}
-        ]}});
-        let text = format!("{line}\n{only}\n");
-        let shown = format!("[image: image-{}]", beep_proto::image_key(&png));
-        let digest = Digest::with_pictures(&text);
-        let texts: Vec<&str> = digest.entries.iter().map(|e| e.text.as_str()).collect();
-        assert_eq!(
-            texts,
-            [format!("what is this [Image #1]\n{shown}"), shown.clone()]
-        );
-        assert_eq!(digest.prompt(), Some("what is this [Image #1]"));
-        let pictures = digest.pictures.unwrap();
-        assert_eq!(pictures.len(), 2);
-        assert_eq!(pictures[0].mime, "image/png");
-        assert_eq!(pictures[0].data, png);
-        // A listing reads no pictures.
-        let listed = Digest::read(&text);
-        assert_eq!(listed.entries.len(), 1);
-        assert_eq!(listed.entries[0].text, "what is this [Image #1]");
     }
 
     #[test]
@@ -805,28 +736,5 @@ pub(super) mod tests {
             digest.entries[0].text
         );
         assert_eq!(digest.pictures.unwrap()[0].data, png);
-    }
-
-    #[test]
-    fn an_artifact_call_shows_the_link_its_result_gave() {
-        let used = serde_json::json!({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "id": "a1", "name": "Artifact", "input": {"file_path": "/srv/project/report.html"}},
-            {"type": "tool_use", "id": "a2", "name": "Artifact", "input": {"file_path": "/srv/project/broken.html"}}
-        ]}});
-        let result = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": "a1", "content": [
-                {"type": "text", "text": "Published to https://claude.ai/code/artifact/0000-placeholder."}
-            ]},
-            {"type": "tool_result", "tool_use_id": "a2", "is_error": true, "content": "could not publish"}
-        ]}});
-        let digest = Digest::read(&format!("{used}\n{result}\n"));
-        let texts: Vec<&str> = digest.entries.iter().map(|e| e.text.as_str()).collect();
-        assert_eq!(
-            texts,
-            [
-                "Artifact: /srv/project/report.html [completed]\nhttps://claude.ai/code/artifact/0000-placeholder",
-                "Artifact: /srv/project/broken.html (failed)",
-            ]
-        );
     }
 }

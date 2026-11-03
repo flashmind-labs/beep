@@ -47,8 +47,7 @@ pub(crate) struct Import<'a> {
     pub(crate) repo: &'a str,
     /// The machine's id; `None` lets `place::choose` pick.
     pub(crate) machine_id: Option<&'a str>,
-    /// Where it goes, absolute or `~/...`; `None` (or blank) for the
-    /// machine's projects folder.
+    /// Where it goes, absolute or `~/...`; `None` or blank for the machine's projects folder.
     pub(crate) folder: Option<&'a str>,
 }
 
@@ -121,14 +120,8 @@ pub(crate) async fn find_fork(
     })
 }
 
-/// Imports `job.repo` onto its machine: clones it there, or finds it
-/// already there, and records it. When the user has a fork of it, the fork
-/// is cloned as `origin` with the repository as `upstream`, and their pull
-/// request branches made local; the project is still the repository. With
-/// no folder given, or one not there yet, a checkout of the repository or
-/// the fork already on the machine is linked instead of cloning again.
-/// The user's other machines are then looked through for checkouts of it,
-/// in the background.
+/// Imports `job.repo` onto its machine: clones (the fork, when any) or links an existing checkout,
+/// records it, then looks for checkouts on the user's other machines in the background.
 pub(crate) async fn import(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -151,7 +144,7 @@ pub(crate) async fn import(
     } else {
         None
     };
-    let token = token_for(&credentials, &repo);
+    let token = repo.credential(&credentials).map(|opened| &opened.secret);
     let (folder, cloned) = match existing {
         Some(found) => (found.folder, false),
         None => {
@@ -203,8 +196,7 @@ pub(crate) async fn import(
     Ok(project(saved, row.name, cloned))
 }
 
-/// One folder on the machine `machine_id`, for the sheet's folder browser:
-/// `path`, or the machine's workspace, else its home.
+/// One folder on `machine_id` for the folder browser: `path`, else the workspace, else home.
 pub(crate) async fn browse(
     app: &App,
     user: &User,
@@ -260,15 +252,7 @@ async fn look(
     }
 }
 
-/// The user's token for `repo`'s host, when they saved one: on GitHub, the
-/// account for the repository's owner.
-fn token_for<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<&'a SecretString> {
-    repo.credential(credentials).map(|opened| &opened.secret)
-}
-
-/// Clones on `node`, the user's `fork` when they have one; `true` when it
-/// cloned, `false` when a checkout of the repository or the fork was there
-/// already.
+/// Clones on `node`, the fork when there is one; `false` when a checkout was there already.
 async fn run_clone(
     node: &Online,
     row: &NodeRow,
@@ -349,9 +333,7 @@ pub(crate) async fn found_projects(
     Ok(found::group(found, &imported, &servers))
 }
 
-/// Every linked machine of the user's as `project`'s page lists it, and
-/// looks started on those online not looked through since it was
-/// imported. `None` when the user has not imported `project`.
+/// Every linked machine as `project`'s page lists it, starting due looks; `None` when not imported.
 pub(crate) async fn project_machines(
     app: &Arc<App>,
     user: &Arc<User>,

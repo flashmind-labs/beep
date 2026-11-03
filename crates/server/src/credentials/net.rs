@@ -1,6 +1,4 @@
-//! Which addresses the server may send a user's token to. A Forgejo URL is
-//! the user's to type, so without this the server could be pointed at
-//! itself, its cloud's metadata service or another host on its network.
+//! Which addresses the server may send a user's token to, so a typed URL cannot reach inside its network.
 
 use reqwest::{
     Url,
@@ -12,9 +10,7 @@ use std::{
 };
 use url::Host;
 
-/// Whether `ip` is on the public internet: not loopback, private,
-/// link-local (where cloud metadata services answer), unique local, shared
-/// (CGNAT), multicast or otherwise reserved.
+/// Whether `ip` is on the public internet (excludes link-local, where cloud metadata answers).
 pub fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => is_public_v4(v4),
@@ -25,9 +21,7 @@ pub fn is_public(ip: IpAddr) -> bool {
     }
 }
 
-/// The IPv4 address an IPv6 one carries and reaches: IPv4-mapped
-/// `::ffff:a.b.c.d`, IPv4-compatible `::a.b.c.d`, NAT64 `64:ff9b::/96` and
-/// 6to4 `2002::/16`.
+/// The IPv4 address carried by a mapped, compatible, NAT64 or 6to4 IPv6 address.
 fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     if let Some(v4) = ip.to_ipv4_mapped() {
         return Some(v4);
@@ -78,8 +72,7 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || (first == 0x2001 && ip.segments()[1] == 0x0db8))
 }
 
-/// Whether every address `url`'s host has is public. `false` when the
-/// name does not resolve.
+/// Whether every address of `url`'s host is public; false when it does not resolve.
 pub async fn resolves_public(url: &Url) -> bool {
     let port = url.port_or_known_default().unwrap_or(443);
     match url.host() {
@@ -96,9 +89,7 @@ pub async fn resolves_public(url: &Url) -> bool {
     }
 }
 
-/// A resolver for the client that probes tokens: it gives only public
-/// addresses, so a name that resolves elsewhere by the time of the request
-/// fails instead of reaching inside.
+/// A resolver that returns only public addresses, so rebinding fails instead of reaching inside.
 pub struct PublicOnly;
 
 impl Resolve for PublicOnly {

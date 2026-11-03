@@ -1,9 +1,5 @@
-//! The Beep MCP server's tools (`tools/1`). Coding agents a node runs call
-//! them through that node, which opens a stream to the server for each
-//! call; the server runs it on the machine it names, with the paths Beep's
-//! own machine tools take. `run_on` and `send_files` act, so they follow
-//! the user's rules for their machines: under ask first the server answers
-//! `Reply::Ask` and the node asks the user in the agent's session.
+//! The Beep MCP server's tools (`tools/1`), called by node agents one stream per call.
+//! `run_on` and `send_files` act, so under ask first they answer `Reply::Ask`.
 
 use super::{
     Machines, Need,
@@ -97,8 +93,7 @@ impl Calls {
         done(self.run(request.tool, args).await)
     }
 
-    /// The reply that stops an acting call before it runs: a refusal, or
-    /// the card to ask the user with. `None` lets it run.
+    /// The refusal or ask card that stops an acting call; `None` lets it run.
     async fn ask_first(&self, request: &Request, args: &Value) -> Option<Reply> {
         let slug = match request.tool {
             Call::RunOn => RUN_ON,
@@ -399,8 +394,7 @@ impl Calls {
             }
             None => rows.iter().map(|row| row.endpoint.as_str()).collect(),
         };
-        // Scanned here first, where the agent changed files, then on the
-        // other machines; each sends its changes to the rest.
+        // Scanned first where the agent changed files, then on the others.
         let mut order: Vec<&str> = rows.iter().map(|row| row.endpoint.as_str()).collect();
         order.sort_by_key(|endpoint| *endpoint != self.caller);
         let mut notes = Vec::new();
@@ -515,8 +509,7 @@ impl Calls {
     }
 }
 
-/// A run `run_on` started, as its id reads: `task:<n>@<machine>` for a
-/// background command, `<agent>:<session>@<machine>` for a coding agent.
+/// A run `run_on` started: `task:<n>@<machine>` or `<agent>:<session>@<machine>`.
 #[derive(Debug, PartialEq)]
 enum Job {
     Task {

@@ -1,11 +1,4 @@
-//! Research: a lead agent plans a topic with the user in an ordinary chat,
-//! then a team researches it in the background. Scouts take one question
-//! each, a critic challenges what they found, the lead fills the gaps and
-//! briefs the writer, and the writer drafts a paper. Follow-up questions in
-//! the chat start more rounds, which revise the same paper. The chat only
-//! gets the plan and the results; everything the team does is kept as
-//! entries that the Mac's research window reads (`GetResearch`). Each role
-//! runs on its own model, set in the config's `[research]`.
+//! Research: the lead plans a topic with the user, then a team of scouts, a critic and a writer drafts a paper in the background.
 
 mod lead;
 #[cfg(feature = "pdf")]
@@ -59,12 +52,6 @@ impl Status {
     /// The team is at work.
     pub fn is_running(self) -> bool {
         matches!(self, Self::Researching | Self::Reviewing | Self::Writing)
-    }
-
-    /// The team can be started from here, on a new round or the last one
-    /// again.
-    pub fn can_start(self) -> bool {
-        !self.is_running()
     }
 
     pub fn wire(self) -> ResearchStatus {
@@ -150,8 +137,7 @@ fn default_thinking() -> ReasoningLevel {
     ReasoningLevel::Medium
 }
 
-/// The config's `[research]`: the model each role runs on. Each must be one
-/// of the server's model choices.
+/// The config's `[research]`: each role's model, one of the server's model choices.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResearchConfig {
@@ -171,8 +157,7 @@ impl ResearchConfig {
     }
 }
 
-/// What the user approved: one scout per question, and the models. Each
-/// round adds its scouts.
+/// What the user approved: one scout per question, and the models.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub scouts: Vec<Scout>,
@@ -298,9 +283,6 @@ mod tests {
     fn statuses_read_back_from_the_store() {
         assert_eq!("researching".parse(), Ok(Status::Researching));
         assert_eq!(Status::Interrupted.as_str(), "interrupted");
-        assert!(Status::Stopped.can_start());
-        assert!(Status::Done.can_start(), "a follow-up starts a round");
-        assert!(!Status::Writing.can_start());
     }
 
     #[test]

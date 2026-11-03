@@ -29,8 +29,7 @@ use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use secrecy::SecretString;
 use std::{env, fs, path::Path, sync::Arc, time::SystemTime};
 
-/// `beep-server [config]` serves; `beep-server link [config]` prints the
-/// code the apps scan to connect to this server.
+/// `beep-server [config]` serves; `beep-server link [config]` prints the link code.
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = env::args().skip(1);
@@ -219,8 +218,7 @@ fn print_link(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Live transcription for `Transcribe`, through Mistral when the server has
-/// its key. Without it the apps hear that live voice is unavailable.
+/// Live transcription through Mistral when the server has its key.
 fn realtime(
     mistral: Option<&Arc<MistralProvider>>,
     config: &Config,
@@ -235,10 +233,8 @@ fn realtime(
 /// Daily log files kept before the oldest is deleted.
 const LOG_FILES_KEPT: usize = 14;
 
-/// Logs to stderr and to a file under `log_dir` that rolls over daily.
-/// Debug by default, except html5ever, which logs every token of each HTML
-/// email html2text reads, and the networking crates (iroh, its QUIC and port
-/// mapping), which log every packet path. `RUST_LOG` overrides it.
+/// Logs to stderr and a daily file; debug by default except html5ever and
+/// iroh's networking crates. `RUST_LOG` overrides it.
 fn start_logging(config: &Config) -> Result<()> {
     let dir = config.log_dir();
     let file = RollingFile::new(&dir.join("beep.log"), LOG_FILES_KEPT)?;
