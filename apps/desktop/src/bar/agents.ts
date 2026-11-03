@@ -16,7 +16,7 @@ import { collectArtifacts, toolArtifacts } from "../artifacts-state.ts";
 import { cap } from "./tools.ts";
 import { withMentions } from "../files-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "../logscroll.ts";
-import { attachKaraoke, endedHtml, karaokeHtml, reading } from "./thoughtlive.ts";
+import { attachLive, endedHtml, liveHtml } from "./thoughtlive.ts";
 import { MN, mentionChips, resetMentions, takeMentions, wireMentionChips } from "./workdrop.ts";
 
 // ---------- Coding agents ----------
@@ -875,35 +875,36 @@ function withCopy(html: string) {
   return html.replace(/<pre(\s[^>]*)?>/g, (m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
 }
 
-/// The thought still arriving, or one that ended still being read, by its
-/// place, which shows "Thinking" with its karaoke band; set by each draw
-/// of the turns.
+/// The thought still arriving, by its place, which shows "Thinking"; set
+/// by each draw of the turns.
 let liveAt: number | null = null;
 /// The running turn thinks: a thought streams or is about to.
 let thinking = false;
 
-/// How long the "Thinking" sweep takes, as in the CSS.
-const SWEEP_MS = 1800;
+/// How long one pass of the "Thinking" letters takes, as in the CSS.
+const SWEEP_MS = 2400;
+
+/// "Thinking", its letters lit one after another in a loop that keeps
+/// its phase across redraws, so a poll does not restart it.
+const thinkingLabel = () => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[..."Thinking"].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
 /// A thought as one line that opens to its text. While it streams it is
-/// open, its newest words lit like karaoke; once it ends it folds to
-/// "Thought for 12s", unless the reader opened, folded or scrolled it.
-/// The sweep keeps its phase across redraws, so a poll does not restart
-/// it, and an opened thought stays open, by its place in the session.
+/// open, following its newest line; once it ends it folds to "Thought
+/// for 12s", unless the reader opened, folded or scrolled it. An opened
+/// thought stays open, by its place in the session.
 function thoughtRow(en: AgentEntry, at: number) {
   const live = at === liveAt, session = AG.open?.session ?? "";
   const m = AG.open ? turnsOf(AG.open.session) : null;
   const touched = !!m?.touched.has(at), opened = !!m?.thoughts.has(at);
   const folding = !live && !touched && m?.wasLive === at;
   const open = live ? !touched || opened : opened || folding;
-  const label = live ? "Thinking" : thoughtLabel(en.ms);
-  const phase = live ? ` style="animation-delay:-${Date.now() % SWEEP_MS}ms"` : "";
+  const label = live ? thinkingLabel() : `<span class="lb">${thoughtLabel(en.ms)}</span>`;
   const key = `${session}:${at}`;
-  const body = live ? `<div class="tx">${karaokeHtml(key, en.text, en.ms != null)}</div>`
+  const body = live ? `<div class="tx">${liveHtml(key, en.text)}</div>`
     : folding ? `<div class="tx">${endedHtml(key, en.text)}</div>`
     : `<div class="tx md">${en.html ?? esc(en.text).replace(/\n/g, "<br>")}</div>`;
   return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}"${folding ? " data-folding" : ""}>`
-    + `<button data-thought="${at}" aria-expanded="${open}"><span class="lb"${phase}>${label}</span><span class="cv">${ICON.chev}</span></button>`
+    + `<button data-thought="${at}" aria-expanded="${open}">${label}<span class="cv">${ICON.chev}</span></button>`
     + `<div class="bd"><div>${body}</div></div></div>`;
 }
 
@@ -948,9 +949,6 @@ interface TurnMemory {
   touched: Set<number>;
   /// The thought streaming at the last draw.
   wasLive: number | null;
-  /// How many entries the last draw had, so a thought that came whole
-  /// since is read before it folds.
-  seen: number | null;
   /// The runs of calls opened, by their first call.
   runs: Set<number>;
 }
@@ -959,7 +957,7 @@ const turnMemory = new Map<string, TurnMemory>();
 
 function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, seen: null, runs: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, runs: new Set() });
   return m;
 }
 
@@ -1032,14 +1030,7 @@ function turnsHtml(p: AgentPage) {
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
-  // The thought streaming, else the newest one that came since the last
-  // draw, while the band has not read it through.
-  const open = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  const steps = active && lastTurn ? lastTurn.steps : [];
-  const newThought = steps.findLast(at => at >= (m.seen ?? Infinity) && entry(at).kind === "thought");
-  const at = open ?? newThought ?? m.wasLive;
-  liveAt = at != null && steps.includes(at) && (at === open || reading(`${AG.open?.session ?? ""}:${at}`)) ? at : null;
-  m.seen = p.earlier + p.entries.length;
+  liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   const html = turns.map(t => {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
@@ -1065,7 +1056,6 @@ function turnsHtml(p: AgentPage) {
       if (newest != null) kept.add(newest);
       // While it runs, the thoughts since the newest step stay in view.
       if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
-      if (running && liveAt != null) kept.add(liveAt);
       // So do the thoughts just before it: one that ended folds to its
       // line in place instead of going into the heading.
       if (running && newest != null) {
@@ -1095,7 +1085,7 @@ function turnsHtml(p: AgentPage) {
       // A thought without text yet (or one the agent keeps to itself) sweeps
       // like one that has it, with nothing to open.
       ? doing === "Thinking"
-        ? `<div class="dthink live"><span class="lb" style="animation-delay:-${Date.now() % SWEEP_MS}ms">Thinking</span></div>`
+        ? `<div class="dthink live">${thinkingLabel()}</div>`
         : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
     return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
@@ -1204,7 +1194,7 @@ export function drawAgentBody(keep?: string) {
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);
-  attachKaraoke(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); }, () => drawAgentBody());
+  attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
   drawQueue();
   tickTurns();
