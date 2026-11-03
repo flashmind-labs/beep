@@ -8,7 +8,7 @@
 import { type GitChange, type Listing, type TreeFolder, type TreeRow, parentPath, treeRows } from "../files-state.ts";
 import { resolvePath } from "../media-state.ts";
 import { esc, h, invoke } from "./core.ts";
-import { openWorkFile, paneSession, saveWorkFile } from "./mediapane.ts";
+import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./mediapane.ts";
 import { addMention, askUpload } from "./workdrop.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
@@ -25,6 +25,8 @@ const F = {
   picked: null as string | null,
   el: null as HTMLElement | null,
   note: "",
+  /// A path to scroll into view once its row is drawn.
+  reveal: null as string | null,
 };
 
 const MARKS: Record<GitChange, [string, string]> = {
@@ -49,6 +51,7 @@ export function filesView() {
   F.filter = "";
   F.picked = null;
   F.note = "";
+  F.reveal = null;
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
     + `<button class="agpbtn" data-frefresh="1" title="Read the folders again">&#8635;</button></div>`
@@ -65,6 +68,26 @@ export function closeFilesMenu() {
   const m = F.el?.querySelector(".agctx");
   m?.remove();
   return !!m;
+}
+
+/// Shows `rel`, a file in the session's folder, in the tree: its folders
+/// open, the file picked and in view, the Files tab on screen.
+export function revealPath(rel: string) {
+  const parts = rel.split("/").filter(Boolean);
+  if (!parts.length) return;
+  showFiles();
+  if (F.filter) {
+    F.filter = "";
+    const find = F.el?.querySelector<HTMLInputElement>(".agffind");
+    if (find) find.value = "";
+  }
+  for (let i = 1; i < parts.length; i++) {
+    const dir = parts.slice(0, i).join("/");
+    F.open.add(dir);
+    if (!F.listings.get(dir)?.entries) load(dir);
+  }
+  F.picked = F.reveal = parts.join("/");
+  draw();
 }
 
 /// Reads `dir` again when the tree has it, as after an upload into it.
@@ -119,6 +142,8 @@ function draw() {
   const keep = tree.scrollTop;
   tree.innerHTML = html;
   tree.scrollTop = keep;
+  const shown = F.reveal ? tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
+  if (shown) { shown.scrollIntoView({ block: "center" }); F.reveal = null; }
 }
 
 function toggle(path: string) {

@@ -122,6 +122,7 @@ impl Server {
                 Arc::new(folders) as Arc<dyn Protocol>,
             ],
             provision: None,
+            tools: Default::default(),
         };
         let addr = self.router.endpoint().addr();
         let task =

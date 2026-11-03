@@ -1,6 +1,6 @@
 // The media pane of a coding agent session: pictures, videos, 3D models
-// and PDFs the agent made or looked at, its files, terminals and
-// subagents, each a tab. A tab sits in one of two docks, right of the
+// and PDFs the agent made or looked at, its files, artifacts, terminals
+// and subagents, each a tab. A tab sits in one of two docks, right of the
 // conversation or under it, and drags by its tab to the other edge; each
 // dock resizes by its divider and folds to a strip. Where each tab sits
 // is kept per window.
@@ -10,7 +10,9 @@ import {
   moveTab, type PaneLayout, paneSize, readLayout, resolvePath, SIDE_BY_SIDE_MIN, splitTabs, tabDock, zoomAt,
 } from "../media-state.ts";
 import { highlight, languageOf, MAX_LINES, shortSize, terminalName } from "../files-state.ts";
+import type { Artifact } from "../artifacts-state.ts";
 import type { ModelView } from "../model3d.ts";
+import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artpane.ts";
 import { changeListeners, esc, h, ICON, invoke, PANE, S } from "./core.ts";
 import { closeFilesMenu, filesView } from "./filespane.ts";
 import { fileSize, openViewer } from "./media.ts";
@@ -75,6 +77,7 @@ interface PaneSession {
 
 const SUBS = "subagents";
 const FILES = "files";
+const ARTS = "artifacts";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 const ARROW_STEP = 24;
 /// How far a tab moves under the pointer before it drags.
@@ -83,7 +86,7 @@ const DRAG_START = 5;
 const P = {
   session: null as PaneSession | null,
   tabs: [] as MediaTab[],
-  /// The tab on screen in each dock: a tab's id, `FILES` or `SUBS`.
+  /// The tab on screen in each dock: a tab's id, `FILES`, `ARTS` or `SUBS`.
   on: { right: FILES, bottom: FILES } as Record<Dock, string>,
   /// The subagents' rows and how many, as the log last drew them.
   subs: "",
@@ -104,7 +107,7 @@ function saveLayout() {
   try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
 }
 
-const ICONS: Record<TabKind | "subagents" | "files", string> = {
+const ICONS: Record<TabKind | "subagents" | "files" | "artifacts", string> = {
   // filespane.ts imports this module, so its folder icon is repeated here
   // rather than read before that module has run.
   files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -114,6 +117,7 @@ const ICONS: Record<TabKind | "subagents" | "files", string> = {
   model: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/></svg>',
   video: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
   pdf: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>',
+  artifacts: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
   subagents: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>',
 };
 const DOCK_RIGHT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
@@ -186,7 +190,7 @@ changeListeners.push(() => { if (S.view !== "agent") { closeAll(); P.watch?.disc
 
 /// Every tab's id, in the order the tab strips show them.
 function tabIds() {
-  return [FILES, ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
+  return [FILES, ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
 }
 
 /// The tabs in each dock, as the shell's width lets them sit.
@@ -392,10 +396,19 @@ function moveTo(id: string, to: Dock) {
 
 // ----- Tabs -----
 
+/// What the log has now for the Artifacts tab: its artifacts, and when
+/// each turn started, by its message's place.
+export interface PaneArtifacts {
+  list: Artifact[];
+  turnStart: (turn: number) => number | undefined;
+}
+
 /// Draws the pane again: its tabs and the one on screen. `subs` are the
-/// subagents' rows and `count` how many, as the log has them now.
-export function drawPane(subs?: { html: string; count: number }) {
+/// subagents' rows and `count` how many, and `arts` the artifacts, as the
+/// log has them now.
+export function drawPane(subs?: { html: string; count: number }, arts?: PaneArtifacts) {
   if (subs) { P.subs = subs.html; P.subCount = subs.count; }
+  if (arts) setArtifacts(arts.list, arts.turnStart);
   draw();
 }
 
@@ -416,11 +429,12 @@ function drawDock(d: Dock, ids: string[]) {
   // The tab on screen went: the newest one here.
   if (!ids.includes(P.on[d])) P.on[d] = ids.at(-1) ?? FILES;
   const on = P.on[d];
-  const tab = (id: string, kind: TabKind | "subagents" | "files", name: string, extra: string) =>
+  const tab = (id: string, kind: TabKind | "subagents" | "files" | "artifacts", name: string, extra: string) =>
     `<button class="agtab${on === id ? " on" : ""}" role="tab" aria-selected="${on === id}" data-mtab="${esc(id)}" title="${esc(name)}">${ICONS[kind]}<span>${esc(name)}</span>${extra}</button>`;
   tabs.innerHTML = ids.map(id => {
     if (id === FILES) return tab(FILES, FILES, "Files", "");
     if (id === SUBS) return tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`);
+    if (id === ARTS) return tab(ARTS, ARTS, "Artifacts", `<small>${artifactCount()}</small>`);
     const t = P.tabs.find(x => x.id === id)!;
     return tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close">${ICON.x}</em>`);
   }).join("");
@@ -431,8 +445,9 @@ function drawDock(d: Dock, ids: string[]) {
   pane.querySelector('[data-pact="fold"]')!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
   const strip = document.getElementById(`agpstrip-${d}`)!;
   const shown = P.tabs.find(t => t.id === on);
-  const label = shown ? shown.name : on === SUBS ? "Subagents" : "Files";
-  strip.innerHTML = `${ICONS[shown?.kind ?? (on === SUBS ? SUBS : FILES)]}<span>${esc(label)}</span><small>${ids.length}</small>`;
+  const fixed = on === SUBS ? SUBS : on === ARTS ? ARTS : FILES;
+  const label = shown ? shown.name : { [SUBS]: "Subagents", [ARTS]: "Artifacts", [FILES]: "Files" }[fixed];
+  strip.innerHTML = `${ICONS[shown?.kind ?? fixed]}<span>${esc(label)}</span><small>${ids.length}</small>`;
   // The Files view is made once per session, wherever it sits.
   const made = filesView();
   let filesEl = document.querySelector<HTMLElement>(".agpviews > .agpview.files");
@@ -441,6 +456,13 @@ function drawDock(d: Dock, ids: string[]) {
     if (filesEl.parentElement !== views) views.prepend(filesEl);
     filesEl.hidden = on !== FILES;
     if (on !== FILES) closeFilesMenu();
+  }
+  // So is the Artifacts view, while there are any.
+  const artsEl = artifactsView();
+  if (!artifactCount()) artsEl.remove();
+  else if (ids.includes(ARTS)) {
+    if (artsEl.parentElement !== views) views.append(artsEl);
+    artsEl.hidden = on !== ARTS;
   }
   // Subagents redraw each time; a file's view is drawn once and kept.
   let subView = document.querySelector<HTMLElement>(".agpviews > .agpview.subs");
@@ -501,6 +523,27 @@ function closeTab(id: string) {
     P.on[d] = P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
   }
   draw();
+}
+
+/// Shows the Files tab, unfolding its dock.
+export function showFiles() {
+  const d = dockOf(FILES);
+  P.on[d] = FILES;
+  P.layout.hidden[d] = false;
+  draw();
+}
+
+/// Shows the Artifacts tab, unfolding its dock, on the artifact at `path`
+/// when given. False when the tab does not list it.
+export function showArtifact(path?: string) {
+  if (path && !pickArtifact(path)) return false;
+  if (!artifactCount()) return false;
+  const d = dockOf(ARTS);
+  P.on[d] = ARTS;
+  P.layout.hidden[d] = false;
+  saveLayout();
+  draw();
+  return true;
 }
 
 /// Shows the subagents' tab, unfolding its dock.

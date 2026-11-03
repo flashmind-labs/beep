@@ -5,7 +5,7 @@
 //! the folder is read or written: every path is checked once its symlinks
 //! resolve.
 
-use super::media_file::{Chunk, resolve};
+use super::media_file::Chunk;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AGENT_FILE_CHUNK, GitChange, MAX_WORK_ENTRIES, MAX_WORK_UPLOAD, WorkEntry, WorkFolder,
@@ -34,13 +34,17 @@ pub(super) struct WorkRoot {
 }
 
 impl WorkRoot {
-    /// The folder `root`, absolute or starting `~/` for `home`.
-    pub(super) fn open(root: &str, home: Option<&Path>) -> Result<Self> {
-        let full = resolve(root, home)?;
+    /// The folder `real`, its links already resolved and checked by
+    /// `reach`. Refused when a link appeared on the way since.
+    pub(super) fn at(real: &Path) -> Result<Self> {
+        let shown = real.display();
         let root_dir =
-            fs::canonicalize(&full).with_context(|| format!("the folder {root} is not there"))?;
+            fs::canonicalize(real).with_context(|| format!("the folder {shown} is not there"))?;
+        if root_dir != real {
+            bail!("{shown} changed while it was checked");
+        }
         if !root_dir.is_dir() {
-            bail!("{root} is not a folder");
+            bail!("{shown} is not a folder");
         }
         Ok(Self { root: root_dir })
     }
@@ -415,7 +419,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn root_in(dir: &TempDir) -> WorkRoot {
-        WorkRoot::open(dir.path().to_str().expect("temp paths are UTF-8"), None)
+        WorkRoot::at(&fs::canonicalize(dir.path()).expect("a temp folder resolves"))
             .expect("a temp folder is a root")
     }
 

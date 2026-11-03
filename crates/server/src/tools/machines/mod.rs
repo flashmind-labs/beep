@@ -21,6 +21,7 @@ mod code_agent;
 pub(crate) mod copy;
 mod desktop;
 pub(crate) mod exec;
+pub(crate) mod mcp;
 pub(crate) mod process;
 pub(crate) mod transfer;
 
