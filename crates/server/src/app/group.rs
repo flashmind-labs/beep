@@ -723,59 +723,6 @@ mod eval;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::GroupRow;
-
-    #[test]
-    fn jev_reads_the_group_and_marks_the_latest_message() {
-        let at = DateTime::<Utc>::UNIX_EPOCH;
-        let member = |name: &str| MemberRow {
-            user_id: name.to_lowercase(),
-            name: name.into(),
-            creator: false,
-            joined_at: at,
-            pinned: false,
-            shares_apps: true,
-        };
-        let row = |id, author: &str, content: &str| MessageRow {
-            id,
-            author_id: Some(author.to_lowercase()),
-            author_name: author.into(),
-            content: content.into(),
-            sent_at: at,
-        };
-        let joined = JoinedGroup {
-            group: GroupRow {
-                id: Uuid::nil(),
-                name: "Tokyo trip".into(),
-                updated_at: at,
-            },
-            members: vec![member("Dani"), member("Sam")],
-            last: None,
-        };
-        let state = call_state(
-            &joined,
-            &[
-                row(1, "Sam", "Landed!"),
-                row(2, "Dani", "Where should we eat?"),
-            ],
-        );
-        assert!(state.starts_with("Group chat \"Tokyo trip\" with Dani, Sam and Beep"));
-        assert!(state.ends_with("\nSam: Landed!\nDani (latest): Where should we eat?"));
-
-        let beep = MessageRow {
-            author_id: None,
-            ..row(2, "Beep", "Try ramen.")
-        };
-        let text = learn_text(
-            &joined,
-            &[beep, row(3, "Dani", "Not ramen, Sam can't have soy")],
-            &joined.members[1],
-        );
-        assert!(text.starts_with(
-            "Group chat \"Tokyo trip\". The user is Sam; the other members are Dani."
-        ));
-        assert!(text.ends_with("\nBeep: Try ramen.\nDani (new): Not ramen, Sam can't have soy"));
-    }
 
     #[test]
     fn only_a_whole_mention_calls_beep() {

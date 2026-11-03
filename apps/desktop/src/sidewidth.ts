@@ -1,6 +1,5 @@
-// The command center's sidebar width: dragged on its right edge, moved
-// with the arrow keys there, reset by a double-click, and kept between
-// launches.
+// The command center's sidebar width: dragged on its right edge, moved with
+// the arrow keys there, reset by a double-click, and kept between launches.
 
 export const SIDE_MIN = 180;
 export const SIDE_MAX = 420;

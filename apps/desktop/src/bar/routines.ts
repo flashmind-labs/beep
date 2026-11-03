@@ -412,9 +412,9 @@ function grantRow(g: Grant, i: number, now: number) {
 
 export function drawGrants() {
   clampSel(GR);
-  const head = `<div class="dhead"><span class="tt"><b>Routine grants</b><small>${GR.loaded && !GR.list.length ? "Nothing granted" : "What routines may do without asking. Each ends on its own."}</small></span></div>`;
+  const head = `<div class="dhead"><span class="tt"><b>Routine grants</b><small>${GR.loaded && !GR.list.length ? "Nothing granted" : "What routines may do without asking"}</small></span></div>`;
   if (GR.loaded && !GR.list.length) {
-    bar.innerHTML = head + errLine(GR.error) + emptyPage(SHIELD_ICON, "No routine grants.", "When a routine needs to act without asking, Beep asks you once in a chat.") + hints([["esc", "back"]]);
+    bar.innerHTML = head + errLine(GR.error) + emptyPage(SHIELD_ICON, "No routine grants.", "Beep asks in a chat when a routine needs one.") + hints([["esc", "back"]]);
   } else {
     const now = Date.now();
     bar.innerHTML = head + errLine(GR.error) + `<div class="dlist" id="glist" role="listbox" aria-label="Routine grants" style="padding-top:8px">${GR.list.map((g, i) => grantRow(g, i, now)).join("")}</div>`

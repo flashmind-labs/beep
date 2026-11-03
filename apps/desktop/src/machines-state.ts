@@ -18,10 +18,8 @@ const USEFUL = ["gh", "teacli", "docker", "xcodebuild", "adb", "kubectl", "brew"
 /// How many tool chips a row shows before "+N".
 export const TOOL_CHIPS = 7;
 
-/// The bare version in what tool `name` printed: `0.162.1` for
-/// `codex-cli 0.162.1`, `2.2.5` for `opencode v2.2.5` or `opencode opencode
-/// v2.2.5`. Nodes from 0.1.22 send it bare already; older ones send the
-/// whole line. A line with no version in it is kept as it is.
+/// The bare version in what tool `name` printed: `0.162.1` for `codex-cli
+/// 0.162.1`, `2.2.5` for `opencode v2.2.5` or `opencode opencode v2.2.5`.
 export function bareVersion(name: string, raw: string | null | undefined): string | null {
   const line = String(raw ?? "").trim();
   if (!line) return null;
@@ -71,4 +69,32 @@ export function newestNode(versions: readonly string[]): string | null {
 /// Whether beep-node `version` is behind `newest`.
 export function nodeBehind(version: string, newest: string | null) {
   return !!newest && /^\d/.test(version) && isNewer(newest, version);
+}
+
+/// Where Update on a machine's page stands: asking before it stops agent
+/// sessions, installing, waiting for the node to come back on `to`, or
+/// stopped with what went wrong. `note` is why an installed node did not
+/// restart.
+export type NodeUpdate =
+  | { step: "confirm"; text: string }
+  | { step: "updating" }
+  | { step: "restarting"; to: string }
+  | { step: "failed"; error: string }
+  | { step: "note"; text: string };
+
+/// The question Update asks when `sessions` agent sessions run there.
+export function sessionsStop(sessions: number) {
+  return sessions === 1 ? "1 agent session is running and will stop." : `${sessions} agent sessions are running and will stop.`;
+}
+
+/// An error's text without the API's "bad request: " in front.
+export const errorText = (e: unknown) => String(e).replace(/^bad request: /, "");
+
+/// Whether the server refused an update because agent sessions would stop,
+/// so the page asks instead of failing.
+export const asksToStop = (text: string) => / will stop\.$/.test(text);
+
+/// Whether a node restarting on `to` is back: online on `to` or newer.
+export function updatedTo(m: { online: boolean; version: string }, to: string) {
+  return m.online && /^\d/.test(m.version) && !isNewer(to, m.version);
 }

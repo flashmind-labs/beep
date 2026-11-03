@@ -1,7 +1,5 @@
 // Projects as the window lists them, and what the "Import a project" sheet
 // shows, as pure functions so they can be tested without Tauri.
-// importproject.ts draws the sheet; center.ts draws the page and sidebar.
-// The types are the rows the projects commands give, as Rust serializes them.
 import type { AgentQuestion, RunningAgent, RunningRow } from "./home.ts";
 import { plural } from "./components/format.ts";
 
@@ -150,8 +148,7 @@ function within(cwd: string, folder: string) {
 const isAgent = (r: RunningRow): r is RunningAgent => r.kind === "agent";
 
 /// The imported projects, one row each, with the agents running in their
-/// folders counted. Agents anywhere else are not a project: their folders
-/// show under Found on your machines, to import.
+/// folders counted.
 export function mergeProjects(
   imported: readonly Pick<ProjectRow, "name" | "url" | "machine_id" | "machine_name" | "folder">[] | null | undefined,
   running: readonly RunningRow[] | null | undefined,
@@ -223,8 +220,7 @@ function orgAndName(repo: string) {
 }
 
 /// The folder projects go under, from where one landed: `folder` less its
-/// `org/repo` ending when it has one, else the folder it sits in. Null
-/// when there is none.
+/// `org/repo` ending when it has one, else the folder it sits in.
 export function importRoot(folder: string, name: string): string | null {
   const clean = folder.replace(/\/+$/, "");
   const tail = `/${name.replace(/^\/+|\/+$/g, "")}`;
@@ -238,10 +234,8 @@ export function folderUnder(root: string, repo: string): string | null {
   return parts ? `${root.replace(/\/+$/, "")}/${parts[0]}/${parts[1]}` : null;
 }
 
-/// Where the server puts it when no folder is chosen: `projects/org/repo`
-/// in the machine's workspace on Linux, `Projects/org/repo` in its home
-/// elsewhere. `base` is the folder `list_machine_folder` starts in (the
-/// workspace, else home); null before it is known.
+/// Where the server puts it when no folder is chosen: `projects/org/repo` in
+/// the machine's workspace on Linux, `Projects/org/repo` in its home elsewhere.
 export function defaultFolder(base: string | null | undefined, os: string | null | undefined, repo: string) {
   if (!base) return null;
   const [org, name] = orgAndName(repo) || ["org", "repo"];
@@ -254,7 +248,7 @@ export function folderNote(listing: MachineFolder | null | undefined, repo: stri
   if (!listing) return null;
   if (listing.origin != null) {
     const what = listing.origin ? repoFromRemote(listing.origin) : "a repository with no origin remote";
-    return `A checkout of ${what}. It is imported in place, without cloning.`;
+    return `A checkout of ${what}, imported in place.`;
   }
   if (!listing.exists) return "Not there yet: the clone makes it.";
   if (listing.empty) return "Empty: the clone goes here.";
@@ -271,7 +265,7 @@ export function folderHelp(state: Pick<ImportState, "machine" | "chosen">, machi
   if (!state.machine) return `Beep picks a machine and its default folder. ${tokens}`;
   if (state.chosen) return tokens;
   const m = (machines || []).find(x => x.id === state.machine);
-  return `The default on ${m ? m.name : "that machine"}. An empty folder takes the clone; one with other files gets it in a subfolder. ${tokens}`;
+  return `The default on ${m ? m.name : "that machine"}. ${tokens}`;
 }
 
 /// The Import a project sheet's state.
@@ -411,13 +405,6 @@ export function lookingText(machines: readonly { online: boolean }[] | null | un
   return `Looking through Claude Code, Codex, pi, flsh and OpenCode sessions on ${on}…`;
 }
 
-/// The coding agents running now in one of `project`'s folders, or below one,
-/// on the machine that folder is on.
-export function runningIn(project: { machines: readonly Pick<ProjectPlace, "id" | "folder">[] } | null | undefined, running: readonly RunningRow[] | null | undefined) {
-  const places = project?.machines || [];
-  return (running || []).filter(isAgent).filter(r => places.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
-}
-
 /// A project's past sessions without those running now (they show under
 /// Agents), newest first.
 export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "last_activity">>(sessions: readonly T[] | null | undefined, running: readonly { machine_id: string; id: string }[] | null | undefined) {
@@ -427,10 +414,8 @@ export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "l
     .sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
 }
 
-/// A project's session list after a read: `got`, else (`got` null, the
-/// read failed) the list shown before, else none. `changed` says whether it
-/// differs from `before`, the list shown now, so an unchanged one is not
-/// drawn again.
+/// A project's session list after a read: `got`, else (`got` null, the read
+/// failed) the list shown before, else none.
 export function nextSessions<T>(before: T[] | undefined, got: T[] | null) {
   const list = got ?? before ?? [];
   return { list, changed: before === undefined || JSON.stringify(before) !== JSON.stringify(list) };
@@ -451,8 +436,8 @@ export const REMOVE_PROJECT = "Remove project…";
 export function removeProjectSheet(name: string) {
   return {
     title: `Remove ${name}?`,
-    text: "Beep forgets this project, stops syncing it and its workers on every machine, and deletes its chat and tasks in Beep.",
-    note: "Its files stay on your machines: nothing is deleted on any machine. Importing it again starts it afresh.",
+    text: "Beep stops syncing it and its workers, and deletes its chat and tasks.",
+    note: "Files on your machines stay.",
     action: "Remove project",
   };
 }
@@ -468,9 +453,8 @@ export function importedWhen(at: number, now: number) {
   return `${Math.round(days / 7)} weeks ago`;
 }
 
-/// The line under a project's name: its host and when it was imported, or
-/// where it came from when it is not imported. `imported` is the server's
-/// imported rows for every project.
+/// The line under a project's name: its host and when it was imported, or where
+/// it came from when it is not imported.
 export function projectLine(project: { name: string; imported: boolean; url?: string | null } | null | undefined, imported: readonly Pick<ProjectRow, "name" | "imported_at">[] | null | undefined, now: number) {
   if (!project) return "";
   if (!project.imported) return "From running agents";
@@ -485,9 +469,7 @@ export function projectLine(project: { name: string; imported: boolean; url?: st
 export type Placed<T> = T & { i: number };
 
 /// The projects pinned to the top of the sidebar, in the order they were
-/// pinned, and the rest of `rows`. Each keeps `i`, its place in `rows`, so
-/// its colour stays when it is pinned. A pinned name that is no longer a
-/// project is left out.
+/// pinned, and the rest of `rows`.
 export function splitOnTop<T extends { name: string }>(rows: readonly T[] | null | undefined, top: readonly string[] | null | undefined) {
   const all: Placed<T>[] = (rows || []).map((p, i) => ({ ...p, i }));
   const byName = new Map(all.map(p => [p.name, p]));
@@ -535,12 +517,9 @@ export function folderOn(cwd: string, machine: string | null, places: readonly {
   return rest ? `~/${rest.replace(/\/+$/, "")}` : "~";
 }
 
-/// A folder as groups compare it, as the server's `project_group_path`
-/// keeps them: `\` read as `/`, the home folder and then a leading
-/// `Projects/` (any case) left out, with no trailing `/`. So
-/// `~/Projects/work` on a Mac and `/home/user/work` on
-/// Linux are both `work`. A folder outside the home folder stays
-/// absolute; the home folder itself is empty.
+/// A folder as groups compare it, as the server's `project_group_path` keeps
+/// them: `\` read as `/`, the home folder and then a leading `Projects/` (any
+/// case) left out, with no trailing `/`.
 export function groupPath(path: string | null | undefined) {
   const p = String(path || "").trim().replace(/\\/g, "/");
   const rest = homeRelative(p);
@@ -619,13 +598,10 @@ export type SideProject<T> = Placed<T> & { repo?: string; org?: undefined; group
 /// A project row that groups can place: its name and where it is.
 type Groupable = { name: string; i?: number; machines?: readonly { folder: string }[] | null };
 
-/// The sidebar's project rows: each group with projects in it, as a
-/// `{ group }` heading then its projects by full name, then by GitHub org
-/// or user, an `{ org }` heading then that org's projects with `repo` set
-/// to the name after the slash. A group's heading takes the place of the
-/// org's. Projects in neither come last, under no heading. Each keeps `i`,
-/// its place in `rows` (or the `i` it has), so its colour does not change
-/// with grouping.
+/// The sidebar's project rows: each group with projects in it, as a `{ group }`
+/// heading then its projects by full name, then by GitHub org or user, an `{
+/// org }` heading then that org's projects with `repo` set to the name after
+/// the slash.
 export function sideProjects<T extends Groupable>(rows: readonly T[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = []): (OrgHeading | GroupHeading | SideProject<T>)[] {
   const inGroup = new Map<string, SideProject<T>[]>(), orgs = new Map<string, SideProject<T>[]>(), loose: SideProject<T>[] = [];
   (rows || []).forEach((p, at) => {
@@ -697,10 +673,9 @@ export function whereCount(rows: readonly Pick<WhereRow, "kind">[], known: boole
 /// The order a card's bar takes, work in hand first.
 export const BAR_STATES = ["running", "review", "blocked", "planned", "done"] as const;
 
-/// A card of the overview: the project row with `i` for its colour, its
-/// repo name (the whole name under a group), whether it is pinned, and
-/// `sum`, the server's overview of it (null when it has no project agent
-/// yet).
+/// A card of the overview: the project row with `i` for its colour, its repo
+/// name (the whole name under a group), whether it is pinned, and `sum`, the
+/// server's overview of it (null when it has no project agent yet).
 export type OverviewCardRow<T, S> = Placed<T> & { repo: string; pinned: boolean; sum: S | null };
 
 /// A section of the overview: a group's, an org's, or (both null) the
@@ -711,10 +686,9 @@ export interface OverviewGroup<T, S> {
   cards: OverviewCardRow<T, S>[];
 }
 
-/// The overview's cards grouped as the sidebar groups projects: every
-/// group first, in order, even one with no projects yet, then by org, then
-/// projects in neither under `org: null`. Pinned projects come first in
-/// their section.
+/// The overview's cards grouped as the sidebar groups projects: every group
+/// first, in order, even one with no projects yet, then by org, then projects
+/// in neither under `org: null`.
 export function overviewGroups<T extends Groupable, S extends { name: string } = OverviewCard>(rows: readonly T[] | null | undefined, overview: readonly S[] | null | undefined, top: readonly string[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = []): OverviewGroup<T, S>[] {
   const sums = new Map((overview || []).map(o => [o.name, o]));
   const pins = new Set(top || []);

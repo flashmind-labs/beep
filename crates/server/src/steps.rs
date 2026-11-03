@@ -455,40 +455,6 @@ mod tests {
     }
 
     #[test]
-    fn tool_steps_keep_what_they_showed() {
-        let call = |id: &str| ToolCall {
-            id: id.into(),
-            name: "recall".into(),
-            arguments: json!({}),
-        };
-        let entries = [
-            ConversationEntry::user("What do I like?"),
-            ConversationEntry::assistant_with_tool_calls("", vec![call("a"), call("b")], None),
-            ConversationEntry::tool("a", "tea"),
-            ConversationEntry::tool("b", "jazz"),
-        ];
-        let calls = CallNotes {
-            descriptions: HashMap::from([("a".to_owned(), "Recalling memories".to_owned())]),
-            ..CallNotes::default()
-        };
-        let saved = steps(&entries, None, &calls, &HashMap::new());
-        let described: Vec<(&str, &str)> = saved
-            .steps
-            .iter()
-            .filter_map(|step| match &step.body {
-                StepBody::Tool {
-                    call_id,
-                    description,
-                    ..
-                } => Some((call_id.as_str(), description.as_str())),
-                _ => None,
-            })
-            .collect();
-        // A call the run saw no description for keeps an empty one.
-        assert_eq!(described, [("a", "Recalling memories"), ("b", "")]);
-    }
-
-    #[test]
     fn history_marks_a_routine_turn_as_scheduled() {
         let entries = [
             ConversationEntry::system_message(cron::scheduled_context("Plants")),

@@ -118,10 +118,10 @@ jobs:
         run: |
           set -euo pipefail
           target=aarch64-apple-darwin
-          cargo build --release --locked --package beep-node --bin beep-node --target "$target"
+          cargo build --profile dist --locked --package beep-node --bin beep-node --target "$target"
           mkdir -p dist
           # Without AppleDouble ._ entries for the binary's extended attributes.
-          COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "$CARGO_TARGET_DIR/$target/release" beep-node
+          COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "$CARGO_TARGET_DIR/$target/dist" beep-node
 
       - uses: actions/upload-artifact@v3
         with:

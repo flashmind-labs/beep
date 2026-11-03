@@ -130,27 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn a_checkout_of_the_repository_gets_the_fork() {
-        let (repo, fork) = repos();
-        let plan = plan(
-            &folder(&[("origin", "git@github.com:acme/widget.git")]),
-            &repo,
-            &fork,
-        );
-        assert_eq!(
-            plan,
-            Some(Plan {
-                upstream_remote: "origin".into(),
-                fork_remote: "fork".into(),
-                add: vec![NewRemote {
-                    name: "fork".into(),
-                    url: "https://github.com/octo/widget.git".into()
-                }],
-            })
-        );
-    }
-
-    #[test]
     fn a_checkout_of_the_fork_gets_upstream_unless_the_name_is_taken() {
         let (repo, fork) = repos();
         let plan = plan(

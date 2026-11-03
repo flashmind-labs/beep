@@ -7,6 +7,8 @@ publish = false
 
 [features]
 uniffi = ["dep:uniffi"]
+# Logging setup for the node and server binaries.
+logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber"]
 
 [dependencies]
 anyhow = "1"
@@ -27,5 +29,8 @@ strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec"] }
+tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
+tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "tracing-log"], optional = true }
 uniffi = { version = "0.32", optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }

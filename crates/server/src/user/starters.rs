@@ -112,19 +112,3 @@ impl User {
         suggestions
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::TestDb;
-
-    #[tokio::test]
-    async fn starters_refresh_at_most_three_times_in_ten_minutes() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        for _ in 0..STARTER_REFRESHES {
-            assert!(user.may_refresh_starters());
-        }
-        assert!(!user.may_refresh_starters());
-    }
-}

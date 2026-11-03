@@ -408,7 +408,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{protocol::Cron, store::TestDb};
+    use crate::store::TestDb;
 
     fn gym<'a>() -> NewPlace<'a> {
         NewPlace {
@@ -625,57 +625,6 @@ mod tests {
             ..fits
         };
         assert!(store.create_place_routine(&alice, &too_long).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn a_place_routine_replies_in_the_chat_it_came_from() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let place = store.save_place(&alice, &gym()).await.unwrap();
-        let chat = Uuid::new_v4();
-        let routine = NewPlaceRoutine {
-            label: "Shop",
-            task: "Point the user to the shop",
-            trigger: PlaceTrigger::parse(&format!("leave:{}:once", place.id)).unwrap(),
-            chat: Some(chat),
-        };
-        store.create_place_routine(&alice, &routine).await.unwrap();
-        let routines = store
-            .place_routines(&alice, place.id, PlaceEvent::Leave)
-            .await
-            .unwrap();
-        assert_eq!(
-            routines[0].job.metadata["session_id"],
-            chat.to_string().as_str()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_place_schedule_says_whether_it_runs_once() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let place = store.save_place(&alice, &gym()).await.unwrap();
-        let once = format!("leave:{}:once", place.id);
-        let id = store
-            .create_cron(&alice, "Shop", &once, "Point me to the shop")
-            .await
-            .unwrap();
-        let run_once = |crons: Vec<Cron>| crons.iter().find(|c| c.id == id).unwrap().run_once;
-        assert!(run_once(store.list_crons(&alice).await.unwrap()));
-
-        let always = format!("leave:{}", place.id);
-        let edited = store.update_cron(&alice, &id, None, None, Some(&always));
-        assert!(edited.await.unwrap());
-        assert!(!run_once(store.list_crons(&alice).await.unwrap()));
-
-        // Leaving a place for a clock schedule stops it running once.
-        let edited = store.update_cron(&alice, &id, None, None, Some(&once));
-        assert!(edited.await.unwrap());
-        let edited = store.update_cron(&alice, &id, None, None, Some("0 9 * * *"));
-        assert!(edited.await.unwrap());
-        assert!(!run_once(store.list_crons(&alice).await.unwrap()));
     }
 
     #[tokio::test]

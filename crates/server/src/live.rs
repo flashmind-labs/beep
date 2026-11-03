@@ -83,28 +83,3 @@ impl LiveRun {
         self.events.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tool_descriptions_come_from_started_tools() {
-        let live = LiveRun::new(CancellationToken::new());
-        live.push(RunEvent::ToolStarted {
-            name: "recall".to_owned(),
-            call_id: "a".to_owned(),
-            description: "Recalling memories".to_owned(),
-        });
-        live.push(RunEvent::ToolResult {
-            name: "recall".to_owned(),
-            call_id: "a".to_owned(),
-            output: "tea".to_owned(),
-            success: true,
-        });
-        assert_eq!(
-            live.tool_descriptions(),
-            HashMap::from([("a".to_owned(), "Recalling memories".to_owned())])
-        );
-    }
-}

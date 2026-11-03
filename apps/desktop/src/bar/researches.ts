@@ -34,9 +34,8 @@ export async function research(topic: string) {
   }
 }
 
-/// The bar's Research view: every research on the account, newest first,
-/// from the server, so ones started on another computer show too. The field
-/// on top starts a new one; Return on a row opens its window.
+/// The bar's Research view: every research on the account, newest first, from
+/// the server, so ones started on another computer show too.
 export const RL: { list: Research[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
 export const RSTATUS: Record<ResearchStatus, string> = {
   planning: "Waiting for your go", researching: "Researching", reviewing: "Reviewing",

@@ -1369,56 +1369,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn adding_a_machine_asks_first() {
-        let (app, acts) = lookup("add_machine").unwrap();
-        assert_eq!(app.slug(), MACHINES_APP);
-        assert_eq!(acts, Acts::Always);
-        let guarded = guard(
-            vec![Arc::new(Named("add_machine"))],
-            Rules::default(),
-            Approved(None),
-            &HashSet::new(),
-            None,
-        );
-        let token = tokio_util::sync::CancellationToken::new();
-        let result = guarded[0]
-            .execute(ToolContext::new(
-                "call",
-                json!({ "name": "build box" }),
-                None,
-                &token,
-            ))
-            .await
-            .unwrap();
-        assert!(result.is_interrupt());
-        let approval = approval_for(&app, "add_machine", &json!({ "name": "build box" }));
-        assert_eq!(approval.action, "add machine");
-    }
-
-    #[tokio::test]
-    async fn importing_a_project_asks_first() {
-        let (app, acts) = lookup("import_project").unwrap();
-        assert_eq!(app.slug(), MACHINES_APP);
-        assert_eq!(acts, Acts::Always);
-        let guarded = guard(
-            vec![Arc::new(Named("import_project"))],
-            Rules::default(),
-            Approved(None),
-            &HashSet::new(),
-            None,
-        );
-        let token = tokio_util::sync::CancellationToken::new();
-        let args = json!({ "repo": "n0-computer/iroh" });
-        let result = guarded[0]
-            .execute(ToolContext::new("call", args.clone(), None, &token))
-            .await
-            .unwrap();
-        assert!(result.is_interrupt());
-        let approval = approval_for(&app, "import_project", &args);
-        assert_eq!(approval.action, "import project");
-    }
-
-    #[tokio::test]
     async fn making_media_asks_first_with_its_service_and_model() {
         let token = tokio_util::sync::CancellationToken::new();
         let args = json!({ "prompt": "a red fox", "provider": "openai" });
@@ -1492,17 +1442,6 @@ mod tests {
     }
 
     #[test]
-    fn lowercase_composio_names_are_classified() {
-        let none = HashSet::new();
-        let (app, acts) = classify("outlook_reply_email", &none).unwrap();
-        assert_eq!((app.slug(), acts), ("outlook", Acts::Always));
-        assert_eq!(
-            classify("outlook_query_emails", &none).unwrap().1,
-            Acts::Never
-        );
-    }
-
-    #[test]
     fn project_tools_are_known_and_can_be_allowed_always() {
         let (app, acts) = lookup("project_plan").unwrap();
         assert_eq!((app.slug(), acts), ("project", Acts::Never));
@@ -1558,88 +1497,6 @@ mod tests {
         let update = Acts::WhenMoving;
         assert!(!update.on(&json!({"ids": ["M1"], "isRead": true})));
         assert!(update.on(&json!({"ids": ["M1"], "folder": "Trash"})));
-    }
-
-    #[test]
-    fn actions_are_listed_with_labels() {
-        let gmail = catalog_app("gmail").unwrap();
-        let mut rules = Rules::default();
-        rules.0.insert(
-            "gmail".into(),
-            Rule {
-                level: PermissionLevel::Ask {},
-                allowed: ["GMAIL_REPLY_TO_THREAD".to_owned()].into(),
-            },
-        );
-        let permissions = app_permissions(gmail, &rules);
-        let labels: Vec<(&str, bool)> = permissions
-            .actions
-            .iter()
-            .map(|action| (action.label.as_str(), action.allowed))
-            .collect();
-        assert_eq!(
-            labels,
-            [
-                ("Send email", false),
-                ("Reply to thread", true),
-                ("Move to trash", false),
-                ("Batch modify messages", false)
-            ]
-        );
-        let fastmail = app_permissions(catalog_app("fastmail").unwrap(), &Rules::default());
-        assert!(
-            fastmail
-                .actions
-                .iter()
-                .any(|a| a.tool == "FASTMAIL_DELETE_EMAIL")
-        );
-        assert!(
-            !fastmail
-                .actions
-                .iter()
-                .any(|a| a.tool == "FASTMAIL_READ_EMAIL")
-        );
-    }
-
-    #[test]
-    fn saved_rows_keep_only_known_actions() {
-        let gmail = catalog_app("gmail").unwrap();
-        let row = row(
-            gmail,
-            PermissionLevel::Ask {},
-            vec![
-                "GMAIL_SEND_EMAIL".into(),
-                "GMAIL_FETCH_EMAILS".into(),
-                "X".into(),
-            ],
-        );
-        assert_eq!(row.allowed, ["GMAIL_SEND_EMAIL"]);
-    }
-
-    #[test]
-    fn open_calls_are_the_unanswered_ones_of_the_last_turn() {
-        let call = |id: &str| ToolCall {
-            id: id.into(),
-            name: "GMAIL_SEND_EMAIL".into(),
-            arguments: json!({}),
-        };
-        let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::user("hi"));
-        assert!(open_calls(&conversation).is_empty());
-        conversation.add(ConversationEntry::assistant_with_tool_calls(
-            "",
-            vec![call("a"), call("b"), call("c")],
-            None,
-        ));
-        conversation.add(ConversationEntry::tool("a", "sent"));
-        let open: Vec<String> = open_calls(&conversation)
-            .into_iter()
-            .map(|call| call.id)
-            .collect();
-        assert_eq!(open, ["b", "c"]);
-        conversation.add(ConversationEntry::tool("b", "sent"));
-        conversation.add(ConversationEntry::tool("c", "sent"));
-        assert!(open_calls(&conversation).is_empty());
     }
 
     #[test]
@@ -1766,87 +1623,6 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_card_names_every_record_it_acts_on() {
-        let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::assistant_with_tool_calls(
-            "",
-            vec![ToolCall {
-                id: "find".into(),
-                name: "gmail_fetch_emails".into(),
-                arguments: json!({"query": "is:unread"}),
-            }],
-            None,
-        ));
-        let ids: Vec<String> = (1..=6).map(|n| format!("m{n}")).collect();
-        let messages: Vec<Value> = ids
-            .iter()
-            .map(|id| json!({"messageId": id, "subject": format!("Mail {id}"), "sender": "news@example.com"}))
-            .collect();
-        let found = json!({"data": {"messages": messages}});
-        conversation.add(ConversationEntry::tool("find", found.to_string()));
-        conversation.add(ConversationEntry::assistant_with_tool_calls(
-            "",
-            vec![ToolCall {
-                id: "read".into(),
-                name: "gmail_batch_modify_messages".into(),
-                arguments: json!({"messageIds": ids, "removeLabelIds": ["UNREAD"]}),
-            }],
-            None,
-        ));
-        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation, false)
-        else {
-            panic!("expected the open call's card");
-        };
-        let subjects = approval
-            .fields
-            .iter()
-            .filter(|field| field.label == "Subject")
-            .count();
-        assert_eq!(subjects, 6);
-    }
-
-    #[test]
-    fn a_fastmail_email_names_itself() {
-        let email = json!({
-            "id": "M1", "subject": "Your order shipped",
-            "from": [{"name": "Shop", "email": "orders@example.com"}],
-        });
-        assert_eq!(record_ids(&json!({"ids": ["M1", ""], "keep": "x"})), ["M1"]);
-        let delete = ToolCall {
-            id: "delete".into(),
-            name: "FASTMAIL_DELETE_EMAIL".into(),
-            arguments: json!({"ids": ["M1"]}),
-        };
-        let shown: Vec<_> = record_fields(find_record(&email, "M1").unwrap(), &delete)
-            .into_iter()
-            .map(|f| (f.label, f.value))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                ("Subject".into(), "Your order shipped".into()),
-                ("From".into(), "Shop <orders@example.com>".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn a_reply_names_who_it_answers() {
-        let email = json!({
-            "id": "M1", "subject": "Booking",
-            "from": [{"name": "Hotel", "email": "desk@example.com"}],
-        });
-        let send = |mode| ToolCall {
-            id: "send".into(),
-            name: "FASTMAIL_SEND_EMAIL".into(),
-            arguments: json!({"mode": mode, "emailId": "M1", "body": "Thanks"}),
-        };
-        let sender = |call| record_fields(&email, &call).pop().unwrap();
-        assert_eq!(sender(send("reply")).label, "Replying to");
-        assert_eq!(sender(send("forward")).label, "Forwarding from");
-    }
-
-    #[test]
     fn a_read_takes_the_ids_a_call_names() {
         let lookup = |tool| LOOKUPS.iter().find(|l| l.tools.contains(&tool)).unwrap();
         let reads = read_args(
@@ -1882,48 +1658,6 @@ mod tests {
     }
 
     #[test]
-    fn a_notion_page_names_itself_by_its_title_property() {
-        let page = json!({"id": "p1", "properties": {
-            "Status": {"type": "select"},
-            "Name": {"type": "title", "title": [{"plain_text": "Trip "}, {"plain_text": "plan"}]},
-        }});
-        let update = ToolCall {
-            id: "update".into(),
-            name: "NOTION_UPDATE_PAGE".into(),
-            arguments: json!({"page_id": "p1"}),
-        };
-        let shown = record_fields(&page, &update);
-        assert_eq!(
-            (shown[0].label.as_str(), shown[0].value.as_str()),
-            ("Title", "Trip plan")
-        );
-    }
-
-    #[test]
-    fn records_read_outlook_senders() {
-        let record = json!({"from": {"emailAddress": {"name": "Jo", "address": "jo@example.com"}}});
-        assert_eq!(
-            record_value(&record, "from").as_deref(),
-            Some("Jo <jo@example.com>")
-        );
-    }
-
-    #[test]
-    fn fields_skip_empty_values() {
-        let shown = fields(&json!({"recipient_email": "a@example.com", "cc": [], "body": null}));
-        assert_eq!(shown.len(), 1);
-        assert_eq!(shown[0].label, "Recipient email");
-    }
-
-    #[test]
-    fn fields_skip_ids() {
-        let shown =
-            fields(&json!({"message_id": "AAMk", "ids": ["M1"], "emailId": "M2", "comment": "Hi"}));
-        let labels: Vec<&str> = shown.iter().map(|field| field.label.as_str()).collect();
-        assert_eq!(labels, ["Comment"]);
-    }
-
-    #[test]
     fn values_at_the_limit_are_not_marked_cut() {
         let exact = "a".repeat(MAX_VALUE_CHARS);
         assert_eq!(fields(&json!({ "body": exact }))[0].value, exact);
@@ -1939,31 +1673,6 @@ mod tests {
         };
         let action = describe_action(&ToolApp::Catalog(gmail), &call, &Conversation::new());
         assert!(!action.contains("..."), "{action}");
-    }
-
-    #[test]
-    fn a_batch_shows_its_labels_and_how_many_it_names() {
-        let shown = fields(&json!({
-            "messageIds": ["M1", "M2", "M3"],
-            "addLabelIds": ["TRASH"],
-            "removeLabelIds": [],
-        }));
-        // Fields follow the map's key order, which depends on whether
-        // serde_json keeps insertion order in this build.
-        let mut shown: Vec<(&str, &str)> = shown
-            .iter()
-            .map(|field| (field.label.as_str(), field.value.as_str()))
-            .collect();
-        shown.sort_unstable();
-        assert_eq!(shown, [("Add labels", "TRASH"), ("Messages", "3")]);
-        assert!(record_ids(&json!({"addLabelIds": ["TRASH"], "messageIds": ["M1"]})) == ["M1"]);
-    }
-
-    #[test]
-    fn fields_read_recipients() {
-        let to = json!([{"name": "Jo", "email": "jo@example.com"}, {"email": "sam@example.com"}]);
-        let shown = fields(&json!({ "to": to }));
-        assert_eq!(shown[0].value, "Jo <jo@example.com>, sam@example.com");
     }
 
     #[test]

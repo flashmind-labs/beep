@@ -53,9 +53,8 @@ export const VOICE_ICON = {
   speaker: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 010 6M19.5 6.5a8 8 0 010 11"/></svg>',
   mic: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
 };
-/// `drafts` holds the words live mode kept when it ended, by chat ("" for a
-/// new one), until that chat takes them, and `note` says why it ended.
-/// `typed` is a key pressed to leave live mode, for the prompt after the words.
+/// `drafts` holds the words live mode kept when it ended, by chat ("" for a new
+/// one), until that chat takes them, and `note` says why it ended.
 export const VN = { drafts: new Map<string, string>(), note: "", typed: "" };
 /// The live view: the last view Rust sent, a toast, the pause bar, the
 /// message just sent, and the chat under the dock (null for a new one).
@@ -177,9 +176,8 @@ export function drawDock(v: LiveView | null) {
   if (v.sheet && !sheet) bar.append(h(liveSheet()));
   else if (!v.sheet) sheet?.remove();
 }
-/// Draws a message live mode sent into the chat under the dock and follows
-/// its reply there, like one typed in the field. With no dock on screen the
-/// chat comes from the server when it is next opened.
+/// Draws a message live mode sent into the chat under the dock and follows its
+/// reply there, like one typed in the field.
 export function liveTurn(id: string, text: string, runId: string) {
   if (S.view !== "chat" || !$("#ldock")) return live.delete(id);
   if (LV.chat !== id) {

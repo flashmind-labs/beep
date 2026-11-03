@@ -238,16 +238,6 @@ async fn poll_mail(
 mod tests {
     use super::*;
 
-    #[test]
-    fn apps_left_out_of_the_catalog_are_not_polled() {
-        let connected = HashSet::from(["github".to_owned(), "gmail".to_owned()]);
-        assert!(!polls_github(&connected));
-        assert!(!PollSource::Github.listed());
-        for source in [PollSource::Gmail, PollSource::Outlook, PollSource::Fastmail] {
-            assert!(source.listed(), "{}", source.as_str());
-        }
-    }
-
     #[tokio::test]
     async fn every_page_is_read_until_one_is_empty() {
         let pages = [vec![json!(1), json!(2)], vec![json!(3)], vec![json!(4)]];

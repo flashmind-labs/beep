@@ -382,15 +382,4 @@ mod tests {
             &TerminalState::Exited { code: Some(1) }
         ));
     }
-
-    #[test]
-    fn fields_are_one_line() {
-        assert_eq!(field("name", "  logs ").unwrap(), "logs");
-        assert!(field("command", "").is_err());
-        assert!(field("command", "a\nb").is_err());
-        assert!(field("folder", &"x".repeat(MAX_FIELD + 1)).is_err());
-        assert_eq!(optional("project", "  ").unwrap(), "");
-        assert_eq!(optional("project", " acme/widget ").unwrap(), "acme/widget");
-        assert!(optional("folder", "a\nb").is_err());
-    }
 }

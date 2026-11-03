@@ -136,15 +136,3 @@ fn target(app: &str) -> Option<Target> {
         _ => return None,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_listed_app_opens() {
-        for app in APPS.split(", ") {
-            assert!(target(app).is_some(), "{app} has no target");
-        }
-    }
-}

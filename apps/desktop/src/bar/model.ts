@@ -34,10 +34,7 @@ interface Agents {
   agents: { id: string; name: string; when: string; model: string; thinking: Thinking }[];
 }
 
-/// The caller's model settings. `choices` is empty unless they are an
-/// admin, and then the bar shows no chip, no model view and no rerun.
-/// `agents` is whether an admin turned agents on for everyone.
-/// `list` names the agents set up, General first; empty when there are none.
+/// The caller's model settings.
 export const MODELS: { info: Models | null; sel: number; agents: boolean; list: string[] } = { info: null, sel: 0, agents: false, list: [] };
 export const THINKING: Thinking[] = ["off", "low", "medium", "high"];
 
@@ -85,11 +82,7 @@ export function renderModel() {
 }
 export function drawModel() {
   const m = MODELS.info!, agents = MODELS.agents;
-  // Auto picks only the thinking: the model below always applies, and with
-  // agents on the agent Jev picks brings its prompt and thinking.
-  const autoSub = m.auto
-    ? (agents ? "Jev picks an agent, which brings its prompt and thinking, on the model below" : "Jev picks the thinking for each prompt, on the model below")
-    : (agents ? "Use the model below, with the agent's prompt" : "Off: every prompt uses the model below");
+  const autoSub = m.auto ? (agents ? "Jev picks an agent for each prompt" : "Jev picks the thinking for each prompt") : "Off";
   const auto = m.auto_available
     ? `<div class="dtoggle"><span><b>Auto</b><small>${autoSub}</small></span><button class="dswitch" data-act="auto" role="switch" aria-checked="${m.auto}" aria-label="Auto"></button></div>`
     : "";
@@ -98,9 +91,9 @@ export function drawModel() {
       <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>`;
   // Agents apply to everyone, so they sit apart from the caller's own model.
   const agentSec = MODELS.list.length ? `<div class="dsec flat dagents">Agents <span class="dtag">Admin</span></div>
-      <div class="dtoggle"><span><b>Agents</b><small>${agents ? "On for everyone: Jev picks an agent for each prompt" : "Off: everyone uses the general assistant"}</small></span><button class="dswitch" data-act="agents" role="switch" aria-checked="${agents}" aria-label="Agents"></button></div>
+      <div class="dtoggle"><span><b>Agents</b><small>${agents ? "On for everyone" : "Off for everyone"}</small></span><button class="dswitch" data-act="agents" role="switch" aria-checked="${agents}" aria-label="Agents"></button></div>
       <div class="dmuted dagentlist"${agents ? "" : ' style="opacity:.6"'}>${esc(MODELS.list.join(", "))}</div>` : "";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>${agents ? "Your own turns only." : "Your own turns only. Everyone else stays on the default."}</small></span></div>
+  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>Your own turns only</small></span></div>
     <div class="dform dmodelform" style="padding-top:12px">${auto}
       ${picker}
       ${agentSec}

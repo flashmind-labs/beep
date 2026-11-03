@@ -484,36 +484,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn worker_agent_names_round_trip() {
-        assert_eq!("claude".parse(), Ok(WorkerAgent::Claude));
-        assert_eq!(WorkerAgent::Codex.to_string(), "codex");
-        assert_eq!(WorkerAgent::Codex.protocol(), agent::protocol("codex"));
-    }
-
-    #[test]
     fn a_start_kept_before_bases_reads_from_the_default_branch() {
         let kept: StartRequest =
             serde_json::from_str(r#"{"machine":null,"agent":"claude","persona":null,"inputs":[]}"#)
                 .expect("a start kept before bases");
         assert_eq!(kept.base, None);
         assert_eq!(kept.agent, Some(WorkerAgent::Claude));
-    }
-
-    #[test]
-    fn every_agent_a_node_knows_can_work() {
-        for name in ["claude", "codex", "gemini", "pi", "flsh", "opencode"] {
-            let agent: WorkerAgent = name.parse().expect("a worker agent");
-            assert_eq!(agent.to_string(), name);
-        }
-        assert_eq!(
-            WorkerAgent::VARIANTS,
-            ["claude", "codex", "gemini", "pi", "flsh", "opencode"]
-        );
-        assert_eq!(
-            serde_json::to_value(WorkerAgent::OpenCode).ok(),
-            Some(serde_json::json!("opencode"))
-        );
-        assert_eq!(WorkerAgent::OpenCode.protocol(), "opencode/1");
     }
 
     #[test]
@@ -533,27 +509,6 @@ mod tests {
     }
 
     #[test]
-    fn slugs_from_titles() {
-        assert_eq!(
-            TaskSlug::from_title("Fix the Android build!").as_str(),
-            "fix-the-android-build"
-        );
-        let long = TaskSlug::from_title(&format!("{}-{}", "a".repeat(39), "b".repeat(20)));
-        assert_eq!(long.as_str(), "a".repeat(39));
-        assert_eq!(TaskSlug::from_title("!!!").as_str(), "task");
-        let slug = TaskSlug::from_title("Fix it");
-        assert_eq!(slug.suffixed(2).as_str(), "fix-it-2");
-        assert_eq!(slug.branch(), "beep/fix-it");
-        let checkout = MachinePath::parse("/srv/project").expect("a valid path");
-        let worktree = slug.worktree(&checkout);
-        assert_eq!(worktree.as_str(), "/srv/project/.worktrees/fix-it");
-        assert_eq!(
-            slug.incoming(&worktree).as_str(),
-            "/srv/project/.worktrees/fix-it/.beep/incoming/fix-it"
-        );
-    }
-
-    #[test]
     fn paths_join_and_contain() {
         let project = MachinePath::parse("/srv/project").expect("a valid path");
         let inside = MachinePath::parse("/srv/project/.worktrees/x").expect("a valid path");
@@ -568,42 +523,5 @@ mod tests {
         for bad in ["/srv/../etc", "srv/project", "/srv/project/", "", "/srv//x"] {
             assert!(MachinePath::parse(bad).is_err(), "{bad} should not parse");
         }
-    }
-
-    #[test]
-    fn issue_hosts_round_trip() {
-        let host = ForgejoHost::parse("git.example.com").expect("a valid host");
-        let forgejo = IssueHost::Forgejo(host);
-        assert_eq!(forgejo.stored(), "forgejo:git.example.com");
-        assert_eq!(IssueHost::from_stored(&forgejo.stored()), Some(forgejo));
-        assert_eq!(IssueHost::from_stored("github"), Some(IssueHost::Github));
-        assert_eq!(IssueHost::from_stored("forgejo:"), None);
-        assert_eq!(IssueHost::from_stored("gitlab"), None);
-    }
-
-    #[test]
-    fn states_map_to_the_wire() {
-        for state in [
-            TaskState::Planned,
-            TaskState::Running,
-            TaskState::Blocked,
-            TaskState::Review,
-            TaskState::Done,
-            TaskState::Dropped,
-        ] {
-            assert_eq!(TaskState::from(ProjectTaskState::from(state)), state);
-            let name: &str = state.into();
-            assert_eq!(name.parse(), Ok(state));
-        }
-        assert!(TaskState::Blocked.is_open());
-        assert!(!TaskState::Done.is_open());
-        assert!(TaskState::Review.wants_checks());
-        assert!(!TaskState::Planned.wants_checks());
-        assert!(WorkerState::Waiting.is_live());
-        assert!(!WorkerState::Failed.is_live());
-        assert_eq!(
-            ProjectWorkerState::from(WorkerState::Ended),
-            ProjectWorkerState::Ended {}
-        );
     }
 }

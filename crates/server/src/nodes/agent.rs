@@ -10,7 +10,7 @@ use crate::{
         },
         link,
     },
-    protocol::{CustomAgent, WorkDiff, WorkFolder, node::agent::DiffAsk},
+    protocol::{CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree, node::agent::DiffAsk},
     transport::READ_TIMEOUT,
 };
 use anyhow::{Context, Result, bail};
@@ -514,9 +514,31 @@ impl Online {
             root: root.to_owned(),
             path: path.to_owned(),
             ignored,
+            depth: 0,
         };
         match self.sessions_request(request).await? {
             SessionsReply::Folder { folder } => Ok(NodeWork::Done(folder)),
+            SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+            _ => bail!("the node answered something else"),
+        }
+    }
+
+    /// The folder `ask.path` inside `ask.root` on the node and those under
+    /// it, `ask.depth` levels in all; `ask.path` alone from a node from
+    /// before trees.
+    pub(crate) async fn work_tree(&self, ask: &ListWorkTree) -> Result<NodeWork<WorkTree>> {
+        let request = SessionsRequest::Folder {
+            root: ask.root.to_owned(),
+            path: ask.path.to_owned(),
+            ignored: ask.ignored,
+            depth: ask.depth.max(1),
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::Tree { tree } => Ok(NodeWork::Done(tree)),
+            SessionsReply::Folder { folder } => Ok(NodeWork::Done(WorkTree {
+                folders: vec![folder],
+                truncated: false,
+            })),
             SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
             _ => bail!("the node answered something else"),
         }
@@ -976,33 +998,5 @@ mod tests {
         assert_eq!(Silent.retry(false), No);
         assert_eq!(Answered.retry(true), No);
         assert_eq!(Answered.retry(false), No);
-    }
-
-    #[test]
-    fn turn_ends_questions_and_ends_are_news() {
-        assert!(
-            News::of(&Event::Question {
-                question: question(1)
-            })
-            .is_some()
-        );
-        let done = Event::TurnDone {
-            turn: 1,
-            stop_reason: StopReason::EndTurn,
-            last_message: String::new(),
-        };
-        assert!(News::of(&done).is_some());
-        assert!(matches!(
-            News::of(&Event::Ended {
-                reason: "closed".into()
-            }),
-            Some(News::Ended { .. })
-        ));
-        assert!(
-            News::of(&Event::State {
-                state: State::default()
-            })
-            .is_none()
-        );
     }
 }

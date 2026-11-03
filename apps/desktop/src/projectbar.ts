@@ -1,6 +1,5 @@
-// The bar under a project page, as plain data: it starts a coding agent in
-// the project's checkout on a machine, by default in the checkout as it is.
-// center.ts draws it.
+// The bar under a project page, as plain data: it starts a coding agent in the
+// project's checkout on a machine, by default in the checkout as it is.
 
 import type { CheckoutPick } from "./bar/agentpick.ts";
 
@@ -21,8 +20,7 @@ export interface BarPlace {
 }
 
 /// Where the bar starts: on `machine` (a machine id, or "auto") at the
-/// project's checkout there. Auto takes the first machine by name that has
-/// both a checkout and a coding agent. Null when there is none.
+/// project's checkout there.
 export function barPlace(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[], machine: string): BarPlace | null {
   const able = hosts.filter(h => h.agents.length && places.some(p => p.machine === h.machine_id));
   const host = machine === "auto"
@@ -36,7 +34,7 @@ export function barPlace(places: readonly { machine: string; cwd: string }[], ho
 /// What the bar's field asks for: a task, or a machine and folder first
 /// when the project has no checkout an agent can run in.
 export function barPrompt(name: string, ready: boolean) {
-  return ready ? `Describe a task for a coding agent in ${name}` : `Pick a machine and folder for ${name}, then describe the task`;
+  return ready ? `Describe a task for a coding agent in ${name}` : `Pick a machine and folder for ${name}`;
 }
 
 /// The Folder pill: what the start works on, and what it starts from.
@@ -49,7 +47,6 @@ export function barCheckout(pick: CheckoutPick, base: string | null): { label: s
 }
 
 /// The line under the bar.
-export const BAR_NOTE = "The agent starts in the checkout and makes its own branch and worktree before it changes files. Its session opens here.";
 
 /// What Work on it, Continue or Fix this put in the bar: a new worktree on
 /// `branch` (editable) from `base` for an issue, a pull request's own

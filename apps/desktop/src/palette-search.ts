@@ -1,8 +1,4 @@
-// When the Cmd+K palette asks for hits. Each keystroke asks at once for
-// what the app holds (`full` false), which draws on that keystroke, then
-// once typing pauses for the full search, which also reads chat messages
-// and may ask the server. An answer only draws while its query is still
-// the one typed, and never over an answer to a later ask.
+// When the Cmd+K palette asks for hits.
 
 export const DEBOUNCE_MS = 120;
 

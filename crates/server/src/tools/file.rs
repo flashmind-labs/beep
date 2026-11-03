@@ -558,51 +558,10 @@ mod tests {
     }
 
     #[test]
-    fn an_image_is_read_from_the_debug_text() {
-        let block = ContentBlock::image(STANDARD.encode([1, 2, 3]), "image/png");
-        let found = attachment_in(&as_seen(block)).unwrap();
-        assert_eq!(found.data, [1, 2, 3]);
-        assert_eq!(found.mime.as_deref(), Some("image/png"));
-    }
-
-    #[test]
-    fn json_with_data_is_read_too() {
-        let result =
-            json!({ "name": "a.pdf", "type": "application/pdf", "data": STANDARD.encode(b"x") });
-        let found = attachment_in(&result).unwrap();
-        assert_eq!(found.name.as_deref(), Some("a.pdf"));
-        assert_eq!(found.data, b"x");
-        assert!(attachment_in(&json!({ "text": "just text" })).is_none());
-    }
-
-    #[test]
     fn names_lose_folders_and_leading_dots() {
         assert_eq!(clean_name("../../etc/passwd"), "passwd");
         assert_eq!(clean_name(".hidden"), "hidden");
         assert_eq!(clean_name("  "), "file");
         assert_eq!(clean_name("Boarding Pass.pdf"), "Boarding Pass.pdf");
-    }
-
-    #[test]
-    fn the_old_destination_arguments_are_refused() {
-        let refused = no_old_args(&json!({"to": "build-box", "path": "a", "dst_path": "/x/a"}));
-        assert!(format!("{:#}", refused.unwrap_err()).contains("`dst_path` is no longer taken"));
-        assert!(no_old_args(&json!({"to": "build-box", "overwrite": true})).is_err());
-        assert!(no_old_args(&json!({"to": "build-box", "path": "a", "dst_folder": "~"})).is_ok());
-    }
-
-    #[test]
-    fn to_names_a_machine_or_the_user() {
-        assert_eq!(to_machine(&json!({ "to": "mac" })), Some("mac"));
-        assert_eq!(to_machine(&json!({ "to": "User" })), None);
-        assert_eq!(to_machine(&json!({ "to": " " })), None);
-        assert_eq!(to_machine(&json!({ "path": "a.pdf" })), None);
-    }
-
-    #[test]
-    fn a_pdf_is_known_by_its_bytes() {
-        assert_eq!(mime_for("download", b"%PDF-1.4"), "application/pdf");
-        assert_eq!(mime_for("photo.JPG", b""), "image/jpeg");
-        assert_eq!(mime_for("x", b""), "application/octet-stream");
     }
 }

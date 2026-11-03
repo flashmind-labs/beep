@@ -54,11 +54,15 @@ run against the newer schema.
 
 ## UI changes
 
-Every screen of the app is mocked in the Beep screens artifact:
-https://claude.ai/artifact/BwYePcE9BHvLcYSvkRwvxD
+Every screen is mocked, one artifact per platform:
 
-Before changing the Android UI, update the mock first so it shows the new
-screen or state, then change the app to match.
+- Android: https://claude.ai/artifact/NoyjMpUYmVxmBEGAgQfok2
+- iOS: https://claude.ai/artifact/SGKUgUgcBfqMimBBGiAEtq
+- Desktop (tray bar and command center):
+  https://claude.ai/artifact/8BxZSzsXaPqHXkn18rRRSL
+
+Before changing an app's UI, update that platform's mock first so it shows
+the new screen or state, then change the app to match.
 
 ## App tools
 
@@ -122,8 +126,8 @@ it with `just desktop-dev`, check it with `just desktop-check`, and build the
 DMG with `just desktop-build` (it lands in `target/beep-macos.dmg`; the
 installer window comes from `apps/desktop/installer/`). The `desktop` Forgejo
 workflow builds the same DMG on the Mac runner. Its key and state live in
-`~/Library/Application Support/com.flashmind.beep.desktop/`. The bar's screens
-are in the same mock as the phone's.
+`~/Library/Application Support/com.flashmind.beep.desktop/`. Its screens are
+in the Desktop mock.
 
 To release it, `just desktop-release 0.2.0` sets the version in
 `apps/desktop/src-tauri/Cargo.toml`, commits and tags `desktop-v0.2.0` (or use

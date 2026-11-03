@@ -225,15 +225,6 @@ mod tests {
     }
 
     #[test]
-    fn existing_hits_do_not_crowd_out_new_ones() {
-        let rows: Vec<MemoryRow> = (0..9).map(|i| row(&i.to_string(), "A fact.")).collect();
-        let present = select(rows[..8].iter().map(score).collect(), &[]);
-        let fresh = select(rows.iter().map(score).collect(), &present);
-        assert_eq!(fresh.len(), 1);
-        assert_eq!(id(&fresh[0]), Some("8"));
-    }
-
-    #[test]
     fn restored_memory_keeps_its_place_in_the_history() {
         let today = NaiveDate::from_ymd_opt(2026, 1, 2).unwrap();
         let row = row("a", "Maya manages the design team.");

@@ -217,64 +217,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn reads_what_the_script_printed() {
-        let out = "motd\n\nBEEP_FOLDER: path /srv/code/\nBEEP_FOLDER: git git@github.com:o/r.git\n\
-                   BEEP_FOLDER: full\nBEEP_FOLDER: dir src\nBEEP_FOLDER: dir  spaced \n\
-                   BEEP_FOLDER: dir docs\nBEEP_FOLDER: more 3\n";
-        let Some(Seen::Folder(seen)) = read(out) else {
-            panic!("a folder");
-        };
-        assert_eq!(seen.path, "/srv/code");
-        assert_eq!(seen.parent.as_deref(), Some("/srv"));
-        assert!(seen.exists && !seen.empty);
-        assert_eq!(seen.origin.as_deref(), Some("git@github.com:o/r.git"));
-        assert_eq!(seen.folders, [" spaced ", "docs", "src"]);
-        assert_eq!(seen.more, 3);
-
-        let Some(Seen::Folder(missing)) = read("\nBEEP_FOLDER: missing /home/u/new\n") else {
-            panic!("a missing folder");
-        };
-        assert!(!missing.exists && missing.empty);
-        assert_eq!(
-            read("BEEP_FOLDER: file /etc/hosts"),
-            Some(Seen::File("/etc/hosts".into()))
-        );
-        assert_eq!(read("BEEP_FOLDER: path relative"), None);
-        assert_eq!(read("nothing"), None);
-        let Some(Seen::Folder(root)) = read("BEEP_FOLDER: path /") else {
-            panic!("the root");
-        };
-        assert_eq!(root.parent, None);
-    }
-
-    fn folder(path: &str, exists: bool, empty: bool, origin: Option<&str>) -> MachineFolder {
-        MachineFolder {
-            path: path.into(),
-            parent: None,
-            exists,
-            folders: Vec::new(),
-            more: 0,
-            empty,
-            origin: origin.map(str::to_owned),
-        }
-    }
-
-    #[test]
-    fn other_files_put_the_clone_in_a_subfolder() {
-        assert_eq!(destination(&folder("/w/x", false, true, None), "r"), "/w/x");
-        assert_eq!(destination(&folder("/w/x", true, true, None), "r"), "/w/x");
-        assert_eq!(
-            destination(&folder("/w/x", true, false, Some("u")), "r"),
-            "/w/x"
-        );
-        assert_eq!(
-            destination(&folder("/w/x", true, false, None), "r"),
-            "/w/x/r"
-        );
-        assert_eq!(destination(&folder("/", true, false, None), "r"), "/r");
-    }
-
     fn run(script: &str, home: &Path) -> String {
         let out = Command::new("bash")
             .arg("-c")

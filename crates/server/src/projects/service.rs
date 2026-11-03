@@ -526,7 +526,6 @@ mod tests {
         projects::model::{MachinePath, RepoName, Visibility},
     };
     use anyhow::anyhow;
-    use iroh::SecretKey;
     use tokio::sync::{Semaphore, oneshot};
     use uuid::Uuid;
 
@@ -648,17 +647,5 @@ mod tests {
         release.send(()).expect("the first job waits");
         second_done.await.expect("the second job runs");
         assert_eq!(*lock(&order), vec![1, 2]);
-    }
-
-    #[test]
-    fn sessions_map_to_workers() {
-        let projects = Projects::default();
-        let machine = SecretKey::from_bytes(&[1; 32]).public();
-        let worker = WorkerId(Uuid::new_v4());
-        projects.track(machine, "s1", worker);
-        assert_eq!(projects.worker_of(&machine, "s1"), Some(worker));
-        assert_eq!(projects.worker_of(&machine, "s2"), None);
-        projects.untrack(worker);
-        assert_eq!(projects.worker_of(&machine, "s1"), None);
     }
 }

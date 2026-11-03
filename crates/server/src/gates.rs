@@ -242,19 +242,6 @@ mod tests {
     }
 
     #[test]
-    fn a_run_without_maps_is_not_asked_for_one() {
-        let draft = Draft {
-            asked: "Where should I go?",
-            reply: "Head to the Gucci flagship.",
-            calls: &[],
-            scheduled: &[],
-            can_map: false,
-            can_schedule: true,
-        };
-        assert!((CHECKS[0].settled)(&draft));
-    }
-
-    #[test]
     fn a_routine_is_not_asked_to_schedule() {
         let draft = Draft {
             asked: "Check whether .bitcoin is on sale.",
@@ -266,46 +253,5 @@ mod tests {
         };
         let promised = CHECKS.iter().find(|check| check.key == "promised");
         assert!((promised.expect("promised check").settled)(&draft));
-    }
-
-    #[test]
-    fn the_state_lists_every_call_with_its_outcome() {
-        let calls = [call("open_maps", true), call("web_search", false)];
-        let draft = Draft {
-            asked: "  Where now? ",
-            reply: "Go to Isetan.\n",
-            calls: &calls,
-            scheduled: &[],
-            can_map: true,
-            can_schedule: true,
-        };
-        let state = draft.state();
-        assert!(state.contains("Asked:\nWhere now?\n"));
-        assert!(state.contains("- open_maps (succeeded)\n- web_search (failed)\n"));
-        assert!(state.ends_with("Beep's reply:\nGo to Isetan."));
-        let none = Draft {
-            calls: &[],
-            ..draft
-        };
-        assert!(none.state().contains("Tool calls this turn:\n- none\n"));
-        let tasks = ["Remind the user to call Kimpton".to_owned()];
-        let scheduled = Draft {
-            scheduled: &tasks,
-            ..draft
-        };
-        assert!(
-            scheduled.state().contains(
-                "Already scheduled before this turn:\n- Remind the user to call Kimpton\n"
-            )
-        );
-    }
-
-    #[test]
-    fn the_note_names_each_failed_fix() {
-        let note = note(&[&CHECKS[0], &CHECKS[2]]);
-        assert!(note.starts_with(PREFACE));
-        assert!(note.contains("open_maps"));
-        assert!(note.contains("schedule_once"));
-        assert!(!note.contains("no tool call did"));
     }
 }

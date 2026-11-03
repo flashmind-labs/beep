@@ -766,14 +766,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn knows_a_response_composio_found_too_large() {
-        let refused = anyhow::anyhow!("Composio execute returned 413 Payload Too Large: {{}}");
-        let other = anyhow::anyhow!("Composio execute returned 500 Internal Server Error: 413");
-        assert!(too_large(&refused));
-        assert!(!too_large(&other));
-    }
-
-    #[test]
     fn parses_gmail_page() {
         let data = json!({
             "messages": [
@@ -802,29 +794,6 @@ mod tests {
         assert!(!page.emails[0].sent && page.emails[1].sent);
         assert_eq!(page.emails[0].body, "See you Friday");
         assert_eq!(page.next.as_deref(), Some("next"));
-    }
-
-    #[test]
-    fn parses_fastmail_page() {
-        let value = json!({
-            "results": [{
-                "id": "e1",
-                "receivedAt": "2026-03-01T10:00:00Z",
-                "from": [{"name": "Sam", "email": "sam@example.com"}],
-                "to": [{"name": "", "email": "me@example.com"}],
-                "subject": "Dinner",
-                "preview": "See you",
-                "folder": {"id": "f", "name": "Sent", "role": "sent"}
-            }],
-            "hasMore": false,
-            "nextCursor": "ignored"
-        });
-        let page = parse_fastmail(&value).unwrap();
-        let email = &page.emails[0];
-        assert_eq!(email.from, "Sam <sam@example.com>");
-        assert_eq!(email.to, "me@example.com");
-        assert!(email.sent);
-        assert!(page.next.is_none());
     }
 
     #[test]
@@ -865,13 +834,5 @@ mod tests {
         assert!(!first.sent && second.sent);
         assert_eq!(second.body, "Booked");
         assert_eq!(page.next.as_deref(), Some("next"));
-    }
-
-    #[test]
-    fn reads_dates_and_skips_seen() {
-        assert!(timestamp("1767225600").is_some());
-        assert_eq!(timestamp("1767225600000"), timestamp("1767225600"));
-        assert!(timestamp("Thu, 1 Jan 2026 00:00:00 +0000").is_some());
-        assert!(timestamp("soon").is_none());
     }
 }

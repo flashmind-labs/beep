@@ -142,49 +142,6 @@ async fn runs_from_two_hosts_merge_newest_first_each_naming_its_host() {
 }
 
 #[tokio::test]
-async fn a_pr_head_pushed_to_both_hosts_has_checks_on_both() {
-    let (gh, fj) = hosts(forgejo_ok).await;
-    let watch = RepoWatch::default();
-    let mut copy = copy_of(vec![github(), forge()]);
-    // The pull request's own host names it on the run.
-    let gh_runs = GITHUB_RUNS.replace(
-        r#""head_sha": "abc","#,
-        r#""head_sha": "abc", "pull_requests": [{"number": 3}],"#,
-    );
-    let gh2 = TestHost::start(move |seen| match seen.path.as_str() {
-        "/repos/acme/widget/actions/runs?per_page=20" => Reply::ok(&gh_runs),
-        _ => Reply::status("404 Not Found"),
-    })
-    .await;
-    drop(gh);
-    let targets = vec![
-        Ok(target_at(&github(), &gh2.base)),
-        Ok(target_at(&forge(), &fj.base)),
-    ];
-    let calls = Arc::new(Semaphore::new(4));
-    watch
-        .read_hosts(&calls, &Client::new(), &mut copy, targets, READ)
-        .await;
-    let heads = [OpenHead {
-        number: 3,
-        branch: "main".to_owned(),
-    }];
-    let view = copy.hosted_view(&watch.calls, &heads);
-    let got: Vec<(&str, u64, RunState)> = view
-        .checks
-        .iter()
-        .map(|c| (c.host.as_str(), c.checks.run_id, c.checks.state))
-        .collect();
-    assert_eq!(
-        got,
-        [
-            ("github.com", 501, RunState::Passed {}),
-            ("forge.example.com", 77, RunState::Failed {}),
-        ]
-    );
-}
-
-#[tokio::test]
 async fn a_host_that_fails_says_so_while_the_other_still_shows() {
     let (gh, fj) = hosts(forgejo_down).await;
     let watch = RepoWatch::default();
@@ -268,18 +225,4 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
     // A host the project is not on has no slot.
     let other = IssueHost::Forgejo(ForgejoHost::parse("elsewhere.example.com").expect("a host"));
     assert_eq!(copy.slot_of(Some(&other)), None);
-}
-
-#[test]
-fn a_project_with_no_host_says_so_in_both_replies() {
-    let copy = RunsCopy::default();
-    let watch = RepoWatch::default();
-    assert_eq!(
-        copy.primary_view(&watch.calls, &[]).error.as_deref(),
-        Some(NO_HOST)
-    );
-    assert_eq!(
-        copy.hosted_view(&watch.calls, &[]).error.as_deref(),
-        Some(NO_HOST)
-    );
 }

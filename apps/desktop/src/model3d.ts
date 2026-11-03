@@ -1,7 +1,5 @@
-// The media pane's 3D viewer: a glTF, GLB, OBJ or STL model the agent
-// made, drawn with three.js, framed to fit, lit simply, turned with the
-// pointer. Loaded only when a model is first opened, so three.js stays
-// out of the window's start.
+// The media pane's 3D viewer: a glTF, GLB, OBJ or STL model the agent made,
+// drawn with three.js, framed to fit, lit simply, turned with the pointer.
 
 import {
   AmbientLight, type AnimationClip, AnimationMixer, Box3, Color, DirectionalLight, GridHelper, Group, HemisphereLight,

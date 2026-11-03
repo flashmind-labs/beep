@@ -1,8 +1,7 @@
-// Reads done for one project at a time while the user moves between
-// projects: each project's read runs once at a time, its answer is kept
-// under the project it was asked for, and the page redraws only while that
-// project still shows. Also the projects opened last, which the window
-// reads ahead while idle. Pure state, no DOM, so the tests check it.
+// Reads done for one project at a time while the user moves between projects:
+// each project's read runs once at a time, its answer is kept under the
+// project it was asked for, and the page redraws only while that project still
+// shows.
 
 /// What `keyedReads` needs: `read` asks for one project, `got` and
 /// `failed` keep its answer or why it failed, `shown` is the project on
@@ -15,9 +14,7 @@ export interface KeyedReadDeps<T> {
   redraw: () => void;
 }
 
-/// Reads keyed by project. A second ask while one is on its way gets the
-/// same read, unless it needs one that starts after now (`after`, as once
-/// something changed): that runs once when the read on its way ends.
+/// Reads keyed by project.
 export function keyedReads<T>(deps: KeyedReadDeps<T>) {
   const reading = new Map<string, Promise<void>>();
   const next = new Map<string, Promise<void>>();

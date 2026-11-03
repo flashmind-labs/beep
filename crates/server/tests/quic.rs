@@ -182,7 +182,7 @@ impl Harness {
             ServerTools::default(),
             ModelChoices::only("openai:test".parse().unwrap()),
         );
-        let endpoint = iroh::Endpoint::builder(presets::N0)
+        let endpoint = iroh::Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
             .bind()
             .await
@@ -1391,7 +1391,7 @@ async fn a_linked_computer_shares_the_account_until_removed() {
 #[tokio::test]
 async fn a_phone_from_before_hello_is_still_served() {
     let h = Harness::new().await;
-    let endpoint = iroh::Endpoint::builder(presets::N0)
+    let endpoint = iroh::Endpoint::builder(presets::Minimal)
         .secret_key(alice())
         .bind()
         .await

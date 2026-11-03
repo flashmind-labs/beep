@@ -138,9 +138,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
 
 /// Puts `drawn`, the chat's turns as the server lists them, into body `b`
 /// without drawing again what it shows: a turn already there stays the same
-/// element and takes the server's copy in place. A turn drawn live that the
-/// server's copy does not list yet stays at the end. Returns the kept turn
-/// each drawn one stands for.
+/// element and takes the server's copy in place.
 function mergeTurns(b: ChatBody, drawn: Turn[]) {
   const shown = [...b.children].filter(el => el.classList.contains("turn")) as Turn[];
   const kept = new Map<Turn, Turn>(), order: Turn[] = [];
@@ -291,9 +289,7 @@ export function sourceSite(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
 }
 
-/// The web pages a reply used, as chips under it: the site's initial and
-/// name. Past three the rest fold into "+N", which shows them. A click opens
-/// the page in the browser.
+/// The web pages a reply used, as chips under it: the site's initial and name.
 export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
   turn.querySelector(".dsources")?.remove();
   const list = (sources ?? []).map(s => ({ ...s, site: sourceSite(s.url) })).filter(s => s.site);

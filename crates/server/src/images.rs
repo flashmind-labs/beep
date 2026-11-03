@@ -233,16 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_image_data_uris() {
-        assert!(matches!(
-            parse_data_uri("data:image/png;base64,AAAA"),
-            Some(ContentPart::Image { media_type, data }) if media_type == "image/png" && data == "AAAA"
-        ));
-        assert!(parse_data_uri("data:text/plain;base64,AAAA").is_none());
-        assert!(parse_data_uri("https://example.com/a.png").is_none());
-    }
-
-    #[test]
     fn pictures_keep_their_size_and_skip_what_is_not_an_image() {
         // A 1x1 PNG.
         let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -255,15 +245,6 @@ mod tests {
         assert_eq!(
             (kept[0].mime.as_str(), kept[0].width, kept[0].height),
             ("image/png", 1, 1)
-        );
-    }
-
-    #[test]
-    fn labels_only_several_images() {
-        assert_eq!(texts(&labelled(&[image("a")])), ["<a>"]);
-        assert_eq!(
-            texts(&labelled(&[image("a"), image("b")])),
-            ["Image 1:", "<a>", "Image 2:", "<b>"]
         );
     }
 

@@ -2,9 +2,21 @@
 resolver = "3"
 members = ["crates/proto", "crates/server", "crates/android-bridge", "crates/node", "crates/live"]
 
-# Size-tuned build for the Android native library.
+[profile.release]
+strip = true
+
+# The beep-node binaries users download: whole-program optimisation for a
+# smaller binary. Panics still unwind: the node catches them in spawned tasks.
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+
+# Size-tuned build for the Android native library. Keeps the default strip:
+# the Kotlin bindings are generated from the metadata in the built library.
 [profile.android-release]
 inherits = "release"
 opt-level = "z"
 lto = true
 codegen-units = 1
+strip = "debuginfo"

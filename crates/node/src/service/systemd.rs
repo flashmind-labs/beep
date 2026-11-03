@@ -59,7 +59,12 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
-pub(super) fn restart(exe: &Path) -> Result<Restart> {
+pub(super) fn restart() -> Result<()> {
+    systemctl(&["restart", UNIT])
+}
+
+/// What `restart` would do, without doing it.
+pub(super) fn plan(exe: &Path) -> Result<Restart> {
     let path = unit_path()?;
     let unit = match fs::read_to_string(&path) {
         Ok(unit) => unit,
@@ -69,10 +74,15 @@ pub(super) fn restart(exe: &Path) -> Result<Restart> {
     if !runs(&unit, exe) {
         return Ok(Restart::OtherBinary(path));
     }
+    // A unit from an older node gets this one's settings, keeping its
+    // command and PATH.
+    if let Some(newer) = refreshed(&unit) {
+        fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
+        systemctl(&["daemon-reload"])?;
+    }
     if !active() {
         return Ok(Restart::Stopped(Manager::Systemd));
     }
-    systemctl(&["restart", UNIT])?;
     Ok(Restart::Restarted(Manager::Systemd))
 }
 
@@ -98,14 +108,34 @@ pub(super) fn unit_path() -> Result<PathBuf> {
         .join(UNIT))
 }
 
-/// The unit file. `KillMode=mixed` stops only the node at first, so it
-/// closes its agent sessions itself and says they ended with it; what is
-/// left is killed once the node exits.
+/// The unit file.
 fn unit(launch: &Launch) -> String {
     let exec: Vec<String> = std::iter::once(launch.exe.display().to_string())
         .chain(launch.args())
         .map(|arg| quote_arg(&arg))
         .collect();
+    unit_text(&exec.join(" "), &quote(&format!("PATH={}", launch.search)))
+}
+
+/// `unit` written again with this node's settings, from its `ExecStart`
+/// and `PATH`; `None` when it already has them or lacks either line.
+fn refreshed(unit: &str) -> Option<String> {
+    let exec = unit
+        .lines()
+        .find_map(|line| line.strip_prefix("ExecStart="))?;
+    let search = unit
+        .lines()
+        .filter_map(|line| line.strip_prefix("Environment="))
+        .find(|value| value.starts_with("\"PATH="))?;
+    let newer = unit_text(exec, search);
+    (newer != unit).then_some(newer)
+}
+
+/// The unit file around its command line and quoted `PATH=` setting.
+/// `KillMode=mixed` stops only the node at first, so it closes its agent
+/// sessions itself and says they ended with it; what is left is killed
+/// once the node exits.
+fn unit_text(exec: &str, search: &str) -> String {
     format!(
         "[Unit]\n\
          Description=Beep node\n\
@@ -113,17 +143,15 @@ fn unit(launch: &Launch) -> String {
          Wants=network-online.target\n\
          \n\
          [Service]\n\
-         ExecStart={}\n\
+         ExecStart={exec}\n\
          Restart=always\n\
          RestartSec=5\n\
          KillMode=mixed\n\
          TimeoutStopSec=20\n\
-         Environment={}\n\
+         Environment={search}\n\
          \n\
          [Install]\n\
          WantedBy=default.target\n",
-        exec.join(" "),
-        quote(&format!("PATH={}", launch.search)),
     )
 }
 
@@ -225,5 +253,18 @@ mod tests {
             ),
             "{unit}"
         );
+    }
+
+    #[test]
+    fn an_older_unit_is_rewritten_with_its_command_and_path() {
+        let current = unit(&launch(Some("/home/user/work")));
+        assert_eq!(refreshed(&current), None);
+        // What `service install` wrote before KillMode and the node's own
+        // log filter.
+        let older = current
+            .replace("KillMode=mixed\nTimeoutStopSec=20\n", "")
+            .replace("\n\n[Install]", "\nEnvironment=RUST_LOG=info\n\n[Install]");
+        assert_ne!(older, current);
+        assert_eq!(refreshed(&older).as_deref(), Some(current.as_str()));
     }
 }

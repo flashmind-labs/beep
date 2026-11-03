@@ -1,12 +1,6 @@
-// Terminals: commands and shells kept running on the user's machines,
-// apart from any chat, like tmux sessions: the node owns them, so they keep
-// running with the window closed and can be attached to again. A project's
-// board has a Terminals tile and its full view: a tab per terminal, the
-// open one attached live so what is typed goes to it, and a form to start
-// one. The Terminals page (`ALL`) lists every terminal by machine and opens
-// new ones anywhere. center.ts draws the pages; this file keeps the
-// terminals' state. Terminals from before interactive ones are
-// view only: their last lines are read every few seconds instead.
+// Terminals: commands and shells kept running on the user's machines, apart
+// from any chat, like tmux sessions: the node owns them, so they keep running
+// with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
@@ -89,8 +83,6 @@ export interface MachineTerminals<T> {
 }
 
 /// The scope of the Terminals page: every terminal, of any project or none.
-/// Project names are never empty, and a terminal started there has no
-/// project.
 export const ALL = "";
 
 /// What the window hands `makeTerminals`.
@@ -264,9 +256,8 @@ export function retryDelay(tries: number) {
   return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
 }
 
-/// Whether a terminal that ended in `state` is done for good: it exited or
-/// was stopped, or its machine no longer has it. An offline one may still
-/// run.
+/// Whether a terminal that ended in `state` is done for good: it exited or was
+/// stopped, or its machine no longer has it.
 export function endsForGood(state: string) {
   return state === "exited" || state === "stopped" || state === "gone";
 }
@@ -587,8 +578,7 @@ export function makeTerminals(deps: TerminalDeps) {
     });
     go.disabled = t.busy || !places.length;
     const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", anywhere ? "No machine is online" : "No machine has this project yet"));
-    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }),
-      h("small", "", "It keeps running when the window closes. Kill stops it."));
+    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }));
     const form = anywhere
       ? h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
         input("cwd", "Folder", "Empty for the workspace or home folder"),
@@ -686,7 +676,6 @@ export function makeTerminals(deps: TerminalDeps) {
       watch(null);
       if (!t.form) {
         out.push(h("div", "cc-panel cc-empty", h("b", "", t.list?.length ? "Pick a terminal" : "No terminals yet"),
-          h("span", "", "A terminal runs a shell or a command on one of your machines, such as a dev server, and keeps running apart from any chat."),
           button("New terminal", "pri", () => add.click())));
       }
     }
@@ -742,7 +731,6 @@ export function makeTerminals(deps: TerminalDeps) {
       watch(null);
       const any = (t.list || []).length > 0;
       right = h("div", "cc-conn", h("b", "", any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
-        h("span", "why", "Open one on any machine. It keeps running when you close the window, and you can attach again from here or your phone."),
         button("New terminal", "pri", () => newOn(places[0]?.id || null)));
     }
     const out: HTMLElement[] = [];

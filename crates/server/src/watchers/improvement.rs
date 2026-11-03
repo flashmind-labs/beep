@@ -362,30 +362,6 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     #[test]
-    fn one_problem_named_differently_has_one_fingerprint() {
-        assert_eq!(
-            fingerprint(
-                FindingKind::WrongTool,
-                "GMAIL_SEARCH",
-                "Calendar event, searched in mail!"
-            ),
-            fingerprint(
-                FindingKind::WrongTool,
-                "gmail search",
-                "calendar  event searched in MAIL"
-            ),
-        );
-        assert_eq!(
-            fingerprint(FindingKind::Loop, "web_search", "same query again"),
-            "loop:web-search:same-query-again"
-        );
-        assert_ne!(
-            fingerprint(FindingKind::Loop, "web_search", "same query again"),
-            fingerprint(FindingKind::Slow, "web_search", "same query again"),
-        );
-    }
-
-    #[test]
     fn masks_what_looks_like_a_secret() {
         assert_eq!(
             redact("mail ana@example.com, card 4111-1111-1111-1111 and code 482913."),

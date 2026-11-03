@@ -70,8 +70,7 @@ export function rerunClick(e: MouseEvent) {
   return true;
 }
 /// Drops `turn` and every turn after it, then sends its prompt again on
-/// `model`, as the phone's Rerun does. No model is Retry: the prompt goes
-/// again on the account's own pick.
+/// `model`, as the phone's Rerun does.
 export async function rerun(turn: Turn, model: string | null, thinking: string | null) {
   const id = S.session, busy = here();
   if (!id || busy?.run || busy?.approval) return;

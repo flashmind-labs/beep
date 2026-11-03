@@ -3,7 +3,7 @@
 //! Gitea sign in `X-Forgejo-Signature` or `X-Gitea-Signature` as bare hex,
 //! and newer ones send `X-Hub-Signature-256` too.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
 

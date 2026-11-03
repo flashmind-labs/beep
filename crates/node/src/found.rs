@@ -8,7 +8,8 @@
 //! them (`git`), so a session in a subfolder or a worktree counts for the
 //! checkout's main folder. Every read is capped, and all of it is blocking
 //! work for `spawn_blocking`. What a file said is kept (`memo`) until the
-//! file changes, so listing again reads only what changed.
+//! file changes, so listing again reads only what changed. Checkouts no
+//! agent ran in are found by walking home (`disk`).
 
 use crate::agents::cut;
 use beep_proto::{
@@ -29,12 +30,14 @@ use std::{
 
 mod codex;
 mod codex_run;
+mod disk;
 mod flsh;
 mod git;
 mod memo;
 mod opencode;
 mod pi;
 
+pub(crate) use disk::checkouts;
 pub(crate) use git::{Checkout, checkout};
 pub(crate) use memo::Memo;
 
@@ -357,6 +360,31 @@ pub(crate) fn folders(
     });
     out.truncate(limit);
     out
+}
+
+/// Adds to `out` each of `checkouts` it does not hold yet, with no
+/// sessions, until it holds `limit`. `home` is left out.
+pub(crate) fn add_checkouts(
+    out: &mut Vec<SessionFolder>,
+    checkouts: &[Checkout],
+    home: Option<&Path>,
+    limit: usize,
+) {
+    for one in checkouts {
+        if out.len() >= limit {
+            break;
+        }
+        let path = one.root.to_string_lossy();
+        if Some(one.root.as_path()) == home || out.iter().any(|folder| folder.path == path) {
+            continue;
+        }
+        out.push(SessionFolder {
+            path: path.into_owned(),
+            origin: one.origin.clone(),
+            agents: Vec::new(),
+            last_activity: 0,
+        });
+    }
 }
 
 /// Whether `cwd` is `folder` or inside it.
