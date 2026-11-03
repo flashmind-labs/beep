@@ -173,7 +173,7 @@ fn front_matter_end(text: &str) -> usize {
 }
 
 fn sha256(text: &str) -> String {
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    hex::encode(Sha256::digest(text.as_bytes()))
 }
 
 #[cfg(test)]
