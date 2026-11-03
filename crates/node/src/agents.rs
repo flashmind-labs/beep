@@ -448,9 +448,13 @@ impl Agents {
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
-        let ended = self
-            .get(id)
-            .map(|session| session.live.borrow().agent_session.clone());
+        let ours = self.get(id);
+        if let Some(session) = &ours
+            && session.agent != kind.name
+        {
+            anyhow::bail!("session {id} runs {}", session.agent);
+        }
+        let ended = ours.map(|session| session.live.borrow().agent_session.clone());
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
@@ -465,6 +469,7 @@ impl Agents {
         })?;
         let owned = self.owned();
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
+            && session.agent == kind.name
             && session.live.borrow().status() != Status::Ended
         {
             if let Some(text) = prompt {
@@ -1557,6 +1562,33 @@ while read -r line; do reply '{}'; done
         // agent's id that the node looks for, not its own.
         let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
         assert!(err.to_string().contains(id), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_session_resumes_only_on_its_own_agent() {
+        let kind = |name: &str| AgentKind {
+            name: name.into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), "cat > /dev/null".into()],
+            env: BTreeMap::new(),
+        };
+        let (claude, codex) = (kind("claude"), kind("codex"));
+        let agents = Agents::new(vec![claude.clone(), codex.clone()]);
+        let begin = Begin {
+            prompt: None,
+            resume: Some("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b".to_owned()),
+            model: None,
+            effort: None,
+            note: None,
+        };
+        let running = agents.start(&codex, Some("/"), begin).unwrap();
+        let err = agents.resume(&claude, &running.id, None).await.err();
+        assert!(
+            err.is_some_and(|e| e.to_string().contains("runs codex")),
+            "a claude stream took over a codex session"
+        );
+        running.close().await;
     }
 
     #[cfg(unix)]
