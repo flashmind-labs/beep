@@ -3,7 +3,8 @@
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
 import { dbtn as button, emptyPanel, errorNote, fitRows, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
-import { PageCache, backgroundTick, freshness, type PageSection, type SectionStore } from "./pagecache.ts";
+import { MACHINE_REFRESH_MS, PageCache, SWITCH_MS, backgroundTick, freshness, type PageSection, type SectionStore } from "./pagecache.ts";
+import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -1310,6 +1311,7 @@ function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string) {
   clicks.addEventListener("click", open, true);
   clicks.addEventListener("auxclick", open);
   menu.addEventListener("contextmenu", e => openProjectMenu(e, name));
+  prefetchOnHover(clicks, name);
 }
 
 /// The right-click menu of project `name`: a window of its own, and
@@ -2143,7 +2145,7 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   }
   // Once every machine answered, the note says the count instead.
   return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,
-    known && h("small", "", `on ${whereCount(rows, true)}`), freshNote(pageFresh("where", p.name, readingWhere === p.name)));
+    known && h("small", "", `on ${whereCount(rows, true)}`), freshNote(pageFresh("where", p.name, readingWhere.has(p.name))));
 }
 
 /// The coding agents running in the project's folders now.
@@ -2231,7 +2233,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   const tileGroup = (title: string, ...tiles: Node[]) => h("div", "pb-sec", h("h4", "", title), h("div", tiles.length === 3 ? "pb-grid n3" : "pb-grid", ...tiles));
   out.push(
     tileGroup("Work",
-      tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!), fresh: pageFresh("view", p.name, agentLoading) }),
+      tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!), fresh: pageFresh("view", p.name, viewReads.loading(p.name)) }),
       tile("agents", "Agents", agentTile(running, past), openTile, { fresh: pageFresh("sessions", p.name, readingSessions.has(p.name)) }),
       tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile, { fresh: freshness(revs.at(p.name), revs.loading(p.name), now) })),
     tileGroup("Code host",
@@ -2240,7 +2242,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
       tile("actions", "Actions", runs.tile(pid), openTile, { openUrl })),
     tileGroup("Machines",
       tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
-        fresh: pageFresh("where", p.name, readingWhere === p.name),
+        fresh: pageFresh("where", p.name, readingWhere.has(p.name)),
         menu: (r, e) => {
           const m = rows.find(w => w.id === r.id);
           if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
@@ -2287,10 +2289,10 @@ function layoutSwitch() {
 const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 /// The project's terminals; the board's tile and its full view.
-const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects() });
+const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
 
 /// The project's file sync; the board's tile and its full view.
-const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects() });
+const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects(), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews; the Branches tile, its full
 /// list and the review view.
@@ -2334,6 +2336,7 @@ const runs = makeRuns({
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
   mode: liveMode.chip,
+  kept: keptSection("runs"),
 });
 
 /// Every 10 seconds while a project page shows: the runs move on, but only
@@ -2779,37 +2782,130 @@ async function resumeFromBar(s: AgentSession, text: string) {
   }
 }
 
-/// Reads the project agents, then the picked project's tasks, workers and
-/// chat. Never two reads at once: one asked for during a read runs once
-/// more after it.
+/// Each project's tasks, workers and chat, read one at a time per project
+/// and kept under the project they were asked for, so an answer for the
+/// project left behind never draws over the one opened since.
+const viewReads = keyedReads<ProjectView>({
+  read: name => {
+    const agent = agentFor(state.agents, name);
+    if (!agent) return Promise.reject(new Error(`${name} has no project agent`));
+    return invoke<ProjectView>("center_project", { projectId: agent.project_id, chatId: agent.chat_id });
+  },
+  got: (name, view) => {
+    state.pview.set(name, { view, error: null });
+    keep("view", name, view);
+  },
+  failed: (name, e) => state.pview.set(name, { view: state.pview.get(name)?.view ?? null, error: failure(e) }),
+  shown: () => (shown === "projects" ? state.picked : null),
+  redraw: redrawProjectsPage,
+});
+
+/// Reads project `name`'s view when it has an agent; `after` asks for a
+/// read that starts after now, as once something changed.
+function loadView(name: string, after = false) {
+  return agentFor(state.agents, name) ? viewReads.load(name, after) : undefined;
+}
+
+/// Reads the project agents and, beside them, the picked project's tasks,
+/// workers and chat. Never two reads of the list at once: one asked for
+/// during a read runs once more after it. `after` is false for the
+/// window's own refresh, which takes a view read already on its way.
 let agentLoading = false, agentAgain = false;
-async function loadProjectAgent() {
+async function loadProjectAgent(after = true) {
   if (agentLoading) { agentAgain = true; return; }
   agentLoading = true;
+  const picked = state.picked;
+  const early = picked ? loadView(picked, after) : undefined;
   try {
-    try {
-      state.agents = await invoke<ProjectAgent[] | null>("center_projects");
-    } catch (e) {
-      console.warn("project agents:", e);
-      if (state.agents === undefined) state.agents = null;
-    }
-    const agent = agentFor(state.agents, state.picked);
-    if (agent) {
-      const was = state.pview.get(agent.name);
-      try {
-        const view = await invoke<ProjectView>("center_project", { projectId: agent.project_id, chatId: agent.chat_id });
-        state.pview.set(agent.name, { view, error: null });
-        keep("view", agent.name, view);
-      } catch (e) {
-        state.pview.set(agent.name, { view: was?.view ?? null, error: failure(e) });
-      }
-    }
+    state.agents = await invoke<ProjectAgent[] | null>("center_projects");
+  } catch (e) {
+    console.warn("project agents:", e);
+    if (state.agents === undefined) state.agents = null;
   } finally {
     agentLoading = false;
   }
+  // A project whose agent was not known before reads now.
+  if (state.picked && (state.picked !== picked || !early)) loadView(state.picked);
   // The header's Board and List switch shows once the project has an agent.
   redrawProjectsPage();
   if (agentAgain) { agentAgain = false; loadProjectAgent(); }
+}
+
+// ---------- Switching projects ----------
+
+/// The projects opened last, newest first, kept for next time.
+const RECENT_KEY = "beep.center.recentProjects";
+let recent: string[] = [];
+try { recent = parseRecent(localStorage.getItem(RECENT_KEY)); } catch {}
+
+function noteRecent(name: string) {
+  recent = touchRecent(recent, name);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent)); } catch {}
+}
+
+/// On opening project `name`, behind what the page drew from the cache:
+/// its view at once rather than after Home, and what the server keeps of
+/// its code host once that is `SWITCH_MS` old, so issues closed or opened
+/// and new runs show. The drawing asks for the rest as it is due.
+function revalidate(name: string) {
+  loadView(name);
+  const agent = agentFor(state.agents, name);
+  if (agent) {
+    thr.ensure(agent.project_id, SWITCH_MS);
+    runs.ensure(agent.project_id, SWITCH_MS);
+  }
+  terms.ensure(name);
+  fsync.ensure(name);
+  if (sessionsDue.has(name) || !state.sessions.has(name)) loadSessions(name);
+}
+
+/// Reads project `name` ahead, as opening it would, without drawing it:
+/// only what is due, so pointing at projects never asks more often than
+/// opening them would.
+function prefetch(name: string): Promise<unknown> {
+  const p = (projectRows() || []).find(r => r.name === name);
+  if (!p?.imported) return Promise.resolve();
+  const agent = agentFor(state.agents, name);
+  const reads: (Promise<unknown> | undefined)[] = [revs.ensure(name), terms.ensure(name), fsync.ensure(name, MACHINE_REFRESH_MS)];
+  if (agent) {
+    if (pages.due("view", name, MACHINE_REFRESH_MS)) reads.push(loadView(name));
+    // The code host's lists at their own pace: an ask keeps the server
+    // reading the host for that project a while.
+    reads.push(thr.ensure(agent.project_id), runs.ensure(agent.project_id));
+  }
+  if (pages.due("where", name)) reads.push(loadWhere(name));
+  if (pages.due("sessions", name)) reads.push(loadSessions(name));
+  return Promise.allSettled(reads);
+}
+
+/// How long the pointer rests on a project before it is read ahead.
+const HOVER_MS = 150;
+/// How long after a project opens, the window idle, the projects opened
+/// last are read ahead.
+const IDLE_PREFETCH_MS = 4000;
+
+/// Reads project `name` ahead once the pointer rests on `el`.
+function prefetchOnHover(el: HTMLElement, name: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  el.addEventListener("mouseenter", () => { timer = setTimeout(() => prefetch(name), HOVER_MS); });
+  el.addEventListener("mouseleave", () => clearTimeout(timer));
+}
+
+/// Reads the projects opened last ahead, one after another, while the
+/// window shows; one round at a time.
+let prefetching = false, idleTimer: ReturnType<typeof setTimeout> | undefined;
+function prefetchRecentSoon() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => {
+    if (prefetching || !onScreen()) return;
+    prefetching = true;
+    try {
+      const names = new Set((projectRows() || []).map(r => r.name));
+      for (const name of prefetchOrder(recent, state.picked, n => names.has(n))) await prefetch(name);
+    } finally {
+      prefetching = false;
+    }
+  }, IDLE_PREFETCH_MS);
 }
 
 /// A project's checkout on each machine, for the start form.
@@ -2851,13 +2947,13 @@ function whereRow(p: Project, m: WhereRow) {
 /// Asks the server where `name` lives on each machine; while it looks
 /// through one, it asks again shortly. A folder it finds brings that
 /// machine's sessions with it.
-let readingWhere: string | null = null;
+const readingWhere = new Set<string>();
 let whereTimer: ReturnType<typeof setTimeout> | undefined;
 /// Projects whose kept places are due another read on the next draw.
 const whereDue = new Set<string>();
 async function loadWhere(name: string) {
-  if (readingWhere === name) return;
-  readingWhere = name;
+  if (readingWhere.has(name)) return;
+  readingWhere.add(name);
   whereDue.delete(name);
   const before = state.where.get(name);
   // A kept list shows a spinner in its header meanwhile.
@@ -2872,7 +2968,7 @@ async function loadWhere(name: string) {
   } catch (e) {
     console.warn("project machines:", e);
   } finally {
-    readingWhere = null;
+    readingWhere.delete(name);
   }
   // A failed read keeps the last list it had.
   if (got || !before) state.where.set(name, got);
@@ -2882,8 +2978,8 @@ async function loadWhere(name: string) {
     sessionsDue.add(name);
     refresh();
   }
-  clearTimeout(whereTimer);
-  if (got?.some(m => m.checking)) {
+  if (state.picked === name) clearTimeout(whereTimer);
+  if (got?.some(m => m.checking) && state.picked === name) {
     whereTimer = setTimeout(() => {
       if (shown === "projects" && state.picked === name) loadWhere(name);
     }, 3000);
@@ -3113,11 +3209,14 @@ registerView("projects", {
       warm(state.picked);
       if (pages.due("sessions", state.picked)) sessionsDue.add(state.picked);
       if (pages.due("where", state.picked)) whereDue.add(state.picked);
+      noteRecent(state.picked);
     }
     openTile(null, false);
     drawProjects(el);
-    if (!state.picked) { loadFound(); loadOverview(); }
+    if (state.picked) revalidate(state.picked);
+    else { loadFound(); loadOverview(); }
     refresh();
+    prefetchRecentSoon();
   },
   unmount() {
     openTile(null, false);
@@ -3628,7 +3727,7 @@ async function refresh() {
     drawProjects(projectsEl());
     drawTop();
     if (state.picked) {
-      loadProjectAgent();
+      loadProjectAgent(false);
       tickRepo(state.picked);
       const p = filterProjects(projectRows() || [], state.picked)[0];
       if (p && boardOn(p) && onScreen()) terms.load(state.picked);

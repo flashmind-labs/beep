@@ -6,11 +6,11 @@
 // Pure state, no DOM, so the tests check it.
 
 /// A project page section the cache keeps: the project chat's view, where
-/// the project lives, its agent sessions, its pull requests and issues, and
-/// its branches.
-export type PageSection = "view" | "where" | "sessions" | "threads" | "branches";
+/// the project lives, its agent sessions, its pull requests and issues, its
+/// branches, its workflow runs, its terminals and its file sync.
+export type PageSection = "view" | "where" | "sessions" | "threads" | "branches" | "runs" | "terminals" | "filesync";
 
-const SECTIONS: readonly PageSection[] = ["view", "where", "sessions", "threads", "branches"];
+const SECTIONS: readonly PageSection[] = ["view", "where", "sessions", "threads", "branches", "runs", "terminals", "filesync"];
 
 /// One kept answer: the data, when it was read, and when it was last read
 /// or used, which decides what goes first once the cache is too big.
@@ -37,6 +37,12 @@ export const REFRESH_MS = 3 * 60_000;
 /// the code host, and change as agents start, so they read sooner.
 export const MACHINE_REFRESH_MS = 60_000;
 
+/// Opening a project reads what the server keeps of its code host (pull
+/// requests, issues, runs) again once it is this old, so an issue closed
+/// or a run started since shows. It is the server's copy: the host itself
+/// is read at most every few minutes whatever the window asks.
+export const SWITCH_MS = 20_000;
+
 /// Each section's `REFRESH_MS` or `MACHINE_REFRESH_MS`. The project
 /// chat's view follows the window's own refresh, so it is never due here.
 export const REFRESH: Record<PageSection, number> = {
@@ -45,6 +51,9 @@ export const REFRESH: Record<PageSection, number> = {
   sessions: MACHINE_REFRESH_MS,
   threads: REFRESH_MS,
   branches: REFRESH_MS,
+  runs: MACHINE_REFRESH_MS,
+  terminals: MACHINE_REFRESH_MS,
+  filesync: MACHINE_REFRESH_MS,
 };
 /// Answers kept at most, across every project and section.
 export const MAX_SLOTS = 150;
@@ -110,8 +119,9 @@ export interface SectionStore<T> {
   put(id: string, data: T): void;
   /// When it was read, undefined for never.
   at(id: string): number | undefined;
-  /// Whether it is time to read it again.
-  due(id: string): boolean;
+  /// Whether it is time to read it again, `every` after the last read
+  /// (the section's own time by default).
+  due(id: string, every?: number): boolean;
 }
 
 export class PageCache {
@@ -217,7 +227,7 @@ export class PageCache {
       get: id => this.get<T>(section, id),
       put: (id, data) => this.put(section, id, data),
       at: id => this.at(section, id),
-      due: id => this.due(section, id),
+      due: (id, every) => this.due(section, id, every),
     };
   }
 }
