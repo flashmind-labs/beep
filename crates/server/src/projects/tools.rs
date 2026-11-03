@@ -1295,16 +1295,18 @@ async fn on_home(
 /// planned. Says what happened.
 pub(crate) async fn drop_task(
     fleet: &dyn Fleet,
-    user: &User,
+    user: &Arc<User>,
     project: &ProjectRow,
     task: &TaskRow,
 ) -> Result<String> {
     user.set_task_state(task.id, TaskState::Dropped).await?;
     for worker in user.live_workers().await? {
         if worker.task == task.id {
-            super::worker::stop_worker_on(fleet, user, &worker).await?;
+            super::worker::end_worker(fleet, user, &worker).await?;
         }
     }
+    // The slot its worker held may start a queued task.
+    super::lifecycle::refill(fleet, user).await;
     let mut text = format!("Dropped {}.", task.slug);
     if let Some(issue) = task.issue.as_ref().filter(|_| task.issue_foreign) {
         let _ = write!(

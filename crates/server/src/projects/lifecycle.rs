@@ -936,6 +936,14 @@ async fn remove_worktree(
     Ok(())
 }
 
+/// [`fill_slots`] after something freed a slot. The thing that freed it is
+/// done either way, so a failure here is only logged.
+pub(crate) async fn refill(fleet: &dyn Fleet, user: &Arc<User>) {
+    if let Err(error) = fill_slots(fleet, user).await {
+        log::warn!("projects: queued tasks not started: {error:#}");
+    }
+}
+
 /// Starts the user's queued tasks, oldest first, until one finds the user's
 /// slots full.
 pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()> {
