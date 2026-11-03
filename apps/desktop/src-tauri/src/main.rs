@@ -558,6 +558,7 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
                 query_id: query_id.to_owned(),
             };
             let _ = app.emit("work-resolved", resolved);
+            voice.withdrawn(query_id);
             continue;
         }
         if notice.group {
@@ -583,6 +584,10 @@ async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut n
         ) {
             continue;
         }
+        // While live mode is on in the orb, an approval asks there.
+        let Some(notice) = voice.approval_notice(notice) else {
+            continue;
+        };
         match voice.wants(&notice) {
             NoticeVoice::Aloud => {
                 tauri::async_runtime::spawn(voice.clone().speak_notice(notice));

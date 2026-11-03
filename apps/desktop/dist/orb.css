@@ -26,8 +26,10 @@
 .oask .kv { grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 8px 11px 0; font-size: 12px; line-height: 17px }
 .oask .kv span, .oask .kv span:nth-child(even) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-height: none }
 .oask .more { padding: 3px 11px 0; font-size: 11.5px; color: var(--dim) }
-.oask .acts { flex-wrap: nowrap; gap: 6px; padding: 10px 11px 11px }
+.oask .acts { flex-wrap: wrap; gap: 6px; padding: 10px 11px 11px }
 .oask .acts .dbtn { flex: 1; justify-content: center; min-height: 26px; padding: 0 8px; font-size: 12px }
+/* Allow for this session takes the row under Allow, Always and Deny. */
+.oask .acts .dbtn.wide { flex-basis: 100% }
 .oask .err { padding: 8px 11px 0; font-size: 12px; color: var(--err) }
 /* A short note under the orb: a toast, "Let go to send" while Option is
    held, "Sending..." while the last words come in. */
