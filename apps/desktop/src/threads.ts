@@ -9,6 +9,7 @@ import { agentLabel, reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { TileData } from "./board.ts";
+import { plural } from "./components/format.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -159,7 +160,7 @@ export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "la
   const out = [`opened by ${i.author || "someone"}`];
   if (i.opened_at) out.push(ago(i.opened_at));
   out.push(...(i.labels || []));
-  if (i.comments) out.push(`${i.comments} ${i.comments === 1 ? "comment" : "comments"}`);
+  if (i.comments) out.push(plural(i.comments, "comment", "comments"));
   return out.join(" · ");
 }
 

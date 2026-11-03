@@ -1,5 +1,6 @@
 import { $, $$, bar, esc, h, ICON, invoke, listen, S } from "./core.ts";
 import { hints } from "./hints.ts";
+import { plural } from "../components/format.ts";
 
 // ---------- Apps ----------
 
@@ -195,7 +196,7 @@ export function drawServers(servers: McpServer[]) {
   const row = (m: McpServer) => {
     const end = A.waiting === m.id ? waitingFor("data-mcancel")
       : A.busy === m.id ? SPIN
-      : m.connected ? `<span class="dtag ok">${m.tools.length === 1 ? "1 tool" : `${m.tools.length} tools`}</span><span class="dmuted">${ICON.chev}</span>`
+      : m.connected ? `<span class="dtag ok">${plural(m.tools.length, "tool", "tools")}</span><span class="dmuted">${ICON.chev}</span>`
       : `<span class="dtag ask">${m.sign_in ? "Sign-in expired" : "Not connected"}</span><button class="dbtn pri" data-mconnect="${esc(m.id)}">${m.sign_in ? "Sign in" : "Retry"}</button>`
         + `<button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
     const open = m.connected && A.waiting !== m.id && A.busy !== m.id ? ` data-mopen="${esc(m.id)}" role="button" tabindex="0"` : "";

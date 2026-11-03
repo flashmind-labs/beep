@@ -10,6 +10,7 @@ import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "./board.ts";
+import { plural } from "./components/format.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
 export interface BranchRow {
@@ -167,7 +168,6 @@ export function reviewState(r: Pick<ReviewView, "merge" | "pr" | "shards" | "fin
 /// The pill's words for each state.
 export const STATE_LABEL: Record<ReviewState, string> = { running: "Reviewing", blocked: "Blocked", changes: "Needs changes", ready: "Ready" };
 
-function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 
 /// What to say when the branch moved since the review, from what
 /// `CheckBranchReview` gave; "" when it did not, or is not known yet.

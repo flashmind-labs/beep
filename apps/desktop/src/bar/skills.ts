@@ -1,6 +1,7 @@
 import { $$, bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
 import { arrowKey, clampSel, confirmKey, confirmRow, dayDiff, emptyPage, errLine, type ListState, loadList, readDay } from "./memories.ts";
+import { plural } from "../components/format.ts";
 
 // ---------- Skills ----------
 
@@ -55,7 +56,7 @@ export function skillUsed(iso: string | null) {
 }
 export function skillMeta(k: Skill) {
   if (!k.enabled) return "Paused";
-  const uses = k.uses === 1 ? "1 use" : `${k.uses} uses`;
+  const uses = plural(k.uses, "use", "uses");
   return [skillUsed(k.last_used), uses, k.edited && "edited by you"].filter(Boolean).join(" · ");
 }
 
@@ -86,7 +87,7 @@ export function drawSkills(): void {
   clampSel(K);
   if (ONE.has(K.mode)) return drawSkill();
   const paused = K.list.filter(k => !k.enabled).length;
-  const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [`${K.list.length} ${K.list.length === 1 ? "skill" : "skills"}`, paused && `${paused} paused`].filter(Boolean).join(", ");
+  const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [plural(K.list.length, "skill", "skills"), paused && `${paused} paused`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Skills</b><small>${sum}</small></span></div>`;
   if (K.loaded && !K.list.length) {
     bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "When Beep works out how you like something done, like booking a court or a weekly summary, it writes it down here and does it your way next time.", "", ";max-width:44ch")
