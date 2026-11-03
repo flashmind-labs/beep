@@ -2482,12 +2482,18 @@ const pc = {
   target: null as BarTarget | null,
 };
 
+/// The tallest the bar's field grows before it scrolls, in pixels.
+const BAR_FIELD_MAX = 200;
+
 const projectComp = (() => {
-  const input = h("input");
-  input.type = "text";
+  // A field that wraps and grows with what is typed, like a chat's:
+  // Enter starts, Shift+Enter adds a line.
+  const input = h("textarea");
+  input.rows = 1;
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "Task for a coding agent");
+  input.title = "Enter starts, Shift+Enter adds a line";
   const machine = h("button", "pill");
   machine.type = "button";
   machine.title = "The machine it runs on";
@@ -2522,6 +2528,12 @@ const projectComp = (() => {
   const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, fresh, send);
   const form = h("form", "cc-pjc", h("div", "box", input, row, pick), h("span", "note", BAR_NOTE), err);
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
+  input.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    form.requestSubmit();
+  });
+  input.addEventListener("input", () => growBarField(input));
   machine.addEventListener("click", e => {
     const p = barProject();
     if (!p) return;
@@ -2601,6 +2613,15 @@ function loadProjectBar(name: string) {
   }
 }
 
+/// Fits the bar's field to its text, up to BAR_FIELD_MAX, then it scrolls.
+/// Only once it is on screen: before that it measures nothing.
+function growBarField(input: HTMLTextAreaElement) {
+  if (!input.isConnected) return;
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, BAR_FIELD_MAX)}px`;
+  input.style.overflowY = input.scrollHeight > BAR_FIELD_MAX ? "auto" : "hidden";
+}
+
 /// Points the bar at project `name`: its field, machine, folder and harness.
 function drawProjectComp(name: string) {
   const c = projectComp;
@@ -2618,6 +2639,8 @@ function drawProjectComp(name: string) {
   if (p && !place && pc.machine !== "auto" && pc.hosts) place = barPlace(p.places, pc.hosts, "auto");
   const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
   c.input.placeholder = barPrompt(name, !!place || pc.hosts === null);
+  // Text set or cleared from code (Work on it, a start) fits once drawn.
+  requestAnimationFrame(() => growBarField(c.input));
   c.machine.replaceChildren(place ? place.machine_name : pc.machine === "auto" ? "Auto" : "No checkout", ...(place?.auto ? [" ", h("small", "", "Auto")] : []));
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
