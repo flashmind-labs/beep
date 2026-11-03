@@ -63,6 +63,8 @@ test("the footer says where typing goes", () => {
   assert.equal(linkLabel("attached", false, "build-box"), "Attached: what you type goes to build-box");
   assert.equal(linkLabel("attached", true, "build-box"), "Watching: typing is off");
   assert.equal(linkLabel("detached", false, "build-box"), "Detached: it keeps running");
+  assert.equal(linkLabel("attaching", false, "build-box"), "Attaching…");
+  assert.equal(linkLabel("attaching", false, "build-box", 2), "Reconnecting to build-box…");
 });
 
 test("every machine lists its terminals, and a removed one's go last", () => {

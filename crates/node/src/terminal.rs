@@ -173,10 +173,22 @@ impl Live {
         lock(&self.screen).state.is_running()
     }
 
-    fn resize(&self, size: Size) {
-        if let Err(e) = lock(&self.master).resize(pty_size(size)) {
-            log::debug!("could not resize terminal {}: {e:#}", self.id);
+    /// Sizes the terminal to `size`, unless it already is: a resize makes
+    /// some shells draw their prompt again, and every attach sends one.
+    /// Returns whether it changed.
+    fn resize(&self, size: Size) -> bool {
+        let master = lock(&self.master);
+        if master
+            .get_size()
+            .is_ok_and(|now| now.cols == size.cols && now.rows == size.rows)
+        {
+            return false;
         }
+        if let Err(e) = master.resize(pty_size(size)) {
+            log::debug!("could not resize terminal {}: {e:#}", self.id);
+            return false;
+        }
+        true
     }
 
     /// Hands typed keys to the writer; dropped when the terminal is not
@@ -551,7 +563,9 @@ async fn attach(live: Arc<Live>, from: u64, mut tx: LinkTx, mut rx: LinkRx) -> R
                 Ok(Some(Request::Input { data })) => {
                     log::debug!("dropped {} bytes of input past the limit", data.len());
                 }
-                Ok(Some(Request::Resize { size })) => live.resize(size),
+                Ok(Some(Request::Resize { size })) => {
+                    live.resize(size);
+                }
                 Ok(Some(other)) => log::debug!("ignored {other:?} on an attached terminal"),
                 // The server detached.
                 Ok(None) | Err(_) => return Ok(()),
@@ -633,7 +647,14 @@ mod tests {
         let live = terminals.live(id).expect("the terminal is kept");
         live.type_keys(b"hello\r".to_vec());
         wait_for_output(&live, "got:hello").await;
-        live.resize(Size { cols: 50, rows: 10 });
+        assert!(
+            live.resize(Size { cols: 50, rows: 10 }),
+            "a new size applies"
+        );
+        assert!(
+            !live.resize(Size { cols: 50, rows: 10 }),
+            "the same size again is left alone, so the shell does not redraw"
+        );
         let size = lock(&live.master).get_size().expect("a size");
         assert_eq!((size.cols, size.rows), (50, 10));
         let Reply::Stopped { task } = terminals.answer(Request::Stop { id }).await else {
