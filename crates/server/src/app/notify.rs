@@ -1,6 +1,6 @@
 //! Notices for finished scheduled runs.
 
-use super::{App, UserNotice};
+use super::{App, Reach, UserNotice};
 use crate::{
     protocol::{Notice, Run},
     store::RunStatus,
@@ -51,6 +51,7 @@ impl App {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         };
         // Best-effort: ignore send errors (no active receivers).
         let _ = self.notifications.send(notice);

@@ -276,7 +276,7 @@ export function runningLine(
 ) {
   if (r.kind === "research") return { title: r.topic, sub: `Research · round ${r.round}` };
   const ag = agentOf(r.agent), project = repoOf(r, projects);
-  return { title: r.title || project || ag.name, sub: [ag.name, project, r.machine_name].filter(Boolean).join(" · ") };
+  return { title: r.title || project || ag.name, sub: [project, r.machine_name].filter(Boolean).join(" · ") };
 }
 
 /// When a Running now row last moved: an agent's last step or reply (its
