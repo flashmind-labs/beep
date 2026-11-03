@@ -106,11 +106,21 @@ export function machinesWith(machines: ToolMachine[] | null, tool: string) {
   return machines.filter(m => m.env?.tools?.some(t => t.name === tool)).map(m => m.name);
 }
 
-/// "gh on build-box, mac-box", or "" when the machines are not known.
-export function toolLine(cli: string, machines: ToolMachine[] | null) {
+/// Where a CLI is, as one short chip: "gh on build-box" or "gh on 3
+/// machines" with their names as `title`, or null when the machines are
+/// not known.
+export function toolChip(cli: string, machines: ToolMachine[] | null) {
   const on = machinesWith(machines, cli);
-  if (on === null) return "";
-  return on.length ? `${cli} on ${on.join(", ")}` : `${cli} on no machine yet`;
+  if (on === null) return null;
+  if (!on.length) return { text: `${cli} on no machine yet`, title: "" };
+  return { text: on.length === 1 ? `${cli} on ${on[0]}` : `${cli} on ${on.length} machines`, title: on.join(", ") };
+}
+
+/// The orgs shown as chips: the first `max`, and the rest folded into one
+/// "+N" chip.
+export function foldOrgs(orgs: readonly string[] | null | undefined, max = 3) {
+  const all = orgs ?? [];
+  return all.length > max ? { shown: all.slice(0, max), more: all.slice(max) } : { shown: [...all], more: [] };
 }
 
 export type Draft = { error: string; credential?: undefined } | { credential: NewCredential; error?: undefined };
@@ -174,6 +184,11 @@ export function cliHost(key: string) {
 
 const sm = 'style="font-size:11.5px;padding:2px 8px;min-height:24px"';
 
+const GITHUB_ICON = `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>`;
+const FORGEJO_ICON = `<svg viewBox="0 0 212 212" width="15" height="15" aria-hidden="true"><g fill="none" transform="translate(6 6)"><path d="M58 168V70a50 50 0 0 1 50-50h20" stroke="#f60" stroke-width="25"/><path d="M58 168v-30a50 50 0 0 1 50-50h20" stroke="#d40000" stroke-width="25"/><circle cx="142" cy="20" r="18" stroke="#f60" stroke-width="15"/><circle cx="142" cy="88" r="18" stroke="#d40000" stroke-width="15"/><circle cx="58" cy="180" r="18" stroke="#d40000" stroke-width="15"/></g></svg>`;
+const EDIT_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
+const REMOVE_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>`;
+
 /// What the inline form shows above and under its fields.
 interface FormText {
   title: string;
@@ -213,10 +228,29 @@ function shown(esc: Esc, cred: { last4: string; unreadable?: boolean }, what: st
 /// A link that opens in the browser.
 const link = (esc: Esc, href: string, text: string) => `<a href="${esc(href)}" data-cred-open="${esc(href)}" style="color:var(--emerald)">${esc(text)}</a>`;
 const code = (text: string) => `<code style="font-size:11px">${text}</code>`;
-/// A muted line under a row's name.
-const note = (html: string) => `<span style="font-size:11.5px;color:var(--muted);padding-left:15px">${html}</span>`;
+/// A muted line in a row.
+const note = (html: string) => `<span style="font-size:11.5px;color:var(--muted)">${html}</span>`;
 /// Why a sign-in was refused, under its row.
-const rowError = (esc: Esc, error: string | undefined) => error ? `<span class="derr" style="padding-left:15px">${esc(error)}</span>` : "";
+const rowError = (esc: Esc, error: string | undefined) => error ? `<span class="derr">${esc(error)}</span>` : "";
+
+/// A short chip on a git host's second line. `kind` is `warn` for a
+/// problem worth a look and `err` for one that stops the host working.
+const chip = (esc: Esc, text: string, title = "", kind = "") =>
+  `<span class="dgchip${kind ? ` ${kind}` : ""}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`;
+
+/// The chip for where a CLI is, or "" when the machines are not known.
+function cliChip(esc: Esc, cli: string, machines: ToolMachine[] | null) {
+  const c = toolChip(cli, machines);
+  return c ? chip(esc, c.text, c.title) : "";
+}
+
+/// A small icon button with its label as tooltip, carrying `attr`.
+const iconButton = (esc: Esc, icon: string, label: string, attr: string) =>
+  `<button class="dbtn quiet dico" title="${esc(label)}" aria-label="${esc(label)}" ${attr}>${icon}</button>`;
+/// Replace and Remove for a saved host, as icon buttons.
+const editRemove = (esc: Esc, what: string, editKey: string, id: string) =>
+  iconButton(esc, EDIT_ICON, `Replace the token for ${what}`, `data-cred-edit="${esc(editKey)}"`)
+  + iconButton(esc, REMOVE_ICON, `Remove ${what}`, `data-cred-remove="${esc(id)}"`);
 
 /// "Use gh sign-in", or "Checking…" while it is being saved.
 const useButton = (esc: Esc, key: string, label: string, busy: boolean) =>
@@ -228,8 +262,33 @@ function ghWaiting(esc: Esc, flow: GhFlow) {
   const entry = flow.code
     ? `<span>Enter code <code style="font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:.1em;user-select:all;-webkit-user-select:all;cursor:text">${esc(flow.code)}</code> on ${link(esc, flow.url, "GitHub")}${flow.copied ? `<span style="color:var(--muted)"> (copied)</span>` : ""}</span>`
     : "";
-  return `<div style="margin-left:15px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;display:grid;gap:6px">${entry}
+  return `<div style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;display:grid;gap:6px">${entry}
     <span style="display:flex;gap:6px;align-items:center;color:var(--muted)"><span class="dspin"></span>${flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>`;
+}
+
+/// One git host's row. Line 1: icon, name, the account (a login or what
+/// stands for one), a tag and the buttons. Under it the chips, then any
+/// help, body and error.
+interface GitRow {
+  icon: string;
+  name: string;
+  /// Plain text, such as `@octo-one` or `gh on this Mac as @octo-one`.
+  account?: string;
+  /// Html, such as the default chip.
+  tag?: string;
+  /// Dims the icon when nothing usable is saved.
+  usable: boolean;
+  acts: string;
+  /// Html chips for the second line.
+  chips?: string;
+  /// Html under the chips.
+  more?: string;
+}
+
+function gitRow(esc: Esc, { icon, name, account, tag, usable, acts, chips, more }: GitRow) {
+  return `<div class="dgit${usable ? "" : " off"}"><span class="ic">${icon}</span>
+    <div class="l1"><b>${esc(name)}</b>${account ? `<span class="acct">${esc(account)}</span>` : ""}${tag ?? ""}<span class="acts">${acts}</span></div>
+    ${chips ? `<div class="l2">${chips}</div>` : ""}${more ?? ""}</div>`;
 }
 
 /// What a git host row offers when nothing usable is saved: the account
@@ -280,6 +339,7 @@ interface RowState {
 /// saved; `cliKey` adds "Use <cli> sign-in" to a saved row the server can
 /// no longer open.
 interface HostRow extends Partial<RowState> {
+  icon: string;
   name: string;
   cred?: Credential;
   cli: string;
@@ -289,22 +349,21 @@ interface HostRow extends Partial<RowState> {
   cliKey?: string;
 }
 
-/// One git host: name, login, last 4 and where its CLI is.
-function hostRow(esc: Esc, { name, cred, cli, machines, editKey, offer, cliKey, busy, error }: HostRow) {
-  const usable = cred && !cred.unreadable;
-  const line = [cred ? shown(esc, cred, "token") : "", esc(toolLine(cli, machines))].filter(Boolean).join(" · ");
-  const account = usable
-    ? cred.account ? `@${cred.account}` : "not checked: the server could not reach it"
-    : offer?.account ?? "";
+/// One git host: icon, name and login, then where its CLI is.
+function hostRow(esc: Esc, { icon, name, cred, cli, machines, editKey, offer, cliKey, busy, error }: HostRow) {
+  const usable = !!cred && !cred.unreadable;
+  const unchecked = usable && !cred.account;
+  const account = usable ? (cred.account ? `@${cred.account}` : "") : offer?.account ?? "";
   const use = cliKey && !usable ? useButton(esc, cliKey, `Use ${cli} sign-in`, !!busy) : "";
   const acts = cred
-    ? `${use}<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove ${esc(name)}">Remove</button>`
+    ? use + editRemove(esc, name, editKey, cred.id)
     : offer?.acts ?? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
+  const chips = (cred?.unreadable ? chip(esc, "Re-enter this token", "", "err") : "")
+    + (unchecked ? chip(esc, "not checked: the server could not reach it", "", "warn") : "")
+    + cliChip(esc, cli, machines);
   const help = !usable && offer?.help ? note(offer.help) : "";
   const body = !usable && offer?.body ? offer.body : "";
-  return `<div style="padding:9px 0;border-bottom:1px solid var(--border);display:grid;gap:3px;font-size:13px">
-    <div style="display:flex;align-items:center;gap:8px;min-width:0"><span class="ddot${cred ? "" : " off"}"></span><b style="font-weight:600">${esc(name)}</b>${account ? `<span style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(account)}</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px;flex:none">${acts}</span></div>
-    ${line ? note(line) : ""}${help}${body}${rowError(esc, error)}</div>`;
+  return gitRow(esc, { icon, name, account, usable, acts, chips, more: help + body + rowError(esc, error) });
 }
 
 /// One provider's API key row.
@@ -340,7 +399,7 @@ const ghUse = (esc: Esc, login: string, busy: boolean) =>
 
 /// The gh accounts on this Mac, one line each with Use.
 function ghChoiceRows(esc: Esc, choices: { login: string; active?: boolean }[], cliBusy: string | undefined) {
-  return choices.map(g => `<div style="display:flex;align-items:center;gap:8px;padding-left:15px;font-size:12.5px"><span style="color:var(--muted)">gh on this Mac as @${esc(g.login)}</span>${g.active ? `<span style="font-size:10.5px;color:var(--dim)">active</span>` : ""}<span style="margin-left:auto">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
+  return choices.map(g => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px"><span style="color:var(--muted)">gh on this Mac as @${esc(g.login)}</span>${g.active ? `<span style="font-size:10.5px;color:var(--dim)">active</span>` : ""}<span style="margin-left:auto">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
 }
 
 /// What an account row needs besides the account.
@@ -349,20 +408,25 @@ interface AccountRowState extends RowState {
   cli: CliLogins | null | undefined;
 }
 
-/// One saved GitHub account: login, default tag, orgs, last 4, and Make
-/// default, Replace and Remove.
+/// One saved GitHub account: login and default tag, Make default and the
+/// icon buttons; under it its orgs and where gh is.
 function accountRow(esc: Esc, acc: GitHubAccount, { machines, cli, busy, error }: AccountRowState) {
   const usable = !acc.unreadable;
-  const orgs = acc.orgs?.length ? `orgs ${acc.orgs.map(esc).join(", ")}` : "";
-  const role = acc.default ? "GH_TOKEN on your machines" : "projects of its login and orgs";
-  const line = [shown(esc, acc, "token"), orgs, role, esc(toolLine("gh", machines))].filter(Boolean).join(" · ");
   const ghHere = (cli?.github_accounts ?? []).some(g => sameLogin(g.login, acc.login)) || cli?.github?.state === "signed_in";
   const use = !usable && ghHere ? useButton(esc, "github", "Use gh sign-in", busy) : "";
   const make = acc.default ? "" : `<button class="dbtn" ${sm} data-cred-gh-default="${esc(acc.id)}">Make default</button>`;
-  const tag = acc.default ? `<span style="font-size:10.5px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);color:var(--muted);flex:none">default</span>` : "";
-  return `<div style="padding:9px 0;border-bottom:1px solid var(--border);display:grid;gap:3px;font-size:13px">
-    <div style="display:flex;align-items:center;gap:8px;min-width:0"><span class="ddot${usable ? "" : " off"}"></span><b style="font-weight:600">GitHub</b>${acc.login ? `<span style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${esc(acc.login)}</span>` : ""}${tag}<span style="margin-left:auto;display:flex;gap:6px;flex:none">${use}${make}<button class="dbtn" ${sm} data-cred-edit="github:${esc(acc.id)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(acc.id)}" aria-label="Remove @${esc(acc.login)}">Remove</button></span></div>
-    ${note(line)}${rowError(esc, error)}</div>`;
+  const what = acc.login ? `@${acc.login}` : "GitHub";
+  const { shown: orgs, more } = foldOrgs(acc.orgs);
+  const chips = (usable ? "" : chip(esc, "Re-enter this token", "", "err"))
+    + orgs.map(o => chip(esc, o)).join("")
+    + (more.length ? chip(esc, `+${more.length}`, more.join(", ")) : "")
+    + cliChip(esc, "gh", machines);
+  return gitRow(esc, {
+    icon: GITHUB_ICON, name: "GitHub", account: acc.login ? `@${acc.login}` : "", usable,
+    tag: acc.default ? `<span class="dgchip" title="GH_TOKEN on your machines">default</span>` : "",
+    acts: use + make + editRemove(esc, what, `github:${acc.id}`, acc.id),
+    chips, more: rowError(esc, error),
+  });
 }
 
 /// Adding another GitHub account: gh's accounts here, gh's browser
@@ -370,9 +434,10 @@ function accountRow(esc: Esc, acc: GitHubAccount, { machines, cli, busy, error }
 function addAccount(esc: Esc, state: CredState, accounts: GitHubAccount[]) {
   const cli = state.cli;
   const flow = state.ghFlow;
-  const err = state.cliError?.key === "github" ? `<span class="derr" style="padding-left:15px">${esc(state.cliError.message)}</span>` : "";
+  const err = state.cliError?.key === "github" ? `<span class="derr">${esc(state.cliError.message)}</span>` : "";
   const top = `<div style="display:flex;align-items:center;gap:8px"><b style="font-weight:600">Add another GitHub account</b><span style="margin-left:auto">${flow ? `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>` : `<button class="dbtn quiet" ${sm} data-cred-gh-add="">Cancel</button>`}</span></div>`;
-  if (flow) return `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:6px;font-size:13px">${top}${ghWaiting(esc, flow)}${err}</div>`;
+  const box = (body: string) => `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:6px;font-size:13px">${top}<div style="display:grid;gap:6px;padding-left:15px">${body}</div></div>`;
+  if (flow) return box(ghWaiting(esc, flow) + err);
   const choices = ghChoices(cli, accounts);
   const ghState = cli?.github?.state;
   const signIn = ghState === "signed_in" || ghState === "signed_out" ? `<button class="dbtn" ${sm} data-cred-gh>Sign in with GitHub</button>` : "";
@@ -381,21 +446,22 @@ function addAccount(esc: Esc, state: CredState, accounts: GitHubAccount[]) {
   const help = ghState === "missing"
     ? `Make a token on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} while signed in as the other account, then paste it`
     : signIn ? `Sign in adds the account to gh here too.${saved.length ? ` ${saved.join(", ")} ${saved.length > 1 ? "are" : "is"} in Beep already.` : ""}` : "";
-  return `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:6px;font-size:13px">${top}
-    ${ghChoiceRows(esc, choices, state.cliBusy)}
-    <div style="display:flex;gap:6px;padding-left:15px">${signIn}${paste}</div>
-    ${help ? note(help) : ""}${err}</div>`;
+  return box(`${ghChoiceRows(esc, choices, state.cliBusy)}
+    <div style="display:flex;gap:6px">${signIn}${paste}</div>
+    ${help ? note(help) : ""}${err}`);
 }
 
-/// The GitHub part of Git hosts: each saved account, then a way to add
-/// another; with none saved, what this Mac's gh offers.
+/// The GitHub part of Git hosts: `rows` for each saved account (or, with
+/// none saved, what this Mac's gh offers), `adding` for the add panel or
+/// paste form when open, and `canAdd` whether "+ Add another GitHub
+/// account" shows.
 function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, rowState: (key: string) => RowState) {
   const e = state.edit;
   const cli = state.cli;
   const accounts = githubAccounts(state);
   const pasteForm = (id: string) => form(state, esc, { title: "GitHub", url: id === "new" ? "Another account" : "Replace the token", noteHtml: `Make one on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} with repo access, or run ${code("gh auth login")} in Terminal and use that sign-in instead.` });
   if (!accounts.length) {
-    if (e?.kind === "github") return pasteForm(e.id ?? "new");
+    if (e?.kind === "github") return { rows: pasteForm(e.id ?? "new"), adding: "", canAdd: false };
     const choices = ghChoices(cli, accounts);
     const offer = ghOffer(esc, cli?.github, state.cliBusy === "github", state.ghFlow);
     // Several accounts in gh here: one Use each.
@@ -403,23 +469,23 @@ function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, 
       offer.account = `gh on this Mac has ${choices.length} accounts`;
       offer.acts = `<button class="dbtn quiet" ${sm} data-cred-edit="github">Paste a token</button>`;
       offer.help = "";
-      offer.body = ghChoiceRows(esc, choices, state.cliBusy);
+      offer.body = `<div style="display:grid;gap:6px">${ghChoiceRows(esc, choices, state.cliBusy)}</div>`;
     }
-    return hostRow(esc, { name: "GitHub", cli: "gh", machines, editKey: "github", ...rowState("github"), offer });
+    return { rows: hostRow(esc, { icon: GITHUB_ICON, name: "GitHub", cli: "gh", machines, editKey: "github", ...rowState("github"), offer }), adding: "", canAdd: false };
   }
-  let html = "";
+  let rows = "";
   for (const acc of accounts) {
-    html += e?.kind === "github" && e.id === acc.id
+    rows += e?.kind === "github" && e.id === acc.id
       ? pasteForm(acc.id)
       : accountRow(esc, acc, { machines, cli, ...(acc.unreadable ? rowState("github") : { busy: false, error: "" }) });
   }
-  if (e?.kind === "github" && (!e.id || e.id === "new")) html += pasteForm("new");
-  else if (state.ghAdd || state.ghFlow) html += addAccount(esc, state, accounts);
-  else html += `<button class="dbtn" style="font-size:11.5px;padding:3px 9px;margin-top:8px;justify-self:start" data-cred-gh-add="1">+ Add another GitHub account</button>`;
-  return html;
+  if (e?.kind === "github" && (!e.id || e.id === "new")) return { rows, adding: pasteForm("new"), canAdd: false };
+  if (state.ghAdd || state.ghFlow) return { rows, adding: addAccount(esc, state, accounts), canAdd: false };
+  return { rows, adding: "", canAdd: true };
 }
 
 const head = (text: string, top: number) => `<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:${top}px 0 2px">${text}</div>`;
+const addButton = (attr: string, text: string) => `<button class="dbtn" style="font-size:11.5px;padding:3px 9px" ${attr}>${text}</button>`;
 
 /// The whole section (see `CredState`). `machines`: the machines list, or
 /// null when it is not known.
@@ -428,28 +494,32 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
   const e = state.edit;
   const cli = state.cli;
   const rowState = (key: string): RowState => ({ busy: state.cliBusy === key, error: state.cliError?.key === key ? state.cliError.message : "" });
-  let html = head("Git hosts", 4);
-  html += githubHtml(state, machines, esc, rowState);
+  const github = githubHtml(state, machines, esc, rowState);
+  let html = head("Git hosts", 4) + github.rows;
   for (const c of list) {
     if (c.kind !== "forgejo") continue;
     const page = forgejoTokenPage(c.url);
     const key = `forgejo:${c.url}`;
     html += e?.kind === "forgejo" && e.id === c.id
       ? form(state, esc, { title: hostOf(c.url), url: "Replace the token", noteHtml: page ? `Make one at ${link(esc, page, hostOf(page))}, with repository and issue access.` : undefined })
-      : hostRow(esc, { name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}`, cliKey: teaHas(cli, c.url) ? key : "", ...rowState(key) });
+      : hostRow(esc, { icon: FORGEJO_ICON, name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}`, cliKey: teaHas(cli, c.url) ? key : "", ...rowState(key) });
   }
   // Servers teacli here has a token for that Beep does not have yet.
   for (const s of teaOffers(cli, list)) {
     const key = `forgejo:${s.url}`;
     const { busy, error } = rowState(key);
     html += hostRow(esc, {
-      name: hostOf(s.url), cli: "teacli", machines: null, editKey: "forgejo", error,
+      icon: FORGEJO_ICON, name: hostOf(s.url), cli: "teacli", machines: null, editKey: "forgejo", error,
       offer: { account: "teacli on this Mac", acts: useButton(esc, key, "Use teacli sign-in", busy), help: "Signed in with teacli here, not in Beep yet" },
     });
   }
-  html += e?.kind === "forgejo" && !e.id
-    ? form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login")} on this Mac and use that sign-in.` })
-    : `<button class="dbtn" style="font-size:11.5px;padding:3px 9px;margin-top:8px;justify-self:start" data-cred-edit="forgejo">+ Add a Forgejo server</button>`;
+  // What is being added sits under the hosts, the add buttons side by side under that.
+  html += github.adding;
+  const addingForgejo = e?.kind === "forgejo" && !e.id;
+  if (addingForgejo) html += form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login")} on this Mac and use that sign-in.` });
+  const adds = (github.canAdd ? addButton(`data-cred-gh-add="1"`, "+ Add another GitHub account") : "")
+    + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo server"));
+  if (adds) html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${adds}</div>`;
   html += head("API keys", 14);
   html += `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;max-width:60ch">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and, when you choose, gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
   for (const p of state.providers ?? []) {
