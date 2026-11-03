@@ -8,10 +8,10 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    GetProjectThread, GetPullRequestHead, GitItemKind, IssueStart,
-    ListProjectIssues, ListProjectPullRequests, ListProjectThreads, ListThreadChats,
-    OpenThreadChat, ProjectIssue, ProjectPullRequest, ProjectThread, PullRequestHead,
-    ReplyToThread, ThreadChat, ThreadPost, ThreadView, TrackProjectIssue,
+    GetProjectThread, GetPullRequestHead, GitItemKind, IssueStart, ListProjectIssues,
+    ListProjectPullRequests, ListProjectThreads, ListThreadChats, OpenThreadChat, ProjectIssue,
+    ProjectPullRequest, ProjectThread, PullRequestHead, ReplyToThread, ThreadChat, ThreadPost,
+    ThreadView, TrackProjectIssue,
 };
 use serde::Serialize;
 use std::sync::Arc;
