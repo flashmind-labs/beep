@@ -266,6 +266,7 @@ fn main() {
             threads::center_thread_view,
             reviews::project_branches,
             branches::preview_import,
+            branches::find_import_fork,
             branches::add_branch_worktree,
             reviews::reviews_list,
             reviews::review_start,
