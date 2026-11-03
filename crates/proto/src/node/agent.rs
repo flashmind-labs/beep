@@ -394,6 +394,12 @@ pub enum SessionsRequest {
     UpdateHarness {
         agent: String,
     },
+    /// Sends each picture a running session's transcript newly shows, as
+    /// `SessionImage` replies, until the server closes the stream; the
+    /// server keeps them so they show while the node is offline. Pictures
+    /// that came while no stream was open wait, a bounded few. A node from
+    /// before it closes the stream.
+    FollowImages {},
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -435,6 +441,14 @@ pub enum SessionsReply {
     },
     Harnesses {
         report: super::harness::HarnessReport,
+    },
+    /// One picture on a `FollowImages` stream: of `session`, shown in its
+    /// transcript by the line of its `image_key`.
+    SessionImage {
+        session: String,
+        mime: String,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
     },
 }
 

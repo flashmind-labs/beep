@@ -10,7 +10,7 @@ use crate::{
         link::{LinkOffer, MAX_NAME},
         node::{
             AppName, CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MAX_FRAME, NodeHello,
-            NodeSetup, Up, link,
+            NodeSetup, Up, agent::SESSIONS_PROTOCOL, link,
         },
         setup::{SetupToken, TOKEN_TTL},
     },
@@ -40,6 +40,7 @@ mod desktop;
 mod files;
 mod follow;
 mod harness;
+mod images;
 mod shell;
 mod stats;
 mod sync;
@@ -433,24 +434,31 @@ async fn serve(
         changed.notify_one();
     }
     let stats = Arc::new(stats::StatsSlot::default());
-    app.nodes.insert(
-        endpoint,
-        Online {
-            user: user.id().to_owned(),
-            name: hello.name,
-            offers: hello.offers,
-            workspace: hello.workspace,
-            checkouts: hello.checkouts,
-            connection: connection.clone(),
-            app: Arc::downgrade(app),
-            shell: Arc::default(),
-            agents: Arc::default(),
-            desktop: Arc::default(),
-            stats: stats.clone(),
-            credentials: credentials.clone(),
-            agent_settings: agent_settings.clone(),
-        },
-    );
+    let online = Online {
+        user: user.id().to_owned(),
+        name: hello.name,
+        offers: hello.offers,
+        workspace: hello.workspace,
+        checkouts: hello.checkouts,
+        connection: connection.clone(),
+        app: Arc::downgrade(app),
+        shell: Arc::default(),
+        agents: Arc::default(),
+        desktop: Arc::default(),
+        stats: stats.clone(),
+        credentials: credentials.clone(),
+        agent_settings: agent_settings.clone(),
+    };
+    app.nodes.insert(endpoint, online.clone());
+    // Keeps the pictures its agent sessions show. Ends with the connection.
+    let _images = online.offers(SESSIONS_PROTOCOL).then(|| {
+        let user = user.clone();
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            if let Err(e) = online.keep_images(&user).await {
+                log::debug!("agent images not followed; node={endpoint} error={e:#}");
+            }
+        }))
+    });
     app.nodes.follows.reconnected(app, &endpoint.to_string());
     // The project workers on the node report again, or are marked gone.
     app.projects.reconnected(app, &user, endpoint);

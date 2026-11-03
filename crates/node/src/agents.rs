@@ -30,6 +30,7 @@ mod acp;
 mod checkout;
 mod compaction;
 mod harnesses;
+mod image_files;
 mod images;
 mod live;
 mod models;
@@ -908,6 +909,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         SessionsRequest::Watch { sessions } => {
             return agents.external.watch(tx, rx, sessions).await;
         }
+        SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
         SessionsRequest::Image { session, key } => match agents.image(&session, &key).await {
             Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
                 mime: picture.mime.clone(),
@@ -947,6 +949,29 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         },
     };
     tx.send(&reply).await
+}
+
+/// Sends the server each picture a running session newly shows, until it
+/// closes the stream. One too large for a frame is left out: the server
+/// cannot ask for it either.
+async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<()> {
+    loop {
+        tokio::select! {
+            unsent = images.next_unsent() => {
+                if unsent.picture.data.len() > MAX_IMAGE {
+                    continue;
+                }
+                tx.send(&SessionsReply::SessionImage {
+                    session: unsent.session,
+                    mime: unsent.picture.mime.clone(),
+                    data: unsent.picture.data.clone(),
+                })
+                .await?;
+            }
+            // The server sends nothing more; anything is its goodbye.
+            _ = rx.recv::<SessionsRequest>() => return Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]

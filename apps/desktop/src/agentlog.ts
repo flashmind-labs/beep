@@ -65,3 +65,18 @@ export function userHtml(text: string, esc: (s: string) => string, open: (i: num
   }
   return html + esc(text.slice(last));
 }
+
+const IMAGE_LINE = /^\[image: (.+)\]$/;
+
+/// An agent or tool entry's text without its image lines, which the node
+/// writes for each picture the agent showed (`[image: image-<key>]`), and
+/// the names those lines give, in order.
+export function imageLines(text: string) {
+  const kept: string[] = [], names: string[] = [];
+  for (const line of String(text).split("\n")) {
+    const m = IMAGE_LINE.exec(line.trim());
+    if (m) names.push(m[1]);
+    else kept.push(line);
+  }
+  return { text: kept.join("\n").replace(/\s+$/, ""), names };
+}

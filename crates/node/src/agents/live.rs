@@ -5,14 +5,16 @@
 use super::{
     acp::wire_name,
     compaction::{COMPACTED_ENTRY, Usage},
+    image_files,
     images::{Images, Picture, data_url},
 };
 use agent_client_protocol::schema::{
     MaybeUndefined,
     v1::{
-        CompactionId, CompactionStatus, CompactionUpdate, ContentBlock, PlanEntryStatus,
-        RequestPermissionRequest, SessionUpdate, ToolCall as AcpToolCall, ToolCallContent,
-        ToolCallId, ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,
+        CompactionId, CompactionStatus, CompactionUpdate, ContentBlock, EmbeddedResourceResource,
+        ImageContent, PlanEntryStatus, RequestPermissionRequest, SessionUpdate,
+        ToolCall as AcpToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
+        ToolCallUpdate, ToolKind,
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -23,7 +25,7 @@ use beep_proto::node::agent::{
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -74,6 +76,23 @@ pub(crate) struct Live {
     /// Where the pictures its transcript shows are kept, shared by the
     /// node's sessions.
     images: Arc<Images>,
+    /// The entry the running turn's prompt is, counted from the start.
+    turn_start: u64,
+    /// Image files the agent linked to this turn, as it named them.
+    turn_links: Vec<String>,
+}
+
+/// The image files a finished turn named, for the session to read and
+/// show with `show_files`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TurnFiles {
+    /// The session's folder; only files inside it are read.
+    pub(crate) cwd: PathBuf,
+    /// Each joined to `cwd`, at most `image_files::MAX_PER_TURN`.
+    pub(crate) paths: Vec<PathBuf>,
+    /// The turn's last agent message, which shows them; a new entry when
+    /// there is none.
+    pub(crate) entry: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -86,6 +105,8 @@ struct ToolCall {
     paths: Vec<String>,
     /// What it showed, already cut to an entry's length.
     output: String,
+    /// The image lines of the pictures it showed.
+    pictures: Vec<String>,
 }
 
 impl Live {
@@ -97,9 +118,10 @@ impl Live {
         }
     }
 
-    /// Keeps a picture the transcript shows, for the server to ask for.
+    /// Keeps a picture the transcript shows, for the server to ask for,
+    /// and has it sent to the server to keep.
     pub(crate) fn keep(&self, picture: Picture) {
-        self.images.keep(&self.info.id, picture);
+        self.images.keep_and_send(&self.info.id, picture);
     }
 
     /// The kept picture `key` of this session.
@@ -140,7 +162,9 @@ impl Live {
 
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
-        self.push(EntryKind::User, text);
+        self.in_message = false;
+        self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+        self.turn_links.clear();
         let state = &mut self.info.state;
         state.status = Status::Working;
         state.summary = "Thinking".into();
@@ -189,11 +213,16 @@ impl Live {
         let before = self.info.state.clone();
         let title = self.info.title.clone();
         match update {
-            SessionUpdate::AgentMessageChunk(chunk) => {
-                if let ContentBlock::Text(text) = &chunk.content {
-                    self.message_chunk(&text.text);
+            SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+                ContentBlock::Text(text) => self.message_chunk(&text.text),
+                ContentBlock::Image(image) => {
+                    if let Some(picture) = image_picture(image) {
+                        self.agent_image(picture);
+                    }
                 }
-            }
+                ContentBlock::ResourceLink(link) => self.link(&link.uri),
+                _ => {}
+            },
             // Only a loaded session replays its prompts; a live one has
             // them from `prompted` already.
             SessionUpdate::UserMessageChunk(chunk)
@@ -328,6 +357,99 @@ impl Live {
         self.user_chunk(&joined);
     }
 
+    /// An image the agent shows in its message, on its own line.
+    fn agent_image(&mut self, picture: Picture) {
+        let line = picture.line();
+        self.keep(picture);
+        // Whole, and not in the last message the server is told.
+        if self.in_message
+            && let Some(last) = self.transcript.back_mut()
+            && last.kind == EntryKind::Agent
+        {
+            last.text.push('\n');
+            last.text.push_str(&line);
+            last.text.push('\n');
+        } else {
+            self.push_entry(EntryKind::Agent, format!("{line}\n"));
+            self.in_message = true;
+            self.info.last_message.clear();
+        }
+    }
+
+    /// A file the agent links to: an image one shows when the turn ends.
+    fn link(&mut self, uri: &str) {
+        if self.turn_links.len() < image_files::MAX_PER_TURN {
+            self.turn_links
+                .extend(image_files::named_in(uri).map(str::to_owned));
+        }
+    }
+
+    /// The image files the turn that just ended named: in the agent's
+    /// messages, its links, and the files its finished edits wrote.
+    /// `None` when there are none.
+    pub(crate) fn turn_files(&mut self) -> Option<TurnFiles> {
+        let cwd = PathBuf::from(&self.info.cwd);
+        let start = self.turn_start;
+        let mut entry = None;
+        let mut named: Vec<String> = Vec::new();
+        for (at, item) in (self.dropped..).zip(&self.transcript) {
+            if at > start && item.kind == EntryKind::Agent {
+                entry = Some(at);
+                named.extend(image_files::named_in(&item.text).map(str::to_owned));
+            }
+        }
+        named.append(&mut self.turn_links);
+        let mut edits: Vec<&ToolCall> = self
+            .tools
+            .values()
+            .filter(|tool| tool.entry > start && tool.status == ToolCallStatus::Completed)
+            .filter(|tool| EDIT_KINDS.contains(&tool.kind))
+            .collect();
+        edits.sort_by_key(|tool| tool.entry);
+        named.extend(edits.iter().flat_map(|tool| tool.paths.iter().cloned()));
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for path in named
+            .iter()
+            .filter_map(|name| image_files::resolve(&cwd, name))
+        {
+            if paths.len() >= image_files::MAX_PER_TURN {
+                break;
+            }
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+        (!paths.is_empty()).then_some(TurnFiles { cwd, paths, entry })
+    }
+
+    /// Shows `pictures`, read from the files `turn_files` gave, after the
+    /// agent message `entry`: each on its own line, once.
+    pub(crate) fn show_files(&mut self, entry: Option<u64>, pictures: Vec<Picture>) {
+        let mut lines = String::new();
+        for picture in pictures {
+            let line = picture.line();
+            self.keep(picture);
+            let shown = entry
+                .and_then(|at| self.entry_mut(at))
+                .is_some_and(|item| item.text.contains(&line));
+            if !shown && !lines.contains(&line) {
+                lines.push('\n');
+                lines.push_str(&line);
+            }
+        }
+        if lines.is_empty() {
+            return;
+        }
+        // The lines go whole, past an entry's length if need be.
+        match entry.and_then(|at| self.entry_mut(at)) {
+            Some(item) => item.text.push_str(&lines),
+            None => {
+                self.push_entry(EntryKind::Agent, lines.trim_start().to_owned());
+                self.in_message = false;
+            }
+        }
+    }
+
     fn message_chunk(&mut self, text: &str) {
         if self.in_message
             && let Some(last) = self.transcript.back_mut()
@@ -350,8 +472,10 @@ impl Live {
             kind: call.kind,
             status: call.status,
             paths: paths(&call.locations, call.raw_input.as_ref()),
-            output: output(&call.content),
+            output: String::new(),
+            pictures: Vec::new(),
         };
+        self.tool_output(&mut tool, &call.content);
         tool.entry = self.push_entry(EntryKind::Tool, tool.entry_text());
         self.info.state.summary = cut(&tool.title, MAX_LINE);
         self.finish_tool(&tool);
@@ -381,7 +505,7 @@ impl Live {
             call.paths = more;
         }
         if let Some(content) = &fields.content {
-            call.output = output(content);
+            self.tool_output(&mut call, content);
         }
         let text = call.entry_text();
         if let Some(entry) = self.entry_mut(call.entry) {
@@ -389,6 +513,20 @@ impl Live {
         }
         self.finish_tool(&call);
         self.tools.insert(update.tool_call_id.clone(), call);
+    }
+
+    /// Sets what `tool` showed: its text, and a line for each picture,
+    /// kept for the server.
+    fn tool_output(&mut self, tool: &mut ToolCall, content: &[ToolCallContent]) {
+        let shown = output(content);
+        tool.output = shown.text;
+        tool.pictures = shown.pictures.iter().map(Picture::line).collect();
+        for picture in shown.pictures {
+            self.keep(picture);
+        }
+        for link in &shown.links {
+            self.link(link);
+        }
     }
 
     /// Notes the files a finished edit changed.
@@ -411,23 +549,59 @@ impl Live {
 }
 
 impl ToolCall {
+    /// Its title and status, what it showed, then its image lines whole.
     fn entry_text(&self) -> String {
+        let mut lines = String::new();
+        for line in &self.pictures {
+            lines.push('\n');
+            lines.push_str(line);
+        }
         let mut text = format!("{} [{}]", self.title, wire_name(&self.status));
         if !self.output.is_empty() {
             text.push('\n');
             text.push_str(&self.output);
         }
-        cut(&text, MAX_ENTRY)
+        let mut text = cut(&text, MAX_ENTRY.saturating_sub(lines.len()));
+        text.push_str(&lines);
+        text
     }
 }
 
-/// The text a tool call's `content` shows, cut to an entry's length.
-fn output(content: &[ToolCallContent]) -> String {
+/// What a tool call's `content` shows.
+struct Output {
+    /// Its text, cut to an entry's length.
+    text: String,
+    /// The images among it.
+    pictures: Vec<Picture>,
+    /// The files it links to.
+    links: Vec<String>,
+}
+
+/// What a tool call's `content` shows: its text, images and links.
+fn output(content: &[ToolCallContent]) -> Output {
+    let mut pictures = Vec::new();
+    let mut links = Vec::new();
     let text = content
         .iter()
         .filter_map(|item| match item {
             ToolCallContent::Content(content) => match &content.content {
                 ContentBlock::Text(text) => Some(text.text.clone()),
+                ContentBlock::Image(image) => {
+                    pictures.extend(image_picture(image));
+                    None
+                }
+                ContentBlock::Resource(resource) => {
+                    if let EmbeddedResourceResource::BlobResourceContents(blob) = &resource.resource
+                    {
+                        let mime = blob.mime_type.as_deref().unwrap_or("");
+                        pictures.extend(picture_of(mime, &blob.blob));
+                    }
+                    None
+                }
+                ContentBlock::ResourceLink(link) => {
+                    links.push(link.uri.clone());
+                    None
+                }
                 _ => None,
             },
             ToolCallContent::Diff(diff) => Some(format!("(changed {})", diff.path.display())),
@@ -436,7 +610,28 @@ fn output(content: &[ToolCallContent]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    cut(&text, MAX_ENTRY)
+    Output {
+        text: cut(&text, MAX_ENTRY),
+        pictures,
+        links,
+    }
+}
+
+/// The picture of an ACP image block.
+fn image_picture(image: &ImageContent) -> Option<Picture> {
+    picture_of(&image.mime_type, &image.data)
+}
+
+/// The picture `data`, in base64, holds when `mime` is an image type.
+fn picture_of(mime: &str, data: &str) -> Option<Picture> {
+    if !mime.starts_with("image/") {
+        return None;
+    }
+    let data = STANDARD.decode(data.trim()).ok()?;
+    Some(Picture {
+        mime: mime.to_owned(),
+        data,
+    })
 }
 
 /// The files a tool call names, in `locations` or its input.
@@ -526,6 +721,7 @@ fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
 mod tests {
     use super::*;
     use beep_proto::image_key;
+    use futures::FutureExt;
     use serde_json::json;
 
     fn update(value: Value) -> SessionUpdate {
@@ -623,6 +819,100 @@ mod tests {
                 data: png,
             })
         );
+    }
+
+    #[test]
+    fn a_tool_result_image_shows_on_its_tool_and_goes_to_the_server() {
+        let mut live = live();
+        live.prompted("take a screenshot");
+        let png = b"\x89PNG\r\n\x1a\nscreen".to_vec();
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "t1",
+            "title": "Screenshot",
+            "kind": "other",
+            "status": "completed",
+            "content": [
+                {"type": "content", "content": {"type": "text", "text": "taken"}},
+                {"type": "content", "content": {"type": "image", "mimeType": "image/png",
+                    "data": STANDARD.encode(&png)}}
+            ]
+        })));
+        let line = format!("[image: image-{}]", image_key(&png));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(
+            entries[0].text,
+            format!("Screenshot [completed]\ntaken\n{line}")
+        );
+        assert!(live.picture(&image_key(&png)).is_some());
+        let sent = live.images.next_unsent().now_or_never().expect("one waits");
+        assert_eq!(sent.session, "a3f9c1");
+        assert_eq!(sent.picture.data, png);
+        // The same picture again is not sent twice.
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "t1",
+            "content": [{"type": "content", "content": {"type": "image", "mimeType": "image/png",
+                "data": STANDARD.encode(&png)}}]
+        })));
+        assert!(live.images.next_unsent().now_or_never().is_none());
+    }
+
+    #[test]
+    fn an_image_in_the_agents_message_gets_its_own_line() {
+        let mut live = live();
+        live.prompted("draw");
+        let png = b"\x89PNG\r\n\x1a\ndrawn".to_vec();
+        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "Here it is:"}})));
+        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "image", "mimeType": "image/png", "data": STANDARD.encode(&png)}})));
+        let (entries, _) = live.transcript(1);
+        let line = format!("[image: image-{}]", image_key(&png));
+        assert_eq!(entries[0].text, format!("Here it is:\n{line}\n"));
+    }
+
+    #[test]
+    fn a_turn_names_the_image_files_it_mentioned_and_wrote() {
+        let mut live = live();
+        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "Earlier: old.png"}})));
+        live.prompted("plot it");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "w1",
+            "title": "Write plots/b.svg",
+            "kind": "edit",
+            "status": "completed",
+            "locations": [{"path": "/srv/project/plots/b.svg"}]
+        })));
+        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "Saved `plots/a.png` and plots/b.svg."}})));
+        let files = live.turn_files().expect("files named");
+        assert_eq!(files.cwd, Path::new("/srv/project"));
+        assert_eq!(
+            files.paths,
+            [
+                PathBuf::from("/srv/project/plots/a.png"),
+                PathBuf::from("/srv/project/plots/b.svg")
+            ]
+        );
+        assert_eq!(files.entry, Some(3));
+        let png = b"\x89PNG\r\n\x1a\nplot".to_vec();
+        let picture = Picture {
+            mime: "image/png".into(),
+            data: png.clone(),
+        };
+        live.show_files(files.entry, vec![picture.clone(), picture]);
+        let line = format!("[image: image-{}]", image_key(&png));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(
+            entries[0].text,
+            format!("Saved `plots/a.png` and plots/b.svg.\n{line}"),
+            "once"
+        );
+        live.prompted("nothing");
+        assert_eq!(live.turn_files(), None);
     }
 
     #[test]

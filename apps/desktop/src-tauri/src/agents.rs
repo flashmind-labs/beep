@@ -109,14 +109,26 @@ struct EntryRow {
 
 impl From<AgentEntry> for EntryRow {
     fn from(entry: AgentEntry) -> Self {
-        let html =
-            matches!(entry.kind, AgentEntryKind::Agent {}).then(|| markdown::to_html(&entry.text));
+        // The bar draws the pictures of image lines after the text.
+        let html = matches!(entry.kind, AgentEntryKind::Agent {})
+            .then(|| markdown::to_html(&without_image_lines(&entry.text)));
         Self {
             kind: entry.kind.into(),
             text: entry.text,
             html,
         }
     }
+}
+
+/// `text` without its `[image: name]` lines.
+fn without_image_lines(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let line = line.trim();
+            !(line.starts_with("[image: ") && line.ends_with(']'))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// One session in full.
@@ -521,6 +533,18 @@ mod tests {
         assert!(!older_than_images(&DesktopError::Api(
             ApiError::bad_request("The message is empty.")
         )));
+    }
+
+    #[test]
+    fn image_lines_stay_out_of_the_agents_html() {
+        let said = EntryRow::from(AgentEntry {
+            kind: AgentEntryKind::Agent {},
+            text: "Saved chart.png\n[image: image-0123456789abcdef]".into(),
+        });
+        let html = said.html.unwrap();
+        assert!(html.contains("Saved chart.png"), "{html}");
+        assert!(!html.contains("image-0123"), "{html}");
+        assert!(said.text.ends_with("[image: image-0123456789abcdef]"));
     }
 
     #[test]
