@@ -459,10 +459,7 @@ impl User {
             Err(error) => {
                 permit.finish(custom_mcp::outcome_of(&error));
                 log::info!("mcp: no sign-in; server={name} error={error:#}");
-                return Err(ApiError::bad_request(format!(
-                    "Beep could not connect to {}. It needs a sign-in Beep does not support,                      or the URL is wrong.",
-                    custom.label
-                )));
+                return Err(ApiError::bad_request(no_sign_in(&custom.label)));
             }
         };
         permit.finish(Outcome::Ok);
@@ -741,9 +738,18 @@ fn server_info(row: &McpServerRow) -> Option<McpServer> {
     Some(info(&row.name, custom, ready(row), tools))
 }
 
+/// Why a custom server that offers no usable sign-in was not added.
+fn no_sign_in(label: &str) -> String {
+    format!(
+        "Beep could not connect to {label}. It needs a sign-in Beep does not support, \
+         or the URL is wrong."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::store::TestDb;
     use flashmind::core::CancellationToken;
     use flashmind::types::tool::ToolContext;
@@ -923,5 +929,14 @@ mod tests {
         user.remove_custom_mcp(&open.server.id).await.unwrap();
         user.remove_custom_mcp(&oauth.server.id).await.unwrap();
         assert!(user.list_custom_mcp().await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_no_sign_in_message_reads_as_one_sentence() {
+        assert_eq!(
+            no_sign_in("Docs"),
+            "Beep could not connect to Docs. It needs a sign-in Beep does not support, or the \
+             URL is wrong."
+        );
     }
 }
