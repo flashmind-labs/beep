@@ -124,6 +124,7 @@ sample_struct! {
     AgentImageData { key, mime, data }
     AgentFileChunk { size, mime, data }
     WorkFolder { path, entries, more, git }
+    CustomAgent { name, harness, scope, description, model, tools, color, path, prompt, prompt_cut, error }
     WorkEntry { name, folder, size, ignored, change }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }

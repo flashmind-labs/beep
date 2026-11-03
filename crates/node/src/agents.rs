@@ -38,6 +38,7 @@ use tokio::{
 mod acp;
 mod checkout;
 mod compaction;
+mod custom_agents;
 mod harnesses;
 mod image_files;
 mod images;
@@ -1069,6 +1070,13 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 let root = work_folder::WorkRoot::open(&root, home)?;
                 let path = work_folder::write(&root, &path, offset, size, &data)?;
                 Ok(SessionsReply::Written { path })
+            })
+            .await
+        }
+        SessionsRequest::CustomAgents { folder } => {
+            work_request(move |home| {
+                let agents = custom_agents::list(&folder, home)?;
+                Ok(SessionsReply::CustomAgents { agents })
             })
             .await
         }
