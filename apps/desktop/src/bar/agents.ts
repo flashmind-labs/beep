@@ -2,7 +2,7 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { clock, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
@@ -638,28 +638,31 @@ function stepMark(status: string) {
 }
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo
-/// test"). Opened, it shows the whole command and the last lines of its
-/// output, then "Show all N lines" for all of it in a box that scrolls. A
-/// failed step shows its exit code and output's end until closed. `at` is
-/// its place in the session, which keeps it open across redraws. `pics`
-/// are the pictures it showed, drawn last. A subagent's call is a card.
+/// test"). Opened, the label wraps to the whole command and the last lines
+/// of its output follow, then "Show all N lines" for all of it in a box
+/// that scrolls. A failed step is one line with its exit code like any
+/// other; only the newest step of a running turn starts open when it
+/// failed. `at` is its place in the session, which keeps it open across
+/// redraws. `pics` are the pictures it showed, drawn last. A subagent's
+/// call is a card.
 export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(en.text);
   if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
-  const failed = status === "failed", open = failed ? !AG.opened.has(at) : AG.opened.has(at);
+  const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.opened.has(at));
   const live = status === "in_progress" && AGENT_ACTIVE.has(AG.page?.session.status);
-  const label = stepLabel(en.text, live);
+  const label = stepLabel(en.text, live, open);
   const exit = failed ? log.exitCode(output) : null;
   const long = title.includes("\n") || label.length > 80;
+  const detail = commandDetail(title, label);
   const tail = log.tailLines(output), whole = AG.all.has(at);
   const body = !open ? ""
-    : (long ? `<pre class="cmd">${esc(title)}</pre>` : "")
+    : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "")
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const opens = !!output || long;
   return `<div class="dcoderen tool${failed ? " failed" : ""}${open ? " open" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}>`
-    + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(title)}">${esc(label)}</code>`
+    + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(commandOf(title))}">${esc(label)}</code>`
     + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "")
     + body + pics + "</div>";
 }
@@ -819,6 +822,9 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
 
 const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 
+/// The newest step of the running turn, which starts open when it failed.
+let newestStep: number | null = null;
+
 /// Rows for `ats` in order, subagents started one after another as one card.
 function rowsOf(p: AgentPage, ats: number[]) {
   const out: string[] = [];
@@ -839,10 +845,12 @@ function rowsOf(p: AgentPage, ats: number[]) {
 
 /// The log in turns: each message, then a heading with how long the agent
 /// worked, then its work and its answer. Done, the work folds into one
-/// summary line; failed steps, notes, subagents and pictures stay in view.
-/// While it runs, only the newest step shows, with the thought's line.
+/// summary line, failures counted in it; notes, subagents and pictures
+/// stay in view. While it runs, only the newest step shows, with the
+/// thought's line.
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
+  newestStep = null;
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
@@ -870,6 +878,7 @@ function turnsHtml(p: AgentPage) {
     let work: string;
     // The newest step of a running turn, shown as it goes.
     const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
+    if (newest != null) newestStep = newest;
     if (opened) work = rowsOf(p, t.steps);
     else {
       const kept = new Set(keptSteps(p.entries, t, p.earlier));
