@@ -1,10 +1,4 @@
-//! Earlier versions of memories. When a memory is rewritten by curation or
-//! replaced by a fact that says the same, what it said before is kept as a
-//! superseded entry linked to the memory that replaced it. Entries carry
-//! their owner in `history_of` instead of `user`, so every lookup of the
-//! user's memories, recall and the profile among them, never sees them.
-//! They expire after `HISTORY_KEPT_DAYS`, and a memory keeps at most
-//! `MAX_VERSIONS` of them.
+//! Superseded memory versions, owned via `history_of` (not `user`) so lookups never see them; capped by age and `MAX_VERSIONS`.
 
 use super::{CORE, Fact, Meta, USER, from_record, meta_map, now_text, row_from};
 use crate::{
@@ -39,8 +33,7 @@ fn history_expiry() -> i64 {
     (Utc::now() + Duration::days(HISTORY_KEPT_DAYS)).timestamp()
 }
 
-/// The metadata of `row` as an entry superseded by `by`: no owner key and
-/// no profile flag, so it is never read as a memory.
+/// Metadata of `row` as history superseded by `by`, with no owner or profile flag.
 fn history_pairs(
     user: &UserKey,
     row: &MemoryRow,
@@ -75,8 +68,7 @@ fn changes(row: &MemoryRow, fact: &Fact<'_>) -> bool {
 }
 
 impl Store {
-    /// `update_memory` that keeps what the memory said before as history
-    /// when the fact changes it. Returns whether the memory exists.
+    /// `update_memory` that keeps the old text as history; returns whether the memory exists.
     pub(crate) async fn replace_memory(
         &self,
         user: &UserKey,
@@ -105,8 +97,7 @@ impl Store {
         self.trim_history(user, by).await
     }
 
-    /// Turns the memory `id`, now covered by the memory `by`, into history
-    /// of `by`, with its own history. Returns whether it existed.
+    /// Turns memory `id`, covered by `by`, into history of `by` with its own history; returns whether it existed.
     pub(crate) async fn retire_memory(&self, user: &UserKey, id: &str, by: &str) -> Result<bool> {
         let Some(record) = self.owned_memory(user, id).await? else {
             return Ok(false);
@@ -185,8 +176,7 @@ impl Store {
         Ok(())
     }
 
-    /// Deletes the history of every memory of a user and returns how many
-    /// entries there were.
+    /// Deletes all of a user's memory history; returns the entry count.
     pub(super) async fn forget_all_history(&self, user: &UserKey) -> Result<usize> {
         Ok(self
             .memories

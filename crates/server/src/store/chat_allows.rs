@@ -1,5 +1,4 @@
-//! Actions allowed for the rest of one chat, from "Allow for this session"
-//! on an approval card.
+//! Actions allowed for the rest of one chat via "Allow for this session".
 
 use super::Store;
 use crate::user::UserKey;
@@ -7,8 +6,7 @@ use anyhow::Result;
 use sqlx::Row;
 use uuid::Uuid;
 
-/// One action allowed in a chat: its app's slug and the tool slug the app's
-/// rule names it by.
+/// One action allowed in a chat: its app slug and tool slug.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChatAllow {
     pub(crate) app: String,

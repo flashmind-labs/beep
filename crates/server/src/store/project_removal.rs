@@ -1,6 +1,4 @@
-//! Forgetting a project, or one machine of it. Only rows go: no machine's
-//! files are touched. Project names match without regard to case, as the
-//! imports page matches them.
+//! Forgetting a project or one of its machines; only rows go, and names match without case.
 
 use super::{
     Store,
@@ -49,11 +47,7 @@ pub(crate) struct DroppedMachine {
 }
 
 impl Store {
-    /// Deletes every row of the user's project `name`: its imports, syncs,
-    /// pins, terminals and branch reviews, and its `projects` row with its
-    /// checkouts, tasks, workers, hidden issues and thread replies, and its
-    /// agent and thread chats. `None` when the user has no import, sync or
-    /// project of that name.
+    /// Deletes every row of project `name` and its chats; `None` when nothing of that name exists.
     pub(crate) async fn remove_project(
         &self,
         user: &UserKey,
@@ -174,9 +168,7 @@ impl Store {
         }))
     }
 
-    /// Forgets the user's `folder` on machine `endpoint` as a place of the
-    /// project `name`: its import and its sync there, and the project's
-    /// checkouts at that path. Says what went and what is left.
+    /// Forgets `folder` on `endpoint` for project `name` (import, sync, checkouts); says what went and what is left.
     pub(crate) async fn drop_project_folder(
         &self,
         user: &UserKey,

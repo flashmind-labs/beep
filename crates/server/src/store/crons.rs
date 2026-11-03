@@ -37,8 +37,7 @@ fn check_schedule(schedule: &str) -> Result<()> {
     Ok(())
 }
 
-/// Whether a place schedule runs only the next time, or `None` for any
-/// other schedule.
+/// Whether a place schedule runs only once; `None` for other schedules.
 fn place_once(schedule: &str) -> Option<bool> {
     PlaceTrigger::parse(schedule).map(|trigger| trigger.repeat == PlaceRepeat::Once)
 }

@@ -158,8 +158,7 @@ impl<'a> EntryColumns<'a> {
 }
 
 impl Store {
-    /// Makes session `chat` a research on `topic`, making the session if it
-    /// is new. A chat that is already one keeps its research.
+    /// Makes session `chat` a research on `topic`, creating it if new; an existing research is kept.
     pub(crate) async fn start_research(
         &self,
         user: &UserKey,
@@ -218,8 +217,7 @@ impl Store {
         row.as_ref().map(research_from).transpose()
     }
 
-    /// Starts the team on `plan`, if the research can start: it is not
-    /// running. Says whether it did.
+    /// Starts the team on `plan` unless running; says whether it did.
     pub(crate) async fn approve_research(&self, id: Uuid, plan: &Plan) -> Result<bool> {
         let can_start: Vec<&str> = [
             Status::Planning,
@@ -255,8 +253,7 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the research from `from` to `to`. Says whether it was at
-    /// `from`, so a stop in between wins over the team moving on.
+    /// Moves the research from `from` to `to`; says whether it was at `from`, so a stop wins.
     pub(crate) async fn move_research(&self, id: Uuid, from: Status, to: Status) -> Result<bool> {
         let moved = sqlx::query(
             "UPDATE researches SET status=$3,
@@ -291,8 +288,7 @@ impl Store {
         Ok(moved == 1)
     }
 
-    /// Marks every running research interrupted, at startup: their teams
-    /// died with the last server.
+    /// Marks running researches interrupted at startup.
     pub(crate) async fn interrupt_researches(&self) -> Result<()> {
         sqlx::query(
             "UPDATE researches SET status='interrupted', finished_at=now()
@@ -348,8 +344,7 @@ impl Store {
         rows.iter().map(entry_from).collect()
     }
 
-    /// Keeps a source and returns its number. A URL kept before keeps its
-    /// number.
+    /// Keeps a source and returns its number; a known URL keeps its number.
     pub(crate) async fn add_research_source(
         &self,
         id: Uuid,
