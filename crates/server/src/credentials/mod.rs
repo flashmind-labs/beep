@@ -3,6 +3,7 @@
 //! and hands to the user's machines (see `Down::Credentials`).
 
 mod check;
+pub(crate) mod machines;
 mod net;
 mod seal;
 
