@@ -8,6 +8,10 @@
 //! runs on its own model, set in the config's `[research]`.
 
 mod lead;
+#[cfg(feature = "pdf")]
+pub(crate) mod pdf;
+#[cfg(not(feature = "pdf"))]
+#[path = "pdf_off.rs"]
 pub(crate) mod pdf;
 mod tools;
 
