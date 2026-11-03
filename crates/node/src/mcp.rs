@@ -42,6 +42,7 @@ use uuid::Uuid;
 pub(crate) mod calls;
 mod catalog;
 mod server;
+mod socket;
 
 pub(crate) use server::Backend;
 
@@ -49,7 +50,8 @@ pub(crate) use server::Backend;
 pub const SERVER_NAME: &str = "beep";
 /// The env var the token reaches `beep-node mcp` in.
 pub const TOKEN_ENV: &str = "BEEP_MCP_TOKEN";
-const SOCKET: &str = "mcp.sock";
+/// The env var the socket the node bound reaches `beep-node mcp` in.
+pub const SOCKET_ENV: &str = "BEEP_MCP_SOCKET";
 /// The most MCP connections served at once: one per running session, and
 /// a node runs at most a few dozen.
 const MAX_CONNECTIONS: usize = 64;
@@ -77,8 +79,10 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
 pub struct Launch {
     /// The `beep-node` to run.
     exe: PathBuf,
-    /// The node's folder, which holds the socket.
+    /// The node's folder.
     dir: PathBuf,
+    /// The socket the node listens on, handed to sessions as it is.
+    socket: PathBuf,
     /// Made fresh each run: a token is good while this node runs.
     key: [u8; 32],
 }
@@ -89,7 +93,13 @@ impl Launch {
         let mut key = [0; 32];
         key[..16].copy_from_slice(Uuid::new_v4().as_bytes());
         key[16..].copy_from_slice(Uuid::new_v4().as_bytes());
-        Self { exe, dir, key }
+        let socket = socket::path_for(&dir);
+        Self {
+            exe,
+            dir,
+            socket,
+            key,
+        }
     }
 
     fn token(&self, session: &str) -> blake3::Hash {
@@ -113,7 +123,10 @@ impl Launch {
         McpServer::Stdio(
             McpServerStdio::new(SERVER_NAME, &self.exe)
                 .args(args)
-                .env(vec![EnvVariable::new(TOKEN_ENV, token)]),
+                .env(vec![
+                    EnvVariable::new(TOKEN_ENV, token),
+                    EnvVariable::new(SOCKET_ENV, self.socket.display().to_string()),
+                ]),
         )
     }
 }
@@ -186,11 +199,6 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
     })))
 }
 
-/// The socket in the node's folder `dir`.
-pub fn socket_path(dir: &Path) -> PathBuf {
-    dir.join(SOCKET)
-}
-
 /// The server's connection, for the calls it runs: set while the node is
 /// connected to a server that takes `tools/1`.
 #[derive(Clone)]
@@ -261,11 +269,12 @@ struct Hello {
 /// Takes MCP connections on the socket in `launch`'s folder until the node
 /// stops, and gives sessions the server from now on.
 pub async fn listen(launch: Arc<Launch>, agents: Arc<Agents>, upstream: Upstream) -> Result<()> {
-    let socket = socket_path(&launch.dir);
-    let mut listener = Listener::bind(&socket)?;
+    let socket = &launch.socket;
+    socket::prepare(socket, &launch.dir)?;
+    let mut listener = Listener::bind(socket)?;
     log::info!(
         "serving the Beep MCP server on {}",
-        local_socket::shown(&socket)
+        local_socket::shown(socket)
     );
     agents.serve_mcp(launch.clone());
     let node = Arc::new(Node { agents, upstream });
@@ -326,16 +335,29 @@ async fn connection(
     server::serve(node.as_ref(), &hello.session, reader, write).await
 }
 
+/// The socket a session connects to: the one the node named in
+/// `SOCKET_ENV`, else (a session from a node before it named one) the
+/// node's own choice for `dir`.
+fn connect_to(named: Option<OsString>, dir: &Path) -> PathBuf {
+    named
+        .filter(|named| !named.is_empty())
+        .map_or_else(|| socket::path_for(dir), PathBuf::from)
+}
+
 /// `beep-node mcp`: connects to the node in `dir` for `session`, with the
 /// token in `TOKEN_ENV`, and pipes stdin and stdout to it until either
 /// side ends.
 pub async fn pipe(dir: &Path, session: &str) -> Result<()> {
     let token = std::env::var(TOKEN_ENV)
         .with_context(|| format!("{TOKEN_ENV} is not set; the node sets it for its sessions"))?;
-    let socket = socket_path(dir);
-    let stream = local_socket::connect(&socket)
-        .await
-        .with_context(|| format!("no beep-node runs with its folder in {}", dir.display()))?;
+    let socket = connect_to(std::env::var_os(SOCKET_ENV), dir);
+    let stream = local_socket::connect(&socket).await.with_context(|| {
+        format!(
+            "no beep-node runs with its folder in {} (socket {})",
+            dir.display(),
+            socket.display()
+        )
+    })?;
     let (mut from_node, mut to_node) = tokio::io::split(stream);
     let hello = serde_json::json!({ "session": session, "token": token });
     to_node.write_all(format!("{hello}\n").as_bytes()).await?;
@@ -381,6 +403,35 @@ mod tests {
         );
         assert_eq!(server.env[0].name, TOKEN_ENV);
         assert_eq!(server.env[0].value, token);
+    }
+
+    #[test]
+    fn a_session_connects_to_the_socket_the_node_bound() {
+        let user = "a".repeat(64);
+        let dir = PathBuf::from(format!(
+            "/Users/{user}/Library/Application Support/com.flashmind.beep.desktop/node"
+        ));
+        let launch = Launch::new("/srv/Beep.app/Contents/MacOS/beep".into(), dir.clone());
+        let McpServer::Stdio(server) = launch.server("a3f9c1") else {
+            panic!("the server is not a command");
+        };
+        let named = server
+            .env
+            .iter()
+            .find(|var| var.name == SOCKET_ENV)
+            .expect("the socket is named");
+        assert_eq!(Path::new(&named.value), launch.socket);
+        assert!(named.value.len() < 104, "{}", named.value);
+        assert_eq!(
+            connect_to(Some(named.value.clone().into()), &dir),
+            launch.socket
+        );
+        // A session started before the node named its socket.
+        assert_eq!(connect_to(None, &dir), launch.socket);
+        assert_eq!(
+            connect_to(None, Path::new("/srv/node")),
+            Path::new("/srv/node/mcp.sock")
+        );
     }
 
     #[test]
