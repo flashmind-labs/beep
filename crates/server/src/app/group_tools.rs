@@ -38,7 +38,7 @@ use std::{
 use uuid::Uuid;
 
 /// The app tools a group may use. Mail and files are read only; creating an
-/// event, a task or a page and sending an email ask the owner first.
+/// event or a page and sending an email ask the owner first.
 const GROUP_TOOLS: &[&str] = &[
     "GMAIL_FETCH_EMAILS",
     "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
@@ -62,10 +62,6 @@ const GROUP_TOOLS: &[&str] = &[
     "NOTION_GET_PAGE_MARKDOWN",
     "NOTION_QUERY_DATABASE",
     "NOTION_CREATE_NOTION_PAGE",
-    "TODOIST_FILTER_TASKS",
-    "TODOIST_GET_ALL_TASKS",
-    "TODOIST_GET_ALL_PROJECTS",
-    "TODOIST_CREATE_TASK",
     "FASTMAIL_SEARCH_EMAIL",
     "FASTMAIL_READ_EMAIL",
     "FASTMAIL_READ_THREAD",
