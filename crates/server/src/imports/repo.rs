@@ -46,7 +46,9 @@ impl RepoRef {
                 return Err(ImportError::Malformed);
             }
             let host = url.host_str().ok_or(ImportError::Malformed)?;
-            return Self::on_host(host, url.port(), url.path(), forgejo);
+            // An ssh URL's port is its own, never the web server's.
+            let web_port = url.port().filter(|_| url.scheme().starts_with("http"));
+            return Self::on_host(host, web_port, url.path(), forgejo);
         }
         let parts: Vec<&str> = input.trim_matches('/').split('/').collect();
         match parts[..] {
@@ -62,9 +64,11 @@ impl RepoRef {
         }
     }
 
+    /// The repository at `path` on `host`, given with `web_port` when an
+    /// http URL named one.
     fn on_host(
         host: &str,
-        port: Option<u16>,
+        web_port: Option<u16>,
         path: &str,
         forgejo: &[ForgejoUrl],
     ) -> Result<Self, ImportError> {
@@ -76,19 +80,22 @@ impl RepoRef {
         let server = forgejo.iter().find_map(|server| {
             let base = Url::parse(server.as_str()).ok()?;
             let same_host = base.host_str()? == host;
-            // An ssh URL has its own port; an https one must match.
-            let same_port = port.is_none() || base.port() == port;
+            let same_port = web_port.is_none() || base.port() == web_port;
             let prefix = base.path().trim_end_matches('/');
             let rest = path.strip_prefix(prefix)?;
             (same_host && same_port && (prefix.is_empty() || rest.starts_with('/')))
                 .then(|| (server.clone(), rest.to_owned()))
         });
-        // An ssh path has no sub-path: try it from the root too.
+        // An ssh path has no sub-path: try it from the root too. A web
+        // URL on another port is another server.
         let server = server.or_else(|| {
-            forgejo.iter().find_map(|server| {
-                let base = Url::parse(server.as_str()).ok()?;
-                (base.host_str()? == host).then(|| (server.clone(), path.to_owned()))
-            })
+            forgejo
+                .iter()
+                .filter(|_| web_port.is_none())
+                .find_map(|server| {
+                    let base = Url::parse(server.as_str()).ok()?;
+                    (base.host_str()? == host).then(|| (server.clone(), path.to_owned()))
+                })
         });
         let Some((server, rest)) = server else {
             return Err(ImportError::UnknownHost(host));
@@ -284,6 +291,12 @@ mod tests {
             parse("https://gitlab.com/team/app"),
             Err(ImportError::UnknownHost("gitlab.com".into()))
         );
+        // Another port on a saved server's host is another server.
+        assert_eq!(
+            parse("https://git.example.com:8443/team/app"),
+            Err(ImportError::UnknownHost("git.example.com".into()))
+        );
+        assert!(parse("ssh://git@git.example.com:2222/team/app.git").is_ok());
         for bad in [
             "",
             "iroh",
