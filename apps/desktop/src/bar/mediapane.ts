@@ -6,12 +6,12 @@
 // is kept per window.
 
 import {
-  actualView, baseName, type Box, type Dock, DOCKS, dropDock, fitView, type ImageView, type MediaKind, mediaKind,
-  moveTab, type PaneLayout, paneSize, readLayout, resolvePath, SIDE_BY_SIDE_MIN, splitTabs, tabDock, zoomAt,
+  actualView, baseName, type Box, clipTime, type Dock, DOCKS, dropDock, fitView, type ImageView, type MediaKind,
+  mediaKind, moveTab, type PaneLayout, paneSize, readLayout, resolvePath, SIDE_BY_SIDE_MIN, splitTabs, tabDock, zoomAt,
 } from "../media-state.ts";
 import { highlight, languageOf, MAX_LINES, shortSize, terminalName } from "../files-state.ts";
 import type { Artifact } from "../artifacts-state.ts";
-import type { ModelView } from "../model3d.ts";
+import type { Animation, ModelView } from "../model3d.ts";
 import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artpane.ts";
 import { changeListeners, esc, h, ICON, invoke, PANE, S } from "./core.ts";
 import { changesView, dropChanges, madeChangesView, reloadChanges } from "./changespane.ts";
@@ -491,7 +491,10 @@ function drawDock(d: Dock, ids: string[]) {
     if (!t.el) t.el = viewOf(t);
     if (t.el.parentElement !== views) views.append(t.el);
     const hide = t.id !== on || P.layout.hidden[d];
-    if (hide && !t.el.hidden) t.el.querySelector("video")?.pause();
+    if (hide && !t.el.hidden) {
+      t.el.querySelector("video")?.pause();
+      t.model?.anim?.play(false);
+    }
     t.el.hidden = t.id !== on;
     if (!hide) t.model?.resize();
     if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); if (t.id === P.on[d]) t.term?.screen.focus(); });
@@ -939,6 +942,7 @@ function pdfView(t: MediaTab) {
 
 function modelView(t: MediaTab) {
   const el = h(`<div class="agpview"><div class="agpstage model"><div class="agpmsg"><span class="dspin"></span>Drawing ${esc(t.name)}…</div></div>
+    <div class="agpacts anim" hidden><button class="dbtn" data-play="1"></button><select aria-label="Clip"></select><input type="range" min="0" step="any" aria-label="Time"><span class="time"></span><button class="dbtn" data-loop="1">Loop</button></div>
     <div class="agpacts"><button class="dbtn" data-reset="1" disabled>Reset view</button><button class="dbtn" data-wire="1" disabled>Wireframe</button><span class="meta"></span><span class="sp"></span><span class="hint">Drag to orbit, right-drag to pan, wheel to zoom</span>${fileButtons(t, "Open")}</div></div>`);
   const stage = el.querySelector<HTMLElement>(".agpstage")!;
   const dir = t.path ? t.path.slice(0, t.path.lastIndexOf("/") + 1) : "";
@@ -958,8 +962,10 @@ function modelView(t: MediaTab) {
       t.model = view;
       stage.querySelector(".agpmsg")?.remove();
       const i = view.info;
-      el.querySelector(".meta")!.textContent = `${i.format} · ${i.triangles.toLocaleString()} triangles${i.meshes > 1 ? ` · ${i.meshes} meshes` : ""} · ${fileSize(t.size)}`;
+      const clips = i.clips ? ` · ${i.clips} clip${i.clips > 1 ? "s" : ""}` : "";
+      el.querySelector(".meta")!.textContent = `${i.format} · ${i.triangles.toLocaleString()} triangles${i.meshes > 1 ? ` · ${i.meshes} meshes` : ""}${clips} · ${fileSize(t.size)}`;
       el.querySelectorAll<HTMLButtonElement>("[data-reset], [data-wire]").forEach(b => { b.disabled = false; });
+      if (view.anim) animControls(el.querySelector(".anim")!, view.anim);
       view.resize();
     })
     .catch(e => {
@@ -973,4 +979,32 @@ function modelView(t: MediaTab) {
   });
   wireFileButtons(t, el);
   return el;
+}
+
+/// A model's animation row: play or pause, the clip, a scrub bar with
+/// the time, and loop. It plays on opening unless motion is reduced.
+function animControls(bar: HTMLElement, a: Animation) {
+  const play = bar.querySelector<HTMLButtonElement>("[data-play]")!, loop = bar.querySelector<HTMLButtonElement>("[data-loop]")!;
+  const pick = bar.querySelector("select")!, scrub = bar.querySelector("input")!, time = bar.querySelector(".time")!;
+  pick.innerHTML = a.clips.map((c, i) => `<option value="${i}">${esc(c.name)}</option>`).join("");
+  pick.hidden = a.clips.length < 2;
+  a.onchange = () => {
+    const end = a.clips[a.clip].duration, now = a.time();
+    play.textContent = a.playing ? "Pause" : "Play";
+    loop.classList.toggle("on", a.loop);
+    scrub.max = String(end);
+    scrub.value = String(now);
+    time.textContent = `${clipTime(now)} / ${clipTime(end)}`;
+  };
+  play.addEventListener("click", () => a.play(!a.playing));
+  loop.addEventListener("click", () => a.setLoop(!a.loop));
+  pick.addEventListener("change", () => a.select(Number(pick.value)));
+  // Scrubbing pauses it, so the bar does not pull away from the pointer.
+  scrub.addEventListener("input", () => {
+    a.play(false);
+    a.seek(Number(scrub.value));
+  });
+  bar.hidden = false;
+  a.onchange();
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) a.play(true);
 }
