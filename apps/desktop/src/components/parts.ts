@@ -29,3 +29,9 @@ export function note(dot: string, ...kids: Kid[]) {
 export function errorNote(text: string) {
   return el("div", "cc-note", el("span", "ddot bad"), el("span", "cc-err", text));
 }
+
+/// A state chip such as "running" or "needs reply"; `cls` colours it, and
+/// `spin` puts a spinner before the text.
+export function stateChip(cls: string, text: string, spin = false) {
+  return el("span", cls ? `pj-st ${cls}` : "pj-st", spin ? el("span", "dspin") : null, text);
+}

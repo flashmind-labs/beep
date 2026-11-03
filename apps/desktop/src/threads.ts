@@ -10,7 +10,7 @@ import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { TileData } from "./board.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel } from "./components/parts.ts";
+import { emptyPanel, stateChip } from "./components/parts.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -405,7 +405,7 @@ export function makeThreads(deps: ThreadDeps) {
       out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
     } else {
       out.push(h("div", "cc-panel", ...list.map(t => {
-        const st = t.needs_reply ? h("span", "pj-st blocked", "needs reply") : h("span", "pj-st done", "nothing to answer");
+        const st = t.needs_reply ? stateChip("blocked", "needs reply") : stateChip("done", "nothing to answer");
         const row = h("div", "pj-task pj-issue", h("span", "t", link(threadCode(t), t.url), ` ${t.title}`), st, h("span", "m", threadMeta(t, ago)));
         const acts = h("span", "acts");
         if (t.needs_reply) {
