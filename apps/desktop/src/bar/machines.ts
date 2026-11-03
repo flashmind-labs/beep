@@ -1,3 +1,6 @@
+import { openAddMachine } from "../addmachine.ts";
+import { harnessTile } from "../harnessicon.ts";
+import { bareVersion, coderColumns, coders, isCoder, newestNode, nodeBehind, specLine, toolChips } from "../machines-state.ts";
 import { bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
 import { emptyPage, errLine } from "./memories.ts";
@@ -44,8 +47,6 @@ export const MC: {
   asking: { id: string; busy: boolean; error: string } | null;
 } = { list: null, error: "", mac: null, asking: null };
 const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
-/// The coding agents Beep can drive on a machine; its other tools follow them.
-const CODERS = new Set(["claude", "codex", "gemini", "opencode", "cursor-agent", "amp", "aider"]);
 
 // ---------- Where Machines draws ----------
 
@@ -133,46 +134,80 @@ function removeParts(m: Machine) {
 
 const statusTag = (m: Machine) => m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
 const nodeVersion = (m: Machine) => /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
+/// The newest beep-node on the account's machines, which the others are behind.
+const newest = () => newestNode((MC.list ?? []).map(m => m.version));
 
-/// A machine in the list. In Settings it opens on its own page, and
-/// Remove waits there.
-function machineCard(m: Machine) {
-  const env = m.env, tag = statusTag(m), version = nodeVersion(m);
-  const opens = !!hosted();
-  const { button, ask } = opens ? { button: ICON.chev, ask: "" } : removeParts(m);
-  const open = opens ? ` data-machine="${esc(m.id)}" role="button" tabindex="0" aria-label="${esc(m.name)}"` : "";
-  if (!env) return `<div class="dmach"${open}><span class="nm">${esc(m.name)}${tag}${button}</span><small>${esc(version)} · No report yet</small>${ask}</div>`;
-  const coders = env.tools.filter(t => CODERS.has(t.name)), rest = env.tools.filter(t => !CODERS.has(t.name)).map(t => t.name);
-  const logins = env.logins.filter(l => l.signed_in).map(l => l.account ? `${l.tool} as ${l.account}` : `${l.tool} signed in`);
-  const also = [rest.length ? `Also ${rest.join(", ")}` : "", logins.join(", ")].filter(Boolean).join(" · ");
-  return `<div class="dmach"${open}><span class="nm">${esc(m.name)}${tag}${button}</span>
-    <small>${esc(`${env.os_version}, ${env.arch} · ${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB · ${version}`)}</small>
-    <span class="cd">${coders.length ? esc("Coding: " + coders.map(t => t.version ? `${t.name} ${t.version}` : t.name).join(", ")) : '<span style="color:var(--muted)">No coding tools</span>'}</span>
-    ${also ? `<small>${esc(also)}</small>` : ""}${ask}</div>`;
+/// The beep-node chip, marked when an update is out.
+function nodeChip(m: Machine) {
+  const behind = nodeBehind(m.version, newest());
+  const title = behind ? `beep-node ${m.version}; ${newest()} is out` : nodeVersion(m);
+  return `<span class="dmnv" title="${esc(title)}">${esc(nodeVersion(m))}${behind ? '<span class="up">update</span>' : ""}</span>`;
 }
 
-/// One machine on its own page in Settings: what it reported, every tool
-/// with its version and sign-in, and Remove.
+/// A coding agent's chip in its column: mark, bare version, and a dot for
+/// its sign-in, green when signed in and red when not.
+function agentChip(env: MachineEnv, t: MachineEnv["tools"][number], column: number) {
+  const version = bareVersion(t.name, t.version) ?? "";
+  const login = env.logins.find(l => l.tool === t.name);
+  const dot = !login ? "" : `<span class="${login.signed_in ? "in" : "out"}"></span>`;
+  const title = `${t.name} ${version}${!login ? "" : login.signed_in ? ", signed in" : ", not signed in"}`;
+  return `<span class="dmag" style="grid-column:${column}" title="${esc(title)}">${harnessTile(t.name, "dmag-ic")}<span class="v">${esc(version)}</span>${dot}</span>`;
+}
+
+/// A machine in the list: name, status, spec and beep-node on the first
+/// line, a column per coding agent on the second, the other tools on the
+/// third. In Settings it opens on its own page, and Remove waits there.
+function machineCard(m: Machine, columns: string[]) {
+  const env = m.env;
+  const opens = !!hosted();
+  const { button, ask } = opens ? { button: "", ask: "" } : removeParts(m);
+  const open = opens ? ` data-machine="${esc(m.id)}" role="button" tabindex="0" aria-label="${esc(m.name)}"` : "";
+  const seen = m.online ? "" : `<span class="seen">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
+  const spec = env ? specLine(env) : "No report yet";
+  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${seen}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${nodeChip(m)}${button}</span>`;
+  const chev = opens ? `<span class="ch">${ICON.chev}</span>` : "";
+  if (!env) return `<div class="dmach"${open}>${line1}${chev}${ask}</div>`;
+  const agents = coders(env.tools);
+  const line2 = agents.length
+    ? agents.map(t => agentChip(env, t, columns.indexOf(t.name) + 1)).join("")
+    : '<span class="none">No coding agents</span>';
+  const { shown, more } = toolChips(env.tools);
+  const line3 = shown.length
+    ? `<span class="l3">${shown.map(n => `<span class="dmt-t">${esc(n)}</span>`).join("")}${more.length ? `<span class="dmt-t" title="${esc(more.join(", "))}">+${more.length}</span>` : ""}</span>`
+    : "";
+  return `<div class="dmach"${open}>${line1}${chev}${line2}${line3}${ask}</div>`;
+}
+
+/// One machine on its own page in Settings: what it reported, its
+/// sign-ins, every tool with its version, and Remove.
 function machinePage(m: Machine) {
   const env = m.env, { button, ask } = removeParts(m);
   const kv = (k: string, v: string) => `<span>${k}</span><span>${v}</span>`;
-  const facts = kv("Status", statusTag(m)) + kv("beep-node", esc(nodeVersion(m)))
+  const behind = nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
+  const facts = kv("Status", statusTag(m)) + kv("beep-node", esc(nodeVersion(m)) + behind)
     + (env ? kv("System", esc(`${env.os_version}, ${env.arch}`)) + kv("Hardware", esc(`${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB`))
       + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`)
       + (env.avds.length ? kv("Android emulators", esc(env.avds.join(", "))) : "")
       : kv("Report", "None yet"));
   let html = `<div class="dset-box"><div class="dset-kv">${facts}</div></div>`;
-  if (env?.tools.length) {
-    const login = (tool: string) => env.logins.find(l => l.tool === tool);
-    const rows = [...env.tools].sort((a, b) => Number(CODERS.has(b.name)) - Number(CODERS.has(a.name))).map(t => {
-      const l = login(t.name);
-      const who = !l ? '<span class="dmuted">n/a</span>' : l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Signed out</span>';
-      return `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(t.version ?? "")}</td><td>${CODERS.has(t.name) ? "Coding agent" : "Tool"}</td><td>${who}</td></tr>`;
+  if (env?.logins.length) {
+    const rows = env.logins.map(l => {
+      const who = l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Not signed in</span>';
+      return `<tr><td class="dmono">${esc(l.tool)}</td><td>${who}</td></tr>`;
     }).join("");
-    html += `<div class="dset-h">Tools</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th><th>Signed in</th></tr></thead><tbody>${rows}</tbody></table>`;
+    html += `<div class="dset-h">Sign-ins</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  if (env?.tools.length) {
+    const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
+    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(bareVersion(t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
+    html += `<div class="dset-h">Tools</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   return html + `<div class="dmach dset-rm">${button ? `<span class="nm">${button}</span>` : ""}${ask}</div>`;
 }
+
+/// Add a machine, which opens the same sheet as the window's Home; the
+/// list loads again once it closes.
+const addButton = '<button class="dbtn" id="mcAdd">Add a machine</button>';
 
 function drawMachines() {
   const at = hosted(), el = root();
@@ -191,12 +226,11 @@ function drawMachines() {
     const sum = !MC.list ? "" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
     const say = esc(sum || "Where Beep runs commands and coding agents");
     // In Settings the breadcrumb names the page; the sum goes under it.
-    const head = at ? `<div class="dmuted" style="display:block;padding:0 0 10px">${say}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span></div>`;
-    const setup = '<code>beep-node setup</code>';
+    const head = at ? `<div class="dmc-head"><span class="dmuted">${say}</span>${addButton}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span>${addButton}</div>`;
+    const columns = coderColumns(list.map(m => m.env?.tools ?? []));
     el.innerHTML = head + errLine(MC.error) + (MC.list && !list.length
-      ? emptyPage(SERVER_ICON, "No machines yet.", `Press Add a machine in the Beep window and run the ${setup} command it shows on that computer, or turn on Let Beep use this Mac in Settings.`)
-      : `<div class="dlist${at ? " dset-box" : ""}" style="padding-top:6px">${list.map(machineCard).join("")}</div>
-        ${MC.list ? `<div class="dmuted" style="display:block;padding:0 ${at ? 0 : 18}px 12px">To add one, press Add a machine in the Beep window and run the ${setup} command it shows.</div>` : ""}`)
+      ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it, or turn on Let Beep use this Mac in Settings.")
+      : `<div class="dlist${at ? " dset-box" : ""}"><div class="dmt" style="--ag:${columns.length}">${list.map(m => machineCard(m, columns)).join("")}</div></div>`)
       + (at ? "" : hints([["esc", "back"]]));
   }
   for (const b of el.querySelectorAll<HTMLElement>("[data-machine]")) {
@@ -214,6 +248,7 @@ function drawMachines() {
       el.querySelector<HTMLElement>("#rmNo")?.focus();
     });
   }
+  el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) renderMachines(hosted()?.machine ?? null); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
 }

@@ -563,6 +563,31 @@ button.dachip:hover { border-color: #3A4A41 }
 .dmach .nm .dbtn { margin-left: auto; padding: 1px 9px; font-size: 11.5px; min-height: 0; font-weight: 400 }
 .dmach .ask { display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 12.5px }
 .dmach .ask .acts { display: flex; gap: 8px }
+/* The Machines list: one grid across machines, so each coding agent keeps
+   its column and the versions line up. Line 1 name, spec and beep-node;
+   line 2 the agents; line 3 the other tools. */
+.dmt { display: grid; grid-template-columns: repeat(var(--ag, 0), max-content) minmax(0, 1fr) auto }
+.dmt > .dmach { grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: 5px; row-gap: 6px; align-items: center; padding: 10px 10px 10px 12px }
+.dmt .l1 { grid-column: 1 / -2; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px }
+.dmt .l1 b { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 0 auto; max-width: 55% }
+.dmt .l1 .seen { font-size: 11.5px; color: var(--dim); white-space: nowrap; flex: none }
+.dmt .l1 .spec { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-variant-numeric: tabular-nums }
+.dmt .l1 .dbtn { flex: none; padding: 1px 9px; font-size: 11.5px; min-height: 0; font-weight: 400 }
+.dmt .ch { grid-column: -2; grid-row: 1 / span 3; color: var(--muted); display: grid }
+.dmnv { flex: none; display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; line-height: 18px; white-space: nowrap }
+.dmnv .up { color: var(--coral); font-weight: 600 }
+.dmag { grid-row: 2; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px 0 3px; border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 0 }
+.dmag-ic { width: 15px; height: 15px; display: grid; place-items: center; flex: none; font-family: var(--sans, inherit); font-size: 7.5px; font-weight: 700; color: var(--muted) }
+.dmag-ic svg { width: 13px; height: 13px }
+.dmag .in, .dmag .out { width: 6px; height: 6px; border-radius: 50%; margin-left: auto; flex: none }
+.dmag .in { background: var(--emerald) }
+.dmag .out { background: var(--err) }
+.dmt .none { grid-row: 2; grid-column: 1 / -2; font-size: 12px; color: var(--dim) }
+.dmt .l3 { grid-row: 3; grid-column: 1 / -2; display: flex; gap: 4px; overflow: hidden; white-space: nowrap; min-width: 0 }
+.dmt-t { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--elev); border-radius: 5px; padding: 0 6px; line-height: 17px }
+.dmt .ask { grid-column: 1 / -1 }
+.dmc-head { display: flex; align-items: center; gap: 12px; padding: 0 0 10px }
+.dmc-head .dmuted { flex: 1; display: block }
 .dagent { align-self: center; font-size: 11px; color: var(--dim); padding-left: 8px }
 .dmodelform { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none }
 .dsec.dagents { padding-top: 4px; display: flex; gap: 6px; align-items: center }
