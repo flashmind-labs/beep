@@ -651,6 +651,14 @@ pub(crate) async fn check(
         fleet.projects().disarm(&Due::Check(project));
         return Ok(());
     };
+    // A failure on one pull request must not stop the checks for good.
+    let checked = check_prs(fleet, user, &project).await;
+    rearm_check(fleet, user, project.id, now).await?;
+    checked
+}
+
+/// [`check`]'s reading of the project's pull requests.
+async fn check_prs(fleet: &dyn Fleet, user: &Arc<User>, project: &ProjectRow) -> Result<()> {
     let mut changes = Vec::new();
     if let Some(prs) = &project.roles.prs {
         let tasks = user.project_tasks(project.id).await?;
@@ -660,7 +668,7 @@ pub(crate) async fn check(
             .filter_map(|task| Some((task, pr_number(task.pr_url.as_deref()?)?)))
             .take(MAX_CHECKED);
         for (task, number) in review {
-            let pr = match pr_status(fleet, user, &project, prs, number).await {
+            let pr = match pr_status(fleet, user, project, prs, number).await {
                 Ok(Some(pr)) => pr,
                 Ok(None) => continue,
                 Err(error) => {
@@ -674,7 +682,7 @@ pub(crate) async fn check(
                 changes.push(pr_line(task, &pr));
             }
             if pr.merged {
-                finish_task(fleet, user, &project, task).await?;
+                finish_task(fleet, user, project, task).await?;
             }
         }
     }
@@ -690,7 +698,7 @@ pub(crate) async fn check(
             ),
         );
     }
-    rearm_check(fleet, user, project.id, now).await
+    Ok(())
 }
 
 async fn rearm_check(
