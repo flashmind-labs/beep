@@ -393,6 +393,21 @@ pub(crate) fn remote_parts(remote: &str) -> Option<(String, String)> {
     Some((host.to_owned(), path.to_owned()))
 }
 
+/// "GitHub", or "Forgejo at <host>", as the agent and the user read it.
+impl fmt::Display for IssueHost {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Github => f.write_str("GitHub"),
+            Self::Forgejo(host) => write!(f, "Forgejo at {}", host.as_str()),
+        }
+    }
+}
+
+/// The number at the end of a pull request's URL.
+pub(crate) fn pr_number(url: &str) -> Option<u64> {
+    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
+}
+
 /// Whether `hostname`, lowercased, is GitHub's.
 pub(crate) fn is_github(hostname: &str) -> bool {
     matches!(hostname, "github.com" | "www.github.com")

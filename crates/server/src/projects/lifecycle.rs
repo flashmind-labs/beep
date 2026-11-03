@@ -11,7 +11,9 @@ use super::{
     fleet::{self, Fleet, NodeFleet},
     gate::ProjectGate,
     issues::run_host,
-    model::{CHECK_EVERY, IDLE_CLOSE, IssueHost, ProjectId, TaskState, WorkerId, WorkerState},
+    model::{
+        CHECK_EVERY, IDLE_CLOSE, IssueHost, ProjectId, TaskState, WorkerId, WorkerState, pr_number,
+    },
     policy::{Verdict, WorkerScope},
     schedule::Due,
     turn::{CHECK_LABEL, REPLAN_LABEL, WORKER_LABEL},
@@ -624,11 +626,6 @@ pub(crate) async fn on_due(app: &Arc<App>, due: Due, now: DateTime<Utc>) -> Resu
         // The projects run a worker's jobs themselves.
         Due::Worker(_) => Ok(()),
     }
-}
-
-/// The number at the end of a pull request's URL.
-fn pr_number(url: &str) -> Option<u64> {
-    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
 }
 
 /// Reads the pull requests of the project's tasks in review, finishes the
