@@ -275,6 +275,7 @@ pub fn router() -> Router {
         .call(project_groups::delete_project_group)
         .call(updates::list_updates)
         .call(updates::dismiss_updates)
+        .call(updates::open_update_chat)
         .call(create_node_token)
         .call(revoke_node_token)
         .call(remove_machine)

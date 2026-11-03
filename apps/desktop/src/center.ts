@@ -644,11 +644,15 @@ function dismissUpdates(ids: number[]) {
   });
 }
 
-/// Starts a new chat with the update's summary in the composer, not sent.
+/// Opens the update's chat, where Beep's first message tells it and the
+/// user replies; the same chat each time. A server too old to make one
+/// gets a new chat with the summary in the composer instead.
 async function openUpdate(u: UpdateRow) {
   dismissUpdates([u.id]);
-  go("pane", { chat: { session: null } });
   try {
+    const session = await invoke<string | null>("center_open_update_chat", { id: u.id });
+    if (session) return go("pane", { chat: { session } });
+    go("pane", { chat: { session: null } });
     await pane.draft(u.summary);
   } catch (e) {
     console.warn("opening an update:", e);
