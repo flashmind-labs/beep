@@ -1,4 +1,6 @@
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
+import { preloadModels } from "./agentpicker.ts";
+import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import { clock, folded, heading, span, splitTurns, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
@@ -230,7 +232,7 @@ export const CAP_NAMES: Record<string, string> = { gpu: "GPU", cuda: "CUDA", ble
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
-export const agentAvatar = (a: string) => `<span class="dapp dcoderav ${agentKind(a).cls}">${esc(agentKind(a).ini)}</span>`;
+export const agentAvatar = (a: string) => harnessTile(a, "dapp dcoderav");
 export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
 export const byPreference = (a: string, b: string) => (AGENT_ORDER.indexOf(a) + 1 || 99) - (AGENT_ORDER.indexOf(b) + 1 || 99);
 /// The session `o` names, as the node's commands take it.
@@ -241,6 +243,7 @@ export async function loadAgentHosts() {
   if (S.link !== "linked") return;
   try {
     AG.hosts = await invoke<AgentHost[]>("agent_hosts");
+    preloadModels(AG.hosts);
   } catch {
     AG.hosts = [];
   }

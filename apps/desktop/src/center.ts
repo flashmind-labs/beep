@@ -1,5 +1,6 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
+import { harnessEl } from "./harnessicon.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -9,7 +10,7 @@ import { pane, type PaneTarget } from "./bar/pane.ts";
 import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
+import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
 import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { openImportProject } from "./importproject.ts";
@@ -24,7 +25,7 @@ import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { BAR_NOTE, barCheckout, barPlace, barPrompt } from "./projectbar.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, folderBusy, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
-import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner } from "./bar/agentpicker.ts";
+import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner, preloadModels } from "./bar/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "./bar/agents.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
@@ -504,8 +505,7 @@ function needsRow(n: NeedsYou) {
     open = () => go("pane", { chat: { session: n.session_id } });
     act = () => answerChat(n, "allow", "Allowed");
   } else {
-    const ag = agentOf(n.agent);
-    lead = avatar(ag.cls, ag.ini);
+    lead = harnessEl(n.agent);
     open = act = () => openAsking(n);
   }
   let right;
@@ -1677,7 +1677,9 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   pin.type = "button";
   pin.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
   pin.addEventListener("click", e => { e.stopPropagation(); setProjectOnTop(c.name, !c.pinned); });
-  const card = h("div", "pj-card", h("div", "h", projectDot(c.i), h("b", "", c.repo), pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
+  const repo = h("b", "", c.repo);
+  repo.title = c.name;
+  const card = h("div", "pj-card", h("div", "h", projectDot(c.i), repo, pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.title = c.name;
@@ -2103,7 +2105,7 @@ function barProject() {
 /// agents, the sessions (for worktrees) and the project's branches.
 function loadProjectBar(name: string) {
   const redraw = () => { if (shown === "projects" && state.picked === name) redrawProjects(); };
-  invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
+  invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
   invoke<AgentSession[]>("agent_sessions").then(list => { pc.sessions = list; }).catch(e => console.warn("agent sessions:", e));
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
@@ -2828,6 +2830,8 @@ initPalette({ go, jump, pane, settings: openSettings, providers: () => go("provi
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
 
 document.addEventListener("keydown", e => {
+  // Keys typed into a terminal are the terminal's, Esc and Tab too.
+  if (inTerminal(e)) return;
   // Esc on an opened board tile goes back to the board.
   if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
     e.preventDefault();
@@ -2845,6 +2849,16 @@ document.addEventListener("keydown", e => {
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
+
+/// The machines online in `home`, as a key that changes when one connects.
+function onlineMachines(home: HomeView | null) {
+  return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
+}
+
+/// Whether `e` was typed into a terminal's screen.
+function inTerminal(e: KeyboardEvent) {
+  return e.target instanceof Element && !!e.target.closest(".tm-xterm");
+}
 
 /// ⌘N: the project's chat while a project or its chat shows, else a new
 /// general chat. A project with no chat gets its bar, which starts a
@@ -2902,8 +2916,14 @@ async function refresh() {
     state.groups = projectGroups;
     state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
+    const was = onlineMachines(state.home);
     state.home = home;
     fresh = true;
+    // A machine came online: its harnesses' models are read ahead of the
+    // picker.
+    if (onlineMachines(home) !== was) {
+      invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
+    }
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);

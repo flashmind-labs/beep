@@ -2,7 +2,7 @@
 // cards its chat waits on. The chat itself opens in the pane from the
 // page's prompt bar. center.ts owns the page and its refreshes; this file
 // draws these sections and holds the pure pieces the tests check.
-import { agentOf } from "./home.ts";
+import { harnessEl } from "./harnessicon.ts";
 import type { ChatApproval } from "./home.ts";
 import { agentLabel, button, el } from "./projects-state.ts";
 import type { Kid } from "./projects-state.ts";
@@ -309,11 +309,10 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
   icon.innerHTML = chatIcon; // fixed markup from center.ts, no server text
   const nodes = [el("div", "pj-node", lead("beep", icon.firstChild), el("span", "t", el("b", "", "Project agent"), el("span", "", "Plans tasks, files issues, places workers")))];
   for (const w of view.workers) {
-    const ag = agentOf(w.agent);
     const name = titles.get(w.task_id) || workerFolder(w.folder);
     const sub = el("span", "", workerLine(w, now));
     sub.title = w.folder;
-    const node = el("div", "pj-node child", lead(ag.cls, ag.ini), el("span", "t", el("b", "", name), sub));
+    const node = el("div", "pj-node child", harnessEl(w.agent), el("span", "t", el("b", "", name), sub));
     if (w.session && act.openWorker) {
       node.classList.add("link");
       node.title = "Open its session";

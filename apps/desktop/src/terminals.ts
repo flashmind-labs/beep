@@ -63,6 +63,8 @@ export interface Screen {
   /// Fits the screen to its element, once it is on the page.
   fit(): void;
   focus(): void;
+  /// Whether the keyboard is in it now.
+  focused(): boolean;
   onData(cb: (data: string) => void): void;
   onResize(cb: (size: { cols: number; rows: number }) => void): void;
   /// Whether keys typed go anywhere.
@@ -234,6 +236,13 @@ export function retryDelay(tries: number) {
   return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
 }
 
+/// Whether a terminal that ended in `state` is done for good: it exited or
+/// was stopped, or its machine no longer has it. An offline one may still
+/// run.
+export function endsForGood(state: string) {
+  return state === "exited" || state === "stopped" || state === "gone";
+}
+
 /// The footer line of an open terminal.
 export function linkLabel(link: Link, watching: boolean, machine: string) {
   switch (link) {
@@ -349,6 +358,9 @@ export function makeTerminals(deps: TerminalDeps) {
       } else if (ev.kind === "ended") {
         live.link = "ended";
         live.screen.setInput(false);
+        // Its shell exited: the terminal goes from the list and its view
+        // closes. One whose machine went away may still run there.
+        if (endsForGood(ev.state)) return forget(name, live.id);
         const row = (of(name).list || []).find(x => x.id === live.id);
         if (row) setRow(name, { ...row, state: ev.state, code: ev.code });
         redraw();
@@ -443,6 +455,22 @@ export function makeTerminals(deps: TerminalDeps) {
     } finally {
       t.busy = false;
     }
+    redraw();
+  }
+
+  /// Drops ended terminal `id` here and on the server.
+  function forget(name: string, id: string) {
+    const live = lives.get(id);
+    if (live) {
+      clearTimeout(live.timer);
+      live.screen.dispose();
+      lives.delete(id);
+    }
+    const t = of(name);
+    t.list = (t.list || []).filter(x => x.id !== id);
+    if (t.open === id) { t.open = null; t.output = null; }
+    // Its row on the server; the next listing drops it too when this fails.
+    invoke("terminal_close", { id }).catch(e => console.warn("closing an ended terminal:", e));
     redraw();
   }
 
@@ -552,9 +580,13 @@ export function makeTerminals(deps: TerminalDeps) {
       // The screen follows its newest line.
       queueMicrotask(() => { const s = document.querySelector(".tm-screen"); if (s) s.scrollTop = s.scrollHeight; });
     } else {
+      // A redraw moves the screen to the new page, which drops the focus:
+      // the keys typed next would reach the window instead.
+      const keep = live.screen.focused();
       body = live.screen.el;
       watch(null);
       requestAnimationFrame(() => live.screen.fit());
+      if (keep) queueMicrotask(() => live.screen.focus());
     }
     const on = live.link === "attached" && open.state === "running";
     return h("div", "cc-panel tm-panel", head, body,
