@@ -1906,7 +1906,6 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     return out;
   }
   const past = sessions ? pastSessions(sessions, running) : [];
-  const openUrl = agentActs.openUrl;
   if (terms.list(p.name) === undefined) terms.load(p.name);
   if (revs.branches(p.name) === undefined) revs.load(p.name);
   if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
@@ -1978,7 +1977,7 @@ const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects() }
 const revs = makeReviews({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
-  openUrl: (url: string) => agentActs.openUrl(url),
+  openUrl,
   openTile: (key: string) => openTile(key),
   machines: () => state.home?.machines || [],
 });
@@ -1988,7 +1987,7 @@ const revs = makeReviews({
 const thr = makeThreads({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
-  openUrl: (url: string) => agentActs.openUrl(url),
+  openUrl,
   openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
 });
@@ -2009,7 +2008,7 @@ const agentActs = {
   busy: (id: string) => pa.busy.has(id),
   error: (id: string) => pa.errors.get(id),
   outcome: (id: string) => pa.outcomes.get(id),
-  openUrl: (url: string) => invoke("open_url", { url }).catch(e => console.warn("open url:", e)),
+  openUrl,
   review: (branch: string) => { if (state.picked) revs.openBranch(state.picked, branch); },
   /// Merge… on a task in review asks the project agent to merge once the
   /// branch's newest review allows it and the branch has not moved since;
@@ -2545,8 +2544,8 @@ registerView("projects", {
     const tools = [];
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
     if (p?.url) {
-      const label = openOnLabel(p.url);
-      if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+      const url = p.url, label = openOnLabel(url);
+      if (label) tools.push(button(label, "small", () => openUrl(url)));
     }
     if (p) {
       const on = state.top.includes(p.name);
@@ -2781,7 +2780,7 @@ function threadHead(t: ThreadChatEntry, c: ChatItem | undefined): ViewHead {
   const scope = h("span", "th-scope", scopeTag(t.chat_id));
   if (view?.needs_reply) scope.append(stateChip("blocked", "needs reply"));
   const tools: Node[] = [];
-  if (view?.url) tools.push(button(openLabel(view.url), "", () => agentActs.openUrl(view.url)));
+  if (view?.url) tools.push(button(openLabel(view.url), "", () => openUrl(view.url)));
   if (c) tools.push(pinButton(c));
   const title = view ? `${threadLabel(view.kind, view.number)} ${view.title}`.trim() : (c?.title || t.title || threadLabel(t.kind, t.number));
   return { title, tools, scope };
