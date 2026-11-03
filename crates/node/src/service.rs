@@ -208,6 +208,42 @@ pub async fn parent_exited() -> Result<()> {
     std::future::pending().await
 }
 
+/// What restarting the node's service did, after its binary was replaced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Restart {
+    /// The service was running and now runs the new binary.
+    Restarted(Manager),
+    /// The service is installed but was not running, so it was left stopped.
+    Stopped(Manager),
+    /// The service runs another binary than the one replaced; its unit,
+    /// plist or task file.
+    OtherBinary(PathBuf),
+    /// No service of the node's is installed here.
+    NotInstalled,
+}
+
+/// Restarts the service `setup` installed, if it runs `exe` (canonical, as
+/// `Launch` keeps it), so it picks up a new binary at that path.
+pub fn restart(exe: &Path) -> Result<Restart> {
+    match env::consts::OS {
+        "linux" => systemd::restart(exe),
+        "macos" => launchd::restart(exe),
+        "windows" => windows::restart(exe),
+        _ => Ok(Restart::NotInstalled),
+    }
+}
+
+impl Manager {
+    /// The command that starts the installed service, for a hint.
+    pub fn start_command(self) -> &'static str {
+        match self {
+            Self::Systemd => "systemctl --user start beep-node",
+            Self::Launchd => "launchctl kickstart gui/$(id -u)/com.flashmind.beep-node",
+            Self::TaskScheduler => "schtasks /Run /TN \"Beep node\"",
+        }
+    }
+}
+
 /// `beep-node service install`.
 pub fn install(dir: &Path, workspace: Option<&Path>) -> Result<()> {
     let manager = manager()?;

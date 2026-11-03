@@ -6,10 +6,11 @@
 //! ending the task ends only conhost. Its log goes to a file, since there is
 //! no console to read.
 
-use super::{Launch, escape};
+use super::{Launch, Manager, Restart, escape};
 use anyhow::{Context, Result, bail};
 use std::{
     env, fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -54,6 +55,32 @@ pub(super) fn uninstall() -> Result<()> {
     }
     println!("Stopped and removed the scheduled task {TASK:?}.");
     Ok(())
+}
+
+pub(super) fn restart(exe: &Path) -> Result<Restart> {
+    if !installed() {
+        return Ok(Restart::NotInstalled);
+    }
+    let path = task_path()?;
+    let xml = match fs::read(&path) {
+        Ok(bytes) => from_utf16(&bytes),
+        // Installed by hand, or the file was removed: nothing says what it runs.
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::OtherBinary(path)),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    if !runs(&xml, exe) {
+        return Ok(Restart::OtherBinary(path));
+    }
+    // Ending the task ends conhost, and the node with it (`--with-parent`).
+    end();
+    schtasks(&["/Run", "/TN", TASK])?;
+    Ok(Restart::Restarted(Manager::TaskScheduler))
+}
+
+/// Whether the task's `xml` starts the node from `exe`.
+fn runs(xml: &str, exe: &Path) -> bool {
+    let program = format!("<Arguments>--headless {} ", escape(&quote_arg(&plain(exe))));
+    xml.contains(&program)
 }
 
 /// The node's files that are not its settings: the task as installed and
@@ -215,6 +242,18 @@ fn utf16(text: &str) -> Vec<u8> {
         .collect()
 }
 
+/// The task file `utf16` wrote, as text.
+fn from_utf16(bytes: &[u8]) -> String {
+    let units: Vec<u16> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
+        .collect();
+    let units = units.strip_prefix(&[0xFEFF]).unwrap_or(&units);
+    String::from_utf16_lossy(units)
+}
+
 fn installed() -> bool {
     Command::new("schtasks")
         .args(["/Query", "/TN", TASK])
@@ -330,5 +369,14 @@ mod tests {
     #[test]
     fn the_xml_is_utf16_with_a_byte_order_mark() {
         assert_eq!(utf16("<a>"), [0xFF, 0xFE, b'<', 0, b'a', 0, b'>', 0]);
+        assert_eq!(from_utf16(&utf16("<a>")), "<a>");
+    }
+
+    #[test]
+    fn a_restart_only_follows_a_task_that_runs_this_binary() {
+        let xml = from_utf16(&utf16(&xml(&windows_launch(None))));
+        let exe = r"\\?\C:\Users\user\AppData\Local\Programs\beep-node\beep-node.exe";
+        assert!(runs(&xml, Path::new(exe)));
+        assert!(!runs(&xml, Path::new(r"C:\Users\user\beep-node.exe")));
     }
 }
