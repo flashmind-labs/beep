@@ -257,3 +257,12 @@ test("a menu opens below its pill when it fits, else above, cut to the room", ()
   assert.equal(tall.top, 8);
   assert.equal(tall.left, 552);
 });
+
+test("the harness's own default entry folds into one Default row", () => {
+  const claude: AgentModels = { pick: "listed", current: "default", models: [
+    { id: "default", name: "Default (recommended)", description: "Opus 4.6 · Most capable for complex work" },
+    { id: "sonnet", name: "Sonnet", description: null },
+  ] };
+  assert.deepEqual(modelRows(claude, "").rows.map(r => [r.value, r.label, r.note]),
+    [["", "Default", "Opus 4.6"], ["sonnet", "Sonnet", "sonnet"]]);
+});

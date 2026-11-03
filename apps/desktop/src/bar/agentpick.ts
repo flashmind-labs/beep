@@ -3,7 +3,7 @@
 // text, the Machine menu's rows, the Project and Folder menus and where
 // the picker goes on screen.
 
-import type { AgentModels } from "./agentmodels.ts";
+import type { AgentModels, ModelInfo } from "./agentmodels.ts";
 import { folderOn } from "../projects-state.ts";
 
 /// The harnesses the picker's rail shows, in this order; others a machine
@@ -83,15 +83,21 @@ export interface ModelRow {
 /// models freely gets the query itself as a row to pick.
 export function modelRows(list: AgentModels | null | undefined, query: string): { rows: ModelRow[]; note: string } {
   const q = query.trim(), lower = q.toLowerCase();
-  const name = (id: string) => list?.models.find(m => m.id === id)?.name || id;
-  const first: ModelRow = { value: "", label: "Default", note: list?.current ? name(list.current) : "its own" };
+  // The harness's own "default" entry is our Default row: one row, whose
+  // note says what it resolves to.
+  const isDefault = (m: ModelInfo) => m.id.toLowerCase() === "default" || /^default\b/i.test(m.name);
+  const own = list?.models.find(isDefault), current = list?.models.find(m => m.id === list.current);
+  const resolves = own?.description ? own.description.split(/ · | - |\. |, /)[0].trim()
+    : current && !isDefault(current) ? current.name || current.id
+    : !own && list?.current ? list.current : "its own";
+  const first: ModelRow = { value: "", label: "Default", note: resolves };
   const fits = (r: ModelRow) => !lower || r.label.toLowerCase().includes(lower) || r.value.toLowerCase().includes(lower);
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
   if (!list || list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
   if (list.pick === "named" || !list.models.length) {
     return { rows: q ? [first, { value: q, label: q, note: "use this name" }] : [first], note: q ? "" : "Type a model name to use it." };
   }
-  const rows = [first, ...list.models.map(m => ({ value: m.id, label: m.name || m.id, note: m.name && m.name !== m.id ? m.id : "" }))].filter(fits);
+  const rows = [first, ...list.models.filter(m => !isDefault(m)).map(m => ({ value: m.id, label: m.name || m.id, note: m.name && m.name !== m.id ? m.id : "" }))].filter(fits);
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 

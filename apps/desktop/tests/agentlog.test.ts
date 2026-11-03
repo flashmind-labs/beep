@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, parseTool, subagent, tailLines, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkImagePaths, parseTool, subagent, tailLines, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -104,4 +104,13 @@ test("Codex's echo of answered questions reads as questions and answers", () => 
   assert.deepEqual(answeredQuestions(text), [{ question: "Which error text?", answer: "Use the web app text" }, { question: "Run tests?", answer: "Yes" }]);
   assert.equal(answeredQuestions("<send_user_message_question_reply>not json</send_user_message_question_reply>"), null);
   assert.equal(answeredQuestions("hello"), null);
+});
+
+test("image files a reply names become links, numbered as first named", () => {
+  const { html, paths } = linkImagePaths("<p>Before <code>shots/a.png</code> and /srv/project/b.JPG, then shots/a.png again.</p><pre>x.png</pre>");
+  assert.deepEqual(paths, ["shots/a.png", "/srv/project/b.JPG"]);
+  assert.match(html, /<code><a class="imgl" data-img="0" title="shots\/a.png">shots\/a.png<\/a><\/code>/);
+  assert.match(html, /<a class="imgl" data-img="1"[^>]*>\/srv\/project\/b.JPG<\/a>,/);
+  assert.match(html, /<pre>x.png<\/pre>/, "code blocks stay as they are");
+  assert.equal(linkImagePaths("no pictures here.").paths.length, 0);
 });
