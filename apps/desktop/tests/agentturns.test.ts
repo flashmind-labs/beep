@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clock, duration, folded, heading, span, splitTurns, summary, toolKind } from "../src/agentturns.ts";
+import { clock, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, summary, toolKind } from "../src/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -51,9 +51,11 @@ test("the folded line counts each kind, with plurals", () => {
   const log = [u("go"), t("cargo test [failed]"), t("Edit `src/login.rs` [completed]"), t("Edit `tests/login.rs` [completed]"), a("Done.")];
   assert.equal(summary(log, splitTurns(log)[0]), "Ran 1 command, edited 2 files");
   const more = [u("go"), t("Bash: ls"), t("Bash: make"), t("Read: a.rs"), t("Read: a.rs"), t("Grep: x"), t("WebFetch: https://example.com"), t("Task: x"), t("Task: y")];
-  assert.equal(summary(more, splitTurns(more)[0]), "Ran 2 commands, read 1 file, searched once, made 1 web request, used 2 other tools");
+  assert.equal(summary(more, splitTurns(more)[0]), "Ran 2 commands, read 1 file, performed 4 other actions");
   const twice = [u("go"), t("Grep: x"), t("Glob: *.rs"), t("WebSearch: y"), t("WebSearch: z")];
   assert.equal(summary(twice, splitTurns(twice)[0]), "Searched 2 times, made 2 web requests");
+  const one = [u("go"), t("Bash: ls"), t("Edit: a.rs"), t("Grep: x")];
+  assert.equal(summary(one, splitTurns(one)[0]), "Ran 1 command, edited 1 file, performed 1 other action");
   const talk = [u("go"), a("Thinking."), { kind: "question", text: "Run it?" }, a("Done.")];
   assert.equal(summary(talk, splitTurns(talk)[0]), "2 steps");
 });
@@ -87,4 +89,27 @@ test("a turn's span comes from the session or from what the window saw", () => {
   assert.deepEqual(span({ ...base, seenStart: 5000, seenEnd: 7000 }), { start: 5000, end: 7000 });
   assert.deepEqual(span(base), { start: undefined, end: undefined });
   assert.deepEqual(span({ ...base, last: true, seenStart: 9500 }), { start: 9500, end: undefined });
+});
+
+test("a step reads as one short line", () => {
+  assert.equal(stepLabel("cargo test -p widget [completed]"), "Ran cargo test -p widget");
+  assert.equal(stepLabel("cargo test [in_progress]", true), "Running cargo test");
+  assert.equal(stepLabel("Read src/main.rs [completed]"), "Read src/main.rs");
+  assert.equal(stepLabel("Bash: make"), "Ran make");
+  assert.equal(stepLabel("Edit: a.rs"), "Edited a.rs");
+  assert.equal(stepLabel("Grep: fn main"), "Searched fn main");
+  assert.equal(stepLabel("TodoWrite: plan"), "TodoWrite: plan");
+});
+
+test("notes, failures, pictures and subagents stay out of the fold", () => {
+  const log = [u("go"), t("ls [completed]"), t("cargo test [failed]\nexit code: 101"), { kind: "other", text: "Switched to deep from the next turn" },
+    t("Explore [completed]\n[steps] 1\n[step completed] Read a.rs\nFound it"), t("Screenshot [completed]\n[image: image-0123456789abcdef]"), a("Done.")];
+  assert.deepEqual(keptSteps(log, splitTurns(log)[0]), [2, 3, 4, 5]);
+});
+
+test("notes before the first message are not a turn of work", () => {
+  const log = [{ kind: "other", text: "Compacted" }, u("go"), a("ok")];
+  const turns = splitTurns(log);
+  assert.equal(onlyNotes(log, turns[0]), true);
+  assert.equal(onlyNotes(log, turns[1]), false);
 });

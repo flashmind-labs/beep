@@ -80,3 +80,92 @@ export function imageLines(text: string) {
   }
   return { text: kept.join("\n").replace(/\s+$/, ""), names };
 }
+
+/// How many lines of a step's output show when it is opened, before
+/// "Show all", counted as they wrap.
+export const TAIL_LINES = 5;
+/// The characters one output line holds before it wraps, about.
+export const WRAP_AT = 100;
+
+/// The visual lines a line of output takes when it wraps at `WRAP_AT`.
+const rows = (line: string) => Math.max(1, Math.ceil(line.length / WRAP_AT));
+
+/// The end of a step's output as it shows when opened: its last
+/// `TAIL_LINES` lines as they wrap, so one long line of JSON counts as the
+/// many it shows as. `total` is the output's lines, for "Show all N lines";
+/// `cut` whether anything is left out.
+export function tailLines(output: string, keep = TAIL_LINES) {
+  if (!output) return { shown: "", total: 0, cut: false };
+  const lines = output.split("\n"), shown: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0 && used < keep; i--) {
+    const line = lines[i], room = keep - used;
+    if (rows(line) <= room) { shown.unshift(line); used += rows(line); continue; }
+    // A line longer than the room left shows its end.
+    shown.unshift(`…${line.slice(line.length - room * WRAP_AT + 1)}`);
+    used = keep;
+  }
+  const text = shown.join("\n");
+  return { shown: text, total: lines.length, cut: text !== output };
+}
+
+/// The exit code a failed command's output names (`exit code: 101`,
+/// `Exit status 2`, `exited with 1`), or null.
+export function exitCode(output: string) {
+  const all = [...output.matchAll(/\bexit(?:ed with|\s+code|\s+status)?\s*:?\s*(-?\d+)\b/gi)];
+  return all.length ? Number(all[all.length - 1][1]) : null;
+}
+
+/// A step of a subagent, as the node writes it on the call that started it.
+export interface SubStep {
+  status: string;
+  title: string;
+}
+
+/// A subagent's call, read from its output: the node writes `[steps] N`
+/// first, then `[step <status>] <title>` for each of the last steps,
+/// before what the subagent answered. Null for any other call.
+export function subagent(output: string): { count: number; steps: SubStep[]; result: string } | null {
+  const lines = output.split("\n");
+  const head = /^\[steps\] (\d+)$/.exec(lines[0] ?? "");
+  if (!head) return null;
+  const steps: SubStep[] = [];
+  let i = 1;
+  for (; i < lines.length; i++) {
+    const m = /^\[step (pending|in_progress|completed|failed)\] (.*)$/.exec(lines[i]);
+    if (!m) break;
+    steps.push({ status: m[1], title: m[2] });
+  }
+  return { count: Number(head[1]), steps, result: lines.slice(i).join("\n").trim() };
+}
+
+/// One question Codex asked and the user's answer, as its echo of the
+/// answer carries them.
+export interface Answered {
+  question: string;
+  answer: string;
+}
+
+const REPLY = /^\s*<send_user_message_question_reply>([\s\S]*)<\/send_user_message_question_reply>\s*$/;
+
+/// The questions and answers in a user message that is Codex's echo of
+/// answered questions (`<send_user_message_question_reply>[{…}]</…>`), or
+/// null when it is not one or its JSON does not read.
+export function answeredQuestions(text: string): Answered[] | null {
+  const m = REPLY.exec(text);
+  if (!m) return null;
+  try {
+    const items: unknown = JSON.parse(m[1]);
+    if (!Array.isArray(items) || !items.length) return null;
+    const out: Answered[] = [];
+    for (const it of items) {
+      if (!it || typeof it !== "object") return null;
+      const { question, answer } = it as Record<string, unknown>;
+      if (typeof answer !== "string") return null;
+      out.push({ question: typeof question === "string" ? question : "", answer });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
