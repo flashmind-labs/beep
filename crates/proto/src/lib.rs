@@ -1162,6 +1162,38 @@ requests! {
     /// machines every few minutes; `refresh` asks the online ones to read
     /// them again now, and the answer comes before they did.
     294 GetUsage { refresh: bool } => Call<UsageView>
+    /// What the caller's coding agents cost today, this week (from Monday)
+    /// and this month, in the caller's timezone, by project and by
+    /// harness, and how much of each agent's plan is used. Unlike
+    /// `GetUsage` it counts sessions started outside Beep too, as the
+    /// machines read them from the agents' own logs. `refresh` as in
+    /// `GetUsage`.
+    295 GetUsageReport { refresh: bool } => Call<UsageReport>
+}
+
+/// What `GetUsageReport` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageReport {
+    /// As in `UsageView`.
+    pub limits: Vec<PlanLimits>,
+    pub today: PeriodSpend,
+    /// From Monday.
+    pub week: PeriodSpend,
+    /// From the first of the month.
+    pub month: PeriodSpend,
+}
+
+/// What coding agents spent over one period.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeriodSpend {
+    /// Every project together, `project` empty.
+    pub total: ProjectSpend,
+    /// Every token, priced or not.
+    pub tokens: u64,
+    /// By project, the most expensive first, only those that spent.
+    pub projects: Vec<ProjectSpend>,
+    /// By harness, the most expensive first, only those that spent.
+    pub harnesses: Vec<HarnessSpend>,
 }
 
 /// What `GetUsage` gives.

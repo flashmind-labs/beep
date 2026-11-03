@@ -415,7 +415,14 @@ pub enum SessionsRequest {
     /// bounded few. On this stream the server may later send
     /// `RefreshPlanUsage`; anything else is its goodbye. A node from before
     /// it closes the stream.
-    FollowUsage {},
+    FollowUsage {
+        /// Also sends what sessions spent as the agents' own logs on the
+        /// node tell it, as `SessionSpend` replies: the last weeks first,
+        /// then each session again as it changes. A node from before it
+        /// sends none.
+        #[serde(default)]
+        history: bool,
+    },
     /// Sent on a `FollowUsage` stream: reads the plans' usage again now,
     /// rather than at the next check.
     RefreshPlanUsage {},
@@ -476,6 +483,11 @@ pub enum SessionsReply {
     /// One agent's plan usage on a `FollowUsage` stream.
     PlanUsage {
         usage: super::usage::PlanUsage,
+    },
+    /// What one session spent, from the agent's own log, on a
+    /// `FollowUsage` stream that asked for `history`.
+    SessionSpend {
+        usage: super::usage::SessionSpend,
     },
 }
 
@@ -896,6 +908,25 @@ mod tests {
         let state: State = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(state.status, Status::Unknown);
         assert_eq!(state.summary, "Thinking");
+    }
+
+    #[test]
+    fn follow_usage_reads_across_versions() {
+        #[derive(Serialize, Deserialize)]
+        enum Older {
+            FollowUsage {},
+        }
+        let body = rmp_serde::to_vec_named(&Older::FollowUsage {}).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
+            SessionsRequest::FollowUsage { history: false }
+        );
+        let body =
+            rmp_serde::to_vec_named(&SessionsRequest::FollowUsage { history: true }).unwrap();
+        assert!(matches!(
+            rmp_serde::from_slice::<Older>(&body).unwrap(),
+            Older::FollowUsage {}
+        ));
     }
 
     #[test]
