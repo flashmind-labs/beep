@@ -197,8 +197,7 @@ mod tests {
 
     #[tokio::test]
     async fn old_sessions_and_groups_become_chats_with_messages() {
-        let db = TestDb::new().await.unwrap();
-        let legacy = db.legacy_pool().await.unwrap();
+        let (db, legacy) = TestDb::legacy().await.unwrap();
         let conversation = serde_json::to_string(&transcript()).unwrap();
         for sql in [
             "INSERT INTO sessions (user_id, id, conversation, pinned, updated_at)

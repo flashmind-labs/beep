@@ -244,8 +244,17 @@ android: bake-profile build-android install-apk launch-app
 # Start a local Postgres with pgvector for the server and the tests
 test-db:
     #!/usr/bin/env bash
-    docker start beep-pg 2>/dev/null || docker run -d --name beep-pg -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep -p 127.0.0.1:55432:5432 pgvector/pgvector:pg17
-    until docker exec beep-pg pg_isready -U beep >/dev/null 2>&1; do sleep 1; done
+    set -euo pipefail
+    # Disposable and tuned for speed: data in memory, nothing synced to disk,
+    # and connections for every test thread. An older beep-pg is replaced.
+    if ! docker inspect -f '{{{{.Config.Cmd}}' beep-pg 2>/dev/null | grep -q fsync=off; then
+        docker rm -f beep-pg >/dev/null 2>&1 || true
+        docker run -d --name beep-pg -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
+            -p 127.0.0.1:55432:5432 --tmpfs /var/lib/postgresql/data --shm-size 1g pgvector/pgvector:pg17 \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=1000 >/dev/null
+    fi
+    docker start beep-pg >/dev/null
+    until docker exec beep-pg pg_isready -h 127.0.0.1 -U beep >/dev/null 2>&1; do sleep 1; done
     echo "export BEEP_TEST_DATABASE_URL={{test_db_url}}"
 
 # Run the server tests against the local Postgres

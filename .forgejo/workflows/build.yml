@@ -34,8 +34,9 @@ jobs:
           set -euo pipefail
           docker run -d --rm --name "$PG" -p 127.0.0.1::5432 \
             -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
-            pgvector/pgvector:pg17
-          timeout 60 sh -c "until docker exec $PG pg_isready -U beep > /dev/null 2>&1; do sleep 1; done"
+            --tmpfs /var/lib/postgresql/data --shm-size 1g pgvector/pgvector:pg17 \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=1000
+          timeout 60 sh -c "until docker exec $PG pg_isready -h 127.0.0.1 -U beep > /dev/null 2>&1; do sleep 1; done"
 
       - name: Format, lint and test
         run: |

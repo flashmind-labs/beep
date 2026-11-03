@@ -1,4 +1,5 @@
-//! A throwaway schema in the test database, so tests run in parallel without seeing each other's rows.
+//! A throwaway database on the test server, so tests run in parallel
+//! without seeing each other's rows.
 
 use super::{
     CreateRun, FinishedTurn, RunStatus, Store, WordEmbedder,
@@ -17,10 +18,16 @@ use sqlx::{
     Connection, Executor, PgConnection, PgPool,
     postgres::{PgConnectOptions, PgPoolOptions},
 };
-use std::{collections::HashMap, str::FromStr, sync::Arc, thread};
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::{Arc, mpsc},
+    thread,
+};
 use uuid::Uuid;
 
-/// Env var naming the test database URL.
+/// Names the database tests run against, such as
+/// `postgres://beep:beep@127.0.0.1:55432/beep`.
 const URL_VAR: &str = "BEEP_TEST_DATABASE_URL";
 
 /// Accounts every test store has, since rows need an account to belong to.
@@ -49,7 +56,9 @@ pub fn test_steps(conversation: &Conversation) -> Vec<Step> {
     .steps
 }
 
-/// Runs one turn in `chat`: `prompt` at `at` ms, reply 1 ms later; returns the opening message id.
+/// Runs one turn in session `chat` of `user`: `prompt` sent at `at`
+/// milliseconds and a reply a millisecond later. Returns the id of the
+/// message that opened it.
 #[doc(hidden)]
 pub async fn test_turn(
     store: &Store,
@@ -76,7 +85,8 @@ pub struct TestTurn<'a> {
     pub calls: usize,
 }
 
-/// [`test_turn`] with tool calls between prompt and reply, 1 ms apart.
+/// [`test_turn`] with tool calls between the prompt and the reply, each a
+/// millisecond apart.
 #[doc(hidden)]
 pub async fn test_turn_with(
     store: &Store,
@@ -140,92 +150,168 @@ pub async fn test_turn_with(
         .context("the turn opened no message")
 }
 
-/// A schema of its own in the test database, dropped with this value.
+/// A database of its own on the test server, dropped with this value.
 #[doc(hidden)]
 pub struct TestDb {
-    url: String,
-    schema: String,
+    server: PgConnectOptions,
+    name: String,
 }
 
 impl TestDb {
-    /// Creates an empty schema in the `BEEP_TEST_DATABASE_URL` database.
+    /// Creates a migrated database, with the accounts tests use, on the
+    /// server named by `BEEP_TEST_DATABASE_URL`.
     pub async fn new() -> Result<Self> {
-        let url = std::env::var(URL_VAR)
-            .with_context(|| format!("{URL_VAR} is not set; run `just test-db` for one"))?;
-        let schema = format!("test_{}", Uuid::new_v4().simple());
-        let mut admin = PgConnection::connect(&url).await?;
-        // Extensions live in `public` so every test schema sees them. Tests
-        // starting together may race to create them.
-        for extension in ["vector", "pg_trgm"] {
-            if let Err(error) = admin
-                .execute(
-                    format!("CREATE EXTENSION IF NOT EXISTS {extension} WITH SCHEMA public")
-                        .as_str(),
-                )
-                .await
-            {
-                let exists: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = $1)",
-                )
-                .bind(extension)
-                .fetch_one(&mut admin)
-                .await?;
-                if !exists {
-                    return Err(error.into());
-                }
-            }
-        }
-        admin
-            .execute(format!("CREATE SCHEMA {schema}").as_str())
-            .await?;
-        Ok(Self { url, schema })
+        let server = server()?;
+        let mut admin = PgConnection::connect_with(&server).await?;
+        let template = template(&server, &mut admin).await?;
+        Self::create(server, admin, &format!("TEMPLATE {template}")).await
     }
 
-    /// Opens a store on this schema with the test accounts; reopening sees the same data.
+    /// An empty database, for tests that migrate it part of the way.
+    #[cfg(test)]
+    async fn empty() -> Result<Self> {
+        let server = server()?;
+        let admin = PgConnection::connect_with(&server).await?;
+        Self::create(server, admin, "").await
+    }
+
+    async fn create(server: PgConnectOptions, mut admin: PgConnection, from: &str) -> Result<Self> {
+        let name = format!("test_{}", Uuid::new_v4().simple());
+        admin
+            .execute(format!("CREATE DATABASE {name} {from}").as_str())
+            .await?;
+        Ok(Self { server, name })
+    }
+
+    /// Opens a store on this database. Opening it again sees the same data.
     pub async fn store(&self) -> Result<Store> {
         self.store_with(Arc::new(WordEmbedder)).await
     }
 
-    /// A pool on this schema before message rows existed, with test accounts; [`Self::store`] migrates the rest.
+    /// An empty database migrated as it was before chats had message rows,
+    /// with the accounts tests use. [`Self::store`] then migrates it the
+    /// rest of the way.
     #[cfg(test)]
-    pub(crate) async fn legacy_pool(&self) -> Result<PgPool> {
-        let pool = self.pool().await?;
+    pub(crate) async fn legacy() -> Result<(Self, PgPool)> {
+        let db = Self::empty().await?;
+        let pool = db.pool().await?;
         super::migrator(super::BEFORE_BACKFILL - 1)
             .run(&pool)
             .await?;
         add_users(&pool).await?;
-        Ok(pool)
+        Ok((db, pool))
     }
 
-    /// A pool on this schema migrated up to `last`; [`Self::store`] migrates the rest.
+    /// An empty database migrated up to `last`, for testing the migration
+    /// after it. [`Self::store`] then migrates the rest.
     #[cfg(test)]
-    pub(crate) async fn pool_at(&self, last: i64) -> Result<PgPool> {
-        let pool = self.pool().await?;
+    pub(crate) async fn at(last: i64) -> Result<(Self, PgPool)> {
+        let db = Self::empty().await?;
+        let pool = db.pool().await?;
         super::migrator(last).run(&pool).await?;
-        Ok(pool)
+        Ok((db, pool))
     }
 
-    /// A pool on this schema, for checking rows no store method reads.
+    /// A pool on this database, for tests that check rows no store method
+    /// reads back.
     #[doc(hidden)]
     pub async fn raw_pool(&self) -> Result<PgPool> {
         self.pool().await
     }
 
     async fn pool(&self) -> Result<PgPool> {
-        let options = PgConnectOptions::from_str(&self.url)?
-            .options([("search_path", format!("{},public", self.schema))]);
         Ok(PgPoolOptions::new()
             .max_connections(4)
-            .connect_with(options)
+            .connect_with(self.server.clone().database(&self.name))
             .await?)
     }
 
-    /// [`Self::store`] with a real embedder, for evals.
+    /// [`Self::store`] with a real embedder, for evals that need memory
+    /// search by meaning.
     pub async fn store_with(&self, embedder: Arc<dyn EmbeddingProvider>) -> Result<Store> {
         let store = Store::with_pool(self.pool().await?, embedder).await?;
         add_users(&store.pool).await?;
         Ok(store)
     }
+}
+
+/// The server `BEEP_TEST_DATABASE_URL` names, connected to its database.
+fn server() -> Result<PgConnectOptions> {
+    let url = std::env::var(URL_VAR)
+        .with_context(|| format!("{URL_VAR} is not set; run `just test-db` for one"))?;
+    Ok(PgConnectOptions::from_str(&url)?)
+}
+
+/// The migrated database every [`TestDb::new`] copies, built once per set
+/// of migrations and accounts. Test processes share it, so one builds it while the
+/// others wait on a lock.
+async fn template(server: &PgConnectOptions, admin: &mut PgConnection) -> Result<String> {
+    let mut hash = blake3::Hasher::new();
+    for (version, _, sql) in super::MIGRATIONS {
+        hash.update(&version.to_le_bytes());
+        hash.update(sql.as_bytes());
+    }
+    for user in TEST_USERS {
+        hash.update(user.as_bytes());
+    }
+    let name = format!("beep_template_{}", &hash.finalize().to_hex()[..16]);
+    let ready = "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1 AND datistemplate)";
+    if sqlx::query_scalar(ready)
+        .bind(&name)
+        .fetch_one(&mut *admin)
+        .await?
+    {
+        return Ok(name);
+    }
+    sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+        .bind(&name)
+        .execute(&mut *admin)
+        .await?;
+    let built = build(server, admin, &name, ready).await;
+    sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+        .bind(&name)
+        .execute(&mut *admin)
+        .await?;
+    built.map(|()| name)
+}
+
+async fn build(
+    server: &PgConnectOptions,
+    admin: &mut PgConnection,
+    name: &str,
+    ready: &str,
+) -> Result<()> {
+    if sqlx::query_scalar(ready)
+        .bind(name)
+        .fetch_one(&mut *admin)
+        .await?
+    {
+        return Ok(());
+    }
+    // What a process killed mid-build left.
+    admin
+        .execute(format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)").as_str())
+        .await?;
+    admin
+        .execute(format!("CREATE DATABASE {name}").as_str())
+        .await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(server.clone().database(name))
+        .await?;
+    // The memory store creates it on opening, but once here is cheaper.
+    pool.execute("CREATE EXTENSION vector").await?;
+    super::migrate(&pool).await?;
+    add_users(&pool).await?;
+    pool.close().await;
+    // Nobody connects to it after this, since a copy cannot start while
+    // anyone is.
+    admin
+        .execute(
+            format!("ALTER DATABASE {name} WITH IS_TEMPLATE true ALLOW_CONNECTIONS false").as_str(),
+        )
+        .await?;
+    Ok(())
 }
 
 async fn add_users(pool: &PgPool) -> Result<()> {
@@ -241,40 +327,56 @@ async fn add_users(pool: &PgPool) -> Result<()> {
 
 impl Drop for TestDb {
     fn drop(&mut self) {
-        let (url, schema) = (self.url.clone(), self.schema.clone());
+        let (server, name) = (self.server.clone(), self.name.clone());
+        let (closed_tx, closed) = mpsc::channel();
         // Drop runs inside the test's runtime, which cannot block on a
-        // query, so the schema goes from a thread with a runtime of its own.
-        let dropped = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
+        // query, so the database goes from a thread with a runtime of its
+        // own. The test waits only until it is closed to connections:
+        // DROP DATABASE waits for every connection still starting up, and
+        // one the test's own tasks began cannot finish until the test
+        // returns and its runtime goes.
+        thread::spawn(move || {
+            let dropped = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
-                .build()?;
-            runtime.block_on(async {
-                let mut admin = PgConnection::connect(&url).await?;
-                admin.execute("SET lock_timeout = '5s'").await?;
-                let drop = format!("DROP SCHEMA IF EXISTS {schema} CASCADE");
-                if admin.execute(drop.as_str()).await.is_ok() {
-                    return anyhow::Ok(());
-                }
-                // A task the test left mid-transaction, such as a chat turn
-                // a worker report started, was dropped with the runtime; its
-                // rollback needed that runtime, so the transaction stays
-                // open and holds its locks.
-                sqlx::query(
-                    "SELECT pg_terminate_backend(l.pid) FROM pg_locks l
-                     JOIN pg_class c ON c.oid = l.relation
-                     JOIN pg_namespace n ON n.oid = c.relnamespace
-                     WHERE n.nspname = $1 AND l.pid <> pg_backend_pid()",
-                )
-                .bind(&schema)
-                .execute(&mut admin)
-                .await?;
-                admin.execute(drop.as_str()).await?;
-                anyhow::Ok(())
-            })
-        })
-        .join();
-        if !matches!(dropped, Ok(Ok(()))) {
-            log::warn!("unable to drop test schema {}", self.schema);
+                .build()
+                .map_err(anyhow::Error::from)
+                .and_then(|runtime| {
+                    runtime.block_on(async {
+                        let mut admin = PgConnection::connect_with(&server).await?;
+                        admin
+                            .execute(
+                                format!("ALTER DATABASE {name} WITH ALLOW_CONNECTIONS false")
+                                    .as_str(),
+                            )
+                            .await?;
+                        closed_tx.send(())?;
+                        reap(&mut admin, &name).await
+                    })
+                });
+            if let Err(error) = dropped {
+                log::warn!("unable to drop test database {name}: {error:#}");
+            }
+        });
+        if closed.recv().is_err() {
+            log::warn!("unable to close test database {}", self.name);
         }
     }
+}
+
+/// Drops every test database closed to connections, `name` first. The
+/// others are ones a test process exited before dropping.
+async fn reap(admin: &mut PgConnection, name: &str) -> Result<()> {
+    let closed: Vec<String> = sqlx::query_scalar(
+        "SELECT datname FROM pg_database WHERE datname LIKE 'test\\_%' AND NOT datallowconn
+         ORDER BY datname = $1 DESC",
+    )
+    .bind(name)
+    .fetch_all(&mut *admin)
+    .await?;
+    for name in closed {
+        admin
+            .execute(format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)").as_str())
+            .await?;
+    }
+    Ok(())
 }
