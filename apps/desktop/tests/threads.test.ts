@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN, makeThreads, type ThreadDeps } from "../src/threads.ts";
+import type { KeptThreads } from "../src/threads.ts";
+import { PageCache } from "../src/pagecache.ts";
 
 const ago = () => "2 h ago";
 
@@ -172,4 +174,32 @@ test("a second load while the lists first load asks the server once", async () =
   assert.equal(asked.filter(c => c === "center_project_issues").length, 1);
   await thr.load("p1");
   assert.equal(asked.filter(c => c === "center_project_issues").length, 2, "a later load reads again");
+});
+
+test("kept lists show at once, a fresh cache is not read again, and a read is kept", async () => {
+  const asked: string[] = [];
+  const invoke = (async (cmd: string) => { asked.push(cmd); return cmd === "center_project_issues" ? [{ number: 9 }] : []; }) as unknown as ThreadDeps["invoke"];
+  const cache = new PageCache("acct");
+  cache.put("threads", "p1", { issues: [{ number: 1 }], threads: [], prs: [], chats: [] });
+  const kept = cache.section<KeptThreads>("threads");
+  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {}, kept });
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1]);
+  thr.ensure("p1");
+  assert.equal(asked.length, 0, "a fresh cache is not read again");
+  // A project never read is.
+  thr.ensure("p2");
+  assert.ok(asked.includes("center_project_issues"));
+  await thr.load("p1");
+  assert.deepEqual(kept.get("p1")?.issues?.map(i => i.number), [9]);
+});
+
+test("a failed read keeps the last good lists in the cache", async () => {
+  const invoke = (async (cmd: string) => { if (cmd === "center_project_issues") throw new Error("host down"); return []; }) as unknown as ThreadDeps["invoke"];
+  const cache = new PageCache("acct");
+  cache.put("threads", "p1", { issues: [{ number: 1 }], threads: [], prs: [], chats: [] });
+  const kept = cache.section<KeptThreads>("threads");
+  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {}, kept });
+  await thr.load("p1");
+  assert.deepEqual(kept.get("p1")?.issues?.map(i => i.number), [1]);
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1]);
 });

@@ -1,6 +1,7 @@
 // The media pane of a coding agent session: what kind of file a path
 // names, where a path the agent wrote points, and where the pane sits
-// (docked right or at the bottom, how big, folded or not), kept per window.
+// (each tab docked right or at the bottom, how big each dock is, folded
+// or not), kept per window.
 
 /// What the pane shows a file as.
 export type MediaKind = "image" | "video" | "model" | "pdf";
@@ -55,16 +56,25 @@ function normalize(path: string) {
 
 export type Dock = "right" | "bottom";
 
-/// The pane's place in one window. A size of null is the default for the
-/// space there is.
+export const DOCKS: readonly Dock[] = ["right", "bottom"];
+
+/// The pane's place in one window. Each tab sits in a dock, right of the
+/// conversation or under it: the one it was dragged to, else `dock`. A
+/// size of null is the default for the space there is.
 export interface PaneLayout {
   dock: Dock;
   right: number | null;
   bottom: number | null;
-  hidden: boolean;
+  /// The docks folded to a strip.
+  hidden: Record<Dock, boolean>;
+  /// The dock each tab was dragged to, by the tab's id, oldest first.
+  tabs: Record<string, Dock>;
 }
 
-export const DEFAULT_LAYOUT: PaneLayout = { dock: "right", right: null, bottom: null, hidden: false };
+export const DEFAULT_LAYOUT: PaneLayout = { dock: "right", right: null, bottom: null, hidden: { right: false, bottom: false }, tabs: {} };
+
+/// The most tabs whose dock is kept: the newest moves.
+export const KEPT_TABS = 40;
 
 /// The narrowest a right pane and the conversation beside it get.
 export const RIGHT_MIN = 280;
@@ -75,19 +85,87 @@ export const CONV_MIN_HEIGHT = 200;
 /// Narrower than this, the pane goes under the conversation whatever its dock.
 export const SIDE_BY_SIDE_MIN = RIGHT_MIN + CONV_MIN_WIDTH + 60;
 
+const isDock = (x: unknown): x is Dock => x === "right" || x === "bottom";
+
+/// Whether a tab's dock is worth keeping: not a picture's, whose id is
+/// its data URL and which is not there next time.
+const keepable = (id: string) => !id.startsWith("data:") && id.length <= 1024;
+
 /// A stored layout, read back; anything that does not read is the default.
+/// One from before tabs had docks folds both docks or neither.
 export function readLayout(raw: string | null): PaneLayout {
   let v: unknown;
   try { v = raw ? JSON.parse(raw) : null; } catch { v = null; }
-  if (!v || typeof v !== "object") return { ...DEFAULT_LAYOUT };
+  if (!v || typeof v !== "object" || Array.isArray(v)) return copyLayout(DEFAULT_LAYOUT);
   const o = v as Record<string, unknown>;
   const size = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x > 0 ? Math.round(x) : null;
+  const folded = o.hidden && typeof o.hidden === "object" ? o.hidden as Record<string, unknown> : null;
+  const tabs: Record<string, Dock> = {};
+  if (o.tabs && typeof o.tabs === "object" && !Array.isArray(o.tabs)) {
+    for (const [id, d] of Object.entries(o.tabs).slice(-KEPT_TABS)) if (isDock(d) && keepable(id)) tabs[id] = d;
+  }
   return {
     dock: o.dock === "bottom" ? "bottom" : "right",
     right: size(o.right),
     bottom: size(o.bottom),
-    hidden: o.hidden === true,
+    hidden: folded ? { right: folded.right === true, bottom: folded.bottom === true } : { right: o.hidden === true, bottom: o.hidden === true },
+    tabs,
   };
+}
+
+function copyLayout(l: PaneLayout): PaneLayout {
+  return { ...l, hidden: { ...l.hidden }, tabs: { ...l.tabs } };
+}
+
+/// The dock tab `id` sits in, before the window's width has a say.
+export function tabDock(l: PaneLayout, id: string): Dock {
+  return l.tabs[id] ?? l.dock;
+}
+
+/// `l` with tab `id` moved to dock `to`, which unfolds. Only the newest
+/// moves are kept, and none of a tab that is not there next time.
+export function moveTab(l: PaneLayout, id: string, to: Dock): PaneLayout {
+  const out = copyLayout(l);
+  delete out.tabs[id];
+  if (keepable(id)) out.tabs[id] = to;
+  out.hidden[to] = false;
+  const ids = Object.keys(out.tabs);
+  out.tabs = Object.fromEntries(ids.slice(-KEPT_TABS).map(k => [k, out.tabs[k]]));
+  return out;
+}
+
+/// The tabs `ids` split between the docks in a shell `width` wide: where
+/// each sits, or all at the bottom when a right dock does not fit.
+/// `moved` are tabs moved here whose dock is not kept.
+export function splitTabs(l: PaneLayout, ids: readonly string[], width: number, moved: ReadonlyMap<string, Dock> = new Map()): Record<Dock, string[]> {
+  const out: Record<Dock, string[]> = { right: [], bottom: [] };
+  for (const id of ids) out[effectiveDock(moved.get(id) ?? tabDock(l, id), width)].push(id);
+  return out;
+}
+
+/// A box on screen.
+export interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/// The band along an edge that takes a dragged tab: a fifth of the
+/// session, and at least this.
+export const DROP_BAND = 64;
+
+/// The dock a tab dragged to `x`, `y` goes to in the session `shell`: the
+/// right edge docks it right (when a right dock fits), the bottom edge at
+/// the bottom, and in the corner the nearer edge. Null anywhere else.
+export function dropDock(shell: Box, x: number, y: number, sideBySide: boolean): Dock | null {
+  const right = shell.left + shell.width, bottom = shell.top + shell.height;
+  if (x < shell.left || x > right || y < shell.top || y > bottom) return null;
+  const toRight = right - x, toBottom = bottom - y;
+  const inRight = sideBySide && toRight <= Math.max(DROP_BAND, shell.width / 5);
+  const inBottom = toBottom <= Math.max(DROP_BAND, shell.height / 5);
+  if (inRight && inBottom) return toRight / shell.width < toBottom / shell.height ? "right" : "bottom";
+  return inRight ? "right" : inBottom ? "bottom" : null;
 }
 
 /// The dock the pane takes in a shell `width` wide: right only when both

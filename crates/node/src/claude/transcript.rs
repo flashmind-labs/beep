@@ -376,22 +376,18 @@ pub(super) fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Tai
 
 /// The digest of the end of a file, reading back far enough for `entries`
 /// entries when it can.
-pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<(Digest, bool)> {
+pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<Digest> {
     digest_tail_with(path, entries, Digest::read)
 }
 
-fn digest_tail_with(
-    path: &Path,
-    entries: usize,
-    read: fn(&str) -> Digest,
-) -> io::Result<(Digest, bool)> {
+fn digest_tail_with(path: &Path, entries: usize, read: fn(&str) -> Digest) -> io::Result<Digest> {
     let mut window = FIRST_WINDOW;
     loop {
         let tail = read_tail(path, window)?;
         let digest = read(&tail.text);
         let enough = digest.entries.len() > entries && digest.prompt().is_some();
         if tail.whole || enough || window >= MAX_WINDOW {
-            return Ok((digest, tail.whole));
+            return Ok(digest);
         }
         window *= 4;
     }
@@ -423,7 +419,7 @@ pub(crate) struct Excerpt {
 /// The last `last` entries of the transcript at `path`, with the pictures
 /// their image lines show.
 pub(super) fn entries(path: &Path, last: usize) -> io::Result<Excerpt> {
-    let (mut digest, _) = digest_tail_with(path, last, Digest::with_pictures)?;
+    let mut digest = digest_tail_with(path, last, Digest::with_pictures)?;
     let skip = digest.entries.len().saturating_sub(last);
     let entries = digest.entries.split_off(skip);
     Ok(Excerpt {

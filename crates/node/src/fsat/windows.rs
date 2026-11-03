@@ -247,6 +247,11 @@ pub(crate) fn open_no_follow(options: &mut OpenOptions, path: &Path) -> io::Resu
     Ok(file)
 }
 
+/// Opens `path` to read.
+pub(crate) fn open_read(path: &Path) -> io::Result<File> {
+    File::open(path)
+}
+
 /// Files under the user's profile are already the user's alone.
 pub(crate) fn private(options: &mut OpenOptions) -> &mut OpenOptions {
     options
