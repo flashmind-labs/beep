@@ -9,7 +9,7 @@ use super::{
     },
     fleet::{self, Fleet},
     lifecycle::start_failed,
-    model::{ForgejoHost, IssueHost, IssueRef, StartRequest, TaskId, WorkerAgent},
+    model::{IssueHost, IssueRef, StartRequest, TaskId, WorkerAgent},
     turn::{ISSUE_LABEL, WORKER_LABEL},
     worker::Started,
 };
@@ -201,12 +201,7 @@ fn host_failed(error: &anyhow::Error) -> IssueError {
 
 /// The issues host a repository web page is on.
 fn host_of_url(url: &str) -> Option<IssueHost> {
-    let url = Url::parse(url).ok()?;
-    let host = url.host_str()?.to_ascii_lowercase();
-    if host == "github.com" || host == "www.github.com" {
-        return Some(IssueHost::Github);
-    }
-    ForgejoHost::parse(&host).map(IssueHost::Forgejo)
+    IssueHost::of_hostname(Url::parse(url).ok()?.host_str()?)
 }
 
 /// Where a project's issues host was found, and the machines that can
@@ -890,7 +885,9 @@ mod tests {
         dismiss(&user, &project, 10).await.unwrap();
         assert!(list_open(&fleet, &user, &project).await.unwrap().is_empty());
         // The project moves to Forgejo: its #10 is another issue.
-        let forgejo = IssueHost::Forgejo(ForgejoHost::parse("git.example.com").unwrap());
+        let forgejo = IssueHost::Forgejo(
+            crate::projects::model::ForgejoHost::parse("git.example.com").unwrap(),
+        );
         let roles = Roles {
             issues: Some(forgejo.clone()),
             prs: Some(forgejo),
