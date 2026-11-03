@@ -2373,9 +2373,9 @@ function repoActs(p: Project): RepoActs {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
     checks: agent ? runs.checks(agent.project_id) : null,
-    showRun: (run: number) => {
+    showRun: (run: number, host?: string | null) => {
       if (!agent) return;
-      runs.show(agent.project_id, run);
+      runs.show(agent.project_id, run, host);
       document.getElementById("sec-actions")?.scrollIntoView({ block: "nearest" });
     },
   };
