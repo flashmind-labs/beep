@@ -10,6 +10,7 @@ import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { TileData } from "./board.ts";
 import { plural } from "./components/format.ts";
+import { emptyPanel } from "./components/parts.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -359,11 +360,11 @@ export function makeThreads(deps: ThreadDeps) {
     const out: HTMLElement[] = [];
     if (s.error) out.push(h("div", "cc-err", s.error));
     const list = s.issues;
-    if (list === undefined) return [...out, h("div", "cc-panel cc-empty", h("span", "", "Reading the issues…"))];
-    if (list === null) return [...out, h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it lists issues."))];
+    if (list === undefined) return [...out, emptyPanel(h("span", "", "Reading the issues…"))];
+    if (list === null) return [...out, emptyPanel(h("b", "", "The server needs an update before it lists issues."))];
     const head = h("div", "cc-sec", h("h4", "", "Issues", h("small", "", list.length ? `${list.length} not tracked yet` : "")),
       button("Refresh", "quiet small", () => load(agent.project_id)));
-    if (!list.length) return [...out, head, h("div", "cc-panel cc-empty", h("span", "", "Every open issue is a task or hidden here."))];
+    if (!list.length) return [...out, head, emptyPanel(h("span", "", "Every open issue is a task or hidden here."))];
     const rows = list.map(i => {
       const busy = s.busy.has(`i${i.number}`);
       const picking = s.pick?.number === i.number;
@@ -394,14 +395,14 @@ export function makeThreads(deps: ThreadDeps) {
     if (s.threads === undefined) load(agent.project_id);
     const list = s.threads;
     const out: HTMLElement[] = [];
-    if (list === undefined) return [h("div", "cc-panel cc-empty", h("span", "", "Reading your pull requests and issues…"))];
+    if (list === undefined) return [emptyPanel(h("span", "", "Reading your pull requests and issues…"))];
     if (list === null) return [];
     if (s.error) out.push(h("div", "cc-err", s.error));
     const waiting = list.filter(t => t.needs_reply).length;
     out.push(h("div", "cc-sec", h("h4", "", "Your pull requests and issues", h("small", "", waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "")),
       button("Refresh", "quiet small", () => load(agent.project_id))));
     if (!list.length) {
-      out.push(h("div", "cc-panel cc-empty", h("span", "", "You have no open pull requests or issues here.")));
+      out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
     } else {
       out.push(h("div", "cc-panel", ...list.map(t => {
         const st = t.needs_reply ? h("span", "pj-st blocked", "needs reply") : h("span", "pj-st done", "nothing to answer");
