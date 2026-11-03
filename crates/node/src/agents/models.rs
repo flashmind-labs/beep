@@ -407,27 +407,6 @@ mod tests {
         assert_eq!(flsh_default_model(&dir.path().join("missing.toml")), None);
     }
 
-    /// A stand-in for `flsh`: `models` prints two models, anything else
-    /// fails.
-    #[cfg(unix)]
-    fn fake_flsh(dir: &Path) -> AgentKind {
-        use std::os::unix::fs::PermissionsExt;
-        let program = dir.join("flsh");
-        std::fs::write(
-            &program,
-            "#!/bin/sh\n[ \"$1\" = models ] || exit 2\n\
-             printf 'openai:gpt-test\\nopenrouter:vendor/model-a\\n'\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        AgentKind {
-            name: "flsh".into(),
-            program: program.display().to_string(),
-            args: vec!["acp".into()],
-            env: Default::default(),
-        }
-    }
-
     /// An adapter that answers `session/new` with models and stays up.
     #[cfg(unix)]
     const MODELS_ADAPTER: &str = r#"
