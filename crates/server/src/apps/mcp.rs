@@ -8,19 +8,26 @@
 //! reconnects every few hours so access tokens refresh and rotated refresh
 //! tokens are saved before they lapse.
 
-use crate::{permissions::Acts, user::User};
+use crate::{AsyncMutex, permissions::Acts, user::User};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use flashmind::{
-    tools::mcp::{McpAuthRequired, McpConfigProvider, McpRegistry, McpServerConfig},
+    tools::mcp::{
+        McpAuthRequired, McpConfigProvider, McpRegistry, McpServerConfig, McpToolCallResult,
+    },
     types::tool::{Tool, ToolContext, ToolResult},
 };
 use reqwest::Url;
 use serde_json::{Value, json};
 use std::{
-    sync::{Arc, Weak},
+    future::Future,
+    sync::{
+        Arc, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
+use tokio::time::timeout;
 
 pub const FASTMAIL: &str = "fastmail";
 
@@ -113,6 +120,128 @@ pub(crate) fn identity_address(value: &Value) -> Option<String> {
 
 pub(crate) const KEEP_ALIVE: Duration = Duration::from_secs(6 * 60 * 60);
 
+/// How long one request to a Fastmail server may take, connecting included.
+/// It is under flashmind's 30 second connect timeout, which reports a slow
+/// server as a lost login, and leaves a request handler that waits on it
+/// time to answer before the apps give up on the server.
+pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// A request to a Fastmail server that ran out of time.
+#[derive(Debug, thiserror::Error)]
+#[error("{server} did not answer within {} seconds", CALL_TIMEOUT.as_secs())]
+pub(crate) struct NoAnswer {
+    server: String,
+}
+
+/// One user's registry of Fastmail servers.
+///
+/// flashmind holds one lock over all of a registry's connections while a
+/// call runs, and lists a server's tools without a timeout, so one server
+/// that stops answering stalls every request queued behind it. Each request
+/// here gives up after `CALL_TIMEOUT`, which drops what it held, and one
+/// that runs out of time discards the registry, so the next request starts
+/// on a fresh one instead of waiting behind the stuck connection.
+#[derive(Default)]
+pub(crate) struct McpSlot {
+    current: AsyncMutex<Option<Arc<McpRegistry>>>,
+    /// Where the servers are when not at Fastmail: tests point it at a fake.
+    url: OnceLock<String>,
+    /// Whether account addresses are being read in the background.
+    learning: AtomicBool,
+}
+
+impl McpSlot {
+    /// The registry, made on first use from the servers `user` saved. The
+    /// lock is held while `load_saved` reads the store, which only spawns
+    /// the connections, so no server is waited on under it.
+    pub(crate) async fn get(&self, user: &Weak<User>) -> Arc<McpRegistry> {
+        let mut current = self.current.lock().await;
+        if let Some(registry) = current.as_ref() {
+            return registry.clone();
+        }
+        let provider = Arc::new(StoreProvider {
+            user: user.clone(),
+            url: self.url.get().cloned(),
+        });
+        let registry = Arc::new(McpRegistry::new(provider, None));
+        registry.load_saved().await;
+        *current = Some(registry.clone());
+        registry
+    }
+
+    /// Forgets `stale`, so the next request makes a new registry. A newer
+    /// registry already in its place stays.
+    pub(crate) async fn discard(&self, stale: &Arc<McpRegistry>) {
+        let mut current = self.current.lock().await;
+        if current
+            .as_ref()
+            .is_some_and(|registry| Arc::ptr_eq(registry, stale))
+        {
+            *current = None;
+        }
+    }
+
+    /// Runs `request` against `registry`, giving up after `CALL_TIMEOUT`.
+    /// One that runs out of time discards the registry.
+    pub(crate) async fn bounded<T>(
+        &self,
+        registry: &Arc<McpRegistry>,
+        server: &str,
+        request: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        match timeout(CALL_TIMEOUT, request).await {
+            Ok(result) => result,
+            Err(_) => {
+                log::warn!("mcp: {server} did not answer in time, starting a new registry");
+                self.discard(registry).await;
+                Err(NoAnswer {
+                    server: server.to_owned(),
+                }
+                .into())
+            }
+        }
+    }
+
+    /// Calls `tool` on `server`, giving up after `CALL_TIMEOUT`.
+    pub(crate) async fn call(
+        &self,
+        registry: &Arc<McpRegistry>,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<McpToolCallResult> {
+        let result = self
+            .bounded(
+                registry,
+                server,
+                registry.call_tool(server, tool, arguments),
+            )
+            .await;
+        // The tools are made from `current_mcp_tools` on every run, so the
+        // queued register and unregister ops are not needed.
+        registry.drain_pending_ops();
+        result
+    }
+
+    /// Marks a background read of account addresses as started. False when
+    /// one already runs.
+    pub(crate) fn start_learning(&self) -> bool {
+        !self.learning.swap(true, Ordering::AcqRel)
+    }
+
+    pub(crate) fn done_learning(&self) {
+        self.learning.store(false, Ordering::Release);
+    }
+
+    /// Sends every server's requests to `url` instead of to Fastmail.
+    #[cfg(test)]
+    pub(crate) fn point_at(&self, url: &str) {
+        if self.url.set(url.to_owned()).is_err() {
+            log::warn!("mcp: the test server was already set");
+        }
+    }
+}
+
 /// The fixed part of a known server's config. Stored rows only add cached
 /// tools and credentials, so a row can never point the server at another URL.
 pub(crate) fn preset(name: &str) -> Option<McpServerConfig> {
@@ -138,6 +267,8 @@ pub fn check_redirect(redirect_uri: &str) -> Result<()> {
 /// user owns the registry that owns this.
 pub(crate) struct StoreProvider {
     pub(crate) user: Weak<User>,
+    /// Replaces the preset's URL; only tests set it.
+    pub(crate) url: Option<String>,
 }
 
 impl StoreProvider {
@@ -161,6 +292,9 @@ impl McpConfigProvider for StoreProvider {
                 config.cached_tools = stored.cached_tools;
             }
             config.credentials = Some(credentials);
+            if let Some(url) = &self.url {
+                config.url = Some(url.clone());
+            }
             configs.push(config);
         }
         Ok(configs)
@@ -248,7 +382,8 @@ pub(crate) const FASTMAIL_TOOLS: &[(&str, Acts)] = &[
 /// phone labels it "Fastmail: read email". With several accounts it takes
 /// an `account` argument and calls that account's server.
 pub(crate) struct AppTool {
-    registry: McpRegistry,
+    slot: Arc<McpSlot>,
+    registry: Arc<McpRegistry>,
     accounts: Vec<FastmailAccount>,
     tool: &'static str,
     name: String,
@@ -260,7 +395,8 @@ pub(crate) struct AppTool {
 /// Every account runs the same server, so the first account that has
 /// connected gives the schemas.
 pub(crate) fn app_tools(
-    registry: &McpRegistry,
+    slot: &Arc<McpSlot>,
+    registry: &Arc<McpRegistry>,
     accounts: &[FastmailAccount],
 ) -> Vec<Arc<dyn Tool>> {
     let defs = registry.current_mcp_tools();
@@ -279,6 +415,7 @@ pub(crate) fn app_tools(
             description.push_str(" Pass `account` to pick the Fastmail account; IDs from one account only work in that account.");
         }
         tools.push(Arc::new(AppTool {
+            slot: slot.clone(),
             registry: registry.clone(),
             accounts: accounts.to_vec(),
             tool: name,
@@ -344,8 +481,8 @@ impl Tool for AppTool {
             String::new()
         };
         match self
-            .registry
-            .call_tool(&account.name, self.tool, args)
+            .slot
+            .call(&self.registry, &account.name, self.tool, args)
             .await
         {
             Ok(result) => {
@@ -578,6 +715,7 @@ mod tests {
         let user = User::for_test(store, "alice");
         let provider = StoreProvider {
             user: Arc::downgrade(&user),
+            url: None,
         };
 
         let mut config = preset(FASTMAIL).unwrap();

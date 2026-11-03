@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use secrecy::{ExposeSecret, SecretString};
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{PgConnection, Row, postgres::PgRow};
 
 /// One harness's settings as stored, the env vars still sealed.
 #[derive(Debug, Clone, PartialEq)]
@@ -159,6 +159,50 @@ impl Store {
             .map(|(machine_id, agent)| OffHarness { machine_id, agent })
             .collect())
     }
+}
+
+/// Seals the env vars of `source`'s harnesses again for `target`, before
+/// an account merge moves them: what is sealed names its user. One that
+/// does not open is left as it is, unreadable either way.
+pub(super) async fn reseal_harnesses_for(
+    tx: &mut PgConnection,
+    key: &CredentialKey,
+    source: &str,
+    target: &str,
+) -> Result<()> {
+    let rows: Vec<(String, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT machine_id, agent, env FROM harness_settings
+         WHERE user_id=$1 AND env IS NOT NULL",
+    )
+    .bind(source)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (machine, agent, sealed) in rows {
+        let owner = |user| HarnessOwner {
+            user,
+            machine: &machine,
+            agent: &agent,
+        };
+        let resealed = key
+            .open_harness(&owner(source), &sealed)
+            .and_then(|plain| key.seal_harness(&owner(target), &plain));
+        match resealed {
+            Ok(resealed) => {
+                sqlx::query(
+                    "UPDATE harness_settings SET env=$4
+                     WHERE user_id=$1 AND machine_id=$2 AND agent=$3",
+                )
+                .bind(source)
+                .bind(&machine)
+                .bind(&agent)
+                .bind(resealed)
+                .execute(&mut *tx)
+                .await?;
+            }
+            Err(e) => log::warn!("{agent} settings on {machine} not resealed for the merge: {e:#}"),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

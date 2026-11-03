@@ -713,3 +713,17 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-log small { color: var(--muted); font-size: 11px }
 .pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: 7px; background: rgba(0,0,0,.25); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; user-select: text }
 .pj-run .acts { display: flex; gap: 6px }
+/* Research: the page's field, its table and the sidebar's running spinner. */
+.cc-rnew { display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 12px; border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82); color: var(--dim) }
+.cc-rnew:focus-within { border-color: rgba(59,155,122,.6) }
+.cc-rnew input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; caret-color: var(--emerald) }
+.cc-rnew input::placeholder { color: var(--dim) }
+.cc-mt.cc-rt { grid-template-columns: minmax(180px, 2fr) max-content minmax(150px, 1.2fr) 64px 92px }
+.cc-mt.cc-rt > .r { cursor: pointer }
+.cc-mt.cc-rt .nm b button { padding: 0; border: 0; background: none;font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left; min-width: 0; overflow: hidden; display: flex }
+.cc-mt.cc-rt .nm b button:hover { color: var(--emerald) }
+.cc-rsteps { display: flex; gap: 3px; width: 54px; flex: none }
+.cc-rsteps i { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.08) }
+.cc-rsteps i.done { background: rgba(111,211,168,.7) }
+.cc-rsteps i.now { background: var(--emerald) }
+.cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }

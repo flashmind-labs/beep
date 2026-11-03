@@ -40,11 +40,15 @@ export interface PaletteDeps {
   /// The project's Branches list.
   branches(name: string): void;
   pane: { compose(text: string): Promise<unknown> };
+  /// Opens a chat hit: a research in its window, any other chat in the pane.
+  openChat(id: string): void;
+  /// Whether a chat is a research, which lists under Research, not Chats.
+  research(id: string): boolean;
   /// The search icon's markup.
   findIcon: string;
 }
 
-const ICONS: Record<Exclude<HitKind, "branch" | "machine" | "project_chat" | "folder">, string> = {
+const ICONS: Record<Exclude<HitKind, "branch" | "machine" | "project_chat" | "folder"> | "research", string> = {
   setting: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
   code: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a3 3 0 00-3-3h-4"/><path d="M13 4l-2 2 2 2"/></svg>',
   project: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>',
@@ -52,6 +56,7 @@ const ICONS: Record<Exclude<HitKind, "branch" | "machine" | "project_chat" | "fo
   action: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
   memory: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
+  research: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
   routine: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
 };
 
@@ -156,7 +161,9 @@ function draw(q: string) {
 function row(hit: Hit, i: number, q: string) {
   const note = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? el("small", "", hit.detail) : null;
   const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
-  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(ICONS[ICON_OF[hit.kind] || (hit.kind as keyof typeof ICONS)]);
+  // A research is a chat; it keeps its paper's icon here.
+  const kind = hit.kind === "chat" && deps!.research(hit.id) ? "research" : ICON_OF[hit.kind] || (hit.kind as keyof typeof ICONS);
+  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(ICONS[kind]);
   const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note), side);
   b.type = "button";
   b.tabIndex = -1;
@@ -206,7 +213,7 @@ function pick(hit: Hit) {
       if (hit.id === "coding_agents") return deps!.providers();
       if (ACTION_VIEWS[hit.id]) return go("pane", ACTION_VIEWS[hit.id]);
       return;
-    case "chat": return go("pane", { chat: { session: hit.id } });
+    case "chat": return deps!.openChat(hit.id);
     case "memory": return go("pane", "memories");
     case "routine": return go("pane", "routines");
     case "machine": return jump(`m-${hit.id}`);
