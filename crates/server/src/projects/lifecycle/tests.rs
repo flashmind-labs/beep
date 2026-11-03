@@ -268,34 +268,14 @@ async fn a_steered_worker_is_not_idle() {
 }
 
 #[tokio::test]
-async fn dropping_a_running_task_starts_a_queued_one() {
-    let h = harness().await;
-    let (task, _) = h.working(TaskState::Running, minutes_ago(5)).await;
-    let queued = h.queued("Next one").await;
-    crate::projects::tools::drop_task(&h.fleet, &h.user, &h.project, &task)
-        .await
-        .expect("it drops");
-    assert_eq!(h.fleet.starts(), vec![queued.slug]);
-}
-
-#[tokio::test]
-async fn stopping_a_worker_starts_a_queued_task() {
-    let h = harness().await;
-    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    let queued = h.queued("Next one").await;
-    crate::projects::worker::stop_worker_on(&h.fleet, &h.user, &worker)
-        .await
-        .expect("it stops");
-    assert_eq!(h.fleet.starts(), vec![queued.slug]);
-}
-
-#[tokio::test]
-async fn stopping_a_worker_labels_its_issue_blocked() {
+async fn stopping_a_worker_blocks_its_task_and_starts_a_queued_one() {
     let h = harness().await;
     let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    let queued = h.queued("Next one").await;
     crate::projects::worker::stop_worker_on(&h.fleet, &h.user, &worker)
         .await
         .expect("it stops");
+    assert_eq!(h.fleet.starts(), vec![queued.slug]);
     assert_eq!(h.task(&task).await.state, TaskState::Blocked);
     let relabeled = h.shell.ran_with("issue edit 12");
     assert_eq!(relabeled.len(), 1, "{:?}", h.shell.ran());

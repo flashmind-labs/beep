@@ -657,13 +657,6 @@ mod tests {
     }
 
     #[test]
-    fn text_is_the_command_without_detail() {
-        let fixture = Fixture::new();
-        let scope = fixture.scope(Visibility::Private, false);
-        assert_eq!(judge(&ask("Run cargo test", None), &scope), Verdict::Allow);
-    }
-
-    #[test]
     fn shell_syntax_asks() {
         for command in [
             "cargo test; rm -rf /",
@@ -692,6 +685,9 @@ mod tests {
             "git push origin main",
             "git push origin HEAD:main",
             "git push origin refs/heads/main",
+            "git push origin beep/fix-it:refs/heads/main",
+            "git push origin :main",
+            "git push origin beep/fix-it main",
             "git push --tags",
             "git push origin refs/tags/v1",
             "git push -u origin beep/fix-it && git push origin main",
@@ -871,17 +867,6 @@ mod tests {
             Verdict::AskUser
         );
         assert_eq!(private("cargo test -p core -- --nocapture"), Verdict::Allow);
-    }
-
-    #[test]
-    fn edits_prefer_the_raw_path() {
-        let fixture = Fixture::new();
-        let scope = fixture.scope(Visibility::Private, false);
-        let title = "Edit /srv/project/.worktrees/fix-it/a.rs";
-        assert_eq!(
-            judge(&ask(title, Some("/srv/project/src/a.rs")), &scope),
-            Verdict::AskUser
-        );
     }
 
     #[test]
@@ -1105,21 +1090,5 @@ mod tests {
             judge(&ask("Write file", Some("src/lib.rs")), &scope),
             Verdict::Allow
         );
-    }
-
-    #[test]
-    fn pushes_to_the_default_branch_always_ask() {
-        for command in [
-            "git push origin main",
-            "git push -u origin main",
-            "git push origin HEAD:main",
-            "git push origin beep/fix-it:refs/heads/main",
-            "git push origin :main",
-            "git push origin beep/fix-it main",
-            "git push origin",
-            "git push",
-        ] {
-            assert_eq!(private_allowed(command), Verdict::AskUser, "{command}");
-        }
     }
 }

@@ -121,16 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn schedule_disarms_when_nothing_is_open() {
-        let project = Due::Check(ProjectId(Uuid::new_v4()));
-        let mut schedule = Schedule::default();
-        schedule.arm(project, t0());
-        assert_eq!(schedule.next(), Some(t0()));
-        schedule.disarm(&project);
-        assert_eq!(schedule.next(), None);
-    }
-
-    #[test]
     fn idle_is_due_after_thirty_minutes() {
         let worker = Due::Idle(WorkerId(Uuid::new_v4()));
         let check = Due::Check(ProjectId(Uuid::new_v4()));

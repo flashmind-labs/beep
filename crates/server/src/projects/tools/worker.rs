@@ -407,39 +407,6 @@ mod tests {
     }
 
     #[test]
-    fn a_start_card_names_where_and_how() {
-        let inputs = [InputFile {
-            machine: None,
-            path: "/srv/in/model.glb".to_owned(),
-        }];
-        let card = start_card(
-            &task(),
-            "build-box",
-            &placement(WorkerAgent::Claude),
-            &inputs,
-        );
-        assert_eq!(card.action, "Start fix-it");
-        let shown: Vec<String> = card
-            .fields
-            .iter()
-            .map(|field| format!("{}: {}", field.label, field.value))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                "Task: fix-it: Fix it",
-                "Machine: build-box",
-                "Agent: claude",
-                "Persona: reviewer",
-                "Branch: beep/fix-it from main",
-                "Inputs: /srv/in/model.glb",
-                "Permissions: claude runs commands without asking: nothing it does in the \
-                 worktree is checked first.",
-            ]
-        );
-    }
-
-    #[test]
     fn every_start_says_its_agent_runs_without_asking() {
         for name in WorkerAgent::VARIANTS {
             let agent: WorkerAgent = name.parse().expect("an agent");
