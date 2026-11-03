@@ -58,8 +58,6 @@ let sent = 0, timer: ReturnType<typeof setTimeout> | undefined, ready: Promise<u
 
 export function initPalette(window_: PaletteDeps) { deps = window_; }
 
-export function paletteOpen() { return root != null; }
-
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, ...kids: Kid[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
