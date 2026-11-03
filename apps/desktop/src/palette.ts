@@ -2,6 +2,8 @@
 // requests, chats, memories, routines and machines. The ranking is in the app (center_find); this draws and picks.
 import { invoke } from "./tauri.ts";
 import type { PaneTarget } from "./bar/pane.ts";
+import { el, type Kid } from "./projects-state.ts";
+import { svgEl as svg } from "./components/parts.ts";
 
 const DEBOUNCE_MS = 120;
 
@@ -35,8 +37,6 @@ export interface PaletteDeps {
   findIcon: string;
 }
 
-type Kid = Node | string | null | undefined | false;
-
 const ICONS: Record<Exclude<HitKind, "branch" | "machine">, string> = {
   setting: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
   code: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a3 3 0 00-3-3h-4"/><path d="M13 4l-2 2 2 2"/></svg>',
@@ -58,18 +58,6 @@ let sent = 0, timer: ReturnType<typeof setTimeout> | undefined, ready: Promise<u
 
 export function initPalette(window_: PaletteDeps) { deps = window_; }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, ...kids: Kid[]): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  for (const k of kids) if (k != null && k !== false) e.append(k);
-  return e;
-}
-function svg(markup: string) {
-  const s = el("span");
-  s.style.display = "inline-flex";
-  s.innerHTML = markup; // fixed markup from this file, no server text
-  return s.firstChild;
-}
 
 /// `text` with the first match of `q` wrapped in <mark>; never markup.
 function marked(text: string, q: string): Kid[] {

@@ -2,6 +2,7 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
+import { dbtn as button, svgEl as icon } from "./components/parts.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -82,12 +83,6 @@ type SideChat = ChatItem | ProjectPin;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-function icon(svg: string) {
-  const s = h("span");
-  s.style.display = "inline-flex";
-  s.innerHTML = svg; // fixed markup from this file, no server text
-  return s.firstChild;
-}
 
 const IC = {
   home: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>',
@@ -214,12 +209,6 @@ function section(id: string, title: string, count: number | string, action: Kid,
 function avatar(cls: string, ini: Kid) { return h("span", `cc-ag ${cls}`, ini); }
 function tag(cls: string, ...kids: Kid[]) { return h("span", `cc-tag${cls ? " " + cls : ""}`, ...kids); }
 
-function button(label: string | Node, cls: string, on: (e: MouseEvent) => void) {
-  const b = h("button", `dbtn${cls ? " " + cls : ""}`, label);
-  b.type = "button";
-  b.addEventListener("click", on);
-  return b;
-}
 
 /// A button with a + before `label`.
 function plusLabel(label: string, cls: string, on: () => void) {
