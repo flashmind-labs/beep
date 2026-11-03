@@ -39,8 +39,12 @@ export async function renderLink() {
     bar.innerHTML = `<div class="dwin"><h4>Link to your phone</h4><p class="derr">${esc(e)}</p></div>`;
     return;
   }
+  // Another view, or a newer code, took over while this one loaded.
+  if (S.view !== "link") return;
+  clearInterval(S.timer);
   drawLink("waiting");
   S.timer = setInterval(() => {
+    if (S.view !== "link") return clearInterval(S.timer);
     const left = Math.max(0, Math.round((offer!.until - Date.now()) / 1000));
     const el = $("#count");
     if (el) el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
