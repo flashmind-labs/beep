@@ -17,7 +17,7 @@ import { renderMemories } from "./memories.ts";
 import { loadModels } from "./model.ts";
 import { loadResearches, RESEARCHES } from "./researches.ts";
 import { renderRoutines, routineWhen } from "./routines.ts";
-import { renderSettings } from "./settings.ts";
+import { renderSettings, settingsBack } from "./settings.ts";
 import { renderSkills } from "./skills.ts";
 import type { Status } from "./views.ts";
 
@@ -71,11 +71,15 @@ export const pane = {
   when: routineWhen,
   /// Hands the pane what the window does for it.
   connect: connectWindow,
-  /// Draws Settings into `el`, the window's sheet, leaving the pane as it is.
-  async settings(el: HTMLElement) {
+  /// Draws Settings into `el`, the window's sheet, leaving the pane as it
+  /// is. It opens on `page` when given, else on the page picked last.
+  async settings(el: HTMLElement, page?: string) {
     await start();
-    return renderSettings(false, el);
+    return renderSettings(false, el, page);
   },
+  /// Esc in the sheet: back from a subpage to its page. False when the
+  /// sheet shows a page, so Esc closes it.
+  settingsBack,
   /// Shows `target`.
   async open(target: PaneTarget) {
     await start();

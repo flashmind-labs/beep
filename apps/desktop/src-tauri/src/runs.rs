@@ -48,7 +48,13 @@ pub async fn center_project_lists(
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
-    match beep.call(GetProjectLists { project_id, refresh }).await {
+    match beep
+        .call(GetProjectLists {
+            project_id,
+            refresh,
+        })
+        .await
+    {
         Ok(lists) => Ok(Some(ListsRow {
             prs: lists.pull_requests.into_iter().map(Into::into).collect(),
             prs_error: lists.prs_error,
@@ -188,7 +194,13 @@ pub async fn center_project_runs(
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<RunsRow>> {
-    match beep.call(ListProjectRuns { project_id, refresh }).await {
+    match beep
+        .call(ListProjectRuns {
+            project_id,
+            refresh,
+        })
+        .await
+    {
         Ok(runs) => Ok(Some(runs.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),

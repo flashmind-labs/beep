@@ -205,6 +205,10 @@ export interface WindowHooks {
   /// A page Settings leads to, such as Apps: the sheet closes and the pane
   /// shows it; null only closes.
   settingsAway(view: string | null): void;
+  /// Draws window view `name` (such as "providers") inside `root`, a page
+  /// of the Settings sheet, opened with `arg`. `tools` gets the view's
+  /// header buttons each time they change. Returns what puts the view back.
+  embedView?(name: string, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void): () => void;
   /// ⌘N in the pane: the window picks the chat.
   newChat(): void;
   /// Esc from an agent view goes back to the view that opened it.
