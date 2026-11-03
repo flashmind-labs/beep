@@ -69,21 +69,6 @@ pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMe
     }
 }
 
-/// The session mode that asks no permission, for an agent whose launch
-/// cannot set it: Claude Code's `bypassPermissions`, as
-/// `claude --dangerously-skip-permissions` runs. The others start in theirs
-/// (see `KNOWN`).
-pub(super) fn bypass_mode(agent: &str) -> Option<&'static str> {
-    (agent == "claude").then_some("bypassPermissions")
-}
-
-/// The flag that starts the agent `agent` on a model, for an agent whose
-/// command line picks it: flsh and Gemini CLI take `--model`. The others
-/// switch over ACP once the session exists.
-pub(super) fn model_flag(agent: &str) -> Option<&'static str> {
-    matches!(agent, "flsh" | "gemini").then_some("--model")
-}
-
 /// The most models kept from one agent's list.
 pub(super) const MAX_MODELS: usize = 500;
 
@@ -701,14 +686,6 @@ mod tests {
     }
 
     #[test]
-    fn only_claude_code_needs_its_mode_set() {
-        assert_eq!(bypass_mode("claude"), Some("bypassPermissions"));
-        for agent in ["codex", "gemini", "pi", "flsh", "opencode"] {
-            assert_eq!(bypass_mode(agent), None, "{agent}");
-        }
-    }
-
-    #[test]
     fn session_models_are_read_from_session_new() {
         let answer = serde_json::json!({
             "sessionId": "s1",
@@ -809,15 +786,6 @@ mod tests {
         let broken = serde_json::json!({"sessionId": "s1", "models": {"availableModels": 3}});
         assert_eq!(offered_models(&broken), Offered::default());
         assert!(session_created(broken).is_ok());
-    }
-
-    #[test]
-    fn flsh_and_gemini_take_the_model_on_their_command_line() {
-        assert_eq!(model_flag("flsh"), Some("--model"));
-        assert_eq!(model_flag("gemini"), Some("--model"));
-        for agent in ["claude", "codex", "pi", "opencode"] {
-            assert_eq!(model_flag(agent), None, "{agent}");
-        }
     }
 
     #[test]

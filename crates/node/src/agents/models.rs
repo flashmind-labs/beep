@@ -7,6 +7,7 @@
 use super::{
     AgentKind,
     acp::{self, MAX_MODELS, Offered},
+    known,
 };
 use crate::{
     AsyncMutex,
@@ -96,7 +97,7 @@ impl ModelCache {
 /// The models `kind` can run on here. Never fails: an agent that cannot
 /// say gives a list without models.
 pub(super) async fn find(kind: AgentKind) -> ModelList {
-    let flag = acp::model_flag(&kind.name).is_some();
+    let flag = known(&kind.name).is_some_and(|known| known.model_flag);
     if Agent::from_name(&kind.name) == Some(Agent::Flsh) {
         return flsh(&kind).await;
     }

@@ -8,6 +8,7 @@ use super::{
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     image_files,
     images::{Images, Picture},
+    known,
     live::{Live, TurnFiles, TurnTokens, cut},
     usage::UsageHub,
 };
@@ -131,9 +132,11 @@ impl Session {
         let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
-        let flag = acp::model_flag(&kind.name)
-            .zip(model.as_deref())
-            .map(|(flag, model)| format!("{flag}={model}"));
+        let known = known(&kind.name);
+        let flag = model
+            .as_deref()
+            .filter(|_| known.is_some_and(|known| known.model_flag))
+            .map(|model| format!("--model={model}"));
         let model = model.filter(|_| flag.is_none());
         let policy = Policy::from_env(&kind.env);
         // Claude Code compacts mid-turn on its own trigger; it is set to
@@ -189,8 +192,8 @@ impl Session {
             effort,
             thinking: None,
             switch: None,
-            bypass_mode: acp::bypass_mode(&kind.name),
-            compactor: Compactor::new(&kind.name, policy),
+            bypass_mode: known.and_then(|known| known.bypass_mode),
+            compactor: Compactor::new(known, policy),
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),
@@ -1131,13 +1134,7 @@ fn queue_room(queued: &VecDeque<Prompt>, prompt: &Prompt) -> Result<(), String> 
 
 /// What people call the agent `name`, such as Claude Code for `claude`.
 fn agent_title(name: &str) -> &str {
-    match name {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        "gemini" => "Gemini CLI",
-        "opencode" => "OpenCode",
-        other => other,
-    }
+    known(name).map_or(name, |known| known.title)
 }
 
 /// The option `reply` names: by id, number, name or kind, or plain yes/no.
