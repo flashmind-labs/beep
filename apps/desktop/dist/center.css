@@ -37,9 +37,19 @@ html, body.cbody { background: var(--ink) }
 .cc-sec small { font-size: 11.5px; color: var(--muted) }
 .cc-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); min-width: 0 }
 .cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
-/* A wide Home: two columns, each a stack of sections. */
-.cc-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 20px; align-items: start }
-.cc-wide > div { display: flex; flex-direction: column; gap: 14px; min-width: 0 }
+/* Home: every machine across the top, then the tabs, which stay in view. */
+.cc-mstrip { display: flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden }
+.cc-mstrip > .m { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border: 0; border-right: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; white-space: nowrap; min-width: 0 }
+.cc-mstrip > button.m:hover { background: var(--elev) }
+.cc-mstrip > .m b { color: var(--fg); font-weight: 600 }
+.cc-mstrip > .m.off b { color: var(--muted) }
+.cc-mstrip > .m .bad { color: var(--err) }
+.cc-mstrip > .dbtn { margin: 4px 6px 4px auto }
+.cc-tabs { position: sticky; top: -14px; z-index: 2; display: flex; gap: 2px; margin: 0 -16px; padding: 0 12px; background: var(--ink); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none }
+.cc-tabs button { flex: none; display: flex; align-items: center; gap: 6px; padding: 9px 9px 7px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer }
+.cc-tabs button:hover { color: var(--fg) }
+.cc-tabs button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent) }
+.cc-tabs .n { font-size: 11px; font-weight: 400; color: var(--muted) }
 .cc-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 11px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg) }
 .cc-row + .cc-row { border-top: 1px solid var(--border) }
 button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
@@ -63,7 +73,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-empty b { color: var(--fg); font-size: 14px; font-weight: 500 }
 .cc-empty ol { margin: 0; padding-left: 18px; text-align: left; display: grid; gap: 3px; color: color-mix(in srgb, var(--fg) 86%, transparent) }
 .cc-empty code { font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
-.cc-comp { flex: none; margin: 0 16px 14px; padding: 6px 6px 6px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--elev) 92%, transparent); display: flex; align-items: center; gap: 10px }
+/* Home's input, docked under the view. */
+.cc-comp { flex: none; padding: 7px 10px 7px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px }
 .cc-comp .in { flex: 1; min-width: 0; font-size: 14px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-comp .in .ph { color: var(--dim) }
 .cc-comp .in .caret { height: 15px }
@@ -73,9 +84,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-pjc { flex: none; margin: 0 16px 14px; display: grid; gap: 6px }
-/* Home's input and the project agent's bar stay at most 760px wide, centered; a narrow window
+/* The project agent's bar stays at most 760px wide, centered; a narrow window
    keeps the 16px gutter. */
-.cc-comp, .cc-pjc { margin-inline: max(16px, calc((100% - 760px) / 2)) }
+.cc-pjc { margin-inline: max(16px, calc((100% - 760px) / 2)) }
 .cc-pjc .box { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
