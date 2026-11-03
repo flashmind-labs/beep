@@ -42,6 +42,15 @@ pub(super) fn uninstall() -> Result<()> {
 }
 
 pub(super) fn restart(exe: &Path) -> Result<Restart> {
+    let plan = plan(exe)?;
+    if matches!(plan, Restart::Restarted(_)) {
+        launchctl(&["kickstart", "-k", &format!("{}/{LABEL}", domain()?)])?;
+    }
+    Ok(plan)
+}
+
+/// What `restart` would do, without doing it.
+pub(super) fn plan(exe: &Path) -> Result<Restart> {
     let path = plist_path()?;
     let plist = match fs::read_to_string(&path) {
         Ok(plist) => plist,
@@ -62,7 +71,6 @@ pub(super) fn restart(exe: &Path) -> Result<Restart> {
     if !loaded {
         return Ok(Restart::Stopped(Manager::Launchd));
     }
-    launchctl(&["kickstart", "-k", &service])?;
     Ok(Restart::Restarted(Manager::Launchd))
 }
 

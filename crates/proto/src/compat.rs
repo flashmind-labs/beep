@@ -277,6 +277,8 @@ sample_struct! {
     HostedRun { host, run }
     HostedChecks { host, checks }
     RunsHost { host, kind, repo, primary, synced_at, error, rate_limited_until }
+    MachineUpdate { from, to, restarting, note }
+    UpdatableMachine { id, agent_sessions }
 }
 
 macro_rules! sample_values {
