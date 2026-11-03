@@ -696,7 +696,7 @@ function subOf(at: number) {
   if (!seen) subTimes.set(key, seen = { start: now, live: working });
   if (!working && seen.live && seen.end == null) seen.end = now;
   const ms = !seen.live ? null : working ? now - seen.start : (seen.end ?? now) - seen.start;
-  return { title: title.split("\n")[0], status, working, failed: status === "failed", sub, ms };
+  return { title: title.split("\n")[0], agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
 }
 
 /// One subagent as a row: its name, how it stands, how long and how many steps.
@@ -704,7 +704,8 @@ function subRow(at: number) {
   const x = subOf(at);
   const st = x.working ? "working" : x.failed ? "failed" : "done";
   const meta = [st, x.ms != null ? duration(x.ms) : "", x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`].filter(Boolean).join(" · ");
-  return `<button class="dsubrow" data-sub="${at}" title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}</b><small>${esc(meta)}</small></span></button>`;
+  const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
+  return `<button class="dsubrow" data-sub="${at}" title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span></button>`;
 }
 
 /// Subagents started together as one card: "3 subagents · 2 working · 1 done".
@@ -731,7 +732,7 @@ function childHtml(p: AgentPage, at: number) {
   const none = !x.sub.count && !x.working ? `<div class="dcoderen other">Steps not reported by ${esc(k.name)}.</div>` : "";
   const result = x.sub.result ? `<div class="dcoderen agent">${esc(x.sub.result)}</div>` : x.working ? '<div class="dmuted"><span class="dspin"></span> Working…</div>' : "";
   return `<div class="dcoderlog"><div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
-    <div class="dcoderen user"><b>Task</b><span>${esc(x.title)}</span></div>
+    <div class="dcoderen user"><b>${esc(x.agent || "Task")}</b><span>${esc(x.title)}</span></div>
     <div class="dcoderturn"><span class="hd">${esc(x.working ? "Working" : x.ms != null ? `Worked for ${duration(x.ms)}` : "Worked")}</span></div>
     ${earlier}${steps}${none}${result}</div>`;
 }

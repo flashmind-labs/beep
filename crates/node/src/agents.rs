@@ -49,11 +49,13 @@ mod plans;
 mod prices;
 mod session;
 mod spend;
+mod subagent;
 mod usage;
 mod work_folder;
 
 pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
+pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
 use acp::Prompt;
 use compaction::Route;
@@ -323,6 +325,45 @@ impl Agents {
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
         }
+    }
+
+    /// The last `last` entries of a session this node runs and how many
+    /// came before them, each Codex subagent among them with the steps
+    /// its rollout holds: codex-acp sends none of them.
+    async fn live_transcript(&self, session: &Session, last: usize) -> (Vec<agent::Entry>, u64) {
+        let (mut entries, earlier) = session.live.borrow().transcript(last);
+        let children = session.live.borrow().codex_children(earlier);
+        if children.is_empty() {
+            return (entries, earlier);
+        }
+        let stores = self.stores.clone();
+        let read = spawn_blocking(move || {
+            children
+                .into_iter()
+                .filter_map(|child| Some((child.call, stores.codex_run(&child.threads)?)))
+                .collect::<Vec<_>>()
+        })
+        .await;
+        let runs = match read {
+            Ok(runs) => runs,
+            Err(e) => {
+                log::warn!("subagent rollouts not read: {e}");
+                return (entries, earlier);
+            }
+        };
+        let live = session.live.borrow();
+        for (call, run) in runs {
+            let Some((at, text)) = live.with_run(&call, &run) else {
+                continue;
+            };
+            let index = at
+                .checked_sub(earlier)
+                .and_then(|i| usize::try_from(i).ok());
+            if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
+                entry.text = text;
+            }
+        }
+        (entries, earlier)
     }
 
     /// Takes the user's settings for the agents in place of the ones
@@ -997,7 +1038,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         SessionsRequest::Transcript { session, last } => {
             let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
             let read = match agents.get(&session) {
-                Some(found) => Ok(Some(found.live.borrow().transcript(last))),
+                Some(found) => Ok(Some(agents.live_transcript(&found, last).await)),
                 // A Claude Code session started outside Beep.
                 None => match agents.external.transcript(&session, last).await {
                     Ok(Some(read)) => {

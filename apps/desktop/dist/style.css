@@ -722,6 +722,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .dsubrow .t { display: grid; min-width: 0; line-height: 20px }
 .dsubrow .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dsubrow .t small { font-size: 11.5px; line-height: 16px; color: var(--muted) }
+.dsubrow .t b .kind { margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; font: 500 11px/16px var(--mono, monospace); color: var(--muted) }
 .dcrumb { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); padding-bottom: 8px; border-bottom: 1px solid var(--border); white-space: nowrap }
 .dcrumb #agparent { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis } .dcrumb #agparent:hover { color: var(--fg) }
 .dcrumb b { font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis } .dcrumb .sp { flex: 1 }
