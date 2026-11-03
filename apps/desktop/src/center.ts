@@ -2936,7 +2936,7 @@ registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: ()
 initSideResize($(".cwin"), $("#side-grip"));
 mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
 
-initPalette({ go, jump, pane, settings: openSettings, providers: () => go("providers"), project: openProjects, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
+initPalette({ go, jump, pane, settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
 
 /// ⌘ and a letter: the pane page it opens.
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
