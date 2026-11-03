@@ -26,6 +26,13 @@ const MAX_LISTED: usize = 50;
 /// How many a listing reads when the server names no number.
 const DEFAULT_LISTED: usize = 20;
 
+/// The folder of Claude Code's transcripts here, when it has one:
+/// `<config>/projects/<folder>/<session>.jsonl`, a subagent's in
+/// `<session>/subagents/`.
+pub(crate) fn projects_dir() -> Option<PathBuf> {
+    discover::Store::locate().map(|store| store.projects())
+}
+
 /// Claude Code's sessions on this machine, and the hook events about them.
 #[derive(Default)]
 pub struct External {

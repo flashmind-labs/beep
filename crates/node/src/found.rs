@@ -47,7 +47,10 @@ const MAX_TITLE: usize = 300;
 const RECENT: Duration = Duration::from_secs(3 * 60);
 
 /// A coding agent whose sessions are read here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum Agent {
     Claude,
     Codex,
@@ -211,6 +214,34 @@ impl Stores {
         self.opencode = Some(opencode.to_owned());
         self
     }
+}
+
+/// Where Codex, pi, flsh and OpenCode keep their sessions here, for
+/// reading what they spent (`crate::agents::spend`).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LogRoots {
+    /// `CODEX_HOME`; its sessions are in `sessions/`.
+    pub(crate) codex: Option<PathBuf>,
+    pub(crate) pi: Option<PathBuf>,
+    pub(crate) flsh: Option<PathBuf>,
+    /// OpenCode's database, or its data folder of them.
+    pub(crate) opencode: Option<PathBuf>,
+}
+
+impl LogRoots {
+    pub(crate) fn locate() -> Self {
+        Self {
+            codex: codex::locate(),
+            pi: pi::locate(),
+            flsh: flsh::locate(),
+            opencode: opencode::locate(),
+        }
+    }
+}
+
+/// OpenCode's databases at `root`: the file itself, or those in the folder.
+pub(crate) fn opencode_databases(root: &Path) -> Vec<PathBuf> {
+    opencode::databases_at(root)
 }
 
 /// Sessions in one folder, per agent, as `folders` gathers them.
