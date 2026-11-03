@@ -23,6 +23,10 @@ export interface AgentPlace {
   places?: { machine: string; cwd: string }[];
   /// The project's name, for the heading.
   project?: string | null;
+  /// The checkout to start on, as a project's bar picked it.
+  checkout?: CheckoutPick;
+  /// Opens with the harness picker showing.
+  pick?: boolean;
 }
 
 /// Where Auto would start a session, as `agent_preview` says.
@@ -75,11 +79,11 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: at?.checkout ?? "auto", base: null, baseTyping: false, effort: null, open: at?.pick ? "pick" : null, query: "", typing: false };
   AG.error = "";
   AG.busy = false;
   drawFrame();
-  $("#agprompt")?.focus();
+  ($("#agq") ?? $("#agprompt"))?.focus();
   loadAgentHosts();
   invoke<AgentSession[]>("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
   invoke<Machine[]>("list_machines").then(list => { KNOWN = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
