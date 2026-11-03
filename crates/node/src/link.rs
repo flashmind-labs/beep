@@ -444,12 +444,15 @@ async fn serve_linked(
     offers: &Offers,
     measured: &[PathBuf],
 ) -> Result<()> {
-    let mut reported = env::probe().await;
-    tx.send(&Up::Env(reported.clone())).await?;
     let mut reprobe = interval(REPROBE);
     reprobe.tick().await;
-    // A probe runs a dozen commands; it runs beside the loop, not in it.
-    let mut probing: Option<AbortOnDropHandle<EnvReport>> = None;
+    // A probe runs a dozen commands, which can take half a minute; it runs
+    // beside the loop, the first one too, so the streams the server opens
+    // on connecting are taken at once. Left waiting, they time out on the
+    // server, and the sync list among them is not sent again until the
+    // node reconnects.
+    let mut reported: Option<EnvReport> = None;
+    let mut probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
     // The first tick is at once, so stats follow the report.
     let mut resample = interval(RESAMPLE);
     resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -502,9 +505,9 @@ async fn serve_linked(
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
                 probing = None;
                 match probed {
-                    Ok(now) if changed(&reported, &now) => {
+                    Ok(now) if reported.as_ref().is_none_or(|before| changed(before, &now)) => {
                         tx.send(&Up::Env(now.clone())).await?;
-                        reported = now;
+                        reported = Some(now);
                     }
                     Ok(_) => {}
                     Err(e) => log::warn!("probing the machine failed: {e}"),
