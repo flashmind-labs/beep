@@ -173,10 +173,7 @@ fn front_matter_end(text: &str) -> usize {
 }
 
 fn sha256(text: &str) -> String {
-    Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
 #[cfg(test)]

@@ -125,9 +125,10 @@ export interface SubStep {
 }
 
 /// A subagent's call, read from its output: the node writes `[steps] N`
-/// first, then `[step <status>] <title>` for each of the last steps,
-/// before what the subagent answered. Null for any other call.
-export function subagent(output: string): { count: number; steps: SubStep[]; result: string } | null {
+/// first, then `[step <status>] <title>` for each of the last steps, then
+/// `[agent] <name>` when it knows its type or custom agent's name, before
+/// what the subagent answered. Null for any other call.
+export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string } | null {
   const lines = output.split("\n");
   const head = /^\[steps\] (\d+)$/.exec(lines[0] ?? "");
   if (!head) return null;
@@ -138,7 +139,10 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
     if (!m) break;
     steps.push({ status: m[1], title: m[2] });
   }
-  return { count: Number(head[1]), steps, result: lines.slice(i).join("\n").trim() };
+  const named = /^\[agent\] (.+)$/.exec(lines[i] ?? "");
+  if (named) i++;
+  const result = lines.slice(i).join("\n").trim();
+  return named ? { count: Number(head[1]), steps, result, agent: named[1].trim() } : { count: Number(head[1]), steps, result };
 }
 
 /// One question Codex asked and the user's answer, as its echo of the

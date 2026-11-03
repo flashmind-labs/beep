@@ -1,6 +1,7 @@
 // Small pieces of the command center window that several views draw the
 // same way. They build on `el` and `button` from projects-state.ts.
 import { button, el, type Kid } from "../projects-state.ts";
+import type { Freshness } from "../pagecache.ts";
 
 /// Fixed SVG markup as a node, never server text.
 export function svgEl(markup: string) {
@@ -28,6 +29,17 @@ export function note(dot: string, ...kids: Kid[]) {
 /// A note in red above a list: what failed.
 export function errorNote(text: string) {
   return el("div", "cc-note", el("span", "ddot bad"), el("span", "cc-err", text));
+}
+
+/// A section header's note on its data: a spinner while it reads again
+/// data that is not new, else "updated 4 min ago"; null for nothing to say.
+export function freshNote(f: Freshness) {
+  if (f.spin) {
+    const spin = el("span", "dspin sw-spin");
+    spin.title = "Updating";
+    return spin;
+  }
+  return f.text ? el("small", "sw-age", f.text) : null;
 }
 
 /// A state chip such as "running" or "needs reply"; `cls` colours it, and
