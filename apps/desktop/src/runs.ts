@@ -416,8 +416,9 @@ export function makeRuns(deps: RunDeps) {
     const chip = runChip(r.state);
     const meta: (HTMLElement | string)[] = [];
     if (r.branch) meta.push(h("span", "", h("code", "", r.branch)));
-    if (r.event) meta.push(h("span", "", r.event));
-    if (r.actor) meta.push(h("span", "", r.actor));
+    // The event and who started it give way first on a narrow list.
+    if (r.event) meta.push(h("span", "ev", r.event));
+    if (r.actor) meta.push(h("span", "ev", r.actor));
     if (going(r.state) && r.progress) {
       meta.push(h("span", "", progressText(r.progress)));
       if (r.progress.jobs > 1) meta.push(h("span", "", `${r.progress.jobs_done} of ${r.progress.jobs} jobs done`));
@@ -434,7 +435,7 @@ export function makeRuns(deps: RunDeps) {
       badge = h("span", "pj-host", hostLabel(r.host, hosts));
       badge.title = `${hostLabel(r.host, hosts)} Actions on ${r.host}`;
     }
-    const el = h("div", `pj-task pj-issue${opened ? " ask" : ""}`,
+    const el = h("div", `pj-task pj-issue pj-runrow${opened ? " ask" : ""}`,
       h("span", "t", badge, link(`${r.workflow} #${r.number}`, r.url), ` ${r.title}`),
       stateChip(chip.cls, chip.text, chip.spin),
       h("span", "m", ...meta),
@@ -471,7 +472,7 @@ export function makeRuns(deps: RunDeps) {
       return box;
     }
     if (why) box.append(h("div", "cc-err", why));
-    const panel = h("div", "cc-panel", fitRows(d.runs.map(r => row(id, s, r)), SHOWN));
+    const panel = h("div", "cc-panel pj-runbox", fitRows(d.runs.map(r => row(id, s, r)), SHOWN));
     box.append(panel);
     return box;
   }
