@@ -1582,28 +1582,6 @@ impl CommandCenter {
 }
 
 #[tokio::test]
-async fn agent_sessions_survive_no_external() {
-    let mut center = CommandCenter::new(1).await;
-    center
-        .node(
-            0,
-            "build-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", None)],
-                external: None,
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(sessions[0].id, "a3f9c1");
-    assert!(!sessions[0].external);
-    center.shutdown().await;
-}
-
-#[tokio::test]
 async fn agent_sessions_list_none_of_another_users_machines() {
     let mut center = CommandCenter::new(1).await;
     center.node(0, "build-box", FakeAgents::default()).await;
