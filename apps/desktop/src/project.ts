@@ -87,6 +87,8 @@ export interface ProjectActs {
   openUrl(url: string): unknown;
   /// Opens a branch's review; absent where there is none.
   review?: (branch: string) => void;
+  /// Shows what changed on a branch; absent where nothing can.
+  diff?: (branch: string) => void;
   /// Asks the project agent to merge a task's branch; absent where there is none.
   merge?: (task: TaskRow) => unknown;
   /// Opens a worker's coding-agent session; absent where there is none.
@@ -268,6 +270,10 @@ export function tasksSection(view: ProjectView, act: RowActs) {
     const row = el("div", "pj-task", title, stateChip(t.state, t.state, t.state === "running"), meta, acts(b, err));
     row.dataset.task = t.id;
     const review = reviewActs(t, act);
+    if (t.branch && act.diff && t.state !== "dropped") {
+      const branch = t.branch;
+      review.push(dbtn("View diff", "small", () => act.diff!(branch)));
+    }
     if (review.length) row.querySelector(".acts")!.prepend(...review);
     return row;
   });
