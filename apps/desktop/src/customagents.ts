@@ -7,7 +7,7 @@ import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { harnessEl } from "./harnessicon.ts";
 import { dbtn, emptyPanel } from "./components/parts.ts";
 import { agentLabel, el, present, reason } from "./projects-state.ts";
-import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta, agentsNote } from "./customagents-state.ts";
+import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta } from "./customagents-state.ts";
 
 export { agentPrompt, agentsPlace } from "./customagents-state.ts";
 export type { AgentsPlace, CustomAgentRow } from "./customagents-state.ts";
@@ -86,7 +86,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
       const text = s?.error ? `Could not read the custom agents on ${place.name}: ${s.error}` : `Reading the custom agents on ${place.name}…`;
       return { body: emptyPanel(el("span", s?.error ? "cc-err" : "", text)), note: "", count: 0 };
     }
-    const note = agentsNote(s.rows, place);
+    const note = "";
     if (!s.rows.length) {
       return { body: emptyPanel(el("span", "", "No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.")), note, count: 0 };
     }

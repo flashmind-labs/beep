@@ -41,7 +41,7 @@ test("artifacts come newest first, and the newest republish of a file wins", () 
     { kind: "user", text: "make a report" },
     { kind: "tool", text: "Write: /srv/project/report.html" },
     { kind: "tool", text: `Artifact: /srv/project/report.html [completed]\n${LINK}` },
-    { kind: "tool", text: "Write: /srv/project/notes.md" },
+    { kind: "tool", text: "Write: /tmp/agent-out/notes.md" },
     { kind: "agent", text: "Done." },
     { kind: "user", text: "make the title bigger" },
     { kind: "tool", text: "Edit /srv/project/report.html [completed]\n(changed /srv/project/report.html)" },
@@ -54,6 +54,17 @@ test("artifacts come newest first, and the newest republish of a file wins", () 
   // Written again, its version changes, so the tab reads it again.
   const before = collectArtifacts(entries.slice(0, 5), 10, CWD)[0];
   assert.notEqual(artifactVersion(before), artifactVersion(all[0]));
+});
+
+test("a repo file the agent only edited is no artifact; a published one or one outside the folder is", () => {
+  const entries = [
+    { kind: "user", text: "update the docs" },
+    { kind: "tool", text: "Edit /srv/project/.worktrees/docs/README.md [completed]\n(changed /srv/project/.worktrees/docs/README.md)" },
+    { kind: "tool", text: "Write: /srv/project/site/index.html" },
+    { kind: "tool", text: `Artifact: /srv/project/docs/plan.md [completed]\n${LINK}` },
+    { kind: "tool", text: "Write: /tmp/agent-out/chart.svg" },
+  ];
+  assert.deepEqual(collectArtifacts(entries, 0, CWD).map(a => a.path), ["/tmp/agent-out/chart.svg", "/srv/project/docs/plan.md"]);
 });
 
 test("a file inside the session's folder is read from it; one outside from its own folder", () => {
