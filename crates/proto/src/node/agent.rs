@@ -17,7 +17,7 @@
 //! server closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 
-use crate::{AgentCheckoutPlan, AgentEffort, Upload};
+use crate::{AgentCheckoutPlan, AgentEffort, ModelId, Upload};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -95,7 +95,7 @@ pub enum Request {
     /// switch. A node from before it answers that it does not know the
     /// request.
     Configure {
-        model: Option<String>,
+        model: Option<ModelId>,
         effort: Option<Effort>,
     },
 }

@@ -8,6 +8,7 @@
 //! With the `uniffi` feature, the types a client sees also derive UniFFI
 //! bindings.
 
+pub mod agent_ids;
 pub mod client;
 pub mod groups;
 pub mod link;
@@ -27,6 +28,7 @@ mod compat;
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+pub use agent_ids::{AgentSlug, ModelId};
 pub use flashmind_types::ReasoningLevel;
 use link::LinkOffer;
 pub use secret::SecretText;
@@ -1183,8 +1185,9 @@ pub struct UsageView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanLimits {
     /// `claude` or `codex`.
-    pub agent: String,
-    /// The plan, such as `max` or `pro`, when the agent says.
+    pub agent: AgentSlug,
+    /// The plan, such as `max` or `pro`, when the agent says: free-form
+    /// text the agent reports.
     pub plan: Option<String>,
     /// The machine that read it.
     pub machine_name: String,
@@ -1203,6 +1206,7 @@ pub struct PlanWindow {
     pub used_percent: f64,
     pub resets_at: Option<SystemTime>,
     /// What it is limited to, such as `Opus`; `None` for the whole plan.
+    /// Free-form text the agent reports.
     pub scope: Option<String>,
 }
 
@@ -1220,7 +1224,7 @@ pub struct ProjectSpend {
 /// The tokens one agent used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentTokens {
-    pub agent: String,
+    pub agent: AgentSlug,
     pub tokens: u64,
 }
 
@@ -1228,7 +1232,7 @@ pub struct AgentTokens {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessSpend {
     /// Its slug, such as `claude`.
-    pub agent: String,
+    pub agent: AgentSlug,
     /// At API prices, in US dollars, when it reports a cost; `None` for
     /// one that reports tokens only, such as Codex.
     pub cost_usd: Option<f64>,
@@ -1241,7 +1245,7 @@ pub struct HarnessSpend {
 /// The tokens one model used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelSpend {
-    pub model: String,
+    pub model: ModelId,
     pub tokens: u64,
 }
 
@@ -2715,7 +2719,7 @@ wire_enum! {
         1 Cancel {}
         2 Close {}
         3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
-        4 Configure { model: Option<String>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
+        4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
     }
 }
 

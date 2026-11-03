@@ -264,6 +264,8 @@ sample_values! {
     i64 => [1_760_000_000_000]
     f64 => [1.5]
     String => ["text".to_owned()]
+    AgentSlug => [AgentSlug::from("text")]
+    ModelId => [ModelId::from("text")]
     Uuid => [Uuid::from_u128(0x0123_4567_89ab_cdef_0123_4567_89ab_cdef)]
     SystemTime => [UNIX_EPOCH + Duration::from_millis(1_760_000_000_123)]
     ReasoningLevel => [

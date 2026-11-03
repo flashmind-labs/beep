@@ -796,7 +796,11 @@ fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
             effort: None,
         } => return Err(ApiError::bad_request("Nothing to switch.")),
         AgentSteer::Configure { model, effort } => Request::Configure {
-            model: model.map(|m| m.trim().to_owned()).filter(|m| !m.is_empty()),
+            model: model
+                .as_ref()
+                .map(|m| m.as_str().trim())
+                .filter(|m| !m.is_empty())
+                .map(ModelId::from),
             effort: effort.map(Into::into),
         },
     })
