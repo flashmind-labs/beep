@@ -215,7 +215,8 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-set .dset-crumb:hover, .cc-set .dset-crumb:focus-visible { color: var(--fg) }
 .cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted) }
 .cc-set .dset-back:hover, .cc-set .dset-back:focus-visible { color: var(--fg) }
-.cc-set .dset-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; min-width: 0 }
+.cc-set .dset-top kbd { margin-left: auto; flex: none }
+.cc-set .dset-crumbs b { overflow: hidden; text-overflow: ellipsis }
 .cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
 .cc-set .dset-page > section { max-width: 780px }
 /* The breadcrumb names the page, so its section title does not repeat it. */
@@ -223,8 +224,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-set .dset-host > .cc-view { padding: 0; overflow: visible }
 .cc-set .dset-host > .dhead { padding: 0 0 12px; border-bottom: 0 }
 .cc-set .dset-host > .dlist { padding: 0; overflow: visible }
-.cc-set .hv { grid-template-columns: 230px minmax(0, 1fr) }
-.cc-set .hv-f { grid-template-columns: minmax(0, 1fr) 260px }
 .cc-set .dset-h { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 16px 0 6px }
 .cc-set .dset-box { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 0 0 14px }
 .cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; outline: none }
@@ -633,45 +632,83 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
 .th-card > .dbtn { justify-self: start }
 
-/* Coding agents: each machine's harnesses on the left, the picked one's settings on the right. */
+/* Coding agents: each machine's harnesses on the left, the picked one's settings on the right.
+   In Settings the left pane lists the agents, so the page shows one under a toolbar. */
 .hv-view { display: grid; gap: 12px; align-content: start }
 .hv { display: grid; grid-template-columns: 300px minmax(0, 1fr); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; min-height: 0 }
 .hv-list { border-right: 1px solid var(--border); display: grid; align-content: start; background: rgba(255,255,255,.015) }
-.hv-it { cursor: pointer; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 14px; border-bottom: 1px solid var(--border); outline: none }
+.hv-it { cursor: pointer; display: grid; grid-template-columns: 28px minmax(0, 1fr) 36px; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); outline: none }
 .hv-it:focus-visible { box-shadow: inset 0 0 0 2px var(--emerald) }
 .hv-it[aria-current="true"] { background: rgba(52,211,153,.07) }
-.hv-it .dswitch { margin-top: 5px }
+.hv-it .dswitch, .hv-sum .dswitch { justify-self: end }
 .hv-it b { font-weight: 500; font-size: 13.5px }
-.hv-it .ver { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-left: 6px }
-.hv-it .up { color: #E9B949; font-size: 11px; margin-left: 6px }
-.hv-it small { display: block; margin-top: 3px; font-size: 12px; line-height: 17px; color: var(--muted) }
-.hv-it small.bad { color: var(--coral) }
-.hv-it.off b, .hv-it.off .cc-ag { opacity: .45 }
+.hv-it.off b, .hv-it.off .cc-ag, .hv-sum.off b, .hv-sum.off .cc-ag { opacity: .45 }
 .hv-name { min-width: 0 }
-.hv-d { padding: 16px 20px; overflow-y: auto; scrollbar-width: thin; min-width: 0 }
+.hv-name small { display: block; margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.hv-name small.bad { color: var(--coral) }
+/* Name, version and update chip on one line; the version gives way first. */
+.hv-nm { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap }
+.hv-nm b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.hv-nm .ver { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
+.hv-up { flex: none; align-self: center; font-size: 10.5px; line-height: 15px; padding: 0 6px; border-radius: 999px; color: #E9B949; border: 1px solid rgba(233,185,73,.45); background: rgba(233,185,73,.08) }
+.hv-d { padding: 16px 20px; overflow-y: auto; scrollbar-width: thin; min-width: 0; container-type: inline-size }
 .hv-d h3 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600 }
 .hv-d h3 .ver { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400 }
 .hv-d h4 { margin: 20px 0 4px; font-size: 13.5px; font-weight: 600 }
-.hv-f { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border) }
-.hv-f b { font-weight: 500; font-size: 13px }
+/* Each setting: what it is on the left at a fixed width, its control on the right. */
+.hv-f { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; padding: 11px 0; border-bottom: 1px solid var(--border) }
+.hv-f > :last-child { min-width: 0; align-self: center }
+.hv-f b { font-weight: 500; font-size: 13px; overflow-wrap: anywhere }
 .hv-f small { display: block; margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--muted) }
+@container (max-width: 540px) { .hv-f { grid-template-columns: minmax(0, 1fr); gap: 8px } }
 .hv-in { height: 32px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--ink); font-family: var(--mono); font-size: 12.5px; color: var(--fg); min-width: 0; width: 100%; box-sizing: border-box; user-select: text }
 .hv-in::placeholder { color: var(--dim) }
-.hv-env { display: grid; grid-template-columns: 160px minmax(0, 1fr) 24px; gap: 8px; align-items: center; margin-top: 6px }
+.hv-envs { display: grid; gap: 6px }
+.hv-env { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 24px; gap: 8px; align-items: center }
 .hv-env .dbtn { padding: 0; min-width: 24px; color: var(--muted) }
-.hv-mach { display: flex; gap: 6px; align-items: center }
 .hv-stat { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); padding: 6px 0 }
-.hv-acts { display: flex; gap: 8px; align-items: center; margin-top: 6px }
+.hv-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px }
 .hv-note { font-size: 12px; line-height: 17px; color: var(--muted); margin-top: 8px }
+/* A field not the same on every machine, and the save bar: this machine or every machine. */
+.hv-diff { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 10.5px; line-height: 15px; font-weight: 400; color: var(--muted); cursor: help; vertical-align: 1px }
+.hv-save { margin-top: 12px }
+.hv-incl { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap }
+.hv-ok { font-size: 12px; color: var(--emerald) }
+.hv-acts [hidden] { display: none }
+/* The machine picker: a segmented control whose names never wrap, or a select when they do not fit. */
+.hv-pick { display: inline-flex; min-width: 0 }
+.hv-seg { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.02) }
+.hv-seg button { all: unset; cursor: pointer; height: 24px; line-height: 24px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; min-width: 0 }
+.hv-seg button:hover:not(:disabled) { color: var(--fg) }
+.hv-seg button[aria-pressed="true"] { background: rgba(59,155,122,.28); color: var(--fg) }
+.hv-seg button:disabled { opacity: .45; cursor: default }
+.hv-seg button:focus-visible { box-shadow: inset 0 0 0 2px var(--emerald) }
+.hv-sel { display: none; height: 28px; max-width: 220px; min-width: 0; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px }
+.hv-pick.crowded .hv-seg { display: none }
+.hv-pick.crowded .hv-sel { display: block }
+/* In Settings: the toolbar row, then the agent's summary box, then its settings at full width. */
+.hv-bar { container: hvbar / inline-size; display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); min-width: 0 }
+.hv-bar .lbl { flex: none; font-size: 12px; color: var(--muted) }
+.hv-bar .sp { flex: 1 }
+.hv-bar .dbtn { flex: none; white-space: nowrap }
+@container hvbar (max-width: 600px) { .hv-pick .hv-seg { display: none } .hv-pick .hv-sel { display: block } }
+.hv-sum { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 36px; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px }
+.hv-sum b { font-size: 15px; font-weight: 600 }
+.hv-sum .on { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
+@container hvset (max-width: 560px) { .hv-sum .on { display: none } }
+.hv-view.in-set { container: hvset / inline-size }
+.hv-view.in-set > .hv-d { padding: 0; overflow: visible }
+.hv-view.in-set > .hv-d > .hv-acts:first-child, .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
 /* flsh's own settings under its runtime ones. */
 .fl-seg, .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
 .fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
 .fl-row { display: flex; gap: 8px; align-items: center }
-.fl-tbl { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px }
+.fl-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px }
 .fl-tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border) }
 .fl-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle }
-.fl-tbl td:first-child { width: 50% }
-.fl-tbl td:last-child { text-align: right; width: 1% ; white-space: nowrap }
+.fl-tbl th:nth-child(2) { width: 52px } .fl-tbl th:nth-child(3) { width: 32% } .fl-tbl th:nth-child(4) { width: 96px }
+.fl-tbl th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.fl-tbl td:last-child { text-align: right; white-space: nowrap }
 .cc-ag.pi { color: #B18CE0 } .cc-ag.gemini { color: #6FA8DC } .cc-ag.flsh { color: #3B9B7A } .cc-ag.opencode { color: #E9B949 }
 /* Terminals on every machine: Home's panel per machine, and the page's
    machine list beside the open terminal. */

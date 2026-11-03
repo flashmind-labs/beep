@@ -73,6 +73,24 @@ impl Store {
         rows.iter().map(harness_from).collect()
     }
 
+    /// The user's settings for the harness `agent` on each machine that has
+    /// some saved, by machine.
+    pub(crate) async fn harness_settings_of(
+        &self,
+        user: &UserKey,
+        agent: &str,
+    ) -> Result<Vec<HarnessRow>> {
+        let rows = sqlx::query(
+            "SELECT machine_id, agent, enabled, program, home, args, env_names
+             FROM harness_settings WHERE user_id=$1 AND agent=$2 ORDER BY machine_id",
+        )
+        .bind(user.as_str())
+        .bind(agent)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(harness_from).collect()
+    }
+
     /// The env vars of the user's harness `agent` on `machine_id`, opened;
     /// empty when there are none.
     pub(crate) async fn harness_env(
