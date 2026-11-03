@@ -8,7 +8,7 @@
 //! that chat when a turn ends or it asks something while no call waits for
 //! it (see `wake`).
 
-use super::{Ask, Follower, Online};
+use super::{Ask, Follower, Online, RECONNECT_WAIT};
 use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
@@ -32,7 +32,7 @@ use std::{
 };
 use tokio::{
     sync::{mpsc, oneshot, watch},
-    time::timeout,
+    time::{Instant, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 use wake::Reporter;
@@ -615,37 +615,192 @@ impl Online {
         self.sessions_request_within(request, READ_TIMEOUT).await
     }
 
+    /// Sends `request` and gives the node's answer within `limit`. When the
+    /// link drops or was replaced, a read is sent again on the node's new
+    /// connection once it reconnects, and any request the node never got is
+    /// too; see `Retry`.
     async fn sessions_request_within(
         &self,
         request: SessionsRequest,
         limit: Duration,
     ) -> Result<SessionsReply> {
-        let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
-        tx.send(&request).await?;
-        timeout(limit, rx.recv())
+        let read = request.is_read();
+        let until = Instant::now() + RECONNECT_WAIT;
+        let mut next: Option<Online> = None;
+        loop {
+            let on = next.as_ref().unwrap_or(self);
+            let failed = match on.sessions_attempt(&request, limit).await {
+                Ok(reply) => return Ok(reply),
+                Err(failed) => failed,
+            };
+            let wait_until = match failed.kind.retry(read) {
+                Retry::No => return Err(failed.error),
+                Retry::IfReplaced => Instant::now(),
+                Retry::AfterReconnect => until,
+            };
+            let used = on.connection.stable_id();
+            let nodes = self.app.upgrade();
+            let back = match &nodes {
+                Some(app) => {
+                    app.nodes
+                        .reconnected(&on.connection.remote_id(), Some(used), wait_until)
+                        .await
+                }
+                None => None,
+            };
+            let Some(back) = back else {
+                return Err(failed.error);
+            };
+            log::info!(
+                "nodes: sending a request again on a new connection; node={} error={:#}",
+                self.name,
+                failed.error
+            );
+            next = Some(back);
+        }
+    }
+
+    /// One try of `sessions_request_within` on this connection.
+    async fn sessions_attempt(
+        &self,
+        request: &SessionsRequest,
+        limit: Duration,
+    ) -> Result<SessionsReply, Failed> {
+        let (mut tx, mut rx) = self
+            .try_open(SESSIONS_PROTOCOL)
             .await
-            .context("the node did not answer")??
-            .context("the node closed the stream")
+            .map_err(|e| match e {
+                Opening::Link(error) => Failed::new(Failure::Unsent, error),
+                Opening::Refused(error) => Failed::new(Failure::Answered, error),
+            })?;
+        tx.send(request)
+            .await
+            .map_err(|e| Failed::new(Failure::Unsent, e))?;
+        // A closed connection says the link dropped, rather than a node
+        // that could not read the request.
+        let dropped = || {
+            if self.connection.close_reason().is_some() {
+                Failure::Dropped
+            } else {
+                Failure::Answered
+            }
+        };
+        match timeout(limit, rx.recv()).await {
+            Err(elapsed) => Err(Failed::new(
+                Failure::Silent,
+                anyhow::Error::new(elapsed).context("the node did not answer"),
+            )),
+            Ok(Err(e)) => Err(Failed::new(dropped(), e)),
+            Ok(Ok(None)) => Err(Failed::new(
+                dropped(),
+                anyhow::anyhow!("the node closed the stream"),
+            )),
+            Ok(Ok(Some(reply))) => Ok(reply),
+        }
     }
 
     pub(super) async fn open_stream(&self, protocol: &str) -> Result<(LinkTx, LinkRx)> {
+        self.try_open(protocol).await.map_err(|e| match e {
+            Opening::Link(e) | Opening::Refused(e) => e,
+        })
+    }
+
+    async fn try_open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), Opening> {
         if !self.offers(protocol) {
-            bail!("{} does not offer {protocol}", self.name);
+            return Err(Opening::Refused(anyhow::anyhow!(
+                "{} does not offer {protocol}",
+                self.name
+            )));
         }
-        let (send, recv) = self.connection.open_bi().await?;
+        let link_error = |e: anyhow::Error| Opening::Link(e);
+        let (send, recv) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|e| link_error(e.into()))?;
         let (mut tx, mut rx) = link(send, recv);
         tx.send(&Open {
             protocol: protocol.to_owned(),
         })
-        .await?;
+        .await
+        .map_err(link_error)?;
         let opened: Opened = timeout(READ_TIMEOUT, rx.recv())
             .await
-            .context("the node did not open the stream")??
-            .context("the node closed the stream")?;
+            .context("the node did not open the stream")
+            .map_err(link_error)?
+            .map_err(link_error)?
+            .context("the node closed the stream")
+            .map_err(link_error)?;
         match opened {
             Opened::Ready {} => Ok((tx, rx)),
-            Opened::Refused { reason } => bail!("the node refused {protocol}: {reason}"),
-            other => bail!("the node answered {other:?}"),
+            Opened::Refused { reason } => Err(Opening::Refused(anyhow::anyhow!(
+                "the node refused {protocol}: {reason}"
+            ))),
+            other => Err(Opening::Refused(anyhow::anyhow!(
+                "the node answered {other:?}"
+            ))),
+        }
+    }
+}
+
+/// Why a stream did not open.
+enum Opening {
+    /// The link failed before the node took the stream; nothing was sent
+    /// on it.
+    Link(anyhow::Error),
+    /// The node does not serve the protocol, or said no.
+    Refused(anyhow::Error),
+}
+
+/// A try of a sessions request that failed, and how.
+struct Failed {
+    kind: Failure,
+    error: anyhow::Error,
+}
+
+impl Failed {
+    fn new(kind: Failure, error: anyhow::Error) -> Self {
+        Self { kind, error }
+    }
+}
+
+/// How a sessions request failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Failure {
+    /// The request never reached the node: the stream did not open or the
+    /// request could not be written.
+    Unsent,
+    /// The connection closed after the request went out; the node may
+    /// have acted on it.
+    Dropped,
+    /// No answer in time on a connection still open.
+    Silent,
+    /// The node answered, refused or closed the stream itself.
+    Answered,
+}
+
+/// Whether a failed request goes again on the node's next connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    No,
+    /// Only on a newer connection the node has made already.
+    IfReplaced,
+    /// On the node's next connection, waiting for it up to
+    /// `RECONNECT_WAIT`.
+    AfterReconnect,
+}
+
+impl Failure {
+    /// A request the node never got may always go again; a read lost with
+    /// its link may too. A read on a live link that went unanswered goes
+    /// again only when the node has reconnected meanwhile: on the same
+    /// link it would likely hang again.
+    fn retry(self, read: bool) -> Retry {
+        match self {
+            Self::Unsent => Retry::AfterReconnect,
+            Self::Dropped if read => Retry::AfterReconnect,
+            Self::Silent if read => Retry::IfReplaced,
+            Self::Dropped | Self::Silent | Self::Answered => Retry::No,
         }
     }
 }
@@ -842,6 +997,19 @@ mod tests {
         });
         assert_eq!(wait.await.info.turns, 1);
         assert_eq!(link.waiting.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn reads_go_again_after_a_reconnect_and_writes_only_when_unsent() {
+        use {Failure::*, Retry::*};
+        assert_eq!(Unsent.retry(true), AfterReconnect);
+        assert_eq!(Unsent.retry(false), AfterReconnect);
+        assert_eq!(Dropped.retry(true), AfterReconnect);
+        assert_eq!(Dropped.retry(false), No);
+        assert_eq!(Silent.retry(true), IfReplaced);
+        assert_eq!(Silent.retry(false), No);
+        assert_eq!(Answered.retry(true), No);
+        assert_eq!(Answered.retry(false), No);
     }
 
     #[test]

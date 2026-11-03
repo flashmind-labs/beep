@@ -478,7 +478,6 @@ export function makeRuns(deps: RunDeps) {
     head.addEventListener("click", () => toggle(id, r));
     head.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(id, r); } });
     const el = h("div", `pj-runrow ${chip.cls || "idle"}${opened ? " open" : ""}`, head);
-    el.title = r.title;
     if (opened) el.append(detailEl(s));
     return el;
   }
