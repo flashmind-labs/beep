@@ -28,7 +28,8 @@ pub const SHOWN: usize = 8;
 /// The longest label, in characters, so the menu keeps its width.
 const LABEL_MAX: usize = 60;
 /// How often the list is fetched when nothing says it changed. Agent
-/// questions come with no notice.
+/// questions from older nodes and from sessions started outside Beep come
+/// with no notice.
 const EVERY: Duration = Duration::from_secs(30);
 /// The least time between two fetches, so a burst of notices makes one.
 const GAP: Duration = Duration::from_secs(2);

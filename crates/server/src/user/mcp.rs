@@ -78,6 +78,7 @@ impl User {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         };
         // Nobody listening just means the phone is offline; Apps still shows it.
         let _ = self.notifications.send(notice);
@@ -514,6 +515,7 @@ impl User {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         };
         // Nobody listening just means the phone is offline.
         let _ = self.notifications.send(notice);

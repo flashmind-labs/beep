@@ -15,26 +15,26 @@ use beep_server::{
     app::{App, ServerTools},
     client::{Client, Node},
     models::ModelChoices,
-    nodes::{self, Online, StartOn},
+    nodes::{self, Follower, Online, StartOn},
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
-        AgentModels, AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, CustomAgent,
-        CustomAgentHarness, CustomAgentScope, DeviceKind, GetAgentFile, GetAgentImage,
-        GetAgentSession, GetNodeToken, GetSpendReport, GetUsage, GetUsageReport, GitChange,
-        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
-        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource,
-        PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken,
-        SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload, WorkEntry, WorkFolder,
-        WriteWorkFile, image_key,
+        AgentModels, AgentNoticeKey, AgentStatus, AgentSteer, AgentTokens, ApiError,
+        CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind,
+        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
+        GetUsageReport, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
+        ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability,
+        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
+        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
+        WorkEntry, WorkFolder, WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
             agent::{
-                AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event, ExternalSession,
-                ModelList, ModelOption, ModelPick, OptionKind, Presence, Question, Request,
-                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
-                StopReason,
+                Alert, AlertKind, AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event,
+                ExternalSession, ModelList, ModelOption, ModelPick, OptionKind, Presence, Question,
+                Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State,
+                Status, StopReason,
             },
             usage::{
                 Billing, HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage,
@@ -56,7 +56,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::mpsc,
+    sync::{Notify, mpsc},
     time::{sleep, timeout},
 };
 
@@ -1080,6 +1080,68 @@ async fn machine_details_of_a_user_without_machines_are_empty() {
     router.shutdown().await.unwrap();
 }
 
+#[tokio::test]
+async fn a_session_that_asks_or_finishes_notifies_unless_a_chat_hears_of_it() {
+    let mut center = CommandCenter::new(1).await;
+    let mut notices = center.app.notifications.subscribe();
+    let alert = |session: &str, kind: AlertKind| Alert {
+        session: session.into(),
+        agent: "claude".into(),
+        title: Some("Fix the login test".into()),
+        cwd: "/srv/project".into(),
+        kind,
+    };
+    let finished = AlertKind::TurnEnded {
+        stop_reason: StopReason::EndTurn,
+        last_message: "All tests pass.".into(),
+        error: None,
+    };
+    let fake = FakeAgents {
+        alerts: Some(vec![
+            alert("owned1", finished.clone()),
+            alert("a3f9c1", finished),
+        ]),
+        ..FakeAgents::default()
+    };
+    let go = fake.alerts_go.clone();
+    let machine = center.node(0, "build-box", fake).await;
+    // A session a chat started reports to that chat instead.
+    let online = online(&center.app, &machine).await;
+    online.report_to(
+        "owned1",
+        Follower {
+            user: center.users[0].clone(),
+            chat: uuid::Uuid::new_v4(),
+            node: "build-box".into(),
+            agent: "claude".into(),
+        },
+    );
+    go.notify_one();
+    let sent = timeout(Duration::from_secs(20), async {
+        loop {
+            let sent = notices.recv().await.expect("the notices go on");
+            if !sent.notice.title.is_empty() {
+                return sent;
+            }
+        }
+    })
+    .await
+    .expect("a notice arrives");
+    assert_eq!(sent.user, center.users[0].id());
+    assert_eq!(sent.notice.title, "Claude Code on build-box finished");
+    assert_eq!(sent.notice.body, "Fix the login test: All tests pass.");
+    assert_eq!(sent.notice.session_id, "");
+    let key: AgentNoticeKey = sent
+        .desktop
+        .expect("computers get the session")
+        .session_id
+        .parse()
+        .unwrap();
+    assert_eq!(key.session, "a3f9c1", "the chat's session told nobody");
+    assert_eq!(key.machine_id, machine);
+    center.shutdown().await;
+}
+
 /// What a fake node's `agents/1` and `claude/1` answer.
 #[derive(Clone, Default)]
 struct FakeAgents {
@@ -1105,6 +1167,10 @@ struct FakeAgents {
     /// What `FollowUsage` sends before it holds the stream; `None` closes
     /// it, as a node from before it does.
     usage: Option<Vec<SessionsReply>>,
+    /// What `FollowAlerts` sends once `alerts_go` is notified, before it
+    /// holds the stream; `None` closes it, as a node from before it does.
+    alerts: Option<Vec<Alert>>,
+    alerts_go: Arc<Notify>,
 }
 
 impl FakeAgents {
@@ -1145,6 +1211,20 @@ impl Protocol for FakeSessions {
                         session: session.clone(),
                         mime: "image/png".into(),
                         data: data.clone(),
+                    })
+                    .await?;
+                }
+                while rx.recv::<SessionsRequest>().await?.is_some() {}
+                return Ok(());
+            }
+            if matches!(request, SessionsRequest::FollowAlerts {}) {
+                let Some(alerts) = &fake.alerts else {
+                    return Ok(());
+                };
+                fake.alerts_go.notified().await;
+                for alert in alerts {
+                    tx.send(&SessionsReply::Alert {
+                        alert: alert.clone(),
                     })
                     .await?;
                 }

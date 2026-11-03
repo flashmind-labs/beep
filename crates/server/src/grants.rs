@@ -751,6 +751,7 @@ impl RoutineGrants {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         });
     }
 

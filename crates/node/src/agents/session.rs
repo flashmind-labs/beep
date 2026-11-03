@@ -5,6 +5,7 @@
 use super::{
     AgentKind,
     acp::{self, Line, LineReader, ModelSwitch, Offered, Prompt, ResumeMethod},
+    alerts::AlertHub,
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     image_files,
     images::{Images, Picture},
@@ -28,7 +29,8 @@ use agent_client_protocol::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::agent::{
-    AnswerOption, Effort, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
+    Alert, AlertKind, AnswerOption, Effort, EntryKind, OptionKind, Question, SessionInfo, State,
+    Status, StopReason,
 };
 use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
 use beep_proto::{AgentAccount, ModelId};
@@ -113,6 +115,8 @@ pub(super) struct Start<'a> {
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
     pub(super) usage: Arc<UsageHub>,
+    /// Where what the user would want to hear about goes.
+    pub(super) alerts: Arc<AlertHub>,
 }
 
 impl Session {
@@ -129,6 +133,7 @@ impl Session {
             brief,
             images,
             usage,
+            alerts,
         } = start;
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
@@ -184,6 +189,8 @@ impl Session {
         let (orders, orders_rx) = mpsc::channel(ORDERS);
         let actor = Actor {
             live: live_tx,
+            alerts,
+            session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
@@ -292,6 +299,9 @@ struct Asked {
 
 struct Actor {
     live: watch::Sender<Live>,
+    alerts: Arc<AlertHub>,
+    /// The session's id on the node.
+    session: String,
     /// The agent, such as `claude`.
     agent: String,
     cwd: PathBuf,
@@ -370,6 +380,11 @@ impl Actor {
         self.asked.clear();
         child.stop(STOP_GRACE).await;
         drop(held);
+        if !closed {
+            self.alert(AlertKind::Failed {
+                reason: reason.clone(),
+            });
+        }
         self.live.send_modify(|live| {
             // A cost the agent reported after its last turn still counts.
             live.spent(TurnTokens::default());
@@ -945,6 +960,12 @@ impl Actor {
     /// Shows the first waiting question, or none, in the state.
     fn show_question(&mut self) {
         let question = self.asked.front().map(|asked| asked.question.clone());
+        let shown = self.live.borrow().info.question.as_ref().map(|q| q.id);
+        if let Some(asks) = question.as_ref().filter(|q| Some(q.id) != shown) {
+            self.alert(AlertKind::Asks {
+                question: asks.clone(),
+            });
+        }
         self.live.send_if_modified(|live| {
             let status = match (&question, live.status()) {
                 (Some(_), _) => Status::Asking,
@@ -956,6 +977,20 @@ impl Actor {
             live.info.state.status = status;
             changed
         });
+    }
+
+    /// Has `kind` wait for the server, about this session as it stands.
+    fn alert(&self, kind: AlertKind) {
+        let live = self.live.borrow();
+        let alert = Alert {
+            session: self.session.clone(),
+            agent: self.agent.clone(),
+            title: live.info.title.clone(),
+            cwd: live.info.cwd.clone(),
+            kind,
+        };
+        drop(live);
+        self.alerts.record(alert);
     }
 
     fn show_queued(&mut self) {
@@ -974,6 +1009,15 @@ impl Actor {
             if let Err(e) = asked.responder.respond(acp::cancelled()) {
                 log::debug!("an open question was not cancelled: {e}");
             }
+        }
+        // Prompts queued behind the turn run first: one alert for the lot.
+        if self.queued.is_empty() {
+            let last_message = self.live.borrow().info.last_message.clone();
+            self.alert(AlertKind::TurnEnded {
+                stop_reason: stop,
+                last_message,
+                error: error.clone(),
+            });
         }
         let mut files = None;
         self.live.send_modify(|live| {
@@ -1315,6 +1359,7 @@ cat > /dev/null
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1384,6 +1429,7 @@ cat > /dev/null
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1429,6 +1475,7 @@ cat > /dev/null
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1459,6 +1506,7 @@ cat > /dev/null
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1507,6 +1555,7 @@ read -r line; log "$1"
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -1559,6 +1608,7 @@ cat > /dev/null
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -1596,6 +1646,7 @@ read -r line
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap()
     }
@@ -1741,6 +1792,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -1882,6 +1934,7 @@ cat > /dev/null
             brief: None,
             images: Arc::default(),
             usage: Arc::default(),
+            alerts: Arc::default(),
         }
     }
 
@@ -2251,6 +2304,107 @@ cat > /dev/null
         until(&session, |live| live.status() == Status::Ended).await;
         let seen = std::fs::read_to_string(log.with_extension("env")).unwrap();
         seen.trim().to_owned()
+    }
+
+    /// An adapter that puts a choice to the user on its first prompt,
+    /// then ends that turn and the next one.
+    const TWO_TURN_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+say() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\n' "$1"; }
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"},{"optionId":"choice-1","name":"other.txt","kind":"allow_once"}]}}'
+read -r line; log "$1"
+say "First."
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r line; log "$1"
+say "Both done."
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
+        let dir = temp("alerts");
+        let log = dir.join("sent.jsonl");
+        let kind = script("pi", TWO_TURN_ADAPTER, &log);
+        let alerts = Arc::new(AlertHub::default());
+        let session = Session::start(Start {
+            alerts: alerts.clone(),
+            ..start_on(&kind, &dir, None)
+        })
+        .unwrap();
+        settle(&session).await;
+        let question = session.info().question.expect("a question");
+        let asked = alerts.drain();
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(asked[0].session, "c0ffee");
+        assert_eq!(asked[0].agent, "pi");
+        assert_eq!(
+            asked[0].kind,
+            AlertKind::Asks {
+                question: question.clone()
+            }
+        );
+        // Queued behind the asking turn, it runs before anyone hears of it.
+        session
+            .order(Command::Prompt(Prompt::from("next".to_owned())))
+            .await
+            .unwrap();
+        session
+            .order(Command::Answer {
+                question: question.id,
+                reply: "choice-0".into(),
+            })
+            .await
+            .unwrap();
+        until(&session, |live| {
+            live.info.turns >= 2 || live.status() == Status::Ended
+        })
+        .await;
+        assert_eq!(session.info().turns, 2, "{:?}", session.info().state.error);
+        assert_eq!(
+            alerts.drain(),
+            [Alert {
+                session: "c0ffee".into(),
+                agent: "pi".into(),
+                title: None,
+                cwd: dir.display().to_string(),
+                kind: AlertKind::TurnEnded {
+                    stop_reason: StopReason::EndTurn,
+                    last_message: "Both done.".into(),
+                    error: None,
+                },
+            }]
+        );
+        session.close().await;
+        assert_eq!(alerts.drain(), [], "closing it is no news");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_agent_that_fails_alerts_once() {
+        let dir = temp("alerts-failed");
+        let kind = script("codex", ENV_ADAPTER, &dir.join("sent"));
+        let alerts = Arc::new(AlertHub::default());
+        let session = Session::start(Start {
+            alerts: alerts.clone(),
+            ..start_on(&kind, &dir, None)
+        })
+        .unwrap();
+        until(&session, |live| live.status() == Status::Ended).await;
+        let failed = alerts.drain();
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(
+            matches!(&failed[0].kind, AlertKind::Failed { reason } if reason.contains("did not start")),
+            "{failed:?}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(unix)]
