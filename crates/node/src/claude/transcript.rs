@@ -9,7 +9,7 @@ use crate::agents::{Picture, block_picture, cut};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{self, Read, Seek, SeekFrom},
     path::Path,
@@ -48,6 +48,8 @@ pub(super) struct Digest {
     tools: HashMap<String, usize>,
     /// The subagents tool calls started, by the call's id.
     pub(super) spawns: HashMap<String, Spawn>,
+    /// The ids of `Artifact` calls, whose entry gains the page's link.
+    artifacts: HashSet<String>,
     /// Turns that ended in this stretch.
     pub(super) turns_ended: u32,
     /// The pictures the user's prompts held, each shown as its image line,
@@ -72,6 +74,12 @@ pub(super) struct Spawn {
 
 /// The tools that start a subagent.
 const SPAWN_TOOLS: [&str; 2] = ["Agent", "Task"];
+
+/// Claude Code's tool that publishes a page or document as an artifact.
+const ARTIFACT_TOOL: &str = "Artifact";
+
+/// Where a published artifact's link starts.
+const ARTIFACT_LINK: &str = "https://claude.ai/";
 
 impl Digest {
     /// Reads every complete line of `text`.
@@ -160,6 +168,8 @@ impl Digest {
                     let id = block["tool_use_id"].as_str().unwrap_or("");
                     if block["is_error"].as_bool() == Some(true) {
                         self.tool_failed(id);
+                    } else if self.artifacts.remove(id) {
+                        self.artifact_published(id, &block["content"]);
                     }
                     if let Some(spawn) = self.spawns.get_mut(id)
                         && let Some(agent_id) = value["toolUseResult"]["agentId"].as_str()
@@ -230,6 +240,9 @@ impl Digest {
                         continue;
                     };
                     self.tools.insert(id.to_owned(), entry);
+                    if block["name"].as_str() == Some(ARTIFACT_TOOL) {
+                        self.artifacts.insert(id.to_owned());
+                    }
                     if block["name"]
                         .as_str()
                         .is_some_and(|name| SPAWN_TOOLS.contains(&name))
@@ -261,6 +274,31 @@ impl Digest {
             .and_then(|&index| self.entries.get_mut(index))
         {
             entry.text.push_str(" (failed)");
+        }
+    }
+
+    /// Writes the link an `Artifact` call's result gives after its entry,
+    /// as a live session writes a finished call: `Artifact: <path>
+    /// [completed]`, then the link.
+    fn artifact_published(&mut self, id: &str, content: &Value) {
+        let text = match content {
+            Value::String(text) => text.clone(),
+            Value::Array(blocks) => blocks
+                .iter()
+                .filter_map(|block| block["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => return,
+        };
+        let Some(link) = artifact_link(&text) else {
+            return;
+        };
+        if let Some(entry) = self
+            .tools
+            .get(id)
+            .and_then(|&index| self.entries.get_mut(index))
+        {
+            entry.text = format!("{} [completed]\n{link}", entry.text);
         }
     }
 
@@ -329,6 +367,17 @@ fn prompt_text(text: &str) -> Option<String> {
         return None;
     }
     Some(text.to_owned())
+}
+
+/// The first claude.ai artifact link in `text`.
+fn artifact_link(text: &str) -> Option<&str> {
+    let start = text.find(ARTIFACT_LINK)?;
+    let rest = &text[start..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | '<' | '>' | ']' | '`'))
+        .unwrap_or(rest.len());
+    let link = rest[..end].trim_end_matches(['.', ',', ';']);
+    link.contains("/artifact/").then_some(link)
 }
 
 /// A tool call as one line, such as `Bash: cargo test`.
@@ -627,5 +676,28 @@ pub(super) mod tests {
             digest.entries[0].text
         );
         assert_eq!(digest.pictures.unwrap()[0].data, png);
+    }
+
+    #[test]
+    fn an_artifact_call_shows_the_link_its_result_gave() {
+        let used = serde_json::json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "a1", "name": "Artifact", "input": {"file_path": "/srv/project/report.html"}},
+            {"type": "tool_use", "id": "a2", "name": "Artifact", "input": {"file_path": "/srv/project/broken.html"}}
+        ]}});
+        let result = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "a1", "content": [
+                {"type": "text", "text": "Published to https://claude.ai/code/artifact/0000-placeholder."}
+            ]},
+            {"type": "tool_result", "tool_use_id": "a2", "is_error": true, "content": "could not publish"}
+        ]}});
+        let digest = Digest::read(&format!("{used}\n{result}\n"));
+        let texts: Vec<&str> = digest.entries.iter().map(|e| e.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Artifact: /srv/project/report.html [completed]\nhttps://claude.ai/code/artifact/0000-placeholder",
+                "Artifact: /srv/project/broken.html (failed)",
+            ]
+        );
     }
 }
