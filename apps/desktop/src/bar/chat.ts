@@ -215,12 +215,17 @@ export function markMap() {
 }
 
 export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) {
+  const turn = makeTurn(question, images, files);
+  body()!.append(turn);
+  return turn;
+}
+/// A turn for `question`, not yet in any chat.
+export function makeTurn(question: string, images?: PicRef[], files?: AskFile[]) {
   const turn = h<Turn>(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
   fillPics(turn);
   if (files?.length) turn.append(askFiles(files));
   turn.steps = [];
   turn.folded = true;
-  body()!.append(turn);
   return turn;
 }
 
