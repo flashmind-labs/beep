@@ -347,6 +347,16 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-issue .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; align-items: center }
 .pj-task + .pj-task { border-top: 1px solid var(--border) }
+/* Issue and PR rows: title and one line of facts, their buttons at the
+   right once the row is pointed at or focused. */
+.pj-task.pj-hv { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px 12px; padding: 12px 14px }
+.pj-task.pj-hv > .t { grid-column: 1; grid-row: 1; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pj-task.pj-hv > .m { grid-column: 1; grid-row: 2; flex-wrap: nowrap; white-space: nowrap; overflow: hidden }
+.pj-task.pj-hv > .pj-st { grid-column: 2; grid-row: 1 / span 2 }
+.pj-task.pj-hv > .acts { grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; opacity: 0; transition: opacity .12s }
+.pj-task.pj-hv:hover > .acts, .pj-task.pj-hv:focus-within > .acts, .pj-task.pj-hv > .acts:has(.cc-err, :disabled) { opacity: 1 }
+.pj-task.pj-hv:hover { background: rgba(255,255,255,.025) }
+@media (hover: none) { .pj-task.pj-hv > .acts { opacity: 1 } }
 .pj-task .t { font-size: 13px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .pj-task .m { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--muted); min-width: 0 }
 .pj-task .m:empty { display: none }
@@ -758,13 +768,32 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 /* A workflow run in two lines at half width: title and chip, then the meta on one line (the
    branch shortens most) beside Details and Open. Below 420px the meta and buttons take a line each. */
 .pj-runbox { container-type: inline-size }
-.pj-task.pj-runrow .m { grid-column: 1; flex-wrap: nowrap; white-space: nowrap; overflow: hidden }
-.pj-task.pj-runrow .m > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }
-.pj-task.pj-runrow .m > span:first-child { flex: 0 0 auto; max-width: 40% }
-.pj-task.pj-runrow > .pj-st { justify-self: end }
-.pj-task.pj-runrow > .acts { grid-column: 2; flex-wrap: nowrap; justify-content: flex-end }
-@container (max-width: 520px) { .pj-task.pj-runrow .m > .ev { display: none } }
-@container (max-width: 420px) { .pj-task.pj-runrow .m, .pj-task.pj-runrow > .acts { grid-column: 1 / -1 } }
+.pj-runrow { border-bottom: 1px solid var(--border) }
+.pj-runrow:last-child { border-bottom: 0 }
+.pj-runrow .rr-head { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto 14px; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; border-radius: 8px }
+.pj-runrow .rr-head:hover, .pj-runrow.open .rr-head { background: rgba(255,255,255,.03) }
+.pj-runrow .rr-head:focus-visible { outline: 1px solid var(--accent, #4fbf8a); outline-offset: -1px }
+.rr-st { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.05) }
+.rr-st.done { color: #4fbf8a; background: rgba(79,191,138,.12) }
+.rr-st.blocked { color: #e5826f; background: rgba(229,130,111,.13) }
+.rr-st.running { color: #4fbf8a }
+.rr-st .dspin { width: 11px; height: 11px }
+.rr-body { min-width: 0; display: grid; gap: 4px }
+.rr-t { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 13.5px }
+.rr-t b { flex: none; font-weight: 600; color: #9fc3ff }
+.rr-t > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.rr-m { display: flex; gap: 10px; min-width: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden }
+.rr-m > * { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.rr-m code.br { flex: 0 1 auto; max-width: 45%; font-size: 11.5px }
+.rr-side { display: grid; justify-items: end; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap }
+.rr-side .rr-took { font-size: 11.5px; opacity: .75; font-variant-numeric: tabular-nums }
+.pj-runrow.blocked .rr-when { color: #e5826f }
+.rr-acts { opacity: 0; transition: opacity .12s }
+.pj-runrow .rr-head:hover .rr-acts, .pj-runrow .rr-head:focus-within .rr-acts { opacity: 1 }
+.rr-chev { width: 7px; height: 7px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform .15s }
+.rr-chev.on { transform: rotate(45deg) }
+.pj-runrow .pj-run { margin: 0 14px 12px 46px }
+@container (max-width: 520px) { .rr-m .ev { display: none } .rr-acts { display: none } }
 .pj-chk { color: var(--muted) }
 .pj-chk.run { color: var(--emerald); display: inline-flex; gap: 5px; align-items: center }
 .pj-chk.bad, .pj-task .m a.pj-chk.bad { color: #E9B949 }

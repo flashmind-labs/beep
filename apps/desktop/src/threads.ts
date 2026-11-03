@@ -644,7 +644,7 @@ export function makeThreads(deps: ThreadDeps) {
       buttons.push(cont);
       if (l.branch && ctx.review) buttons.push(button("Review", "", () => ctx.review!(l.branch!)));
       buttons.push(button("Open", "", () => openUrl(l.pr.url)));
-      const row = h("div", "pj-task pj-issue", h("span", "t", link(`PR #${n}`, l.pr.url), ` ${l.pr.title}`),
+      const row = h("div", "pj-task pj-issue pj-hv", h("span", "t", link(`PR #${n}`, l.pr.url), ` ${l.pr.title}`),
         chip ? stateChip(chip.cls, chip.text, chip.cls === "running") : null,
         meta, actsEl(s, [`r${n}`, `c${n}`], buttons));
       row.title = l.pr.title;
@@ -687,7 +687,7 @@ export function makeThreads(deps: ThreadDeps) {
       for (const b of buttons) b.disabled = busy;
       buttons[0].title = "Start a coding agent on a new branch for this issue";
       const meta = h("span", "m", issueMeta({ ...i, labels: [] }, ago), ...(i.labels || []).map(labelChip));
-      return h("div", "pj-task pj-issue", h("span", "t", code, ` ${i.title}`), meta, actsEl(s, [`i${n}`, `d${n}`], buttons));
+      return h("div", "pj-task pj-issue pj-hv", h("span", "t", code, ` ${i.title}`), meta, actsEl(s, [`i${n}`, `d${n}`], buttons));
     };
     // A label on a row or in the bar narrows the list to it; again widens.
     const toggle = (label: string) => {
