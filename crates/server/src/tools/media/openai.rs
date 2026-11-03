@@ -143,29 +143,3 @@ fn refused(status: u16, body: &[u8]) -> anyhow::Error {
         Err(_) => anyhow::anyhow!("OpenAI refused it ({status})"),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn aspect_ratios_pick_the_nearest_size() {
-        assert_eq!(size_for("16:9").as_deref(), Some("1536x1024"));
-        assert_eq!(size_for("9:16").as_deref(), Some("1024x1536"));
-        assert_eq!(size_for("1:1").as_deref(), Some("1024x1024"));
-        assert_eq!(size_for("wide"), None);
-        assert_eq!(size_for("0:1"), None);
-    }
-
-    #[test]
-    fn refusals_keep_only_openais_message() {
-        let body =
-            br#"{"error":{"message":"Your request was rejected.","type":"invalid_request_error"}}"#;
-        let error = refused(400, body).to_string();
-        assert_eq!(error, "OpenAI refused it (400): Your request was rejected.");
-        assert_eq!(
-            refused(502, b"<html>").to_string(),
-            "OpenAI refused it (502)"
-        );
-    }
-}

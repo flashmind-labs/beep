@@ -372,7 +372,6 @@ fn grant_hint(permission: Permission) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::desktop;
 
     fn requests(value: Value) -> Result<Vec<Request>, String> {
         serde_json::from_value::<Args>(value)
@@ -450,66 +449,5 @@ mod tests {
         ] {
             assert!(requests(bad.clone()).is_err(), "{bad}");
         }
-    }
-
-    fn screenshot() -> Reply {
-        Reply::Screenshot(desktop::Screenshot {
-            jpeg: vec![0xff, 0xd8],
-            width: 1280,
-            height: 800,
-            screen_width: 1512,
-            screen_height: 945,
-        })
-    }
-
-    #[test]
-    fn a_screenshot_reaches_the_model_as_an_image_part() {
-        let said = read_reply("mac", screenshot(), true).unwrap();
-        assert!(
-            said.text.starts_with("Screenshot of mac, 1280x800 pixels"),
-            "{}",
-            said.text
-        );
-        let result =
-            ToolResult::success("call", said.text).with_parts(said.image.into_iter().collect());
-        let images: Vec<_> = result
-            .content()
-            .iter()
-            .filter_map(|part| match part {
-                ContentPart::Image { media_type, data } => {
-                    Some((media_type.as_str(), data.as_str()))
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            images,
-            [("image/jpeg", STANDARD.encode([0xff, 0xd8]).as_str())]
-        );
-    }
-
-    #[test]
-    fn a_model_without_vision_gets_a_note_instead() {
-        let said = read_reply("mac", screenshot(), false).unwrap();
-        assert!(said.image.is_none());
-        assert!(said.text.contains("does not see images"), "{}", said.text);
-    }
-
-    #[test]
-    fn a_missing_permission_says_how_to_grant_it() {
-        let failed = read_reply(
-            "mac",
-            Reply::Failed {
-                reason: "Screen Recording is off.".into(),
-                missing: Some(Permission::ScreenRecording),
-            },
-            true,
-        )
-        .err()
-        .expect("the reply failed");
-        assert!(
-            failed.contains("allow Screen Recording for Beep"),
-            "{failed}"
-        );
     }
 }

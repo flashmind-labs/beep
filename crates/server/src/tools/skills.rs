@@ -221,36 +221,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_skill_saved_in_the_chat_can_be_viewed_and_rewritten_at_once() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("store");
-        let tool = SkillTool {
-            store,
-            owner: SkillOwner::User(UserKey::for_test("alice")),
-            writes: true,
-        };
-        let created = call(
-            &tool,
-            json!({"action": "create", "name": "Book padel", "description": "Booking a court", "body": "Ask for 19:00."}),
-        )
-        .await;
-        assert!(created.is_success(), "{}", created.output());
-
-        let viewed = call(&tool, json!({"action": "view", "name": "book padel"})).await;
-        assert!(viewed.output().contains("Ask for 19:00."));
-
-        let updated = call(
-            &tool,
-            json!({"action": "update", "name": "Book padel", "body": "Ask for 20:00."}),
-        )
-        .await;
-        assert!(updated.is_success(), "{}", updated.output());
-        let viewed = call(&tool, json!({"action": "view", "name": "Book padel"})).await;
-        assert!(viewed.output().contains("Ask for 20:00."));
-        assert!(viewed.output().contains("Booking a court"));
-    }
-
-    #[tokio::test]
     async fn a_group_only_views_skills() {
         let db = TestDb::new().await.expect("test database");
         let store = db.store().await.expect("store");

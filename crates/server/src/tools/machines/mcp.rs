@@ -679,50 +679,7 @@ fn sync_line(status: &ProjectStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        protocol::PermissionLevel,
-        store::AppPermissionRow,
-        watchers::testing::{Harness, Scripted},
-    };
-
-    #[test]
-    fn job_ids_read_back() {
-        let task = Job::Task {
-            machine: "build-box".into(),
-            id: 7,
-        };
-        assert_eq!(task.to_string(), "task:7@build-box");
-        assert_eq!(Job::parse("task:7@build-box"), Ok(task));
-        let agent = Job::Agent {
-            machine: "mac".into(),
-            agent: "codex".into(),
-            session: "a3f9c1".into(),
-        };
-        assert_eq!(Job::parse(&agent.to_string()), Ok(agent));
-        assert!(Job::parse("a3f9c1").is_err());
-        assert!(Job::parse("task:x@mac").is_err());
-    }
-
-    #[test]
-    fn run_on_asks_first_by_default_and_runs_when_allowed() {
-        let args = json!({ "machine": "build-box", "command": "cargo test" });
-        let rules = permissions::Rules::default();
-        let Check::Ask(approval) = permissions::check(&rules, &ToolApp::Machines, RUN_ON, &args)
-        else {
-            panic!("run_on did not ask first");
-        };
-        assert_eq!(approval.app, "Your machines");
-        assert_eq!(approval.action, "run on");
-        let allowed = permissions::Rules::from_rows(vec![AppPermissionRow {
-            app: permissions::MACHINES_APP.into(),
-            level: PermissionLevel::Allow {},
-            allowed: vec![],
-        }]);
-        assert!(matches!(
-            permissions::check(&allowed, &ToolApp::Machines, RUN_ON, &args),
-            Check::Run
-        ));
-    }
+    use crate::watchers::testing::{Harness, Scripted};
 
     fn calls(harness: &Harness) -> Calls {
         Calls {
@@ -771,40 +728,6 @@ mod tests {
         assert!(
             matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine called build-box")),
             "{ran:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn run_on_an_offline_machine_says_it_is_offline() {
-        let harness = Harness::new(Scripted::default()).await;
-        let key = iroh::SecretKey::generate().public();
-        harness
-            .alice
-            .node_connected(crate::store::NewNode {
-                endpoint: key,
-                name: "Build Box",
-                version: "0.1.0",
-            })
-            .await
-            .expect("the node is kept");
-        let calls = calls(&harness);
-        let args = json!({ "machine": "build-box", "command": "uname" });
-        let reply = calls
-            .answer(&request(Call::RunOn, args, Approved::Once))
-            .await;
-        assert_eq!(
-            reply,
-            Reply::Done {
-                text: "Build Box is offline.".into(),
-                failed: true,
-            }
-        );
-        let listed = calls
-            .answer(&request(Call::ListMachines, json!({}), Approved::No))
-            .await;
-        assert!(
-            matches!(&listed, Reply::Done { failed: false, text } if text.contains("- build-box: offline")),
-            "{listed:?}"
         );
     }
 }

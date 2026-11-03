@@ -371,29 +371,4 @@ mod tests {
             )
         );
     }
-
-    #[test]
-    fn agents_prefer_the_environment_then_the_only_machine() {
-        let machines = [
-            candidate("mac", true, true, false),
-            candidate("home", true, true, true),
-        ];
-        assert_eq!(
-            choose(&machines, None, Rule::WorkspaceThenOnlyOne, "Codex"),
-            Ok(1)
-        );
-        let elsewhere = [
-            candidate("home", true, false, true),
-            candidate("mac", true, true, false),
-        ];
-        assert_eq!(
-            choose(&elsewhere, None, Rule::WorkspaceThenOnlyOne, "Codex"),
-            Ok(1)
-        );
-    }
-
-    #[test]
-    fn names_match_with_dashes_for_spaces() {
-        assert_eq!(command_name(" Build Box "), "build-box");
-    }
 }

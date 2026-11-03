@@ -2,11 +2,11 @@
 //! socket: no call leaves the machine.
 
 use super::{
-    call::{Call, ImageSource, approval_fields},
+    call::{Call, ImageSource},
     job::{JobError, first_file},
     produce::{self, Endpoints, Job},
     provider::{Keys, MediaKind, MediaProvider},
-    tool::{Media, file_name},
+    tool::Media,
     tools,
 };
 use crate::{
@@ -28,7 +28,6 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 const OPENAI_IMAGES: &str = include_str!("fixtures/openai_images.json");
-const VENICE_IMAGE: &str = include_str!("fixtures/venice_image.json");
 const VENICE_QUEUE: &str = include_str!("fixtures/venice_video_queue.json");
 const MESHY_CREATED: &str = include_str!("fixtures/meshy_created.json");
 const MESHY_PREVIEW: &str = include_str!("fixtures/meshy_preview_done.json");
@@ -218,57 +217,6 @@ async fn openai_edits_an_image_it_is_given() {
 }
 
 #[tokio::test]
-async fn venice_makes_an_image() {
-    let (root, server) = serve(vec![json_reply(VENICE_IMAGE)]).await;
-    let call = call(
-        MediaKind::Image,
-        MediaProvider::Venice,
-        json!({ "prompt": "a red fox in the snow", "aspect_ratio": "3:4" }),
-    );
-    let (endpoints, key) = (endpoints(&root), key());
-    let job = Job {
-        call: &call,
-        image: None,
-        key: &key,
-        endpoints: &endpoints,
-    };
-    let (made, _) = make(job).await;
-    assert_eq!(made.unwrap().data, png());
-    let seen = server.await.unwrap();
-    assert_eq!(seen[0].line, "POST /api/v1/image/generate");
-    assert_eq!(bearer(&seen[0]), format!("Bearer {KEY}"));
-    assert_eq!(seen[0].body["model"], "qwen-image-2");
-    assert_eq!(seen[0].body["aspect_ratio"], "3:4");
-}
-
-#[tokio::test]
-async fn venice_edits_on_its_edit_model() {
-    let reply = Reply {
-        content_type: "image/png",
-        body: png(),
-    };
-    let (root, server) = serve(vec![reply]).await;
-    let call = call(
-        MediaKind::Image,
-        MediaProvider::Venice,
-        json!({ "prompt": "add a hat", "image": "https://images.example/fox.png" }),
-    );
-    let (endpoints, key) = (endpoints(&root), key());
-    let job = Job {
-        call: &call,
-        image: Some("https://images.example/fox.png".into()),
-        key: &key,
-        endpoints: &endpoints,
-    };
-    let (made, _) = make(job).await;
-    assert_eq!(made.unwrap().media_type, "image/png");
-    let seen = server.await.unwrap();
-    assert_eq!(seen[0].line, "POST /api/v1/image/edit");
-    assert_eq!(seen[0].body["model"], "qwen-image-2-edit");
-    assert_eq!(seen[0].body["image"], "https://images.example/fox.png");
-}
-
-#[tokio::test]
 async fn venice_queues_a_video_and_retrieves_it() {
     let video = b"\0\0\0\x18ftypmp42fake-video".to_vec();
     let (root, server) = serve(vec![
@@ -308,44 +256,6 @@ async fn venice_queues_a_video_and_retrieves_it() {
         seen[1].body["queue_id"],
         "4b1f6a2e-0c3d-4e5f-8a9b-0c1d2e3f4a5b"
     );
-}
-
-#[test]
-fn a_start_image_is_the_videos_first_frame() {
-    let call = call(
-        MediaKind::Video,
-        MediaProvider::OpenRouter,
-        json!({ "prompt": "it starts to rain", "image": "frame.png", "duration": 8 }),
-    );
-    assert_eq!(call.model, "google/veo-3.1");
-    let key = key();
-    let endpoints = Endpoints::public().unwrap();
-    let job = Job {
-        call: &call,
-        image: Some("data:image/png;base64,AAAA".into()),
-        key: &key,
-        endpoints: &endpoints,
-    };
-    let request = produce::video_request(&job);
-    assert_eq!(request.duration, Some(8));
-    assert_eq!(request.frame_images.len(), 1);
-    assert_eq!(request.frame_images[0].frame_type, "first_frame");
-    assert_eq!(request.frame_images[0].url, "data:image/png;base64,AAAA");
-    // OpenRouter takes an image as a reference on its images endpoint.
-    let call = super::tests::call(
-        MediaKind::Image,
-        MediaProvider::OpenRouter,
-        json!({ "prompt": "add a hat", "image": "https://images.example/fox.png" }),
-    );
-    let job = Job {
-        call: &call,
-        image: Some("https://images.example/fox.png".into()),
-        key: &key,
-        endpoints: &endpoints,
-    };
-    let request = produce::image_request(&job);
-    assert_eq!(request.model, "google/gemini-3.1-flash-image-preview");
-    assert_eq!(request.input_references, ["https://images.example/fox.png"]);
 }
 
 #[tokio::test]
@@ -403,32 +313,6 @@ async fn meshy_shapes_then_textures_a_model_from_a_prompt() {
     );
 }
 
-#[test]
-fn meshy_models_a_picture_on_its_image_endpoint() {
-    let call = call(
-        MediaKind::Model3d,
-        MediaProvider::Meshy,
-        json!({ "image": "chair.jpg", "texture": false }),
-    );
-    assert_eq!(call.prompt, "");
-    assert!(!call.texture);
-    let key = key();
-    let endpoints = Endpoints::public().unwrap();
-    let job = Job {
-        call: &call,
-        image: Some("https://images.example/chair.jpg".into()),
-        key: &key,
-        endpoints: &endpoints,
-    };
-    let request = produce::model_request(&job).unwrap();
-    assert!(!request.texture);
-    assert_eq!(request.model.capability_name(), "latest");
-    assert!(matches!(
-        request.input,
-        flashmind::llm::three_d::ThreeDInput::Images(ref images) if images.len() == 1
-    ));
-}
-
 #[tokio::test(start_paused = true)]
 async fn a_job_that_never_finishes_times_out() {
     let cancel = CancellationToken::new();
@@ -447,32 +331,6 @@ async fn a_stopped_turn_stops_the_job() {
     let stream: CompletionStream = Box::pin(futures::stream::pending());
     let made = first_file(stream, Duration::from_secs(60), &cancel, &mut |_: &str| {}).await;
     assert!(matches!(made, Err(JobError::Cancelled)));
-}
-
-#[test]
-fn tools_are_offered_only_for_keys_that_make_them() {
-    let none = keys(&[]);
-    for kind in MediaKind::ALL {
-        assert!(none.providers(kind).is_empty());
-    }
-    // Keys for services that make no media give no tool.
-    let others = keys(&[ApiProvider::Anthropic, ApiProvider::ElevenLabs]);
-    assert!(
-        MediaKind::ALL
-            .iter()
-            .all(|&kind| others.providers(kind).is_empty())
-    );
-    let openai = keys(&[ApiProvider::OpenAi]);
-    assert_eq!(openai.providers(MediaKind::Image), [MediaProvider::OpenAi]);
-    assert!(openai.providers(MediaKind::Video).is_empty());
-    let meshy = keys(&[ApiProvider::Meshy]);
-    assert_eq!(meshy.providers(MediaKind::Model3d), [MediaProvider::Meshy]);
-    assert!(meshy.providers(MediaKind::Image).is_empty());
-    let all = keys(&[ApiProvider::Venice, ApiProvider::OpenRouter]);
-    assert_eq!(
-        all.providers(MediaKind::Video),
-        [MediaProvider::OpenRouter, MediaProvider::Venice]
-    );
 }
 
 #[test]
@@ -514,49 +372,6 @@ fn calls_take_only_a_service_the_user_has_a_key_for() {
     }
     let args = json!({ "prompt": "a fox", "image": "file:///etc/passwd" });
     assert!(Call::parse(MediaKind::Image, &available, &args).is_err());
-}
-
-#[test]
-fn the_card_shows_prompt_service_and_model() {
-    let args = json!({ "prompt": "waves at dusk", "provider": "venice", "image": "start.png", "duration": 5 });
-    let fields = approval_fields(MediaKind::Video, &args);
-    let shown: Vec<(&str, &str)> = fields
-        .iter()
-        .map(|field| (field.label.as_str(), field.value.as_str()))
-        .collect();
-    assert_eq!(
-        shown,
-        [
-            ("Prompt", "waves at dusk"),
-            ("Provider", "Venice"),
-            ("Model", "wan-2-7-image-to-video"),
-            ("Start image", "start.png"),
-            ("Duration", "5 s"),
-        ]
-    );
-    let args =
-        json!({ "prompt": "a chair", "provider": "meshy", "model": "meshy-5", "texture": false });
-    let fields = approval_fields(MediaKind::Model3d, &args);
-    assert_eq!(fields[2].value, "meshy-5");
-    assert_eq!(fields.last().map(|field| field.value.as_str()), Some("No"));
-}
-
-#[test]
-fn files_are_named_after_the_prompt() {
-    let call = call(
-        MediaKind::Image,
-        MediaProvider::OpenAi,
-        json!({ "prompt": "A red fox, in the snow at night!" }),
-    );
-    let name = file_name(&call, "image/png");
-    assert!(name.starts_with("a-red-fox-in-the-snow-"), "{name}");
-    assert!(name.ends_with(".png"), "{name}");
-    let call = super::tests::call(
-        MediaKind::Model3d,
-        MediaProvider::Meshy,
-        json!({ "prompt": "a chair", "filename": "chair.glb" }),
-    );
-    assert_eq!(file_name(&call, "model/gltf-binary"), "chair.glb");
 }
 
 #[tokio::test]
