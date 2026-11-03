@@ -55,11 +55,7 @@ async fn fleet_of_worker(app: &Arc<App>, worker: WorkerId) -> Result<Option<Node
 }
 
 fn fleet_of(app: &Arc<App>, owner: &str) -> Option<NodeFleet> {
-    let user = app.user(owner)?;
-    Some(NodeFleet {
-        app: app.clone(),
-        user,
-    })
+    Some(NodeFleet::new(app, &app.user(owner)?))
 }
 
 /// Handles a report from `worker`'s session. `waited` says a tool call
@@ -527,10 +523,7 @@ pub(crate) async fn reconnected(
     user: &Arc<User>,
     machine: iroh::EndpointId,
 ) -> Result<()> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     reattach_all(&fleet, user, machine).await
 }
 

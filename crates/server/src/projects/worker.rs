@@ -134,10 +134,7 @@ pub(crate) async fn prepare(
     task: &TaskRow,
     request: &StartRequest,
 ) -> Result<Prepared, StartError> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let mut base = request
         .base
         .clone()
@@ -444,10 +441,7 @@ async fn relabel_running(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow,
     if task.issue_foreign {
         return;
     }
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let home = match fleet::home_shell(&fleet, user, project).await {
         Ok(home) => home,
         Err(why) => {
@@ -647,10 +641,7 @@ pub(crate) async fn stop_worker(
     user: &Arc<User>,
     worker: &WorkerRow,
 ) -> Result<()> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     stop_worker_on(&fleet, user, worker).await
 }
 

@@ -86,10 +86,7 @@ pub(super) async fn get_pull_request_head(
     req: GetPullRequestHead,
 ) -> Reply<PullRequestHead> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
-    let fleet = NodeFleet {
-        app: cx.app.clone(),
-        user: cx.user.clone(),
-    };
+    let fleet = NodeFleet::new(&cx.app, &cx.user);
     let head = issues::pull_request_head(&fleet, &cx.user, &project, req.number)
         .await
         .map_err(issue_refusal)?;
@@ -144,10 +141,7 @@ async fn project_issues(
     id: ProjectId,
 ) -> Reply<Vec<ProjectIssue>> {
     let project = project_of(user, id).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let open = issues::list_open(&fleet, user, &project)
         .await
         .map_err(issue_refusal)?;
@@ -175,10 +169,7 @@ async fn project_pull_requests(
     id: ProjectId,
 ) -> Reply<Vec<ProjectPullRequest>> {
     let project = project_of(user, id).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let open = issues::list_open_prs(&fleet, user, &project)
         .await
         .map_err(issue_refusal)?;
@@ -215,10 +206,7 @@ async fn track_issue(
 ) -> Reply<ProjectTask> {
     let project = project_of(user, id).await?;
     let work = start.map(issue_work).transpose()?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     let task = issues::track(&fleet, user, &project, number, work)
         .await
         .map_err(issue_refusal)?;
@@ -332,10 +320,7 @@ async fn update_task(
 ) -> Reply<ProjectTask> {
     let task = user.project_task(id).await?.ok_or(ApiError::NotFound {})?;
     let project = project_of(user, task.project).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     match to {
         TaskState::Dropped if task.state.is_open() => {
             let said = drop_task(&fleet, user, &project, &task).await?;
