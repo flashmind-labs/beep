@@ -4,8 +4,8 @@
 
 use super::{
     commands::{
-        HostCommand, OpenPr, Shell, ViewedIssue, parse_created_issue, parse_found_issue,
-        parse_login, parse_open_issues, parse_open_prs, parse_viewed_issue,
+        HostCommand, OpenPr, PrHead, Shell, ViewedIssue, parse_created_issue, parse_found_issue,
+        parse_login, parse_open_issues, parse_open_prs, parse_pr_head, parse_viewed_issue,
     },
     fleet::{self, Fleet},
     lifecycle::start_failed,
@@ -511,6 +511,30 @@ pub(crate) async fn list_open_prs(
             pr,
         })
         .collect())
+}
+
+/// The branch the pull request `number` of `project` is made from, read
+/// from its host now.
+pub(crate) async fn pull_request_head(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    number: u64,
+) -> Result<PrHead, IssueError> {
+    let Some(sources) = issue_sources(fleet, user, project).await? else {
+        return Err(IssueError::Refused(
+            "The project has no GitHub or Forgejo host to read pull requests from.".into(),
+        ));
+    };
+    let (_, head) = read_any(
+        fleet,
+        &sources,
+        project,
+        HostCommand::ViewPrHead { number },
+        parse_pr_head,
+    )
+    .await?;
+    Ok(head)
 }
 
 /// The start of `text`, at most `max` bytes, cut on a character boundary.

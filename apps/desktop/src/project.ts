@@ -362,18 +362,3 @@ export function cardsSection(view: ProjectView, act: ProjectActs) {
   if (!view.cards.length) return null;
   return section("sec-project-needs", "Needs you", "the project chat waits on these", el("div", "pj-needs", ...view.cards.map(c => card(c, act))));
 }
-
-/// The pull requests the project's tasks opened, each linked, with its
-/// task's state and branch.
-export function prsSection(view: ProjectView, act: RowActs) {
-  const tasks = view.tasks.filter((t): t is TaskRow & { pr_url: string } => !!t.pr_url && t.state !== "dropped");
-  if (!tasks.length) return section("sec-prs", "Pull requests", "", empty("No pull requests yet. A task's worker opens one when its work is ready."));
-  const rows = tasks.map(t => {
-    const title = el("span", "t", link(prLabel(t.pr_url), t.pr_url, act.openUrl), " ", t.title);
-    title.title = t.title;
-    const review = t.branch && act.review && t.state !== "done" ? el("span", "acts", dbtn("Review", t.state === "review" ? "pri" : "", () => act.review!(t.branch!))) : null;
-    return el("div", "pj-task", title, chip(t.state), el("span", "m", t.branch ? el("code", "", t.branch) : null), review);
-  });
-  const open = tasks.filter(t => t.state !== "done").length;
-  return section("sec-prs", "Pull requests", open ? `${open} open` : "", el("div", "cc-panel", ...rows));
-}

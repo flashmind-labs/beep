@@ -8,10 +8,10 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    DismissProjectIssue, GetProjectThread, GitItemKind, IssueStart, ListProjectIssues,
-    ListProjectPullRequests, ListProjectThreads, ListThreadChats, OpenThreadChat, ProjectIssue,
-    ProjectPullRequest, ProjectThread, ReplyToThread, ThreadChat, ThreadPost, ThreadView,
-    TrackProjectIssue,
+    DismissProjectIssue, GetProjectThread, GetPullRequestHead, GitItemKind, IssueStart,
+    ListProjectIssues, ListProjectPullRequests, ListProjectThreads, ListThreadChats,
+    OpenThreadChat, ProjectIssue, ProjectPullRequest, ProjectThread, PullRequestHead,
+    ReplyToThread, ThreadChat, ThreadPost, ThreadView, TrackProjectIssue,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -264,6 +264,18 @@ pub async fn center_project_pull_requests(
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// The branch pull request `number` is made from, for Continue.
+#[tauri::command]
+pub async fn center_pull_request_head(
+    beep: Service<'_>,
+    project_id: Uuid,
+    number: u64,
+) -> Result<PullRequestHead> {
+    beep.call(GetPullRequestHead { project_id, number })
+        .await
+        .map_err(outdated)
 }
 
 /// Asks the project agent to draft a reply; gives the project chat.

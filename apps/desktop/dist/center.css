@@ -88,6 +88,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-pjc .pill[aria-expanded="true"] { background: rgba(228,238,232,.06) }
 .cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--muted) }
 .cc-pjc .cc-err:empty { display: none }
+.cc-pjc input.branch { height: 28px; width: 30ch; max-width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace }
+.cc-pjc input.branch:focus { border-color: rgba(59,155,122,.6) }
+.cc-pjc [hidden] { display: none }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 .cc-link { cursor: pointer }

@@ -78,6 +78,11 @@ pub struct NodeHello {
     /// its harnesses as it finds them.
     #[serde(default)]
     pub agent_settings: bool,
+    /// The node makes `agent::CheckoutPlan::NamedWorktree` and
+    /// `BranchWorktree`. A node from before them cannot read a start that
+    /// asks for one, so the server refuses those plans for it.
+    #[serde(default)]
+    pub branch_checkouts: bool,
 }
 
 /// What `NodeHello::setup` carries.
@@ -552,6 +557,7 @@ mod tests {
             credentials: true,
             checkouts: true,
             agent_settings: true,
+            branch_checkouts: true,
         };
         let body = rmp_serde::to_vec_named(&hello).unwrap();
         assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), hello);

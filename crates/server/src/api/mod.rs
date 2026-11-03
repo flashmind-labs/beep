@@ -301,6 +301,7 @@ pub fn router() -> Router {
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
         .call(projects::list_project_pull_requests)
+        .call(projects::get_pull_request_head)
         .call(list_active_runs)
         .call(threads::get_project_thread)
         .call(harnesses::list_agent_harnesses)
