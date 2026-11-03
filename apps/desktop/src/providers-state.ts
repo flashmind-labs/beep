@@ -133,6 +133,17 @@ export function statusLine(h: HarnessView): { text: string; bad: boolean } {
   return { text: "Installed", bad: false };
 }
 
+/// The one status line atop a harness's own page: as the list says it, but
+/// naming the account it is signed in with.
+export function summaryLine(h: HarnessView): { text: string; bad: boolean } {
+  const s = h.sign_in;
+  if (h.installed && h.settings.enabled && s.state === "signed_in" && s.account) {
+    const plan = s.plan ? ` · ${planName(s.plan)} plan` : "";
+    return { text: `Signed in as ${s.account}${plan}`, bad: false };
+  }
+  return statusLine(h);
+}
+
 /// The list rows: every harness Beep knows, OpenCode only when the machine
 /// has it.
 export function listRows(view: HarnessesView): HarnessRow[] {
