@@ -10,6 +10,7 @@ use super::{
     images::{Images, Picture},
     known,
     live::{Live, TurnFiles, TurnTokens, cut},
+    unix_now,
     usage::UsageHub,
 };
 use crate::{
@@ -39,7 +40,6 @@ use std::{
     process::Stdio,
     str::FromStr,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::BufReader,
@@ -167,9 +167,7 @@ impl Session {
             id: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
-            started_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |since| since.as_secs()),
+            started_at: unix_now(),
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);

@@ -7,6 +7,7 @@ use super::{
     compaction::{COMPACTED_ENTRY, Usage},
     image_files,
     images::{Images, Picture, data_url},
+    unix_now,
     usage::{UsageHub, claude_rate_limit},
 };
 use agent_client_protocol::schema::{
@@ -34,7 +35,6 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -887,12 +887,6 @@ fn detail(input: &Value) -> Option<String> {
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.
-pub(super) fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
-}
-
 pub(crate) fn cut(text: &str, max: usize) -> String {
     let mut out = String::new();
     push_cut(&mut out, text, max);
