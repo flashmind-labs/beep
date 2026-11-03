@@ -525,15 +525,15 @@ function injectStyle() {
   if (document.querySelector("style[data-ip]")) return;
   const style = document.createElement("style");
   style.dataset.ip = "";
-  style.textContent = ".ip-field { flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--border); background: #0b100e; color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--emerald) } .ip-field:focus { border-color: var(--emerald) } .ip-sheet .am-sub { margin-top: 0 }"
-    + " .ip-path { flex: 1; min-width: 0; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border); background: #0b100e; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }"
-    + " .ip-dir { width: 100%; box-sizing: border-box; color: var(--fg); outline: 0; caret-color: var(--emerald) } .ip-dir:focus { border-color: var(--emerald) }"
+  style.textContent = ".ip-field { flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent) } .ip-field:focus { border-color: var(--accent) } .ip-sheet .am-sub { margin-top: 0 }"
+    + " .ip-path { flex: 1; min-width: 0; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--deep); font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }"
+    + " .ip-dir { width: 100%; box-sizing: border-box; color: var(--fg); outline: 0; caret-color: var(--accent) } .ip-dir:focus { border-color: var(--accent) }"
     + " .ip-dir::placeholder { color: var(--muted); font-family: system-ui, sans-serif } .ip-dir:disabled { opacity: 1 }"
     + " .ip-folder { position: relative; flex: 1; min-width: 0; display: flex }"
-    + " .ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: #0b100e; box-shadow: 0 10px 30px rgba(0,0,0,.45) }"
+    + " .ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--deep); box-shadow: 0 10px 30px rgba(0,0,0,.45) }"
     + " .ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }"
     + " .ip-menu div:hover { background: rgba(255,255,255,.05) } .ip-menu div.on { background: rgba(52, 211, 153, .14) }"
-    + " .ip-browse { border: 1px solid var(--border); border-radius: 10px; background: #0b100e; overflow: hidden }"
+    + " .ip-browse { border: 1px solid var(--border); border-radius: 10px; background: var(--deep); overflow: hidden }"
     + " .ip-browse .at { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px }"
     + " .ip-browse .at span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
     + " .ip-browse .dirs { max-height: 168px; overflow: auto; padding: 4px 0; display: flex; flex-direction: column }"

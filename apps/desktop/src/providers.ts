@@ -296,7 +296,7 @@ export function registerProviders(deps: ProvidersDeps) {
         acts(button("Agent accounts", "", () => deps.openSettings("agents"))));
     } else if (s.state === "signed_out") {
       const dot = h("span", "ddot");
-      dot.style.background = "var(--coral)";
+      dot.style.background = "var(--hot)";
       out.push(row(dot, `Not signed in on ${m}`));
       if (hv.agent === "claude" || hv.agent === "codex") out.push(acts(button("Sign in", "pri", () => deps.openSettings("agents"))));
       else out.push(h("div", "hv-note", `Run ${hv.agent} on ${m} and sign in there.`));

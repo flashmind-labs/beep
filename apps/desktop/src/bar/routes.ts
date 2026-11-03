@@ -98,7 +98,7 @@ export function drawRoute(card: RouteCardEl) {
       const km = l.meters >= 1000 ? `, ${(l.meters / 1000).toFixed(1)} km` : "";
       return `<div class="dmuted" style="gap:10px"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
     }
-    const color = l.color || "var(--emerald)", badge = l.line || l.name || l.mode;
+    const color = l.color || "var(--accent)", badge = l.line || l.name || l.mode;
     const key = `${card.pick}:${i}`, open = card.open.has(key), between = l.between ?? [];
     const label = `${l.stops} stop${l.stops > 1 ? "s" : ""}`;
     const stops = !l.stops ? "" : between.length
@@ -147,13 +147,13 @@ export function routeSketch(r: RouteOption) {
   const dot = (p: RoutePoint, rad: number, attrs: string) => { const [x, y] = at(p); return `<circle cx="${x}" cy="${y}" r="${rad}" ${attrs}/>`; };
   const lines = r.legs.filter(l => l.points.length).map(l => l.mode === "walk"
     ? `<path d="${path(l.points)}" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="0.1 6"/>`
-    : `<path d="${path(l.points)}" fill="none" stroke="${l.color || "var(--emerald)"}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+    : `<path d="${path(l.points)}" fill="none" stroke="${l.color || "var(--accent)"}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
   const rides = r.legs.filter(l => l.mode !== "walk" && l.points.length);
-  const passed = rides.flatMap(l => (l.between ?? []).map(s => dot(s.at, 2.2, `fill="var(--surface)" stroke="${l.color || "var(--emerald)"}" stroke-width="1.4"`))).join("");
+  const passed = rides.flatMap(l => (l.between ?? []).map(s => dot(s.at, 2.2, `fill="var(--surface)" stroke="${l.color || "var(--accent)"}" stroke-width="1.4"`))).join("");
   const stops = rides.flatMap(l => [l.points[0], l.points.at(-1)!])
     .map(p => dot(p, 4, 'fill="var(--surface)" stroke="var(--fg)" stroke-width="1.8"')).join("");
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Map of the route"><g opacity=".85">${tiles}</g>${lines}${passed}${stops}
-    ${dot(pts[0], 5, 'fill="var(--emerald)"')}${dot(pts.at(-1)!, 6, 'fill="var(--coral)" stroke="var(--surface)" stroke-width="2"')}${routeLabels(rides, p => at(p).map(Number), W, H)}</svg>
+    ${dot(pts[0], 5, 'fill="var(--accent)"')}${dot(pts.at(-1)!, 6, 'fill="var(--hot)" stroke="var(--surface)" stroke-width="2"')}${routeLabels(rides, p => at(p).map(Number), W, H)}</svg>
     <small>Esri, HERE, Garmin, © OpenStreetMap</small>`;
 }
 
@@ -176,7 +176,7 @@ interface Box {
 export function routeLabels(rides: RouteLeg[], at: (p: RoutePoint) => number[], W: number, H: number) {
   const labels: Label[] = [];
   for (const l of rides) {
-    const color = l.color || "var(--emerald)";
+    const color = l.color || "var(--accent)";
     for (const [p, name, code] of [[l.points[0], l.from, l.from_code], [l.points.at(-1)!, l.to, l.to_code]] as const) {
       const [x, y] = at(p);
       const near = labels.find(b => Math.hypot(b.x - x, b.y - y) < 18);

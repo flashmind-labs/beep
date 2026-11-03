@@ -29,21 +29,9 @@ export function fit() {
       invoke("resize_bar", { height }).catch(() => {});
     }
     drawMap();
-    bar.querySelectorAll<HTMLElement>(".dbody, .dlist").forEach(fadeEdges);
   });
 }
 
-/// Fades a scrolling list at each edge that has more above or below it.
-export function fadeEdges(el: HTMLElement) {
-  const up = el.scrollTop > 2, down = el.scrollHeight - el.scrollTop - el.clientHeight > 2;
-  el.classList.toggle("dfade", up || down);
-  el.style.setProperty("--ft", up ? "28px" : "0px");
-  el.style.setProperty("--fb", down ? "28px" : "0px");
-}
-bar.addEventListener("scroll", e => {
-  const el = e.target as HTMLElement;
-  if (el.matches?.(".dbody, .dlist")) fadeEdges(el);
-}, true);
 export const sizer = new ResizeObserver(fit);
 new MutationObserver(() => {
   sizer.disconnect();

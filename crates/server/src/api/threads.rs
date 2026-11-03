@@ -9,6 +9,7 @@ use crate::{
     projects::{
         fleet::NodeFleet,
         model::ProjectId,
+        thread_detail,
         threads::{self, ListedThread},
     },
     protocol::*,
@@ -59,6 +60,18 @@ pub(super) async fn get_project_thread(cx: Cx, req: GetProjectThread) -> Reply<T
         &cx.user,
         &project,
         &req.repo,
+        req.number,
+    )
+    .await
+    .map_err(issue_refusal)
+}
+
+pub(super) async fn get_thread_detail(cx: Cx, req: GetThreadDetail) -> Reply<ThreadDetail> {
+    let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
+    thread_detail::read(
+        &NodeFleet::new(&cx.app, &cx.user),
+        &cx.user,
+        &project,
         req.number,
     )
     .await

@@ -1,5 +1,7 @@
 // A research window: the lead's chat on the left, the team's workspace in the
 // middle and its agents on the right.
+import { followSkin } from "./skin.ts";
+followSkin();
 import { invoke, Channel } from "./tauri.ts";
 import { esc } from "./components/format.ts";
 
@@ -112,7 +114,7 @@ const R = {
 // ---------- Agents ----------
 
 function look(id: string) {
-  if (id === "lead") return { ini: "L", c: "var(--coral)" };
+  if (id === "lead") return { ini: "L", c: "var(--hot)" };
   if (id === "critic") return { ini: "R", c: "#C59AE8" };
   if (id === "writer") return { ini: "W", c: "var(--fg)" };
   const n = +id.replace("scout-", "") || 1;
@@ -167,7 +169,7 @@ function doing(id: string): Doing {
 const ok = () => `<span class="dok">${ICON.check}</span>`;
 const stateIcon = (st: Doing[1]) => st === "run" ? '<span class="dspin"></span>'
   : st === "ok" ? ok()
-  : st === "wait" ? '<span class="ddot" style="background:var(--coral)"></span>' : "<span></span>";
+  : st === "wait" ? '<span class="ddot" style="background:var(--hot)"></span>' : "<span></span>";
 
 // ---------- Title bar ----------
 
@@ -181,7 +183,7 @@ function drawBar() {
   document.title = r?.topic || "Research";
   const working = r ? r.agents.filter(a => a.id !== "lead" && doing(a.id)[1] === "run").length : 0;
   const lines: Record<Status, string> = {
-    planning: '<span class="ddot" style="background:var(--coral)"></span>Waiting for your go',
+    planning: '<span class="ddot" style="background:var(--hot)"></span>Waiting for your go',
     researching: `<span class="dspin"></span>${round() > 1 ? `Round ${round()}` : "Researching"}, ${count(working, "agent")} working`,
     reviewing: '<span class="dspin"></span>Reviewing the findings',
     writing: '<span class="dspin"></span>Writing the paper',

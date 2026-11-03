@@ -81,7 +81,7 @@ async function poll(card: CoderCard) {
 }
 
 const mark = (status: string, asking: boolean) => status === "completed" ? `<span class="dok">${ICON.check}</span>`
-  : status === "in_progress" ? (asking ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>')
+  : status === "in_progress" ? (asking ? '<span class="ddot" style="background:var(--hot)"></span>' : '<span class="dspin"></span>')
   : '<span class="ddot off"></span>';
 
 function questionHtml(q: AgentQuestion, busy: boolean) {
@@ -99,7 +99,7 @@ function draw(card: CoderCard) {
   const doing = s ? s.doing : r.doing;
   const machine = s?.machine_name ?? f?.row.machine_name;
   const k = agentKind(r.agent);
-  const head = `<div class="head" style="background:rgba(59,155,122,.1)">${agentAvatar(r.agent)}<div style="flex:1;min-width:0;display:grid"><b>${esc(k.name)}${machine ? ` on ${esc(machine)}` : ""}</b><small style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.cwd)}">${esc(r.cwd)}</small></div>${status === "unknown" ? "" : stateTag(status)}</div>`;
+  const head = `<div class="head" style="background:color-mix(in srgb, var(--accent) 10%, transparent)">${agentAvatar(r.agent)}<div style="flex:1;min-width:0;display:grid"><b>${esc(k.name)}${machine ? ` on ${esc(machine)}` : ""}</b><small style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.cwd)}">${esc(r.cwd)}</small></div>${status === "unknown" ? "" : stateTag(status)}</div>`;
   const now = doing && status !== "ended" && status !== "idle"
     ? `<div class="row" style="padding:8px 12px 0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(doing)}">${esc(doing.split("\n")[0])}</div>` : "";
   const planHtml = plan.length ? `<div class="sec">Plan</div><div class="plan">${plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status, asking)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";

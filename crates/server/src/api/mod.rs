@@ -326,6 +326,7 @@ pub fn router() -> Router {
         .call(projects::get_pull_request_head)
         .call(list_active_runs)
         .call(threads::get_project_thread)
+        .call(threads::get_thread_detail)
         .call(harnesses::list_agent_harnesses)
         .call(harnesses::save_harness_settings)
         .call(harnesses::update_agent_harness)

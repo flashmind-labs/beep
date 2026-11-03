@@ -1,8 +1,10 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
+import { followSkin } from "./skin.ts";
+followSkin();
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, emptyPanel, errorNote, fitRows, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, fitRows, freshNote, note, stateChip, svgEl as icon } from "./components/parts.ts";
 import { MACHINE_REFRESH_MS, PageCache, SWITCH_MS, backgroundTick, freshness, type PageSection, type SectionStore } from "./pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
@@ -14,8 +16,8 @@ import { pane, type PaneTarget } from "./bar/pane.ts";
 import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow } from "./home.ts";
-import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
+import { base, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow } from "./home.ts";
+import type { HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { keepLastImport, lastImport, openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
@@ -24,7 +26,7 @@ import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Place
 import { openGroupSheet } from "./groupsheet.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
-import { NEW_WINDOW, PROJECT_TABS, mainTarget, opensNewWindow, route, startView, windowTitle } from "./projectwindow.ts";
+import { NEW_WINDOW, mainTarget, opensNewWindow, route, startView, windowTitle } from "./projectwindow.ts";
 import type { CenterTarget, ProjectScope } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
@@ -43,10 +45,11 @@ import { makeScreen } from "./termview.ts";
 import { openBranchDiff } from "./diffsheet.ts";
 import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
-import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
+import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { makeFileSync, fileSyncTile } from "./filesync.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace, makeCustomAgents } from "./customagents.ts";
-import { makeThreads, issueTile, threadTile, issueBranch, issuePrompt, prPrompt } from "./threads.ts";
+import { makeThreads, issueBranch, issueMeta, issuePrompt, prChip, prMeta, prPrompt } from "./threads.ts";
+import { makeThreadDetail } from "./threaddetail.ts";
 import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow } from "./threads.ts";
 import { fixPrompt, makeRuns, runTarget } from "./runs.ts";
 import type { RunDetail } from "./runs.ts";
@@ -206,8 +209,6 @@ function pageFresh(section: PageSection, id: string, loading: boolean) {
   return freshness(pages.at(section, id), loading, Date.now());
 }
 
-/// Whether Home was last drawn in two columns.
-let drawnWide = false;
 /// The server answered for Home in this window; until then Home may be
 /// the one the app kept from before.
 let fresh = false;
@@ -439,40 +440,11 @@ function runningRow(r: RunningRow) {
   return row;
 }
 
-/// Where each Running now row sat in its panel when last drawn, by key.
-const runningTops = new Map<string, number>();
-/// How long a row takes to slide to its new place.
-const SLIDE_MS = 200;
-
-/// Slides each row of a just drawn panel from where it sat last time to where
-/// it sits now, so a session that moves to the top is seen moving.
-function slideRows(panel: HTMLElement) {
-  requestAnimationFrame(() => {
-    // A hidden panel (Home behind a project page) measures every row at 0
-    // and would spoil the places the shown panel slides from.
-    if (!panel.isConnected || !panel.getClientRects().length) return;
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const top = panel.getBoundingClientRect().top, seen = new Set<string>();
-    for (const row of panel.querySelectorAll<HTMLElement>(":scope > [data-key]")) {
-      const key = row.dataset.key!, now = row.getBoundingClientRect().top - top, was = runningTops.get(key);
-      seen.add(key);
-      runningTops.set(key, now);
-      if (still || was === undefined || was === now) continue;
-      row.animate([{ transform: `translateY(${was - now}px)` }, { transform: "none" }], { duration: SLIDE_MS, easing: "ease-out" });
-    }
-    for (const key of runningTops.keys()) if (!seen.has(key)) runningTops.delete(key);
-  });
-}
-
-/// A panel of Running now rows, the one that moved last first.
-function runningPanel(running: RunningRow[]) {
-  const panel = h("div", "cc-panel", ...byRecent(running).map(runningRow));
-  slideRows(panel);
-  return panel;
-}
-
-function runningSection(running: RunningRow[]) {
-  return section("sec-running", "Running now", running.length, null, runningPanel(running));
+/// Running now, the one that moved last first, at most `max` of them with
+/// a way to the rest.
+function runningSection(running: RunningRow[], max = Infinity) {
+  const more = running.length > max ? button(`All ${running.length}`, "quiet small", () => openHomeTab("running")) : null;
+  return section("sec-running", "Running now", running.length, more, h("div", "cc-panel", ...byRecent(running).slice(0, max).map(runningRow)));
 }
 
 // ---------- Terminals ----------
@@ -1015,6 +987,11 @@ let scrollTarget: string | null = null;
 
 function jump(id?: string) {
   if (!go("home")) return;
+  const tab = !id ? "overview" : id.startsWith("m-") ? "machines" : TAB_OF[id];
+  if (tab && tab !== homeTab) {
+    homeTab = tab;
+    if (state.home) draw();
+  }
   const view = $("#view");
   if (!id) return view.scrollTo({ top: 0 });
   scrollTarget = id;
@@ -1608,40 +1585,96 @@ function thisMacItem(mac: MacRow) {
 
 // ---------- Home ----------
 
-/// Machines across the top, then Running now beside Needs you and Updates
-/// beside Coming up.
-function page(home: HomeView, wide: boolean) {
-  const { machines, running, coming_up: coming, needs_you: needs } = home;
+type HomeTab = "overview" | "running" | "git" | "terminals" | "updates" | "coming" | "projects" | "machines";
+/// The Home tab on screen.
+let homeTab: HomeTab = "overview";
+/// The tab each section Home can jump to sits on.
+const TAB_OF: Record<string, HomeTab> = {
+  "sec-needs": "overview", "sec-running": "running", "sec-git": "git", "sec-terminals": "terminals",
+  "sec-updates": "updates", "sec-coming": "coming", "sec-projects-home": "projects", "sec-machines": "machines",
+};
+/// Running now rows the Overview shows before "All".
+const OVERVIEW_RUNNING = 5;
+
+function openHomeTab(tab: HomeTab) {
+  homeTab = tab;
+  draw();
+  $("#view").scrollTop = 0;
+}
+
+/// Every machine across the top of Home: what it is doing and its free
+/// disk, opening its row in Machines.
+function machineStrip(machines: MachineCard[]) {
+  const cells: HTMLElement[] = machines.map(m => {
+    const disk = machineDisk(m).text;
+    const now = m.online ? (m.agents ? plural(m.agents, "agent", "agents") : "idle") : "offline";
+    const cell = h("button", `m${m.online ? "" : " off"}`, dot(m), h("b", "", m.name), h("span", "", disk === "–" ? now : `${now} · ${disk}`));
+    cell.type = "button";
+    cell.addEventListener("click", () => jump(`m-${m.id}`));
+    machineMenu(m, cell);
+    return cell;
+  });
+  const mac = thisMacRow(state.mac, machines);
+  if (mac) {
+    const cell = h("div", "m off", h("span", "ddot off"), h("b", "", mac.name), h("span", `${mac.bad ? "bad" : ""}`, mac.state));
+    if (mac.action) cell.append(rowButton(mac.action, "quiet small", useThisMac));
+    cell.title = `This Mac: ${mac.title}`;
+    cells.push(cell);
+  }
+  return h("div", "cc-mstrip", ...cells, addMachineButton("quiet small"));
+}
+
+/// Home: the machines strip, then one tab at a time. A tab with nothing in
+/// it is left out; Overview and Machines stay.
+function page(home: HomeView) {
+  const { machines, running, coming_up: coming, needs_you: needs, updates } = home;
+  const terms = allTerms.list(ALL), projects = projectRows() || [], git = state.git;
+  const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
+    { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
+    { key: "running", label: "Running", count: running?.length ?? 0, on: !!running?.length, make: () => [runningSection(running!)] },
+    { key: "git", label: "Pull requests", count: git?.hosts?.length ? projectsWithOpen(git, projects).reduce((n, p) => n + p.items.length, 0) : 0, on: !!git?.hosts?.length, make: () => [gitSection(git!)] },
+    { key: "terminals", label: "Terminals", count: terms?.length ?? 0, on: !!terms && !!machines?.length, make: () => [terminalsSection(terms!)] },
+    { key: "updates", label: "Updates", count: updates?.length ?? 0, on: !!updates?.length, make: () => [updatesSection(updates!)] },
+    { key: "coming", label: "Coming up", count: coming?.length ?? 0, on: !!coming?.length, make: () => [comingSection(coming!)] },
+    { key: "projects", label: "Projects", count: projects.length, on: projects.length > 0, make: () => [projectsSection(projects)] },
+    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => [machinesSection(machines!)] },
+  ];
+  const shownTabs = tabs.filter(t => t.on);
+  const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
+  const bar = h("div", "cc-tabs");
+  bar.setAttribute("role", "tablist");
+  for (const t of shownTabs) {
+    const b = h("button", "", t.label, t.count ? h("span", "n", String(t.count)) : null);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(t === tab));
+    b.addEventListener("click", () => openHomeTab(t.key));
+    bar.append(b);
+  }
   const out: HTMLElement[] = [];
+  if (machines) out.push(machineStrip(machines));
+  out.push(bar);
   if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
   if (!machines && !running) {
     out.push(note("off", "Machines and running sessions aren't available for this account or server."));
   } else if (machines) {
-    const note = offlineNote(machines);
-    if (note) out.push(note);
+    const off = offlineNote(machines);
+    if (off) out.push(off);
   }
-  // Each is made only when its list is there to show.
-  const make: Record<HomeSection, () => HTMLElement> = {
-    machines: () => machinesSection(machines!),
-    running: () => runningSection(running!),
-    needs: () => needsSection(needs),
-    updates: () => updatesSection(home.updates!),
-    coming: () => comingSection(coming!),
-    projects: () => projectsSection(projectRows() || []),
-    git: () => gitSection(state.git!),
-    terminals: () => terminalsSection(allTerms.list(ALL) || []),
-  };
-  const laid = { ...home, git: state.git, terminals: allTerms.list(ALL) };
-  const cols = wide && homeColumns(laid);
-  if (cols) {
-    const col = (keys: HomeSection[]) => h("div", "", ...keys.map(k => make[k]()));
-    out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
-    return out;
-  }
-  if (machines) out.push(make.machines());
-  for (const row of homeRows(laid)) {
-    out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
-  }
+  out.push(...tab.make());
+  return out;
+}
+
+/// What needs you, then Running now beside Coming up.
+function overview(home: HomeView) {
+  const { running, coming_up: coming, needs_you: needs } = home;
+  const out: HTMLElement[] = [];
+  if (needs.length) out.push(needsSection(needs));
+  const cols: HTMLElement[] = [];
+  if (running?.length) cols.push(runningSection(running, OVERVIEW_RUNNING));
+  if (coming?.length) cols.push(comingSection(coming));
+  if (cols.length) out.push(cols.length === 2 ? h("div", "cc-cols", ...cols) : cols[0]);
+  if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
   return out;
 }
 
@@ -1715,8 +1748,7 @@ function draw() {
   drawSide();
   if (!home || problem()) return drawConnecting(view);
   const top = view.scrollTop;
-  drawnWide = isWide(view);
-  view.replaceChildren(...page(home, drawnWide));
+  view.replaceChildren(...page(home));
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
@@ -1724,13 +1756,6 @@ function draw() {
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
 
-/// Whether Home has room for two columns.
-function isWide(view: HTMLElement) { return view.clientWidth >= WIDE_HOME_PX; }
-// Redraws Home when the window crosses the width for two columns, including
-// when Home is shown again after a pane (it measures 0 while hidden).
-new ResizeObserver(() => {
-  if (state.home && isWide($("#view")) !== drawnWide) draw();
-}).observe($("#view"));
 
 registerView("home", {
   el: $("#home-box"),
@@ -2064,18 +2089,14 @@ function projectDetail(p: Project) {
   const rows = whereRows(p, machines || null, state.mac?.id || null);
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
-  if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  const agent = p.imported ? agentFor(state.agents, p.name) : null;
-  const where = whereSection(p, rows, !!machines);
-  // Two columns all the way down: Actions beside the machines, Sessions beside
-  // the agents. Without a project agent there are no runs, so the machines
-  // sit above the agents beside Sessions.
-  if (!agent) return [...agentTop(p), h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", where, agentsSection(running), customAgentsSection(rows)))];
-  return [
-    ...agentTop(p), ...repoSections(p),
-    h("div", "pj-cols pj-half", runs.section(agent), where),
-    h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))),
-  ];
+  if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
+  // The project agent's view is on its way.
+  if (p.imported && agentFor(state.agents, p.name)) {
+    const error = state.pview.get(p.name)?.error;
+    return [error ? errorNote(`Could not read the project: ${error}`) : emptyPanel(h("span", "", "Reading the project…"))];
+  }
+  // Without a project agent there are no tasks, runs or code host lists.
+  return [h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", whereSection(p, rows, !!machines), agentsSection(running), customAgentsSection(rows)))];
 }
 
 /// The project's custom agents: the named agents its folder defines for
@@ -2120,33 +2141,21 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
 /// The coding agents running in the project's folders now.
 function agentsSection(running: RunningAgent[]) {
   const list = running.length
-    ? runningPanel(running)
+    ? h("div", "cc-panel", ...byRecent(running).map(runningRow))
     : emptyPanel(h("span", "", "No agent is working in this project right now."));
   return section("sec-project-agents", "Agents", running.length || "", null, list);
 }
 
-// ---------- Project board ----------
+// ---------- Project split ----------
 
-/// How a project with an agent shows: "board" or "list", kept for next time.
-const LAYOUT_KEY = "beep.center.projectLayout";
-let layout = "board";
-try { layout = localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "board"; } catch {}
-
-function setLayout(to: string) {
-  layout = to;
-  openTile(null, false);
-  try { localStorage.setItem(LAYOUT_KEY, to); } catch {}
-  redrawProjects();
-  drawTop();
+/// The split shows for an imported project whose agent's view has loaded.
+function splitOn(p: Project) {
+  return p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
 }
 
-/// The board shows for an imported project whose agent's view has loaded.
-function boardOn(p: Project) {
-  return layout === "board" && p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
-}
-
-/// Opens tile `key` in place of the board, or goes back with null, and stops
-/// the polling of every other tile.
+/// Picks item `key` of the split's list, or the first one with null, and
+/// stops the polling of every other item. With `draw` false the caller
+/// draws.
 function openTile(key: string | null, draw = true) {
   pa.tile = key;
   if (key !== "terminals") terms.stop();
@@ -2154,7 +2163,7 @@ function openTile(key: string | null, draw = true) {
   if (key !== "review") revs.stop();
   if (!draw) return;
   redrawProjects();
-  projectsEl().querySelector(":scope > .cc-view")?.scrollTo({ top: 0 });
+  projectsEl().querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
 }
 
 /// Opens the Tasks list and brings task `id`'s row into view.
@@ -2166,76 +2175,113 @@ function openTask(id: string) {
   row.scrollIntoView({ block: "center" });
 }
 
-/// The board: what the project chat waits on, then a tile per kind of
-/// thing, or one tile's full list once its header is clicked.
-function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]) {
-  const view = state.pview.get(p.name)!.view!;
-  const agent = agentFor(state.agents, p.name)!;
-  const sessions = state.sessions.get(p.name);
-  if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
-  const out = agentNotes(p, view);
-  const full: Record<string, () => Node[]> = {
-    tasks: () => [taskColumns(view)],
-    prs: () => [thr.prsSection(agent, repoActs(p)), ...thr.threadsPanel(agent)],
-    issues: () => [thr.issuesSection(agent, repoActs(p))],
-    actions: () => [runs.section(agent)],
-    machines: () => [whereSection(p, rows, known)],
-    agents: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)],
-    terminals: () => terms.panel(p.name, rows),
-    sync: () => fsync.panel(p.name),
-    branches: () => revs.branchesPanel(p.name),
-    review: () => revs.reviewPanel(p.name),
-  };
-  if (pa.tile && full[pa.tile]) {
-    out.push(backRow(() => openTile(null)), ...full[pa.tile]());
-    return out;
-  }
-  const past = sessions ? pastSessions(sessions, running) : [];
-  if (terms.list(p.name) === undefined) terms.load(p.name);
-  revs.ensure(p.name);
-  thr.ensure(agent.project_id);
-  const now = Date.now(), pid = agent.project_id;
-  const hostFresh = freshness(thr.at(pid), thr.loading(pid), now);
-  // Tiles in sections: the work, the code host, the machines. Two a row,
-  // or three when the group has three, so no tile is left alone.
-  const tileGroup = (title: string, ...tiles: Node[]) => h("div", "pb-sec", h("h4", "", title), h("div", tiles.length === 3 ? "pb-grid n3" : "pb-grid", ...tiles));
-  out.push(
-    tileGroup("Work",
-      tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!), fresh: pageFresh("view", p.name, viewReads.loading(p.name)) }),
-      tile("agents", "Agents", agentTile(running, past), openTile, { fresh: pageFresh("sessions", p.name, readingSessions.has(p.name)) }),
-      tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile, { fresh: freshness(revs.at(p.name), revs.loading(p.name), now) })),
-    tileGroup("Code host",
-      tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl, fresh: hostFresh }),
-      tile("issues", "Issues", issueTile(thr.issues(agent.project_id), thr.issuesError(agent.project_id)), openTile, { openUrl, fresh: hostFresh }),
-      tile("actions", "Actions", runs.tile(pid), openTile, { openUrl })),
-    tileGroup("Machines",
-      tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
-        fresh: pageFresh("where", p.name, readingWhere.has(p.name)),
-        menu: (r, e) => {
-          const m = rows.find(w => w.id === r.id);
-          if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
-        },
-      }),
-      tile("terminals", "Terminals", terminalTile(terms.list(p.name), ago), openTile),
-      tile("sync", "File sync", fileSyncTile(fsync.forTile(p.name), state.sync.filter(s => s.project === p.name), new Map(rows.map(w => [w.id, w.name]))), openTile)));
-  return out;
+/// One row of the split's list: it shows its detail at the right, or with
+/// `open` goes somewhere else (a running agent opens in the pane).
+interface SplitItem {
+  key: string;
+  lead?: Kid;
+  title: string;
+  sub: string;
+  right?: Kid;
+  open?: () => void;
+  detail?: () => Node[];
 }
 
-/// What the project chat's cards do, on the board and in the list.
+/// A group of the list: its title, rows, and a note in place of rows.
+type SplitGroup = { title: string; items: SplitItem[]; note?: string };
+
+/// The note of a code host list: why it could not be read, or that it reads.
+function hostNote(list: unknown[] | null | undefined, error: string, none: string) {
+  if (error) return error;
+  if (list === undefined) return "Reading…";
+  if (list === null) return "The server needs an update before it lists these.";
+  return list.length ? undefined : none;
+}
+
+/// The project page: everything going on in one list at the left, the
+/// picked row's detail and actions at the right.
+function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): Node[] {
+  const view = state.pview.get(p.name)!.view!;
+  const agent = agentFor(state.agents, p.name)!;
+  const pid = agent.project_id;
+  const sessions = state.sessions.get(p.name);
+  if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
+  if (terms.list(p.name) === undefined) terms.load(p.name);
+  revs.ensure(p.name);
+  thr.ensure(pid);
+  const acts = repoActs(p), now = Date.now();
+  const sync = state.sync.filter(s => s.project === p.name);
+  const cards = cardsSection(view, chatActs(p));
+  const groups: SplitGroup[] = [];
+  if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
+  if (running.length) {
+    groups.push({ title: "Running", items: byRecent(running).map(r => ({
+      key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
+      right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
+    })) });
+  }
+  const past = sessions ? pastSessions(sessions, running) : [];
+  groups.push({ title: "Work", items: [
+    { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [taskColumns(view)] },
+    { key: "agents", title: "Agents", sub: agentTile(running, past).count || "None running", detail: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)] },
+    { key: "branches", title: "Branches", sub: branchTile(revs.branches(p.name), revs.reviews(p.name), ago).count || "", detail: () => revs.branchesPanel(p.name) },
+  ] });
+  const num = (n: number) => h("span", "num", `#${n}`);
+  const prs = thr.prs(pid), issues = thr.issues(pid);
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), items: thr.prLines(agent, acts).map(l => {
+    const chip = prChip(l), pr = l.pr;
+    return {
+      key: `pr:${pr.number}`, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "),
+      right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
+      detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
+    };
+  }) });
+  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), items: thr.issueLines(agent, acts).map(l => ({
+    key: `issue:${l.number}`, lead: num(l.number), title: l.title,
+    sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`,
+    right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
+    detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
+      [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
+  })) });
+  const project: SplitItem[] = [
+    { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
+    { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
+    { key: "terminals", title: "Terminals", sub: terminalTile(terms.list(p.name), ago).count || "None open", detail: () => terms.panel(p.name, rows) },
+    { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
+  ];
+  const threads = thr.threads(pid);
+  if (threads?.length) {
+    const waiting = threads.filter(t => t.needs_reply).length;
+    project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
+  }
+  groups.push({ title: "Project", items: project });
+  // A review opens from Branches and keeps it lit.
+  const all = groups.flatMap(g => g.items);
+  const picked = pa.tile === "review"
+    ? { key: "branches", detail: () => revs.reviewPanel(p.name) }
+    : all.find(i => i.key === pa.tile && i.detail) || all.find(i => i.key === (cards ? "needs" : "tasks"))!;
+  const list = h("div", "pj-list");
+  for (const g of groups) {
+    list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
+    if (g.note) list.append(h("div", "note", g.note));
+    for (const i of g.items) {
+      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub)), h("span", "r", i.right));
+      row.type = "button";
+      row.title = i.title;
+      if (i.key === picked.key) row.setAttribute("aria-current", "true");
+      row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
+      list.append(row);
+    }
+  }
+  const error = state.pview.get(p.name)?.error;
+  const det = h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
+  return [h("div", "pj-split", list, det)];
+}
+
+/// What the project chat's cards do.
 function chatActs(p: Project) {
   const agent = agentFor(state.agents, p.name);
   return { ...agentActs, answer: (c: { query_id: string }, decision: string, said: string) => answerCard(agent!, c, decision, said) };
-}
-
-/// Above the board or the list: why the project did not refresh, then the
-/// cards the project chat waits on.
-function agentNotes(p: Project, view: ProjectView): Node[] {
-  const out: Node[] = [];
-  const error = state.pview.get(p.name)?.error;
-  if (error) out.push(errorNote(`Could not refresh the project: ${error}`));
-  const needs = cardsSection(view, chatActs(p));
-  if (needs) out.push(needs);
-  return out;
 }
 
 /// Tasks beside Workers.
@@ -2243,26 +2289,22 @@ function taskColumns(view: ProjectView) {
   return h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat));
 }
 
-/// The Board and List switch in the header of a project with an agent.
-function layoutSwitch() {
-  return segmented([{ label: "Board", value: "board" }, { label: "List", value: "list" }], layout, key => { if (layout !== key) setLayout(key); });
-}
-
 // ---------- Project agent ----------
 
-/// What the agent sections are doing: `busy` and `errors` by task or worker id,
-/// `outcomes` of answered cards by query id, and `starting` the project whose
-/// agent the prompt bar is making.
+/// What the agent sections are doing: `busy` and `errors` by task or worker
+/// id, `outcomes` of answered cards by query id, and `starting` the project
+/// whose agent the prompt bar is making.
+/// `tile` is the row of the project's list picked, null for the first.
 const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
-/// The project's terminals; the board's tile and its full view.
+/// The project's terminals.
 const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
 
-/// The project's file sync; the board's tile and its full view.
+/// The project's file sync.
 const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects(), kept: keptSection("filesync") });
 
-/// The project's branches and their reviews; the Branches tile, its full
-/// list and the review view.
+/// The project's branches and their reviews: the Branches list and the
+/// review view.
 const revs = makeReviews({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
@@ -2285,8 +2327,8 @@ const liveMode = makeProjectLive({
 });
 listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
 
-/// The project's open issues and the user's threads there; the Issues
-/// tile, the rows of the Pull requests tile and their full lists.
+/// The project's open pull requests and issues, and the user's threads
+/// there, for the project page's list.
 const thr = makeThreads({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
@@ -2296,6 +2338,9 @@ const thr = makeThreads({
   kept: keptSection("threads"),
   mode: liveMode.chip,
 });
+
+/// A pull request or issue read in full, in the split's right column.
+const details = makeThreadDetail({ redraw: () => redrawProjects(), openUrl });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
 const runs = makeRuns({
@@ -2395,23 +2440,6 @@ function repoActs(p: Project): RepoActs {
       document.getElementById("sec-actions")?.scrollIntoView({ block: "nearest" });
     },
   };
-}
-
-/// The repository's open pull requests beside its issues, under the tasks
-/// of a project with an agent.
-function repoSections(p: Project): Node[] {
-  const agent = p.imported ? agentFor(state.agents, p.name) : null;
-  if (!agent) return [];
-  const acts = repoActs(p);
-  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts))];
-}
-
-/// The cards the project chat waits on, then Tasks beside Workers, above
-/// the folders, once the project has an agent.
-function agentTop(p: Project) {
-  const view = p.imported ? state.pview.get(p.name)?.view : null;
-  if (!view) return [];
-  return [...agentNotes(p, view), taskColumns(view)];
 }
 
 /// Answers a card of the project chat. The call returns when the run it
@@ -3096,6 +3124,7 @@ function drawProjects(el: HTMLElement) {
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
     if (one) view.append(...projectDetail(one));
+    if (one && splitOn(one)) view.classList.add("split");
     else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
     const found = one ? null : foundSection();
@@ -3110,23 +3139,16 @@ function drawProjects(el: HTMLElement) {
     // Read before the swap: a detached element scrolls to 0.
     const top = old.scrollTop;
     const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
+    const cols = [".pj-list", ".pj-det"].map(c => [c, old.querySelector(c)?.scrollTop ?? 0] as const);
     old.replaceWith(view);
     view.scrollTop = top;
+    for (const [c, at] of cols) { const col = view.querySelector(c); if (col) col.scrollTop = at; }
     for (const [id, at] of inner) {
       const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
       if (s) s.scrollTop = at;
     }
   } else {
     el.prepend(view);
-  }
-  // A project window shows the board's tiles as tabs above it.
-  const tabs = windowProject && one && boardOn(one) ? projectTabs() : null;
-  const oldTabs = el.querySelector(":scope > .pw-tabs");
-  if (tabs) {
-    if (oldTabs) oldTabs.replaceWith(tabs);
-    else el.prepend(tabs);
-  } else {
-    oldTabs?.remove();
   }
   // The bar starts coding agents in the project's checkout.
   if (one) {
@@ -3135,20 +3157,6 @@ function drawProjects(el: HTMLElement) {
   } else {
     projectComp.form.remove();
   }
-}
-
-/// A project window's tabs: the board, then each tile opened in full.
-function projectTabs() {
-  const nav = h("nav", "pw-tabs");
-  nav.setAttribute("aria-label", windowProject ?? "Project");
-  for (const t of PROJECT_TABS) {
-    const b = h("button", "", t.label);
-    b.type = "button";
-    if (pa.tile === t.key) b.setAttribute("aria-current", "true");
-    b.addEventListener("click", () => openTile(t.key));
-    nav.append(b);
-  }
-  return nav;
 }
 
 registerView("projects", {
@@ -3163,7 +3171,6 @@ registerView("projects", {
     }
     const p = filterProjects(projectRows() || [], state.picked)[0];
     const tools = [];
-    if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
     if (p?.url) {
       const url = p.url, label = openOnLabel(url);
       if (label) tools.push(button(label.replace(/^Open on /, ""), "small", () => openUrl(url)));
@@ -3588,7 +3595,7 @@ const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "sk
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too.
   if (inTerminal(e)) return;
-  // Esc on an opened board tile goes back to the board.
+  // Esc goes back to the project list's first row.
   if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
     e.preventDefault();
     return openTile(null);
@@ -3708,7 +3715,7 @@ async function refresh() {
       loadProjectAgent(false);
       tickRepo(state.picked);
       const p = filterProjects(projectRows() || [], state.picked)[0];
-      if (p && boardOn(p) && onScreen()) terms.load(state.picked);
+      if (p && splitOn(p) && onScreen()) terms.load(state.picked);
     } else {
       loadOverview();
     }
