@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { back, crumbs, FIRST_PAGE, fitPath, openSub, parsePath, parseSub, pathKey, recallPath, REMEMBER_KEY, rememberPath, samePath, selectPage, type SettingsPage } from "../src/settings-nav.ts";
+import { agentSubs, back, CODING_AGENTS, crumbs, FIRST_PAGE, fitPath, navEntries, openSub, parsePath, parseSub, pathKey, recallPath, REMEMBER_KEY, rememberPath, samePath, selectPage, type SettingsPage } from "../src/settings-nav.ts";
 
 /// A Storage that keeps what it is given.
 function memory(): Pick<Storage, "getItem" | "setItem"> & { data: Map<string, string> } {
@@ -70,4 +70,20 @@ test("a restored page falls back when it is not shown or its subpage is gone", (
   assert.deepEqual(fitPath(app, shown, () => true), app);
   // Unlinked, Settings shows General and Account only.
   assert.deepEqual(fitPath(openSub({ kind: "agent", id: "codex" }), ["general", "devices"]), { page: "general", sub: null });
+});
+
+test("the coding agents nest under Agent accounts once it is picked", () => {
+  const subs = (page: SettingsPage) => (page === "agents" ? agentSubs() : []);
+  const ids = (path: Parameters<typeof navEntries>[1]) => navEntries(ALL, path, subs).map(e => (e.sub ? `  ${e.sub.id}` : e.page));
+  // Picked elsewhere, Agent accounts shows no harness under it.
+  assert.ok(!ids(selectPage("general")).some(id => id.startsWith("  ")));
+  // Picked, each harness follows it in order, before Credentials.
+  const open = ids(selectPage("agents"));
+  assert.deepEqual(open.slice(open.indexOf("agents"), open.indexOf("creds") + 1), ["agents", ...CODING_AGENTS.map(a => `  ${a}`), "creds"]);
+  // On Agent accounts itself the page is current; on a harness, only that harness.
+  assert.deepEqual(navEntries(ALL, selectPage("agents"), subs).filter(e => e.current), [{ page: "agents", sub: null, current: true }]);
+  assert.deepEqual(navEntries(ALL, openSub({ kind: "agent", id: "flsh" }), subs).filter(e => e.current),
+    [{ page: "agents", sub: { kind: "agent", id: "flsh" }, current: true }]);
+  // Each one opens under Agent accounts and survives being kept.
+  for (const sub of agentSubs()) assert.deepEqual(parsePath(pathKey(openSub(sub))), { page: "agents", sub });
 });

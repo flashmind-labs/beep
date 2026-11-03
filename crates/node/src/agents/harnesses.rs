@@ -2,13 +2,15 @@
 //! knows (version, newest version, where it is, its sign-in), updating
 //! one, and the user's settings for each, applied when one starts.
 
+mod install;
+
 use super::{Adapter, AgentKind, KNOWN, flsh_config, models::flsh_config_dir, unix_now};
 use crate::{
     AsyncMutex,
     env::{claude_logged_in, opencode_logged_in, output},
     provision::spawn_env::{self, Scope},
 };
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use beep_proto::node::harness::{
     AgentSettings, HARNESSES, HarnessConfig, HarnessInfo, HarnessReport, harness, parse_version,
 };
@@ -21,7 +23,7 @@ use std::{
     sync::{Mutex, MutexGuard, PoisonError},
     time::{Duration, Instant},
 };
-use tokio::time::timeout;
+use tokio::{sync::OnceCell, time::timeout};
 
 /// How long the newest versions found are kept before being looked up
 /// again.
@@ -30,10 +32,8 @@ const LATEST_FOR: Duration = Duration::from_secs(6 * 60 * 60);
 const NPM_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long a sign-in status command may take.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long an install or update may take.
+/// How long an install or update may take, every way tried together.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-/// The most of an update's output kept to say why it failed.
-const MAX_FAILURE: usize = 600;
 
 /// The user's settings for the harnesses, as the server last sent them.
 #[derive(Default)]
@@ -161,6 +161,8 @@ pub(super) struct Latest {
     found: Mutex<LatestFound>,
     /// One update at a time: two installs of one package would race.
     updating: AsyncMutex<()>,
+    /// npm's global folders, looked up once.
+    npm_global: OnceCell<Option<install::NpmGlobal>>,
 }
 
 #[derive(Default)]
@@ -172,6 +174,32 @@ struct LatestFound {
 }
 
 impl Latest {
+    /// What the node knows of npm: whether it is there, and its global
+    /// folders.
+    async fn npm(&self) -> install::Npm {
+        if !found_program("npm") {
+            return install::Npm::default();
+        }
+        let global = self
+            .npm_global
+            .get_or_init(|| async {
+                let prefix = output("npm", &["prefix", "-g"]).await?;
+                let prefix = prefix
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())?;
+                Some(install::NpmGlobal::from_prefix(std::path::Path::new(
+                    prefix,
+                )))
+            })
+            .await
+            .clone();
+        install::Npm {
+            found: true,
+            global,
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, LatestFound> {
         self.found.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -263,53 +291,26 @@ fn adapter_package(agent: &str) -> Option<&'static str> {
         })
 }
 
-/// Whether `path`, symlinks followed, is inside a `node_modules` folder:
-/// installed with npm.
-fn from_npm(path: &std::path::Path) -> bool {
-    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    real.components()
-        .any(|part| part.as_os_str() == "node_modules")
-}
-
-/// The command that installs `found` when it is missing and updates it
-/// after, as program and arguments: npm for a CLI npm installed (with its
-/// ACP adapter when npm installed that too), else the CLI's own updater.
-fn install_command(found: &Found, npm: bool) -> Option<Vec<String>> {
-    let package = harness(&found.agent).and_then(|known| known.npm);
-    let Some(cli) = &found.cli else {
-        return package
-            .filter(|_| npm)
-            .map(|package| npm_install(&[package]));
-    };
-    if let Some(package) = package.filter(|_| npm && from_npm(cli)) {
-        let mut packages = vec![package];
-        let adapter = adapter_package(&found.agent);
-        let adapter_bin = found
+/// The commands that install `found` when it is missing and update it
+/// after, in the order to try them.
+fn update_steps(found: &Found, npm: &install::Npm) -> Vec<install::Step> {
+    // Its ACP adapter goes along when npm installed that too.
+    let npm_adapter = adapter_package(&found.agent).filter(|_| {
+        found
             .kind
             .as_ref()
             .filter(|kind| kind.program != "npx")
-            .and_then(|kind| find(&kind.program));
-        if let (Some(adapter), Some(bin)) = (adapter, adapter_bin)
-            && from_npm(&bin)
-        {
-            packages.push(adapter);
-        }
-        return Some(npm_install(&packages));
-    }
-    let own: &[&str] = match found.agent.as_str() {
-        "claude" => &["update"],
-        "opencode" => &["upgrade"],
-        _ => return None,
+            .and_then(|kind| find(&kind.program))
+            .is_some_and(|bin| {
+                install::method(&found.agent, &bin, npm) == Some(install::Method::Npm)
+            })
+    });
+    let target = install::Target {
+        agent: &found.agent,
+        cli: found.cli.as_deref(),
+        npm_adapter,
     };
-    let mut command = vec![cli.display().to_string()];
-    command.extend(own.iter().map(|arg| (*arg).to_owned()));
-    Some(command)
-}
-
-fn npm_install(packages: &[&str]) -> Vec<String> {
-    let mut command = vec!["npm".to_owned(), "install".to_owned(), "-g".to_owned()];
-    command.extend(packages.iter().map(|package| format!("{package}@latest")));
-    command
+    install::plan(&target, npm)
 }
 
 /// What the node finds of every harness, with the newest versions looked
@@ -321,7 +322,7 @@ pub(super) async fn report(
     refresh: bool,
 ) -> HarnessReport {
     let found = found(kinds);
-    let npm = found_program("npm");
+    let npm = latest.npm().await;
     let packages: Vec<&'static str> = found
         .iter()
         .filter(|found| found.cli.is_some())
@@ -332,7 +333,7 @@ pub(super) async fn report(
         futures::future::join_all(found.iter().map(|found| info(
             found,
             settings.get(&found.agent),
-            npm
+            &npm
         )))
     );
     let harnesses = harnesses
@@ -352,8 +353,8 @@ pub(super) async fn report(
 
 /// One harness as the node finds it, its sign-in read with `config`'s
 /// home and env vars.
-async fn info(found: &Found, config: Option<HarnessConfig>, npm: bool) -> HarnessInfo {
-    let install = install_command(found, npm).map(|command| command.join(" "));
+async fn info(found: &Found, config: Option<HarnessConfig>, npm: &install::Npm) -> HarnessInfo {
+    let install = update_steps(found, npm).first().map(ToString::to_string);
     let Some(cli) = &found.cli else {
         return HarnessInfo {
             agent: found.agent.clone(),
@@ -455,50 +456,16 @@ fn read_sign_in(agent: &str, ok: bool, text: &str) -> SignIn {
     }
 }
 
-/// Installs or updates `agent` with the command its report names.
+/// Installs or updates `agent` with the installer it came from, and with
+/// its own updater when that fails.
 pub(super) async fn update(kinds: &[AgentKind], latest: &Latest, agent: &str) -> Result<()> {
     let _one = latest.updating.lock().await;
     let found = found(kinds)
         .into_iter()
         .find(|found| found.agent == agent)
         .with_context(|| format!("this node knows no agent {agent}"))?;
-    let Some(command) = install_command(&found, found_program("npm")) else {
-        bail!(
-            "this node knows no way to install or update {agent}; install npm, or update it by hand"
-        );
-    };
-    let Some((program, args)) = command.split_first() else {
-        bail!("the update command for {agent} is empty");
-    };
-    log::info!("updating {agent}: {}", command.join(" "));
-    let mut process = crate::process::command(program);
-    spawn_env::apply(&mut process, Scope::Probe);
-    let run = process
-        .args(args)
-        .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let out = timeout(UPDATE_TIMEOUT, run)
-        .await
-        .with_context(|| format!("{} took too long", command.join(" ")))?
-        .with_context(|| format!("could not run {program}"))?;
-    if !out.status.success() {
-        let mut text = String::from_utf8_lossy(&out.stderr).into_owned();
-        if text.trim().is_empty() {
-            text = String::from_utf8_lossy(&out.stdout).into_owned();
-        }
-        let tail: String = text
-            .trim()
-            .chars()
-            .rev()
-            .take(MAX_FAILURE)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        bail!("{} failed: {tail}", command.join(" "));
-    }
-    Ok(())
+    let steps = update_steps(&found, &latest.npm().await);
+    install::run(&install::Processes, agent, &steps, UPDATE_TIMEOUT).await
 }
 
 #[cfg(test)]
@@ -633,59 +600,5 @@ mod tests {
             Some(false)
         );
         assert_eq!(read_sign_in("pi", true, "").signed_in, None);
-    }
-
-    #[test]
-    fn a_missing_npm_cli_installs_with_npm() {
-        let missing = Found {
-            agent: "gemini".into(),
-            cli: None,
-            kind: None,
-        };
-        assert_eq!(
-            install_command(&missing, true).unwrap().join(" "),
-            "npm install -g @google/gemini-cli@latest"
-        );
-        assert_eq!(install_command(&missing, false), None);
-        let flsh = Found {
-            agent: "flsh".into(),
-            cli: None,
-            kind: None,
-        };
-        assert_eq!(install_command(&flsh, true), None);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn an_npm_cli_updates_with_npm_and_others_with_their_own_command() {
-        let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("lib/node_modules/@openai/codex/bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let codex = bin.join("codex.js");
-        std::fs::write(&codex, "").unwrap();
-        let link = dir.path().join("codex");
-        std::os::unix::fs::symlink(&codex, &link).unwrap();
-        let npm = Found {
-            agent: "codex".into(),
-            cli: Some(link),
-            kind: None,
-        };
-        assert_eq!(
-            install_command(&npm, true).unwrap().join(" "),
-            "npm install -g @openai/codex@latest"
-        );
-        let claude = Found {
-            agent: "claude".into(),
-            cli: Some(dir.path().join("claude")),
-            kind: None,
-        };
-        let own = install_command(&claude, true).unwrap();
-        assert_eq!(own[1..], ["update"]);
-        let pi = Found {
-            agent: "pi".into(),
-            cli: Some(dir.path().join("pi")),
-            kind: None,
-        };
-        assert_eq!(install_command(&pi, true), None);
     }
 }

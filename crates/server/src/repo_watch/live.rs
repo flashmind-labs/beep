@@ -9,6 +9,7 @@ use super::{
     hosts::{self, RepoOnHost, Tokens, host_name},
     http::{HostCalls, Who},
     runs::{self, Target, credentials, target},
+    timing::AskRead,
     watch::{Entry, OpenHead, RepoWatch},
 };
 use crate::{
@@ -104,6 +105,11 @@ pub(crate) struct RunsCopy {
 }
 
 impl RunsCopy {
+    /// Whether some host's runs were read once.
+    fn read_once(&self) -> bool {
+        self.hosts.iter().any(|slot| slot.copy.synced_at.is_some())
+    }
+
     /// Takes the hosts found, keeping what was read of the ones still
     /// there.
     fn set_places(&mut self, places: Vec<RepoOnHost>) {
@@ -310,7 +316,15 @@ impl RepoWatch {
     ) -> tokio::sync::MutexGuard<'a, RunsCopy> {
         let ask = entry.runs.ask(Instant::now(), refresh);
         let mut copy = entry.runs.copy.lock().await;
-        let stale = entry.runs.stale();
+        // An old copy answers as it is; the background sync reads it again.
+        let stale = match entry.runs.ask_read(ask.forced, copy.read_once()) {
+            AskRead::Host => true,
+            AskRead::CopyThenSync => {
+                self.sync_soon();
+                false
+            }
+            AskRead::Copy => false,
+        };
         let poll = copy.any_going(&self.calls) && entry.runs.timing().poll(Instant::now());
         if ask.forced || stale || poll {
             let plan = Plan {

@@ -9,7 +9,7 @@ use crate::{
     protocol::{
         node::{
             EnvSecret,
-            harness::{HarnessInfo, HarnessReport, harness},
+            harness::{HarnessInfo, HarnessReport, clean_output, harness},
         },
         *,
     },
@@ -88,6 +88,147 @@ pub(super) async fn save_harness_settings(
     Ok(())
 }
 
+pub(super) async fn list_harness_settings(
+    cx: Cx,
+    ListHarnessSettings { agent }: ListHarnessSettings,
+) -> Reply<Vec<MachineHarnessSettings>> {
+    checked_agent(&agent)?;
+    let rows = cx.user.harness_settings_of(&agent).await?;
+    Ok(cx
+        .user
+        .nodes()
+        .await?
+        .into_iter()
+        .map(|node| {
+            let row = rows.iter().find(|row| row.machine_id == node.endpoint);
+            MachineHarnessSettings {
+                settings: settings_of(row),
+                machine_id: node.endpoint,
+                machine_name: node.name,
+            }
+        })
+        .collect())
+}
+
+pub(super) async fn save_harness_settings_all(
+    cx: Cx,
+    SaveHarnessSettingsAll {
+        from_machine,
+        agent,
+        settings,
+        include_program,
+    }: SaveHarnessSettingsAll,
+) -> Reply<u32> {
+    let machines: Vec<String> = cx
+        .user
+        .nodes()
+        .await?
+        .into_iter()
+        .map(|node| node.endpoint)
+        .collect();
+    if !machines.contains(&from_machine) {
+        return Err(ApiError::NotFound {});
+    }
+    checked_agent(&agent)?;
+    let settings = checked(settings)?;
+    let everywhere = Everywhere {
+        machines: &machines,
+        from_machine: &from_machine,
+        agent: &agent,
+        include_program,
+    };
+    let saved = save_everywhere(&cx.user, &cx.app.credential_key, &everywhere, settings).await?;
+    for machine in &saved {
+        cx.app.nodes.agent_settings_changed(cx.user.id(), machine);
+    }
+    Ok(u32::try_from(saved.len()).context("too many machines")?)
+}
+
+/// Where `SaveHarnessSettingsAll` saves, and what it copies.
+struct Everywhere<'a> {
+    machines: &'a [String],
+    from_machine: &'a str,
+    agent: &'a str,
+    include_program: bool,
+}
+
+/// What one machine keeps of its own when settings are saved to all of
+/// them: whether the harness is on there, and its binary path unless that
+/// is copied too or it is the machine the settings were edited on.
+#[derive(Debug, PartialEq)]
+struct Kept {
+    machine_id: String,
+    enabled: bool,
+    program: String,
+}
+
+fn kept_per_machine(
+    everywhere: &Everywhere<'_>,
+    rows: &[HarnessRow],
+    edited: &HarnessSettings,
+) -> Vec<Kept> {
+    everywhere
+        .machines
+        .iter()
+        .map(|machine| {
+            let row = rows.iter().find(|row| &row.machine_id == machine);
+            let source = machine == everywhere.from_machine;
+            Kept {
+                machine_id: machine.clone(),
+                enabled: if source {
+                    edited.enabled
+                } else {
+                    row.is_none_or(|row| row.enabled)
+                },
+                program: if source || everywhere.include_program {
+                    edited.program.clone()
+                } else {
+                    row.map(|row| row.program.clone()).unwrap_or_default()
+                },
+            }
+        })
+        .collect()
+}
+
+/// Saves checked `settings` for the harness on every machine, each env
+/// var sealed for its own machine; a var with no value takes the one saved
+/// on the source machine. Gives the machines saved.
+async fn save_everywhere(
+    user: &User,
+    key: &CredentialKey,
+    everywhere: &Everywhere<'_>,
+    settings: HarnessSettings,
+) -> anyhow::Result<Vec<String>> {
+    let agent = everywhere.agent;
+    let rows = user.harness_settings_of(agent).await?;
+    let kept = kept_per_machine(everywhere, &rows, &settings);
+    let env = env_to_save(user, key, everywhere.from_machine, agent, settings.env).await?;
+    let mut saved = Vec::with_capacity(kept.len());
+    for machine in kept {
+        user.save_harness_settings(
+            key,
+            SaveHarness {
+                machine_id: &machine.machine_id,
+                agent,
+                enabled: machine.enabled,
+                program: &machine.program,
+                home: &settings.home,
+                args: &settings.args,
+                env: &env,
+            },
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "the {agent} settings for {} were not saved",
+                machine.machine_id
+            )
+        })?;
+        saved.push(machine.machine_id);
+    }
+    Ok(saved)
+}
+
 pub(super) async fn get_flsh_settings(
     cx: Cx,
     GetFlshSettings {}: GetFlshSettings,
@@ -118,10 +259,12 @@ pub(super) async fn update_agent_harness(
         .update_harness(&agent)
         .await
         .map_err(|e| {
+            // Older nodes send the command's output as it was printed.
             ApiError::bad_request(format!(
-                "Could not update {} on {}: {e:#}",
+                "Could not update {} on {}: {}",
                 agent_name(&agent),
-                machine.name
+                machine.name,
+                clean_output(&format!("{e:#}"))
             ))
         })?
         .ok_or_else(|| too_old(&machine.name))?;
@@ -191,7 +334,26 @@ fn harness_view(info: HarnessInfo, rows: &[HarnessRow], tokens: &[AgentTokenRow]
         (None, Some(false)) => HarnessSignIn::SignedOut {},
         (None, None) => HarnessSignIn::Unknown {},
     };
-    let settings = rows.iter().find(|row| row.agent == info.agent).map_or_else(
+    let settings = settings_of(rows.iter().find(|row| row.agent == info.agent));
+    AgentHarness {
+        agent: info.agent,
+        installed: info.installed,
+        runnable: info.runnable,
+        version: info.version,
+        latest: info.latest,
+        program: info.program,
+        home_var: known.map(|known| known.home_var.to_owned()),
+        home_default: known.map(|known| known.home_default.to_owned()),
+        sign_in,
+        install: info.install,
+        settings,
+    }
+}
+
+/// A harness's saved settings as the apps see them, the env var names
+/// without their values; the defaults when none are saved.
+fn settings_of(row: Option<&HarnessRow>) -> HarnessSettings {
+    row.map_or_else(
         || HarnessSettings {
             enabled: true,
             program: String::new(),
@@ -214,20 +376,7 @@ fn harness_view(info: HarnessInfo, rows: &[HarnessRow], tokens: &[AgentTokenRow]
                 })
                 .collect(),
         },
-    );
-    AgentHarness {
-        agent: info.agent,
-        installed: info.installed,
-        runnable: info.runnable,
-        version: info.version,
-        latest: info.latest,
-        program: info.program,
-        home_var: known.map(|known| known.home_var.to_owned()),
-        home_default: known.map(|known| known.home_default.to_owned()),
-        sign_in,
-        install: info.install,
-        settings,
-    }
+    )
 }
 
 /// A slug Beep knows, or one a machine's `node.toml` could add.
@@ -506,6 +655,104 @@ mod tests {
             }
         );
         assert!(shown.settings.enabled);
+    }
+
+    fn row(machine: &str, enabled: bool, program: &str) -> HarnessRow {
+        HarnessRow {
+            machine_id: machine.into(),
+            agent: "codex".into(),
+            enabled,
+            program: program.into(),
+            home: String::new(),
+            args: Vec::new(),
+            env_names: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn saving_everywhere_copies_the_binary_path_only_when_asked() {
+        let machines = ["m1".to_owned(), "m2".to_owned(), "m3".to_owned()];
+        let rows = vec![row("m1", true, "/old"), row("m2", false, "/srv/codex")];
+        let edited = checked(settings(Vec::new())).unwrap();
+        let everywhere = |include_program| Everywhere {
+            machines: &machines,
+            from_machine: "m1",
+            agent: "codex",
+            include_program,
+        };
+        let kept = |machine: &str, enabled: bool, program: &str| Kept {
+            machine_id: machine.into(),
+            enabled,
+            program: program.into(),
+        };
+        // Off by default: each other machine keeps its own path, and stays
+        // off where it was off; one with nothing saved stays on.
+        assert_eq!(
+            kept_per_machine(&everywhere(false), &rows, &edited),
+            [
+                kept("m1", true, "/opt/bin/codex-acp"),
+                kept("m2", false, "/srv/codex"),
+                kept("m3", true, ""),
+            ]
+        );
+        assert_eq!(
+            kept_per_machine(&everywhere(true), &rows, &edited),
+            [
+                kept("m1", true, "/opt/bin/codex-acp"),
+                kept("m2", false, "/opt/bin/codex-acp"),
+                kept("m3", true, "/opt/bin/codex-acp"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_everywhere_reaches_a_machine_with_nothing_saved() {
+        let db = crate::store::TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let key = CredentialKey::random();
+        let secret = vec![EnvSecret {
+            name: "HTTPS_PROXY".into(),
+            value: SecretText::new("http://proxy:3128"),
+        }];
+        user.save_harness_settings(
+            &key,
+            SaveHarness {
+                machine_id: "m1",
+                agent: "codex",
+                enabled: true,
+                program: "",
+                home: "",
+                args: &[],
+                env: &secret,
+            },
+        )
+        .await
+        .unwrap();
+        // m2 is offline and has nothing saved: it gets the settings from
+        // the store when it next connects.
+        let machines = ["m1".to_owned(), "m2".to_owned()];
+        let everywhere = Everywhere {
+            machines: &machines,
+            from_machine: "m1",
+            agent: "codex",
+            include_program: false,
+        };
+        let saved = save_everywhere(
+            &user,
+            &key,
+            &everywhere,
+            checked(settings(vec![var("HTTPS_PROXY", None)])).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved, ["m1", "m2"]);
+        let later = user.agent_settings(&key, "m2").await.unwrap();
+        let codex = later.harnesses.iter().find(|h| h.agent == "codex").unwrap();
+        assert_eq!(codex.args, ["--profile", "work"]);
+        assert_eq!(codex.program, None);
+        // The kept value was opened on m1 and sealed again for m2.
+        assert_eq!(codex.env, secret);
+        assert_eq!(user.harness_env(&key, "m2", "codex").await.unwrap(), secret);
     }
 
     #[test]

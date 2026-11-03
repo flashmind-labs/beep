@@ -23,6 +23,18 @@ pub(crate) const HOOK_GAP: Duration = Duration::from_secs(5);
 /// A project nobody asked about for this long is dropped from memory.
 pub(crate) const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 
+/// What an ask does about the host before it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AskRead {
+    /// The copy is fresh: it is the answer.
+    Copy,
+    /// The copy is old: it is the answer as it is, and the background sync
+    /// reads the host and tells the pages following the project.
+    CopyThenSync,
+    /// Read the host first: there is no copy yet, or Refresh may read now.
+    Host,
+}
+
 /// One copy's asks and reads.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Timing {
@@ -70,6 +82,19 @@ impl Timing {
             FRESH
         };
         !recent(self.synced, now, ttl)
+    }
+
+    /// What an ask does: `forced` when Refresh may read now, `has_copy`
+    /// once a read succeeded. An old copy never keeps the page waiting on
+    /// the host.
+    pub(crate) fn ask_read(&self, now: Instant, forced: bool, has_copy: bool) -> AskRead {
+        if forced || (!has_copy && self.stale(now)) {
+            AskRead::Host
+        } else if self.stale(now) {
+            AskRead::CopyThenSync
+        } else {
+            AskRead::Copy
+        }
     }
 
     /// Whether a Refresh may read the host now; records it when it may.
@@ -153,6 +178,40 @@ mod tests {
         assert!(
             !t.background_due(start + secs(30 * 60)),
             "nobody looked for half an hour"
+        );
+    }
+
+    #[test]
+    fn an_old_copy_answers_at_once_and_is_read_in_the_background() {
+        let start = Instant::now();
+        let mut t = Timing::default();
+        assert_eq!(
+            t.ask_read(start, false, false),
+            AskRead::Host,
+            "no copy yet"
+        );
+        t.synced(start, true);
+        assert_eq!(t.ask_read(start + secs(60), false, true), AskRead::Copy);
+        assert_eq!(
+            t.ask_read(start + secs(180), false, true),
+            AskRead::CopyThenSync
+        );
+        assert_eq!(
+            t.ask_read(start + secs(180), true, true),
+            AskRead::Host,
+            "Refresh reads now"
+        );
+        // Every read failed so far: there is nothing to show but the host.
+        let mut failed = Timing::default();
+        failed.synced(start, false);
+        assert_eq!(
+            failed.ask_read(start + secs(60), false, false),
+            AskRead::Host
+        );
+        assert_eq!(
+            failed.ask_read(start + secs(30), false, false),
+            AskRead::Copy,
+            "tried a moment ago"
         );
     }
 
