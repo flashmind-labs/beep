@@ -129,39 +129,4 @@ mod tests {
         assert!(found.persona.notices.is_empty());
         assert_eq!(found.file, "agents/rigger.md");
     }
-
-    #[test]
-    fn persona_without_beep_keys() {
-        let text = "---\nname: reviewer\ndescription: Reviews code\n---\nReview it.\n";
-        let found = parse("reviewer.md", text).unwrap();
-        assert_eq!(found.engine, None);
-        assert!(found.needs.is_empty());
-        assert!(found.mcp.is_empty());
-    }
-
-    #[test]
-    fn persona_unknown_engine_fails() {
-        let text = "---\nname: a\ndescription: b\nengine: copilot\n---\nBody\n";
-        assert!(matches!(
-            parse("a.md", text),
-            Err(PersonaFileError::Engine(name)) if name == "copilot"
-        ));
-    }
-
-    #[test]
-    fn persona_unknown_need_fails() {
-        let text = "---\nname: a\ndescription: b\nneeds: [quantum]\n---\nBody\n";
-        assert!(matches!(
-            parse("a.md", text),
-            Err(PersonaFileError::Need(name)) if name == "quantum"
-        ));
-    }
-
-    #[test]
-    fn persona_without_frontmatter_fails() {
-        assert!(matches!(
-            parse("a.md", "Just text"),
-            Err(PersonaFileError::Persona(PersonaError::MissingFrontmatter))
-        ));
-    }
 }

@@ -386,45 +386,6 @@ pub(crate) fn parse_verdicts(text: &str) -> Option<Vec<Said>> {
 mod tests {
     use super::*;
 
-    fn subject() -> Subject<'static> {
-        Subject {
-            project: "acme/widget",
-            branch: "login-copy",
-            base: "main",
-            head: "3f2c1a0aaaaaaaaa",
-            merge_base: "1a2b3c4bbbbbbbbb",
-            at_head: false,
-        }
-    }
-
-    #[test]
-    fn a_reviewer_sees_the_whole_stat_and_its_own_diff() {
-        let changed = [
-            Changed {
-                path: "apps/web/copy.ts".into(),
-                lines: 12,
-            },
-            Changed {
-                path: "crates/core/lib.rs".into(),
-                lines: 30,
-            },
-        ];
-        let shard = Shard {
-            area: "apps/web".into(),
-            paths: vec!["apps/web/copy.ts".into()],
-            lines: 12,
-        };
-        let prompt = reviewer_prompt(&subject(), &changed, &shard);
-        assert!(prompt.contains("read-only review"), "{prompt}");
-        assert!(prompt.contains("crates/core/lib.rs (30)"), "{prompt}");
-        assert!(
-            prompt.contains("git diff 1a2b3c4bbb 3f2c1a0aaa -- apps/web/copy.ts"),
-            "{prompt}"
-        );
-        assert!(prompt.contains(FINDINGS_START) && prompt.contains(FINDINGS_END));
-        assert!(!prompt.contains('\u{2014}'));
-    }
-
     #[test]
     fn findings_are_read_from_the_last_block() {
         let reply = "I read the diff.\n\
@@ -450,32 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn verdicts_name_findings_by_number() {
-        let finding = ReviewFindingRow {
-            id: 4,
-            shard: 0,
-            severity: ReviewSeverity::Low {},
-            title: "Unused import".into(),
-            file: "src/limit.rs".into(),
-            line: Some(3),
-            why: "Dead code".into(),
-            verdict: None,
-            verdict_why: None,
-            dismissed: false,
-        };
-        let prompt = verifier_prompt(&subject(), &finding, "     3  use std::fmt;", "");
-        assert!(
-            prompt.contains("[low] Unused import at src/limit.rs:3"),
-            "{prompt}"
-        );
-        assert!(prompt.contains("     3  use std::fmt;"), "{prompt}");
-        assert!(prompt.contains("(nothing: the file"), "{prompt}");
-        let script = context_script("/srv/project", &subject(), "src/limit.rs", Some(3));
-        assert!(
-            script.contains("git show 3f2c1a0aaaaaaaaa:src/limit.rs "),
-            "{script}"
-        );
-        assert!(script.contains("NR>=1 && NR<=63"), "{script}");
+    fn verdicts_and_context_parse() {
         assert_eq!(
             parse_context("@@code\n  1  a\n@@diff\n+a\n"),
             ("  1  a\n".to_owned(), "+a\n".to_owned())

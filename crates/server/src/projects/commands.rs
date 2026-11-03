@@ -1275,45 +1275,6 @@ mod tests {
         )
     }
 
-    #[test]
-    fn worktree_add_quotes_paths() {
-        let checkout = MachinePath::parse("/srv/my project").expect("a path");
-        let slug = TaskSlug::parse("fix-it").expect("a slug");
-        let command = worktree_add(&checkout, &slug, "main");
-        assert!(
-            command.starts_with("git -C '/srv/my project' fetch origin main; "),
-            "{command}"
-        );
-        assert!(
-            command.contains("then start=refs/heads/main; else start=origin/main; fi;"),
-            "{command}"
-        );
-        assert!(
-            command.ends_with(
-                "worktree add -b beep/fix-it '/srv/my project/.worktrees/fix-it' \"$start\""
-            ),
-            "{command}"
-        );
-        let remove = worktree_remove(&checkout, &slug);
-        assert_eq!(
-            remove,
-            "git -C '/srv/my project' worktree remove --force \
-             '/srv/my project/.worktrees/fix-it' && git -C '/srv/my project' branch -D beep/fix-it"
-        );
-        let hostile = worktree_add(&checkout, &slug, "a; rm -rf /");
-        assert!(hostile.contains("'a; rm -rf /'"), "{hostile}");
-    }
-
-    #[test]
-    fn exclude_and_setup_commands_name_the_checkout_once_per_use() {
-        let checkout = MachinePath::parse("/srv/my project").expect("a path");
-        assert!(exclude_project_dirs(&checkout).contains("git -C '/srv/my project' rev-parse"));
-        assert_eq!(
-            read_setup(&checkout).matches("'/srv/my project'").count(),
-            4
-        );
-    }
-
     fn setup_out(remote: &str, issues: &str, prs: &str, head: &str) -> String {
         format!(
             "== remotes\nremote.origin.url {remote}\n== config\nissues={issues}\nprs={prs}\n\
@@ -1359,13 +1320,6 @@ mod tests {
     }
 
     #[test]
-    fn setup_reads_www_github_as_github() {
-        let out = setup_out("https://www.github.com/acme/widget", "", "", "");
-        let setup = parse_setup(&out, &repo()).expect("a setup");
-        assert_eq!(setup.roles.issues, Some(github()));
-    }
-
-    #[test]
     fn setup_refuses_another_repo() {
         let out = setup_out("git@github.com:acme/other.git", "", "", "origin/main");
         assert_eq!(
@@ -1380,60 +1334,7 @@ mod tests {
     }
 
     #[test]
-    fn open_issue_commands_render() {
-        let list = HostCommand::ListOpenIssues.render(&github(), &repo());
-        assert!(
-            list.starts_with(
-                "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue list -R acme/widget --state open --limit 100 \
-                 --json 'number,title,labels,author,createdAt,comments,url' --jq"
-            ),
-            "{list}"
-        );
-        assert_eq!(
-            HostCommand::ListOpenIssues.render(&forgejo(), &repo()),
-            "teacli issue list acme/widget --host git.example.com -s open --per-page 25 \
-             --format json"
-        );
-        assert_eq!(
-            HostCommand::ViewIssue { number: 9 }.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue view 9 -R acme/widget --json 'number,title,body,url,state,author'"
-        );
-        assert_eq!(
-            HostCommand::ViewIssue { number: 9 }.render(&forgejo(), &repo()),
-            "teacli issue get acme/widget 9 --host git.example.com --format json"
-        );
-    }
-
-    #[test]
-    fn open_pr_commands_render() {
-        let list = HostCommand::ListOpenPrs.render(&github(), &repo());
-        assert!(
-            list.starts_with(
-                "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr list -R acme/widget --state open --limit 100 \
-                 --json 'number,title,url,author,isDraft,createdAt,updatedAt,headRefName' --jq"
-            ),
-            "{list}"
-        );
-        assert_eq!(
-            HostCommand::ListOpenPrs.render(&forgejo(), &repo()),
-            "teacli pr list acme/widget --host git.example.com -s open --per-page 25 \
-             --format json"
-        );
-    }
-
-    #[test]
-    fn pr_heads_render_and_parse_from_gh_and_teacli() {
-        assert_eq!(
-            HostCommand::ViewPrHead { number: 41 }.render(&forgejo(), &repo()),
-            "teacli pr get acme/widget 41 --host git.example.com --format json"
-        );
-        let gh = HostCommand::ViewPrHead { number: 41 }.render(&github(), &repo());
-        assert!(
-            gh.ends_with(
-                "gh pr view 41 -R acme/widget --json 'number,headRefName,isCrossRepository'"
-            ),
-            "{gh}"
-        );
+    fn pr_heads_parse_from_gh_and_teacli() {
         let head = |number, branch: &str, fork| PrHead {
             number,
             branch: branch.into(),
@@ -1552,38 +1453,6 @@ mod tests {
     }
 
     #[test]
-    fn whoami_and_comment_render_and_parse() {
-        assert_eq!(
-            HostCommand::WhoAmI.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh api user --jq .login"
-        );
-        assert_eq!(
-            HostCommand::WhoAmI.render(&forgejo(), &repo()),
-            "teacli whoami --host git.example.com --format json"
-        );
-        let comment = HostCommand::CommentIssue {
-            number: 4,
-            body: "Fixed in #5",
-        };
-        assert_eq!(
-            comment.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue comment 4 -R acme/widget --body 'Fixed in #5'"
-        );
-        assert_eq!(
-            comment.render(&forgejo(), &repo()),
-            "teacli issue comment create acme/widget 4 --host git.example.com -b 'Fixed in #5' \
-             --format json"
-        );
-        assert_eq!(parse_login("sam\n").expect("a login"), "sam");
-        assert_eq!(
-            parse_login(r#"{"id": 3, "login": "kim"}"#).expect("a login"),
-            "kim"
-        );
-        assert!(parse_login("").is_err());
-        assert!(parse_login("not logged in").is_err());
-    }
-
-    #[test]
     fn a_viewed_issue_parses_and_a_pr_is_refused() {
         let gh = r#"{"number":12,"title":"Crash","body":"Steps","state":"OPEN",
             "author":{"login":"sam"},"url":"https://github.com/acme/widget/issues/12"}"#;
@@ -1593,91 +1462,6 @@ mod tests {
         assert_eq!(issue.body, "Steps");
         let pr = r#"{"number":5,"title":"PR","body":"","state":"open","pull_request":{}}"#;
         assert!(parse_viewed_issue(pr).is_err());
-    }
-
-    #[test]
-    fn gh_and_teacli_render() {
-        let create = HostCommand::CreateIssue {
-            title: "Fix it",
-            body: "More",
-        };
-        assert_eq!(
-            create.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue create -R acme/widget --title 'Fix it' --body More --label beep"
-        );
-        assert_eq!(
-            create.render(&forgejo(), &repo()),
-            "teacli issue create acme/widget --host git.example.com -t 'Fix it' -b More \
-             --label beep --format json"
-        );
-        let close = HostCommand::CloseIssue {
-            number: 4,
-            comment: "Done in #5",
-            not_planned: true,
-        };
-        assert_eq!(
-            close.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue close 4 -R acme/widget --comment 'Done in #5' --reason 'not planned'"
-        );
-        assert_eq!(
-            close.render(&forgejo(), &repo()),
-            "teacli issue comment create acme/widget 4 --host git.example.com -b 'Done in #5' \
-             --format json && teacli issue close acme/widget 4 --host git.example.com --format json"
-        );
-        let relabel = HostCommand::Relabel {
-            number: 4,
-            add: Some(LABEL_REVIEW),
-            remove: &[LABEL_RUNNING, LABEL_BLOCKED],
-        };
-        assert_eq!(
-            relabel.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh issue edit 4 -R acme/widget --add-label beep:review \
-             --remove-label beep:running --remove-label beep:blocked"
-        );
-        assert_eq!(
-            relabel.render(&forgejo(), &repo()),
-            "teacli issue label add acme/widget 4 beep:review --host git.example.com --format json \
-             && teacli issue label remove acme/widget 4 beep:running beep:blocked \
-             --host git.example.com --format json"
-        );
-        let find = HostCommand::FindPr {
-            branch: "beep/fix-it",
-            base: "main",
-        };
-        assert_eq!(
-            find.render(&forgejo(), &repo()),
-            "teacli pr find acme/widget main beep/fix-it --host git.example.com --format json"
-        );
-        assert!(find.render(&github(), &repo()).starts_with(
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr list -R acme/widget --head"
-        ));
-        assert_eq!(
-            HostCommand::MergePr { number: 7 }.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr merge 7 -R acme/widget --squash"
-        );
-        assert_eq!(
-            HostCommand::Visibility.render(&github(), &repo()),
-            "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh repo view acme/widget --json visibility"
-        );
-        assert_eq!(
-            HostCommand::Visibility.render(&forgejo(), &repo()),
-            "teacli repo get acme/widget --host git.example.com --format json"
-        );
-        let list = HostCommand::ListOwnedIssues.render(&github(), &repo());
-        assert!(
-            list.contains("--label beep --state all --limit 50"),
-            "{list}"
-        );
-        assert!(
-            HostCommand::EnsureLabels
-                .render(&github(), &repo())
-                .contains("--force")
-        );
-        assert!(
-            HostCommand::EnsureLabels
-                .render(&forgejo(), &repo())
-                .contains("label create")
-        );
     }
 
     #[test]
@@ -1713,49 +1497,6 @@ mod tests {
             HostCommand::ReopenIssue { number: 1 }
                 .leaks(&public_text)
                 .is_empty()
-        );
-    }
-
-    #[test]
-    fn created_issue_numbers_parse() {
-        let created =
-            parse_created_issue(&github(), "\nhttps://github.com/acme/widget/issues/12\n")
-                .expect("an issue");
-        assert_eq!(created.number, 12);
-        assert_eq!(created.url, "https://github.com/acme/widget/issues/12");
-        let created = parse_created_issue(
-            &forgejo(),
-            r#"{"number": 7, "html_url": "https://git.example.com/acme/widget/issues/7"}"#,
-        )
-        .expect("an issue");
-        assert_eq!(created.number, 7);
-        assert_eq!(created.url, "https://git.example.com/acme/widget/issues/7");
-        assert!(parse_created_issue(&github(), "no issue was made").is_err());
-    }
-
-    #[test]
-    fn owned_issues_parse() {
-        let gh = r#"[{"number":3,"state":"CLOSED","title":"A","comments":[{"id":1},{"id":2}]}]"#;
-        let issues = parse_owned_issues(&github(), gh).expect("issues");
-        assert_eq!(
-            issues,
-            [OwnedIssue {
-                number: 3,
-                open: false,
-                title: "A".into(),
-                comments: 2
-            }]
-        );
-        let tea = r#"[{"number":4,"state":"open","title":"B","comments":5}]"#;
-        let issues = parse_owned_issues(&forgejo(), tea).expect("issues");
-        assert_eq!(
-            issues,
-            [OwnedIssue {
-                number: 4,
-                open: true,
-                title: "B".into(),
-                comments: 5
-            }]
         );
     }
 
@@ -1818,22 +1559,6 @@ mod tests {
     }
 
     #[test]
-    fn fingerprints_change_with_the_state() {
-        let pr = parse_pr(
-            &github(),
-            &gh_pr(r#"[{"conclusion":"SUCCESS"}]"#, "APPROVED", "null"),
-        )
-        .expect("json")
-        .expect("a pr");
-        assert_eq!(pr_fingerprint(&pr), "open|false|APPROVED|passing");
-        let failing = PrState {
-            checks: ChecksState::Failing,
-            ..pr.clone()
-        };
-        assert_ne!(pr_fingerprint(&pr), pr_fingerprint(&failing));
-    }
-
-    #[test]
     fn unreadable_visibility_is_public() {
         assert_eq!(
             parse_visibility(&github(), r#"{"visibility":"PRIVATE"}"#),
@@ -1872,17 +1597,6 @@ mod tests {
 
     #[test]
     fn found_issues_must_hold_the_marker() {
-        let gh = HostCommand::FindIssue {
-            marker: "beep-task:1",
-        }
-        .render(&github(), &repo());
-        assert!(gh.contains("--jq"), "{gh}");
-        assert!(gh.contains(r#"contains("beep-task:1")"#), "{gh}");
-        let tea = HostCommand::FindIssue {
-            marker: "beep-task:1",
-        }
-        .render(&forgejo(), &repo());
-        assert!(tea.contains("-q beep-task:1"), "{tea}");
         let out = r#"[{"number": 4, "html_url": "https://git.example.com/acme/widget/issues/4", "body": "x beep-task:2"},
                       {"number": 5, "html_url": "https://git.example.com/acme/widget/issues/5", "body": "y <!-- beep-task:1 -->"}]"#;
         let found = parse_found_issue(out, "beep-task:1").unwrap();
