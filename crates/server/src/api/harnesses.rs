@@ -9,7 +9,7 @@ use crate::{
     protocol::{
         node::{
             EnvSecret,
-            harness::{HarnessInfo, HarnessReport, harness},
+            harness::{HarnessInfo, HarnessReport, clean_output, harness},
         },
         *,
     },
@@ -259,10 +259,12 @@ pub(super) async fn update_agent_harness(
         .update_harness(&agent)
         .await
         .map_err(|e| {
+            // Older nodes send the command's output as it was printed.
             ApiError::bad_request(format!(
-                "Could not update {} on {}: {e:#}",
+                "Could not update {} on {}: {}",
                 agent_name(&agent),
-                machine.name
+                machine.name,
+                clean_output(&format!("{e:#}"))
             ))
         })?
         .ok_or_else(|| too_old(&machine.name))?;

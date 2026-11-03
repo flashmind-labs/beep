@@ -6,6 +6,7 @@ mod gpu;
 
 use crate::provision::spawn_env::{self, Scope};
 use crate::syncthing::Syncthing;
+use beep_proto::node::harness::parse_version;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{env, path::PathBuf, process::Stdio, time::Duration};
 use tokio::time::timeout;
@@ -45,7 +46,11 @@ pub async fn probe() -> EnvReport {
     let path = spawn_env::search_path();
     for (name, args) in KNOWN_TOOLS {
         if which::which_in(name, path.as_ref(), "/").is_ok() {
-            let version = output(name, args).await.as_deref().and_then(first_line);
+            let version = output(name, args)
+                .await
+                .as_deref()
+                .and_then(first_line)
+                .map(|line| tool_version(name, &line));
             tools.push(ToolInfo {
                 name: (*name).to_owned(),
                 version,
@@ -116,6 +121,22 @@ pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) 
 fn first_line(text: &str) -> Option<String> {
     let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
     Some(line.chars().take(MAX_VERSION).collect())
+}
+
+/// The bare version in `line`, what tool `name` printed first: `0.162.1`
+/// for `codex-cli 0.162.1`, `2.2.5` for `opencode v2.2.5`, `1.22.0` for
+/// `go version go1.22.0 linux/amd64`. A line with no version in it is kept
+/// as it is.
+fn tool_version(name: &str, line: &str) -> String {
+    let words: Vec<&str> = line
+        .split_whitespace()
+        .map(|word| {
+            word.strip_prefix(name)
+                .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+                .unwrap_or(word)
+        })
+        .collect();
+    parse_version(&words.join(" ")).unwrap_or_else(|| line.to_owned())
 }
 
 /// Whether `tool` is signed in, from its status command: it succeeds only
@@ -315,6 +336,25 @@ mod tests {
     fn avd_list_skips_log_lines() {
         let text = "INFO    | Storing crashdata in: /tmp/x\nPixel_7\nPixel_9_Pro\n";
         assert_eq!(avd_names(text), ["Pixel_7", "Pixel_9_Pro"]);
+    }
+
+    #[test]
+    fn tool_versions_are_bare() {
+        let cases = [
+            ("claude", "2.1.312 (Claude Code)", "2.1.312"),
+            ("codex", "codex-cli 0.162.1", "0.162.1"),
+            ("opencode", "opencode v2.2.5", "2.2.5"),
+            ("opencode", "1.3.13", "1.3.13"),
+            ("go", "go version go1.22.0 linux/amd64", "1.22.0"),
+            ("docker", "Docker version 27.3.1, build ce12230", "27.3.1"),
+            ("kubectl", "Client Version: v1.31.2", "1.31.2"),
+            ("node", "v22.11.0", "22.11.0"),
+            ("xcodebuild", "Xcode 16.1", "16.1"),
+        ];
+        for (name, line, want) in cases {
+            assert_eq!(tool_version(name, line), want, "{name}: {line}");
+        }
+        assert_eq!(tool_version("tool", "no version here"), "no version here");
     }
 
     #[test]
