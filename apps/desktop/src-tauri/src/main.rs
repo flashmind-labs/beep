@@ -274,6 +274,8 @@ fn main() {
             agent_accounts::agent_accounts,
             harnesses::agent_harnesses,
             harnesses::harness_settings_save,
+            harnesses::harness_settings_all,
+            harnesses::harness_settings_save_all,
             harnesses::agent_harness_update,
             flsh_settings::flsh_settings_get,
             flsh_settings::flsh_settings_save,

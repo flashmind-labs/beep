@@ -7,7 +7,7 @@ use super::{
     http::HostCalls,
     lists::{self, ListsCopy},
     live::{self, RunsCopy},
-    timing::Timing,
+    timing::{AskRead, Timing},
 };
 use crate::{AsyncMutex, app::App, projects::model::ProjectId};
 use futures::{StreamExt, stream};
@@ -72,6 +72,13 @@ impl<T> Watched<T> {
     /// is held, so an ask that waited on another's read takes that one.
     pub(super) fn stale(&self) -> bool {
         self.timing().stale(Instant::now())
+    }
+
+    /// What an ask does about the host, checked once the copy's lock is
+    /// held: `forced` when Refresh may read now, `has_copy` once a read
+    /// succeeded.
+    pub(super) fn ask_read(&self, forced: bool, has_copy: bool) -> AskRead {
+        self.timing().ask_read(Instant::now(), forced, has_copy)
     }
 }
 
@@ -174,6 +181,12 @@ impl RepoWatch {
         if refresh.runs {
             entry.runs.timing().poke();
         }
+        self.wake.notify_one();
+    }
+
+    /// Has the background sync look for old copies now: an ask just
+    /// answered with one.
+    pub(super) fn sync_soon(&self) {
         self.wake.notify_one();
     }
 

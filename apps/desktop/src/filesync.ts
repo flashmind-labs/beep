@@ -9,6 +9,7 @@ import type { SyncRow } from "./home.ts";
 import { reason } from "./projects-state.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
 import type { TileData, TileRow } from "./board.ts";
+import { PageCache, type SectionStore } from "./pagecache.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
 export interface SyncProgress {
@@ -63,6 +64,9 @@ export interface FileSyncDeps {
   h: MakeEl;
   button: MakeButton;
   redraw: () => void;
+  /// Where each project's sync is kept between windows; in memory only
+  /// without it.
+  kept?: SectionStore<SyncDetail | null>;
 }
 
 /// How often the open view reads the sync again.
@@ -206,9 +210,13 @@ export function makeFileSync(deps: FileSyncDeps) {
   let timer: ReturnType<typeof setInterval> | undefined;
   let polling: string | null = null;
 
+  const kept = deps.kept ?? new PageCache(null).section<SyncDetail | null>("filesync");
+
+  /// A project's sync, from the cache until it is read; the kept one is as
+  /// old as the cache says.
   const of = (name: string) => {
     let s = all.get(name);
-    if (!s) all.set(name, s = { detail: undefined, error: "", busy: null, loading: false, read_at: 0 });
+    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null, loading: false, read_at: kept.at(name) ?? 0 });
     return s;
   };
 
@@ -219,6 +227,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     try {
       s.detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
       s.error = "";
+      kept.put(name, s.detail);
     } catch (e) {
       s.detail ??= null;
       s.error = reason(e);
@@ -229,11 +238,17 @@ export function makeFileSync(deps: FileSyncDeps) {
     redraw();
   }
 
+  /// Reads `name` once its detail is `every` old. The read, when one
+  /// starts.
+  function ensure(name: string, every = TILE_MAX_AGE_MS): Promise<void> | undefined {
+    const s = of(name);
+    if (Date.now() - s.read_at > every && !s.loading) return load(name);
+  }
+
   /// The detail for the board's tile, read again once it is old.
   function forTile(name: string) {
-    const s = of(name);
-    if (Date.now() - s.read_at > TILE_MAX_AGE_MS) load(name);
-    return s.detail;
+    ensure(name);
+    return of(name).detail;
   }
 
   /// Reads `name` again every few seconds while its view shows; null stops.
@@ -351,6 +366,7 @@ export function makeFileSync(deps: FileSyncDeps) {
 
   return {
     load,
+    ensure,
     detail: (name: string) => of(name).detail,
     forTile,
     panel,

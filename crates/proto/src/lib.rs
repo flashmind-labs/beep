@@ -1253,9 +1253,9 @@ requests! {
     /// The open pull requests and the open issues no task tracks of
     /// `project_id`, as `ListProjectPullRequests` and `ListProjectIssues`
     /// give them, from the server's copy and with when it was read. The
-    /// server reads the host again on the first ask, when its copy is a few
-    /// minutes old, and every few minutes while someone looks at the
-    /// project. `refresh` reads it now, at most once per 30 seconds per
+    /// server reads the host on the first ask, and every few minutes while
+    /// someone looks at the project. A copy a few minutes old is given as
+    /// it is and read again in the background; `WatchProject` says when. `refresh` reads it now, at most once per 30 seconds per
     /// project; sooner, the copy is given as it is. A host that could not
     /// be read gives its error and the lists read before. `NotFound` when
     /// the caller has no such project.
@@ -1310,6 +1310,28 @@ requests! {
     /// flsh's config before it starts flsh. `BadRequest` saying why for a
     /// value flsh would not take (`FlshSettings::check`).
     371 SaveFlshSettings { settings: FlshSettings } => Call<()>
+    /// The caller's settings for the harness `agent` on each of their
+    /// machines, online or not, so the Coding agents page can say which
+    /// fields differ between them. A machine with none saved gives the
+    /// defaults. Env var values never come back.
+    372 ListHarnessSettings { agent: String } => Call<Vec<MachineHarnessSettings>>
+    /// Saves `settings` for the harness `agent` on every machine of the
+    /// caller's, online or not: online ones get them now, the others when
+    /// they next connect. Each machine keeps whether the harness is on, and
+    /// its own binary path unless `include_program`. An env var whose
+    /// `value` is `None` takes the value saved on `from_machine`; each
+    /// machine's copy is sealed for that machine. Replies how many machines
+    /// were saved. `NotFound` when `from_machine` is not one of the
+    /// caller's; `BadRequest` as `SaveHarnessSettings`.
+    373 SaveHarnessSettingsAll { from_machine: String, agent: String, settings: HarnessSettings, include_program: bool } => Call<u32>
+}
+
+/// One machine's settings for a harness (`ListHarnessSettings`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineHarnessSettings {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub settings: HarnessSettings,
 }
 
 /// What `ListProjectRunsAll` gives.
