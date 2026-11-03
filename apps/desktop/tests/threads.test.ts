@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadCode, issueTile, threadTile, issueMeta, threadMeta, workChoices } from "../src/threads.ts";
+import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN } from "../src/threads.ts";
 
 const ago = () => "2 h ago";
 
@@ -76,19 +76,90 @@ test("an issue's line says who opened it and how busy it is", () => {
   assert.equal(threadMeta({ last_other: "", updated_at: 0, needs_reply: false }, ago), "your last comment is the newest");
 });
 
-test("Work on it offers the machines' agents, first one picked", () => {
-  const hosts = [
-    { machine_id: "a", machine_name: "build-box", agents: ["claude", "codex"] },
-    { machine_id: "b", machine_name: "mac-box", agents: ["codex", "pi"] },
-    { machine_id: "c", machine_name: "gpu-box", agents: ["flsh"] },
+const pr = (number: number, o: Partial<{ author: string; mine: boolean; draft: boolean; created_at: number }> = {}) => ({
+  number,
+  title: `PR ${number}`,
+  url: `https://example.com/acme/widget/pull/${number}`,
+  author: o.author ?? "kim",
+  draft: o.draft ?? false,
+  mine: o.mine ?? false,
+  created_at: o.created_at ?? number,
+  updated_at: 0,
+});
+const task = (id: string, o: Partial<{ title: string; state: string; pr_url: string | null; issue_number: number | null; issue_url: string | null; branch: string | null }> = {}) => ({
+  id,
+  title: o.title ?? `Task ${id}`,
+  state: o.state ?? "running",
+  pr_url: o.pr_url ?? null,
+  issue_number: o.issue_number ?? null,
+  issue_url: o.issue_url ?? null,
+  branch: o.branch ?? null,
+});
+const review = (branch: string, number: number | null, checks: string, open = 0) => ({
+  branch,
+  merge: "clean",
+  pr: number == null ? null : { number, url: "", checks },
+  shards: [{ state: "done" }],
+  findings: Array.from({ length: open }, () => ({ verdict: "confirmed", dismissed: false })),
+});
+
+test("every open pull request shows its task, review and reply, those waiting first", () => {
+  const prs = [pr(40, { created_at: 1 }), pr(41, { mine: true, created_at: 2 }), pr(42, { draft: true, created_at: 3 })];
+  const tasks = [task("t1", { title: "Login copy", state: "review", pr_url: "https://example.com/acme/widget/pull/41", branch: "login-copy" })];
+  const threads = [{ kind: "pr", number: 41, needs_reply: true, repo: "acme/widget" }];
+  const lines = prLines(prs, tasks, threads, [review("login-copy", null, "none"), review("bump", 40, "failing")] as never);
+  assert.deepEqual(lines.map(l => l.pr.number), [41, 42, 40]);
+  const [mine, draft, other] = lines;
+  assert.equal(mine.task?.id, "t1");
+  assert.equal(mine.branch, "login-copy");
+  assert.equal(mine.review, "ready");
+  assert.deepEqual(prChip(mine), { cls: "blocked", text: "needs reply" });
+  assert.deepEqual(prMeta(mine, ago), ["you", "2 h ago", "ready", "task: Login copy"]);
+  assert.deepEqual(prChip(draft), { cls: "", text: "draft" });
+  assert.deepEqual(prMeta(draft, ago), ["kim", "2 h ago"]);
+  assert.equal(other.branch, "bump", "the review names the branch");
+  assert.equal(other.review, "blocked");
+  assert.deepEqual(prMeta(other, ago), ["kim", "2 h ago", "blocked · CI failing"]);
+  assert.equal(prNumber("https://example.com/x/pulls/7"), 7);
+  assert.equal(prNumber(null), null);
+});
+
+test("the issues are the untracked ones, then the tasks' still going", () => {
+  const issues = [{ number: 52, title: "Crash", labels: [], author: "sam", opened_at: 1, comments: 0, url: "u52" }];
+  const tasks = [
+    task("a", { issue_number: 44, issue_url: "u44" }),
+    task("b", { issue_number: 37, state: "done" }),
+    task("c", { issue_number: 52 }),
+    task("d"),
   ];
-  const where = [{ id: "a", kind: "here" }, { id: "b", kind: "here" }, { id: "c", kind: "missing" }];
-  const c = workChoices(hosts, where);
-  assert.deepEqual(c.agents, ["claude", "codex", "pi", "flsh"]);
-  assert.deepEqual(c.machines.map(m => m.name), ["build-box", "mac-box"]);
-  assert.equal(c.agent, "claude");
-  assert.equal(c.machine, "a");
-  const none = workChoices([], []);
-  assert.equal(none.agent, null);
-  assert.equal(none.machine, null);
+  const lines = issueLines(issues, tasks);
+  assert.deepEqual(lines.map(l => [l.number, l.task?.id ?? null]), [[52, null], [44, "a"]]);
+  assert.equal(lines[1].url, "u44");
+  assert.equal(issueCount(lines), "2 open · 1 not tracked");
+  assert.equal(issueCount(lines.slice(0, 1)), "1 open, none tracked");
+  assert.equal(issueCount([]), "");
+});
+
+test("a section shows its first rows until Show all", () => {
+  const rows = Array.from({ length: SHOWN + 3 }, (_, i) => i);
+  assert.deepEqual(firstRows(rows, false), { rows: rows.slice(0, SHOWN), hidden: 3 });
+  assert.equal(firstRows(rows, true).rows.length, SHOWN + 3);
+  assert.equal(firstRows([1, 2], false).hidden, 0);
+});
+
+test("Work on it and Continue fill the start form", () => {
+  assert.equal(issueBranch(52, "App crashes when the phone rotates during a call"), "issue-52-app-crashes-when-the-phone");
+  assert.equal(issueBranch(7, "Fix: the *login* bug!"), "issue-7-fix-the-login-bug");
+  assert.equal(issueBranch(8, "????"), "issue-8");
+  assert.equal(issueBranch(9, "Supercalifragilisticexpialidocious-and-more"), "issue-9-supercalifragilisticexpialidoc");
+  assert.equal(issuePrompt({ number: 52, title: "Crash", url: "https://example.com/i/52" }),
+    "Work on issue #52: Crash (https://example.com/i/52). Read the issue and its comments first, then propose and implement a fix.");
+  assert.equal(prPrompt({ number: 41, title: "Login copy", url: "https://example.com/p/41" }),
+    "Continue PR #41: Login copy (https://example.com/p/41). Read the review comments and failing checks first.");
+});
+
+test("the Issues tile says why the host could not be read", () => {
+  const why = "git.example.lan is on your own network, which Beep's server cannot reach.";
+  assert.equal(issueTile([], why).empty, why);
+  assert.equal(issueTile([{ number: 1, title: "x", url: "u", labels: [], comments: 0 }], why).rows.length, 1);
 });

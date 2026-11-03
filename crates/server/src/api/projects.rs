@@ -82,6 +82,25 @@ pub(super) async fn list_project_pull_requests(
     project_pull_requests(&cx.app, &cx.user, ProjectId(req.project_id)).await
 }
 
+pub(super) async fn get_pull_request_head(
+    cx: Cx,
+    req: GetPullRequestHead,
+) -> Reply<PullRequestHead> {
+    let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
+    let fleet = NodeFleet {
+        app: cx.app.clone(),
+        user: cx.user.clone(),
+    };
+    let head = issues::pull_request_head(&fleet, &cx.user, &project, req.number)
+        .await
+        .map_err(issue_refusal)?;
+    Ok(PullRequestHead {
+        number: head.number,
+        branch: head.branch,
+        fork: head.fork,
+    })
+}
+
 pub(super) async fn track_project_issue(cx: Cx, req: TrackProjectIssue) -> Reply<ProjectTask> {
     track_issue(
         &cx.app,

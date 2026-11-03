@@ -264,6 +264,7 @@ fn main() {
             threads::center_dismiss_issue,
             threads::center_project_threads,
             threads::center_project_pull_requests,
+            threads::center_pull_request_head,
             threads::center_reply_thread,
             threads::center_open_thread_chat,
             threads::center_thread_chats,

@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 13;
+pub const WIRE: u32 = 14;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -71,6 +71,13 @@ impl Feature {
     /// reads it from any app, and the wire revision only freezes its
     /// fixtures. Only the macOS app sends it.
     pub const AGENT_CONFIGURE: Feature = Feature(13);
+
+    /// Sends `AgentCheckoutPlan::NamedWorktree` and `BranchWorktree`, and
+    /// asks `GetPullRequestHead`, to start a coding agent on an issue's
+    /// named branch or a pull request's own. Requests, not replies: the
+    /// server reads them from any app, and the wire revision only freezes
+    /// their fixtures. Only the macOS app sends them.
+    pub const BRANCH_WORKTREES: Feature = Feature(14);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {
