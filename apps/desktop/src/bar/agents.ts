@@ -13,6 +13,7 @@ import { GONE, openViewer } from "./media.ts";
 import { drawPane, openPath, openPicture, paneFrame, startPane } from "./mediapane.ts";
 import { cap } from "./tools.ts";
 import { withMentions } from "../files-state.ts";
+import { atBottom, keptScrollTop, logScroll } from "../logscroll.ts";
 import { MN, mentionChips, resetMentions, takeMentions, wireMentionChips } from "./workdrop.ts";
 
 // ---------- Coding agents ----------
@@ -543,7 +544,7 @@ export function drawAgentFrame() {
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
   b.stuck = true;
-  b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; };
+  b.onscroll = () => { b.stuck = atBottom(b); };
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;
@@ -567,7 +568,7 @@ function agentClick(e: MouseEvent) {
   if (all) {
     const at = Number(all.dataset.all);
     if (!AG.all.delete(at)) AG.all.add(at);
-    return drawAgentBody();
+    return drawAgentBody(clickedRow(all));
   }
   if (target.closest("#agbody pre.out.all")) return;
   // A finished turn's heading or folded line opens its steps; the heading folds them again.
@@ -575,7 +576,7 @@ function agentClick(e: MouseEvent) {
   if (turn && AG.open) {
     const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
     if (!opened.delete(key)) opened.add(key);
-    return drawAgentBody();
+    return drawAgentBody(clickedRow(turn));
   }
   // A file a step names opens in the media pane.
   const step = target.closest<HTMLElement>("#agbody [data-media]");
@@ -601,13 +602,15 @@ function agentClick(e: MouseEvent) {
   if (tool && !getSelection()!.toString()) {
     const at = Number(tool.dataset.at);
     if (!AG.opened.delete(at)) AG.opened.add(at);
-    return drawAgentBody();
+    return drawAgentBody(clickedRow(tool));
   }
   // A pasted block opens by itself; remember it so a redraw keeps it open.
   const paste = target.closest<HTMLElement>("#agbody .dcoderen.user[data-at] details.paste > summary");
   if (paste) {
     const key = `${paste.closest<HTMLElement>("[data-at]")!.dataset.at}:${paste.parentElement!.dataset.paste}`;
     if (!AG.opened.delete(key)) AG.opened.add(key);
+    // Once it opened, the next redraw follows the bottom only if it is still in view.
+    requestAnimationFrame(() => { const b = $<ChatBody>("#agbody"); if (b) b.stuck = atBottom(b); });
     return;
   }
   if (target.closest("#agparent2")) return closeChild();
@@ -912,24 +915,47 @@ function questionCard(q: AgentQuestion) {
       <div class="dups">${buttons.join("")}</div></div>`;
 }
 
-/// Where the reader is in the log: the first row in view and how far it
-/// sits from the top, so a redraw puts it back there.
-function scrollAnchor(b: HTMLElement) {
-  const top = b.getBoundingClientRect().top;
-  for (const el of b.querySelectorAll<HTMLElement>("[data-row]")) {
-    const r = el.getBoundingClientRect();
-    if (r.bottom > top) return { row: el.dataset.row!, off: r.top - top, scroll: b.scrollTop };
-  }
-  return { row: null, off: 0, scroll: b.scrollTop };
+/// A row of the log a redraw puts back where it was: found by `sel`,
+/// `off` pixels from the log's top. `scroll` is where the log was, for
+/// when the row went.
+interface ScrollAnchor {
+  sel: string | null;
+  off: number;
+  scroll: number;
 }
 
-function restoreScroll(b: HTMLElement, a: ReturnType<typeof scrollAnchor>) {
-  const el = a.row != null ? b.querySelector<HTMLElement>(`[data-row="${a.row}"]`) : null;
-  if (el) b.scrollTop += el.getBoundingClientRect().top - b.getBoundingClientRect().top - a.off;
+/// The row a click opens or folds, as what finds it again once the log
+/// is drawn again: a turn by its heading, a step by its entry.
+function clickedRow(el: HTMLElement) {
+  const turn = el.closest<HTMLElement>("[data-turn]");
+  if (turn) return `[data-turn="${turn.dataset.turn}"]`;
+  const at = el.closest<HTMLElement>("[data-at]");
+  return at ? `[data-at="${at.dataset.at}"]` : undefined;
+}
+
+/// Where the reader is in the log: the row `sel` when given and there,
+/// else the first row in view, and how far it sits from the top, so a
+/// redraw puts it back there.
+function scrollAnchor(b: HTMLElement, sel?: string): ScrollAnchor {
+  const top = b.getBoundingClientRect().top;
+  const picked = sel ? b.querySelector<HTMLElement>(sel) : null;
+  if (sel && picked) return { sel, off: picked.getBoundingClientRect().top - top, scroll: b.scrollTop };
+  for (const el of b.querySelectorAll<HTMLElement>("[data-row]")) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > top) return { sel: `[data-row="${el.dataset.row}"]`, off: r.top - top, scroll: b.scrollTop };
+  }
+  return { sel: null, off: 0, scroll: b.scrollTop };
+}
+
+function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
+  const el = a.sel != null ? b.querySelector<HTMLElement>(a.sel) : null;
+  if (el) b.scrollTop = keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top);
   else b.scrollTop = a.scroll;
 }
 
-export function drawAgentBody() {
+/// Draws the log again. `keep` finds the row the reader just opened or
+/// folded, which stays where it is on screen.
+export function drawAgentBody(keep?: string) {
   const b = $<ChatBody>("#agbody"), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
@@ -937,8 +963,10 @@ export function drawAgentBody() {
   if (st) st.innerHTML = stateTag(s.status);
   if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
   // Read where the reader is before the log is drawn again: only a reader
-  // at the bottom follows new entries; anyone else stays where they are.
-  const anchor = b.stuck === false ? scrollAnchor(b) : null;
+  // at the bottom follows new entries; anyone else stays where they are,
+  // and so does a row the reader opens or folds.
+  const scroll = logScroll(b.stuck !== false, keep != null);
+  const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
   const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
   if (child == null) AG.child = null;
   const mark = (x: string) => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
@@ -974,8 +1002,11 @@ export function drawAgentBody() {
   // Only a turn that runs can be stopped.
   const stop = $("#agstop");
   if (stop) stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
-  if (b.stuck !== false) b.scrollTop = b.scrollHeight;
+  if (scroll === "bottom") b.scrollTop = b.scrollHeight;
   else if (anchor) restoreScroll(b, anchor);
+  // A row opened at the bottom pushes the bottom away: the log follows
+  // new entries again once the reader scrolls back down.
+  if (keep != null) b.stuck = atBottom(b);
 }
 
 // ----- Model and thinking -----
