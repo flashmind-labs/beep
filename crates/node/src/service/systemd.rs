@@ -1,10 +1,11 @@
 //! The node as a systemd user unit, kept running after logout and started at
 //! boot by lingering.
 
-use super::Launch;
+use super::{Launch, Manager, Restart};
 use anyhow::{Context, Result, bail};
 use std::{
     env, fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -56,6 +57,38 @@ pub(super) fn uninstall() -> Result<()> {
     systemctl(&["daemon-reload"])?;
     println!("Stopped and removed {}.", path.display());
     Ok(())
+}
+
+pub(super) fn restart(exe: &Path) -> Result<Restart> {
+    let path = unit_path()?;
+    let unit = match fs::read_to_string(&path) {
+        Ok(unit) => unit,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    if !runs(&unit, exe) {
+        return Ok(Restart::OtherBinary(path));
+    }
+    if !active() {
+        return Ok(Restart::Stopped(Manager::Systemd));
+    }
+    systemctl(&["restart", UNIT])?;
+    Ok(Restart::Restarted(Manager::Systemd))
+}
+
+/// Whether `unit` starts the node from `exe`.
+fn runs(unit: &str, exe: &Path) -> bool {
+    let start = format!("ExecStart={} ", quote_arg(&exe.display().to_string()));
+    unit.lines().any(|line| line.starts_with(&start))
+}
+
+/// Whether the unit is running.
+fn active() -> bool {
+    Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", UNIT])
+        .stdin(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 fn unit_path() -> Result<PathBuf> {
@@ -181,6 +214,14 @@ mod tests {
         assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/user/50%%/bin\"\n"));
         assert!(unit.contains("Restart=always\n"));
         assert!(unit.contains("WantedBy=default.target"));
+    }
+
+    #[test]
+    fn a_restart_only_follows_a_unit_that_runs_this_binary() {
+        let unit = unit(&launch(None));
+        assert!(runs(&unit, Path::new("/opt/beep node/beep-node")));
+        assert!(!runs(&unit, Path::new("/opt/beep node/beep")));
+        assert!(!runs(&unit, Path::new("/usr/local/bin/beep-node")));
     }
 
     #[test]

@@ -1,11 +1,12 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::{Launch, escape};
+use super::{Launch, Manager, Restart, escape};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
-    path::PathBuf,
+    io::ErrorKind,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
@@ -40,6 +41,40 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
+pub(super) fn restart(exe: &Path) -> Result<Restart> {
+    let path = plist_path()?;
+    let plist = match fs::read_to_string(&path) {
+        Ok(plist) => plist,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    if !runs(&plist, exe) {
+        return Ok(Restart::OtherBinary(path));
+    }
+    let service = format!("{}/{LABEL}", domain()?);
+    let loaded = Command::new("launchctl")
+        .args(["print", &service])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !loaded {
+        return Ok(Restart::Stopped(Manager::Launchd));
+    }
+    launchctl(&["kickstart", "-k", &service])?;
+    Ok(Restart::Restarted(Manager::Launchd))
+}
+
+/// Whether `plist` starts the node from `exe`: its first program argument.
+fn runs(plist: &str, exe: &Path) -> bool {
+    let program = format!(
+        "<array>\n        <string>{}</string>\n",
+        escape(&exe.display().to_string())
+    );
+    plist.contains(&program)
+}
+
 fn plist_path() -> Result<PathBuf> {
     Ok(home()?
         .join("Library/LaunchAgents")
@@ -68,7 +103,7 @@ fn domain() -> Result<String> {
 }
 
 /// The agent's property list.
-fn plist(launch: &Launch, log: &std::path::Path) -> String {
+fn plist(launch: &Launch, log: &Path) -> String {
     let args: String = std::iter::once(launch.exe.display().to_string())
         .chain(launch.args())
         .map(|arg| format!("        <string>{}</string>\n", escape(&arg)))
@@ -140,7 +175,6 @@ fn launchctl(args: &[&str]) -> Result<()> {
 mod tests {
     use super::super::tests::launch;
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn the_plist_runs_the_node_at_login_and_keeps_it_alive() {
@@ -165,6 +199,14 @@ mod tests {
         assert!(plist.contains(
             "<key>StandardErrorPath</key>\n    <string>/Users/user/Library/Logs/beep-node.log</string>"
         ));
+    }
+
+    #[test]
+    fn a_restart_only_follows_a_plist_that_runs_this_binary() {
+        let plist = plist(&launch(None), Path::new("/l.log"));
+        assert!(runs(&plist, Path::new("/opt/beep node/beep-node")));
+        assert!(!runs(&plist, Path::new("/opt/beep node/beep")));
+        assert!(!runs(&plist, Path::new("/srv/node")));
     }
 
     #[test]
