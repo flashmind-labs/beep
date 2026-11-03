@@ -7,10 +7,8 @@ import { Channel, esc, invoke, S } from "./core.ts";
 import type { Machine } from "./machines.ts";
 import { fillSection, SET, setAccountHtml, setRoot, setShown, setSkeleton } from "./settings.ts";
 
-/// Settings, Credentials (`credentials.ts` draws it, loaded on first use
-/// into `mod`). `list` is undefined until the server answers and null when
-/// it failed; `edit` is the row whose token is being typed. The rest is as
-/// `CredState` says.
+/// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
+/// `mod`).
 export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
 const credModule = () => import("../credentials.ts").then(m => (CRED.mod = m));
 
@@ -44,8 +42,7 @@ async function loadCliLogins() {
 }
 
 /// Checks each saved Forgejo token the server could not check when it was
-/// saved, once per token: from the server, else from a machine with
-/// teacli. A server from before the check leaves the row as it was.
+/// saved, once per token: from the server, else from a machine with teacli.
 function checkForgejo(list: Credential[]) {
   const checks = (CRED.checks ??= {});
   const redraw = () => { if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml()); };
@@ -213,12 +210,8 @@ export function bindCreds(el: Element) {
   $in("#credSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
 }
 
-/// Settings, Agent accounts (`agentaccounts.ts` draws it, loaded on first
-/// use into `mod`). `data` is undefined until the server answers, null when
-/// it failed and false from a server too old. `edit` is the agent whose
-/// token is being typed, `claudeFlow` whether `claude setup-token` waits on
-/// the browser, `codex` the Codex sign-ins under way by machine id and
-/// `poll` the timer asking after them.
+/// Settings, Agent accounts (`agentaccounts.ts` draws it, loaded on first use
+/// into `mod`).
 export const ACC: AgentAccountsState & {
   mod: typeof AgentAccountsModule | null;
   busy: string;

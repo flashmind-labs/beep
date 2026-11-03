@@ -1,7 +1,4 @@
-// A project in a window of its own. The window to use, an open one or a
-// new one, is picked in Rust (`center::open_project`); this is the part the
-// page decides: where the window starts, which of its targets stay in it
-// and what the main window is asked to show for the rest.
+// A project in a window of its own.
 
 /// What a click needs to say, as a `MouseEvent` has it.
 export interface ClickLike {
@@ -63,9 +60,8 @@ interface AgentLike {
   cwd?: string | null;
 }
 
-/// Whether `agent` runs in one of the project's folders, a worktree under
-/// it included. While the folders are unknown it counts as the project's:
-/// only this window's own page has opened anything by then.
+/// Whether `agent` runs in one of the project's folders, a worktree under it
+/// included.
 export function agentInProject(agent: AgentLike, folders: ProjectScope["folders"]): boolean {
   if (!folders.length) return true;
   const cwd = agent.cwd || "";
@@ -73,11 +69,7 @@ export function agentInProject(agent: AgentLike, folders: ProjectScope["folders"
   return folders.some(f => f.id === agent.machine_id && (cwd === f.folder || cwd.startsWith(f.folder.replace(/\/+$/, "") + "/")));
 }
 
-/// Where `go(view, arg)` opens. The main window (no scope) keeps every
-/// target. A project window keeps its project's page and what opens from
-/// it: a coding agent in its folders, a new one started there, its project
-/// chat and PR or issue chats. Home, other projects, other chats, Settings
-/// and the window's other pages go to the main window.
+/// Where `go(view, arg)` opens.
 export function route(scope: ProjectScope | null, view: string, arg?: unknown): Route {
   if (!scope) return "here";
   if (view === "projects") {

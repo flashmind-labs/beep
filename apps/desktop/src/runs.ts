@@ -1,11 +1,7 @@
-// A project's workflow runs (GitHub Actions or Forgejo Actions) on its
-// page: the Actions section with each run's state and, for a running one,
-// its current job and step; a run opened shows its jobs and steps and, when
-// it failed, the end of its failing step's log with Fix this. The server
-// keeps the run list and reads a running run's jobs at most every 10
-// seconds while someone asks, so `tick` asks again only while a run goes.
-// A repository pushed to GitHub and a Forgejo server runs on both: each run
-// names its host, with a badge, and Details, Open and Fix this go there.
+// A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
+// the Actions section with each run's state and, for a running one, its
+// current job and step; a run opened shows its jobs and steps and, when it
+// failed, the end of its failing step's log with Fix this.
 import type { invoke as Invoke } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
@@ -121,8 +117,7 @@ export function runKey(r: Pick<RunRow, "id" | "host">) {
 }
 
 /// The Actions heading's line per host when runs come from more than one:
-/// "GitHub: 1 running · 1 failed", or the host's error. Empty for one host,
-/// where the plain count says it.
+/// "GitHub: 1 running · 1 failed", or the host's error.
 export function hostCounts(d: Pick<RunsRow, "runs" | "hosts">) {
   const hosts = d.hosts ?? [];
   if (hosts.length < 2) return [];
@@ -284,9 +279,8 @@ export interface RunDeps {
   kept?: SectionStore<RunsRow | null>;
 }
 
-/// One project's runs: undefined while they load, null from a server too
-/// old to read them. `open` is the run opened (its `runKey`), with its
-/// `detail`.
+/// One project's runs: undefined while they load, null from a server too old to
+/// read them.
 interface ProjectRuns {
   data: RunsRow | null | undefined;
   error: string;
@@ -385,13 +379,6 @@ export function makeRuns(deps: RunDeps) {
     if (s.open != null && s.detail && going(s.detail.run.state)) loadDetail(id, s.detail.run);
   }
 
-  function link(text: string, url: string) {
-    const a = h("a", "", text);
-    a.href = "#";
-    a.addEventListener("click", e => { e.preventDefault(); if (url) openUrl(url); });
-    return a;
-  }
-
   /// A job's or step's line: its dot, name and how long it took.
   function stepLine(name: string, state: RunState, r: Pick<RunRow, "started_at" | "finished_at">) {
     const cls = state === "failed" ? "bad" : going(state) ? "run" : state === "skipped" || state === "cancelled" ? "skip" : "ok";
@@ -422,7 +409,7 @@ export function makeRuns(deps: RunDeps) {
     if (d.log) {
       const where = [d.log.job, d.log.step].filter(Boolean).join(", ");
       box.append(h("span", "pj-log",
-        h("small", "", `End of the log of ${where}${d.log.truncated ? " (earlier lines left out)" : ""}. The host's text, which the agent treats as data.`),
+        h("small", "", `End of the log of ${where}${d.log.truncated ? " (earlier lines left out)" : ""}`),
         h("pre", "", d.log.text)));
     }
     const acts = h("span", "acts");

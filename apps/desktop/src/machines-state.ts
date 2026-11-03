@@ -18,10 +18,8 @@ const USEFUL = ["gh", "teacli", "docker", "xcodebuild", "adb", "kubectl", "brew"
 /// How many tool chips a row shows before "+N".
 export const TOOL_CHIPS = 7;
 
-/// The bare version in what tool `name` printed: `0.162.1` for
-/// `codex-cli 0.162.1`, `2.2.5` for `opencode v2.2.5` or `opencode opencode
-/// v2.2.5`. Nodes from 0.1.22 send it bare already; older ones send the
-/// whole line. A line with no version in it is kept as it is.
+/// The bare version in what tool `name` printed: `0.162.1` for `codex-cli
+/// 0.162.1`, `2.2.5` for `opencode v2.2.5` or `opencode opencode v2.2.5`.
 export function bareVersion(name: string, raw: string | null | undefined): string | null {
   const line = String(raw ?? "").trim();
   if (!line) return null;

@@ -27,9 +27,8 @@ export interface Seeded {
   overview: OverviewCard[] | null | undefined;
 }
 
-/// Fills in from `cached` what the server has not answered yet, leaving
-/// what it has. Updates in `dismissed` stay off. True when Home came from
-/// the kept views.
+/// Fills in from `cached` what the server has not answered yet, leaving what it
+/// has.
 export function seed(state: Seeded, cached: CachedViews | null, dismissed: Set<number>): boolean {
   if (!cached) return false;
   let home = false;

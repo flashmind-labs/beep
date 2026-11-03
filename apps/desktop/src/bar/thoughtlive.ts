@@ -1,6 +1,5 @@
-// The thought a coding agent streams, shown open as plain text that
-// follows its newest line. The log is drawn again on every read of the
-// session, so whether each follows is kept here, by session and entry.
+// The thought a coding agent streams, shown open and following its newest
+// line. The log redraws on every read, so whether each follows is kept here.
 
 import { liveText } from "../karaoke.ts";
 import { esc } from "./core.ts";

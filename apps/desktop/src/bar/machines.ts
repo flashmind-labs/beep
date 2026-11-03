@@ -154,9 +154,8 @@ function agentChip(env: MachineEnv, t: MachineEnv["tools"][number], column: numb
   return `<span class="dmag" style="grid-column:${column}" title="${esc(title)}">${harnessTile(t.name, "dmag-ic")}<span class="v">${esc(version)}</span>${dot}</span>`;
 }
 
-/// A machine in the list: name, status, spec and beep-node on the first
-/// line, a column per coding agent on the second, the other tools on the
-/// third. In Settings it opens on its own page, and Remove waits there.
+/// A machine in the list: name, status, spec and beep-node on the first line, a
+/// column per coding agent on the second, the other tools on the third.
 function machineCard(m: Machine, columns: string[]) {
   const env = m.env;
   const opens = !!hosted();
@@ -229,7 +228,7 @@ function drawMachines() {
     const head = at ? `<div class="dmc-head"><span class="dmuted">${say}</span>${addButton}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span>${addButton}</div>`;
     const columns = coderColumns(list.map(m => m.env?.tools ?? []));
     el.innerHTML = head + errLine(MC.error) + (MC.list && !list.length
-      ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it, or turn on Let Beep use this Mac in Settings.")
+      ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it.")
       : `<div class="dlist${at ? " dset-box" : ""}"><div class="dmt" style="--ag:${columns.length}">${list.map(m => machineCard(m, columns)).join("")}</div></div>`)
       + (at ? "" : hints([["esc", "back"]]));
   }

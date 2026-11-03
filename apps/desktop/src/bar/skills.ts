@@ -90,7 +90,7 @@ export function drawSkills(): void {
   const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [plural(K.list.length, "skill", "skills"), paused && `${paused} paused`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Skills</b><small>${sum}</small></span></div>`;
   if (K.loaded && !K.list.length) {
-    bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "When Beep works out how you like something done, like booking a court or a weekly summary, it writes it down here and does it your way next time.", "", ";max-width:44ch")
+    bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "Beep saves how you like things done here.", "", ";max-width:44ch")
       + hints([["esc", "back"]]);
   } else {
     // Under a heading for each owner: the user, then each group.

@@ -1,9 +1,7 @@
 // The diff viewer: a header with the counts, a filter and Expand all /
-// Collapse all; a list of the files at wide widths; each file folding
-// under its sticky header, its lines in a unified view that scrolls
-// sideways on its own. j and k step between files and x folds the one at
-// the top. The session's Changes tab and the sheet a branch's or a task's
-// diff opens in both draw it.
+// Collapse all; a list of the files at wide widths; each file folding under
+// its sticky header, its lines in a unified view that scrolls sideways on its
+// own.
 import {
   type DiffFile, type DiffView, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
   inView, matchesFilter, numberWidth, splitPath, stepFile, withLoaded,

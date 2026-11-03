@@ -1,7 +1,5 @@
 // flsh's own settings on its Coding agents page: OpenRouter routing and
-// auto-compact, the same on every machine. Each machine writes them to
-// flsh's config.toml before it starts flsh. providers.ts places it under
-// flsh's runtime settings; flsh-state.ts holds the sums.
+// auto-compact, the same on every machine.
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
 import { EMPTY, QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization } from "./flsh-state.ts";
@@ -109,9 +107,9 @@ export function flshPanel(deps: FlshDeps) {
     };
 
     const out: Node[] = [h("h4", "", "OpenRouter routing"),
-      h("div", "hv-note", "These apply to every machine at once: each writes them to flsh's config.toml before it starts flsh; your other keys stay.")];
+      h("div", "hv-note", "Applies to every machine.")];
 
-    out.push(field("Zero data retention", "Only endpoints that keep no prompts. Default: your OpenRouter account setting.",
+    out.push(field("Zero data retention", "Only endpoints that keep no prompts.",
       seg<boolean | null>([["Account setting", null], ["Require", true], ["Off", false]], d.zdr, "Zero data retention", v => set({ zdr: v }))));
 
     const chips = h("span", "fl-chips");
@@ -135,7 +133,7 @@ export function flshPanel(deps: FlshDeps) {
     const global = h("span", "fl-row",
       sw(d.compact_on, "Auto-compact for all models", () => set({ compact_on: !d.compact_on })),
       input(d.compact_tokens, d.compact_on ? DEFAULT_TRIGGER : "Off: waits for the window to overflow", "Auto-compact threshold", v => set({ compact_tokens: v }, false)));
-    out.push(field("All models", "Compact once the prompt passes this many tokens, capped by the model's own trigger.", global));
+    out.push(field("All models", "Compact once the prompt passes this many tokens.", global));
 
     const table = h("table", "fl-tbl");
     table.append(h("tr", "", h("th", "", "Model"), h("th", "", "On"), h("th", "", "Threshold (tokens)"), h("th", "")));
@@ -151,7 +149,7 @@ export function flshPanel(deps: FlshDeps) {
     });
     const add = button("Add model", "small", () => set({ models: [...d.models, { model: "", enabled: true, tokens: "" }] }));
     table.append(h("tr", "", h("td", "", h("span", "hv-note", d.models.length ? "" : "No model has its own rule.")), h("td", ""), h("td", ""), h("td", "", add)));
-    out.push(table, h("div", "hv-note", "A model's rule replaces the one for all models, for that model only."));
+    out.push(table);
 
     const problem = h("span", "derr", "");
     const saveBtn = button(saving ? "Saving…" : "Save", "pri", () => { if (!flshProblem(d)) save(); });

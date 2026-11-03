@@ -1,8 +1,7 @@
 // A project's file sync: the board's File sync tile, and its full view with
 // each machine's state, transfer rate and time left, the changes still
-// waiting, the conflicts with a way to keep either side, and Pause/Resume
-// for every machine. center.ts draws the page; this file keeps the sync
-// detail and reads it again while the view is open.
+// waiting, the conflicts with a way to keep either side, and Pause/Resume for
+// every machine.
 import type { invoke as Invoke } from "./tauri.ts";
 import { bytes } from "./home.ts";
 import type { SyncRow } from "./home.ts";
@@ -167,8 +166,7 @@ export function waitingList(d: Pick<SyncDetail, "machines"> | null | undefined) 
 type RowLike = Pick<SyncRow, "machine_id" | "status" | "files" | "pending">;
 
 /// The board's File sync tile: one row per machine with its chip, from the
-/// detail once it is read, else from the `project_sync` rows. `names` gives
-/// a machine's name by id for those rows.
+/// detail once it is read, else from the `project_sync` rows.
 export function fileSyncTile(d: SyncDetail | null | undefined, rows?: readonly RowLike[] | null, names?: ReadonlyMap<string, string> | null): TileData {
   const machines: MachineDetail[] = d ? d.machines : (rows || []).map(r => ({
     machine_id: r.machine_id, machine_name: names?.get(r.machine_id) || "Machine", folder: "", status: r.status,
@@ -345,22 +343,20 @@ export function makeFileSync(deps: FileSyncDeps) {
     out.push(h("div", "cc-sec", h("h4", "", "Machines"), h("span", "fs-tools", h("small", "", summary), toggle)));
     out.push(h("div", "cc-panel fs-list", ...(d.machines.length
       ? d.machines.map(machineRow)
-      : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: the project stays on the machines it is on and never syncs." : "No machine syncs this project. Turn it on from a machine's row in Machines."))])));
+      : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
 
     const conflicts = conflictList(d);
     if (conflicts.length) {
-      out.push(h("div", "cc-sec", h("h4", "", "Conflicts"), h("small", "", `${conflicts.length} ${conflicts.length === 1 ? "file" : "files"} edited on two machines at once`)));
+      out.push(h("div", "cc-sec", h("h4", "", "Conflicts"), h("small", "", "edited on two machines at once")));
       out.push(h("div", "cc-panel fs-list", ...conflicts.map(c => conflictRow(name, c, d.machines))));
     }
 
     const waiting = waitingList(d);
     if (waiting.length) {
-      out.push(h("div", "cc-sec", h("h4", "", "Waiting"), h("small", "", "changes a machine still has to bring")));
+      out.push(h("div", "cc-sec", h("h4", "", "Waiting")));
       out.push(h("div", "cc-panel fs-list", ...waiting.map(w => h("div", "fs-wait", h("code", "", w.path), h("span", "dmuted", w.machines.join(", "))))));
     }
-    out.push(h("div", "dmuted fs-note", d.paused
-      ? "Paused: files stay as they are, and every machine catches up on resume."
-      : "Builds, ignored files and links stay on each machine. A conflict keeps both edits until you pick one."));
+    out.push(h("div", "dmuted fs-note", "Builds, ignored files and links stay on each machine."));
     return out;
   }
 

@@ -1,9 +1,6 @@
-// The Files tab of a coding agent session's pane: the session's working
-// folder on its machine as a tree, read three levels at a time and again
-// from a folder opened at the edge of what was read, what git ignores left out unless asked, git's marks beside what
-// changed. A click opens a file in the pane; a row drags into the message
-// as a mention; files dropped on a folder upload there; right-click has
-// the rest.
+// The Files tab of a coding agent session's pane: the session's working folder
+// on its machine as a tree, read three levels at a time, what git ignores left
+// out unless asked, git's marks beside what changed.
 
 import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, failedListing, mergeTree, parentPath, treeRows } from "../files-state.ts";
 import { resolvePath } from "../media-state.ts";

@@ -1,6 +1,5 @@
 // The Cmd+K palette: one search over actions, settings, projects, pull
-// requests, coding agents, chats, memories, routines and machines. The
-// ranking is in the app (center_find); this draws and picks.
+// requests, coding agents, chats, memories, routines and machines.
 import { invoke } from "./tauri.ts";
 import type { PaneTarget } from "./bar/pane.ts";
 import type { AgentRow } from "./bar/agents.ts";
@@ -10,8 +9,6 @@ import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "./projectwindow.ts";
 
 /// The groups of hits (HitKind).
-/// `project_chat` is a board project that is not imported (id: its chat),
-/// `folder` a folder coding agents worked in (id: its name).
 type HitKind = "action" | "setting" | "code" | "branch" | "project" | "project_chat" | "folder" | "agent_session" | "chat" | "memory" | "routine" | "machine";
 
 /// One search result (Hit). A branch's id is its project and the branch,
