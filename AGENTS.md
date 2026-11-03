@@ -160,7 +160,9 @@ On Windows, `crates/node/install.ps1` does the same from PowerShell
 (`irm https://releases.flashmind.com/beep/node/install.ps1 | iex`): it
 installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
 `%LOCALAPPDATA%\Programs\beep-node`, and `setup` registers the scheduled task
-"Beep node". The release workflow has no Windows job yet.
+"Beep node". The release builds that zip on the host runner with cargo-xwin
+(the Dockerfile's `node-dist-windows` stage). Updates move the running exe
+aside to `beep-node.exe.old`, removed by the next update.
 
 ## iOS app
 
