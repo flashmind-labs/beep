@@ -35,6 +35,7 @@ use tokio::{sync::Notify, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
 mod agent;
+mod alerts;
 mod deliver;
 mod desktop;
 mod files;
@@ -466,6 +467,16 @@ async fn serve(
         AbortOnDropHandle::new(tokio::spawn(async move {
             if let Err(e) = online.keep_usage(&user).await {
                 log::debug!("agent usage not followed; node={endpoint} error={e:#}");
+            }
+        }))
+    });
+    // Tells the user what its agent sessions ask and finish. Ends with the
+    // connection.
+    let _alerts = online.offers(SESSIONS_PROTOCOL).then(|| {
+        let (user, online) = (user.clone(), online.clone());
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            if let Err(e) = online.keep_alerts(&user).await {
+                log::debug!("agent alerts not followed; node={endpoint} error={e:#}");
             }
         }))
     });
