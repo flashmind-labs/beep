@@ -55,7 +55,7 @@ export async function renderLink() {
 export function drawLink(state: LinkState) {
   const o = offer!;
   const over = state === "linked"
-    ? `<div class="over"><span style="display:grid;justify-items:center;gap:6px"><span style="width:44px;height:44px;border-radius:50%;background:var(--emerald);color:#fff;display:grid;place-items:center">${ICON.check}</span>Linked</span></div>`
+    ? `<div class="over"><span style="display:grid;justify-items:center;gap:6px"><span style="width:44px;height:44px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center">${ICON.check}</span>Linked</span></div>`
     : state === "expired" ? '<div class="over">Code expired</div>' : "";
   const qr = `<div class="qr${state === "waiting" ? "" : " dim"}">${o.qr_svg}${over}</div>`;
   const parts = {

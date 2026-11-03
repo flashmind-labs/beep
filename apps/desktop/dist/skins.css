@@ -1,0 +1,127 @@
+/* Skins: every color, corner, font and label style the windows use. The
+   default is Linear; `data-skin` on <html> picks another (src/skin.ts). */
+:root {
+  --ink: #0f1011; --surface: #151617; --elev: #1c1d1f; --border: #222326;
+  --fg: #e3e4e6; --muted: #8a8f98; --accent: #5e6ad2; --on-accent: #fff; --hot: #f2994a;
+  --ok: #4cb782; --err: #eb5757; --warn: #f2c94c; --link: #8a9cf0;
+  --body: Inter, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --radius: 8px; --label-case: none; --label-track: 0; --label-size: 12px;
+  /* Derived; a skin may set them itself. */
+  --dim: color-mix(in srgb, var(--muted) 62%, var(--ink));
+  --deep: color-mix(in srgb, var(--ink) 80%, #000);
+  --border-hi: color-mix(in srgb, var(--border) 75%, var(--fg));
+  --radius-sm: calc(var(--radius) * .75);
+  --display: var(--body);
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --shade: #000;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  color-scheme: dark;
+}
+/* Beep's look before skins: green-tinted, rounded, Rubik and Bricolage. */
+:root[data-skin="classic"] {
+  --ink: #0A0E0C; --surface: #121916; --elev: #1A231E; --border: #243028;
+  --fg: #E4EEE8; --muted: #92A59A; --dim: #5E6F66; --accent: #3B9B7A; --on-accent: #0A0E0C; --hot: #F07A6A;
+  --ok: #6FCF97; --err: #E8685A; --warn: #E9B949; --link: #9DC3F0; --deep: #0B100E; --border-hi: #3A4A41;
+  --body: "Rubik", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --display: "Bricolage Grotesque", ui-rounded, -apple-system, sans-serif;
+  --radius: 11px; --radius-sm: 8px; --label-case: uppercase; --label-track: .07em; --label-size: 10.5px;
+}
+:root[data-skin="quiet"] {
+  --ink: #121614; --surface: #161b18; --elev: #1f2622; --border: #232a26;
+  --fg: #dfe5e1; --muted: #87928c; --accent: #5fb98f; --on-accent: #0b1410; --hot: #e5826f;
+  --ok: #5fb98f; --err: #d9786d; --warn: #e3b450; --link: #a9c4e8;
+  --body: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --radius: 8px; --label-case: uppercase; --label-track: .07em; --label-size: 10.5px;
+}
+:root[data-skin="github"] {
+  --ink: #0d1117; --surface: #0d1117; --elev: #161b22; --border: #30363d;
+  --fg: #e6edf3; --muted: #8d96a0; --accent: #238636; --on-accent: #fff; --hot: #db6d28;
+  --ok: #3fb950; --err: #f85149; --warn: #d29922; --link: #4493f8; --deep: #010409;
+  --body: -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --radius: 6px; --label-size: 13px;
+}
+:root[data-skin="zed"] {
+  --ink: #282c33; --surface: #2f343e; --elev: #3b414d; --border: #3d424b;
+  --fg: #dce0e5; --muted: #a9afbc; --accent: #74ade8; --on-accent: #1b1e23; --hot: #d07277;
+  --ok: #a1c181; --err: #d07277; --warn: #dec184; --link: #74ade8;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --radius: 5px; --label-case: uppercase; --label-track: .05em; --label-size: 10.5px;
+}
+:root[data-skin="tokyo"] {
+  --ink: #1a1b26; --surface: #1f2335; --elev: #292e42; --border: #2a2f45;
+  --fg: #c0caf5; --muted: #7f87ad; --accent: #7aa2f7; --on-accent: #16161e; --hot: #ff9e64;
+  --ok: #9ece6a; --err: #f7768e; --warn: #e0af68; --link: #7dcfff; --deep: #16161e;
+  --radius: 6px;
+}
+:root[data-skin="mocha"] {
+  --ink: #1e1e2e; --surface: #181825; --elev: #313244; --border: #2c2d3f;
+  --fg: #cdd6f4; --muted: #9399b2; --accent: #cba6f7; --on-accent: #1e1e2e; --hot: #fab387;
+  --ok: #a6e3a1; --err: #f38ba8; --warn: #f9e2af; --link: #89b4fa; --deep: #11111b;
+  --radius: 10px;
+}
+:root[data-skin="nord"] {
+  --ink: #2e3440; --surface: #3b4252; --elev: #434c5e; --border: #444c5c;
+  --fg: #eceff4; --muted: #a3abbc; --accent: #88c0d0; --on-accent: #2e3440; --hot: #d08770;
+  --ok: #a3be8c; --err: #bf616a; --warn: #ebcb8b; --link: #88c0d0; --deep: #292e39;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --radius: 4px; --label-case: uppercase; --label-track: .06em; --label-size: 10.5px;
+}
+:root[data-skin="gruvbox"] {
+  --ink: #282828; --surface: #32302f; --elev: #3c3836; --border: #45403d;
+  --fg: #ebdbb2; --muted: #a89984; --accent: #fabd2f; --on-accent: #282828; --hot: #fe8019;
+  --ok: #b8bb26; --err: #fb4934; --warn: #fabd2f; --link: #83a598; --deep: #1d2021;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --radius: 3px; --label-case: uppercase; --label-track: .06em; --label-size: 10.5px;
+}
+:root[data-skin="rosepine"] {
+  --ink: #191724; --surface: #1f1d2e; --elev: #26233a; --border: #2a2740;
+  --fg: #e0def4; --muted: #908caa; --accent: #ebbcba; --on-accent: #191724; --hot: #f6c177;
+  --ok: #9ccfd8; --err: #eb6f92; --warn: #f6c177; --link: #9ccfd8;
+}
+:root[data-skin="geist"] {
+  --ink: #000; --surface: #0a0a0a; --elev: #1a1a1a; --border: #262626;
+  --fg: #ededed; --muted: #8f8f8f; --accent: #ededed; --on-accent: #000; --hot: #ff990a;
+  --ok: #ededed; --err: #ff6166; --warn: #ffb224; --link: #ededed; --deep: #000;
+  --body: Geist, Inter, -apple-system, sans-serif; --mono: "Geist Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --radius: 6px;
+}
+:root[data-skin="mono"] {
+  --ink: #000; --surface: #000; --elev: #2e2e2e; --border: #7a7a7a; --border-hi: #fff;
+  --fg: #fff; --muted: #d0d0d0; --dim: #a0a0a0; --accent: #fff; --on-accent: #000; --hot: #fff;
+  --ok: #fff; --err: #fff; --warn: #fff; --link: #fff; --deep: #000;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --radius: 2px; --label-case: uppercase; --label-track: .07em; --label-size: 10.5px;
+}
+:root[data-skin="mono"] a { text-decoration: underline }
+/* Light skins. */
+:root[data-skin="paper"] {
+  --ink: #fafaf9; --surface: #ffffff; --elev: #f0f0ee; --border: #e2e2de;
+  --fg: #1d1f21; --muted: #6b6f74; --accent: #1f5fbf; --on-accent: #fff; --hot: #c9473a;
+  --ok: #2f8a4c; --err: #c9473a; --warn: #a66a00; --link: #1f5fbf; --deep: #ffffff;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --radius: 7px; --label-case: uppercase; --label-track: .07em; --label-size: 10.5px;
+  color-scheme: light;
+}
+:root[data-skin="solarized"] {
+  --ink: #fdf6e3; --surface: #fffbef; --elev: #eee8d5; --border: #e2dac2;
+  --fg: #073642; --muted: #657b83; --accent: #268bd2; --on-accent: #fff; --hot: #cb4b16;
+  --ok: #859900; --err: #dc322f; --warn: #b58900; --link: #268bd2; --deep: #fffbef;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --radius: 4px; --label-case: uppercase; --label-track: .07em; --label-size: 10.5px;
+  color-scheme: light;
+}
+:root[data-skin="macos"] {
+  --ink: #ffffff; --surface: #ffffff; --elev: #ececee; --border: #e3e3e6;
+  --fg: #1d1d1f; --muted: #86868b; --accent: #007aff; --on-accent: #fff; --hot: #ff9500;
+  --ok: #28a745; --err: #ff3b30; --warn: #b07800; --link: #007aff; --deep: #f6f6f7;
+  --body: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --radius: 8px; --label-size: 11px;
+  color-scheme: light;
+}
+:root[data-skin="warm"] {
+  --ink: #fbf9f6; --surface: #fffdf9; --elev: #f0ebe2; --border: #e8e1d4;
+  --fg: #2b2824; --muted: #857d72; --accent: #d4524c; --on-accent: #fff; --hot: #d4524c;
+  --ok: #4f8f46; --err: #c9473a; --warn: #a66a00; --link: #b8433d; --deep: #fffdf9;
+  --radius: 9px;
+  color-scheme: light;
+}

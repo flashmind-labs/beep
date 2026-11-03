@@ -81,7 +81,7 @@ async function poll(card: CoderCard) {
 }
 
 const mark = (status: string, asking: boolean) => status === "completed" ? `<span class="dok">${ICON.check}</span>`
-  : status === "in_progress" ? (asking ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>')
+  : status === "in_progress" ? (asking ? '<span class="ddot" style="background:var(--hot)"></span>' : '<span class="dspin"></span>')
   : '<span class="ddot off"></span>';
 
 function questionHtml(q: AgentQuestion, busy: boolean) {

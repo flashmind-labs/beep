@@ -5,6 +5,8 @@
 // not a button, opens the bar on that chat.
 // Outside live mode, a new notice can show here too, when Voice notes asks
 // first: a card with Play, Open and ×, which goes after 20 seconds alone.
+import { followSkin } from "./skin.ts";
+followSkin();
 import { invoke, Channel, listen } from "./tauri.ts";
 import { OrbAsks } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";

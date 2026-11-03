@@ -7,6 +7,7 @@ import { renderInvitePhone, renderLink } from "./link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "./machines.ts";
 import { harnessTile } from "../harnessicon.ts";
 import { harnessName } from "../providers-state.ts";
+import { SKINS, setSkin, skinId } from "../skin.ts";
 import { agentSubs, back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, SETTINGS_PAGES, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "../settings-nav.ts";
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "./tools.ts";
@@ -248,6 +249,10 @@ function bindSettings(el: Element) {
     b.disabled = true;
     thenRedraw(invoke("remove_device", { id: b.dataset.remove }));
   }));
+  each("data-skin-pick", b => b.addEventListener("click", () => {
+    setSkin(b.dataset.skinPick!);
+    for (const x of el.querySelectorAll("[data-skin-pick]")) x.setAttribute("aria-pressed", String(x === b));
+  }));
   $in("#setModel")?.addEventListener("change", e => setModelChange("set_model", { id: (e.target as HTMLSelectElement).value }));
   $in("#setAuto")?.addEventListener("click", () => setModelChange("set_auto_model", { enabled: !MODELS.info!.auto }));
   each("data-setlevel", b => b.addEventListener("click", () => setModelChange("set_thinking", { level: b.dataset.setlevel })));
@@ -325,6 +330,14 @@ function refocus(box: HTMLElement, key: string) {
   (box.closest<HTMLElement>(".cc-set") || box).focus();
 }
 
+/// The skin picker: a swatch per skin, dark ones then light ones.
+function skinsHtml() {
+  const on = skinId();
+  const group = (title: string, light: boolean) => `<div class="dskins"><small>${title}</small><div>${SKINS.filter(k => !!k.light === light).map(k =>
+    `<button class="dskin" data-skin-pick="${k.id}" aria-pressed="${k.id === on}"><i style="background:${k.swatch}"></i>${esc(k.name)}</button>`).join("")}</div></div>`;
+  return group("Dark", false) + group("Light", true);
+}
+
 /// The sections of Settings, in order, each with the page it is. The bar
 /// stacks them all; the window's sheet shows one at a time, where Apps,
 /// Machines, a coding agent and Instructions draw their own pages in place
@@ -337,6 +350,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
       ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`]];
+  out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
   if (!linked) return [...out, ["devices", sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`)]];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);

@@ -1,5 +1,7 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
+import { followSkin } from "./skin.ts";
+followSkin();
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
 import { dbtn as button, emptyPanel, errorNote, fitRows, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
