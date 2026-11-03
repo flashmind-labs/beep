@@ -7,6 +7,7 @@ import type { AgentRow } from "./bar/agents.ts";
 import { el, type Kid } from "./projects-state.ts";
 import { svgEl as svg } from "./components/parts.ts";
 import { PaletteSearch } from "./palette-search.ts";
+import { projectFirst } from "./projectwindow.ts";
 
 /// The groups of hits (HitKind).
 /// `project_chat` is a board project that is not imported (id: its chat),
@@ -28,7 +29,7 @@ interface Hit {
 
 /// What the window lends the palette.
 export interface PaletteDeps {
-  go(view: "home" | "pane", arg?: PaneTarget): void;
+  go(view: "home" | "pane", arg?: PaneTarget): unknown;
   /// Home, scrolled to the element with this id.
   jump(id: string): void;
   settings(section: string): void;
@@ -39,7 +40,10 @@ export interface PaletteDeps {
   addProject(): void;
   /// The project's Branches list.
   branches(name: string): void;
-  pane: { compose(text: string): Promise<unknown> };
+  /// A new chat that starts with this text (⌘↵).
+  ask(text: string): void;
+  /// The project whose hits list first: a project window's own.
+  scope(): string | null;
   /// Opens a chat hit: a research in its window, any other chat in the pane.
   openChat(id: string): void;
   /// Whether a chat is a research, which lists under Research, not Chats.
@@ -113,7 +117,7 @@ export function openPalette() {
   // time it opened included; each list read again searches again.
   const search = searching = new PaletteSearch<Hit>(
     (query, text) => invoke<Hit[]>("center_find", { query, text }),
-    (q, found) => { hits = found; sel = 0; draw(q.trim()); },
+    (q, found) => { hits = projectFirst(found, deps?.scope()); sel = 0; draw(q.trim()); },
   );
   search.type("");
   const read = (command: string, what: string) => invoke(command)
@@ -198,9 +202,7 @@ function ask_(q: string) {
   const text = q.trim();
   if (!text) return;
   close();
-  const { go, pane } = deps!;
-  go("pane", { chat: { session: null } });
-  pane.compose(text).catch(e => console.warn("asking from the palette:", e));
+  deps!.ask(text);
 }
 
 function pick(hit: Hit) {

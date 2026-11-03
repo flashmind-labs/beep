@@ -23,7 +23,8 @@ import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Place
 import { openGroupSheet } from "./groupsheet.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
-import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
+import { NEW_WINDOW, PROJECT_TABS, mainTarget, opensNewWindow, projectFirst, route, startView, windowTitle } from "./projectwindow.ts";
+import type { CenterTarget, ProjectScope } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
@@ -61,10 +62,6 @@ interface Started {
   session: SessionRow;
   why: string;
 }
-
-/// What the bar or tray asked the window to show (CenterTarget).
-type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers"
-  | { chat: { session: string | null } } | { group: { id: string } } | { agent: RunningAgent };
 
 // ---------- Window state ----------
 
@@ -900,13 +897,43 @@ function opensAgent(arg: ViewArg): arg is Extract<PaneTarget, { agent: unknown }
   return !!arg && typeof arg === "object" && ("agent" in arg || "agentnew" in arg);
 }
 
+/// The project a project window shows alone; null in the main window.
+let windowProject: string | null = null;
+/// Chats this project window opened from its page, such as a PR's, kept
+/// in it before the thread chats list has them.
+const ownChats = new Set<string>();
+
+/// What a project window keeps for itself; null in the main window.
+function windowScope(): ProjectScope | null {
+  const project = windowProject;
+  if (!project) return null;
+  const p = (projectRows() || []).find(r => r.name === project);
+  return {
+    project,
+    chatProject: s => chatProject(state.agents, s)?.name ?? threadChats?.get(s)?.project ?? (ownChats.has(s) ? project : null),
+    folders: p?.machines ?? [],
+  };
+}
+
+/// Shows `target` in the main window, bringing it up.
+function toMain(target: CenterTarget) {
+  invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
+}
+
 /// Shows view `name`, passing `arg` to its mount. The others are hidden,
 /// not destroyed, so a reply streaming in the pane keeps going under Home.
-export function go(name: string, arg?: ViewArg) {
+/// In a project window, what is not the project's opens in the main
+/// window instead; false then.
+export function go(name: string, arg?: ViewArg): boolean {
+  if (route(windowScope(), name, arg) === "main") {
+    toMain(mainTarget(name, arg));
+    return false;
+  }
   // Settings open over whatever shows, which stays as it is.
   if (name === "pane" && arg === "settings") {
     if (!shown) go("home");
-    return openSettings();
+    openSettings();
+    return true;
   }
   // An agent view opened from another view goes back there on Esc.
   if (name === "pane" && opensAgent(arg) && !arg.from && shown && shown !== "pane") {
@@ -914,18 +941,22 @@ export function go(name: string, arg?: ViewArg) {
   }
   shownArg = arg;
   const view = views.get(name);
-  if (!view) return;
+  if (!view) return false;
   if (shown && shown !== name) views.get(shown)!.unmount?.();
   shown = name;
   for (const [n, v] of views) v.el.hidden = n !== name;
   view.mount(view.el, arg);
   drawTop();
   drawSide();
+  return true;
 }
 
 function drawTop() {
   const view = shown ? views.get(shown) : undefined;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
+  // A project window's other views go back to the project.
+  const back = document.getElementById("pw-back");
+  if (back) back.hidden = shown === "projects";
   $("#title").textContent = head.title || "Beep";
   $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
   $("#date").textContent = head.sub || "";
@@ -1006,7 +1037,7 @@ function sideItem(svg: string | null, label: string, count: number | undefined, 
 let scrollTarget: string | null = null;
 
 function jump(id?: string) {
-  go("home");
+  if (!go("home")) return;
   const view = $("#view");
   if (!id) return view.scrollTo({ top: 0 });
   scrollTarget = id;
@@ -1395,7 +1426,7 @@ export function openAddMachine() {
 
 /// Opens the Projects page, filtered to `name` when given.
 export function openProjects(name?: string | null) {
-  go("projects", { project: name || null });
+  return go("projects", { project: name || null });
 }
 
 /// Opens a project once it is in: Home and the found folders load again.
@@ -2277,7 +2308,7 @@ const thr = makeThreads({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
   openUrl,
-  openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
+  openChat: (chat: string) => { ownChats.add(chat); go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
   mode: liveMode.chip,
@@ -2994,6 +3025,15 @@ function drawProjects(el: HTMLElement) {
   } else {
     el.prepend(view);
   }
+  // A project window shows the board's tiles as tabs above it.
+  const tabs = windowProject && one && boardOn(one) ? projectTabs() : null;
+  const oldTabs = el.querySelector(":scope > .pw-tabs");
+  if (tabs) {
+    if (oldTabs) oldTabs.replaceWith(tabs);
+    else el.prepend(tabs);
+  } else {
+    oldTabs?.remove();
+  }
   // The bar starts coding agents in the project's checkout.
   if (one) {
     drawProjectComp(one.name);
@@ -3001,6 +3041,20 @@ function drawProjects(el: HTMLElement) {
   } else {
     projectComp.form.remove();
   }
+}
+
+/// A project window's tabs: the board, then each tile opened in full.
+function projectTabs() {
+  const nav = h("nav", "pw-tabs");
+  nav.setAttribute("aria-label", windowProject ?? "Project");
+  for (const t of PROJECT_TABS) {
+    const b = h("button", "", t.label);
+    b.type = "button";
+    if (pa.tile === t.key) b.setAttribute("aria-current", "true");
+    b.addEventListener("click", () => openTile(t.key));
+    nav.append(b);
+  }
+  return nav;
 }
 
 registerView("projects", {
@@ -3025,7 +3079,7 @@ registerView("projects", {
       tools.push(button(on ? "Unpin" : "Pin", "quiet small", () => setProjectOnTop(p.name, !on)));
       if (p.imported) tools.push(button(REMOVE_PROJECT, "quiet small", () => removeProject(p.name)));
     }
-    tools.push(button("All projects", "quiet small", () => openProjects()));
+    if (!windowProject) tools.push(button("All projects", "quiet small", () => openProjects()));
     return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
   mount(el, arg) {
@@ -3301,9 +3355,9 @@ pane.onChange(now => {
 async function takePending(fallback: string | null) {
   const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
-  if (target === "home") return go("home");
-  if (target === "instructions") return go("instructions");
-  if (target === "providers") return go("providers");
+  if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);
+  if (typeof target === "object" && "projects" in target) return go("projects", target.projects);
+  if (typeof target === "object" && "ask" in target) return askBeep(target.ask.prompt);
   go("pane", target);
   // Home is not on screen, but the sidebar counts come from it.
   refresh();
@@ -3320,6 +3374,8 @@ listen("center-open", () => takePending(null));
 let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null } | null = null;
 
 export function openSettings(section?: string) {
+  // A project window has no Settings of its own: the main window opens them.
+  if (windowProject) return toMain("settings");
   if (settingsOpen) return section && showSection(settingsOpen.scrim, section);
   const sheet = h("div", "cc-set");
   sheet.setAttribute("role", "dialog");
@@ -3423,7 +3479,7 @@ registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: ()
 initSideResize($(".cwin"), $("#side-grip"));
 mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
 
-initPalette({ go, jump, pane, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { openProjects(name); openTile("branches"); }, findIcon: IC.find });
+initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); }, findIcon: IC.find });
 
 /// ⌘ and a letter: the pane page it opens.
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
@@ -3636,7 +3692,24 @@ async function start() {
   document.title = windowTitle(project);
   const first = startView(project);
   if (!first) return takePending("home");
+  // A project window: no sidebar, and a button back to the project.
+  windowProject = first.arg.project;
+  document.body.classList.add("pw");
+  const back = h("button", "dbtn small pw-back", shortName(windowProject));
+  back.type = "button";
+  back.id = "pw-back";
+  back.title = `Back to ${windowProject} (esc)`;
+  back.addEventListener("click", () => openProjects(windowProject));
+  $("#title").before(back);
   go(first.view, first.arg);
+}
+
+/// A new chat that starts with `prompt`, from the palette's ⌘↵ or another
+/// window; a project window asks the main window.
+function askBeep(prompt: string) {
+  if (windowProject) return toMain({ ask: { prompt } });
+  go("pane", { chat: { session: null } });
+  pane.compose(prompt).catch(e => console.warn("asking Beep:", e));
 }
 
 /// Shows what the app kept from the server's last answers, so the window
