@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clock, commandDetail, commandOf, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, toolKind } from "../src/agentturns.ts";
+import { beepCall, beepLine, clock, commandDetail, commandOf, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, toolKind } from "../src/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -140,6 +140,35 @@ test("an opened step does not print its command twice", () => {
   assert.equal(commandDetail(title, closed), "cd /srv/project;\n  git ls-files | grep widget");
   assert.equal(commandOf("exec: make"), "make");
   assert.equal(commandOf("make"), "make");
+});
+
+test("a Beep call reads as its machine, command, files and verb", () => {
+  assert.deepEqual(beepCall("Beep: Run on build-box: cargo test"),
+    { done: "Ran on", doing: "Running on", machine: "build-box", detail: "cargo test", files: "" });
+  assert.deepEqual(beepCall("Beep: Start codex on mac-mini: Build the app\nthen test it"),
+    { done: "Started codex on", doing: "Starting codex on", machine: "mac-mini", detail: "Build the app\nthen test it", files: "" });
+  assert.deepEqual(beepCall("Beep: Send 3 files to build-box"),
+    { done: "Sent files to", doing: "Sending files to", machine: "build-box", detail: "", files: "3 files" });
+  assert.deepEqual(beepCall("Beep: Sync widget to build-box"),
+    { done: "Synced", doing: "Syncing", machine: "build-box", detail: "widget", files: "" });
+  assert.equal(beepCall("Beep: Sync widget")?.machine, "");
+  assert.equal(beepCall("Beep: Check job job-7f2c")?.detail, "job-7f2c");
+  assert.equal(beepCall("Beep: Cancel job job-7f2c")?.done, "Cancelled job");
+  assert.equal(beepCall("Beep: Ask: Push it?")?.detail, "Push it?");
+  assert.equal(beepCall("Beep: List machines")?.done, "Listed machines");
+  // Before its arguments come, no machine is named.
+  assert.equal(beepCall("Beep: Run on a machine")?.machine, "");
+  assert.equal(beepCall("Run cargo test"), null);
+  assert.equal(beepCall("mcp__beep__run_on"), null);
+  assert.equal(beepLine("Beep: Run on build-box: make"), "Ran on build-box: make");
+  assert.equal(beepLine("Beep: Send 2 files to build-box", true), "Sending 2 files to build-box");
+  assert.equal(stepLabel("Beep: Run on build-box: make [completed]"), "Ran on build-box: make");
+  assert.equal(toolKind("Beep: Run on build-box: make [completed]"), "beep");
+});
+
+test("the summary counts Beep calls on their own", () => {
+  const log = [u("go"), t("Beep: List machines [completed]"), t("Beep: Run on build-box: make [completed]"), a("done")];
+  assert.equal(summary(log, splitTurns(log)[0]), "Used Beep 2 times");
 });
 
 test("only the newest step of a running turn starts open when it failed", () => {
