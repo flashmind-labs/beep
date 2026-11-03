@@ -139,6 +139,9 @@ struct Known {
     adapter: Adapter,
     /// Variables that turn its permission prompts off.
     env: &'static [(&'static str, &'static str)],
+    /// Variables that make it show its thinking, set unless the node's own
+    /// environment sets them.
+    thinking_env: &'static [(&'static str, &'static str)],
     /// The session mode that asks no permission, for an agent whose
     /// launch cannot set it, set once the session exists.
     bypass_mode: Option<&'static str>,
@@ -182,6 +185,9 @@ const KNOWN: &[Known] = &[
             package: "@agentclientprotocol/claude-agent-acp",
         },
         env: &[],
+        // Its adapter streams thinking only as summaries: recent models
+        // default to `omitted`, which sends empty thinking blocks.
+        thinking_env: &[("CLAUDE_CODE_THINKING_DISPLAY", "summarized")],
         bypass_mode: Some("bypassPermissions"),
         model_flag: false,
         compact: Route::Advertised,
@@ -197,6 +203,7 @@ const KNOWN: &[Known] = &[
             package: "@agentclientprotocol/codex-acp",
         },
         env: &[("INITIAL_AGENT_MODE", "agent-full-access")],
+        thinking_env: &[],
         bypass_mode: None,
         model_flag: false,
         compact: Route::Advertised,
@@ -209,6 +216,7 @@ const KNOWN: &[Known] = &[
         cli: "gemini",
         adapter: Adapter::Flags(&["--acp", "--approval-mode", "yolo"]),
         env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
+        thinking_env: &[],
         bypass_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
@@ -223,6 +231,7 @@ const KNOWN: &[Known] = &[
             package: "pi-acp",
         },
         env: &[],
+        thinking_env: &[],
         bypass_mode: None,
         model_flag: false,
         compact: Route::Advertised,
@@ -234,6 +243,7 @@ const KNOWN: &[Known] = &[
         cli: "flsh",
         adapter: Adapter::Flags(&["acp"]),
         env: &[],
+        thinking_env: &[],
         bypass_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
@@ -246,6 +256,7 @@ const KNOWN: &[Known] = &[
         cli: "opencode",
         adapter: Adapter::Flags(&["acp"]),
         env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
+        thinking_env: &[],
         bypass_mode: None,
         model_flag: false,
         compact: Route::Always,
@@ -285,9 +296,14 @@ fn launch(known: &Known, found: &dyn Fn(&str) -> bool) -> Option<AgentKind> {
             flags.iter().map(|flag| (*flag).to_owned()).collect(),
         ),
     };
+    let thinking = known
+        .thinking_env
+        .iter()
+        .filter(|(name, _)| std::env::var_os(name).is_none());
     let env = known
         .env
         .iter()
+        .chain(thinking)
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
         .collect();
     Some(AgentKind {
@@ -1097,6 +1113,51 @@ impl Seen {
     }
 }
 
+impl Agents {
+    /// The answer to a transcript read: the last `last` entries of a
+    /// session this node runs, or else of a Claude Code session started
+    /// outside Beep, read from its file.
+    async fn transcript_reply(&self, session: &str, last: u32, thoughts: bool) -> SessionsReply {
+        let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
+        let read = match self.get(session) {
+            Some(found) => Ok(Some(self.live_transcript(&found, last).await)),
+            // A Claude Code session started outside Beep.
+            None => match self.external.transcript(session, last).await {
+                Ok(Some(read)) => {
+                    for picture in read.pictures {
+                        self.images.keep(session, picture);
+                    }
+                    Ok(Some((read.entries, read.earlier)))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => Err(e),
+            },
+        };
+        match read {
+            Ok(Some((entries, earlier))) => SessionsReply::Transcript {
+                entries: shown_entries(entries, thoughts),
+                earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
+            },
+            Ok(None) => SessionsReply::Error {
+                message: format!("there is no session {session}"),
+            },
+            Err(e) => SessionsReply::Error {
+                message: format!("could not read session {session}: {e:#}"),
+            },
+        }
+    }
+}
+
+/// The entries a transcript read answers with: the agent's thoughts only
+/// when the server asked for them, as one that did not would show them as
+/// unknown entries.
+fn shown_entries(mut entries: Vec<agent::Entry>, thoughts: bool) -> Vec<agent::Entry> {
+    if !thoughts {
+        entries.retain(|entry| entry.kind != agent::EntryKind::Thought);
+    }
+    entries
+}
+
 /// Serves one `agents/1` request.
 pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
     let Some(request) = rx.recv::<SessionsRequest>().await? else {
@@ -1110,41 +1171,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             session,
             last,
             thoughts,
-        } => {
-            let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
-            let read = match agents.get(&session) {
-                Some(found) => Ok(Some(agents.live_transcript(&found, last).await)),
-                // A Claude Code session started outside Beep.
-                None => match agents.external.transcript(&session, last).await {
-                    Ok(Some(read)) => {
-                        for picture in read.pictures {
-                            agents.images.keep(&session, picture);
-                        }
-                        Ok(Some((read.entries, read.earlier)))
-                    }
-                    Ok(None) => Ok(None),
-                    Err(e) => Err(e),
-                },
-            };
-            match read {
-                Ok(Some((mut entries, earlier))) => SessionsReply::Transcript {
-                    // A server that did not ask would show them as unknown.
-                    entries: {
-                        if !thoughts {
-                            entries.retain(|entry| entry.kind != agent::EntryKind::Thought);
-                        }
-                        entries
-                    },
-                    earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
-                },
-                Ok(None) => SessionsReply::Error {
-                    message: format!("there is no session {session}"),
-                },
-                Err(e) => SessionsReply::Error {
-                    message: format!("could not read session {session}: {e:#}"),
-                },
-            }
-        }
+        } => agents.transcript_reply(&session, last, thoughts).await,
         SessionsRequest::External {
             agent,
             limit,
@@ -1483,6 +1510,134 @@ while read -r line; do reply '{}'; done
         }
     }
 
+    /// An adapter whose one turn thinks in chunks, as Codex's reasoning
+    /// summaries arrive, then answers.
+    #[cfg(unix)]
+    const THINKING_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"%s","content":{"type":"text","text":"%s"}}}}\n' "$1" "$2"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line
+reply '{"sessionId":"s"}'
+while read -r line; do
+  case "$line" in
+    *session/prompt*)
+      update agent_thought_chunk '\n\n'
+      update agent_thought_chunk '**Checking 391**'
+      update agent_thought_chunk '\n\nIt is 17 x'
+      update agent_thought_chunk ' 23.'
+      update agent_message_chunk 'Not prime.'
+      reply '{"stopReason":"end_turn"}' ;;
+    *) reply '{}' ;;
+  esac
+done
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let projects = root.path().join("claude/projects/-srv-project");
+        std::fs::create_dir_all(&projects).expect("a projects folder");
+        // A session started outside Beep, read from Claude Code's file.
+        let lines = [
+            serde_json::json!({"type": "user", "timestamp": "2026-10-29T08:00:00.000Z",
+                "message": {"role": "user", "content": "is 391 prime?"}}),
+            serde_json::json!({"type": "assistant", "timestamp": "2026-10-29T08:00:04.000Z",
+                "message": {"content": [{"type": "thinking", "thinking": "Try 17.", "signature": "s"}]}}),
+            serde_json::json!({"type": "assistant", "timestamp": "2026-10-29T08:00:05.000Z",
+                "message": {"content": [{"type": "text", "text": "No."}]}}),
+        ];
+        let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        std::fs::write(projects.join(format!("{CLAUDE_ID}.jsonl")), text).expect("a transcript");
+        let agents = agents_at(&root.path().join("claude"));
+        let kinds = |reply: SessionsReply| -> Vec<(agent::EntryKind, String, Option<u64>)> {
+            match reply {
+                SessionsReply::Transcript { entries, .. } => entries
+                    .into_iter()
+                    .map(|entry| (entry.kind, entry.text, entry.ms))
+                    .collect(),
+                other => panic!("not a transcript: {other:?}"),
+            }
+        };
+        assert_eq!(
+            kinds(agents.transcript_reply(CLAUDE_ID, 10, true).await),
+            [
+                (agent::EntryKind::User, "is 391 prime?".into(), None),
+                (agent::EntryKind::Thought, "Try 17.".into(), Some(4000)),
+                (agent::EntryKind::Agent, "No.".into(), None),
+            ]
+        );
+        assert_eq!(
+            kinds(agents.transcript_reply(CLAUDE_ID, 10, false).await).len(),
+            2
+        );
+
+        // A session this node runs, read from what it kept of the turn.
+        let kind = AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), THINKING_ADAPTER.into()],
+            env: BTreeMap::new(),
+        };
+        let begin = Begin {
+            prompt: Some("is 391 prime?".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+        };
+        let session = agents
+            .start(
+                &kind,
+                Some(root.path().to_str().expect("a UTF-8 path")),
+                begin,
+            )
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            live.wait_for(|live| {
+                live.status() == Status::Idle
+                    && live
+                        .transcript(10)
+                        .0
+                        .iter()
+                        .any(|entry| entry.text == "Not prime.")
+            }),
+        )
+        .await
+        .expect("the turn ends")
+        .expect("the session is still there");
+        let read = kinds(agents.transcript_reply(&session.id, 10, true).await);
+        let shown: Vec<(agent::EntryKind, &str)> = read
+            .iter()
+            .map(|(kind, text, _)| (*kind, text.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (agent::EntryKind::User, "is 391 prime?"),
+                (
+                    agent::EntryKind::Thought,
+                    "**Checking 391**\n\nIt is 17 x 23."
+                ),
+                (agent::EntryKind::Agent, "Not prime."),
+            ]
+        );
+        assert!(read[1].2.is_some(), "a live thought says how long it took");
+        let without = kinds(agents.transcript_reply(&session.id, 10, false).await);
+        assert!(
+            without
+                .iter()
+                .all(|(kind, _, _)| *kind != agent::EntryKind::Thought)
+        );
+        session.close().await;
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_replayed_image_is_served_and_found_again_once_evicted() {
@@ -1653,8 +1808,15 @@ while read -r line; do reply '{}'; done
             (kind.args, env)
         };
         let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
-        // Claude Code is switched to bypassPermissions by the session.
-        assert_eq!(launched("claude"), (vec![], vec![]));
+        // Claude Code is switched to bypassPermissions by the session, and
+        // shows its thinking as summaries.
+        assert_eq!(
+            launched("claude"),
+            (
+                vec![],
+                vec![pair("CLAUDE_CODE_THINKING_DISPLAY", "summarized")]
+            )
+        );
         assert_eq!(
             launched("codex"),
             (
