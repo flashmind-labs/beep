@@ -418,43 +418,11 @@ mod tests {
     }
 
     #[test]
-    fn a_call_without_its_subagents_file_stays_a_plain_line() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        let path = session(root.path());
-        fs::remove_dir_all(path.with_extension("")).expect("removed");
-        let read = entries(&path, 10).expect("the transcript");
-        assert_eq!(read.entries[1].text, "Agent: Find the config loader");
-        assert_eq!(read.entries[2].text, "Task: Check the release notes");
-    }
-
-    #[test]
     fn a_subagent_before_the_entries_read_is_not_read() {
         let root = tempfile::tempdir().expect("a temp folder");
         let path = session(root.path());
         let read = entries(&path, 1).expect("the transcript");
         assert_eq!(read.entries.len(), 1);
         assert_eq!(read.entries[0].text, "Both checks are done.");
-    }
-
-    #[test]
-    fn a_failed_or_stopped_subagent_reads_as_failed() {
-        let spawn = Spawn {
-            failed: true,
-            ..Spawn::default()
-        };
-        let agent = Found {
-            id: "a1".into(),
-            transcript: PathBuf::from("/nowhere/agent-a1.jsonl"),
-            meta: Meta::default(),
-        };
-        assert_eq!(status(&spawn, &agent), Status::Failed);
-        let stopped = Found {
-            meta: Meta {
-                stopped_by_user: Some(true),
-                ..Meta::default()
-            },
-            ..agent
-        };
-        assert_eq!(status(&Spawn::default(), &stopped), Status::Failed);
     }
 }

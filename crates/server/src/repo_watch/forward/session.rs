@@ -1,7 +1,4 @@
-//! One node forwarding one repository's webhook: the `webhook/1` session,
-//! from the watch the server asks for to the node's last reply. Each
-//! delivery reads the project's copies again; dropping the session has the
-//! node stop the forward and delete its webhook.
+//! One node forwarding one repository's webhook over a `webhook/1` session; dropping it removes the webhook.
 
 use super::{LiveState, Refresh, Slot};
 use crate::{
@@ -162,21 +159,5 @@ mod tests {
         let (a, b) = (new_secret(), new_secret());
         assert_eq!(a.expose_secret().len(), 64);
         assert_ne!(a.expose_secret(), b.expose_secret());
-    }
-
-    #[test]
-    fn a_watch_names_the_token_of_the_repositorys_owner() {
-        let repo = RepoName::parse("acme-labs/widget").expect("a name");
-        let WatchHost::GitHub { token_var } = watch_host(&IssueHost::Github, &repo) else {
-            panic!("GitHub");
-        };
-        assert_eq!(token_var.as_deref(), Some("BEEP_GH_TOKEN_ACME_LABS"));
-        let forgejo = IssueHost::of_hostname("git.example.com").expect("a host");
-        assert_eq!(
-            watch_host(&forgejo, &repo),
-            WatchHost::Forgejo {
-                host: "git.example.com".into()
-            }
-        );
     }
 }

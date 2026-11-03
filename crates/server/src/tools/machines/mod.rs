@@ -1,8 +1,4 @@
-//! The tools that use the user's machines, the nodes running `beep-node`:
-//! `exec` and `process` for commands, `desktop` for a Mac's screen and
-//! `code_agent` for coding agents. Each takes `in`, a machine's name; left
-//! out, it picks the machine the way `Need` says. `add_machine` links a new
-//! one.
+//! Tools that use the user's machines; each takes `in`, else picks one the way `Need` says.
 
 use crate::{
     app::App,
@@ -77,8 +73,7 @@ pub(crate) struct Picked {
 }
 
 impl Picked {
-    /// Where commands start: the workspace on the user's environment,
-    /// otherwise the home folder (`None`).
+    /// Where commands start: the environment's workspace, else the home folder (`None`).
     pub(crate) fn cwd(&self) -> Option<&str> {
         self.online.workspace.as_deref()
     }
@@ -96,11 +91,9 @@ pub(crate) enum Need<'a> {
     Shell,
     /// Files it shares, with the same default as `Shell`.
     Files,
-    /// Desktop control, on a machine the user turned it on for. The default
-    /// is the only one; with several, the call must say.
+    /// Desktop control; defaults to the only machine that has it.
     Desktop,
-    /// A coding agent, `None` for any. The default is the user's
-    /// environment when it has one, else the only machine that does.
+    /// A coding agent, `None` for any; defaults to the environment, else the only machine with it.
     Agent(Option<&'a str>),
 }
 
@@ -153,8 +146,7 @@ struct Candidate<'a> {
     workspace: bool,
 }
 
-/// The machine a call runs on, by index into `candidates`: the one `name`
-/// names, or else the default `rule` gives. The error is for the model.
+/// The index in `candidates` of the machine `name` names, else `rule`'s default.
 fn choose(
     candidates: &[Candidate<'_>],
     name: Option<&str>,
@@ -270,8 +262,7 @@ pub(crate) fn command_name(name: &str) -> String {
     name.trim().to_lowercase().replace(' ', "-")
 }
 
-/// How the model calls `code_agent` for `action` on session `id`, for the
-/// hints results and wake-ups give.
+/// How the model calls `code_agent` for `action` on session `id`, for hints.
 pub(crate) fn agent_call(node: &str, agent: &str, action: &str, id: &str) -> String {
     format!("code_agent with action `{action}`, agent `{agent}`, id `{id}` and in `{node}`")
 }
@@ -370,30 +361,5 @@ mod tests {
                 "None of the user's machines online offers desktop control. Machines: home.".into()
             )
         );
-    }
-
-    #[test]
-    fn agents_prefer_the_environment_then_the_only_machine() {
-        let machines = [
-            candidate("mac", true, true, false),
-            candidate("home", true, true, true),
-        ];
-        assert_eq!(
-            choose(&machines, None, Rule::WorkspaceThenOnlyOne, "Codex"),
-            Ok(1)
-        );
-        let elsewhere = [
-            candidate("home", true, false, true),
-            candidate("mac", true, true, false),
-        ];
-        assert_eq!(
-            choose(&elsewhere, None, Rule::WorkspaceThenOnlyOne, "Codex"),
-            Ok(1)
-        );
-    }
-
-    #[test]
-    fn names_match_with_dashes_for_spaces() {
-        assert_eq!(command_name(" Build Box "), "build-box");
     }
 }

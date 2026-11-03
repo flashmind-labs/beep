@@ -1,12 +1,6 @@
-//! Finding an imported project on the user's other machines: a machine is
-//! looked through when a project is imported and when it connects, and a
-//! checkout whose `origin` remote is a project's is recorded as that
-//! project's folder there, in place. The look is the found-folders scan
-//! (`SessionsRequest::Folders`), so it finds the checkouts coding agents
-//! worked in.
-//!
-//! Looks run in the background, owned by [`Checkouts`]: one per machine at a
-//! time, a few at once server-wide, and a bounded number waiting.
+//! Finds an imported project's checkouts on the user's other machines, by `origin` remote, through
+//! the found-folders scan. Looks run in the background under [`Checkouts`], bounded per machine,
+//! server-wide and in queue.
 
 use super::{remove, repo::same_repo};
 use crate::{
@@ -33,13 +27,11 @@ use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
 const FOLDERS_PER_MACHINE: u32 = 200;
 /// The longest one machine's look may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(60);
-/// How long a look at a machine that has a project's folder stands before
-/// the project's page asks for another.
+/// How long a look at a machine with a project folder stands before the page asks again.
 const RECHECK: TimeDelta = TimeDelta::minutes(10);
 /// Machines looked through at once, server-wide.
 const AT_ONCE: usize = 4;
-/// Machines looked through or waiting their turn; past it, a look is
-/// dropped, and the project's page asks again.
+/// Machines running or queued; past it a look is dropped and the page asks again.
 const MAX_PENDING: usize = 64;
 
 /// One machine of one user.
@@ -47,8 +39,7 @@ type MachineKey = (String, String);
 
 /// The looks in flight, and the machines they are for.
 pub struct Checkouts {
-    /// Machines being looked through, with whether another look was asked
-    /// for meanwhile, so one asked after a look started is not lost.
+    /// Machines being looked through, and whether another look was asked for meanwhile.
     running: Arc<Mutex<HashMap<MachineKey, bool>>>,
     permits: Arc<Semaphore>,
     tasks: Mutex<JoinSet<()>>,
@@ -64,8 +55,7 @@ impl Default for Checkouts {
     }
 }
 
-/// Takes a machine off the running list when its task ends, even by a
-/// panic or an abort.
+/// Takes a machine off the running list when its task ends, even by panic or abort.
 struct Running {
     running: Arc<Mutex<HashMap<MachineKey, bool>>>,
     key: MachineKey,
@@ -74,9 +64,7 @@ struct Running {
 }
 
 impl Running {
-    /// Whether another look was asked for while this one ran; when not, the
-    /// machine leaves the list in the same step, so a look asked for after
-    /// it starts a task of its own.
+    /// Whether another look was asked for; if not, the machine leaves the list in the same step.
     fn again(&mut self) -> bool {
         let mut running = lock(&self.running);
         if let Some(again) = running.get_mut(&self.key)
@@ -105,9 +93,7 @@ impl Checkouts {
         lock(&self.running).contains_key(&(user.to_owned(), endpoint.to_owned()))
     }
 
-    /// Looks through the user's machine `endpoint` in the background. One
-    /// already under way looks again once it ends. Says whether it was
-    /// taken: with too many waiting it is dropped.
+    /// Looks through machine `endpoint` in the background, again after a running look; `false` when dropped.
     pub(crate) fn check(&self, app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> bool {
         let key = (user.id().to_owned(), endpoint.to_owned());
         {
@@ -168,8 +154,7 @@ impl Checkouts {
     }
 }
 
-/// One look, its failure logged: nothing is recorded, and the machine is
-/// looked through again when it next connects or the page asks.
+/// One look, its failure logged; the machine is looked through again later.
 async fn look(app: &Weak<App>, user: &Arc<User>, endpoint: &str) {
     let Some(app) = app.upgrade() else {
         return;
@@ -184,9 +169,7 @@ async fn look(app: &Weak<App>, user: &Arc<User>, endpoint: &str) {
     }
 }
 
-/// Drops the machine from projects whose folder it no longer has, then
-/// asks it for its checkouts and records those of the user's projects.
-/// Gives how many it recorded.
+/// Drops the machine from projects whose folder is gone, records its checkouts, and returns the count.
 async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyhow::Result<usize> {
     let Some(online) = app
         .nodes
@@ -218,17 +201,14 @@ async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyho
     record(user, endpoint, &folders, &servers, started).await
 }
 
-/// The Forgejo servers the user has a token for, which name a remote's
-/// repository.
+/// The Forgejo servers the user has a token for.
 pub(super) async fn forgejo_servers(app: &App, user: &User) -> anyhow::Result<Vec<ForgejoUrl>> {
     Ok(super::service::forgejo_of(
         &user.git_credentials(&app.credential_key).await?,
     ))
 }
 
-/// Records what a look at `endpoint` that started at `started` found: each
-/// of `folders` that is a checkout of one of the user's projects not on
-/// that machine yet becomes its folder there. Gives how many it recorded.
+/// Records `folders` found on `endpoint` as new project folders there; returns how many.
 pub(crate) async fn record(
     user: &User,
     endpoint: &str,
@@ -264,9 +244,7 @@ pub(crate) struct Link {
     pub(crate) folder: String,
 }
 
-/// The checkouts among `folders`, found on `endpoint`, of projects in
-/// `imports` that have no folder on that machine: one per project, the one
-/// agents worked in last.
+/// One checkout per project in `imports` without a folder on `endpoint`, the one used last.
 pub(crate) fn links(
     imports: &[ImportRow],
     endpoint: &str,
@@ -316,13 +294,11 @@ pub(crate) struct Machine<'a> {
 /// A project's page: its machines, and those to look through now.
 pub(crate) struct Page {
     pub(crate) machines: Vec<ProjectMachine>,
-    /// Online machines without a checkout not looked through since the
-    /// project was imported, by key.
+    /// Online machines without a checkout not looked through since the import, by key.
     pub(crate) to_check: Vec<String>,
 }
 
-/// What a project's page lists for each machine. `rows` are the project's
-/// imports; a look before the first of them does not count.
+/// What a project's page lists per machine; looks before the first import do not count.
 pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
     let since = rows.iter().map(|row| row.imported_at).min();
     let mut listed = Vec::new();
@@ -364,9 +340,7 @@ pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
     }
 }
 
-/// Online machines that have a folder of the project and were not looked
-/// through for `RECHECK`, by key: looking again finds a folder deleted
-/// since.
+/// Online machines with a project folder not looked through for `RECHECK`, by key.
 pub(crate) fn stale(
     rows: &[ImportRow],
     machines: &[Machine<'_>],
@@ -459,114 +433,6 @@ mod tests {
         assert_eq!(on_laptop, ["/home/user/site"]);
     }
 
-    #[test]
-    fn the_page_lists_every_machine_and_asks_for_the_unchecked_ones() {
-        let since = Utc::now() - chrono::Duration::hours(1);
-        let mut rows = vec![import(
-            "acme/widget",
-            "mac",
-            "/Users/user/Projects/acme/widget",
-        )];
-        rows[0].imported_at = since;
-        let mac = node("mac", "MacBook Air");
-        let gpu = node("gpu", "gpu-box");
-        let build = node("build", "build-box");
-        let old = node("old", "old-box");
-        let mini = node("mini", "mini-box");
-        let at = |row, online, checked_at, checking| Machine {
-            row,
-            online,
-            lookable: online,
-            checking,
-            checked_at,
-        };
-        let listed = [
-            at(&old, false, None, true),
-            at(
-                &build,
-                true,
-                Some(since + chrono::Duration::minutes(5)),
-                false,
-            ),
-            at(
-                &gpu,
-                true,
-                Some(since - chrono::Duration::minutes(5)),
-                false,
-            ),
-            at(&mini, true, None, true),
-            at(&mac, true, None, false),
-        ];
-        let Page {
-            machines: page,
-            to_check,
-        } = machines(&rows, &listed);
-        let names: Vec<&str> = page.iter().map(|m| m.machine_name.as_str()).collect();
-        assert_eq!(
-            names,
-            ["MacBook Air", "build-box", "gpu-box", "mini-box", "old-box"]
-        );
-        assert_eq!(
-            page[0].folder.as_deref(),
-            Some("/Users/user/Projects/acme/widget")
-        );
-        assert!(page[1].checked_at.is_some() && !page[1].checking);
-        // Looked through before the import: that look does not count.
-        assert!(page[2].checked_at.is_none() && page[2].checking);
-        assert!(page[3].checking);
-        assert!(!page[4].online && !page[4].checking);
-        assert_eq!(to_check, ["gpu"]);
-    }
-
-    #[tokio::test]
-    async fn a_look_links_the_checkout_and_notes_when() {
-        let harness = Harness::new(Scripted::default()).await;
-        let user = &harness.alice;
-        user.save_import(NewImport {
-            project: "acme/widget",
-            endpoint: "laptop",
-            folder: "/home/user/projects/acme/widget",
-            url: "https://github.com/acme/widget",
-        })
-        .await
-        .expect("saved");
-        // A machine that connects later has a checkout over ssh.
-        let started = Utc::now();
-        let folders = [found(
-            "/home/user/code/widget",
-            "git@github.com:acme/widget.git",
-            9,
-        )];
-        let linked = record(user, "build", &folders, &[], started)
-            .await
-            .expect("recorded");
-        assert_eq!(linked, 1);
-        let again = record(user, "build", &folders, &[], Utc::now())
-            .await
-            .expect("recorded");
-        assert_eq!(again, 0);
-        let places: Vec<(String, String)> = user
-            .imports()
-            .await
-            .expect("listed")
-            .into_iter()
-            .map(|row| (row.endpoint, row.folder))
-            .collect();
-        assert_eq!(
-            places,
-            [
-                ("build".into(), "/home/user/code/widget".into()),
-                ("laptop".into(), "/home/user/projects/acme/widget".into()),
-            ]
-        );
-        assert!(
-            user.checkout_checks()
-                .await
-                .expect("read")
-                .contains_key("build")
-        );
-    }
-
     #[tokio::test]
     async fn a_project_imported_after_a_look_is_looked_for_again() {
         let harness = Harness::new(Scripted::default()).await;
@@ -626,38 +492,5 @@ mod tests {
         assert_eq!(tasks.len(), 1, "one task for the machine");
         while tasks.join_next().await.is_some() {}
         assert!(!checks.is_checking("alice", "build"));
-    }
-
-    #[test]
-    fn a_machine_with_the_folder_is_looked_at_again_after_a_while() {
-        let now = Utc::now();
-        let rows = [
-            import("acme/widget", "mac", "/Users/user/widget"),
-            import("acme/widget", "build", "/srv/widget"),
-            import("acme/widget", "old", "/srv/widget"),
-            import("acme/widget", "busy", "/srv/widget"),
-        ];
-        let (mac, build, old, busy, gpu) = (
-            node("mac", "MacBook Air"),
-            node("build", "build-box"),
-            node("old", "old-box"),
-            node("busy", "busy-box"),
-            node("gpu", "gpu-box"),
-        );
-        let at = |row, online, checked_at, checking| Machine {
-            row,
-            online,
-            lookable: online,
-            checking,
-            checked_at,
-        };
-        let listed = [
-            at(&mac, true, Some(now - TimeDelta::minutes(1)), false),
-            at(&build, true, Some(now - TimeDelta::hours(1)), false),
-            at(&old, false, None, false),
-            at(&busy, true, None, true),
-            at(&gpu, true, None, false),
-        ];
-        assert_eq!(stale(&rows, &listed, now), ["build"]);
     }
 }

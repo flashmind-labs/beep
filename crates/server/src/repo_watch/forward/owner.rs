@@ -1,7 +1,5 @@
-//! Which online node forwards a repository's webhook. One at a time: the
-//! node forwarding it now keeps it while it can; otherwise the project's
-//! own machines come first, then the user's other nodes, each in key
-//! order, skipping a node that refused lately.
+//! Which online node forwards a repository's webhook: the current one while it can, else project
+//! machines first, then other nodes, in key order, skipping recent refusals.
 
 use iroh::EndpointId;
 use std::{
@@ -9,21 +7,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// How long a node that could not forward (its tool missing, no address
-/// for the host) is passed over.
+/// How long a node that could not forward is passed over.
 pub(super) const REFUSED_FOR: Duration = Duration::from_secs(10 * 60);
 
 /// A node online now that forwards webhooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Candidate {
     pub(super) id: EndpointId,
-    /// One of the project's own machines (its home checkout's, or where it
-    /// was imported).
+    /// One of the project's own machines (home checkout or import target).
     pub(super) of_project: bool,
 }
 
-/// The node to forward with: `current` while it is still a candidate,
-/// else the first candidate not refused within `REFUSED_FOR` of `now`.
+/// `current` while still a candidate, else the first candidate not refused within `REFUSED_FOR`.
 pub(super) fn pick(
     candidates: &[Candidate],
     current: Option<EndpointId>,

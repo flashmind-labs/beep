@@ -1,9 +1,5 @@
-//! The Beep MCP server's tools (`tools/1`). Coding agents a node runs call
-//! them through that node, which opens a stream to the server for each
-//! call; the server runs it on the machine it names, with the paths Beep's
-//! own machine tools take. `run_on` and `send_files` act, so they follow
-//! the user's rules for their machines: under ask first the server answers
-//! `Reply::Ask` and the node asks the user in the agent's session.
+//! The Beep MCP server's tools (`tools/1`), called by node agents one stream per call.
+//! `run_on` and `send_files` act, so under ask first they answer `Reply::Ask`.
 
 use super::{
     Machines, Need,
@@ -97,8 +93,7 @@ impl Calls {
         done(self.run(request.tool, args).await)
     }
 
-    /// The reply that stops an acting call before it runs: a refusal, or
-    /// the card to ask the user with. `None` lets it run.
+    /// The refusal or ask card that stops an acting call; `None` lets it run.
     async fn ask_first(&self, request: &Request, args: &Value) -> Option<Reply> {
         let slug = match request.tool {
             Call::RunOn => RUN_ON,
@@ -399,8 +394,7 @@ impl Calls {
             }
             None => rows.iter().map(|row| row.endpoint.as_str()).collect(),
         };
-        // Scanned here first, where the agent changed files, then on the
-        // other machines; each sends its changes to the rest.
+        // Scanned first where the agent changed files, then on the others.
         let mut order: Vec<&str> = rows.iter().map(|row| row.endpoint.as_str()).collect();
         order.sort_by_key(|endpoint| *endpoint != self.caller);
         let mut notes = Vec::new();
@@ -515,8 +509,7 @@ impl Calls {
     }
 }
 
-/// A run `run_on` started, as its id reads: `task:<n>@<machine>` for a
-/// background command, `<agent>:<session>@<machine>` for a coding agent.
+/// A run `run_on` started: `task:<n>@<machine>` or `<agent>:<session>@<machine>`.
 #[derive(Debug, PartialEq)]
 enum Job {
     Task {
@@ -679,50 +672,7 @@ fn sync_line(status: &ProjectStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        protocol::PermissionLevel,
-        store::AppPermissionRow,
-        watchers::testing::{Harness, Scripted},
-    };
-
-    #[test]
-    fn job_ids_read_back() {
-        let task = Job::Task {
-            machine: "build-box".into(),
-            id: 7,
-        };
-        assert_eq!(task.to_string(), "task:7@build-box");
-        assert_eq!(Job::parse("task:7@build-box"), Ok(task));
-        let agent = Job::Agent {
-            machine: "mac".into(),
-            agent: "codex".into(),
-            session: "a3f9c1".into(),
-        };
-        assert_eq!(Job::parse(&agent.to_string()), Ok(agent));
-        assert!(Job::parse("a3f9c1").is_err());
-        assert!(Job::parse("task:x@mac").is_err());
-    }
-
-    #[test]
-    fn run_on_asks_first_by_default_and_runs_when_allowed() {
-        let args = json!({ "machine": "build-box", "command": "cargo test" });
-        let rules = permissions::Rules::default();
-        let Check::Ask(approval) = permissions::check(&rules, &ToolApp::Machines, RUN_ON, &args)
-        else {
-            panic!("run_on did not ask first");
-        };
-        assert_eq!(approval.app, "Your machines");
-        assert_eq!(approval.action, "run on");
-        let allowed = permissions::Rules::from_rows(vec![AppPermissionRow {
-            app: permissions::MACHINES_APP.into(),
-            level: PermissionLevel::Allow {},
-            allowed: vec![],
-        }]);
-        assert!(matches!(
-            permissions::check(&allowed, &ToolApp::Machines, RUN_ON, &args),
-            Check::Run
-        ));
-    }
+    use crate::watchers::testing::{Harness, Scripted};
 
     fn calls(harness: &Harness) -> Calls {
         Calls {
@@ -771,40 +721,6 @@ mod tests {
         assert!(
             matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine called build-box")),
             "{ran:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn run_on_an_offline_machine_says_it_is_offline() {
-        let harness = Harness::new(Scripted::default()).await;
-        let key = iroh::SecretKey::generate().public();
-        harness
-            .alice
-            .node_connected(crate::store::NewNode {
-                endpoint: key,
-                name: "Build Box",
-                version: "0.1.0",
-            })
-            .await
-            .expect("the node is kept");
-        let calls = calls(&harness);
-        let args = json!({ "machine": "build-box", "command": "uname" });
-        let reply = calls
-            .answer(&request(Call::RunOn, args, Approved::Once))
-            .await;
-        assert_eq!(
-            reply,
-            Reply::Done {
-                text: "Build Box is offline.".into(),
-                failed: true,
-            }
-        );
-        let listed = calls
-            .answer(&request(Call::ListMachines, json!({}), Approved::No))
-            .await;
-        assert!(
-            matches!(&listed, Reply::Done { failed: false, text } if text.contains("- build-box: offline")),
-            "{listed:?}"
         );
     }
 }

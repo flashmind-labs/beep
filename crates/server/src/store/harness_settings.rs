@@ -1,6 +1,4 @@
-//! A user's settings for the coding agent harnesses on their machines, per
-//! machine and agent. The env vars are sealed like credentials (see
-//! `crate::credentials`), since their values may be secrets.
+//! Per-machine, per-agent harness settings; env vars are sealed like credentials since they may be secrets.
 
 use super::Store;
 use crate::{
@@ -73,8 +71,7 @@ impl Store {
         rows.iter().map(harness_from).collect()
     }
 
-    /// The user's settings for the harness `agent` on each machine that has
-    /// some saved, by machine.
+    /// The user's settings for harness `agent`, by machine.
     pub(crate) async fn harness_settings_of(
         &self,
         user: &UserKey,
@@ -91,8 +88,7 @@ impl Store {
         rows.iter().map(harness_from).collect()
     }
 
-    /// The env vars of the user's harness `agent` on `machine_id`, opened;
-    /// empty when there are none.
+    /// Opened env vars of harness `agent` on `machine_id`; empty when none.
     pub(crate) async fn harness_env(
         &self,
         user: &UserKey,
@@ -121,8 +117,7 @@ impl Store {
             .with_context(|| format!("the {agent} env vars do not read"))
     }
 
-    /// Saves the user's settings for one harness in place of the ones
-    /// before.
+    /// Replaces the user's settings for one harness.
     pub(crate) async fn save_harness_settings(
         &self,
         user: &UserKey,
@@ -179,9 +174,7 @@ impl Store {
     }
 }
 
-/// Seals the env vars of `source`'s harnesses again for `target`, before
-/// an account merge moves them: what is sealed names its user. One that
-/// does not open is left as it is, unreadable either way.
+/// Reseals `source`'s harness env vars for `target` before a merge; unopenable ones stay as they are.
 pub(super) async fn reseal_harnesses_for(
     tx: &mut PgConnection,
     key: &CredentialKey,

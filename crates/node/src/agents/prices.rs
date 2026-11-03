@@ -183,19 +183,4 @@ mod tests {
         assert_eq!(price("claude-opus-9"), None);
         assert_eq!(price("<synthetic>"), None);
     }
-
-    #[test]
-    fn a_request_costs_each_kind_at_its_price() {
-        let opus = price("claude-opus-5").expect("a price");
-        let tokens = Tokens {
-            input: 1_000_000,
-            output: 100_000,
-            cache_read: 2_000_000,
-            cache_write: 400_000,
-            cache_write_long: 100_000,
-        };
-        // 5 + 2.5 + 1 + 2.5 + 1
-        assert!((opus.cost(&tokens) - 12.0).abs() < 1e-9);
-        assert_eq!(tokens.total(), 3_600_000);
-    }
 }

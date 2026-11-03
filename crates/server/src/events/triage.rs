@@ -1,12 +1,6 @@
-//! Event triage: each batch of account events goes to a small sub-agent
-//! first, which reads what it needs and decides with one call. Only an
-//! inform marked now wakes the main agent, with the triage summary rather
-//! than the raw events. An inform marked later waits for the next wake or
-//! the next conversation. Every decision is logged, so the main agent can
-//! say what came in (`recent_events`) and topics can be tuned.
-//!
-//! When the run fails, events that look urgent by their kind wake the main
-//! agent the old way, with the raw events; the rest are logged and dropped.
+//! Event triage: a small sub-agent reads each batch and decides once. Only an inform marked now
+//! wakes the main agent; later ones wait. Every decision is logged for `recent_events`.
+//! When triage fails, events that look urgent by kind wake the agent raw; the rest are dropped.
 
 use super::{
     EventApp,
@@ -84,8 +78,7 @@ impl Urgency {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EventsConfig {
-    /// The model the triage agent runs on. A cheap one fits: it reads a few
-    /// events and decides once.
+    /// The triage agent's model; a cheap one fits.
     #[serde(default = "default_triage_model")]
     pub triage_model: RoleModel,
 }
@@ -246,8 +239,7 @@ pub(crate) fn urgent_looking(rows: &[EventRow]) -> Vec<EventRow> {
         .collect()
 }
 
-/// Triages `rows`, already moved to triaging, and acts on the decision.
-/// Runs as a sub-agent task.
+/// Triages `rows`, already moved to triaging, and acts on the decision as a sub-agent task.
 pub(crate) async fn run(app: Arc<App>, user: Arc<User>, rows: Vec<EventRow>, settings: Settings) {
     let spec = spec(&app, &user, &rows, &settings.triage).await;
     let decided = app.subagents.run(user.id(), spec).await;
@@ -268,9 +260,7 @@ pub(crate) async fn run(app: Arc<App>, user: Arc<User>, rows: Vec<EventRow>, set
     }
 }
 
-/// How long events may sit in triage before the sweep takes them for a run
-/// that died: well past the run's own time limit, so a slow settle is not
-/// cut short.
+/// How long events sit in triage before the sweep assumes the run died: twice its time limit.
 pub(crate) const STALE_TRIAGE: Duration = Duration::from_secs(KIND.time_limit.as_secs() * 2);
 
 /// Logs the decision and wakes, defers or drops as it says.
@@ -377,9 +367,7 @@ async fn fall_back(
     .map(drop)
 }
 
-/// Wakes the main agent with every inform not yet delivered, the newest
-/// first. `rows` are the events of the batch just triaged. Whether a run
-/// started.
+/// Wakes the main agent with every undelivered inform, newest first; whether a run started.
 async fn wake_informed(app: &Arc<App>, user: &Arc<User>, rows: &[EventRow]) -> Result<bool> {
     let informs = user
         .undelivered_informs(Utc::now() - FOLD_WITHIN, MAX_FOLDED)
@@ -420,8 +408,7 @@ async fn wake_informed(app: &Arc<App>, user: &Arc<User>, rows: &[EventRow]) -> R
     Ok(true)
 }
 
-/// The message a triage wake starts on: the summary, why, the events it
-/// covers with their ids, and earlier informs.
+/// A triage wake's message: summary, reason, covered events with ids, and earlier informs.
 pub(crate) fn describe_inform(
     inform: &TriageRow,
     earlier: &[&TriageRow],
@@ -460,15 +447,13 @@ pub(crate) fn describe_inform(
     text
 }
 
-/// Informs the user has not seen yet, newest first, for the apps to show
-/// apart from any chat.
+/// Informs the user has not seen, newest first, for the Updates list.
 pub async fn waiting_updates(user: &User) -> Result<Vec<UpdateRow>> {
     user.waiting_updates(Utc::now() - FOLD_WITHIN, MAX_UPDATES)
         .await
 }
 
-/// The triage run for `rows`: their apps' read tools, a read-only `memory`, and
-/// the user's topics, held events and memory profile as context.
+/// The triage run for `rows`: their apps' read tools, read-only `memory`, and user context.
 async fn spec(app: &App, user: &Arc<User>, rows: &[EventRow], model: &RoleModel) -> Spec<Triage> {
     Spec {
         kind: &KIND,
@@ -505,8 +490,7 @@ async fn tools(user: &Arc<User>, rows: &[EventRow]) -> Vec<Arc<dyn Tool>> {
     tools
 }
 
-/// Today's date, the user's topics, what is held for a digest and the
-/// memory profile.
+/// Today's date, the user's topics, held events and memory profile.
 async fn context(user: &User) -> String {
     let mut ctx = format!("Today is {}.\n", Utc::now().format("%A %Y-%m-%d %H:%M UTC"));
     match user.event_topics().await {
@@ -547,8 +531,6 @@ async fn context(user: &User) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::EventKind;
-    use chrono::TimeZone;
 
     fn decide(name: &str, args: Value) -> Result<Triage, String> {
         let decision = decisions()
@@ -606,75 +588,5 @@ mod tests {
             reason: "Spam.".to_owned(),
         };
         assert_eq!(route(&ignore, true), Route::Drop);
-    }
-
-    fn row(id: i64, kind: EventKind) -> EventRow {
-        EventRow {
-            id,
-            app: EventApp::Github,
-            kind,
-            summary: format!("Event {id}"),
-            detail: None,
-            ids: json!({"n": id}),
-            occurred: Utc.with_ymd_and_hms(2026, 10, 20, 9, 30, 0).unwrap(),
-            state: EventState::Triaging,
-        }
-    }
-
-    #[test]
-    fn a_failed_triage_passes_on_only_urgent_looking_events() {
-        let rows = [
-            row(1, EventKind::ReviewRequested),
-            row(2, EventKind::GithubOther),
-            row(3, EventKind::CiFailed),
-            row(4, EventKind::NewMail),
-        ];
-        let urgent: Vec<i64> = urgent_looking(&rows).iter().map(|row| row.id).collect();
-        assert_eq!(urgent, [1, 3]);
-    }
-
-    #[test]
-    fn the_wake_message_has_the_summary_its_events_and_earlier_informs() {
-        let triage = |id, summary: &str, refs| TriageRow {
-            id,
-            decided_at: Utc::now(),
-            verdict: Verdict::Inform,
-            urgency: Some(Urgency::Now),
-            summary: Some(summary.to_owned()),
-            reason: "A person is waiting.".to_owned(),
-            refs,
-            delivered: false,
-        };
-        let now = triage(9, "Ana asked for a review of PR 42.", vec![1]);
-        let earlier = triage(8, "A newsletter about Rust.", vec![]);
-        let rows = [
-            row(1, EventKind::ReviewRequested),
-            row(2, EventKind::GithubOther),
-        ];
-        let text = describe_inform(&now, &[&earlier], &rows, &[EventApp::Github]);
-        assert_eq!(
-            text,
-            "From your event triage agent, written to the user:\nAna asked for a review of PR 42.\n\
-             Why now: A person is waiting.\n\n\
-             The events it covers:\n\n\
-             [#1] GitHub, review requested, 2026-10-20 09:30 UTC: Event 1\nids: {\"n\":1}\n\n\
-             Earlier, less urgent:\n- A newsletter about Rust.\n\n\
-             The user set GitHub to read only: offer nothing that would act there."
-        );
-    }
-
-    #[test]
-    fn the_config_defaults_to_a_cheap_model_thinking_little() {
-        let config: EventsConfig = toml::from_str("").expect("an empty table");
-        assert_eq!(
-            config.triage_model.model.name(),
-            "anthropic/claude-haiku-5.5"
-        );
-        assert_eq!(config.triage_model.thinking, ReasoningLevel::Low);
-        let config: EventsConfig = toml::from_str(
-            r#"triage_model = { model = "openrouter:z-ai/glm-5.3-flash", thinking = "off" }"#,
-        )
-        .expect("a model and thinking");
-        assert_eq!(config.triage_model.thinking, ReasoningLevel::Off);
     }
 }

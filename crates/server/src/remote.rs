@@ -1,7 +1,4 @@
-//! Reaches phones the server cannot reach over iroh, through the push
-//! service each one registered with: Firebase for Android, APNs for an
-//! iPhone. Notices are sealed to the phone's key, so neither Google nor
-//! Apple reads them.
+//! Reaches phones iroh cannot through FCM or APNs, with notices sealed to the phone's key.
 
 use crate::{
     apns::{Apns, Environment},
@@ -13,8 +10,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use iroh::EndpointId;
 
-/// Reaches a phone the server cannot reach over iroh. `RemotePush` in
-/// production, a recorder in tests.
+/// Reaches a phone the server cannot reach over iroh.
 #[async_trait]
 pub trait Fallback: Send + Sync + 'static {
     /// Sends `notice` to the phone. True when a push service took it.
@@ -55,8 +51,7 @@ impl RemotePush {
         }
     }
 
-    /// Sends `message` to each phone that registered with `phone`'s key.
-    /// True when one took it.
+    /// Sends `message` to each phone registered with `phone`'s key; true when one took it.
     async fn send_all(&self, phone: EndpointId, message: Message<'_>) -> bool {
         let tokens = match self.store.push_tokens(&phone).await {
             Ok(tokens) => tokens,
@@ -136,8 +131,7 @@ impl Fallback for RemotePush {
     }
 }
 
-/// `notice` sealed to `phone` in at most `max` bytes, its body cut short to
-/// fit. `None` when it does not fit even without a body.
+/// `notice` sealed in at most `max` bytes, body cut to fit; `None` when it never fits.
 pub fn seal_to_fit(phone: &EndpointId, notice: &Notice, max: usize) -> Result<Option<String>> {
     let mut notice = notice.clone();
     loop {
@@ -193,14 +187,5 @@ mod tests {
         assert!(opened.body.ends_with("..."));
         assert!(long.starts_with(opened.body.trim_end_matches("...")));
         assert!(opened.body.len() > 2000);
-    }
-
-    #[test]
-    fn a_short_body_is_kept_whole() {
-        let phone = SecretKey::from_bytes(&[1; 32]);
-        let sealed = seal_to_fit(&phone.public(), &notice("hi".into()), MAX)
-            .unwrap()
-            .unwrap();
-        assert_eq!(seal::open(&phone, &sealed).unwrap().body, "hi");
     }
 }

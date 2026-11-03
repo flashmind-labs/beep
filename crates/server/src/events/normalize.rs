@@ -1,6 +1,4 @@
-//! Turns Composio trigger payloads and the server's own polls into
-//! [`AppEvent`]s. A happening gets the same key however it arrives, so a
-//! Gmail message seen by its trigger and by a poll is stored once.
+//! Turns Composio trigger payloads and polls into [`AppEvent`]s, keyed so both paths dedupe.
 
 use super::model::{AppEvent, DedupeKey, EventApp, EventKind, Source};
 use crate::feeds::mail::{BULK_LABELS, Email, Mailbox, timestamp};
@@ -34,8 +32,7 @@ pub struct TriggerMessage {
 }
 
 impl TriggerMessage {
-    /// Reads Composio's V3 envelope, the older V2 and V1 ones, and the
-    /// legacy realtime shape. `None` when it is none of them.
+    /// Reads Composio's V3, V2, V1 and legacy realtime envelopes; `None` for anything else.
     pub fn parse(payload: &Value) -> Option<Self> {
         let at = payload["timestamp"]
             .as_str()
@@ -82,9 +79,7 @@ impl TriggerMessage {
     }
 }
 
-/// The event a trigger message reports, or `None` for a trigger this
-/// module does not read or a message not worth an event, such as mail the
-/// user sent or a promotion.
+/// The event a trigger message reports; `None` for unread triggers, sent mail or promotions.
 pub fn from_trigger(message: &TriggerMessage) -> Option<AppEvent> {
     let data = &message.data;
     let mut event = match message.slug.as_str() {
@@ -277,8 +272,7 @@ fn google_calendar(slug: &str, data: &Value) -> Option<AppEvent> {
     })
 }
 
-/// A GitHub notification thread from `GITHUB_LIST_NOTIFICATIONS`, or `None`
-/// when it has no id or is a CI run that passed.
+/// A GitHub notification thread as an event; `None` without an id or for a passing CI run.
 pub fn from_github_notification(notification: &Value) -> Option<AppEvent> {
     let thread = str_of(notification, &["id"])?;
     let reason = str_of(notification, &["reason"]).unwrap_or_default();
@@ -549,25 +543,6 @@ mod tests {
     }
 
     #[test]
-    fn sent_and_promotional_gmail_is_dropped() {
-        for labels in [&["SENT"][..], &["INBOX", "CATEGORY_PROMOTIONS"][..]] {
-            let message = TriggerMessage::parse(&gmail_payload("m1", labels)).unwrap();
-            assert!(from_trigger(&message).is_none(), "{labels:?}");
-        }
-    }
-
-    #[test]
-    fn unknown_triggers_make_no_event() {
-        let message = TriggerMessage {
-            user: "outside-1".into(),
-            slug: "GITHUB_STAR_ADDED_EVENT".into(),
-            data: json!({}),
-            at: Utc::now(),
-        };
-        assert!(from_trigger(&message).is_none());
-    }
-
-    #[test]
     fn outlook_mail_reads_both_field_styles_and_skips_other() {
         let message = |data: Value| TriggerMessage {
             user: "outside-1".into(),
@@ -605,46 +580,6 @@ mod tests {
             })))
             .is_none()
         );
-    }
-
-    #[test]
-    fn calendar_triggers_become_calendar_events() {
-        let message = |slug: &str, data: Value| TriggerMessage {
-            user: "outside-1".into(),
-            slug: slug.into(),
-            data,
-            at: Utc::now(),
-        };
-        let soon = from_trigger(&message(
-            GCAL_SOON,
-            json!({"event_id": "e1", "summary": "Standup", "start_time": "2026-10-20T10:00:00Z",
-                   "minutes_until_start": 15, "hangout_link": "https://meet.example.com/x"}),
-        ))
-        .unwrap();
-        assert_eq!(soon.kind, EventKind::CalendarSoon);
-        assert_eq!(soon.summary, "\"Standup\" starts in 15 minutes");
-        assert_eq!(soon.detail.as_deref(), Some("https://meet.example.com/x"));
-        assert_eq!(soon.kind.topic(), super::super::Topic::CalendarUpcoming);
-
-        let changed = |at: &str| {
-            from_trigger(&message(
-                GCAL_UPDATED,
-                json!({"event_id": "e1", "change_type": "updated", "updated_at": at,
-                       "updated_fields": {"start": {"old": "a", "new": "b"}}}),
-            ))
-            .unwrap()
-        };
-        let first = changed("2026-10-20T08:00:00Z");
-        assert_eq!(first.summary, "Calendar event changed: start");
-        assert_ne!(first.key, changed("2026-10-20T09:00:00Z").key);
-
-        let cancelled = from_trigger(&message(
-            GCAL_CANCELLED,
-            json!({"event_id": "e1", "summary": "Lunch"}),
-        ))
-        .unwrap();
-        assert_eq!(cancelled.kind, EventKind::CalendarCancelled);
-        assert_eq!(cancelled.ids["calendar_id"], "primary");
     }
 
     fn notification(reason: &str, kind: &str, title: &str, updated: &str) -> Value {

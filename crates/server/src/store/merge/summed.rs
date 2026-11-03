@@ -1,5 +1,4 @@
-//! A merged account's usage counts: where both accounts counted the same
-//! key, the counts add up.
+//! A merged account's usage counts: same keys add up.
 
 use anyhow::Result;
 use sqlx::PgConnection;

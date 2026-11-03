@@ -1,14 +1,6 @@
-//! Coding-agent sessions on a node (`claude/1`, `codex/1`, ...; see
-//! `beep_proto::node::agent`). The server keeps one stream per session it
-//! follows, read by a task that keeps the session's latest state, so a tool
-//! call can send an order and wait for the turn to end without reading the
-//! agent's output. When the stream drops, the next call attaches again.
-//!
-//! A session started, prompted or taken over from a chat reports back to
-//! that chat when a turn ends or it asks something while no call waits for
-//! it (see `wake`).
+//! Coding-agent sessions on a node: one followed stream per session, keeping its latest state.
 
-use super::{Ask, Follower, Online};
+use super::{Ask, Follower, Online, RECONNECT_WAIT};
 use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
@@ -18,7 +10,7 @@ use crate::{
         },
         link,
     },
-    protocol::{CustomAgent, WorkDiff, WorkFolder, node::agent::DiffAsk},
+    protocol::{CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree, node::agent::DiffAsk},
     transport::READ_TIMEOUT,
 };
 use anyhow::{Context, Result, bail};
@@ -32,7 +24,7 @@ use std::{
 };
 use tokio::{
     sync::{mpsc, oneshot, watch},
-    time::timeout,
+    time::{Instant, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 use wake::Reporter;
@@ -41,8 +33,7 @@ pub(crate) use wake::News;
 
 mod wake;
 
-/// The node refused the session stream's first request; for an attach, it
-/// no longer has the session.
+/// The node refused the session stream's first request (for an attach: it lost the session).
 #[derive(Debug, thiserror::Error)]
 #[error("{reason}")]
 pub(crate) struct SessionRefused {
@@ -92,8 +83,7 @@ pub(crate) struct WorkWrite {
     pub(crate) data: Vec<u8>,
 }
 
-/// What a session starts on besides its folder and prompt; the agent's
-/// own for each left `None`.
+/// What a session starts on besides its folder and prompt; `None` keeps the agent's default.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StartOn {
     /// An id from the agent's model list.
@@ -104,8 +94,7 @@ pub struct StartOn {
     pub checkout: Option<agent::CheckoutPlan>,
 }
 
-/// How long a node has to list an agent's models: it may start the agent
-/// to ask, and npx may first download its adapter.
+/// How long a node has to list models: it may start the agent and npx may download it first.
 const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to read a diff: git may walk a large checkout.
 const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
@@ -117,8 +106,7 @@ const ORDERS: usize = 8;
 /// The most sessions on one node that report to a chat.
 const MAX_OWNERS: usize = 64;
 
-/// The sessions a node's links follow, by session id, and the chats they
-/// report to.
+/// The sessions a node's links follow, by id, and the chats they report to.
 #[derive(Default)]
 pub struct AgentLinks {
     links: Mutex<HashMap<String, Arc<AgentLink>>>,
@@ -216,8 +204,7 @@ impl Watched {
 pub struct AgentLink {
     orders: mpsc::Sender<LinkOrder>,
     state: watch::Receiver<Watched>,
-    /// Calls waiting for the session now; while one does, its result tells
-    /// the chat and no report goes there.
+    /// Calls waiting for the session; while one does, no report goes to the chat.
     waiting: Arc<AtomicUsize>,
     _task: AbortOnDropHandle<()>,
 }
@@ -232,8 +219,7 @@ impl AgentLink {
         self.state.borrow().clone()
     }
 
-    /// The card for the session's open `question`, for `follower`'s chat,
-    /// naming the project `task` it works on.
+    /// The card for the session's open `question` in `follower`'s chat.
     pub(crate) fn ask(&self, follower: Follower, question: Question, task: String) -> Ask {
         let session = self.state.borrow().info.id.clone();
         wake::ask_card(
@@ -251,14 +237,12 @@ impl AgentLink {
         state.lost || state.ended.is_some()
     }
 
-    /// Sends `request` and waits for the node to take it. Cancelling the
-    /// call leaves the stream whole: the link's task does the writing.
+    /// Sends `request` and waits for the node to take it; cancelling leaves the stream whole.
     pub async fn send(&self, request: Request) -> Result<()> {
         order(&self.orders, request).await
     }
 
-    /// Waits up to `limit` for the session to move on from `mark`, then
-    /// gives its state.
+    /// Waits up to `limit` for the session to move on from `mark`, then gives its state.
     pub async fn wait(&self, mark: Mark, limit: Duration) -> Watched {
         let _waiting = Waiting::new(&self.waiting);
         let mut state = self.state.clone();
@@ -299,14 +283,12 @@ async fn order(orders: &mpsc::Sender<LinkOrder>, request: Request) -> Result<()>
 }
 
 impl Online {
-    /// Makes `session` report to `owner`'s chat when a turn ends or it asks
-    /// something while no call waits for it.
+    /// Makes `session` report to `owner`'s chat when no call waits for it.
     pub fn report_to(&self, session: &str, owner: Follower) {
         self.agents.set_owner(session, owner);
     }
 
-    /// Starts a session of `agent` in `cwd` on `prompt` and follows it, on
-    /// the model, thinking and checkout `on` names.
+    /// Starts a session of `agent` in `cwd` on `prompt` and follows it.
     pub async fn start_agent(
         &self,
         agent: &str,
@@ -329,8 +311,7 @@ impl Online {
         self.open_agent(agent, start).await
     }
 
-    /// The models `agent` can run on here, as the node finds them; `None`
-    /// from a node too old to say, which closes the stream.
+    /// The models `agent` can run on here; `None` from a node too old to say.
     pub(crate) async fn agent_models(&self, agent: &str) -> Result<Option<ModelList>> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::Models {
@@ -361,8 +342,7 @@ impl Online {
         self.open_agent(agent, Request::Attach { session }).await
     }
 
-    /// Takes over the session `session` the user started outside Beep, by
-    /// the agent's id, and follows it as a node session.
+    /// Takes over and follows a session the user started outside Beep.
     pub async fn take_over(
         &self,
         agent: &str,
@@ -374,8 +354,7 @@ impl Online {
             .await
     }
 
-    /// Sessions of `agent` the user started outside Beep, newest first: at
-    /// most `limit`, or only `only`.
+    /// Sessions of `agent` started outside Beep, newest first: at most `limit`, or only `only`.
     pub async fn external_sessions(
         &self,
         agent: &str,
@@ -396,8 +375,7 @@ impl Online {
         }
     }
 
-    /// The git checkouts coding agents worked in on the node, newest
-    /// activity first, at most `limit`.
+    /// The git checkouts coding agents worked in on the node, newest first.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         match self
             .sessions_request(SessionsRequest::Folders { limit })
@@ -410,8 +388,7 @@ impl Online {
         }
     }
 
-    /// The sessions coding agents ran in `folders` or below, newest first,
-    /// at most `limit`.
+    /// The sessions coding agents ran in `folders` or below, newest first.
     pub async fn sessions_in(
         &self,
         folders: Vec<String>,
@@ -477,8 +454,7 @@ impl Online {
         }
     }
 
-    /// The last `last` transcript entries of `session` and how many came
-    /// before them; the agent's thoughts among them only when `thoughts`.
+    /// The last `last` transcript entries of `session` and how many came before them.
     pub async fn transcript(
         &self,
         session: &str,
@@ -497,8 +473,7 @@ impl Online {
         }
     }
 
-    /// The picture `key` of `session`'s transcript, read from the node;
-    /// `None` when the node no longer has it.
+    /// The picture `key` of `session`'s transcript; `None` when the node no longer has it.
     pub(crate) async fn agent_image(&self, session: &str, key: &str) -> Result<Option<NodeImage>> {
         let request = SessionsRequest::Image {
             session: session.to_owned(),
@@ -514,8 +489,7 @@ impl Online {
         }
     }
 
-    /// Part of the media file `path` on the node, from `offset`. An error
-    /// when the node could not be asked, as one from before `File` cannot.
+    /// Part of the media file `path` on the node, from `offset`.
     pub(crate) async fn agent_file(&self, path: &str, offset: u64) -> Result<NodeFile> {
         let request = SessionsRequest::File {
             path: path.to_owned(),
@@ -529,9 +503,7 @@ impl Online {
         }
     }
 
-    /// The folder `path` inside the session folder `root` on the node. An
-    /// error when the node could not be asked, as one from before `Folder`
-    /// cannot.
+    /// The folder `path` inside the session folder `root` on the node.
     pub(crate) async fn work_folder(
         &self,
         root: &str,
@@ -542,6 +514,7 @@ impl Online {
             root: root.to_owned(),
             path: path.to_owned(),
             ignored,
+            depth: 0,
         };
         match self.sessions_request(request).await? {
             SessionsReply::Folder { folder } => Ok(NodeWork::Done(folder)),
@@ -550,8 +523,28 @@ impl Online {
         }
     }
 
-    /// Part of the file `path` inside the session folder `root` on the
-    /// node, from `offset`. An error when the node could not be asked.
+    /// The folder `ask.path` inside `ask.root` on the node and those under
+    /// it, `ask.depth` levels in all; `ask.path` alone from a node from
+    /// before trees.
+    pub(crate) async fn work_tree(&self, ask: &ListWorkTree) -> Result<NodeWork<WorkTree>> {
+        let request = SessionsRequest::Folder {
+            root: ask.root.to_owned(),
+            path: ask.path.to_owned(),
+            ignored: ask.ignored,
+            depth: ask.depth.max(1),
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::Tree { tree } => Ok(NodeWork::Done(tree)),
+            SessionsReply::Folder { folder } => Ok(NodeWork::Done(WorkTree {
+                folders: vec![folder],
+                truncated: false,
+            })),
+            SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+            _ => bail!("the node answered something else"),
+        }
+    }
+
+    /// Part of a file inside a session folder on the node.
     pub(crate) async fn read_work_file(&self, read: WorkRead<'_>) -> Result<NodeFile> {
         let request = SessionsRequest::ReadFile {
             root: read.root.to_owned(),
@@ -567,8 +560,7 @@ impl Online {
         }
     }
 
-    /// Writes one part of a file into the session folder `root` on the
-    /// node; the path it went to. An error when the node could not be asked.
+    /// Writes one part of a file into a session folder on the node; gives the path it went to.
     pub(crate) async fn write_work_file(&self, write: WorkWrite) -> Result<NodeWork<String>> {
         let request = SessionsRequest::WriteFile {
             root: write.root,
@@ -584,9 +576,7 @@ impl Online {
         }
     }
 
-    /// The custom agents the harnesses define for the project folder
-    /// `folder` on the node and in its home. An error when the node could
-    /// not be asked, as one from before `CustomAgents` cannot.
+    /// The custom agents the harnesses define for `folder` on the node and in its home.
     pub(crate) async fn custom_agents(&self, folder: &str) -> Result<NodeWork<Vec<CustomAgent>>> {
         let request = SessionsRequest::CustomAgents {
             folder: folder.to_owned(),
@@ -598,8 +588,7 @@ impl Online {
         }
     }
 
-    /// What changed in the checkout `ask.root` on the node. An error when
-    /// the node could not be asked, as one from before `Diff` cannot.
+    /// What changed in the checkout `ask.root` on the node.
     pub(crate) async fn work_diff(&self, ask: DiffAsk) -> Result<NodeWork<WorkDiff>> {
         match self
             .sessions_request_within(SessionsRequest::Diff { ask }, DIFF_TIMEOUT)
@@ -615,43 +604,197 @@ impl Online {
         self.sessions_request_within(request, READ_TIMEOUT).await
     }
 
+    /// Sends `request` and gives the node's answer within `limit`. When the
+    /// link drops or was replaced, a read is sent again on the node's new
+    /// connection once it reconnects, and any request the node never got is
+    /// too; see `Retry`.
     async fn sessions_request_within(
         &self,
         request: SessionsRequest,
         limit: Duration,
     ) -> Result<SessionsReply> {
-        let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
-        tx.send(&request).await?;
-        timeout(limit, rx.recv())
+        let read = request.is_read();
+        let until = Instant::now() + RECONNECT_WAIT;
+        let mut next: Option<Online> = None;
+        loop {
+            let on = next.as_ref().unwrap_or(self);
+            let failed = match on.sessions_attempt(&request, limit).await {
+                Ok(reply) => return Ok(reply),
+                Err(failed) => failed,
+            };
+            let wait_until = match failed.kind.retry(read) {
+                Retry::No => return Err(failed.error),
+                Retry::IfReplaced => Instant::now(),
+                Retry::AfterReconnect => until,
+            };
+            let used = on.connection.stable_id();
+            let nodes = self.app.upgrade();
+            let back = match &nodes {
+                Some(app) => {
+                    app.nodes
+                        .reconnected(&on.connection.remote_id(), Some(used), wait_until)
+                        .await
+                }
+                None => None,
+            };
+            let Some(back) = back else {
+                return Err(failed.error);
+            };
+            log::info!(
+                "nodes: sending a request again on a new connection; node={} error={:#}",
+                self.name,
+                failed.error
+            );
+            next = Some(back);
+        }
+    }
+
+    /// One try of `sessions_request_within` on this connection.
+    async fn sessions_attempt(
+        &self,
+        request: &SessionsRequest,
+        limit: Duration,
+    ) -> Result<SessionsReply, Failed> {
+        let (mut tx, mut rx) = self
+            .try_open(SESSIONS_PROTOCOL)
             .await
-            .context("the node did not answer")??
-            .context("the node closed the stream")
+            .map_err(|e| match e {
+                Opening::Link(error) => Failed::new(Failure::Unsent, error),
+                Opening::Refused(error) => Failed::new(Failure::Answered, error),
+            })?;
+        tx.send(request)
+            .await
+            .map_err(|e| Failed::new(Failure::Unsent, e))?;
+        // A closed connection says the link dropped, rather than a node
+        // that could not read the request.
+        let dropped = || {
+            if self.connection.close_reason().is_some() {
+                Failure::Dropped
+            } else {
+                Failure::Answered
+            }
+        };
+        match timeout(limit, rx.recv()).await {
+            Err(elapsed) => Err(Failed::new(
+                Failure::Silent,
+                anyhow::Error::new(elapsed).context("the node did not answer"),
+            )),
+            Ok(Err(e)) => Err(Failed::new(dropped(), e)),
+            Ok(Ok(None)) => Err(Failed::new(
+                dropped(),
+                anyhow::anyhow!("the node closed the stream"),
+            )),
+            Ok(Ok(Some(reply))) => Ok(reply),
+        }
     }
 
     pub(super) async fn open_stream(&self, protocol: &str) -> Result<(LinkTx, LinkRx)> {
+        self.try_open(protocol).await.map_err(|e| match e {
+            Opening::Link(e) | Opening::Refused(e) => e,
+        })
+    }
+
+    async fn try_open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), Opening> {
         if !self.offers(protocol) {
-            bail!("{} does not offer {protocol}", self.name);
+            return Err(Opening::Refused(anyhow::anyhow!(
+                "{} does not offer {protocol}",
+                self.name
+            )));
         }
-        let (send, recv) = self.connection.open_bi().await?;
+        let link_error = |e: anyhow::Error| Opening::Link(e);
+        let (send, recv) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|e| link_error(e.into()))?;
         let (mut tx, mut rx) = link(send, recv);
         tx.send(&Open {
             protocol: protocol.to_owned(),
         })
-        .await?;
+        .await
+        .map_err(link_error)?;
         let opened: Opened = timeout(READ_TIMEOUT, rx.recv())
             .await
-            .context("the node did not open the stream")??
-            .context("the node closed the stream")?;
+            .context("the node did not open the stream")
+            .map_err(link_error)?
+            .map_err(link_error)?
+            .context("the node closed the stream")
+            .map_err(link_error)?;
         match opened {
             Opened::Ready {} => Ok((tx, rx)),
-            Opened::Refused { reason } => bail!("the node refused {protocol}: {reason}"),
-            other => bail!("the node answered {other:?}"),
+            Opened::Refused { reason } => Err(Opening::Refused(anyhow::anyhow!(
+                "the node refused {protocol}: {reason}"
+            ))),
+            other => Err(Opening::Refused(anyhow::anyhow!(
+                "the node answered {other:?}"
+            ))),
         }
     }
 }
 
-/// Reads a session stream into `state` and writes the orders, until the
-/// stream or the link ends.
+/// Why a stream did not open.
+enum Opening {
+    /// The link failed before the node took the stream; nothing was sent
+    /// on it.
+    Link(anyhow::Error),
+    /// The node does not serve the protocol, or said no.
+    Refused(anyhow::Error),
+}
+
+/// A try of a sessions request that failed, and how.
+struct Failed {
+    kind: Failure,
+    error: anyhow::Error,
+}
+
+impl Failed {
+    fn new(kind: Failure, error: anyhow::Error) -> Self {
+        Self { kind, error }
+    }
+}
+
+/// How a sessions request failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Failure {
+    /// The request never reached the node: the stream did not open or the
+    /// request could not be written.
+    Unsent,
+    /// The connection closed after the request went out; the node may
+    /// have acted on it.
+    Dropped,
+    /// No answer in time on a connection still open.
+    Silent,
+    /// The node answered, refused or closed the stream itself.
+    Answered,
+}
+
+/// Whether a failed request goes again on the node's next connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    No,
+    /// Only on a newer connection the node has made already.
+    IfReplaced,
+    /// On the node's next connection, waiting for it up to
+    /// `RECONNECT_WAIT`.
+    AfterReconnect,
+}
+
+impl Failure {
+    /// A request the node never got may always go again; a read lost with
+    /// its link may too. A read on a live link that went unanswered goes
+    /// again only when the node has reconnected meanwhile: on the same
+    /// link it would likely hang again.
+    fn retry(self, read: bool) -> Retry {
+        match self {
+            Self::Unsent => Retry::AfterReconnect,
+            Self::Dropped if read => Retry::AfterReconnect,
+            Self::Silent if read => Retry::IfReplaced,
+            Self::Dropped | Self::Silent | Self::Answered => Retry::No,
+        }
+    }
+}
+
+/// Reads a session stream into `state` and writes the orders, until either ends.
 async fn follow(
     mut tx: LinkTx,
     mut rx: LinkRx,
@@ -845,30 +988,15 @@ mod tests {
     }
 
     #[test]
-    fn turn_ends_questions_and_ends_are_news() {
-        assert!(
-            News::of(&Event::Question {
-                question: question(1)
-            })
-            .is_some()
-        );
-        let done = Event::TurnDone {
-            turn: 1,
-            stop_reason: StopReason::EndTurn,
-            last_message: String::new(),
-        };
-        assert!(News::of(&done).is_some());
-        assert!(matches!(
-            News::of(&Event::Ended {
-                reason: "closed".into()
-            }),
-            Some(News::Ended { .. })
-        ));
-        assert!(
-            News::of(&Event::State {
-                state: State::default()
-            })
-            .is_none()
-        );
+    fn reads_go_again_after_a_reconnect_and_writes_only_when_unsent() {
+        use {Failure::*, Retry::*};
+        assert_eq!(Unsent.retry(true), AfterReconnect);
+        assert_eq!(Unsent.retry(false), AfterReconnect);
+        assert_eq!(Dropped.retry(true), AfterReconnect);
+        assert_eq!(Dropped.retry(false), No);
+        assert_eq!(Silent.retry(true), IfReplaced);
+        assert_eq!(Silent.retry(false), No);
+        assert_eq!(Answered.retry(true), No);
+        assert_eq!(Answered.retry(false), No);
     }
 }

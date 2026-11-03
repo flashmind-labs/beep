@@ -1,5 +1,4 @@
-//! The tools a sub-agent ends its run with. Each records one typed decision;
-//! the first one recorded is final.
+//! The tools a sub-agent ends its run with; the first decision recorded is final.
 
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -12,8 +11,7 @@ pub struct Decision<D> {
     pub description: &'static str,
     /// The tool's JSON schema.
     pub parameters: fn() -> Value,
-    /// Reads the call's arguments. An error goes back to the model, which
-    /// may call again.
+    /// Parses the arguments; an error goes back to the model.
     pub parse: fn(&Value) -> Result<D, String>,
 }
 

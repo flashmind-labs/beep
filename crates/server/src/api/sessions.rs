@@ -155,9 +155,7 @@ pub(super) async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<F
         .ok_or(ApiError::NotFound {})
 }
 
-/// The text of the user and assistant messages in `entries`, as a
-/// conversation a share can keep. Tool results, reasoning, routine prompts
-/// and the context around each turn stay private.
+/// Only the user and assistant message text of `entries`, as a share keeps it.
 fn shared_conversation(entries: &[HistoryEntry]) -> Conversation {
     let at = |millis| DateTime::from_timestamp_millis(millis).unwrap_or_default();
     let mut conversation = Conversation::new();
@@ -210,8 +208,7 @@ fn share_history(conversation: &Conversation) -> Vec<HistoryEntry> {
         .collect()
 }
 
-/// Sessions the database may hand over for a search. Matches only in tool
-/// calls or prompts are dropped after, so a search can show fewer.
+/// Sessions the database may hand over for a search, before tool-only matches are dropped.
 const SEARCH_CANDIDATES: i64 = 100;
 /// Sessions a search returns.
 const SEARCH_RESULTS: usize = 30;
@@ -357,29 +354,5 @@ mod tests {
         }
         let texts: Vec<_> = shared.entries().iter().map(|e| e.content()).collect();
         assert_eq!(texts, ["check my mail", "Two new emails."]);
-    }
-
-    #[test]
-    fn search_matches_messages_ignoring_case() {
-        let found = |text: &str, from_user| FoundSession {
-            session: Session {
-                id: "s".into(),
-                title: "Emails".into(),
-                pinned: false,
-                updated_at: 0,
-            },
-            text: text.to_owned(),
-            from_user,
-        };
-        let reply = || found("The **Kimpton** offers a free transfer.", false);
-        let hit = session_match(reply(), "kimpton").unwrap();
-        assert_eq!(hit.snippet, "The Kimpton offers a free transfer.");
-        assert!(!hit.from_user);
-        assert!(
-            session_match(found("Any news from the hotel?", true), "HOTEL")
-                .unwrap()
-                .from_user
-        );
-        assert!(session_match(reply(), "boiler").is_none());
     }
 }

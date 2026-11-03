@@ -1,6 +1,4 @@
-//! Where a project's workflow runs are read and the calls that read them:
-//! the Actions API of its GitHub or Forgejo host, with the user's token
-//! for that host.
+//! Where a project's workflow runs are read: its host's Actions API with the user's token.
 
 use super::{
     actions::{HostRun, JobsReply, LOG_LINES, ListedRun, RunsReply, failing_part},
@@ -32,8 +30,7 @@ const LOG_MAX: usize = 32 * 1024 * 1024;
 /// A project's repository on its host, and the token that reads it.
 pub(crate) struct Target {
     pub(crate) api: Api,
-    /// The API's base, such as `https://api.github.com` or
-    /// `https://git.example.com/api/v1`.
+    /// The API base, such as `https://api.github.com` or `https://git.example.com/api/v1`.
     pub(crate) base: String,
     pub(crate) repo: RepoName,
     /// The host's name, for messages.
@@ -70,8 +67,7 @@ impl Target {
     }
 }
 
-/// Where the runs of `place` are read, or why they cannot be, for the
-/// user `user_id` with the git credentials `opened`.
+/// Where `place`'s runs are read for `user_id` with credentials `opened`, or why they cannot be.
 pub(crate) async fn target(
     user_id: &str,
     opened: &[Opened],
@@ -164,8 +160,7 @@ pub(crate) async fn one(
     Ok(run.into_run())
 }
 
-/// The jobs of run `id`, with their steps where the host gives them.
-/// `None` when the host has no API for jobs, as older Forgejo servers.
+/// The jobs of run `id` with their steps; `None` when the host has no jobs API (older Forgejo).
 pub(crate) async fn jobs(
     calls: &HostCalls,
     caller: &Caller<'_>,
@@ -188,8 +183,7 @@ pub(crate) async fn jobs(
     }
 }
 
-/// The end of the failed `job`'s log, its failing step's lines where the
-/// log marks them. `step` is the failing step's name from the job's steps.
+/// The end of failed `job`'s log, its failing `step`'s lines where the log marks them.
 pub(crate) async fn log(
     calls: &HostCalls,
     caller: &Caller<'_>,

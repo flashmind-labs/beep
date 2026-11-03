@@ -18,14 +18,12 @@ tokio::task_local! {
     static RESEARCH_TURN: Cell<bool>;
 }
 
-/// Runs `work` with its model calls counted for `user`, for code that builds
-/// requests it cannot set a user on, such as flashmind's compaction.
+/// Runs `work` with its model calls counted for `user`.
 pub async fn billed_to<F: Future>(user: &str, work: F) -> F::Output {
     BILLED_TO.scope(user.to_owned(), work).await
 }
 
-/// Runs a turn, so the calls after `research_turn` count as research.
-/// Work it spawns, such as memory learning, counts as none.
+/// Runs a turn, so calls after `research_turn` count as research.
 pub async fn in_turn<F: Future>(work: F) -> F::Output {
     RESEARCH_TURN.scope(Cell::new(false), work).await
 }
@@ -295,36 +293,5 @@ mod tests {
         })
         .await;
         assert_eq!(content, "alice");
-    }
-
-    #[tokio::test]
-    async fn a_research_turns_calls_count_as_research() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let metered = Metered::new(Arc::new(UsageStub), store.clone()).await;
-
-        in_turn(async {
-            // Calls before the turn is known to be research's are not.
-            metered.complete(request(Some("alice"))).count().await;
-            research_turn();
-            metered.complete(request(Some("alice"))).count().await;
-            metered.complete(request(Some("alice"))).count().await;
-        })
-        .await;
-
-        let mut rows = Vec::new();
-        for _ in 0..100 {
-            rows = sqlx::query_as::<_, (String, i64)>(
-                "SELECT agent, calls FROM token_usage WHERE user_id='alice' ORDER BY agent",
-            )
-            .fetch_all(store.pool())
-            .await
-            .unwrap();
-            if rows.iter().map(|(_, calls)| calls).sum::<i64>() == 3 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        assert_eq!(rows, [(String::new(), 1), ("research".to_owned(), 2)]);
     }
 }

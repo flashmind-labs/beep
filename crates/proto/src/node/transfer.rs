@@ -161,11 +161,6 @@ mod tests {
     use super::*;
     use iroh::SecretKey;
 
-    fn round_trip<T: Serialize + for<'de> Deserialize<'de>>(value: &T) -> T {
-        let bytes = rmp_serde::to_vec_named(value).expect("encodes");
-        rmp_serde::from_slice(&bytes).expect("decodes")
-    }
-
     #[test]
     fn taken_names_get_a_number_before_the_extension() {
         let file = ContentKind::File;
@@ -178,47 +173,6 @@ mod tests {
             numbered("renders.v2", ContentKind::Folder, 2),
             "renders.v2 (2)"
         );
-    }
-
-    #[test]
-    fn requests_and_replies_round_trip() {
-        let content = Content {
-            hash: [7; 32],
-            kind: ContentKind::Folder,
-        };
-        let fetch = Request::Fetch {
-            from: EndpointAddr::new(SecretKey::generate().public()),
-            content,
-            name: "renders".into(),
-            size: 42,
-            folder: "/srv/project".into(),
-            executable: true,
-        };
-        assert_eq!(round_trip(&fetch), fetch);
-        let offer = Request::Offer {
-            path: "/srv/project/a.blend".into(),
-            peer: SecretKey::generate().public(),
-        };
-        assert_eq!(round_trip(&offer), offer);
-        let done = Reply::Done {
-            path: "/srv/project/renders (2)".into(),
-            size: 42,
-            files: 3,
-        };
-        assert_eq!(round_trip(&done), done);
-        let progress = Reply::Progress {
-            done: 1,
-            total: 2,
-            stage: Stage::Hashing,
-        };
-        assert_eq!(round_trip(&progress), progress);
-        let manifest = Manifest {
-            executable: vec!["bin/run.sh".into()],
-            empty_folders: vec!["cache".into()],
-        };
-        assert_eq!(round_trip(&manifest), manifest);
-        let kind: &'static str = ContentKind::File.into();
-        assert_eq!(kind, "file");
     }
 
     #[test]

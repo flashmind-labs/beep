@@ -457,6 +457,10 @@ pub enum SessionsRequest {
         root: String,
         path: String,
         ignored: bool,
+        /// Above 0, the folders under it too, as `ListWorkTree` asks them,
+        /// answered with `Tree`. A node from before it answers `Folder`.
+        #[serde(default)]
+        depth: u32,
     },
     /// Up to `len` bytes of the file `path` inside `root` from `offset`,
     /// as `ReadWorkFile` asks them. Answered with `File`, `NoFile` or
@@ -497,6 +501,37 @@ pub enum SessionsRequest {
     Diff {
         ask: DiffAsk,
     },
+}
+
+impl SessionsRequest {
+    /// A one-shot read that changes nothing on the node, so asking twice
+    /// is safe: one lost with its connection may be sent again on the
+    /// next. Streams that follow the node and anything that writes,
+    /// installs or steers are not.
+    pub fn is_read(&self) -> bool {
+        match self {
+            Self::List {}
+            | Self::Transcript { .. }
+            | Self::External { .. }
+            | Self::Folders { .. }
+            | Self::InFolders { .. }
+            | Self::Image { .. }
+            | Self::Models { .. }
+            | Self::Harnesses { .. }
+            | Self::File { .. }
+            | Self::Folder { .. }
+            | Self::ReadFile { .. }
+            | Self::CustomAgents { .. }
+            | Self::Diff { .. } => true,
+            Self::Watch { .. }
+            | Self::UpdateHarness { .. }
+            | Self::FollowImages {}
+            | Self::FollowUsage { .. }
+            | Self::RefreshPlanUsage {}
+            | Self::WriteFile { .. }
+            | Self::FollowAlerts {} => false,
+        }
+    }
 }
 
 /// What `SessionsRequest::Diff` reads, as `GetWorkDiff` names it.
@@ -588,6 +623,10 @@ pub enum SessionsReply {
     /// The answer to `Folder`.
     Folder {
         folder: crate::WorkFolder,
+    },
+    /// The answer to `Folder` with a `depth`.
+    Tree {
+        tree: crate::WorkTree,
     },
     /// The answer to `WriteFile`: the path inside the root it writes to.
     Written {
@@ -1094,6 +1133,41 @@ mod tests {
         assert_eq!(agent_of(crate::node::transfer::PROTOCOL), None);
         assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
         assert_eq!(agent_of("claude/2"), None);
+    }
+
+    #[test]
+    fn only_one_shot_reads_may_be_asked_again() {
+        let folder = SessionsRequest::Folder {
+            root: "/srv/project".into(),
+            path: "src".into(),
+            ignored: false,
+            depth: 3,
+        };
+        let read = SessionsRequest::ReadFile {
+            root: "/srv/project".into(),
+            path: "notes.txt".into(),
+            offset: 0,
+            len: 10,
+        };
+        assert!(folder.is_read());
+        assert!(read.is_read());
+        assert!(SessionsRequest::List {}.is_read());
+        let write = SessionsRequest::WriteFile {
+            root: "/srv/project".into(),
+            path: "notes.txt".into(),
+            offset: 0,
+            size: 2,
+            data: b"hi".to_vec(),
+        };
+        assert!(!write.is_read());
+        assert!(
+            !SessionsRequest::UpdateHarness {
+                agent: "claude".into()
+            }
+            .is_read()
+        );
+        assert!(!SessionsRequest::FollowAlerts {}.is_read());
+        assert!(!SessionsRequest::Watch { sessions: vec![] }.is_read());
     }
 
     #[test]

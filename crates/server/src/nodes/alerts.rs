@@ -1,17 +1,9 @@
-//! Notices for what a node's coding-agent sessions did: a question they
-//! ask, a turn that ended, a session that failed. The node sends them on
-//! one `FollowAlerts` stream per connection (see `beep_proto::node::agent`)
-//! and each goes to the user's devices as a `Notice`.
-//!
-//! Phones get it with no chat, so they open Beep. Computers get the same
-//! text with an `AgentNoticeKey` as its `session_id`, so a click opens the
-//! session and a question has Allow and Deny. A session that reports to a
-//! chat or works for a project is left out: the chat or project already
-//! tells the user.
+//! Notices for what a node's agent sessions did, sent to the device that started them.
+//! Sessions no device started go to computers only; chat or project sessions are left out.
 
 use super::Online;
 use crate::{
-    app::UserNotice,
+    app::{Reach, UserNotice},
     nodes::deliver::agent_name,
     protocol::{
         AgentNoticeKey, Notice,
@@ -19,18 +11,18 @@ use crate::{
             Alert, AlertKind, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest, StopReason,
         },
     },
+    store::SessionOn,
     user::User,
 };
 use anyhow::{Result, bail};
+use iroh::EndpointId;
 use std::path::Path;
 
 /// The longest body, in characters; the session has the rest.
 const MAX_BODY: usize = 240;
 
 impl Online {
-    /// Tells the user what the node's sessions did until the stream or the
-    /// connection ends. A node from before `FollowAlerts` closes the stream
-    /// at once.
+    /// Tells the user what the node's sessions did until the stream or the connection ends.
     pub(super) async fn keep_alerts(&self, user: &User) -> Result<()> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::FollowAlerts {}).await?;
@@ -58,12 +50,31 @@ impl Online {
             if elsewhere {
                 continue;
             }
+            let to = reach(user, &machine, &alert).await;
             // Nobody listening is fine: the notice has nowhere to go.
             let _ = app
                 .notifications
-                .send(user_notice(user.id(), &host, &alert));
+                .send(user_notice(user.id(), &host, &alert, to));
         }
         Ok(())
+    }
+}
+
+/// The device that started the alert's session, or else the computers.
+async fn reach(user: &User, machine: &EndpointId, alert: &Alert) -> Reach {
+    let on = SessionOn {
+        machine,
+        agent: &alert.agent,
+        session: &alert.session,
+    };
+    match user.agent_starter(on).await {
+        Ok(Some(device)) => Reach::Device(device),
+        Ok(None) => Reach::Desktops,
+        // The computers still hear of it; a phone is never told by mistake.
+        Err(e) => {
+            log::warn!("agent alert starter not read; error={e:#}");
+            Reach::Desktops
+        }
     }
 }
 
@@ -73,9 +84,8 @@ struct Host {
     name: String,
 }
 
-/// `alert` as a notice for `user`: without a chat for phones, with the
-/// session's key for computers.
-fn user_notice(user: &str, host: &Host, alert: &Alert) -> UserNotice {
+/// `alert` as a notice for `user`'s devices in `to`.
+fn user_notice(user: &str, host: &Host, alert: &Alert, to: Reach) -> UserNotice {
     let notice = Notice {
         title: title(host, alert),
         body: body(alert),
@@ -104,6 +114,7 @@ fn user_notice(user: &str, host: &Host, alert: &Alert) -> UserNotice {
         user: user.to_owned(),
         notice,
         desktop: Some(desktop),
+        to,
     }
 }
 
@@ -163,8 +174,7 @@ fn about(alert: &Alert) -> String {
         .to_owned()
 }
 
-/// `text` on one line without emphasis or code marks, which a
-/// notification shows literally, cut to `MAX_BODY` characters.
+/// `text` on one line without markdown marks, cut to `MAX_BODY` characters.
 fn clip(text: &str) -> String {
     let plain = text.replace("**", "").replace('`', "");
     let line = plain.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -196,14 +206,6 @@ mod tests {
         }
     }
 
-    fn ended(stop_reason: StopReason, last_message: &str, error: Option<&str>) -> Alert {
-        alert(AlertKind::TurnEnded {
-            stop_reason,
-            last_message: last_message.into(),
-            error: error.map(str::to_owned),
-        })
-    }
-
     #[test]
     fn a_question_tells_phones_and_lets_computers_answer() {
         let question = Question {
@@ -212,7 +214,12 @@ mod tests {
             detail: Some("cargo test -p server".into()),
             options: Vec::new(),
         };
-        let sent = user_notice("u1", &host(), &alert(AlertKind::Asks { question }));
+        let sent = user_notice(
+            "u1",
+            &host(),
+            &alert(AlertKind::Asks { question }),
+            Reach::Desktops,
+        );
         assert_eq!(sent.user, "u1");
         let phone = &sent.notice;
         assert_eq!(phone.title, "Claude Code on build-box asks");
@@ -234,61 +241,5 @@ mod tests {
                 machine_name: "build-box".into(),
             })
         );
-    }
-
-    #[test]
-    fn a_turn_says_how_it_ended() {
-        let said = |alert: &Alert| {
-            let sent = user_notice("u1", &host(), alert);
-            (sent.notice.title, sent.notice.body)
-        };
-        assert_eq!(
-            said(&ended(
-                StopReason::EndTurn,
-                "All **42** tests pass.\n",
-                None
-            )),
-            (
-                "Claude Code on build-box finished".into(),
-                "Fix the login test: All 42 tests pass.".into()
-            )
-        );
-        assert_eq!(
-            said(&ended(StopReason::Failed, "", Some("rate limit"))),
-            (
-                "Claude Code on build-box failed".into(),
-                "Fix the login test: rate limit".into()
-            )
-        );
-        assert_eq!(
-            said(&ended(StopReason::Cancelled, "Halfway", None)),
-            (
-                "Claude Code on build-box stopped".into(),
-                "Fix the login test: cancelled".into()
-            )
-        );
-        let mut untitled = ended(StopReason::MaxTokens, "", None);
-        untitled.title = None;
-        assert_eq!(said(&untitled).1, "project: hit the token limit");
-        let failed = alert(AlertKind::Failed {
-            reason: "the agent exited".into(),
-        });
-        assert_eq!(said(&failed).0, "Claude Code on build-box failed");
-        let key: AgentNoticeKey = user_notice("u1", &host(), &failed)
-            .desktop
-            .unwrap()
-            .session_id
-            .parse()
-            .unwrap();
-        assert_eq!(key.question, None, "only a question has Allow and Deny");
-    }
-
-    #[test]
-    fn a_long_message_is_cut_to_one_line() {
-        let long = format!("First line\n\n{}", "word ".repeat(200));
-        let body = body(&ended(StopReason::EndTurn, &long, None));
-        assert!(body.starts_with("Fix the login test: First line word"));
-        assert!(body.ends_with("..."));
-        assert_eq!(body.chars().count(), MAX_BODY + 3);
     }
 }

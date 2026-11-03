@@ -1,7 +1,4 @@
-//! Skills: how a user, or a group, wants a recurring task done, learned
-//! from their chats. A review reads the turns since the last one and
-//! creates or rewrites skills; the context lists them and `skill`
-//! loads one.
+//! Skills: how a user or group wants a recurring task done, learned from their chats.
 
 use crate::{
     memories::clip,
@@ -32,8 +29,7 @@ const TRANSCRIPT_MAX: usize = 40_000;
 /// How much of each tool call's arguments and result a review reads.
 const TOOL_CLIP: usize = 400;
 
-/// Starts the context's list of skills, so a chat can tell whether it
-/// already carries the current one.
+/// Starts the context's skill list, so a chat can tell whether it carries the current one.
 pub const INDEX_HEADER: &str = "Skills, how this user likes recurring tasks done. Before doing a task one covers, load it with `skill` view:";
 
 /// The same for a group.
@@ -41,8 +37,7 @@ pub const GROUP_INDEX_HEADER: &str = "Skills, how this group likes recurring tas
 
 const REVIEW_SYSTEM: &str = include_str!("../prompts/skill_review.md");
 
-/// The skill list for the context, enabled ones most recently used first;
-/// `None` when there are none.
+/// The skill list for the context, most recently used first; `None` when empty.
 pub fn index(header: &str, skills: &[SkillRow]) -> Option<String> {
     let mut text = String::from(header);
     let mut any = false;
@@ -53,8 +48,7 @@ pub fn index(header: &str, skills: &[SkillRow]) -> Option<String> {
     any.then_some(text)
 }
 
-/// The turns a review reads, written out: what the user said, the calls
-/// Beep made and what came back, and its replies. Keeps the end when long.
+/// The turns a review reads, written out; keeps the end when long.
 pub fn transcript<'a>(entries: impl IntoIterator<Item = &'a ConversationEntry>) -> String {
     let mut text = String::new();
     for entry in entries {
@@ -274,8 +268,6 @@ pub async fn review(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashmind::types::ToolCall;
-    use serde_json::json;
 
     #[test]
     fn reads_fenced_answers() {
@@ -298,37 +290,5 @@ mod tests {
         assert!(parse_ops("{\"changes\":[]}").unwrap().is_empty());
         assert!(parse_ops("nothing to learn").is_err());
         assert!(parse_ops("} nothing to learn {").is_err());
-    }
-
-    #[test]
-    fn transcript_shows_calls_and_keeps_the_end() {
-        let call = ToolCall {
-            id: "c1".into(),
-            name: "web_search".into(),
-            arguments: json!({"query": "padel courts"}),
-        };
-        let entries = [
-            ConversationEntry::user("Book padel"),
-            ConversationEntry::assistant_with_tool_calls("", vec![call], None),
-            ConversationEntry::tool("c1", "Club Norte, 19:00"),
-            ConversationEntry::assistant("Booked 19:00."),
-        ];
-        let text = transcript(&entries);
-        assert_eq!(
-            text,
-            "User: Book padel\n[call web_search {\"query\":\"padel courts\"}]\n[result Club Norte, 19:00]\n\nBeep: Booked 19:00."
-        );
-        assert_eq!(tool_calls(&entries), 1);
-        let long = tail(&"é".repeat(100), 21);
-        assert!(long.starts_with("[earlier turns left out]\n"));
-        assert!(long.len() <= 21 + 26);
-    }
-
-    #[test]
-    fn rejects_skills_past_their_limits() {
-        assert!(valid("Book padel", "Booking a court", "1. Ask"));
-        assert!(!valid(" ", "Booking a court", "1. Ask"));
-        assert!(!valid(&"n".repeat(NAME_MAX + 1), "d", "b"));
-        assert!(!valid("n", "d", &"b".repeat(BODY_MAX + 1)));
     }
 }

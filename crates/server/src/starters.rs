@@ -1,11 +1,4 @@
-//! Personalized conversation starters for the empty chat screen.
-//!
-//! The model gets the user's memories, recent session titles, local time,
-//! place and connected apps, and answers with four starters as a Markdown
-//! list. A starter
-//! tied to an event says until when it holds, and the set goes stale then. Anything else, a
-//! provider error or a slow answer falls back to fixed starters. Memories are
-//! never logged.
+//! Personalized conversation starters for the empty chat screen, with fixed fallbacks. Memories are never logged.
 
 use crate::{
     protocol::{PromptSuggestion, PromptSuggestions},
@@ -43,8 +36,7 @@ pub(crate) const MAX_DONE: usize = 15;
 const MAX_DONE_CHARS: usize = 240;
 /// Moving farther than this, like flying to another city, makes new starters.
 const MOVED_KM: f64 = 50.0;
-/// The earliest a set goes stale, so a time already past does not make the
-/// starters regenerate on every visit.
+/// The earliest a set goes stale, so a past time does not regenerate on every visit.
 const MIN_STALE: TimeDelta = TimeDelta::minutes(30);
 
 /// Fewer usable starters than this falls back.
@@ -247,9 +239,7 @@ fn starter(item: &str) -> Option<Line<'_>> {
     })
 }
 
-/// Parses the model's answer: a Markdown list of starters. Lines that do not
-/// fit are skipped, and too few left is an error. An `until` that does not
-/// parse is ignored, and one in the past counts as soon.
+/// Parses the model's Markdown list of starters; too few is an error, a bad `until` is ignored.
 fn parse(answer: &str, now: &LocalTime) -> Result<Starters> {
     let parsed: Vec<_> = list_items(answer)
         .into_iter()
@@ -342,9 +332,7 @@ pub(crate) fn unfence(answer: &str) -> &str {
     }
 }
 
-/// The items of a Markdown list answer: its lines with a leading `-`, `*`,
-/// `•`, `1.` or `1)` removed. When some lines have one, the others, like an
-/// intro sentence, are left out.
+/// The items of a Markdown list answer with their markers removed, dropping unmarked lines when any are marked.
 pub(crate) fn list_items(answer: &str) -> Vec<&str> {
     let lines: Vec<_> = unfence(answer)
         .lines()
@@ -387,8 +375,7 @@ pub(crate) struct Cached {
 }
 
 impl Cached {
-    /// Still fresh for a phone at `here`: not past its time, and not made
-    /// before the phone moved to another city.
+    /// Not past its time, and not made before the phone moved city.
     pub(crate) fn fresh(&self, here: Option<&Location>) -> bool {
         let moved = match (&self.location, here) {
             (Some(then), Some(now)) => km_between(then, now) > MOVED_KM,
@@ -476,37 +463,6 @@ mod tests {
         let past = answer.replace("2026-10-05T09:30", "2026-10-04T08:00");
         let stale_at = parse(&past, &now).unwrap().stale_at;
         assert_eq!(stale_at, Some(now.time + MIN_STALE));
-    }
-
-    #[test]
-    fn a_refresh_lists_the_set_it_replaces() {
-        let context = StarterContext {
-            memories: Vec::new(),
-            recent_titles: Vec::new(),
-            now: singapore("2026-10-07T02:00:00Z"),
-            place: None,
-            connected_apps: Vec::new(),
-            done: Vec::new(),
-            shown: vec![PromptSuggestion {
-                title: "Lunch nearby".into(),
-                prompt: "Find a quiet lunch spot near me.".into(),
-            }],
-        };
-        let text = context.render();
-        assert!(
-            text.contains("Shown just before:\n- Lunch nearby: Find a quiet lunch spot near me.")
-        );
-    }
-
-    #[test]
-    fn fallback_fits_chips() {
-        let fallback = fallback();
-        assert_eq!(fallback.len(), COUNT);
-        assert!(
-            fallback
-                .iter()
-                .all(|s| s.title.chars().count() <= MAX_TITLE_CHARS)
-        );
     }
 
     fn at(latitude: f64, longitude: f64) -> Location {

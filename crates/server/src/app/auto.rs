@@ -1,5 +1,4 @@
-//! Auto: Jev picks the thinking of a user's prompts, on the model they
-//! chose. On for everyone until they turn it off.
+//! Auto: Jev picks the thinking of a user's prompts on their chosen model; on unless turned off.
 
 use super::{App, learning::earlier_turns};
 use crate::{memories::clip, models::AutoModel, store::TurnRecord, user::User};
@@ -37,9 +36,7 @@ impl App {
         })
     }
 
-    /// Jev's pick of the thinking for `prompt`, on the user's own model.
-    /// `None` when the user has Auto off or Jev fails, so the turn runs on
-    /// their own settings.
+    /// Jev's thinking pick for `prompt`; `None` when Auto is off or Jev fails.
     pub(super) async fn auto_pick(&self, user: &User, prompt: &Prompt<'_>) -> Option<AutoChoice> {
         let decision = self.decision()?;
         if self.models.auto().is_empty() || !self.auto_on(user).await {
@@ -73,8 +70,7 @@ impl App {
         }
     }
 
-    /// What Jev picked for the turn a resumed session stopped in, so the
-    /// turn ends on the same model.
+    /// Jev's pick for the turn a resumed session stopped in, so it ends on the same model.
     pub(super) async fn resumed_pick(&self, user: &User, session: Uuid) -> Option<AutoChoice> {
         let turn = last_turn(user, session).await?;
         Some(AutoChoice {

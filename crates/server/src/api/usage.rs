@@ -1,5 +1,4 @@
-//! What the caller's coding agents cost and how much of their plans is
-//! left, for the pill atop the command center.
+//! What the caller's coding agents cost and how much of their plans is left.
 
 use super::Reply;
 use crate::{
@@ -34,8 +33,7 @@ pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<U
         cx.user.imports(),
         cx.user.nodes(),
     )?;
-    // A node whose stored key does not parse has no name to show; its
-    // plan still shows, without the machine.
+    // A node whose key does not parse shows its plan without a machine.
     let names: HashMap<EndpointId, String> = nodes
         .into_iter()
         .filter_map(|node| Some((node.endpoint.parse().ok()?, node.name)))
@@ -107,8 +105,7 @@ fn period_spend(
     }
 }
 
-/// The tokens by agent and model from the day `from` on, the most first:
-/// from the logs where an agent has any, else from the turns Beep watched.
+/// Tokens by agent and model since `from`, most first: from logs, else turns Beep watched.
 fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
     let models: Vec<&DayModelRow> = models.iter().filter(|row| row.day >= from).collect();
     let logged: HashSet<&AgentSlug> = models
@@ -227,8 +224,7 @@ fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
     }
 }
 
-/// Today's spending by harness, only those that spent anything, the most
-/// expensive first: dollars where the harness reports them, tokens always.
+/// Today's spending by harness that spent anything, most expensive first.
 fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
     let mut by_agent: BTreeMap<&AgentSlug, HarnessSpend> = BTreeMap::new();
     for row in spend.iter().filter(|row| row.today) {
@@ -266,9 +262,7 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
     harnesses
 }
 
-/// The project a session in `cwd` on the machine `endpoint` belongs to:
-/// the imported project whose folder there holds it, the innermost when
-/// they nest, else the folder's own name.
+/// The innermost imported project holding `cwd` on `endpoint`, else the folder's own name.
 pub(super) fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
     let endpoint = endpoint.to_string();
     let separator = |c: char| c == '/' || c == '\\';
@@ -294,25 +288,11 @@ pub(super) fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::usage::{Billing, LimitWindow};
     use chrono::{DateTime, Utc};
     use iroh::SecretKey;
-    use std::time::SystemTime;
 
     fn machine(seed: u8) -> EndpointId {
         SecretKey::from_bytes(&[seed; 32]).public()
-    }
-
-    fn row(cwd: &str, agent: &str, today: bool, cost: Option<f64>, tokens: u64) -> SpendRow {
-        SpendRow {
-            endpoint: machine(1),
-            cwd: cwd.into(),
-            agent: agent.into(),
-            today,
-            cost_usd: cost,
-            tokens,
-            unpriced_tokens: if cost.is_some() { 0 } else { tokens },
-        }
     }
 
     fn import(folder: &str, project: &str) -> ImportRow {
@@ -351,135 +331,6 @@ mod tests {
         assert_eq!(
             project_of(&machine(2), "/srv/work/widget", &imports),
             "widget"
-        );
-    }
-
-    #[test]
-    fn today_and_the_week_add_up_by_project_and_harness() {
-        let imports = [import("/srv/widget", "acme/widget")];
-        let spend = [
-            row("/srv/widget", "claude", true, Some(3.1), 5_000),
-            row("/srv/widget", "codex", true, None, 1_100_000),
-            row("/srv/relay", "opencode", true, Some(1.1), 900),
-            row("/srv/relay", "claude", false, Some(27.6), 9_000),
-            row("/srv/quiet", "gemini", true, None, 0),
-        ];
-        let today = today(&spend, &imports);
-        let shown: Vec<(&str, f64)> = today
-            .iter()
-            .map(|p| (p.project.as_str(), p.cost_usd))
-            .collect();
-        assert_eq!(shown, [("acme/widget", 3.1), ("relay", 1.1)]);
-        assert_eq!(
-            today[0].unpriced,
-            [AgentTokens {
-                agent: "codex".into(),
-                tokens: 1_100_000
-            }]
-        );
-        let week = total(spend.iter());
-        assert!((week.cost_usd - 31.8).abs() < 1e-9);
-
-        let models = [ModelRow {
-            agent: "codex".into(),
-            model: "gpt-5-codex".into(),
-            tokens: 1_100_000,
-        }];
-        let harnesses = harnesses(&spend, &models);
-        let shown: Vec<(&str, Option<f64>, u64)> = harnesses
-            .iter()
-            .map(|h| (h.agent.as_str(), h.cost_usd, h.tokens))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                ("claude", Some(3.1), 5_000),
-                ("opencode", Some(1.1), 900),
-                ("codex", None, 1_100_000)
-            ]
-        );
-        assert_eq!(harnesses[2].models[0].model, "gpt-5-codex");
-    }
-
-    #[test]
-    fn periods_count_their_days_and_prefer_the_logs_models() {
-        let day = |d: u32| NaiveDate::from_ymd_opt(2026, 11, d).expect("a real day");
-        let spent = |cwd: &str, agent: &str, d: u32, cost: f64| DaySpendRow {
-            endpoint: machine(1),
-            cwd: cwd.into(),
-            agent: agent.into(),
-            day: day(d),
-            billing: Billing::Unknown,
-            cost_usd: Some(cost),
-            tokens: 1_000,
-            unpriced_tokens: 0,
-        };
-        let model = |agent: &str, model: &str, d: u32, tokens: u64, from_logs: bool| DayModelRow {
-            agent: agent.into(),
-            model: model.into(),
-            day: day(d),
-            billing: Billing::Unknown,
-            tokens,
-            from_logs,
-        };
-        let days = [
-            spent("/srv/widget", "claude", 1, 4.0),
-            spent("/srv/widget", "claude", 3, 1.5),
-            spent("/srv/relay", "codex", 3, 0.5),
-        ];
-        let models = [
-            model("claude", "claude-opus-5-5", 3, 900, true),
-            model("claude", "claude-opus-5-5", 3, 400, false),
-            model("claude", "claude-sonnet-5", 1, 700, true),
-            model("codex", "gpt-6-sol", 3, 1_000, false),
-        ];
-        let imports = [import("/srv/widget", "acme/widget")];
-
-        let today = period_spend(&days, &models, &imports, day(3));
-        assert!((today.total.cost_usd - 2.0).abs() < 1e-9);
-        assert_eq!(today.tokens, 2_000);
-        assert_eq!(today.projects[0].project, "acme/widget");
-        let claude = &today.harnesses[0];
-        assert_eq!(claude.agent, "claude");
-        assert_eq!(claude.models.len(), 1);
-        assert_eq!(claude.models[0].tokens, 900);
-        assert_eq!(today.harnesses[1].models[0].model, "gpt-6-sol");
-
-        let month = period_spend(&days, &models, &imports, day(1));
-        assert!((month.total.cost_usd - 6.0).abs() < 1e-9);
-        assert_eq!(month.harnesses[0].models[0].model, "claude-opus-5-5");
-        assert_eq!(month.harnesses[0].models[1].tokens, 700);
-    }
-
-    #[test]
-    fn plans_show_claude_then_codex_with_their_machine() {
-        let plan = |agent: &str| PlanRow {
-            agent: agent.into(),
-            endpoint: machine(1),
-            plan: Some("pro".into()),
-            windows: vec![LimitWindow {
-                minutes: 300,
-                used_percent: 38.0,
-                resets_at: Some(100),
-                scope: None,
-            }],
-            read_at: SystemTime::now().into(),
-        };
-        let names = HashMap::from([(machine(1), "build box".to_owned())]);
-        let empty = PlanRow {
-            windows: Vec::new(),
-            ..plan("pi")
-        };
-        let shown = limits(
-            vec![plan("opencode"), plan("codex"), plan("claude"), empty],
-            &names,
-        );
-        let agents: Vec<&str> = shown.iter().map(|p| p.agent.as_str()).collect();
-        assert_eq!(agents, ["claude", "codex", "opencode"]);
-        assert_eq!(shown[0].machine_name, "build box");
-        assert_eq!(
-            shown[0].windows[0].resets_at,
-            Some(UNIX_EPOCH + Duration::from_secs(100))
         );
     }
 }

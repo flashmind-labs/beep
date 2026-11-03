@@ -1,20 +1,16 @@
-//! A coding agent session's working folder on its machine, for the apps'
-//! Files tab: listing it, reading any file in it and writing files dropped
-//! on the session. The node checks every path stays inside the folder;
-//! the server passes the parts through and keeps nothing.
+//! A session's working folder for the Files tab; the node checks paths, the server keeps nothing.
 
-use super::{Reply, agent_control::live_host};
+use super::{Reply, agent_control::live_host_back};
 use crate::{
     nodes::{NodeFile, NodeWork, WorkRead, WorkWrite},
     protocol::{
-        AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkFolder, MAX_WORK_UPLOAD, ReadWorkFile,
-        WorkFolder, WriteWorkFile,
+        AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
+        ReadWorkFile, WorkFolder, WorkTree, WriteWorkFile,
     },
     router::Cx,
 };
 
-/// What the caller sees when the node could not be asked: one from before
-/// these requests closes the stream.
+/// What the caller sees when the node could not be asked.
 fn unreachable_node(machine: &str, e: &anyhow::Error) -> ApiError {
     ApiError::bad_request(format!(
         "Could not reach the session's folder on {machine}: {e:#}. Updating beep-node there may help."
@@ -26,7 +22,7 @@ fn refused(machine: &str, message: &str) -> ApiError {
 }
 
 pub(super) async fn list_work_folder(cx: Cx, list: ListWorkFolder) -> Reply<WorkFolder> {
-    let live = live_host(&cx, &list.machine_id).await?;
+    let live = live_host_back(&cx, &list.machine_id).await?;
     let machine = &live.host.machine_name;
     match live
         .online
@@ -39,8 +35,22 @@ pub(super) async fn list_work_folder(cx: Cx, list: ListWorkFolder) -> Reply<Work
     }
 }
 
+pub(super) async fn list_work_tree(cx: Cx, list: ListWorkTree) -> Reply<WorkTree> {
+    let live = live_host_back(&cx, &list.machine_id).await?;
+    let machine = &live.host.machine_name;
+    match live
+        .online
+        .work_tree(&list)
+        .await
+        .map_err(|e| unreachable_node(machine, &e))?
+    {
+        NodeWork::Done(tree) => Ok(tree),
+        NodeWork::Refused(message) => Err(refused(machine, &message)),
+    }
+}
+
 pub(super) async fn read_work_file(cx: Cx, read: ReadWorkFile) -> Reply<AgentFileChunk> {
-    let live = live_host(&cx, &read.machine_id).await?;
+    let live = live_host_back(&cx, &read.machine_id).await?;
     let machine = &live.host.machine_name;
     let len = read
         .len
@@ -73,7 +83,7 @@ pub(super) async fn write_work_file(cx: Cx, write: WriteWorkFile) -> Reply<Strin
     if write.data.len() > AGENT_FILE_CHUNK {
         return Err(ApiError::bad_request("A part of the file is too large."));
     }
-    let live = live_host(&cx, &write.machine_id).await?;
+    let live = live_host_back(&cx, &write.machine_id).await?;
     let machine = &live.host.machine_name;
     let part = WorkWrite {
         root: write.root,

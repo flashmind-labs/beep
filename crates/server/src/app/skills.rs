@@ -14,10 +14,7 @@ use uuid::Uuid;
 const GROUP_MESSAGES: i64 = 200;
 
 impl App {
-    /// Counts a finished turn of `user`'s chat that made `tool_calls`
-    /// calls and, once it is time or when the user `corrected` how Beep
-    /// went about a task, reviews the turns since the last review in the
-    /// background.
+    /// Counts a finished turn and, when due or `corrected`, reviews turns since the last review.
     pub(super) fn count_for_skills(
         self: &Arc<Self>,
         user: &Arc<User>,
@@ -69,8 +66,7 @@ impl App {
         });
     }
 
-    /// Counts Beep's reply in a group and, every `REVIEW_TURNS` replies,
-    /// reviews the messages since the last review for the group's skills.
+    /// Counts Beep's group reply and every `REVIEW_TURNS` reviews the group's skills.
     pub(super) fn count_for_group_skills(
         self: &Arc<Self>,
         actor: &Arc<User>,
@@ -128,9 +124,7 @@ impl App {
         });
     }
 
-    /// Counts a turn in `chat` and, when a review is due, starts the count
-    /// again and says what it should read. Claiming first keeps two turns
-    /// that end together from reviewing the same text.
+    /// Counts a turn in `chat` and claims a due review, so two turns ending together don't both review.
     async fn claim_review(&self, chat: Uuid, tool_calls: usize, corrected: bool) -> Option<Review> {
         let counted = self.store.count_skill_turn(chat).await;
         let review = match counted {

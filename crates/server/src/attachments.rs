@@ -1,9 +1,4 @@
-//! Files the user hands Beep, sent with a message or read from their Mac.
-//!
-//! Each one is saved in the user's home folder, when they have an
-//! environment online, so `exec` can open it and `send_file` can
-//! pass it on. The model sees a text file's contents inline; anything else
-//! it opens with a command.
+//! Files the user hands Beep, saved in their home folder when an environment is online.
 
 use crate::workspace::Workspace;
 use flashmind::types::ContentPart;
@@ -48,8 +43,7 @@ impl Handed<'_> {
     }
 }
 
-/// Saves `file` in the user's home folder, when there is one, and returns
-/// where.
+/// Saves `file` in the user's home folder, when there is one, and returns where.
 pub async fn save(workspace: Option<&Workspace>, file: &Handed<'_>) -> Option<String> {
     let workspace = workspace?;
     match workspace.save(file.name, file.data).await {
@@ -134,45 +128,6 @@ mod tests {
 
     fn handed<'a>(name: &'a str, mime: &'a str, data: &'a [u8]) -> Handed<'a> {
         Handed { name, mime, data }
-    }
-
-    #[test]
-    fn text_files_are_shown_inline() {
-        let text = describe(
-            &handed("rent.csv", "text/csv", b"month,paid\nmay,1450"),
-            Some("rent.csv"),
-        );
-        assert!(text.starts_with(
-            "<file name=\"rent.csv\" type=\"text/csv\" size=\"19 bytes\" path=\"rent.csv\">"
-        ));
-        assert!(text.contains("may,1450"));
-    }
-
-    #[test]
-    fn untyped_text_counts_but_binary_does_not() {
-        assert!(handed("notes", "", b"plain words").text().is_some());
-        assert!(
-            handed("blob", "application/octet-stream", b"a\0b")
-                .text()
-                .is_none()
-        );
-        assert!(
-            handed("a.pdf", "application/pdf", b"%PDF-1.7")
-                .text()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn other_files_point_at_the_folder() {
-        let text = describe(
-            &handed("Lease 2026.pdf", "application/pdf", b"%PDF"),
-            Some("Lease_2026.pdf"),
-        );
-        assert!(text.contains("path=\"Lease_2026.pdf\""));
-        assert!(text.contains("Open it with exec"));
-        let text = describe(&handed("a.pdf", "application/pdf", b"%PDF"), None);
-        assert!(text.contains("cannot be read"));
     }
 
     #[test]

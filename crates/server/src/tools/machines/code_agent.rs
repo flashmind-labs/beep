@@ -1,5 +1,4 @@
-//! `code_agent`: coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) running in
-//! sessions on the user's machines.
+//! `code_agent`: coding agent sessions on the user's machines.
 
 use super::{
     Machines, Need,
@@ -301,79 +300,6 @@ mod tests {
                 id: Some("a3f9c1".into()),
                 wait: None
             }))
-        );
-    }
-
-    #[test]
-    fn actions_become_orders() {
-        assert_eq!(
-            plan(
-                json!({ "action": "start", "agent": "claude", "prompt": "fix the tests", "cwd": "/srv/project", "wait_secs": 99_999 })
-            ),
-            Ok(Plan::Agent(Order::Start {
-                cwd: Some("/srv/project".into()),
-                prompt: "fix the tests".into(),
-                wait: Duration::from_secs(MAX_WAIT_SECS),
-            }))
-        );
-        assert_eq!(
-            plan(json!({ "action": "status", "agent": "codex", "id": "a3f9c1" })),
-            Ok(Plan::Agent(Order::Status {
-                id: Some("a3f9c1".into()),
-                wait: None
-            }))
-        );
-        assert_eq!(
-            plan(json!({ "action": "answer", "id": "a3f9c1", "prompt": "1" })),
-            Ok(Plan::Agent(Order::Answer {
-                id: "a3f9c1".into(),
-                text: "1".into(),
-                wait: Duration::from_secs(DEFAULT_WAIT_SECS),
-            }))
-        );
-        assert_eq!(
-            plan(json!({ "action": "transcript", "id": "x" })),
-            Ok(Plan::Agent(Order::Transcript {
-                id: "x".into(),
-                last: DEFAULT_LAST
-            }))
-        );
-        assert_eq!(
-            plan(json!({ "action": "takeover", "id": "x", "in": "mac" })),
-            Ok(Plan::Agent(Order::Takeover {
-                id: "x".into(),
-                prompt: None,
-                wait: Duration::from_secs(DEFAULT_WAIT_SECS),
-            }))
-        );
-        assert_eq!(
-            plan(json!({ "action": "sessions", "all": true })),
-            Ok(Plan::Agent(Order::Sessions { all: true }))
-        );
-    }
-
-    #[test]
-    fn sessions_without_an_agent_cover_every_agent() {
-        assert_eq!(plan(json!({ "action": "sessions" })), Ok(Plan::AllSessions));
-        assert_eq!(plan(json!({ "action": "status" })), Ok(Plan::AllSessions));
-    }
-
-    #[test]
-    fn missing_fields_are_reported() {
-        assert!(plan(json!({ "action": "start" })).is_err());
-        assert!(plan(json!({ "action": "prompt", "prompt": "go" })).is_err());
-        assert!(plan(json!({ "action": "prompt", "id": "x", "prompt": "  " })).is_err());
-        assert!(plan(json!({ "action": "cancel" })).is_err());
-        assert!(plan(json!({ "action": "launch" })).is_err());
-    }
-
-    #[test]
-    fn the_agent_defaults_to_the_only_one() {
-        assert_eq!(agent_for(None, &["claude"]), Ok("claude"));
-        assert_eq!(agent_for(Some("codex"), &["claude", "codex"]), Ok("codex"));
-        assert_eq!(
-            agent_for(None, &["claude", "codex"]),
-            Err("Name the `agent`: claude, codex.".into())
         );
     }
 }

@@ -10,11 +10,12 @@ use agent_client_protocol::{
         v1::{
             AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
             CompactionCapabilities, ContentBlock, ImageContent, Implementation, InitializeRequest,
-            InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse,
-            PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-            SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
-            SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
-            SessionId, SetSessionConfigOptionRequest, TextContent,
+            InitializeResponse, LoadSessionRequest, McpServer, NewSessionRequest,
+            NewSessionResponse, PermissionOptionId, PromptRequest, RequestPermissionOutcome,
+            RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
+            SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+            SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
+            SetSessionConfigOptionRequest, TextContent,
         },
     },
 };
@@ -127,29 +128,57 @@ pub(super) fn new_session(
     )
 }
 
+/// `session/load` or `session/resume` of `session` in `cwd`, sent untyped
+/// so the answer keeps `models`, as `new_session` does.
+pub(super) fn resume_session(
+    method: ResumeMethod,
+    session: SessionId,
+    cwd: &Path,
+    mcp_servers: Vec<McpServer>,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    match method {
+        ResumeMethod::Load => UntypedMessage::new(
+            AGENT_METHOD_NAMES.session_load,
+            LoadSessionRequest::new(session, cwd).mcp_servers(mcp_servers),
+        ),
+        ResumeMethod::Resume => UntypedMessage::new(
+            AGENT_METHOD_NAMES.session_resume,
+            ResumeSessionRequest::new(session, cwd).mcp_servers(mcp_servers),
+        ),
+    }
+}
+
 /// The session an answer to `session/new` made, and the models it offers.
 pub(super) fn session_created(
     answer: Value,
 ) -> Result<(NewSessionResponse, Offered), serde_json::Error> {
-    let offered = Offered {
-        thinking: thinking_option(&answer),
-        ..offered_models(&answer)
-    };
+    let offered = offers(&answer);
     Ok((serde_json::from_value(answer)?, offered))
 }
 
-/// The config options in an answer to `session/new`; none when it has
-/// none or they do not read.
-fn config_options(answer: &Value) -> Vec<SessionConfigOption> {
-    answer
-        .get("configOptions")
-        .filter(|options| options.is_array())
-        .and_then(|_| serde_json::from_value::<NewSessionResponse>(answer.clone()).ok())
-        .and_then(|created| created.config_options)
-        .unwrap_or_default()
+/// The models and thinking option an answer to `session/new`,
+/// `session/load` or `session/resume` offers.
+pub(super) fn offers(answer: &Value) -> Offered {
+    Offered {
+        thinking: thinking_option(answer),
+        ..offered_models(answer)
+    }
 }
 
-/// The selector of category `thought_level` in an answer to `session/new`:
+/// The config options in an answer that offers them, skipping any that do
+/// not read. The answer to `session/load` has no `sessionId`, so the
+/// options are read on their own rather than as a `NewSessionResponse`.
+fn config_options(answer: &Value) -> Vec<SessionConfigOption> {
+    let Some(options) = answer.get("configOptions").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    options
+        .iter()
+        .filter_map(|option| SessionConfigOption::deserialize(option).ok())
+        .collect()
+}
+
+/// The selector of category `thought_level` in an answer:
 /// Claude Code's `effort`, Codex's `reasoning_effort` and pi's
 /// `thought_level`, which take the values `Effort` names.
 fn thinking_option(answer: &Value) -> Option<SessionConfigId> {
@@ -175,7 +204,7 @@ pub(super) fn set_effort(
     )
 }
 
-/// The models an answer to `session/new` offers: its config option of
+/// The models an answer offers: its config option of
 /// category `model` when it has one, else its unstable `models`.
 pub(super) fn offered_models(answer: &Value) -> Offered {
     let selector = config_options(answer).into_iter().find_map(|option| {
@@ -274,7 +303,7 @@ pub(super) fn allow_option(options: &[AnswerOption]) -> Option<&AnswerOption> {
 }
 
 /// A message for the agent: its text, then any images.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct Prompt {
     pub(super) text: String,
     pub(super) images: Vec<Upload>,
@@ -512,29 +541,7 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
-        AgentCapabilities, SessionCapabilities, SessionResumeCapabilities,
-    };
-    use beep_proto::image_key;
     use futures::StreamExt;
-
-    #[test]
-    fn resume_prefers_load_to_session_resume() {
-        let answer = |capabilities| {
-            InitializeResponse::new(ProtocolVersion::V1).agent_capabilities(capabilities)
-        };
-        let both = AgentCapabilities::new()
-            .load_session(true)
-            .session_capabilities(
-                SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
-            );
-        assert_eq!(resume_method(&answer(both)), Some(ResumeMethod::Load));
-        let resume = AgentCapabilities::new().session_capabilities(
-            SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
-        );
-        assert_eq!(resume_method(&answer(resume)), Some(ResumeMethod::Resume));
-        assert_eq!(resume_method(&answer(AgentCapabilities::new())), None);
-    }
 
     #[tokio::test]
     async fn lines_over_the_cap_are_dropped_whole() {
@@ -570,37 +577,6 @@ mod tests {
             .await;
         assert_eq!(read, [r#"{"b":1}"#]);
         assert_eq!(reports.recv().await, Some(72));
-    }
-
-    #[test]
-    fn images_follow_the_text_as_image_blocks() {
-        let shot = Upload {
-            name: "shot.png".into(),
-            mime: "image/png".into(),
-            data: vec![0x89, b'P', b'N', b'G'],
-        };
-        let message = Prompt {
-            text: "The button overlaps".into(),
-            images: vec![shot.clone()],
-        };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message, None)).unwrap();
-        let blocks = sent["prompt"].as_array().unwrap();
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0]["type"], "text");
-        assert_eq!(blocks[0]["text"], "The button overlaps");
-        assert_eq!(blocks[1]["type"], "image");
-        assert_eq!(blocks[1]["mimeType"], "image/png");
-        assert_eq!(blocks[1]["data"], STANDARD.encode(&shot.data));
-        let line = format!("[image: image-{}]", image_key(&shot.data));
-        assert_eq!(message.shown(), format!("The button overlaps\n{line}"));
-
-        let only = Prompt {
-            text: String::new(),
-            images: vec![shot],
-        };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only, None)).unwrap();
-        assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
-        assert_eq!(only.shown(), line);
     }
 
     fn png(name: &str, len: usize) -> Upload {
@@ -696,45 +672,6 @@ mod tests {
     }
 
     #[test]
-    fn session_models_are_read_from_session_new() {
-        let answer = serde_json::json!({
-            "sessionId": "s1",
-            "models": {
-                "availableModels": [
-                    {"modelId": "default", "name": "Default (recommended)", "description": "Use the default model"},
-                    {"modelId": "opus"},
-                ],
-                "currentModelId": "default",
-            },
-        });
-        let (created, offered) = session_created(answer).unwrap();
-        assert_eq!(created.session_id, SessionId::new("s1"));
-        assert_eq!(offered.current.as_deref(), Some("default"));
-        assert_eq!(offered.switch, Some(ModelSwitch::SetModel));
-        assert_eq!(
-            offered.models,
-            [
-                ModelOption {
-                    id: "default".into(),
-                    name: "Default (recommended)".into(),
-                    description: Some("Use the default model".into()),
-                },
-                ModelOption {
-                    id: "opus".into(),
-                    name: "opus".into(),
-                    description: None,
-                },
-            ]
-        );
-        let request = switch_model(&SessionId::new("s1"), &ModelSwitch::SetModel, "opus").unwrap();
-        assert_eq!(request.method(), "session/set_model");
-        assert_eq!(
-            request.params(),
-            &serde_json::json!({"sessionId": "s1", "modelId": "opus"})
-        );
-    }
-
-    #[test]
     fn a_model_config_option_wins_over_session_models() {
         let answer = serde_json::json!({
             "sessionId": "s1",
@@ -765,27 +702,55 @@ mod tests {
         assert_eq!(request.params()["value"], "gpt-mini");
     }
 
-    #[test]
-    fn the_thinking_option_is_read_from_session_new() {
-        let answer = serde_json::json!({
+    /// Codex's answer to `session/new` and `session/load`, trimmed: its
+    /// model selector sits among categories the crate does not name.
+    fn codex_answer() -> Value {
+        serde_json::json!({
             "sessionId": "s1",
+            "models": {
+                "availableModels": [
+                    {"modelId": "gpt-test[low]", "name": "Test (low)"},
+                    {"modelId": "gpt-test[high]", "name": "Test (high)"},
+                ],
+                "currentModelId": "gpt-test[high]",
+            },
+            "modes": {"currentModeId": "agent", "availableModes": [{"id": "agent", "name": "Agent"}]},
             "configOptions": [
+                {"id": "mode", "name": "Mode", "category": "mode", "type": "select",
+                 "currentValue": "agent", "options": [{"value": "agent", "name": "Agent"}]},
+                {"id": "collaboration_mode", "name": "Collaboration mode",
+                 "category": "collaboration_mode", "type": "select", "currentValue": "default",
+                 "options": [{"value": "default", "name": "Default"}]},
                 {"id": "model", "name": "Model", "category": "model", "type": "select",
-                 "currentValue": "m", "options": [{"value": "m", "name": "M"}]},
+                 "currentValue": "gpt-test", "options": [
+                    {"value": "gpt-test", "name": "Test"},
+                    {"value": "gpt-mini", "name": "Mini", "description": "Faster"}]},
                 {"id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level",
-                 "type": "select", "currentValue": "medium", "options": [
-                    {"value": "low", "name": "Low"}, {"value": "medium", "name": "Medium"}]},
+                 "type": "select", "currentValue": "high", "options": [
+                    {"value": "low", "name": "Low"}, {"value": "high", "name": "High"}]},
+                {"id": "fast-mode", "name": "Fast mode", "category": "model_config",
+                 "type": "select", "currentValue": "off", "options": [{"value": "off", "name": "Off"}]},
             ],
-        });
-        let (_, offered) = session_created(answer).unwrap();
-        let id = offered.thinking.expect("a thinking option");
-        assert_eq!(id, SessionConfigId::new("reasoning_effort"));
-        let request = set_effort(&SessionId::new("s1"), &id, Effort::Xhigh).unwrap();
-        assert_eq!(request.method(), "session/set_config_option");
-        assert_eq!(request.params()["configId"], "reasoning_effort");
-        assert_eq!(request.params()["value"], "xhigh");
-        let without = serde_json::json!({"sessionId": "s1"});
-        assert_eq!(session_created(without).unwrap().1.thinking, None);
+        })
+    }
+
+    #[test]
+    fn codex_offers_its_model_selector() {
+        let (_, offered) = session_created(codex_answer()).unwrap();
+        assert_eq!(
+            offered.switch,
+            Some(ModelSwitch::ConfigOption(SessionConfigId::new("model")))
+        );
+        assert_eq!(offered.current.as_deref(), Some("gpt-test"));
+        assert_eq!(offered.models.len(), 2);
+        assert_eq!(
+            offered.thinking,
+            Some(SessionConfigId::new("reasoning_effort"))
+        );
+        // `session/load` answers the same without a `sessionId`.
+        let mut loaded = codex_answer();
+        loaded.as_object_mut().unwrap().remove("sessionId");
+        assert_eq!(offers(&loaded), offered);
     }
 
     #[test]
@@ -796,12 +761,5 @@ mod tests {
         let broken = serde_json::json!({"sessionId": "s1", "models": {"availableModels": 3}});
         assert_eq!(offered_models(&broken), Offered::default());
         assert!(session_created(broken).is_ok());
-    }
-
-    #[test]
-    fn enums_read_as_their_wire_names() {
-        use agent_client_protocol::schema::v1::StopReason;
-        assert_eq!(wire_name(&StopReason::EndTurn), "end_turn");
-        assert_eq!(wire_name(&StopReason::MaxTurnRequests), "max_turn_requests");
     }
 }

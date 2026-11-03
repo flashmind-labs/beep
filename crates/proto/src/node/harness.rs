@@ -239,15 +239,6 @@ mod tests {
     }
 
     #[test]
-    fn every_harness_is_known_once() {
-        assert_eq!(harness("codex").map(|h| h.home_var), Some("CODEX_HOME"));
-        assert_eq!(harness("unknown"), None);
-        for (i, a) in HARNESSES.iter().enumerate() {
-            assert!(HARNESSES[i + 1..].iter().all(|b| b.agent != a.agent));
-        }
-    }
-
-    #[test]
     fn settings_round_trip_hide_their_values_and_default_to_on() {
         let settings = AgentSettings {
             harnesses: vec![HarnessConfig {

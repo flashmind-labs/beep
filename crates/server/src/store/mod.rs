@@ -5,11 +5,13 @@ use flashmind::memory::{EmbeddingProvider, MemoryStore};
 use secrecy::{ExposeSecret, SecretString};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use sqlx_core::migrate::{Migration, MigrationType, Migrator};
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{borrow::Cow, sync::Arc};
 use tokio::sync::Notify;
 
 mod actions;
 mod agent_images;
+mod agent_session_starts;
+pub(crate) use agent_session_starts::SessionOn;
 mod agent_spend;
 mod agent_usage;
 mod apps;
@@ -125,9 +127,7 @@ pub use test_db::{TestDb, TestTurn, test_chat, test_steps, test_turn, test_turn_
 pub use updates::{Bumped, UpdateHub, start_pruning};
 pub use user_keys::{Account, AccountKey, LinkKey, LiveKey, NewKey, SignIn};
 
-/// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
-/// needs sqlx's `migrate` feature, which clashes with
-/// flashmind's rusqlite.
+/// The schema, oldest first; embedded by hand since `sqlx::migrate!` clashes with flashmind's rusqlite.
 const MIGRATIONS: &[(i64, &str, &str)] = &[
     (1, "init", include_str!("../../migrations/0001_init.sql")),
     (2, "users", include_str!("../../migrations/0002_users.sql")),
@@ -533,10 +533,14 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         "flsh settings",
         include_str!("../../migrations/0097_flsh_settings.sql"),
     ),
+    (
+        98,
+        "agent session starts",
+        include_str!("../../migrations/0098_agent_session_starts.sql"),
+    ),
 ];
 
-/// The last migration before the transcripts go. The backfill reads them
-/// into message rows between this one and the next.
+/// The last migration before the transcript backfill runs.
 const BEFORE_BACKFILL: i64 = 29;
 
 /// The migrations up to `last`.
@@ -589,8 +593,7 @@ pub(crate) const MEMORY_CATEGORIES: &[&str] = &[
     "routine",
 ];
 
-/// What a memory is filed under until Jev files it, such as when Jev was
-/// unreachable. The hourly sweep files these and any old category.
+/// Category a memory has until Jev files it; the hourly sweep refiles these.
 pub(crate) const UNFILED: &str = "unfiled";
 
 /// The days a fact holds, like the dates of a trip. Both open by default.
@@ -607,8 +610,7 @@ impl Validity {
     }
 }
 
-/// Where a memory was picked up: the chat session, email or Slack thread it
-/// came from, and the words there that show it.
+/// Where a memory was picked up: source chat, email or Slack thread, and the quoted words.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Origin {
     /// The session id, email id or Slack thread id, by the memory's source.
@@ -652,14 +654,8 @@ fn format_time(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-/// `duration` in seconds, for `make_interval(secs => ...)`.
-fn seconds(duration: Duration) -> f64 {
-    duration.as_secs_f64()
-}
-
 impl Store {
-    /// Connects to the database at `url`, brings its schema up to date and
-    /// opens the memory store in the same database.
+    /// Connects to `url`, migrates the schema and opens the memory store.
     pub async fn open(url: &SecretString, embedder: Arc<dyn EmbeddingProvider>) -> Result<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(MAX_CONNECTIONS)
@@ -688,8 +684,7 @@ impl Store {
         self.crons_changed.clone()
     }
 
-    /// Tells the scheduler the `crons` table changed. `notify_one` keeps a permit
-    /// when nobody is waiting, so a write between two waits is not lost.
+    /// Wakes the scheduler after a `crons` change; `notify_one` keeps a permit so no write is lost.
     pub(crate) fn notify_crons_changed(&self) {
         self.crons_changed.notify_one();
     }

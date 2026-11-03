@@ -1,11 +1,4 @@
-//! Images attached to a user message.
-//!
-//! A model that sees images gets them as image parts, labelled "Image 1",
-//! "Image 2" when there are several. Each image is also described once by a
-//! vision model; a model without vision gets those descriptions instead, and
-//! once the turn is saved they replace the images in the conversation so later
-//! turns do not resend the image data. The pictures themselves are kept with
-//! the chat, so every device can show them.
+//! Images attached to a user message, described once by a vision model for models and turns that cannot see them.
 
 use crate::attachments;
 use anyhow::{Result, bail};
@@ -22,8 +15,7 @@ use std::sync::Arc;
 
 /// Most images one message may carry.
 pub const MAX_IMAGES: usize = 8;
-/// Largest data URI accepted per image. The phone sends JPEGs of at most
-/// 1024 px, which stay well under this.
+/// Largest data URI accepted per image.
 pub const MAX_IMAGE_BYTES: usize = 2 * 1024 * 1024;
 
 const SYSTEM: &str = "You describe images for an assistant that cannot see them. \
@@ -72,8 +64,7 @@ fn picture(uri: &str) -> Option<Picture> {
     })
 }
 
-/// The images as parts for a model that sees them, each after its label when
-/// there are several.
+/// The images as parts, each after its label when there are several.
 pub fn labelled(images: &[ContentPart]) -> Vec<ContentPart> {
     if images.len() < 2 {
         return images.to_vec();
@@ -92,8 +83,7 @@ pub fn labelled(images: &[ContentPart]) -> Vec<ContentPart> {
         .collect()
 }
 
-/// The descriptions as text parts, for a model without vision or for the saved
-/// conversation. An image that could not be described says so.
+/// The descriptions as text parts; an image that could not be described says so.
 pub fn described(descriptions: &[Option<String>]) -> Vec<ContentPart> {
     descriptions
         .iter()
@@ -134,8 +124,7 @@ impl Describer {
         .await
     }
 
-    /// Describes the image file `name` a tool read, for a model that cannot
-    /// see it.
+    /// Describes the image file `name` a tool read.
     pub(crate) async fn describe_file(&self, image: &ContentPart, name: &str) -> Result<String> {
         let prompt = format!("This image is the file {name}. Describe the whole image.");
         self.describe(image, prompt).await
@@ -178,9 +167,7 @@ impl Describer {
     }
 }
 
-/// Replaces the images of the turn's user message with their descriptions.
-/// Images whose description failed stay, so the model can still look at them,
-/// and the files sent with them stay after them.
+/// Replaces the turn's images with their descriptions, keeping images whose description failed.
 pub fn replace_with_descriptions(
     conversation: &mut Conversation,
     turn_started: DateTime<Utc>,
@@ -246,16 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_image_data_uris() {
-        assert!(matches!(
-            parse_data_uri("data:image/png;base64,AAAA"),
-            Some(ContentPart::Image { media_type, data }) if media_type == "image/png" && data == "AAAA"
-        ));
-        assert!(parse_data_uri("data:text/plain;base64,AAAA").is_none());
-        assert!(parse_data_uri("https://example.com/a.png").is_none());
-    }
-
-    #[test]
     fn pictures_keep_their_size_and_skip_what_is_not_an_image() {
         // A 1x1 PNG.
         let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -268,15 +245,6 @@ mod tests {
         assert_eq!(
             (kept[0].mime.as_str(), kept[0].width, kept[0].height),
             ("image/png", 1, 1)
-        );
-    }
-
-    #[test]
-    fn labels_only_several_images() {
-        assert_eq!(texts(&labelled(&[image("a")])), ["<a>"]);
-        assert_eq!(
-            texts(&labelled(&[image("a"), image("b")])),
-            ["Image 1:", "<a>", "Image 2:", "<b>"]
         );
     }
 

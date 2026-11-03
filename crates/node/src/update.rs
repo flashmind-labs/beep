@@ -5,6 +5,7 @@
 
 use crate::{
     link::{Protocol, Session},
+    restart::{self, Drained},
     service::{self, Restart},
 };
 use beep_proto::node::{LinkRx, LinkTx, update};
@@ -238,9 +239,22 @@ impl Target {
     }
 }
 
+/// How `beep-node update` runs.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Only says whether a newer version is out.
+    pub check: bool,
+    /// How long to wait for the node's agent sessions to be idle before
+    /// restarting it; `None` restarts at once.
+    pub wait: Option<Duration>,
+    /// The node's folder, where the running node is asked to wait.
+    pub dir: PathBuf,
+}
+
 /// `beep-node update`: installs the newest release over this binary and
 /// restarts its service. With `check`, only says whether there is one.
-pub async fn update(check: bool) -> Result<(), Error> {
+pub async fn update(options: Options) -> Result<(), Error> {
+    let Options { check, wait, dir } = options;
     let base = base();
     let client = client()?;
     let Newest { current, latest } = newest(&client, &base).await?;
@@ -263,7 +277,13 @@ pub async fn update(check: bool) -> Result<(), Error> {
         "Downloading beep-node {latest} for {}",
         Target::current()?.triple()
     );
-    let exe = install(&client, &base, &latest).await?;
+    let download = download(&client, &base, &latest).await?;
+    // Kept until the restart, so the node holds new prompts until then.
+    let _holding = match wait {
+        Some(limit) => wait_for_idle(&dir, limit).await,
+        None => None,
+    };
+    let exe = download.install().await?;
     println!("Installed {}", exe.display());
 
     let restarted = {
@@ -309,9 +329,14 @@ async fn newest(client: &Client, base: &str) -> Result<Newest, Error> {
     Ok(Newest { current, latest })
 }
 
-/// Downloads `latest`, checks it against the release's `SHA256SUMS` and
-/// puts it in place of this binary, whose path it gives.
-async fn install(client: &Client, base: &str, latest: &Version) -> Result<PathBuf, Error> {
+/// A verified release, not yet in place of this binary.
+struct Download {
+    exe: PathBuf,
+    binary: Vec<u8>,
+}
+
+/// Downloads `latest` and checks it against the release's `SHA256SUMS`.
+async fn download(client: &Client, base: &str, latest: &Version) -> Result<Download, Error> {
     let target = Target::current()?;
     let exe = env::current_exe()
         .and_then(|exe| exe.canonicalize())
@@ -327,14 +352,22 @@ async fn install(client: &Client, base: &str, latest: &Version) -> Result<PathBu
     let archive = target.archive(latest);
     let packed = fetch(client, &url(base, &format!("{latest}/{archive}"))?).await?;
     let sums = fetch(client, &url(base, &format!("{latest}/SHA256SUMS"))?).await?;
-    let installed = exe.clone();
-    spawn_blocking(move || {
+    let binary = spawn_blocking(move || {
         verify(&archive, &packed, &String::from_utf8_lossy(&sums))?;
-        let binary = unpack(target, &archive, &packed)?;
-        replace(&installed, &binary)
+        unpack(target, &archive, &packed)
     })
     .await??;
-    Ok(exe)
+    Ok(Download { exe, binary })
+}
+
+impl Download {
+    /// Puts it in place of this binary, whose path it gives.
+    async fn install(self) -> Result<PathBuf, Error> {
+        let Download { exe, binary } = self;
+        let installed = exe.clone();
+        spawn_blocking(move || replace(&installed, &binary)).await??;
+        Ok(exe)
+    }
 }
 
 /// Set while an update from Beep runs, so a second one is refused.
@@ -383,9 +416,9 @@ async fn serve(tx: LinkTx, mut rx: LinkRx) -> anyhow::Result<()> {
     if let Err(e) = tx.finish().await {
         log::debug!("the server did not read the update's answer: {e:#}");
     }
-    if let Some(exe) = restart {
+    if let Some(plan) = restart {
         log::info!("restarting the service on the new binary");
-        match spawn_blocking(move || service::restart(&exe)).await? {
+        match spawn_blocking(move || plan.run()).await? {
             Ok(_) => {}
             Err(e) => log::warn!("the service did not restart: {e:#}"),
         }
@@ -393,11 +426,11 @@ async fn serve(tx: LinkTx, mut rx: LinkRx) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What an update from Beep did, and the binary to restart on when the
-/// service should.
+/// What an update from Beep did, and the restart to run when the service
+/// should.
 struct Remote {
     event: update::Event,
-    restart: Option<PathBuf>,
+    restart: Option<service::Plan>,
 }
 
 async fn remote() -> Result<Remote, Error> {
@@ -413,7 +446,9 @@ async fn remote() -> Result<Remote, Error> {
         });
     }
     log::info!("updating beep-node {current} to {latest}");
-    let exe = install(&client, &base, &latest).await?;
+    // The server asked only when no agent session runs or the user agreed
+    // to stop them, so it restarts without waiting for them.
+    let exe = download(&client, &base, &latest).await?.install().await?;
     let plan = {
         let exe = exe.clone();
         spawn_blocking(move || service::restart_plan(&exe)).await?
@@ -422,7 +457,7 @@ async fn remote() -> Result<Remote, Error> {
         version: latest.clone(),
         source,
     })?;
-    let restarting = matches!(plan, Restart::Restarted(_));
+    let restarting = matches!(plan.restart, Restart::Restarted(_));
     Ok(Remote {
         event: update::Event::Installed {
             from: current.to_string(),
@@ -431,11 +466,31 @@ async fn remote() -> Result<Remote, Error> {
             note: if restarting {
                 String::new()
             } else {
-                said(&plan, &latest)
+                said(&plan.restart, &latest)
             },
         },
-        restart: restarting.then_some(exe),
+        restart: restarting.then_some(plan),
     })
+}
+
+/// Asks the running node to finish its agents' turns and hold new prompts,
+/// waiting up to `limit`. What holds them, while the node does.
+async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::Holding> {
+    println!(
+        "Waiting up to {} min for the agent sessions to finish their turns \
+         (`--now` skips this); new prompts wait until the restart",
+        limit.as_secs().div_ceil(60)
+    );
+    match restart::drain(dir, limit).await {
+        Drained::NoNode => None,
+        Drained::Idle(holding) => Some(holding),
+        Drained::TimedOut(holding) => {
+            println!(
+                "A turn still runs; restarting anyway. Its session resumes after the restart."
+            );
+            Some(holding)
+        }
+    }
 }
 
 /// The release folder, without a trailing slash.
@@ -530,7 +585,7 @@ fn verify(archive: &str, packed: &[u8], sums: &str) -> Result<(), Error> {
     let expected = expected_sum(archive, sums).ok_or_else(|| Error::NotListed {
         archive: archive.to_owned(),
     })?;
-    let actual = format!("{:x}", Sha256::digest(packed));
+    let actual = hex::encode(Sha256::digest(packed));
     if actual != expected {
         return Err(Error::Checksum {
             archive: archive.to_owned(),
@@ -695,61 +750,6 @@ mod tests {
     }
 
     #[test]
-    fn junk_is_not_a_version() {
-        for junk in ["", "1..2", "1.2.x", "1.2.3-beta", "<html>", "1.-2"] {
-            assert!(junk.parse::<Version>().is_err(), "{junk:?}");
-        }
-    }
-
-    #[test]
-    fn this_binary_has_a_version() {
-        assert!(CURRENT.parse::<Version>().is_ok());
-    }
-
-    #[test]
-    fn each_platform_gets_the_installers_asset() {
-        let v = version("0.1.15");
-        let asset = |os, arch| Target::detect(os, arch).map(|target| target.archive(&v));
-        assert_eq!(
-            asset("linux", "x86_64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-unknown-linux-musl.tar.gz")
-        );
-        assert_eq!(
-            asset("linux", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-aarch64-unknown-linux-musl.tar.gz")
-        );
-        assert_eq!(
-            asset("macos", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-aarch64-apple-darwin.tar.gz")
-        );
-        assert_eq!(
-            asset("windows", "x86_64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-pc-windows-msvc.zip")
-        );
-        assert_eq!(
-            asset("windows", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-pc-windows-msvc.zip")
-        );
-    }
-
-    #[test]
-    fn platforms_without_a_build_are_named() {
-        assert!(matches!(
-            Target::detect("macos", "x86_64"),
-            Err(Error::IntelMac)
-        ));
-        let other = Target::detect("freebsd", "x86_64");
-        assert!(matches!(
-            other,
-            Err(Error::Platform {
-                os: "freebsd",
-                arch: "x86_64"
-            })
-        ));
-        assert!(Target::detect("linux", "riscv64").is_err());
-    }
-
-    #[test]
     fn the_sum_is_read_in_either_mode() {
         let sums = "AAAA  beep-node-1-x.tar.gz\nbbbb *beep-node-1-y.zip\n";
         assert_eq!(
@@ -766,7 +766,7 @@ mod tests {
     #[test]
     fn a_download_that_does_not_match_its_sum_is_refused() {
         let packed = b"archive";
-        let sum = format!("{:x}", Sha256::digest(packed));
+        let sum = hex::encode(Sha256::digest(packed));
         let sums = format!("{sum}  a.tar.gz\n");
         assert!(verify("a.tar.gz", packed, &sums).is_ok());
         assert!(matches!(

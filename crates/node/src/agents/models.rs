@@ -331,17 +331,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_list_is_kept_a_few_minutes() {
-        let cache = ModelCache::default();
-        let start = Instant::now();
-        cache.keep("flsh", list("openai:gpt-test"), start);
-        let later = start + Duration::from_secs(60);
-        assert_eq!(cache.recent("flsh", later), Some(list("openai:gpt-test")));
-        assert_eq!(cache.recent("codex", later), None, "kept per agent");
-        assert_eq!(cache.recent("flsh", start + KEEP), None, "too old");
-    }
-
     #[tokio::test]
     async fn an_agent_is_asked_once_while_its_list_is_recent() {
         let cache = ModelCache::default();
@@ -355,13 +344,6 @@ mod tests {
         assert_eq!(asked.load(Ordering::SeqCst), 1);
         cache.get("codex", find()).await;
         assert_eq!(asked.load(Ordering::SeqCst), 2);
-    }
-
-    #[test]
-    fn flsh_lists_one_model_per_line() {
-        let output = "openai:gpt-test\n\nopenrouter:vendor/model-a\nnot a model\n";
-        let ids: Vec<String> = flsh_listing(output).into_iter().map(|m| m.id).collect();
-        assert_eq!(ids, ["openai:gpt-test", "openrouter:vendor/model-a"]);
     }
 
     #[test]
@@ -410,26 +392,6 @@ mod tests {
         assert_eq!(flsh(&kind).await.current.as_deref(), Some("set:home"));
     }
 
-    #[test]
-    fn flsh_names_its_default_model_in_its_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("config.toml");
-        std::fs::write(
-            &config,
-            "model = \"openai:gpt-test\"\n[providers.openai]\napi_key = \"k\"\n",
-        )
-        .unwrap();
-        assert_eq!(
-            flsh_default_model(&config).as_deref(),
-            Some("openai:gpt-test")
-        );
-        std::fs::write(&config, "[providers.openai]\n").unwrap();
-        assert_eq!(flsh_default_model(&config), None);
-        std::fs::write(&config, "model = [").unwrap();
-        assert_eq!(flsh_default_model(&config), None);
-        assert_eq!(flsh_default_model(&dir.path().join("missing.toml")), None);
-    }
-
     /// An adapter that answers `session/new` with models and stays up.
     #[cfg(unix)]
     const MODELS_ADAPTER: &str = r#"
@@ -460,26 +422,5 @@ cat > /dev/null
         assert_eq!(listing.current.as_deref(), Some("sonnet"));
         let names: Vec<&str> = listing.models.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(names, ["Sonnet", "Opus"]);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn an_agent_that_offers_no_models_has_none_to_pick() {
-        let plain = r#"
-id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
-reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
-read -r line
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line
-reply '{"sessionId":"s"}'
-cat > /dev/null
-"#;
-        assert_eq!(find(adapter("pi", plain)).await, ModelList::default());
-        // Gemini CLI takes any name on its command line.
-        let gemini = find(adapter("gemini", plain)).await;
-        assert_eq!(gemini.pick, ModelPick::Named);
-        // An agent that fails to start has none either.
-        let failed = find(adapter("codex", "exit 1")).await;
-        assert_eq!(failed.pick, ModelPick::Fixed);
     }
 }

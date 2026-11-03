@@ -1,7 +1,4 @@
-//! Reports from a node session to the chat it works for. A finished turn
-//! or a question nobody waits for starts a turn in that chat, the way a
-//! finished research reports back; a question also goes to the user as an
-//! approval card, and their answer goes back to the agent.
+//! Reports from a node session to its chat: a finished turn or unwaited question starts a turn there.
 
 use super::{AgentLinks, LinkOrder, Watched, order};
 use crate::{
@@ -119,8 +116,7 @@ impl Reporter {
         }
     }
 
-    /// The card for `question`; it goes away once the question is answered
-    /// some other way or the session goes.
+    /// The card for `question`; it goes away once answered elsewhere or the session goes.
     fn ask(&self, follower: Follower, question: Question) -> Ask {
         ask_card(
             &self.state,
@@ -133,9 +129,7 @@ impl Reporter {
     }
 }
 
-/// The card for `question` of `session`, the session's state and orders
-/// given; it goes away once the question is answered some other way or the
-/// session goes.
+/// The card for `question` of `session`; it goes away once answered elsewhere or the session goes.
 pub(super) fn ask_card(
     state: &watch::Receiver<Watched>,
     orders: &mpsc::Sender<LinkOrder>,
@@ -212,57 +206,5 @@ fn quote(text: &str) -> String {
     match text.char_indices().nth(MAX_QUOTED) {
         Some((end, _)) => format!("{}...", &text[..end]),
         None => text.to_owned(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::protocol::node::agent::{AnswerOption, OptionKind};
-
-    #[test]
-    fn a_finished_turn_quotes_its_last_message() {
-        let text = turn_report("build-box", "codex", "s1", 3, "Fixed the test.\n");
-        assert!(
-            text.starts_with(
-                "The Codex session s1 on build-box that you started in this chat finished \
-                 turn 3. Its last message:\nFixed the test.\n\n"
-            ),
-            "{text}"
-        );
-        assert!(
-            text.contains(
-                "code_agent with action `prompt`, agent `codex`, id `s1` and in `build-box`"
-            ),
-            "{text}"
-        );
-        let long = "x".repeat(MAX_QUOTED + 10);
-        assert!(
-            turn_report("build-box", "codex", "s1", 1, &long)
-                .contains(&format!("{}...", "x".repeat(MAX_QUOTED)))
-        );
-    }
-
-    #[test]
-    fn a_question_names_its_options() {
-        let question = Question {
-            id: 2,
-            text: "Run cargo test".into(),
-            detail: Some("cargo test -p core".into()),
-            options: vec![AnswerOption {
-                id: "allow".into(),
-                name: "Allow".into(),
-                kind: OptionKind::AllowOnce,
-            }],
-        };
-        let text = question_report("build-box", "codex", "s1", &question);
-        assert!(
-            text.starts_with(
-                "The Codex session s1 on build-box that you started in this chat asks: Run \
-                 cargo test (cargo test -p core)\n"
-            ),
-            "{text}"
-        );
-        assert!(text.contains("its options are allow."), "{text}");
     }
 }

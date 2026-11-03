@@ -1,7 +1,4 @@
-//! Sending a file or folder from one node to another (`transfer/1`). The
-//! server brokers only: the source offers it to the target's key, the
-//! target fetches it from the source directly, and the offer closes when
-//! the fetch is done. The bytes never pass through the server.
+//! Node-to-node file transfer (`transfer/1`): the server brokers; bytes never pass through it.
 
 use super::Online;
 use crate::protocol::node::{
@@ -14,9 +11,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-/// The longest a source may go quiet while hashing, and a target while
-/// fetching. Both report about every second while bytes move, so only a
-/// transfer that stopped moving gets this far.
+/// The longest a source may go quiet hashing, or a target fetching, before it counts as stuck.
 const OFFER_IDLE: Duration = Duration::from_secs(10 * 60);
 const FETCH_IDLE: Duration = Duration::from_secs(10 * 60);
 /// How long a target has to clean up after a cancel.
@@ -44,8 +39,7 @@ pub struct Offered {
     pub executable: bool,
 }
 
-/// An offer the source keeps open; the target may fetch it until this
-/// drops.
+/// An offer the source keeps open until this drops.
 pub struct Offer {
     pub offered: Offered,
     tx: LinkTx,
@@ -54,7 +48,6 @@ pub struct Offer {
 
 impl Offer {
     /// Closes the offer and waits until the source dropped its grant.
-    /// Dropping it closes it too, without waiting.
     pub async fn close(mut self) -> Result<()> {
         self.tx.send(&Request::Cancel {}).await?;
         let closed = timeout(CANCEL_LIMIT, async {
@@ -84,8 +77,7 @@ impl Online {
         self.open_stream(PROTOCOL).await
     }
 
-    /// Asks this node to offer `path`, a file or folder in its shared
-    /// folders, to the node `peer`.
+    /// Asks this node to offer `path` in its shared folders to `peer`.
     pub async fn offer(
         &self,
         path: &str,
@@ -136,9 +128,7 @@ impl Online {
         }
     }
 
-    /// Asks this node to fetch `offered` into `folder`, an absolute folder
-    /// in its shared folders. When `cancel` fires the node stops and
-    /// removes what it wrote before this returns.
+    /// Asks this node to fetch `offered` into `folder`; on `cancel` it removes what it wrote.
     pub async fn fetch(
         &self,
         offered: &Offered,

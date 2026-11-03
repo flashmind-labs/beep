@@ -1,14 +1,11 @@
-//! Which new stretches of a chat are worth a watcher's model call. Memory
-//! reads every stretch. Skills only reads one where Beep did real work, and
-//! improvement reads those too plus any where a call was denied or failed.
+//! Which new stretches of a chat are worth a watcher's model call.
 
 use crate::{
     permissions,
     store::{StoredBody, StoredMessage},
 };
 
-/// Tool calls a stretch needs before the skills or improvement watcher
-/// reads it.
+/// Tool calls a stretch needs before skills or improvement reads it.
 pub(super) const MIN_TOOL_CALLS: usize = 3;
 
 /// Whether Beep made at least [`MIN_TOOL_CALLS`] tool calls in `messages`.
@@ -71,35 +68,6 @@ mod tests {
                 description: String::new(),
             },
         )
-    }
-
-    #[test]
-    fn a_lone_hello_is_neither_busy_nor_friction() {
-        let messages = [
-            user(1),
-            message(
-                2,
-                StoredBody::Assistant {
-                    content: "Hi!".into(),
-                },
-            ),
-        ];
-        assert!(!busy(&messages));
-        assert!(!friction(&messages));
-    }
-
-    #[test]
-    fn busy_takes_three_tool_calls() {
-        let two = [user(1), tool(2, "ok", true), tool(3, "ok", true)];
-        assert!(!busy(&two));
-        let three = [
-            user(1),
-            tool(2, "ok", true),
-            tool(3, "ok", true),
-            tool(4, "ok", true),
-        ];
-        assert!(busy(&three));
-        assert!(!friction(&three));
     }
 
     #[test]

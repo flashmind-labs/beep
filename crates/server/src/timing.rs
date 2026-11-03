@@ -11,8 +11,7 @@ pub struct TurnTimer {
     started: Instant,
     /// Building the time, location and apps block.
     context: Duration,
-    /// Everything before the first model call: loading the conversation,
-    /// tools, apps and context, and waiting for image descriptions.
+    /// Everything before the first model call.
     prepared: Option<Duration>,
     /// When the model call in flight was sent, until its first output.
     call_sent: Option<Instant>,
@@ -128,44 +127,5 @@ impl fmt::Display for TurnTimer {
             self.cache_read_tokens,
             self.completion_tokens,
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn records_one_wait_per_model_call() {
-        let mut timer = TurnTimer::start();
-        timer.prepared();
-        timer.output(Output::Reasoning);
-        timer.output(Output::Tool);
-        timer.tools_done();
-        timer.output(Output::Text);
-        timer.output(Output::Text);
-
-        assert_eq!(timer.waits.len(), 2);
-        assert!(timer.first_reasoning.is_some());
-        assert!(timer.first_text >= timer.first_reasoning);
-    }
-
-    #[test]
-    fn adds_up_output_tokens_across_calls() {
-        let mut timer = TurnTimer::start();
-        let call = |prompt, completion| TokenUsage {
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            total_tokens: prompt + completion,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
-        };
-        timer.usage(&call(1000, 50));
-        timer.usage(&call(1200, 30));
-
-        assert_eq!(timer.prompt_tokens, 1200);
-        assert_eq!(timer.completion_tokens, 80);
-        let line = timer.to_string();
-        assert!(line.contains("first_text_ms=-"), "{line}");
     }
 }

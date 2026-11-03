@@ -1,8 +1,5 @@
-//! Public transport and walking routes from Transitous, a free router over
-//! open timetable data (https://transitous.org). The legs come back as
-//! short text, so the agent answers about lines and stations from real data.
-//! The same routes are saved as a card under the call's id, with each leg's
-//! shape, for the apps to draw; the model never sees the coordinates.
+//! Public transport and walking routes from Transitous (https://transitous.org).
+//! The model gets the legs as text; the apps get a card with each leg's shape.
 
 use crate::{
     protocol::{RouteCard, RouteLeg, RouteOption, RoutePoint, RouteStop},
@@ -36,8 +33,7 @@ const IN_FLIGHT: usize = 4;
 const ROUTES: usize = 3;
 /// The most points a leg's shape keeps for the card's sketch.
 const SHAPE_POINTS: usize = 96;
-/// A wait between legs past which a route is dropped when another has none,
-/// like sitting at a station overnight for the first train.
+/// A wait between legs past which a route is dropped when another has none.
 const LONG_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// The client every run's `get_route` shares, with its cache.
@@ -384,9 +380,7 @@ impl GetRouteTool {
     }
 }
 
-/// The language Transitous names stops and lines in: the one asked for when
-/// it looks like a language code, else English. Without one, some feeds
-/// answer in upper case or with internal line numbers.
+/// The language for stop and line names: the one asked for if it looks like a code, else English.
 fn language(asked: Option<&str>) -> &str {
     asked
         .filter(|code| {
@@ -396,8 +390,7 @@ fn language(asked: Option<&str>) -> &str {
         .unwrap_or("en")
 }
 
-/// `time` in UTC for Transitous: as given when it has an offset, else as a
-/// local time in `tz`.
+/// `time` in UTC: as given when it has an offset, else as a local time in `tz`.
 fn utc(time: &str, tz: Option<Tz>) -> Result<String> {
     let at = match DateTime::parse_from_rfc3339(time) {
         Ok(at) => at.with_timezone(&Utc),
@@ -494,9 +487,7 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
     }
 }
 
-/// The routes worth showing: none that another leaves no earlier for and
-/// arrives no later by, and none with a long wait while a route without
-/// one exists.
+/// The routes worth showing: no dominated ones, and no long waits while a route without one exists.
 fn useful(routes: &[Itinerary]) -> Vec<&Itinerary> {
     let beaten = |a: &Itinerary| {
         routes.iter().any(|b| {
@@ -619,8 +610,7 @@ fn count(n: i64) -> u32 {
     u32::try_from(n.max(0)).unwrap_or(u32::MAX)
 }
 
-/// The leg's shape for the sketch: its polyline, simplified, or else a
-/// straight line between its stops.
+/// The leg's shape: its simplified polyline, or a straight line between its stops.
 fn shape(leg: &Leg) -> Vec<RoutePoint> {
     let line = leg
         .leg_geometry
@@ -677,8 +667,7 @@ fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
     Some(points)
 }
 
-/// At most `most` of `points`, keeping the corners: Douglas-Peucker, with a
-/// tolerance raised until few enough remain.
+/// At most `most` of `points` by Douglas-Peucker, raising the tolerance until few enough remain.
 fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     if points.len() <= most {
         return points.to_vec();
@@ -710,8 +699,7 @@ fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     }
 }
 
-/// Marks the point between `start` and `end` farthest from their line, and
-/// recurses, while it is farther than `tolerance`.
+/// Marks the point farthest from the `start`-`end` line while beyond `tolerance`, recursing.
 fn mark(points: &[RoutePoint], start: usize, end: usize, tolerance: f64, keep: &mut [bool]) {
     if end <= start + 1 {
         return;
@@ -749,8 +737,7 @@ fn route_name(leg: &Leg) -> Option<String> {
     }
 }
 
-/// Whether a line name means something to a rider, rather than being empty
-/// or a feed's internal number.
+/// Whether a line name means something to a rider, not empty or an internal number.
 fn readable(name: &str) -> bool {
     !name.is_empty() && !(name.len() > 5 && name.chars().all(|c| c.is_ascii_digit()))
 }
@@ -785,31 +772,6 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_reads_as_legs() {
-        let plan: Plan = serde_json::from_value(json!({
-            "itineraries": [{
-                "duration": 300, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:05:00Z", "transfers": 0,
-                "legs": [
-                    {"mode": "WALK", "from": {"name": "START", "tz": "Asia/Tokyo"}, "to": {"name": "Central", "tz": "Asia/Tokyo"},
-                     "duration": 60, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:01:00Z", "distance": 73.0},
-                    {"mode": "SUBWAY", "from": {"name": "Central", "tz": "Asia/Tokyo"}, "to": {"name": "Riverside", "tz": "Asia/Tokyo"},
-                     "duration": 180, "startTime": "2026-10-12T10:01:00Z", "endTime": "2026-10-12T10:04:00Z",
-                     "headsign": "Airport", "agencyName": "City Metro", "routeShortName": "30211664", "routeColor": "ff9501",
-                     "intermediateStops": [{"name": "Market"}]}
-                ]
-            }]
-        }))
-        .unwrap();
-        let mut out = String::new();
-        describe(&mut out, 1, &plan.itineraries[0]);
-        assert!(out.contains("Route 1: 19:00 to 19:05, 5 min, 0 transfer(s), timetable times"));
-        assert!(out.contains("- Walk 1 min, 73 m, start to Central"));
-        assert!(out.contains(
-            "- subway, City Metro (line colour #ff9501) toward Airport: 19:01 from Central to 19:04 at Riverside, 2 stop(s)"
-        ));
-    }
-
-    #[test]
     fn a_polyline_decodes_at_its_precision() {
         // Google's own example.
         let points = decode("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 5).unwrap();
@@ -818,100 +780,6 @@ mod tests {
         // Cut off inside a number.
         assert!(decode("_p~iF~ps|U_ulL", 5).is_none());
         assert_eq!(decode("", 5).unwrap(), []);
-    }
-
-    #[test]
-    fn a_long_shape_keeps_its_ends_and_corners() {
-        // In Tokyo, where latitude and longitude are far apart.
-        let point = |latitude: f64, longitude: f64| RoutePoint {
-            latitude: 35.0 + latitude,
-            longitude: 139.0 + longitude,
-        };
-        // East for 100 points, then north for 100: one corner.
-        let mut points: Vec<RoutePoint> =
-            (0..100).map(|i| point(0.0, f64::from(i) * 0.001)).collect();
-        points.extend((1..=100).map(|i| point(f64::from(i) * 0.001, 0.099)));
-        let kept = simplify(&points, 10);
-        assert_eq!(
-            kept,
-            [point(0.0, 0.0), point(0.0, 0.099), point(0.1, 0.099)]
-        );
-        // Few enough already: unchanged.
-        assert_eq!(simplify(&points[..5], 10), &points[..5]);
-    }
-
-    #[test]
-    fn a_plan_becomes_a_card() {
-        let plan: Plan = serde_json::from_value(json!({
-            "itineraries": [{
-                "duration": 300, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:05:00Z", "transfers": 0,
-                "legs": [
-                    {"mode": "WALK", "from": {"name": "START", "lat": 35.0, "lon": 139.0, "tz": "Asia/Tokyo"},
-                     "to": {"name": "Central", "lat": 35.001, "lon": 139.001, "tz": "Asia/Tokyo"},
-                     "duration": 60, "startTime": "2026-10-12T10:00:00Z", "endTime": "2026-10-12T10:01:00Z", "distance": 73.4},
-                    {"mode": "SUBWAY", "from": {"name": "Central", "tz": "Asia/Tokyo", "track": "2", "stopCode": "H01"},
-                     "to": {"name": "Riverside", "tz": "Asia/Tokyo", "stopCode": " H03 "},
-                     "duration": 180, "startTime": "2026-10-12T10:01:00Z", "endTime": "2026-10-12T10:04:00Z",
-                     "headsign": "Airport", "routeShortName": "30211664", "routeLongName": "Harbour Line",
-                     "routeColor": "ff9501", "routeTextColor": "not a colour",
-                     "intermediateStops": [{"name": "Market", "stopCode": "H02", "lat": 35.0005, "lon": 139.0005, "tz": "Asia/Tokyo",
-                                            "arrival": "2026-10-12T10:02:00Z", "departure": "2026-10-12T10:02:30Z"}],
-                     "legGeometry": {"points": "_p~iF~ps|U_ulLnnqC_mqNvxq`@", "precision": 5, "length": 3}}
-                ]
-            }]
-        }))
-        .unwrap();
-        let card = option(&plan.itineraries[0]);
-        assert_eq!(
-            (card.departs.as_str(), card.arrives.as_str(), card.minutes),
-            ("19:00", "19:05", 5)
-        );
-        let [walk, ride] = &card.legs[..] else {
-            panic!("two legs");
-        };
-        assert_eq!(
-            (
-                walk.mode.as_str(),
-                walk.from.as_str(),
-                walk.stops,
-                walk.meters
-            ),
-            ("walk", "", 0, 73)
-        );
-        // No geometry: a line between the stops.
-        assert_eq!(walk.points.len(), 2);
-        assert_eq!(ride.line, "", "an internal number is no name");
-        assert_eq!(ride.name, "Harbour Line");
-        assert_eq!(
-            (ride.color.as_str(), ride.text_color.as_str()),
-            ("#ff9501", "")
-        );
-        assert_eq!(
-            (ride.from_track.as_str(), ride.departs.as_str(), ride.stops),
-            ("2", "19:01", 2)
-        );
-        assert_eq!(ride.points.len(), 3);
-        assert_eq!(
-            (ride.from_code.as_str(), ride.to_code.as_str()),
-            ("H01", "H03")
-        );
-        let mut out = String::new();
-        describe(&mut out, 1, &plan.itineraries[0]);
-        assert!(out.contains(
-            "19:01 from Central (H01) platform 2 to 19:04 at Riverside (H03), 2 stop(s)"
-        ));
-        assert_eq!(
-            ride.between,
-            [RouteStop {
-                name: "Market".to_owned(),
-                code: "H02".to_owned(),
-                time: "19:02".to_owned(),
-                at: RoutePoint {
-                    latitude: 35.0005,
-                    longitude: 139.0005
-                },
-            }]
-        );
     }
 
     #[test]

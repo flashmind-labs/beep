@@ -1,7 +1,5 @@
-//! When a project tool may act: the Project app's level, a saved "always",
-//! and the call the user just allowed. Unlike `permissions::guard`, the
-//! tools decide what each call asks for, since a plan of three tasks or an
-//! issue on a public repository always asks, whatever the level.
+//! When a project tool may act: the Project app's level, a saved "always" and the call just
+//! allowed. Unlike `permissions::guard`, each tool decides what its call asks for.
 
 use super::{
     model::Visibility,
@@ -91,19 +89,16 @@ impl ProjectGate {
         ))
     }
 
-    /// Whether a worker may push its own branch and open a pull request
-    /// without asking: under Allow, and only on a private repository.
+    /// Whether a worker may push its branch and open a PR unasked: Allow, on a private repo only.
     pub(crate) fn outside_allowed(&self) -> bool {
         self.level() == (PermissionLevel::Allow {}) && self.visibility == Visibility::Private
     }
 }
 
-/// The command-line clients of the code hosts. A command that runs one can
-/// merge, close or publish, so it always asks.
+/// Code host CLIs. They can merge, close or publish, so a command running one always asks.
 const HOST_CLIS: [&str; 3] = ["gh", "tea", "teacli"];
 
-/// Whether `command` runs a code host's client anywhere in it, by any path.
-/// Quoted text counts too: a false alarm only costs a card.
+/// Whether `command` runs a code host's CLI anywhere, quoted text included.
 pub(crate) fn runs_host_cli(command: &str) -> bool {
     command
         .split(|c: char| c.is_whitespace() || ";|&()`$<>{}'\"=".contains(c))
@@ -111,8 +106,7 @@ pub(crate) fn runs_host_cli(command: &str) -> bool {
         .any(|word| HOST_CLIS.contains(&word.rsplit('/').next().unwrap_or(word)))
 }
 
-/// The rule slug `exec` runs under: a host client's command and a push
-/// that may reach `default_branch` are never allowed always.
+/// The rule slug for `exec`; host CLI commands and pushes to `default_branch` get none.
 pub(crate) fn exec_slug(command: &str, default_branch: &str) -> Option<&'static str> {
     (exec_asks(command, default_branch) == Asks::ByLevel).then_some(EXEC_SLUG)
 }
@@ -126,17 +120,15 @@ fn exec_asks(command: &str, default_branch: &str) -> Asks {
     }
 }
 
-/// Whether `command` runs a `git push` that may update `default_branch`:
-/// one naming it, pushing everything, or naming no branch, which pushes the
-/// current one wherever it is. Quoted text counts too, as in `sh -c`.
+/// Whether `command` has a `git push` that may update `default_branch` (named, `--all`, or no
+/// branch at all). Quoted text counts too, as in `sh -c`.
 pub(crate) fn pushes_default(command: &str, default_branch: &str) -> bool {
     shell_segments(command)
         .iter()
         .any(|words| push_args(words).is_some_and(|args| push_reaches(args, default_branch)))
 }
 
-/// The words of each simple command in `command`, split at `;`, `|`, `&`,
-/// parentheses, backquotes and newlines; quotes only end words.
+/// The words of each simple command, split at `;`, `|`, `&`, parens, backquotes and newlines.
 fn shell_segments(command: &str) -> Vec<Vec<&str>> {
     let mut segments: Vec<Vec<&str>> = Vec::new();
     let mut current: Vec<&str> = Vec::new();
@@ -212,9 +204,7 @@ const TEXT_FLAGS: [&str; 10] = [
     "--description",
 ];
 
-/// The text a host client command would publish: each text flag's value,
-/// also inside a nested `sh -c '...'`. A command the shell could not split
-/// is checked whole.
+/// The text a host CLI command would publish, nested `sh -c` included; unsplittable means whole.
 fn host_text_args(command: &str) -> Vec<String> {
     let Some(words) = shlex::split(command) else {
         return vec![command.to_owned()];
@@ -268,9 +258,7 @@ fn text_arg(args: &Value, key: &str) -> String {
         .to_owned()
 }
 
-/// `exec` in a project chat. It asks first unless Project is set to Allow,
-/// and a command that runs a code host's client always asks, after its
-/// text passes the public text check.
+/// `exec` in a project chat: asks unless Project is Allow; host CLI commands always ask.
 pub(crate) struct GatedExec {
     pub(crate) exec: Arc<dyn Tool>,
     pub(crate) tools: Arc<ProjectTools>,
@@ -358,8 +346,7 @@ impl Tool for GatedExec {
     }
 }
 
-/// `process` in a project chat: stopping a background command asks first
-/// unless Project is set to Allow; listing and reading do not.
+/// `process` in a project chat: stopping asks unless Project is Allow; listing and reading do not.
 pub(crate) struct GatedProcess {
     pub(crate) process: Arc<dyn Tool>,
     pub(crate) gate: Arc<ProjectGate>,

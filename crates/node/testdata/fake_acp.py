@@ -8,6 +8,7 @@ prompt with "wait" runs until it is cancelled. Anything else is echoed back.
 
 import json
 import os
+import uuid
 import sys
 
 cwd = None
@@ -40,7 +41,8 @@ def handle(message):
         send({"id": message["id"], "result": {"protocolVersion": 1, "agentCapabilities": {}}})
     elif method == "session/new":
         cwd = message["params"]["cwd"]
-        send({"id": message["id"], "result": {"sessionId": "fake-1"}})
+        # Unique like a real agent's, as the node goes by it.
+        send({"id": message["id"], "result": {"sessionId": f"fake-{uuid.uuid4()}"}})
     elif method == "session/prompt":
         params = message["params"]
         session = params["sessionId"]

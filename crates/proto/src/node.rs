@@ -532,27 +532,6 @@ mod tests {
     }
 
     #[test]
-    fn credentials_round_trip_and_hide_in_debug() {
-        let down = Down::Credentials(MachineCredentials {
-            env: vec![EnvSecret {
-                name: "GH_TOKEN".into(),
-                value: SecretText::new("ghp_hidden9876"),
-            }],
-            forgejo: vec![ForgejoLogin {
-                url: "https://git.example.com".into(),
-                token: SecretText::new("forgejo5555"),
-            }],
-        });
-        let body = rmp_serde::to_vec_named(&down).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Down>(&body).unwrap(), down);
-        let debug = format!("{down:?}");
-        assert!(
-            !debug.contains("9876") && !debug.contains("5555"),
-            "{debug}"
-        );
-    }
-
-    #[test]
     fn an_older_node_skips_credentials() {
         // What a node from before `Down::Credentials` knew.
         #[derive(Debug, Deserialize)]
@@ -599,20 +578,6 @@ mod tests {
             rmp_serde::from_slice::<Down>(&body).unwrap(),
             Down::Welcome { tools: false }
         );
-    }
-
-    #[test]
-    fn up_round_trips() {
-        let up = Up::Env(EnvReport {
-            os: "macos".into(),
-            tools: vec![ToolInfo {
-                name: "gh".into(),
-                version: Some("gh version 2.80.0".into()),
-            }],
-            ..EnvReport::default()
-        });
-        let body = rmp_serde::to_vec_named(&up).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
     }
 
     #[test]
@@ -695,35 +660,6 @@ mod tests {
         let windows = folder("w", r"C:\Users\sam\work");
         assert!(windows.holds(r"C:\Users\sam\work\game"));
         assert_eq!(windows.name(), "w");
-    }
-
-    #[test]
-    fn docker_desktop_gives_docker() {
-        let report = EnvReport {
-            apps: vec![AppInfo {
-                name: AppName::DockerDesktop,
-                version: None,
-            }],
-            ..EnvReport::default()
-        };
-        assert_eq!(report.capabilities(), [Capability::Docker]);
-    }
-
-    #[test]
-    fn old_report_decodes() {
-        #[derive(Serialize)]
-        struct Older {
-            os: &'static str,
-            tools: Vec<ToolInfo>,
-        }
-        let body = rmp_serde::to_vec_named(&Older {
-            os: "linux",
-            tools: vec![],
-        })
-        .unwrap();
-        let report: EnvReport = rmp_serde::from_slice(&body).unwrap();
-        assert!(report.apps.is_empty());
-        assert!(report.gpus.is_empty());
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! The Files tab of a coding agent session: its working folder on the
-//! session's machine listed a folder at a time, a file read to show as
+//! session's machine listed a few levels at a time, a file read to show as
 //! text or saved to Downloads, and files dropped on the session uploaded
 //! into the folder a part at a time.
 
@@ -10,7 +10,7 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GitChange, ListWorkFolder, MAX_AGENT_FILE,
+    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GitChange, ListWorkTree, MAX_AGENT_FILE,
     ReadWorkFile, WriteWorkFile,
 };
 use serde::Serialize;
@@ -68,6 +68,16 @@ pub(crate) async fn read_part(beep: &Beep, read: ReadWorkFile) -> Result<AgentFi
     }
 }
 
+/// The folders `TREE_DEPTH` levels down from `path`, for the bar.
+#[derive(Debug, Serialize)]
+pub struct Tree {
+    folders: Vec<TreeFolder>,
+    truncated: bool,
+}
+
+/// How many levels one read of the tree takes.
+const TREE_DEPTH: u32 = 3;
+
 #[tauri::command]
 pub async fn agent_tree(
     beep: Service<'_>,
@@ -75,30 +85,39 @@ pub async fn agent_tree(
     root: String,
     path: String,
     ignored: bool,
-) -> Result<TreeFolder> {
-    let folder = beep
-        .call(ListWorkFolder {
+) -> Result<Tree> {
+    let tree = beep
+        .call(ListWorkTree {
             machine_id,
             root,
             path,
             ignored,
+            depth: TREE_DEPTH,
         })
         .await?;
-    Ok(TreeFolder {
-        path: folder.path,
-        entries: folder
-            .entries
-            .into_iter()
-            .map(|e| TreeEntry {
-                name: e.name,
-                folder: e.folder,
-                size: e.size,
-                ignored: e.ignored,
-                change: e.change.map(change_name),
-            })
-            .collect(),
-        more: folder.more,
-        git: folder.git,
+    let folders = tree
+        .folders
+        .into_iter()
+        .map(|folder| TreeFolder {
+            path: folder.path,
+            entries: folder
+                .entries
+                .into_iter()
+                .map(|e| TreeEntry {
+                    name: e.name,
+                    folder: e.folder,
+                    size: e.size,
+                    ignored: e.ignored,
+                    change: e.change.map(change_name),
+                })
+                .collect(),
+            more: folder.more,
+            git: folder.git,
+        })
+        .collect();
+    Ok(Tree {
+        folders,
+        truncated: tree.truncated,
     })
 }
 

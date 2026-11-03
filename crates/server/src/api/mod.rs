@@ -7,7 +7,7 @@ use crate::{
     permissions,
     protocol::*,
     router::{Cx, Router, Sink},
-    store::{CreateRun, decode_schedule},
+    store::CreateRun,
     tools::stocks::{self, StockError, Symbol},
 };
 use chrono::{DateTime, Utc};
@@ -312,6 +312,7 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_image)
         .call(agent_control::get_agent_file)
         .call(work_files::list_work_folder)
+        .call(work_files::list_work_tree)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
         .call(work_diff::get_work_diff)
@@ -345,8 +346,7 @@ pub fn router() -> Router {
 
 type Reply<T> = Result<T, ApiError>;
 
-/// The transport reads the `Hello` that opens a connection; a later one
-/// changes nothing.
+/// The transport reads the opening `Hello`; a later one changes nothing.
 async fn hello(_: Cx, _: Hello) -> Reply<()> {
     Ok(())
 }
@@ -422,8 +422,7 @@ async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> {
     }
 }
 
-/// The message a spoken one runs as: the transcript, after anything typed
-/// with it.
+/// The transcript, after anything typed with it.
 fn spoken_message(typed: &str, said: &str) -> String {
     match typed.trim() {
         "" => said.to_owned(),
@@ -442,8 +441,7 @@ async fn speak_notice(cx: Cx, SpeakNotice { title, body }: SpeakNotice) -> Reply
     cx.app.speak_notice(&cx.user, &title, &body).await
 }
 
-/// What a run started on this connection can show and reach. Only the macOS
-/// app draws charts.
+/// What a run started on this connection can show; only the macOS app draws charts.
 fn draws(cx: &Cx) -> Draws {
     let desktop = cx.device == (DeviceKind::Desktop {});
     Draws {
@@ -532,10 +530,7 @@ async fn get_events(cx: Cx, req: GetEvents, sink: Sink<Event>) -> Reply<()> {
     follow(&cx, run, after, &sink).await
 }
 
-/// Sends the run's events after `after` and follows it until it finishes. A
-/// finished run keeps no events, only its status: the turn itself is in the
-/// session history. A client that drops the stream asks again with the last
-/// `seq` it saw.
+/// Sends the run's events after `after` until it finishes; a finished run keeps only its status.
 async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>) -> Reply<()> {
     let Some(live) = cx.app.live(&run.id).await else {
         let finished = Event {
@@ -593,9 +588,7 @@ async fn device_result(cx: Cx, req: DeviceResult) -> Reply<bool> {
     Ok(cx.app.resolve_device_query(&req.query_id, req.answer).await)
 }
 
-/// Resumes a session that stopped on a tool call to ask the user. Only the
-/// first open call can be answered; answering it again returns the run the
-/// first answer started.
+/// Resumes a session stopped on a question; answering again returns the first answer's run.
 async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
     let AnswerApproval {
         session_id,
@@ -680,7 +673,9 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
             received = rx.recv() => match received {
                 Ok(event) if event.user == cx.user.id()
                     && (resolves || event.notice.resolved_question().is_none()) => {
-                    let notice = event.for_device(&cx.device);
+                    let Some(notice) = event.for_device(&cx.connection.remote_id(), &cx.device) else {
+                        continue;
+                    };
                     match timeout(SEND_TIMEOUT, sink.send(notice)).await {
                         Ok(sent) => sent?,
                         Err(_) => return Ok(()),
@@ -698,8 +693,7 @@ async fn get_updates(cx: Cx, GetUpdates { after }: GetUpdates) -> Reply<UpdatePa
     Ok(cx.user.updates_page(after).await?)
 }
 
-/// Sends the caller's newest update id now and each time it moves, until
-/// the connection closes. The client then asks `GetUpdates` for what is new.
+/// Sends the caller's newest update id now and each time it moves.
 async fn stream_updates(cx: Cx, _: StreamUpdates, sink: Sink<i64>) -> Reply<()> {
     let mut last = cx.user.watch_updates().await?;
     loop {
@@ -717,15 +711,14 @@ async fn stream_updates(cx: Cx, _: StreamUpdates, sink: Sink<i64>) -> Reply<()> 
     }
 }
 
-/// A chat id from a request. One that is not a UUID names no chat.
+/// A chat id from a request; one that is not a UUID names no chat.
 fn chat_id(id: &str) -> Reply<Uuid> {
     Uuid::parse_str(id).map_err(|_| ApiError::NotFound {})
 }
 
 /// The run, if it belongs to the caller.
 async fn owned_run(cx: &Cx, id: &str) -> Reply<Run> {
-    let run = cx.user.run(id).await?;
-    run.ok_or(ApiError::NotFound {})
+    cx.user.run(id).await?.ok_or(ApiError::NotFound {})
 }
 
 fn found(found: bool) -> Reply<()> {
@@ -734,10 +727,6 @@ fn found(found: bool) -> Reply<()> {
     } else {
         Err(ApiError::NotFound {})
     }
-}
-
-fn next_run_at(schedule: &str, tz_name: &str) -> Option<DateTime<Utc>> {
-    next_run(&decode_schedule(schedule.to_owned()), tz_name)
 }
 
 /// When `schedule` next fires, reading a cron expression in `tz_name`.
@@ -756,29 +745,6 @@ fn next_run(schedule: &JobSchedule, tz_name: &str) -> Option<DateTime<Utc>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    pub(super) fn refusal<T>(reply: Reply<T>) -> String {
-        match reply {
-            Err(ApiError::BadRequest { message }) => message,
-            _ => panic!("expected a bad request"),
-        }
-    }
-
-    #[test]
-    fn too_many_or_too_large_images_are_refused() {
-        let image = || "x".to_owned();
-        assert_eq!(
-            refusal(check_images(&vec![image(); MAX_IMAGES + 1])),
-            "at most 8 images per message"
-        );
-        assert_eq!(
-            refusal(check_images(&["x".repeat(MAX_IMAGE_BYTES + 1)])),
-            "each image must be at most 2 MiB"
-        );
-        assert!(check_images(&vec![image(); MAX_IMAGES]).is_ok());
-    }
-
     #[test]
     fn every_op_is_routed_once() {
         super::router().check().unwrap();

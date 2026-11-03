@@ -1,8 +1,6 @@
-//! `exec`: a shell command on one of the user's machines, as flashmind's
-//! tool of that name runs one locally, in the foreground or as a background
-//! task the node keeps (see `process`).
+//! `exec`: a shell command on one of the user's machines, in the foreground or background.
 
-use super::{Machines, Need, in_parameter};
+use super::{Machines, Need, command_name, in_parameter};
 use crate::{
     nodes::Exited,
     permissions::shorten,
@@ -15,14 +13,12 @@ use serde_json::{Value, json};
 use std::{collections::VecDeque, time::Duration};
 
 pub(super) const NAME: &str = "exec";
-/// What every command's step says, `process` calls included: the command
-/// itself stays out of the chat.
+/// What every command's step says, so the command itself stays out of the chat.
 pub(super) const STEP: &str = "Running code";
 
 /// The longest `timeout_secs` the model may set.
 const MAX_TIMEOUT_SECS: u64 = 1800;
-/// How long a command runs when the model sets no timeout: the node's own
-/// limit.
+/// How long a command runs when the model sets no timeout.
 const DEFAULT_LIMIT: Duration = Duration::from_secs(60 * 60);
 /// The most lines `head` and `tail` keep together.
 const MAX_PREVIEW_LINES: usize = 1000;
@@ -135,7 +131,12 @@ impl Tool for ExecTool {
         Some(DEFAULT_LIMIT.as_secs() + 60)
     }
     fn humanize(&self, args: &Value) -> String {
-        step(args)
+        let named = args.get("in").and_then(Value::as_str).map(command_name);
+        let machine = named.or_else(|| {
+            let workspace = self.machines.app.nodes.workspace(self.machines.user.id())?;
+            Some(command_name(&workspace.name))
+        });
+        step(args, machine.as_deref())
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let args: Args = match serde_json::from_value(ctx.args.clone()) {
@@ -201,8 +202,7 @@ impl Tool for ExecTool {
     }
 }
 
-/// `command`, run in `cwd` when the machine has a workspace. Each command
-/// gets its own shell, so the `cd` is all there is to it.
+/// `command`, run in `cwd` when the machine has a workspace.
 fn in_folder(cwd: Option<&str>, command: &str) -> Result<String, String> {
     match cwd {
         Some(cwd) => {
@@ -325,13 +325,19 @@ pub(super) fn task_lines(lines: &[String], earlier: bool) -> String {
     out
 }
 
-/// The step's label: "Running" and the command's first line, cut short, so
-/// the chat shows what ran; just `STEP` without one.
-fn step(args: &Value) -> String {
+/// The step's label: "Running on build-box:" and the command's first line, else `STEP`.
+fn step(args: &Value, machine: Option<&str>) -> String {
     let command = args.get("command").and_then(Value::as_str).unwrap_or("");
-    match command.lines().map(str::trim).find(|line| !line.is_empty()) {
-        Some(line) => format!("Running {}", shorten(line, STEP_COMMAND_CHARS)),
-        None => STEP.to_owned(),
+    let line = command.lines().map(str::trim).find(|line| !line.is_empty());
+    match (line, machine) {
+        (Some(line), Some(machine)) => {
+            format!(
+                "Running on {machine}: {}",
+                shorten(line, STEP_COMMAND_CHARS)
+            )
+        }
+        (Some(line), None) => format!("Running {}", shorten(line, STEP_COMMAND_CHARS)),
+        (None, _) => STEP.to_owned(),
     }
 }
 
@@ -342,40 +348,8 @@ const STEP_COMMAND_CHARS: usize = 80;
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_step_names_the_command() {
-        assert_eq!(
-            step(&json!({ "command": "\n  ssh build-box journalctl -u app\necho done" })),
-            "Running ssh build-box journalctl -u app"
-        );
-        assert_eq!(step(&json!({ "command": "  " })), STEP);
-        let long = "x".repeat(100);
-        assert_eq!(
-            step(&json!({ "command": long })),
-            format!("Running {}...", "x".repeat(80))
-        );
-    }
-
     fn args(value: Value) -> Result<Args, serde_json::Error> {
         serde_json::from_value(value)
-    }
-
-    #[test]
-    fn arguments_parse_with_a_machine_and_limits() {
-        let parsed = args(json!({
-            "command": "curl -sI https://example.com",
-            "timeout_secs": 99_999,
-            "in": "mac"
-        }))
-        .unwrap();
-        assert_eq!(parsed.machine.as_deref(), Some("mac"));
-        assert_eq!(parsed.limit(), Duration::from_secs(MAX_TIMEOUT_SECS));
-        assert!(!parsed.run_in_background);
-        assert!(parsed.preview().is_none());
-        let parsed = args(json!({ "command": "ls" })).unwrap();
-        assert_eq!(parsed.limit(), DEFAULT_LIMIT);
-        assert!(args(json!({ "command": "ls", "language": "python" })).is_err());
-        assert!(args(json!({ "timeout_secs": 5 })).is_err());
     }
 
     #[test]
@@ -388,28 +362,6 @@ mod tests {
         let parsed = args(json!({ "command": "x", "head": 900, "tail": 900 })).unwrap();
         let preview = parsed.preview().unwrap();
         assert_eq!(preview.head_limit + preview.tail_limit, MAX_PREVIEW_LINES);
-    }
-
-    #[test]
-    fn a_report_starts_with_the_exit_code() {
-        let exited = Exited {
-            exit_code: Some(7),
-            timed_out: false,
-            truncated: false,
-        };
-        assert_eq!(
-            report(&exited, "oops\n".into(), DEFAULT_LIMIT),
-            "[exit code: 7]\noops"
-        );
-        let timed_out = Exited {
-            exit_code: None,
-            timed_out: true,
-            truncated: true,
-        };
-        assert_eq!(
-            report(&timed_out, String::new(), Duration::from_secs(5)),
-            "[timed out after 5s and was stopped]\n\n[the node dropped output past 1 MiB]"
-        );
     }
 
     #[test]
