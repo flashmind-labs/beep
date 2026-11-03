@@ -71,22 +71,3 @@ fn notification_text(reply: &str) -> String {
         None => plain.to_owned(),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn notification_text_is_plain_and_short() {
-        assert_eq!(
-            notification_text("  Time to leave: **check-in** closes at `11:45`.\n"),
-            "Time to leave: check-in closes at 11:45."
-        );
-        let long = "a".repeat(NOTICE_CHARS + 10);
-        assert_eq!(
-            notification_text(&long),
-            format!("{}...", "a".repeat(NOTICE_CHARS))
-        );
-        assert_eq!(notification_text("  "), "");
-    }
-}

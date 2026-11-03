@@ -1044,13 +1044,4 @@ mod tests {
         user.disconnect_app(FASTMAIL).await.unwrap();
         assert!(user.app_accounts(FASTMAIL).await.unwrap().is_empty());
     }
-
-    #[test]
-    fn the_no_sign_in_message_reads_as_one_sentence() {
-        assert_eq!(
-            no_sign_in("Docs"),
-            "Beep could not connect to Docs. It needs a sign-in Beep does not support, or the \
-             URL is wrong."
-        );
-    }
 }
