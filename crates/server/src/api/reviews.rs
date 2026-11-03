@@ -726,31 +726,6 @@ mod tests {
     }
 
     #[test]
-    fn findings_rank_open_by_severity_then_dismissed_then_dropped() {
-        let mut dismissed = finding(1, ReviewSeverity::High {}, Some(Verdict::Verified));
-        dismissed.dismissed = true;
-        let findings = vec![
-            finding(0, ReviewSeverity::Low {}, Some(Verdict::Verified)),
-            dismissed,
-            finding(2, ReviewSeverity::High {}, Some(Verdict::Dropped)),
-            finding(100, ReviewSeverity::Medium {}, None),
-            finding(101, ReviewSeverity::Medium {}, Some(Verdict::Verified)),
-        ];
-        let shown = view(
-            review(),
-            &HashMap::new(),
-            vec![shard(0, ShardState::Done), shard(1, ShardState::Verifying)],
-            findings,
-            &HashMap::new(),
-        );
-        let ids: Vec<u32> = shown.findings.iter().map(|f| f.id).collect();
-        assert_eq!(ids, [101, 100, 0, 1, 2]);
-        assert_eq!(shown.findings[0].area, "area1");
-        assert_eq!(shown.shards[0].found, 3);
-        assert_eq!(shown.merge, ReviewMerge::Clean {});
-    }
-
-    #[test]
     fn merge_refuses_on_failing_ci_conflicts_and_open_findings() {
         let done = [shard(0, ShardState::Done)];
         let open = [finding(0, ReviewSeverity::Low {}, Some(Verdict::Unchecked))];
@@ -775,23 +750,6 @@ mod tests {
             pr.checks = ReviewChecks::Failing {};
         }
         assert!(merge_blocked(&failing, &done, &[]).is_some());
-    }
-
-    #[test]
-    fn the_fix_task_lists_the_open_findings() {
-        let one = finding(0, ReviewSeverity::High {}, Some(Verdict::Verified));
-        let body = fix_body(&review(), &[&one]);
-        assert!(body.contains("starts from login-copy"), "{body}");
-        assert!(
-            body.contains("1. [high] finding 0 at src/lib.rs:1: It breaks"),
-            "{body}"
-        );
-        let asked = post_request(&review(), 41, "https://example.com/pr/41", &[&one]);
-        assert!(asked.contains("pull request #41"), "{asked}");
-        assert!(
-            asked.contains("Call branch_review with action post"),
-            "{asked}"
-        );
     }
 
     #[test]

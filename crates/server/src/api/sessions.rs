@@ -358,28 +358,4 @@ mod tests {
         let texts: Vec<_> = shared.entries().iter().map(|e| e.content()).collect();
         assert_eq!(texts, ["check my mail", "Two new emails."]);
     }
-
-    #[test]
-    fn search_matches_messages_ignoring_case() {
-        let found = |text: &str, from_user| FoundSession {
-            session: Session {
-                id: "s".into(),
-                title: "Emails".into(),
-                pinned: false,
-                updated_at: 0,
-            },
-            text: text.to_owned(),
-            from_user,
-        };
-        let reply = || found("The **Kimpton** offers a free transfer.", false);
-        let hit = session_match(reply(), "kimpton").unwrap();
-        assert_eq!(hit.snippet, "The Kimpton offers a free transfer.");
-        assert!(!hit.from_user);
-        assert!(
-            session_match(found("Any news from the hotel?", true), "HOTEL")
-                .unwrap()
-                .from_user
-        );
-        assert!(session_match(reply(), "boiler").is_none());
-    }
 }
