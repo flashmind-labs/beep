@@ -8,7 +8,7 @@
 //! or an email, goes through the same gate first, and what another member's
 //! app returns joins the secrets the reply is checked against.
 
-use super::{App, UserNotice, group::said, run::web_tools};
+use super::{App, Reach, UserNotice, group::said, run::web_tools};
 use crate::{
     apps::{CatalogApp, markdown},
     decision::DecisionTool,
@@ -405,6 +405,7 @@ impl App {
                 group: true,
             },
             desktop: None,
+            to: Reach::Everyone,
         });
     }
 
