@@ -1,7 +1,4 @@
-//! What happens to project workers once they run: their reports (a turn
-//! ended, a question, the end), re-attaching after a reconnect, the check
-//! timer on pull requests, the idle close, and starting queued tasks when a
-//! slot frees.
+//! Running project workers: their reports, re-attaching, PR checks, idle close and queued starts.
 
 use super::{
     commands::{
@@ -60,8 +57,7 @@ fn fleet_of(app: &Arc<App>, owner: &str) -> Option<NodeFleet> {
     Some(NodeFleet::new(app, &app.user(owner)?))
 }
 
-/// Handles a report from `worker`'s session. `waited` says a tool call
-/// waited for it, and so already told the chat.
+/// Handles a report from `worker`'s session; `waited` means a tool call already told the chat.
 pub(crate) async fn on_news(
     app: &Arc<App>,
     worker: WorkerId,
@@ -86,8 +82,7 @@ pub(crate) async fn on_news(
     }
 }
 
-/// Catches up on what `worker`'s session did before its reports reached the
-/// project, as `info` shows it.
+/// Catches up on what `worker`'s session did before its reports reached the project.
 pub(crate) async fn caught_up(app: &Arc<App>, worker: WorkerId, info: SessionInfo) -> Result<()> {
     let Some(fleet) = fleet_of_worker(app, worker).await? else {
         return Ok(());
@@ -160,8 +155,7 @@ pub(crate) struct TurnDone<'a> {
     pub(crate) report: bool,
 }
 
-/// A turn ended: notes it, arms the idle close, looks for the task's pull
-/// request and tells the chat.
+/// A turn ended: notes it, arms the idle close, looks for the task's PR and tells the chat.
 pub(crate) async fn turn_done(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -358,8 +352,7 @@ fn option_of(question: &Question, kinds: &[OptionKind]) -> Option<String> {
     })
 }
 
-/// The worker asks something: answered by the policy when it can, else put
-/// to the user.
+/// The worker asks something: the policy answers it, else the user does.
 pub(crate) async fn asked(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -491,8 +484,7 @@ async fn handle_question(
     }
 }
 
-/// The worker's session ended: the worker ends, a running task blocks, and
-/// the agent re-plans.
+/// The worker's session ended: the worker ends, a running task blocks, the agent re-plans.
 pub(crate) async fn ended(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -537,8 +529,7 @@ fn task_state_name(state: TaskState) -> &'static str {
     state.into()
 }
 
-/// `machine` connected again: re-attaches each live worker on it, a few at
-/// once, and fails those whose session it no longer has.
+/// `machine` reconnected: re-attaches its live workers, failing those whose session is gone.
 pub(crate) async fn reconnected(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -647,9 +638,7 @@ pub(crate) async fn on_due(app: &Arc<App>, due: Due, now: DateTime<Utc>) -> Resu
     }
 }
 
-/// Reads the pull requests of the project's tasks in review, finishes the
-/// merged ones, tells the chat what changed, and re-arms while a task is
-/// open to checks.
+/// Checks PRs of tasks in review, finishes merged ones, tells the chat, re-arms while needed.
 pub(crate) async fn check(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -763,8 +752,7 @@ fn pr_line(task: &TaskRow, pr: &PrState) -> String {
     line
 }
 
-/// Closes `worker` if it is still idle at `now`: waiting, asking nothing,
-/// with its last turn [`IDLE_CLOSE`] ago.
+/// Closes `worker` if still idle at `now`: waiting, not asking, last turn [`IDLE_CLOSE`] ago.
 pub(crate) async fn idle_close(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -830,8 +818,7 @@ pub(crate) async fn idle_close(
     fill_slots(fleet, user).await
 }
 
-/// Ends `worker` and closes its session. Forgotten first, so the end its
-/// session reports is not taken as news.
+/// Ends `worker` and closes its session, untracked first so its end is not taken as news.
 async fn close(fleet: &dyn Fleet, user: &User, worker: &WorkerRow) -> Result<()> {
     fleet.projects().untrack(worker.id);
     if let Some(session) = &worker.session
@@ -845,8 +832,7 @@ async fn close(fleet: &dyn Fleet, user: &User, worker: &WorkerRow) -> Result<()>
     Ok(())
 }
 
-/// The task is done: its issue closes, its worker ends, its worktree goes,
-/// and a queued task may take the slot.
+/// The task is done: closes its issue, ends its worker, removes its worktree, frees the slot.
 pub(crate) async fn finish_task(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -955,16 +941,14 @@ async fn remove_worktree(
     Ok(())
 }
 
-/// [`fill_slots`] after something freed a slot. The thing that freed it is
-/// done either way, so a failure here is only logged.
+/// [`fill_slots`] after a slot freed; a failure is only logged.
 pub(crate) async fn refill(fleet: &dyn Fleet, user: &Arc<User>) {
     if let Err(error) = fill_slots(fleet, user).await {
         log::warn!("projects: queued tasks not started: {error:#}");
     }
 }
 
-/// Starts the user's queued tasks, oldest first, until one finds the user's
-/// slots full.
+/// Starts the user's queued tasks, oldest first, until the slots are full.
 pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()> {
     let full = StartRefused::UserFull.to_string();
     for task in user.queued_tasks().await?.into_iter().take(MAX_FILLS) {
@@ -997,8 +981,7 @@ pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()
     Ok(())
 }
 
-/// A start of `task` failed: its start request goes, so nothing retries it
-/// on its own, and the project chat hears once why.
+/// A start of `task` failed: drops its start request and tells the project chat once.
 pub(crate) async fn start_failed(
     fleet: &dyn Fleet,
     user: &User,
@@ -1019,8 +1002,7 @@ pub(crate) async fn start_failed(
     Ok(())
 }
 
-/// At server start: fails the workers the last run left starting, and arms
-/// the checks and idle closes that were pending.
+/// At server start: fails workers left starting and arms pending checks and idle closes.
 pub(crate) async fn startup(app: &Arc<App>) -> Result<()> {
     for worker in app.store.fail_starting_workers().await? {
         let Some(fleet) = fleet_of_worker(app, worker.id).await? else {

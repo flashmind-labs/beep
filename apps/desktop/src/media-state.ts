@@ -13,6 +13,16 @@ const KINDS: Record<string, MediaKind> = {
   pdf: "pdf",
 };
 
+/// A 3D model's animation clip, as its picker names it: by its own
+/// name, or its place.
+export const clipName = (name: string, i: number) => name.trim() || `Clip ${i + 1}`;
+
+/// `m:ss.t` for a time in seconds, as a clip's scrub bar shows it.
+export function clipTime(seconds: number) {
+  const t = Math.max(0, Math.floor(seconds * 10 + 1e-6));
+  return `${Math.floor(t / 600)}:${String(Math.floor(t / 10) % 60).padStart(2, "0")}.${t % 10}`;
+}
+
 /// The extensions the pane opens, for the pattern that finds paths.
 export const MEDIA_EXTENSIONS = Object.keys(KINDS);
 

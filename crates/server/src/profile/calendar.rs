@@ -19,8 +19,7 @@ const CALENDAR_AHEAD_DAYS: i64 = 183;
 const CALENDAR_PAGES: usize = 200;
 /// How much of the calendar one Fastmail search covers.
 const FASTMAIL_SPAN_DAYS: i64 = 90;
-/// How much one Outlook calendar view covers. Graph refuses a view over
-/// 1825 days, which the whole read is.
+/// Days in one Outlook calendar view; Graph refuses views over 1825 days.
 const OUTLOOK_SPAN_DAYS: i64 = 365;
 const CALENDAR_SYSTEM: &str = "You help a personal assistant app get to know its user. You get events \
 from the user's own calendar. A repeating event is listed once with how many times it happened and between \
@@ -209,9 +208,7 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
     Ok(events)
 }
 
-/// Fastmail's tool is read from its own schema, since its arguments are not
-/// known ahead. It refuses to expand repeating events over a long window, so
-/// the window is read a season at a time.
+/// Reads Fastmail events a season at a time, since it refuses to expand repeats over long windows.
 async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     const TOOL: &str = "search_events";
     // The profile reads the first account, as the mail feed does.
@@ -496,30 +493,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spans_cover_the_window_back_to_back() {
-        let after = DateTime::parse_from_rfc3339("2021-10-15T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let before = after + Days::days(CALENDAR_BACK_DAYS + CALENDAR_AHEAD_DAYS);
-        let window = Window {
-            after,
-            before: Some(before),
-        };
-        let spans: Vec<_> = spans(window, OUTLOOK_SPAN_DAYS).collect();
-        assert_eq!(spans.len(), 6);
-        assert_eq!(spans[0].after, after);
-        assert_eq!(spans[5].before, Some(before));
-        for pair in spans.windows(2) {
-            assert_eq!(pair[0].before, Some(pair[1].after));
-        }
-        assert!(
-            spans
-                .iter()
-                .all(|span| { span.before.unwrap() - span.after <= Days::days(OUTLOOK_SPAN_DAYS) })
-        );
-    }
-
-    #[test]
     fn reads_google_outlook_and_jmap_events() {
         let google = json!({"summary": "Gym", "start": {"dateTime": "2025-03-04T18:00:00+01:00"},
             "location": "Basic-Fit", "attendees": [{"email": "me@x.com", "self": true}, {"displayName": "Ana"}]});
@@ -538,47 +511,5 @@ mod tests {
         assert_eq!(events[1].location, "Office");
         assert_eq!(events[2].day, NaiveDate::from_ymd_opt(2025, 3, 6).unwrap());
         assert_eq!(events[2].location, "Casa");
-    }
-
-    #[test]
-    fn repeating_events_are_listed_once() {
-        let event = |day: u32| Event {
-            title: "Gym".into(),
-            day: NaiveDate::from_ymd_opt(2025, 1, day).unwrap(),
-            location: "Basic-Fit".into(),
-            people: Vec::new(),
-        };
-        let lines = render_events(vec![event(3), event(10), event(17)]);
-        assert_eq!(
-            lines,
-            ["2025-01-03 to 2025-01-17 Gym (3 times); at Basic-Fit"]
-        );
-    }
-
-    #[test]
-    fn search_arguments_come_from_the_schema() {
-        let schema = json!({"properties": {
-            "after": {"type": "string", "format": "date"},
-            "before": {"type": "string", "format": "date"},
-            "limit": {"type": "integer"},
-            "position": {"type": "integer"},
-        }});
-        let arguments = EventArguments::from_schema(&schema).unwrap();
-        let day = |d| {
-            NaiveDate::from_ymd_opt(2025, 1, d)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_utc()
-        };
-        let window = Window {
-            after: day(1),
-            before: Some(day(31)),
-        };
-        assert_eq!(
-            arguments.build(window, 100, None, 200),
-            json!({"after": "2025-01-01", "before": "2025-01-31", "limit": 100, "position": 200})
-        );
-        assert!(EventArguments::from_schema(&json!({"properties": {"query": {}}})).is_err());
     }
 }

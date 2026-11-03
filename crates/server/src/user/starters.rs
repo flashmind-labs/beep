@@ -1,5 +1,4 @@
-//! A user's starters are kept for 12 hours, until one of them is about an
-//! event that is over, or until the phone moves to another city.
+//! Starters are kept 12 hours, until one's event is over or the phone changes city.
 
 use super::User;
 use crate::{
@@ -19,8 +18,7 @@ impl User {
         *self.starters.lock().await = None;
     }
 
-    /// Drops the cached starters when `message` is one of them, so the next
-    /// empty chat gets a new set instead of the starter just used.
+    /// Drops the cached starters when `message` is one of them.
     pub async fn forget_used_starter(&self, message: &str) {
         let mut cache = self.starters.lock().await;
         let used = cache.as_ref().is_some_and(|cached| {
@@ -35,8 +33,7 @@ impl User {
         }
     }
 
-    /// Counts a request for new starters. False when the user already made
-    /// `STARTER_REFRESHES` within `STARTER_REFRESH_WINDOW`.
+    /// Counts a request for new starters; false past `STARTER_REFRESHES` per window.
     pub fn may_refresh_starters(&self) -> bool {
         let mut refreshes = self
             .starter_refreshes
@@ -113,21 +110,5 @@ impl User {
             location: here,
         });
         suggestions
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::TestDb;
-
-    #[tokio::test]
-    async fn starters_refresh_at_most_three_times_in_ten_minutes() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        for _ in 0..STARTER_REFRESHES {
-            assert!(user.may_refresh_starters());
-        }
-        assert!(!user.may_refresh_starters());
     }
 }

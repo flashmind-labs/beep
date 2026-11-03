@@ -11,8 +11,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// Results a search returns when the model does not ask for a number, and
-/// the most it may ask for.
+/// Default number of search results, and the most the model may ask for.
 const DEFAULT_RESULTS: u64 = 5;
 const MAX_RESULTS: u64 = 10;
 
@@ -32,8 +31,7 @@ struct Query<'a> {
     images: bool,
 }
 
-/// Reads the tool's arguments. Models often send "" or null for an argument
-/// they mean to leave out, so blank means none.
+/// Reads the tool's arguments, treating blank as absent.
 fn parse(args: &Value) -> Result<Query<'_>, &'static str> {
     let query = args
         .get("query")
@@ -188,8 +186,7 @@ impl SearchTool {
     }
 }
 
-/// Firecrawl's place names are Google's, comma separated with no spaces:
-/// "Shinjuku, Tokyo, Japan" becomes "Shinjuku,Tokyo,Japan".
+/// Firecrawl's location format: "Shinjuku, Tokyo, Japan" becomes "Shinjuku,Tokyo,Japan".
 fn canonical_location(location: &str) -> String {
     location
         .split(',')
@@ -264,8 +261,7 @@ fn normalize(data: &Value, limit: usize) -> Result<Value, String> {
     Ok(output)
 }
 
-/// The results of a normalized search, as sources the app shows under the
-/// reply.
+/// The results of a normalized search as reply sources.
 fn result_sources(output: &Value) -> Vec<Source> {
     output["results"]
         .as_array()

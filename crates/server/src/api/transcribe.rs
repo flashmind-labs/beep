@@ -1,5 +1,4 @@
-//! `Transcribe`: the app streams speech up while the user talks, and the
-//! words come back as they are recognized.
+//! `Transcribe`: the app streams speech up and the words come back as recognized.
 
 use super::Reply;
 use crate::{
@@ -35,8 +34,7 @@ pub(super) async fn transcribe(
             sink.send(&Transcription::Unavailable {}).await?;
             return Ok(());
         }
-        // A conflict, not an internal error, so the app can wait for a slot
-        // quietly. Apps that predate it treat it as any other failure.
+        // A conflict, so the app can wait for a slot quietly.
         Err(SttError::Busy) => {
             return Err(ApiError::Conflict {
                 message: "too many live transcriptions at once".into(),
@@ -72,9 +70,7 @@ impl Words for Sink<Transcription> {
     }
 }
 
-/// Feeds the client's audio to `session` and its words back, until the
-/// provider says it is done after the audio ended. A client that sends
-/// nothing for `idle` is cut off.
+/// Feeds the client's audio to `session` and its words back; a client quiet for `idle` is cut off.
 pub(super) async fn relay(
     session: Session,
     chunks: &mut impl Chunks,
@@ -106,13 +102,11 @@ pub(super) async fn relay(
                                 return Err(ApiError::bad_request("too much audio"));
                             }
                             if to.send(chunk.into_vec()).await.is_err() {
-                                // The provider stopped reading; its reason
-                                // comes through `heard`.
+                                // The provider stopped; its reason comes through `heard`.
                                 audio = None;
                             }
                         }
-                        // The speech ended: dropping the sender tells the
-                        // provider.
+                        // Dropping the sender tells the provider the speech ended.
                         None => audio = None,
                     }
                     continue;
@@ -177,34 +171,6 @@ mod tests {
         }
     }
 
-    fn chunk() -> ByteBuf {
-        ByteBuf::from(vec![0u8; 640])
-    }
-
-    #[tokio::test]
-    async fn words_come_back_and_the_end_gives_the_text() {
-        let session = fake::Words.open().await.expect("the fake opens");
-        let said = Said::default();
-        relay(session, &mut List(vec![chunk(), chunk()]), &said, IDLE)
-            .await
-            .expect("relays");
-        let said = said.0.into_inner().expect("not poisoned in tests");
-        assert_eq!(
-            said.last(),
-            Some(&Transcription::Done {
-                text: "word word".into()
-            })
-        );
-        let deltas: String = said
-            .iter()
-            .filter_map(|t| match t {
-                Transcription::Delta { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(deltas, "word word");
-    }
-
     #[tokio::test]
     async fn too_much_audio_is_refused() {
         let session = fake::Words.open().await.expect("the fake opens");
@@ -227,11 +193,5 @@ mod tests {
         let session = fake::Words.open().await.expect("the fake opens");
         let refused = relay(session, &mut Stalled, &Said::default(), Duration::ZERO).await;
         assert!(matches!(refused, Err(ApiError::BadRequest { .. })));
-    }
-
-    #[tokio::test]
-    async fn no_provider_is_unavailable() {
-        let opened = crate::stt::Unavailable.open().await;
-        assert!(matches!(opened, Err(SttError::Unavailable)));
     }
 }

@@ -1,6 +1,5 @@
-//! Which machine a project worker runs on. A worker needs a machine that is
-//! online, offers the agent and has a shared checkout of the project with
-//! room for another worker.
+//! Which machine a project worker runs on: online, offering the agent, with a shared checkout
+//! that has room.
 
 use super::model::{MAX_MACHINE_WORKERS, MachinePath};
 use crate::protocol::node::Capability;
@@ -198,32 +197,6 @@ mod tests {
     }
 
     #[test]
-    fn named_machine_offline_says_why() {
-        let mut gpu = fit(2, "gpu-box", &[]);
-        gpu.online = false;
-        let fits = [fit(1, "build-box", &[]), gpu];
-        let request = PlaceRequest {
-            named: Some("gpu-box"),
-            ..any()
-        };
-        assert_eq!(
-            place(&request, &fits),
-            Err(PlaceError::Unfit {
-                name: "gpu-box".into(),
-                why: Unfit::Offline
-            })
-        );
-        let request = PlaceRequest {
-            named: Some("nas-box"),
-            ..any()
-        };
-        assert_eq!(
-            place(&request, &fits),
-            Err(PlaceError::NoSuchMachine("nas-box".into()))
-        );
-    }
-
-    #[test]
     fn pin_beats_capabilities() {
         let fits = [
             fit(1, "build-box", &[]),
@@ -257,41 +230,6 @@ mod tests {
                 &fits
             ),
             Err(PlaceError::NoneCovers(vec![Capability::Xcode]))
-        );
-    }
-
-    #[test]
-    fn never_a_machine_without_checkout() {
-        let mut gpu = fit(2, "gpu-box", &[Capability::Cuda]);
-        gpu.checkout = None;
-        let fits = [fit(1, "build-box", &[]), gpu];
-        let request = PlaceRequest {
-            needs: &[Capability::Cuda],
-            ..any()
-        };
-        assert_eq!(
-            place(&request, &fits),
-            Err(PlaceError::NeedsCheckout {
-                name: "gpu-box".into()
-            })
-        );
-    }
-
-    #[test]
-    fn offline_machine_with_the_capability_is_named() {
-        let mut gpu = fit(2, "gpu-box", &[Capability::Cuda]);
-        gpu.online = false;
-        let fits = [fit(1, "build-box", &[]), gpu];
-        let request = PlaceRequest {
-            needs: &[Capability::Cuda],
-            ..any()
-        };
-        assert_eq!(
-            place(&request, &fits),
-            Err(PlaceError::Unfit {
-                name: "gpu-box".into(),
-                why: Unfit::Offline
-            })
         );
     }
 

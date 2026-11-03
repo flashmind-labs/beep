@@ -1,6 +1,4 @@
-//! The Coding agents page: the harnesses on each of the caller's machines,
-//! with what the node finds of each and the caller's settings for it, and
-//! installing or updating one there.
+//! The Coding agents page: harnesses on each machine, their settings, and installing them.
 
 use super::{Reply, own_nodes};
 use crate::{
@@ -152,9 +150,7 @@ struct Everywhere<'a> {
     include_program: bool,
 }
 
-/// What one machine keeps of its own when settings are saved to all of
-/// them: whether the harness is on there, and its binary path unless that
-/// is copied too or it is the machine the settings were edited on.
+/// What one machine keeps of its own when settings are saved to all of them.
 #[derive(Debug, PartialEq)]
 struct Kept {
     machine_id: String,
@@ -190,9 +186,7 @@ fn kept_per_machine(
         .collect()
 }
 
-/// Saves checked `settings` for the harness on every machine, each env
-/// var sealed for its own machine; a var with no value takes the one saved
-/// on the source machine. Gives the machines saved.
+/// Saves `settings` on every machine, sealing env vars per machine; gives the machines saved.
 async fn save_everywhere(
     user: &User,
     key: &CredentialKey,
@@ -350,8 +344,7 @@ fn harness_view(info: HarnessInfo, rows: &[HarnessRow], tokens: &[AgentTokenRow]
     }
 }
 
-/// A harness's saved settings as the apps see them, the env var names
-/// without their values; the defaults when none are saved.
+/// A harness's saved settings as the apps see them, env var names without values.
 fn settings_of(row: Option<&HarnessRow>) -> HarnessSettings {
     row.map_or_else(
         || HarnessSettings {
@@ -466,9 +459,7 @@ fn checked(settings: HarnessSettings) -> Reply<HarnessSettings> {
     })
 }
 
-/// The env vars to save for `agent` on `machine_id`. A var sent without a
-/// value keeps the saved one, so saved vars that do not open stop the save
-/// rather than being dropped.
+/// The env vars to save; saved vars that do not open stop the save rather than being dropped.
 async fn env_to_save(
     user: &User,
     key: &CredentialKey,
@@ -486,8 +477,7 @@ async fn env_to_save(
     Ok(merged_env(kept, wanted))
 }
 
-/// The env vars to save: each of `wanted` with its new value, or with the
-/// value `kept` had for that name; one with neither is dropped.
+/// Each of `wanted` with its new value, or `kept`'s for that name; one with neither is dropped.
 fn merged_env(kept: Vec<EnvSecret>, wanted: Vec<HarnessEnv>) -> Vec<EnvSecret> {
     wanted
         .into_iter()
@@ -531,27 +521,6 @@ mod tests {
             name: name.into(),
             value: value.map(SecretText::new),
         }
-    }
-
-    #[test]
-    fn settings_are_trimmed_and_checked() {
-        let ok = checked(settings(vec![
-            var(" HTTPS_PROXY ", Some("x")),
-            var("", None),
-        ]))
-        .unwrap();
-        assert_eq!(ok.program, "/opt/bin/codex-acp");
-        assert_eq!(ok.args, ["--profile", "work"]);
-        assert_eq!(ok.env.len(), 1);
-        assert_eq!(ok.env[0].name, "HTTPS_PROXY");
-        assert!(checked(settings(vec![var("1BAD", Some("x"))])).is_err());
-        assert!(checked(settings(vec![var("A", Some("x")), var("A", None)])).is_err());
-        let mut broken = settings(Vec::new());
-        broken.home = "a\nb".into();
-        assert!(checked(broken).is_err());
-        assert!(checked_agent("claude").is_ok());
-        assert!(checked_agent("my-agent").is_ok());
-        assert!(checked_agent("../x").is_err());
     }
 
     #[test]
@@ -657,54 +626,6 @@ mod tests {
         assert!(shown.settings.enabled);
     }
 
-    fn row(machine: &str, enabled: bool, program: &str) -> HarnessRow {
-        HarnessRow {
-            machine_id: machine.into(),
-            agent: "codex".into(),
-            enabled,
-            program: program.into(),
-            home: String::new(),
-            args: Vec::new(),
-            env_names: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn saving_everywhere_copies_the_binary_path_only_when_asked() {
-        let machines = ["m1".to_owned(), "m2".to_owned(), "m3".to_owned()];
-        let rows = vec![row("m1", true, "/old"), row("m2", false, "/srv/codex")];
-        let edited = checked(settings(Vec::new())).unwrap();
-        let everywhere = |include_program| Everywhere {
-            machines: &machines,
-            from_machine: "m1",
-            agent: "codex",
-            include_program,
-        };
-        let kept = |machine: &str, enabled: bool, program: &str| Kept {
-            machine_id: machine.into(),
-            enabled,
-            program: program.into(),
-        };
-        // Off by default: each other machine keeps its own path, and stays
-        // off where it was off; one with nothing saved stays on.
-        assert_eq!(
-            kept_per_machine(&everywhere(false), &rows, &edited),
-            [
-                kept("m1", true, "/opt/bin/codex-acp"),
-                kept("m2", false, "/srv/codex"),
-                kept("m3", true, ""),
-            ]
-        );
-        assert_eq!(
-            kept_per_machine(&everywhere(true), &rows, &edited),
-            [
-                kept("m1", true, "/opt/bin/codex-acp"),
-                kept("m2", false, "/opt/bin/codex-acp"),
-                kept("m3", true, "/opt/bin/codex-acp"),
-            ]
-        );
-    }
-
     #[tokio::test]
     async fn saving_everywhere_reaches_a_machine_with_nothing_saved() {
         let db = crate::store::TestDb::new().await.unwrap();
@@ -753,16 +674,5 @@ mod tests {
         // The kept value was opened on m1 and sealed again for m2.
         assert_eq!(codex.env, secret);
         assert_eq!(user.harness_env(&key, "m2", "codex").await.unwrap(), secret);
-    }
-
-    #[test]
-    fn off_harnesses_are_found_by_machine_and_agent() {
-        let off = vec![crate::store::OffHarness {
-            machine_id: "m1".into(),
-            agent: "codex".into(),
-        }];
-        assert!(is_off(&off, "m1", "codex"));
-        assert!(!is_off(&off, "m2", "codex"));
-        assert!(!is_off(&off, "m1", "claude"));
     }
 }

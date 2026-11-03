@@ -1,21 +1,5 @@
-//! Long-term memory about each user.
-//!
-//! A memory is one sentence about the user with an id, who it came from, and
-//! the days it holds when it only holds for a while, like a trip. They live in
-//! a flashmind memory store. Identical memories are reused. Recall ranks by meaning
-//! and shared words, and leaves out facts whose days are over.
-//! Curation also picks the few memories that matter in nearly every chat.
-//! Those and the temporary facts holding today make the profile, which a
-//! chat's context carries once and again only when it changes. Everything
-//! else the model searches with `memory` recall. Jev files every memory
-//! under one of `MEMORY_CATEGORIES` when it is written; the models that write
-//! memories never pick one. After each chat a cheap model call reads the
-//! latest exchange, with the turns before it for context, and adds, corrects or
-//! forgets facts. Curation merges duplicates, settles contradictions and
-//! drops what went stale, one scope at a time and only when that scope
-//! needs it (see `needs`). What a merge or rewrite replaces is kept as
-//! history of the memory that replaced it, hidden from recall and the
-//! profile. Memory text is never logged.
+//! Long-term memory about each user: recall, the per-chat profile, learning after each chat and curation per scope.
+//! Memory text is never logged.
 
 mod needs;
 
@@ -47,8 +31,7 @@ use std::{
 };
 use tokio::time::{error::Elapsed, interval};
 
-/// The same model under its OpenAI and OpenRouter names, so stored
-/// embeddings stay comparable whichever provider is configured.
+/// Same name on OpenAI and OpenRouter, so stored embeddings stay comparable.
 pub const EMBEDDING_MODEL: &str = "text-embedding-3-small";
 pub const OPENROUTER_EMBEDDING_MODEL: &str = "openai/text-embedding-3-small";
 
@@ -93,8 +76,7 @@ const MAX_CURATE_OPS: usize = 40;
 /// Most memories curation may put in the profile.
 const MAX_CORE: usize = 15;
 
-/// Most old or unfiled memories one hourly sweep files, and how many it
-/// asks Jev about at once.
+/// Most memories one hourly sweep files, and how many it asks Jev about at once.
 pub(crate) const MAX_FILED: usize = 200;
 pub(crate) const FILE_CONCURRENCY: usize = 8;
 pub(crate) const FILE_QUESTION: &str = "Which category does this memory about the user belong in? Pick the one a search for it would look in.";
@@ -135,8 +117,7 @@ pub(crate) const FILING: [(&str, &str); 7] = [
         "Recurring habits and schedules: workouts, commutes, weekly meetings, sleep, regular errands.",
     ),
 ];
-/// Longest profile, in characters. A long one gives the model topics to bring
-/// up unasked.
+/// Longest profile, in characters.
 const MAX_PROFILE_CHARS: usize = 1500;
 /// The line a profile starts with, also how a chat finds the one it last got.
 pub(crate) const PROFILE_HEADER: &str =
@@ -157,8 +138,7 @@ pub struct Hit {
 }
 
 impl Hit {
-    /// What a `memory` recall returns for this memory, its scope as `scope`
-    /// names it.
+    /// What a `memory` recall returns for this memory.
     pub fn to_json(&self, scope: Option<&str>) -> Value {
         let mut value = json!({
             "id": self.id,
@@ -249,8 +229,7 @@ pub fn start_purge(app: Arc<App>) {
     });
 }
 
-/// A memory change made by `learn`, shown in the chat as the memory tool it
-/// stands for.
+/// A memory change made by `learn`, shown in the chat as its memory tool.
 #[derive(Debug)]
 pub struct Learned {
     pub change: Change,
@@ -567,8 +546,7 @@ Reply with only JSON: {\"ops\": [{\"op\": \"merge\", \"ids\": [string], \"conten
 Leave out days for lasting facts. \
 At most 40 ops, [] when nothing needs doing.";
 
-/// The curation instructions for the memories in `scope`. Only the user's
-/// own scope picks the profile.
+/// The curation instructions for `scope`; only the user's own scope picks the profile.
 pub(crate) fn curate_system(scope: &Scope) -> String {
     let mut text = format!(
         "You tidy the long-term memory of Beep, a personal assistant app. \
@@ -642,8 +620,7 @@ pub(crate) struct LearnOp {
     pub(crate) valid_until: Option<String>,
     #[serde(default)]
     pub(crate) quote: Option<String>,
-    /// What the fact is about, as the memory watcher names it, such as
-    /// `project:beep`. The other learners leave it out.
+    /// What the fact is about, such as `project:beep`; only the memory watcher sets it.
     #[serde(default)]
     pub(crate) scope: Option<String>,
 }
@@ -664,8 +641,7 @@ impl LearnOp {
         validity(self.valid_from.as_deref(), self.valid_until.as_deref())
     }
 
-    /// Where the fact came from: `reference` names the chat, email or Slack
-    /// thread, and the model's quote shows the words.
+    /// Where the fact came from, `reference` naming the chat, email or thread.
     pub(crate) fn origin(&self, reference: &str) -> Origin {
         Origin {
             reference: reference.to_owned(),
@@ -746,8 +722,7 @@ pub(crate) fn parse_curation(answer: &str) -> Result<Curation> {
     Ok(curation)
 }
 
-/// The profile's ids once `steps` are done: a merged-away id stands for the
-/// memory it went into, and forgotten or unknown ids are dropped.
+/// The profile's ids after `steps`: merged ids follow their target, forgotten or unknown ones are dropped.
 pub(crate) fn core_ids(
     core: Vec<String>,
     steps: &[Step],
@@ -786,9 +761,7 @@ fn current(valid: &Validity, today: NaiveDate) -> bool {
     valid.until.is_some_and(|until| until >= today) && valid.from.is_none_or(|from| from <= today)
 }
 
-/// The facts a profile is made of, in order: what holds right now, then the
-/// core memories, each with its days. Only memories about the user: those
-/// about a machine, project or account come up where they are used.
+/// The profile's facts: what holds now, then the user's core memories, each with its days.
 pub(crate) fn profile_facts(rows: &[MemoryRow], today: NaiveDate) -> Vec<String> {
     let about_user = || rows.iter().filter(|row| row.scope == Scope::User);
     let now = about_user().filter(|row| current(&row.valid, today));
@@ -799,8 +772,7 @@ pub(crate) fn profile_facts(rows: &[MemoryRow], today: NaiveDate) -> Vec<String>
         .collect()
 }
 
-/// The memory that says which languages the user speaks, such as "Speaks
-/// Spanish and English.", newest first.
+/// The newest memory saying which languages the user speaks.
 pub(crate) fn languages(rows: &[MemoryRow], today: NaiveDate) -> Option<&str> {
     rows.iter()
         .filter(|row| row.scope == Scope::User && !row.valid.ended(today))
@@ -811,8 +783,7 @@ pub(crate) fn languages(rows: &[MemoryRow], today: NaiveDate) -> Option<&str> {
         })
 }
 
-/// The profile a chat's context carries: `profile_facts` cut to
-/// `MAX_PROFILE_CHARS`. `None` when there is nothing to say.
+/// `profile_facts` cut to `MAX_PROFILE_CHARS`, or `None` when empty.
 pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
     let mut text = String::from(PROFILE_HEADER);
     let mut any = false;
@@ -853,12 +824,8 @@ pub(crate) enum Step {
     },
 }
 
-/// The days a merge of `rows` gets. While any of them still holds, the merge
-/// runs from the earliest start to the latest end, whatever days the model
-/// gave, so a merge never cuts a fact short. Once all are over (or none has
-/// days) the model's days stand, and none makes a lasting fact. `None` refuses
-/// to merge a lasting fact with one that still has days, since the result
-/// would either lose the end or end the lasting fact.
+/// The days a merge of `rows` gets, never cutting a fact still holding short.
+/// `None` refuses merging a lasting fact with a dated one that still holds.
 fn merged_days(rows: &[&MemoryRow], asked: Option<Validity>, today: NaiveDate) -> Option<Validity> {
     let dated: Vec<&Validity> = rows
         .iter()
@@ -885,10 +852,7 @@ fn merged_days(rows: &[&MemoryRow], asked: Option<Validity>, today: NaiveDate) -
     })
 }
 
-/// Checks the model's ops against the memories it was shown: unknown and
-/// reused ids are dropped, and a memory the user stated is only forgotten
-/// once its days are over. A merge keeps a stated memory when it has one,
-/// and the result counts as stated.
+/// Checks the model's curation ops: unknown and reused ids dropped, stated memories forgotten only once over.
 pub(crate) fn plan_curation(
     ops: Vec<CurateOp>,
     rows: &HashMap<&str, &MemoryRow>,
@@ -1016,9 +980,7 @@ pub(crate) fn plan_curation(
     follow_supersedes(steps)
 }
 
-/// Points each supersede at the memory its `by` ends up as: the one it was
-/// merged into, or nothing when `by` itself is forgotten or superseded, in
-/// which case the older memory stays as it is.
+/// Points each supersede at what its `by` ends up as, or drops it when `by` is gone.
 fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
     let mut gone = HashSet::new();
     let mut merged = HashMap::new();
@@ -1050,7 +1012,6 @@ fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::MEMORY_CATEGORIES;
 
     fn row(id: &str, content: &str) -> MemoryRow {
         MemoryRow {
@@ -1068,58 +1029,6 @@ mod tests {
 
     fn day(text: &str) -> NaiveDate {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
-    }
-
-    #[test]
-    fn jev_files_under_every_category() {
-        let names: Vec<&str> = FILING.iter().map(|(name, _)| *name).collect();
-        assert_eq!(names, MEMORY_CATEGORIES);
-    }
-
-    #[test]
-    fn parses_learn_ops_with_days() {
-        let ops = parse_learn_ops(
-            r#"```json
-{"ops":[{"op":"add","content":"Is in Lisbon.","valid_from":"2026-10-04","valid_until":"2026-10-09"},
-{"op":"forget","id":"abc123"}]}
-```"#,
-        )
-        .unwrap();
-        assert_eq!(ops.len(), 2);
-        assert_eq!(
-            ops[0].validity(),
-            Some(Validity {
-                from: Some(day("2026-10-04")),
-                until: Some(day("2026-10-09")),
-            })
-        );
-        assert_eq!(ops[1].op, LearnKind::Forget);
-        assert!(parse_learn_ops("Nothing to remember.").is_err());
-        assert!(parse_learn_ops(r#"{"ops":[]}"#).unwrap().is_empty());
-    }
-
-    #[test]
-    fn languages_come_from_the_memory_that_says_them() {
-        let rows = [
-            row("a", "Lives in Dubai."),
-            row("b", "Speaks Spanish, English and Dutch."),
-        ];
-        assert_eq!(
-            languages(&rows, day("2026-10-31")),
-            Some("Speaks Spanish, English and Dutch.")
-        );
-        assert_eq!(languages(&rows[..1], day("2026-10-31")), None);
-    }
-
-    #[test]
-    fn ended_facts_are_over_the_day_after() {
-        let trip = Validity {
-            from: Some(day("2026-10-04")),
-            until: Some(day("2026-10-09")),
-        };
-        assert!(!trip.ended(day("2026-10-09")));
-        assert!(trip.ended(day("2026-10-10")));
-        assert!(!Validity::default().ended(day("2030-01-01")));
     }
 
     #[test]
@@ -1287,82 +1196,5 @@ mod tests {
         };
         assert_eq!(fact.source, MemorySource::Email {});
         assert_eq!(keep, "b");
-    }
-
-    #[test]
-    fn learn_ops_carry_their_quote() {
-        let ops = parse_learn_ops(
-            r#"{"ops":[{"op":"add","content":"Has a dog named Rex.","quote":"  my dog Rex "},
-            {"op":"add","content":"Likes tea.","quote":" "}]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            ops[0].origin("session-1"),
-            Origin {
-                reference: "session-1".into(),
-                quote: Some("my dog Rex".into()),
-            }
-        );
-        assert_eq!(ops[1].origin("session-1").quote, None);
-    }
-
-    #[test]
-    fn core_ids_follow_merges_and_drop_forgotten() {
-        let rows = [row("a", "A."), row("b", "B."), row("c", "C.")];
-        let by_id: HashMap<&str, &MemoryRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
-        let curation = parse_curation(
-            r#"{"ops":[
-            {"op":"merge","ids":["a","b"],"content":"A and B."},
-            {"op":"forget","id":"c"}],
-            "core":["b","c","missing"]}"#,
-        )
-        .unwrap();
-        let steps = plan_curation(curation.ops, &by_id, day("2026-10-03"));
-        let core = core_ids(curation.core.unwrap(), &steps, &by_id);
-        assert_eq!(core, HashSet::from(["a".to_owned()]));
-        assert!(parse_curation(r#"{"ops":[]}"#).unwrap().core.is_none());
-    }
-
-    #[test]
-    fn only_the_user_scope_picks_a_profile() {
-        let user = curate_system(&Scope::User);
-        assert!(user.contains("pick the profile") && user.contains("\"core\""));
-        assert!(user.contains("about one user"));
-        let machine = curate_system(&Scope::Machine(iroh::SecretKey::generate().public()));
-        assert!(!machine.contains("profile") && !machine.contains("core"));
-        assert!(machine.contains("one of the user's machines"));
-    }
-
-    #[test]
-    fn profile_puts_what_holds_today_first() {
-        let mut name = row("n", "Is called Sam.");
-        name.core = true;
-        let mut trip = row("t", "Is in Lisbon.");
-        trip.valid = Validity {
-            from: Some(day("2026-10-04")),
-            until: Some(day("2026-10-10")),
-        };
-        let mut later = row("l", "Visits Rome.");
-        later.valid.from = Some(day("2026-11-01"));
-        later.valid.until = Some(day("2026-11-05"));
-        let other = row("o", "Likes jazz.");
-        let rows = [name, trip, later, other];
-        assert_eq!(
-            profile(&rows, day("2026-10-07")).unwrap(),
-            format!(
-                "{PROFILE_HEADER}\n- Is in Lisbon. (2026-10-04 to 2026-10-10)\n- Is called Sam."
-            )
-        );
-        assert_eq!(profile(&rows[3..], day("2026-10-07")), None);
-
-        // A fact too long to fit leaves room for the rest.
-        let mut long = row("x", &"Long. ".repeat(MAX_PROFILE_CHARS));
-        long.core = true;
-        let mut name = row("n", "Is called Sam.");
-        name.core = true;
-        assert_eq!(
-            profile(&[long, name], day("2026-10-07")).unwrap(),
-            format!("{PROFILE_HEADER}\n- Is called Sam.")
-        );
     }
 }

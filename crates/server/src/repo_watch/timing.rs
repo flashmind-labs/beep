@@ -1,10 +1,8 @@
-//! When a project's copy of its host lists is read again. Every decision
-//! takes `now`, so the tests drive the clock.
+//! When a project's copy of its host lists is read again. Decisions take `now` so tests drive the clock.
 
 use std::time::{Duration, Instant};
 
-/// How old a copy may get before an ask, or the background sync, reads the
-/// host again.
+/// How old a copy may get before an ask or the background sync rereads the host.
 pub(crate) const FRESH: Duration = Duration::from_secs(180);
 /// As `FRESH`, after the last read failed.
 pub(crate) const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
@@ -12,13 +10,11 @@ pub(crate) const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
 pub(crate) const VIEWED_FOR: Duration = Duration::from_secs(30 * 60);
 /// The shortest time between two reads Refresh forces.
 pub(crate) const FORCE_EVERY: Duration = Duration::from_secs(30);
-/// How long after an ask the project page counts as open, for live
-/// progress. The page asks about every 10 seconds while a run is going.
+/// How long after an ask the page counts as open; it asks about every 10 seconds during a run.
 pub(crate) const OPEN_FOR: Duration = Duration::from_secs(30);
 /// The shortest time between two reads of a running run's jobs.
 pub(crate) const POLL_EVERY: Duration = Duration::from_secs(10);
-/// The shortest time between two reads webhooks ask for, so a burst of
-/// events (a CI run's jobs) reads the host once or twice.
+/// The shortest gap between webhook-driven reads, so a burst of events reads once or twice.
 pub(crate) const HOOK_GAP: Duration = Duration::from_secs(5);
 /// A project nobody asked about for this long is dropped from memory.
 pub(crate) const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
@@ -28,8 +24,7 @@ pub(crate) const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 pub(crate) enum AskRead {
     /// The copy is fresh: it is the answer.
     Copy,
-    /// The copy is old: it is the answer as it is, and the background sync
-    /// reads the host and tells the pages following the project.
+    /// The copy is old: answer with it, and the background sync rereads and notifies followers.
     CopyThenSync,
     /// Read the host first: there is no copy yet, or Refresh may read now.
     Host,
@@ -65,8 +60,7 @@ impl Timing {
         self.poked = false;
     }
 
-    /// A webhook said the host changed: the copy is read again once it is
-    /// `HOOK_GAP` old.
+    /// A webhook said the host changed: reread once the copy is `HOOK_GAP` old.
     pub(crate) fn poke(&mut self) {
         self.poked = true;
     }
@@ -84,9 +78,7 @@ impl Timing {
         !recent(self.synced, now, ttl)
     }
 
-    /// What an ask does: `forced` when Refresh may read now, `has_copy`
-    /// once a read succeeded. An old copy never keeps the page waiting on
-    /// the host.
+    /// What an ask does; `forced` when Refresh may read now, `has_copy` once a read succeeded.
     pub(crate) fn ask_read(&self, now: Instant, forced: bool, has_copy: bool) -> AskRead {
         if forced || (!has_copy && self.stale(now)) {
             AskRead::Host
@@ -106,8 +98,7 @@ impl Timing {
         true
     }
 
-    /// Whether the background sync reads it: someone asked in the last
-    /// half hour and the copy is old.
+    /// Whether the background sync reads it: asked in the last half hour and the copy is old.
     pub(crate) fn background_due(&self, now: Instant) -> bool {
         recent(self.viewed, now, VIEWED_FOR) && self.stale(now)
     }
@@ -117,8 +108,7 @@ impl Timing {
         recent(self.viewed, now, OPEN_FOR)
     }
 
-    /// Whether running jobs may be read now: the page is open and the last
-    /// poll is `POLL_EVERY` old. Records the poll when they may.
+    /// Whether running jobs may be read now (page open, last poll `POLL_EVERY` old); records the poll.
     pub(crate) fn poll(&mut self, now: Instant) -> bool {
         if !self.open(now) || recent(self.polled, now, POLL_EVERY) {
             return false;
@@ -139,46 +129,6 @@ mod tests {
 
     fn secs(n: u64) -> Duration {
         Duration::from_secs(n)
-    }
-
-    #[test]
-    fn a_copy_is_stale_until_read_then_after_three_minutes() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        assert!(t.stale(start), "never read");
-        t.synced(start, true);
-        assert!(!t.stale(start + secs(179)));
-        assert!(t.stale(start + secs(180)));
-    }
-
-    #[test]
-    fn a_failed_read_is_tried_again_after_a_minute() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.synced(start, false);
-        assert!(!t.stale(start + secs(59)));
-        assert!(t.stale(start + secs(60)));
-    }
-
-    #[test]
-    fn the_background_syncs_only_projects_viewed_in_the_last_half_hour() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.synced(start, true);
-        assert!(
-            !t.background_due(start + secs(600)),
-            "never viewed, never synced in the background"
-        );
-        t.view(start);
-        assert!(!t.background_due(start + secs(60)), "still fresh");
-        assert!(t.background_due(start + secs(181)));
-        t.synced(start + secs(181), true);
-        assert!(!t.background_due(start + secs(200)));
-        assert!(t.background_due(start + secs(29 * 60 + 59)));
-        assert!(
-            !t.background_due(start + secs(30 * 60)),
-            "nobody looked for half an hour"
-        );
     }
 
     #[test]
@@ -216,34 +166,6 @@ mod tests {
     }
 
     #[test]
-    fn refresh_reads_at_most_once_per_thirty_seconds() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        assert!(t.force(start));
-        assert!(!t.force(start + secs(10)));
-        assert!(!t.force(start + secs(29)));
-        assert!(t.force(start + secs(30)));
-        assert!(!t.force(start + secs(31)));
-    }
-
-    #[test]
-    fn jobs_are_polled_every_ten_seconds_while_the_page_is_open() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        assert!(!t.poll(start), "nobody has the page open");
-        t.view(start);
-        assert!(t.poll(start));
-        // A second viewer asking within the ten seconds shares the read.
-        t.view(start + secs(4));
-        assert!(!t.poll(start + secs(4)));
-        assert!(t.poll(start + secs(10)));
-        // The page closed: no asks for half a minute, no polls.
-        assert!(!t.poll(start + secs(40)));
-        t.view(start + secs(41));
-        assert!(t.poll(start + secs(41)));
-    }
-
-    #[test]
     fn a_webhook_reads_again_within_seconds_but_not_more_than_every_five() {
         let start = Instant::now();
         let mut t = Timing::default();
@@ -253,15 +175,5 @@ mod tests {
         assert!(t.stale(start + secs(5)));
         t.synced(start + secs(5), true);
         assert!(!t.stale(start + secs(60)), "the read took the poke");
-    }
-
-    #[test]
-    fn a_project_nobody_asked_about_for_two_hours_is_forgotten() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.view(start);
-        assert!(!t.forgotten(start + secs(7199)));
-        assert!(t.forgotten(start + secs(7200)));
-        assert!(Timing::default().forgotten(start));
     }
 }

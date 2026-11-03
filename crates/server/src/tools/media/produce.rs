@@ -1,7 +1,4 @@
-//! Asking each service for an image, a video or a 3D model. OpenRouter and
-//! Venice go through flashmind's providers, Meshy through its 3D client;
-//! OpenAI's image generation is done here, as flashmind's sends a field
-//! GPT image models refuse.
+//! Asking each service for an image, video or 3D model; OpenAI images are done here.
 
 use super::{
     call::Call,
@@ -25,8 +22,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::Map;
 use tokio_util::sync::CancellationToken;
 
-/// Where each service's API is. Only tests point them elsewhere; OpenRouter
-/// has no override.
+/// Where each service's API is; only tests point them elsewhere.
 #[derive(Debug, Clone)]
 pub(crate) struct Endpoints {
     pub(super) openai: Url,
@@ -184,8 +180,7 @@ fn video_stream(job: &Job<'_>) -> Result<CompletionStream> {
     })
 }
 
-/// Makes the 3D model `job` asks for and returns where its GLB is. Each
-/// task Meshy starts is told to `progress`.
+/// Makes the 3D model `job` asks for and returns where its GLB is.
 pub(super) async fn model_3d(
     job: Job<'_>,
     cancel: &CancellationToken,
@@ -214,8 +209,7 @@ pub(super) async fn model_3d(
     bounded(client.generate(request, on_task), call.kind.limit(), cancel).await
 }
 
-/// The request Meshy's client takes: the image when there is one, else
-/// the prompt.
+/// The Meshy request: the image when there is one, else the prompt.
 pub(super) fn model_request(job: &Job<'_>) -> Result<ThreeDRequest> {
     let call = job.call;
     let model: Model = format!("meshy:{}", call.model)

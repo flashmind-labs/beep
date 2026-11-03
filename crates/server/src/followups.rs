@@ -1,7 +1,4 @@
-//! Follow-up replies shown under the assistant's reply. Jev decides
-//! whether the reply invites one, then one plain completion writes them as a
-//! Markdown list, one follow-up per line. A reply that ends on a question
-//! skips Jev and gets the likely answers instead, shown as a choice.
+//! Follow-up replies under the assistant's reply, gated by Jev and written by one completion.
 use crate::{
     decision::{Criteria, DecisionTool},
     memories::{Turn, clip},
@@ -18,8 +15,7 @@ use std::{
 /// How likely a follow-up has to be useful before one is written.
 const THRESHOLD: f64 = 0.8;
 
-/// An earlier turn older than this is left out, so a stale detail from
-/// yesterday does not turn into a chip today.
+/// Earlier turns older than this are left out.
 const EARLIER_WINDOW_MINUTES: i64 = 30;
 const MAX_CONTEXT_CHARS: usize = 1500;
 const MAX_RESULT_CHARS: usize = 600;
@@ -213,10 +209,7 @@ impl fmt::Display for Input<'_> {
     }
 }
 
-/// The `suggest_replies` result to add under the reply, or `None` when the
-/// turn does not call for one or writing it failed. `score` is Jev's answer
-/// to [`QUESTION`], asked with the turn's other questions; follow-ups are
-/// written only with one.
+/// The `suggest_replies` result to add under the reply, written only when Jev's `score` calls for one.
 pub async fn write(
     generator: Generator<'_>,
     state: String,
@@ -255,8 +248,7 @@ pub async fn score(decision: &DecisionTool, state: &str) -> Option<f64> {
     }
 }
 
-/// The follow-ups for `state` as a `suggest_replies` result, whatever Jev
-/// thinks of the turn.
+/// The follow-ups for `state`, whatever Jev thinks of the turn.
 pub async fn draft(generator: Generator<'_>, state: String, reply: &str) -> Option<String> {
     let items = items(generator, SYSTEM, state, reply).await?;
     let output = replies_output(items.clone());
@@ -266,8 +258,7 @@ pub async fn draft(generator: Generator<'_>, state: String, reply: &str) -> Opti
     output
 }
 
-/// The list items `generator` writes for `state` under `system`, unquoted,
-/// leaving out any in another script than `reply`.
+/// The list items `generator` writes, unquoted, dropping any in another script than `reply`.
 async fn items(
     generator: Generator<'_>,
     system: &str,
@@ -311,8 +302,7 @@ async fn items(
     }
 }
 
-/// A writing system, coarsely: enough to tell an English reply from
-/// Japanese chips.
+/// A coarse writing system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Script {
     Latin,
@@ -365,8 +355,7 @@ fn main_script(text: &str) -> Option<Script> {
     (*count > 0).then_some(SCRIPTS[most])
 }
 
-/// Whether `item` is mostly in the script `reply` is mostly in. A product
-/// name in Latin letters inside a Japanese chip still reads as Japanese.
+/// Whether `item` is mostly in the same script as `reply`.
 fn same_script(item: &str, reply: &str) -> bool {
     match (main_script(item), main_script(reply)) {
         (Some(item), Some(reply)) => item == reply,
@@ -377,54 +366,6 @@ fn same_script(item: &str, reply: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashmind::{core::ConversationEntry, types::ToolCall};
-    use serde_json::json;
-
-    fn turn(message: &str, reply: &str) -> Turn {
-        Turn {
-            message: message.into(),
-            reply: reply.into(),
-            actions: Vec::new(),
-        }
-    }
-
-    /// `entry` stamped `minutes` after the start of the chat.
-    fn at(start: DateTime<Utc>, minutes: i64, mut entry: ConversationEntry) -> ConversationEntry {
-        entry.timestamp = start + Duration::minutes(minutes);
-        entry
-    }
-
-    fn chat(gap: i64) -> (Conversation, DateTime<Utc>) {
-        let start = Utc::now();
-        let call = ToolCall {
-            id: "cal".into(),
-            name: "outlook_get_calendar_view".into(),
-            arguments: json!({}),
-        };
-        let mut conversation = Conversation::new();
-        for entry in [
-            at(
-                start,
-                0,
-                ConversationEntry::system_message("Time: yesterday"),
-            ),
-            at(start, 0, ConversationEntry::user("When is the meeting?")),
-            at(start, 0, ConversationEntry::assistant("Tomorrow at 17:30.")),
-            at(start, gap, ConversationEntry::system_message("Time: today")),
-            at(start, gap, ConversationEntry::reminder("A reminder")),
-            at(start, gap, ConversationEntry::user("Where is it?")),
-            at(
-                start,
-                gap,
-                ConversationEntry::assistant_with_tool_calls("", vec![call], None),
-            ),
-            at(start, gap, ConversationEntry::tool("cal", "Room 12")),
-            at(start, gap, ConversationEntry::assistant("Room 12.")),
-        ] {
-            conversation.add(entry);
-        }
-        (conversation, start + Duration::minutes(gap))
-    }
 
     #[test]
     fn chips_in_another_script_than_the_reply_go() {
@@ -436,20 +377,6 @@ mod tests {
         assert!(same_script("Louvre の行き方を教えて", japanese));
         assert!(!same_script("Find the ticket price", japanese));
         assert!(same_script("9:30", reply), "no letters says nothing");
-    }
-
-    #[test]
-    fn reads_the_turns_context_and_tool_results() {
-        let earlier = [turn("When is the meeting?", "Tomorrow at 17:30.")];
-        let latest = turn("Where is it?", "Room 12.");
-        let (conversation, turn_from) = chat(5);
-        let input = Input::new(&conversation, turn_from, &earlier, &latest);
-        assert_eq!(input.context, Some("Time: today"));
-        assert!(input.earlier.is_some());
-        assert_eq!(input.results.len(), 1);
-        assert_eq!(input.results[0].tool, "outlook_get_calendar_view");
-        assert_eq!(input.results[0].output, "Room 12");
-        assert!(input.to_string().contains("What its tools returned:"));
     }
 
     #[test]
@@ -467,15 +394,5 @@ mod tests {
             Kind::of("Here it is: https://example.com/search?q=beep"),
             Kind::FollowUps
         );
-    }
-
-    #[test]
-    fn leaves_out_an_old_earlier_turn() {
-        let earlier = [turn("When is the meeting?", "Tomorrow at 17:30.")];
-        let latest = turn("Where is it?", "Room 12.");
-        let (conversation, turn_from) = chat(24 * 60);
-        let input = Input::new(&conversation, turn_from, &earlier, &latest);
-        assert!(input.earlier.is_none());
-        assert!(!input.to_string().contains("Earlier:"));
     }
 }

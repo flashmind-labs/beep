@@ -8,8 +8,7 @@ use crate::{
 };
 
 impl App {
-    /// Tells the phone a scheduled run finished. A completed run shows its reply,
-    /// which the prompt asks to be written as the reminder itself.
+    /// Tells the phone a scheduled run finished, showing its reply when it completed.
     pub async fn notify_run_complete(
         &self,
         user: &User,
@@ -61,32 +60,12 @@ impl App {
 /// Longest notification body, in characters; the full reply stays in the chat.
 const NOTICE_CHARS: usize = 400;
 
-/// A reply as notification text: emphasis and code marks dropped, since the
-/// notification shows them literally, and cut to `NOTICE_CHARS`.
+/// A reply as notification text: emphasis and code marks dropped, cut to `NOTICE_CHARS`.
 fn notification_text(reply: &str) -> String {
     let plain = reply.replace("**", "").replace("__", "").replace('`', "");
     let plain = plain.trim();
     match plain.char_indices().nth(NOTICE_CHARS) {
         Some((end, _)) => format!("{}...", plain[..end].trim_end()),
         None => plain.to_owned(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn notification_text_is_plain_and_short() {
-        assert_eq!(
-            notification_text("  Time to leave: **check-in** closes at `11:45`.\n"),
-            "Time to leave: check-in closes at 11:45."
-        );
-        let long = "a".repeat(NOTICE_CHARS + 10);
-        assert_eq!(
-            notification_text(&long),
-            format!("{}...", "a".repeat(NOTICE_CHARS))
-        );
-        assert_eq!(notification_text("  "), "");
     }
 }

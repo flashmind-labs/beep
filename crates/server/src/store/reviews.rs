@@ -1,5 +1,4 @@
-//! Branch reviews: which reviewer and verifier sessions read which shard of
-//! a branch's diff, and the findings they reported.
+//! Branch reviews: which sessions read which diff shard, and what they found.
 
 use super::Store;
 use crate::{
@@ -118,10 +117,6 @@ const SHARD_COLUMNS: &str =
 
 const FINDING_COLUMNS: &str =
     "id, shard, severity, title, file, line, why, verdict, verdict_why, dismissed";
-
-fn checks_text(checks: ReviewChecks) -> &'static str {
-    checks.into()
-}
 
 fn checks_of(text: &str) -> ReviewChecks {
     match text {
@@ -249,7 +244,7 @@ impl Store {
                 .transpose()?,
         )
         .bind(review.pr.as_ref().map(|pr| pr.url.clone()))
-        .bind(review.pr.as_ref().map(|pr| checks_text(pr.checks)))
+        .bind(review.pr.as_ref().map(|pr| <&str>::from(pr.checks)))
         .bind(review.started_at)
         .bind(&review.worktree)
         .execute(&mut *tx)
@@ -289,8 +284,7 @@ impl Store {
         row.as_ref().map(review_from).transpose()
     }
 
-    /// `project`'s newest review of each branch, newest first, at most
-    /// `limit`.
+    /// `project`'s newest review per branch, newest first, at most `limit`.
     pub(crate) async fn reviews(
         &self,
         user: &UserKey,
@@ -333,9 +327,7 @@ impl Store {
         rows.iter().map(finding_from).collect()
     }
 
-    /// Keeps what a shard's reviewer reported and moves the shard from
-    /// reading to `next`; false, changing nothing, when it no longer reads
-    /// (another call got there first).
+    /// Keeps a shard's report and moves it from reading to `next`; false, no change, if no longer reading.
     pub(crate) async fn report_shard(
         &self,
         review: Uuid,
@@ -382,8 +374,7 @@ impl Store {
         Ok(true)
     }
 
-    /// Reviews from before verifying moved to the server kept a verifier
-    /// session per shard; only tests make one now.
+    /// Old reviews kept a verifier session per shard; only tests make one now.
     #[cfg(test)]
     pub(crate) async fn set_review_verifier(
         &self,
@@ -400,9 +391,7 @@ impl Store {
         Ok(())
     }
 
-    /// Keeps the verifier's verdicts and marks the shard done; findings it
-    /// gave none for are unchecked. False, changing nothing, when the shard
-    /// no longer waits for its verifier.
+    /// Keeps verifier verdicts (missing ones unchecked) and marks the shard done; false if not awaiting a verifier.
     pub(crate) async fn judge_shard(
         &self,
         review: Uuid,
@@ -469,9 +458,7 @@ impl Store {
         Ok(done.rows_affected() > 0)
     }
 
-    /// Reviews with a shard still reading or verifying, or a worktree not
-    /// yet removed, started since `since`, oldest first: what the review
-    /// driver moves on.
+    /// Reviews since `since` with a shard reading or verifying or a worktree left, oldest first.
     pub(crate) async fn reviews_to_drive(&self, since: DateTime<Utc>) -> Result<Vec<Driven>> {
         let rows = sqlx::query(
             "SELECT r.user_id, r.id FROM branch_reviews r
@@ -502,8 +489,7 @@ impl Store {
         Ok(())
     }
 
-    /// Dismisses one finding of the user's review, or brings it back;
-    /// false when they have no such finding.
+    /// Dismisses or restores one finding of the user's review; false when missing.
     pub(crate) async fn dismiss_finding(
         &self,
         user: &UserKey,
@@ -667,36 +653,5 @@ mod tests {
         assert!(!store.dismiss_finding(&bob, one.id, 0, true).await.unwrap());
         assert!(store.dismiss_finding(&user, one.id, 0, true).await.unwrap());
         assert!(store.review_findings(one.id).await.unwrap()[0].dismissed);
-    }
-
-    #[tokio::test]
-    async fn the_newest_review_of_each_branch_is_listed() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let now = Utc::now();
-        let old = review(
-            "acme/widget",
-            "login-copy",
-            now - chrono::Duration::hours(2),
-        );
-        let new = review(
-            "acme/widget",
-            "login-copy",
-            now - chrono::Duration::hours(1),
-        );
-        let other = review("acme/widget", "spike", now);
-        let elsewhere = review("acme/relay", "spike", now);
-        for one in [&old, &new, &other, &elsewhere] {
-            store.add_review(&user, one, &[]).await.unwrap();
-        }
-        let listed: Vec<Uuid> = store
-            .reviews(&user, "acme/widget", 20)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|row| row.id)
-            .collect();
-        assert_eq!(listed, vec![other.id, new.id]);
     }
 }

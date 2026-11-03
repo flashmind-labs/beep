@@ -1,7 +1,4 @@
-//! Findings: where Beep failed a user, as the improvement watcher proposed
-//! them, one row per problem and user however many of the user's chats it
-//! came up in. A user only reads and settles findings seen in their own
-//! chats.
+//! Findings from the improvement watcher, one row per problem and user; a user only sees findings from their own chats.
 
 use super::Store;
 use crate::watchers::{Cause, FindingKind, FindingStatus};
@@ -45,8 +42,7 @@ pub struct FindingRow {
     pub seen: i32,
     pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
-    /// Its latest sighting in a chat of the user it was read for. Always
-    /// there for a finding read back here.
+    /// Its latest sighting in a chat of the reading user; always set when read back here.
     pub sighting: Option<SeenIn>,
 }
 
@@ -58,26 +54,22 @@ pub struct SeenIn {
     pub last_seq: i64,
 }
 
-/// The columns `finding` reads: `findings f` and the reader's latest
-/// sighting `s`.
+/// The columns `finding` reads: `findings f` and the reader's latest sighting `s`.
 const COLUMNS: &str = "f.id, f.fingerprint, f.kind, f.summary, f.steps, f.cause, f.cause_detail,
     f.fix, f.status, f.seen, f.first_seen, f.last_seen, s.chat_id, s.first_seq, s.last_seq";
 
-/// `findings f` with the latest sighting in a chat of the user `$1`. A
-/// finding never seen in one of that user's chats is left out.
+/// `findings f` joined to its latest sighting in a chat of user `$1`; unseen findings are left out.
 const FROM: &str = "findings f JOIN LATERAL (
         SELECT chat_id, first_seq, last_seq FROM finding_sightings
         WHERE finding_id = f.id AND user_id = $1 ORDER BY seen_at DESC LIMIT 1
     ) s ON TRUE";
 
-/// The fingerprint a finding of `user` is stored under, so each user's
-/// problems count apart.
+/// The per-user fingerprint a finding is stored under.
 fn keyed(user: &str, fingerprint: &str) -> String {
     format!("{user}|{fingerprint}")
 }
 
-/// `stored` as the watcher made it. Findings from before they were kept per
-/// user have no key.
+/// `stored` as the watcher made it; findings from before per-user keys have none.
 fn unkeyed(reader: &str, stored: String) -> String {
     match stored.strip_prefix(&keyed(reader, "")) {
         Some(fingerprint) => fingerprint.to_owned(),
@@ -113,9 +105,7 @@ fn finding(row: &PgRow, reader: &str) -> Result<FindingRow> {
 }
 
 impl Store {
-    /// Records `finding` seen at `seen`. One of the same user with the same
-    /// fingerprint counts once more instead, and opens again if it was resolved; a
-    /// dismissed one stays dismissed. Returns its id.
+    /// Records `finding` seen at `seen`, or bumps an existing one (reopening if resolved, not if dismissed); returns its id.
     pub(crate) async fn record_finding(
         &self,
         finding: &NewFinding<'_>,
@@ -163,8 +153,7 @@ impl Store {
         Ok(id)
     }
 
-    /// The findings seen in `reader`'s chats, most recently seen first, only
-    /// those with `status` when given, each with its latest sighting there.
+    /// Findings seen in `reader`'s chats, newest sighting first, filtered by `status` when given.
     pub(crate) async fn findings(
         &self,
         reader: &str,

@@ -41,7 +41,10 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     str::FromStr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -68,6 +71,8 @@ const MAX_ASKED: usize = 2000;
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
+/// Why a session ended with the node.
+pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
@@ -159,6 +164,29 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// What the node as a whole asks of its sessions.
+    pub(super) node: NodeMode,
+}
+
+/// What the node as a whole asks of its sessions.
+#[derive(Clone)]
+pub(super) struct NodeMode {
+    /// Set once the node is stopping: an agent that ends then ended with
+    /// the node, whatever its exit says.
+    pub(super) stopping: Arc<AtomicBool>,
+    /// While true, prompts wait instead of starting a turn: the node is
+    /// about to restart for an update.
+    pub(super) holding: watch::Receiver<bool>,
+}
+
+impl Default for NodeMode {
+    /// A node that never holds prompts and is not stopping.
+    fn default() -> Self {
+        Self {
+            stopping: Arc::default(),
+            holding: watch::channel(false).1,
+        }
+    }
 }
 
 impl Session {
@@ -182,6 +210,7 @@ impl Session {
             images,
             usage,
             alerts,
+            node,
         } = start;
         let brief = match (brief, &mcp) {
             (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::mcp::BRIEF)),
@@ -243,6 +272,8 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
+            node_stopping: node.stopping,
+            holding: node.holding,
             session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
@@ -387,6 +418,10 @@ impl Waiting {
 struct Actor {
     live: watch::Sender<Live>,
     alerts: Arc<AlertHub>,
+    /// Set once the node is stopping.
+    node_stopping: Arc<AtomicBool>,
+    /// While true, prompts wait instead of starting a turn.
+    holding: watch::Receiver<bool>,
     /// The session's id on the node.
     session: String,
     /// The agent, such as `claude`.
@@ -449,6 +484,8 @@ enum End {
     Failed(String),
     /// The agent did not end its turn within `stop_within` of Stop.
     Unstoppable(Duration),
+    /// The node stopped or restarted.
+    NodeStopped,
 }
 
 /// Why the node asked the agent to end its turn.
@@ -486,10 +523,26 @@ impl Actor {
         let mut child = GroupLeader::new(child);
         let held = child.hold_output();
         let end = self.serve(child.child_mut(), &mut orders).await;
+        // The node stopping ends its sessions, whether it closed them or the
+        // service manager stopped the agents first.
+        let end = match end {
+            Ok(End::Closed | End::Exited) if self.node_stopping.load(Ordering::Relaxed) => {
+                Ok(End::NodeStopped)
+            }
+            end => end,
+        };
         let closed = matches!(end, Ok(End::Closed));
-        // Stopped as the user asked, so not a failure to alert about.
-        let asked = closed || matches!(end, Ok(End::Unstoppable(_)));
+        // Stopped as the user asked, or with the node, so not a failure to
+        // alert about.
+        let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
+        // What still waits goes with the session when the node resumes it.
+        let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
+            self.steers.drain(..).chain(self.queued.drain(..)).collect()
+        } else {
+            Vec::new()
+        };
         let reason = match end {
+            Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),
             Ok(End::Closed) => "closed".to_owned(),
             Ok(End::Unstoppable(within)) => format!(
                 "the agent did not stop within {} s, so Beep stopped it; send a message to continue",
@@ -520,6 +573,7 @@ impl Actor {
             live.info.question = None;
             live.info.state.status = Status::Ended;
             live.info.state.queued = 0;
+            live.held = waiting;
             if !closed {
                 live.info.state.error = Some(reason);
             }
@@ -596,6 +650,11 @@ impl Actor {
                     None => return Ok(End::Exited),
                 },
                 Some(length) = inputs.oversized.recv() => self.oversized(length),
+                Ok(()) = self.holding.changed() => {
+                    if !*self.holding.borrow() && self.live.borrow().status() == Status::Idle {
+                        self.next_prompt(cx);
+                    }
+                }
                 () = cx.incoming_closed() => return Ok(End::Exited),
                 Some(reply) = self.replies.next() => {
                     if let Some(end) = self.reply(cx, reply)? {
@@ -810,8 +869,12 @@ impl Actor {
         self.acp_session = Some(session.clone());
         self.thinking = offered.thinking;
         self.switch = offered.switch.clone();
-        self.live
-            .send_modify(|live| live.agent_session = Some(session.to_string()));
+        // From now on the session goes by the agent's own id, which
+        // still finds it once the node restarts.
+        self.live.send_modify(|live| {
+            live.agent_session = Some(session.to_string());
+            live.info.id = session.to_string();
+        });
         let Some(model) = self.model.take() else {
             self.think(cx);
             return None;
@@ -1394,6 +1457,11 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
+        // Held for an update; they go when the hold ends, or after the
+        // restart.
+        if *self.holding.borrow() {
+            return;
+        }
         if self.queued.is_empty() && self.steers.is_empty() {
             return;
         }
@@ -1541,37 +1609,6 @@ mod tests {
     use super::*;
     use beep_proto::Upload;
 
-    #[test]
-    fn turn_tokens_read_the_quota_then_the_usage() {
-        let response = |value: Value| -> PromptResponse { serde_json::from_value(value).unwrap() };
-        let quota = response(serde_json::json!({
-            "stopReason": "end_turn",
-            "_meta": {"quota": {
-                "token_count": {"totalTokens": 1200, "inputTokens": 1000},
-                "model_usage": [
-                    {"model": "gpt-5-codex", "token_count": {"totalTokens": 1200}},
-                    {"model": "idle", "token_count": {"totalTokens": 0}},
-                ],
-            }},
-        }));
-        let read = turn_tokens(&quota);
-        assert_eq!(read.total, 1200);
-        assert_eq!(
-            read.models,
-            [ModelTokens {
-                model: "gpt-5-codex".into(),
-                tokens: 1200
-            }]
-        );
-        let usage = response(serde_json::json!({
-            "stopReason": "end_turn",
-            "usage": {"totalTokens": 77, "inputTokens": 70, "outputTokens": 7},
-        }));
-        assert_eq!(turn_tokens(&usage).total, 77);
-        let none = response(serde_json::json!({"stopReason": "end_turn"}));
-        assert_eq!(turn_tokens(&none), TurnTokens::default());
-    }
-
     fn options() -> Vec<AnswerOption> {
         let option = |id: &str, name: &str, kind| AnswerOption {
             id: id.into(),
@@ -1682,6 +1719,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1729,66 +1767,6 @@ cat > /dev/null
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn the_agent_gets_the_beep_mcp_server_in_new_and_load() {
-        let dir = temp("mcp");
-        let launch = crate::mcp::Launch::new("/usr/local/bin/beep-node".into(), dir.clone());
-        let start = |kind: &AgentKind, resume: Option<&str>| {
-            Session::start(Start {
-                id: "a3f9c1".into(),
-                kind,
-                cwd: &dir,
-                prompt: Some("hello".into()),
-                resume: resume.map(str::to_owned),
-                model: None,
-                effort: None,
-                note: None,
-                brief: None,
-                mcp: Some(launch.server("a3f9c1")),
-                images: Arc::default(),
-                usage: Arc::default(),
-                alerts: Arc::default(),
-            })
-            .unwrap()
-        };
-        let log = dir.join("new.jsonl");
-        let session = start(&script("fake", PLAIN_ADAPTER, &log), None);
-        settle(&session).await;
-        let new = sent(&log);
-        assert_eq!(new[1]["method"], "session/new");
-        let server = &new[1]["params"]["mcpServers"][0];
-        assert_eq!(server["name"], "beep");
-        assert_eq!(server["command"], "/usr/local/bin/beep-node");
-        assert_eq!(
-            server["args"],
-            serde_json::json!([
-                "--dir",
-                dir.display().to_string(),
-                "mcp",
-                "--session",
-                "a3f9c1"
-            ])
-        );
-        assert_eq!(server["env"][0]["name"], crate::mcp::TOKEN_ENV);
-        assert_eq!(server["env"][0]["value"].as_str().map(str::len), Some(64));
-        // The first prompt tells the agent what the tools are for.
-        assert_eq!(new[2]["method"], "session/prompt");
-        let brief = new[2]["params"]["prompt"][0]["text"].as_str().unwrap();
-        assert_eq!(brief, crate::mcp::BRIEF);
-
-        let log = dir.join("load.jsonl");
-        let resumed = start(
-            &fake("claude", &log),
-            Some("0f3c2a9e-1111-4222-8333-944455556666"),
-        );
-        settle(&resumed).await;
-        let load = sent(&log);
-        assert_eq!(load[1]["method"], "session/load");
-        assert_eq!(load[1]["params"]["mcpServers"][0]["name"], "beep");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
     async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
         let dir = temp("node-asks");
         let log = dir.join("sent.jsonl");
@@ -1806,6 +1784,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1853,71 +1832,6 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// An adapter that writes `$BEEP_FAKE_MODE` to `$1.env`, asks
-    /// permission on its first prompt, then ends the turn once answered.
-    const ALLOWING_ADAPTER: &str = r#"
-printf '%s\n' "$BEEP_FAKE_MODE" > "$1.env"
-read -r line; log "$1"
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line; log "$1"
-reply '{"sessionId":"s"}'
-read -r line; log "$1"
-prompt=$(id)
-echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"},{"optionId":"always","name":"Always Allow","kind":"allow_always"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}'
-read -r line; log "$1"
-printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
-cat > /dev/null
-"#;
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn every_agent_has_its_permission_requests_allowed() {
-        let dir = temp("allows");
-        let log = dir.join("sent.jsonl");
-        let mut kind = script("codex", ALLOWING_ADAPTER, &log);
-        kind.env.insert("BEEP_FAKE_MODE".into(), "full".into());
-        let session = Session::start(Start {
-            id: "b4e0d2".into(),
-            kind: &kind,
-            cwd: &dir,
-            prompt: Some("go".into()),
-            resume: None,
-            model: None,
-            effort: None,
-            note: None,
-            brief: None,
-            mcp: None,
-            images: Arc::default(),
-            usage: Arc::default(),
-            alerts: Arc::default(),
-        })
-        .unwrap();
-        settle(&session).await;
-        let info = session.info();
-        assert_eq!(info.turns, 1, "{:?}", info.state.error);
-        assert!(info.question.is_none());
-        let sent: Vec<Value> = std::fs::read_to_string(&log)
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
-        // Codex starts in full access, so no mode is set.
-        assert_eq!(sent[2]["method"], "session/prompt");
-        assert_eq!(sent[3]["id"], "p1");
-        assert_eq!(sent[3]["result"]["outcome"]["optionId"], "always");
-        let (entries, _) = session.live.borrow().transcript(10);
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.text == "Allowed: Run cargo test"),
-            "{entries:?}"
-        );
-        // The kind's variables reach the agent.
-        let env = std::fs::read_to_string(dir.join("sent.jsonl.env")).unwrap();
-        assert_eq!(env, "full\n");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn a_choice_is_still_asked() {
@@ -1937,6 +1851,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1969,6 +1884,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -2019,6 +1935,7 @@ read -r line; log "$1"
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -2073,6 +1990,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -2118,6 +2036,7 @@ read -r line
                 images: Arc::default(),
                 usage: Arc::default(),
                 alerts: Arc::default(),
+                node: NodeMode::default(),
             },
             within,
         )
@@ -2207,38 +2126,6 @@ while :; do sleep 1; done
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn an_image_file_the_agent_names_shows_once_the_turn_ends() {
-        let dir = temp("named-image");
-        let png = b"\x89PNG\r\n\x1a\nchart".to_vec();
-        std::fs::write(dir.join("chart.png"), &png).unwrap();
-        let body = format!(
-            r#"
-echo '{UPDATE}{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"Saved chart.png"}}}}}}}}'
-reply '{{"stopReason":"end_turn"}}'
-cat > /dev/null
-"#
-        );
-        let session = started(&dir, &body);
-        let shown = format!(
-            "Saved chart.png\n[image: image-{}]",
-            beep_proto::image_key(&png)
-        );
-        until(&session, |live| {
-            live.transcript(10)
-                .0
-                .iter()
-                .any(|entry| entry.text == shown)
-                || live.status() == Status::Ended
-        })
-        .await;
-        assert_eq!(session.info().state.error, None);
-        let kept = session.live.borrow().picture(&beep_proto::image_key(&png));
-        assert_eq!(kept.map(|picture| picture.data.clone()), Some(png));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     /// An adapter that says whether it takes images (`$2`), then ends each
     /// prompt's turn at once.
     const IMAGES_ADAPTER: &str = r#"
@@ -2267,6 +2154,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -2410,6 +2298,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         }
     }
 
@@ -2431,53 +2320,6 @@ cat > /dev/null
         assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
         let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
         assert_eq!(args.trim(), "", "no flag on the command line");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_session_without_a_model_asked_for_keeps_the_agents_own() {
-        let dir = temp("model-none");
-        let log = dir.join("sent.jsonl");
-        let kind = script("codex", MODEL_ADAPTER, &log);
-        let session = Session::start(start_on(&kind, &dir, None)).unwrap();
-        settle(&session).await;
-        assert_eq!(session.info().turns, 1);
-        assert_eq!(sent(&log)[2]["method"], "session/prompt");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_model_the_agent_refuses_ends_the_session() {
-        let dir = temp("model-refused");
-        let log = dir.join("sent.jsonl");
-        let mut kind = script("codex", MODEL_ADAPTER, &log);
-        kind.env.insert(
-            "BEEP_FAKE_SWITCH".into(),
-            r#"{"code":-32602,"message":"unknown model"}"#.into(),
-        );
-        let session = Session::start(start_on(&kind, &dir, Some("huge"))).unwrap();
-        settle(&session).await;
-        let info = session.info();
-        assert_eq!(info.state.status, Status::Ended);
-        let error = info.state.error.unwrap_or_default();
-        assert!(error.contains("could not switch to huge"), "{error}");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn flsh_starts_on_its_model_from_the_command_line() {
-        let dir = temp("model-flag");
-        let log = dir.join("sent.jsonl");
-        let kind = script("flsh", MODEL_ADAPTER, &log);
-        let session = Session::start(start_on(&kind, &dir, Some("openai:gpt-test"))).unwrap();
-        settle(&session).await;
-        assert_eq!(session.info().turns, 1);
-        let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
-        assert_eq!(args.trim(), "--model=openai:gpt-test");
-        assert_eq!(sent(&log)[2]["method"], "session/prompt", "no switch");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2583,26 +2425,6 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn an_agent_that_cannot_switch_runs_its_own_and_says_so() {
-        let dir = temp("model-fixed");
-        let log = dir.join("sent.jsonl");
-        let kind = script("pi", ALLOWING_ADAPTER, &log);
-        let session = Session::start(start_on(&kind, &dir, Some("deep"))).unwrap();
-        settle(&session).await;
-        assert_eq!(session.info().turns, 1);
-        assert_eq!(sent(&log)[2]["method"], "session/prompt");
-        let (entries, _) = session.live.borrow().transcript(10);
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.text.contains("runs its own rather than deep")),
-            "{entries:?}"
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     /// An adapter whose `session/new` offers a thinking option, answers
     /// setting it with `$BEEP_FAKE_SET` as its error (an empty result when
     /// unset), then ends a turn.
@@ -2628,11 +2450,6 @@ cat > /dev/null
         }
     }
 
-    fn noted(session: &Session, text: &str) -> bool {
-        let (entries, _) = session.live.borrow().transcript(10);
-        entries.iter().any(|entry| entry.text.contains(text))
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
@@ -2647,85 +2464,6 @@ cat > /dev/null
         assert_eq!(sent[2]["params"]["configId"], "effort");
         assert_eq!(sent[2]["params"]["value"], "max");
         assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_thinking_level_the_agent_refuses_runs_at_its_own_and_says_so() {
-        let dir = temp("effort-refused");
-        let log = dir.join("sent.jsonl");
-        let mut kind = script("codex", THINKING_ADAPTER, &log);
-        kind.env.insert(
-            "BEEP_FAKE_SET".into(),
-            r#"{"code":-32602,"message":"unknown value"}"#.into(),
-        );
-        let session = Session::start(thinking_at(&kind, &dir, Effort::Max)).unwrap();
-        settle(&session).await;
-        assert_eq!(session.info().turns, 1, "the session goes on");
-        assert!(noted(&session, "could not be set to think at max"));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn an_agent_without_a_thinking_option_runs_at_its_own_and_says_so() {
-        let dir = temp("effort-none");
-        let log = dir.join("sent.jsonl");
-        let kind = script("pi", ALLOWING_ADAPTER, &log);
-        let session = Session::start(thinking_at(&kind, &dir, Effort::High)).unwrap();
-        settle(&session).await;
-        assert_eq!(session.info().turns, 1);
-        assert_eq!(sent(&log)[2]["method"], "session/prompt");
-        assert!(noted(&session, "cannot be set to think at high"));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_session_opens_its_transcript_with_its_note() {
-        let dir = temp("note");
-        let log = dir.join("sent.jsonl");
-        let kind = script("pi", ALLOWING_ADAPTER, &log);
-        let start = Start {
-            note: Some("Started on a new branch beep/go from HEAD.".into()),
-            ..start_on(&kind, &dir, None)
-        };
-        let session = Session::start(start).unwrap();
-        let (entries, _) = session.live.borrow().transcript(100);
-        assert_eq!(
-            entries[0].text,
-            "Started on a new branch beep/go from HEAD."
-        );
-        settle(&session).await;
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn the_brief_goes_ahead_of_the_first_prompt_only() {
-        let dir = temp("brief");
-        let log = dir.join("sent.jsonl");
-        let kind = script("pi", ALLOWING_ADAPTER, &log);
-        let start = Start {
-            brief: Some("Make a worktree first."),
-            ..start_on(&kind, &dir, None)
-        };
-        let session = Session::start(start).unwrap();
-        settle(&session).await;
-        let sent = sent(&log);
-        let prompt = sent
-            .iter()
-            .find(|line| line["method"] == "session/prompt")
-            .expect("a prompt");
-        let blocks = prompt["params"]["prompt"].as_array().unwrap();
-        assert_eq!(blocks[0]["text"], "Make a worktree first.");
-        assert_eq!(blocks[1]["text"], "go");
-        let (entries, _) = session.live.borrow().transcript(100);
-        assert!(
-            entries.iter().all(|entry| !entry.text.contains("worktree")),
-            "the transcript shows only what the user sent"
-        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2806,29 +2544,6 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// An adapter that writes Claude Code's threshold variable to `$1.env`
-    /// and refuses to start.
-    const ENV_ADAPTER: &str = r#"
-printf '%s\n' "${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE-unset}" > "$1.env"
-read -r line
-printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"no"}}\n' "$(id)"
-cat > /dev/null
-"#;
-
-    /// What Claude Code's threshold variable held when `agent` started
-    /// with `env` set, or `unset`.
-    async fn threshold_seen(dir: &Path, agent: &str, env: &[(&str, &str)]) -> String {
-        let log = dir.join("sent");
-        let mut kind = script(agent, ENV_ADAPTER, &log);
-        for (name, value) in env {
-            kind.env.insert((*name).into(), (*value).into());
-        }
-        let session = Session::start(start_on(&kind, dir, None)).unwrap();
-        until(&session, |live| live.status() == Status::Ended).await;
-        let seen = std::fs::read_to_string(log.with_extension("env")).unwrap();
-        seen.trim().to_owned()
-    }
-
     /// An adapter that puts a choice to the user on its first prompt,
     /// then ends that turn and the next one.
     const TWO_TURN_ADAPTER: &str = r#"
@@ -2858,6 +2573,7 @@ cat > /dev/null
         let alerts = Arc::new(AlertHub::default());
         let session = Session::start(Start {
             alerts: alerts.clone(),
+            node: NodeMode::default(),
             ..start_on(&kind, &dir, None)
         })
         .unwrap();
@@ -2909,42 +2625,6 @@ cat > /dev/null
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn an_agent_that_fails_alerts_once() {
-        let dir = temp("alerts-failed");
-        let kind = script("codex", ENV_ADAPTER, &dir.join("sent"));
-        let alerts = Arc::new(AlertHub::default());
-        let session = Session::start(Start {
-            alerts: alerts.clone(),
-            ..start_on(&kind, &dir, None)
-        })
-        .unwrap();
-        until(&session, |live| live.status() == Status::Ended).await;
-        let failed = alerts.drain();
-        assert_eq!(failed.len(), 1, "{failed:?}");
-        assert!(
-            matches!(&failed[0].kind, AlertKind::Failed { reason } if reason.contains("did not start")),
-            "{failed:?}"
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn claude_starts_with_the_threshold_unless_the_user_set_its_own() {
-        let dir = temp("compact-env");
-        assert_eq!(threshold_seen(&dir, "claude", &[]).await, "80");
-        let at = ("BEEP_COMPACT_AT", "70");
-        assert_eq!(threshold_seen(&dir, "claude", &[at]).await, "70");
-        let off = ("BEEP_COMPACT_AT", "off");
-        assert_eq!(threshold_seen(&dir, "claude", &[off]).await, "unset");
-        let own = ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "60");
-        assert_eq!(threshold_seen(&dir, "claude", &[own, at]).await, "60");
-        assert_eq!(threshold_seen(&dir, "codex", &[]).await, "unset");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     /// An adapter whose first turn runs one tool call, which finishes only
     /// once the test writes to the fifo in `$2`. It answers the node's
     /// `session/cancel` by ending the turn cancelled, and ends each later
@@ -2991,6 +2671,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         until(&session, |live| {

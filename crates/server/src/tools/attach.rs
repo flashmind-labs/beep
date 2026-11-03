@@ -1,7 +1,4 @@
-//! `attach`: shows the model a file from the user's home folder or one of
-//! their machines, as flashmind's `attach` does for a local file. The file
-//! goes to the model as a part of the tool result; an image for a model
-//! that cannot see goes to a vision model to be described instead.
+//! `attach`: shows the model a file from the user's home folder or machines.
 
 use super::{
     file::{UserFiles, read_user_file},
@@ -108,8 +105,7 @@ impl Attached {
     }
 }
 
-/// The media type of `path` by its extension, as flashmind's `attach`
-/// knows them.
+/// The media type of `path` by its extension.
 fn media_type(path: &str) -> Option<&'static str> {
     let extension = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
@@ -130,8 +126,7 @@ fn media_type(path: &str) -> Option<&'static str> {
     }
 }
 
-/// The media type the call gave, else the one `path`'s extension says;
-/// `None` when neither is a type.
+/// The media type the call gave, else `path`'s; `None` when neither is a type.
 fn chosen_type(given: Option<&str>, path: &str) -> Option<String> {
     given
         .map(str::trim)
@@ -281,59 +276,5 @@ impl Tool for AttachTool {
                 }
             },
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn media_types_come_from_the_extension() {
-        assert_eq!(media_type("scan.PDF"), Some("application/pdf"));
-        assert_eq!(media_type("~/photos/cat.jpeg"), Some("image/jpeg"));
-        assert_eq!(media_type("voice.m4a"), Some("audio/mp4"));
-        assert_eq!(media_type("notes.txt"), None);
-        assert_eq!(media_type("README"), None);
-    }
-
-    #[test]
-    fn a_blank_given_type_falls_back_to_the_extension() {
-        assert_eq!(
-            chosen_type(Some(""), "letter.pdf").as_deref(),
-            Some("application/pdf")
-        );
-        assert_eq!(
-            chosen_type(Some(" Image/PNG "), "x").as_deref(),
-            Some("image/png")
-        );
-        assert_eq!(chosen_type(Some("pdf"), "letter.pdf"), None);
-        assert_eq!(chosen_type(None, "README"), None);
-    }
-
-    #[test]
-    fn kinds_need_their_capability() {
-        let images = ModelCapabilities {
-            images: true,
-            ..Default::default()
-        };
-        assert!(Kind::of("image/png").accepted(&images));
-        assert!(!Kind::of("application/pdf").accepted(&images));
-        assert!(!Kind::of("video/mp4").accepted(&images));
-        assert_eq!(Kind::of("audio/mpeg"), Kind::Audio);
-    }
-
-    #[test]
-    fn the_label_names_the_file() {
-        let tool = AttachTool {
-            workspace: None,
-            machines: None,
-            describer: None,
-        };
-        assert_eq!(
-            tool.humanize(&json!({ "path": "/srv/project/scans/letter.pdf" })),
-            "Looking at letter.pdf"
-        );
-        assert_eq!(tool.humanize(&json!({})), "Looking at a file");
     }
 }

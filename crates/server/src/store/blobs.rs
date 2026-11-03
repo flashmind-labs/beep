@@ -1,7 +1,4 @@
-//! Where the bytes of kept files live. The `files` table says who owns a
-//! file, which chat it belongs to and what it is; a `Blobs` holds its bytes
-//! under the same id. `PgBlobs` keeps them in the `files` row itself; an
-//! object store such as S3 can take its place without the rest changing.
+//! Storage for kept file bytes under the `files` row id; `PgBlobs` keeps them in the row, an object store could replace it.
 
 use crate::protocol::FilePart;
 use anyhow::Result;
@@ -13,8 +10,7 @@ pub trait Blobs: Send + Sync {
     /// Stores `data` as the bytes of file `id`, whose `files` row exists.
     async fn put(&self, id: &str, data: &[u8]) -> Result<()>;
 
-    /// Up to `len` bytes of file `id` from `offset` on, with its whole size.
-    /// `None` when there is no such blob.
+    /// Up to `len` bytes of blob `id` from `offset`, with its total size.
     async fn part(&self, id: &str, offset: u64, len: u64) -> Result<Option<FilePart>>;
 
     /// Drops the bytes of files whose rows were deleted.

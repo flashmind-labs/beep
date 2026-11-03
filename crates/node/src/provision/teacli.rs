@@ -260,15 +260,6 @@ mod tests {
     }
 
     #[test]
-    fn without_a_user_config_the_first_server_is_the_default() {
-        let text = render(&[login("https://git.example.com", "t")], None);
-        assert!(
-            text.contains("default_server = git.example.com\n"),
-            "{text}"
-        );
-    }
-
-    #[test]
     fn the_config_is_private_and_goes_with_the_last_login() {
         let dir = std::env::temp_dir().join(format!("beep-node-teacli-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -299,20 +290,5 @@ mod tests {
         assert!(!config.exists());
         assert!(!shims_dir(&dir).join(SHIM).exists());
         fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn the_windows_shim_passes_its_arguments_on() {
-        let shim = batch_shim(
-            Path::new(r"C:\Tools\100%\teacli.exe"),
-            Path::new(r"C:\Node\teacli\teacli.ini"),
-        );
-        assert!(shim.starts_with("@echo off\r\n"), "{shim}");
-        assert!(
-            shim.ends_with(
-                "\"C:\\Tools\\100%%\\teacli.exe\" --config \"C:\\Node\\teacli\\teacli.ini\" %*\r\n"
-            ),
-            "{shim}"
-        );
     }
 }

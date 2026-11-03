@@ -1,7 +1,5 @@
-//! Replays made-up group chats through Jev's two group questions, whether
-//! Beep should answer unmentioned and whether the message teaches something
-//! lasting, and prints every case Jev gets wrong. It calls OpenRouter, so it
-//! is ignored by default:
+//! Replays made-up group chats through Jev's two group questions and prints every wrong answer.
+//! Calls OpenRouter, so it is ignored by default:
 //!
 //! `OPENROUTER_KEY=... cargo test -p beep-server group_eval -- --ignored --nocapture`
 
@@ -25,8 +23,7 @@ struct Case {
     name: &'static str,
     /// `(author, text)`, oldest first; "Beep" is Beep.
     chat: &'static [(&'static str, &'static str)],
-    /// Whether Beep should answer the last message unmentioned. Ignored
-    /// when it mentions @beep, which always answers.
+    /// Whether Beep should answer the last message unmentioned (an @beep always answers).
     answer: bool,
     /// Whether the last message teaches something lasting about a member.
     learn: bool,

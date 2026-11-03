@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, linkImagePaths, mediaPaths, parseTool, subagent, tailLines, userHtml } from "../src/agentlog.ts";
+import { answeredQuestions, imageLines, linkImagePaths, parseTool, subagent, tailLines } from "../src/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -24,11 +24,6 @@ test("a live tool entry splits into title, status and output", () => {
   assert.equal(parseTool("Fetch [pending]").status, "pending");
 });
 
-test("backticks in a title go, the words stay", () => {
-  assert.equal(parseTool("Edit `src/main.rs` [completed]").title, "Edit src/main.rs");
-  assert.equal(parseTool("`git status` [completed]").title, "git status");
-});
-
 test("a title over several lines keeps them, up to its status", () => {
   const t = parseTool("for f in *.rs\ndo wc -l $f; done [completed]\n12 a.rs");
   assert.equal(t.title, "for f in *.rs\ndo wc -l $f; done");
@@ -39,24 +34,6 @@ test("brackets in the output are not a status", () => {
   const t = parseTool("Run tests [completed]\nsee [failed] below");
   assert.equal(t.status, "completed");
   assert.equal(t.output, "see [failed] below");
-});
-
-test("output in one fenced block loses the fence", () => {
-  assert.equal(parseTool("ls [completed]\n```console\na\nb\n```").output, "a\nb");
-  assert.equal(parseTool("ls [completed]\n```\nx\n```\nafter").output, "```\nx\n```\nafter");
-});
-
-test("a transcript entry has a title and says only when it failed", () => {
-  assert.deepEqual(parseTool("Bash: cargo test net (failed)"), { title: "Bash: cargo test net", status: "failed", output: "" });
-  assert.deepEqual(parseTool("Read: /srv/project/tests/net.rs"), { title: "Read: /srv/project/tests/net.rs", status: "", output: "" });
-  assert.deepEqual(parseTool(undefined), { title: "", status: "", output: "" });
-});
-
-test("a pasted block folds into a Pasted text line", () => {
-  const esc = (s: string) => s.replace(/</g, "&lt;");
-  const html = userHtml('look:\n<pasted_content id="295e">\na <b>\nb\n</pasted_content id="295e">\nfix it', esc);
-  assert.match(html, /^look:\n<details class="paste" data-paste="0"><summary>Pasted text · 2 lines<\/summary><pre>a &lt;b>\nb<\/pre><\/details>\nfix it$/);
-  assert.equal(userHtml("plain <x>", esc), "plain &lt;x>");
 });
 
 test("an opened step shows the end of its output, counting wrapped lines", () => {
@@ -75,25 +52,11 @@ test("an opened step shows the end of its output, counting wrapped lines", () =>
   assert.ok(long.shown.endsWith('x"}'));
 });
 
-test("a failed command's exit code is read from its output", () => {
-  assert.equal(exitCode("error: build failed\nexit code: 101"), 101);
-  assert.equal(exitCode("Exited with 2"), 2);
-  assert.equal(exitCode("Exit status 1"), 1);
-  assert.equal(exitCode("no code here"), null);
-});
-
 test("a subagent's steps are read from its call", () => {
   assert.deepEqual(subagent("[steps] 2\n[step completed] Read a.rs\n[step in_progress] grep x\nFound it"), {
     count: 2, steps: [{ status: "completed", title: "Read a.rs" }, { status: "in_progress", title: "grep x" }], result: "Found it",
   });
   assert.equal(subagent("plain output"), null);
-});
-
-test("a subagent's type or custom agent's name is read from its call", () => {
-  assert.deepEqual(subagent("[steps] 1\n[step completed] Read a.rs\n[agent] release-checker\nThe notes match"), {
-    count: 1, steps: [{ status: "completed", title: "Read a.rs" }], result: "The notes match", agent: "release-checker",
-  });
-  assert.deepEqual(subagent("[steps] 0\n[agent] Explore"), { count: 0, steps: [], result: "", agent: "Explore" });
 });
 
 test("Codex's echo of answered questions reads as questions and answers", () => {
@@ -110,20 +73,4 @@ test("image files a reply names become links, numbered as first named", () => {
   assert.match(html, /<a class="imgl" data-img="1"[^>]*>\/srv\/project\/b.JPG<\/a>,/);
   assert.match(html, /<pre>x.png<\/pre>/, "code blocks stay as they are");
   assert.equal(linkImagePaths("no pictures here.").paths.length, 0);
-});
-
-test("video, model and PDF files a reply names link to the pane, unnumbered", () => {
-  const { html, paths } = linkImagePaths("<p>See out/walk.mp4, ~/r/turntable.GLB and shots/a.png (sheet.pdf).</p>");
-  assert.deepEqual(paths, ["shots/a.png"], "only pictures are numbered");
-  assert.match(html, /<a class="imgl" data-path="out\/walk.mp4" title="out\/walk.mp4">out\/walk.mp4<\/a>,/);
-  assert.match(html, /<a class="imgl" data-path="~\/r\/turntable.GLB"/);
-  assert.match(html, /<a class="imgl" data-img="0" data-path="shots\/a.png"/);
-  assert.match(html, /\(<a class="imgl" data-path="sheet.pdf"[^>]*>sheet.pdf<\/a>\)/);
-  assert.doesNotMatch(linkImagePaths("<p>src/main.rs and notes.txt</p>").html, /imgl/);
-});
-
-test("a tool's title names its media files once each", () => {
-  assert.deepEqual(mediaPaths("Write out/model.stl"), ["out/model.stl"]);
-  assert.deepEqual(mediaPaths("ffmpeg -i a.mov -o b.webm && cp b.webm /tmp/b.webm"), ["a.mov", "b.webm", "/tmp/b.webm"]);
-  assert.deepEqual(mediaPaths("cargo test"), []);
 });

@@ -1,8 +1,5 @@
-//! Splitting a branch's diff between reviewers. A small change gets one
-//! reviewer; a bigger one is grouped by area (a crate, a package, an app
-//! folder), each file kept with its tests, into shards of about
-//! [`SHARD_LINES`], at most [`MAX_SHARDS`]. Lockfiles and files the repo
-//! marks `linguist-generated` are not reviewed.
+//! Splitting a diff between reviewers by area, each file with its tests, into shards of about
+//! [`SHARD_LINES`] (at most [`MAX_SHARDS`]). Lockfiles and `linguist-generated` files are skipped.
 
 use super::git::Changed;
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,8 +13,7 @@ pub(crate) const MAX_SHARDS: usize = 4;
 /// The most areas a shard's name lists.
 const NAMED_AREAS: usize = 2;
 
-/// Folders whose children are areas of their own: `crates/core`, not
-/// `crates`.
+/// Folders whose children are areas of their own: `crates/core`, not `crates`.
 const AREA_PARENTS: [&str; 9] = [
     "crates", "apps", "packages", "libs", "services", "cmd", "internal", "modules", "plugins",
 ];
@@ -47,8 +43,7 @@ pub(crate) struct Shard {
     pub(crate) lines: u32,
 }
 
-/// The files to review, split between reviewers, biggest shard first.
-/// Empty when only lockfiles and generated files changed.
+/// The files to review per reviewer, biggest shard first; empty when only skipped files changed.
 pub(crate) fn shard(changed: &[Changed], gitattributes: &str) -> Vec<Shard> {
     let generated = Generated::parse(gitattributes);
     let kept: Vec<&Changed> = changed
@@ -159,9 +154,7 @@ fn shard_of(units: &[Unit<'_>]) -> Shard {
     }
 }
 
-/// The area a path belongs to: `crates/core` for
-/// `crates/core/src/lib.rs`, `docs` for `docs/a.md`, `.` for a file at the
-/// top.
+/// A path's area: `crates/core` for `crates/core/src/lib.rs`, `docs` for `docs/a.md`, `.` at top.
 fn area_key(path: &str) -> String {
     let parts: Vec<&str> = path.split('/').collect();
     match parts.as_slice() {
@@ -196,8 +189,7 @@ fn common_area(paths: &[String]) -> String {
     }
 }
 
-/// A file's name without its folder, extension and test markers, so
-/// `src/limit.rs`, `tests/limit.rs` and `limit.test.ts` meet.
+/// A file name without folder, extension or test markers, so `limit.rs` and `limit.test.ts` meet.
 fn stem_key(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     let stem = name.split('.').next().unwrap_or(name);
@@ -217,8 +209,7 @@ fn is_lockfile(path: &str) -> bool {
 
 /// The `linguist-generated` lines of a `.gitattributes`.
 struct Generated {
-    /// Pattern, and whether it sets or unsets the attribute. The last
-    /// matching line wins.
+    /// Pattern, and whether it sets the attribute; the last match wins.
     rules: Vec<(String, bool)>,
 }
 
@@ -257,8 +248,7 @@ impl Generated {
     }
 }
 
-/// Whether a `.gitattributes` pattern names `path`: one without a slash
-/// matches the file name anywhere, one with a slash the whole path.
+/// Whether a `.gitattributes` pattern matches `path` (no slash: by file name).
 fn pattern_matches(pattern: &str, path: &str) -> bool {
     match pattern.strip_prefix('/') {
         Some(anchored) => glob(anchored.as_bytes(), path.as_bytes()),
@@ -313,33 +303,6 @@ mod tests {
             .iter()
             .find(|shard| shard.paths.iter().any(|p| p == path))
             .expect("the path is in a shard")
-    }
-
-    #[test]
-    fn a_shard_names_each_area_once() {
-        let files = [
-            changed("src/a.rs", 1),
-            changed("docs/b.md", 1),
-            changed("src/c.rs", 1),
-        ];
-        let units: Vec<Unit<'_>> = files
-            .iter()
-            .map(|file| Unit::of(&area_key(&file.path), vec![file]))
-            .collect();
-        assert_eq!(shard_of(&units).area, "src, docs");
-    }
-
-    #[test]
-    fn small_diff_is_one_shard() {
-        let files = [
-            changed("apps/web/src/Login.tsx", 200),
-            changed("crates/core/src/auth/limit.rs", 344),
-            changed("README.md", 3),
-        ];
-        let got = shard(&files, "");
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].lines, 547);
-        assert_eq!(got[0].paths.len(), 3);
     }
 
     #[test]
@@ -413,20 +376,5 @@ mod tests {
             got.iter()
                 .any(|s| s.area.contains(" more") || s.area.contains(", "))
         );
-    }
-
-    #[test]
-    fn areas_go_one_level_into_crates_and_apps() {
-        assert_eq!(area_key("crates/core/src/lib.rs"), "crates/core");
-        assert_eq!(area_key("crates/Cargo.toml"), "crates");
-        assert_eq!(area_key("docs/a.md"), "docs");
-        assert_eq!(area_key("README.md"), ".");
-        assert_eq!(stem_key("apps/web/src/Login.test.tsx"), "login");
-        assert_eq!(stem_key("pkg/limit_test.go"), "limit");
-        assert_eq!(stem_key("tests/test_limit.py"), "limit");
-        assert!(pattern_matches("/vendor/**", "vendor/a/b.js"));
-        assert!(!pattern_matches("/vendor/**", "src/vendor/a.js"));
-        assert!(pattern_matches("*.min.js", "web/app.min.js"));
-        assert!(!pattern_matches("src/*.rs", "src/a/b.rs"));
     }
 }

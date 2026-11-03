@@ -54,8 +54,7 @@ impl Store {
         rows.iter().map(row_from).collect()
     }
 
-    /// Saves `text` as the version after `base`, unless a newer one than
-    /// `base` is there.
+    /// Saves `text` as the version after `base`, unless a newer one exists.
     pub(crate) async fn save_instructions(
         &self,
         user: &UserKey,

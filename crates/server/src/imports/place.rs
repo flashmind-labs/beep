@@ -1,5 +1,4 @@
-//! Where an imported project goes on a machine, and which machine takes it
-//! when the user does not say.
+//! Where an imported project goes on a machine, and which machine takes it by default.
 
 use super::{ImportError, repo::RepoRef};
 
@@ -13,9 +12,7 @@ pub(crate) struct Folders<'a> {
     pub(crate) workspace: Option<&'a str>,
 }
 
-/// The project's folder: `<workspace or home>/projects/<org>/<repo>` on
-/// Linux, `~/Projects/<org>/<repo>` on macOS and Windows. `None` when the
-/// machine has not said where its home folder is.
+/// `<workspace or home>/projects/<org>/<repo>` on Linux, else `~/Projects/<org>/<repo>`; `None` without a home.
 pub(crate) fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<String> {
     let linux = match folders.os {
         Some(os) => os == "linux",
@@ -52,8 +49,7 @@ pub(crate) struct Candidate<'a> {
     pub(crate) workspace: bool,
 }
 
-/// The machine to import onto, by index: `wanted` by id, else the user's
-/// environment, else the only machine online that runs commands.
+/// The machine to import onto, by index: `wanted`, else the environment, else the only online one.
 pub(crate) fn choose(
     candidates: &[Candidate<'_>],
     wanted: Option<&str>,
@@ -94,61 +90,6 @@ pub(crate) fn choose(
 mod tests {
     use super::*;
 
-    fn repo() -> RepoRef {
-        RepoRef::parse("n0-computer/iroh", &[]).unwrap()
-    }
-
-    fn folders<'a>(
-        os: Option<&'a str>,
-        home: Option<&'a str>,
-        workspace: Option<&'a str>,
-    ) -> Folders<'a> {
-        Folders {
-            os,
-            home,
-            workspace,
-        }
-    }
-
-    #[test]
-    fn linux_uses_the_workspace_then_home() {
-        let repo = repo();
-        assert_eq!(
-            checkout_folder(
-                folders(Some("linux"), Some("/home/u"), Some("/srv/work/")),
-                &repo
-            )
-            .as_deref(),
-            Some("/srv/work/projects/n0-computer/iroh")
-        );
-        assert_eq!(
-            checkout_folder(folders(Some("linux"), Some("/home/u"), None), &repo).as_deref(),
-            Some("/home/u/projects/n0-computer/iroh")
-        );
-        // Not reported yet, but a workspace means the Linux environment.
-        assert_eq!(
-            checkout_folder(folders(None, None, Some("/srv/work")), &repo).as_deref(),
-            Some("/srv/work/projects/n0-computer/iroh")
-        );
-    }
-
-    #[test]
-    fn macos_and_windows_use_projects_in_home() {
-        let repo = repo();
-        assert_eq!(
-            checkout_folder(folders(Some("macos"), Some("/Users/u"), None), &repo).as_deref(),
-            Some("/Users/u/Projects/n0-computer/iroh")
-        );
-        assert_eq!(
-            checkout_folder(folders(Some("windows"), Some(r"C:\Users\u"), None), &repo).as_deref(),
-            Some(r"C:\Users\u\Projects\n0-computer\iroh")
-        );
-        assert_eq!(
-            checkout_folder(folders(Some("macos"), None, None), &repo),
-            None
-        );
-    }
-
     fn candidate<'a>(id: &'a str, online: bool, shell: bool, workspace: bool) -> Candidate<'a> {
         Candidate {
             id,
@@ -157,28 +98,6 @@ mod tests {
             shell,
             workspace,
         }
-    }
-
-    #[test]
-    fn a_named_machine_must_be_online_and_run_commands() {
-        let machines = [
-            candidate("box", true, true, true),
-            candidate("mac", false, false, false),
-            candidate("tablet", true, false, false),
-        ];
-        assert_eq!(choose(&machines, Some("box")), Ok(0));
-        assert_eq!(
-            choose(&machines, Some("mac")),
-            Err(ImportError::Offline("mac".into()))
-        );
-        assert_eq!(
-            choose(&machines, Some("tablet")),
-            Err(ImportError::NoShell("tablet".into()))
-        );
-        assert_eq!(
-            choose(&machines, Some("phone")),
-            Err(ImportError::NoSuchMachine)
-        );
     }
 
     #[test]

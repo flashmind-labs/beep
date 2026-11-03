@@ -1,6 +1,4 @@
-//! Removing a project from Beep: when the user asks, and once no machine
-//! has its folder any more. Rows go and what runs for it stops; no file on
-//! any machine is deleted.
+//! Removing a project from Beep, on request or once no machine has its folder. Files are never deleted.
 
 use super::gone::{self, Place};
 use crate::{
@@ -22,11 +20,7 @@ const LOOK_LIMIT: Duration = Duration::from_secs(20);
 /// The most output kept from that look.
 const MAX_OUTPUT: usize = 64 * 1024;
 
-/// Removes the user's project `name`; `false` when they have none of that
-/// name. Its rows go first, then its live workers' sessions are closed,
-/// its terminals and reviewers stopped and its machines told to stop
-/// syncing it. A machine that is offline keeps what runs there until it
-/// is stopped by hand; its files are never touched.
+/// Removes project `name` and stops what runs for it; `false` when absent. Offline machines keep running.
 pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str) -> Result<bool> {
     let Some(removed) = user.remove_project_rows(name).await? else {
         return Ok(false);
@@ -87,10 +81,7 @@ fn online(app: &App, user: &User, endpoint: &str) -> Option<Online> {
         .filter(|online| online.user == user.id())
 }
 
-/// Looks for the user's project folders on `node`, the machine
-/// `endpoint`, and drops the machine from each project whose folder it
-/// clearly no longer has; a project no machine has any more is removed.
-/// Gives how many folders were dropped.
+/// Drops `endpoint` from projects whose folder it no longer has; returns how many were dropped.
 pub(crate) async fn drop_missing(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -125,8 +116,7 @@ pub(crate) async fn drop_missing(
     drop_places(app, user, endpoint, &missing).await
 }
 
-/// Drops `endpoint` from the project of each of `missing`, and removes a
-/// project left on no machine. Gives how many were dropped.
+/// Drops `endpoint` from each of `missing`'s projects, removing orphans; returns how many.
 pub(crate) async fn drop_places(
     app: &Arc<App>,
     user: &Arc<User>,

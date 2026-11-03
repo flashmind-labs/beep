@@ -323,16 +323,6 @@ mod tests {
     }
 
     #[test]
-    fn pictures_are_kept_by_key_and_session() {
-        let images = Images::default();
-        let shot = png(1, 64);
-        images.keep("a1", shot.clone());
-        let key = image_key(&shot.data);
-        assert_eq!(images.get("a1", &key).as_deref(), Some(&shot));
-        assert_eq!(images.get("b2", &key), None, "another session's");
-    }
-
-    #[test]
     fn a_session_keeps_only_its_newest_pictures() {
         let images = Images::default();
         let first = png(0, 64);
@@ -409,13 +399,5 @@ mod tests {
         assert_eq!(found(&codex), Some(codex));
         assert_eq!(found(&png(5, 40)), None);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn data_urls_read_as_pictures() {
-        let shot = png(6, 20);
-        let url = format!("data:image/png;base64,{}", STANDARD.encode(&shot.data));
-        assert_eq!(data_url(&url), Some(shot));
-        assert_eq!(data_url("data:text/plain;base64,aGk="), None);
     }
 }

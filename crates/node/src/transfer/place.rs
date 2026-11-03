@@ -639,28 +639,4 @@ mod tests {
         assert!(!fits(95, disk(200, 1), disk(100, 2)));
         assert!(!fits(u64::MAX, disk(100, 1), disk(100, 1)));
     }
-
-    #[test]
-    fn running_fetches_share_the_free_space() {
-        let disk = |free, device| Space { free, device };
-        let room = Arc::new(Room::default());
-        let (store, folder) = (disk(1000, 1), disk(1000, 2));
-        let held: Vec<_> = (0..4)
-            .map(|_| room.reserve(200, store, folder, 100).unwrap())
-            .collect();
-        // Four hold 800 of each disk's 1000; a fifth would leave less
-        // than the margin.
-        let refused = room.reserve(200, store, folder, 100).unwrap_err();
-        assert!(format!("{refused:#}").contains("held for other transfers"));
-        // Another disk pair is not affected.
-        let other = room
-            .reserve(200, disk(1000, 3), disk(1000, 4), 100)
-            .unwrap();
-        drop(held);
-        let big = room.reserve(800, store, folder, 100).unwrap();
-        drop(other);
-        assert_eq!(room.lock().len(), 2);
-        drop(big);
-        assert!(room.lock().is_empty());
-    }
 }

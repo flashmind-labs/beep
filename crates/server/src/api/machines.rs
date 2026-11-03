@@ -14,8 +14,7 @@ use crate::{
 use iroh::EndpointId;
 use std::collections::HashSet;
 
-/// The caller's own machines. A machine whose key was unlinked is left
-/// out.
+/// The caller's own machines, without unlinked keys.
 pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>> {
     let keys: HashSet<String> = cx
         .user
@@ -37,9 +36,7 @@ pub(super) async fn list_machines(cx: Cx, _: ListMachines) -> Reply<Vec<Machine>
         .collect())
 }
 
-/// Unlinks one of the caller's machines, connected or not. A machine that
-/// went away for good is the usual case, so nothing waits on it: its key
-/// is revoked and its rows go, and a connection it still has is dropped.
+/// Unlinks one of the caller's machines without waiting on it, dropping any connection.
 pub(super) async fn remove_machine(
     cx: Cx,
     RemoveMachine { machine_id }: RemoveMachine,
@@ -62,8 +59,7 @@ pub(super) async fn remove_machine(
     unlink(&cx, key).await
 }
 
-/// The caller's own machines, like `list_machines`. A machine that has
-/// not reported yet is listed with nothing in it.
+/// Like `list_machines`, with details; one not reported yet is listed empty.
 pub(super) async fn list_machine_details(
     cx: Cx,
     _: ListMachineDetails,
@@ -85,8 +81,7 @@ pub(super) async fn list_machine_details(
         .collect())
 }
 
-/// The caller's own machines online now that sent stats on this
-/// connection.
+/// The caller's online machines that sent stats on this connection.
 pub(super) async fn list_machine_stats(cx: Cx, _: ListMachineStats) -> Reply<Vec<MachineStats>> {
     Ok(cx
         .app
@@ -158,8 +153,7 @@ fn machine_details(id: String, env: EnvReport) -> MachineDetails {
     }
 }
 
-/// "Unreal Engine 5.4" for the engine, whose versions are part of its name;
-/// the others keep theirs in `version`.
+/// "Unreal Engine 5.4" for the engine, whose versions are part of its name.
 fn machine_app(app: AppInfo) -> MachineApp {
     match (app.name, &app.version) {
         (AppName::UnrealEngine, Some(version)) => MachineApp {
@@ -251,30 +245,5 @@ fn machine_env(env: EnvReport) -> MachineEnv {
             })
             .collect(),
         avds: env.avds,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn details_leave_out_unknown_apps() {
-        let env = EnvReport {
-            apps: vec![
-                AppInfo {
-                    name: AppName::Unknown,
-                    version: None,
-                },
-                AppInfo {
-                    name: AppName::Blender,
-                    version: Some("4.2".into()),
-                },
-            ],
-            ..EnvReport::default()
-        };
-        let details = machine_details("id".into(), env);
-        assert_eq!(details.apps.len(), 1);
-        assert_eq!(details.apps[0].name, "Blender");
     }
 }

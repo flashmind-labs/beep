@@ -1,5 +1,4 @@
-//! What decides when a scope of the user's memories is curated: when it was
-//! last curated, how big it was then, and the signals counted since.
+//! When a memory scope is due for curation: last curation, size then, and signals since.
 
 use super::Scope;
 use crate::{
@@ -72,9 +71,7 @@ impl Store {
         Ok(())
     }
 
-    /// Records that the user's memories in `scope` were just curated and
-    /// now number `size`, clearing the signals `counted` held when curation
-    /// started. Signals noted while it ran stay for the next one.
+    /// Marks `scope` curated at `size`, clearing the `counted` signals; ones noted during the run stay.
     pub(crate) async fn mark_curated(
         &self,
         user: &UserKey,

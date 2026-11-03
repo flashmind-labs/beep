@@ -5,8 +5,7 @@ use serde_json::Value;
 use std::fmt;
 use strum::{EnumString, IntoStaticStr};
 
-/// The app an event happened in. Its slug is the catalog's, so the app's
-/// permission level applies.
+/// The app an event happened in; its slug is the catalog's, so its permission level applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, IntoStaticStr)]
 pub enum EventApp {
     #[strum(serialize = "gmail")]
@@ -50,8 +49,7 @@ pub enum EventKind {
     ReviewRequested,
     Mention,
     Assigned,
-    /// Activity on a pull request in a repository the user watches, such
-    /// as a new one being opened.
+    /// Activity on a pull request in a watched repository.
     PullRequest,
     CiFailed,
     /// Comments or reviews on something the user opened or commented on.
@@ -82,8 +80,7 @@ impl EventKind {
         }
     }
 
-    /// Whether an event of this kind is likely to need the user soon, by its
-    /// kind alone. Used when triage fails and nothing read the event.
+    /// Whether this kind alone suggests urgency; used when triage fails.
     pub fn looks_urgent(self) -> bool {
         matches!(
             self,

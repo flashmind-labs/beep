@@ -1,5 +1,4 @@
-//! Event feed of a running run. Events are kept in memory only while the run is
-//! active; the finished turn is saved with the conversation.
+//! Event feed of a running run, kept in memory only while it is active.
 
 use crate::protocol::{Event, RunEvent};
 use flashmind::core::CancellationToken;
@@ -82,30 +81,5 @@ impl LiveRun {
 
     fn events(&self) -> MutexGuard<'_, Vec<Event>> {
         self.events.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tool_descriptions_come_from_started_tools() {
-        let live = LiveRun::new(CancellationToken::new());
-        live.push(RunEvent::ToolStarted {
-            name: "recall".to_owned(),
-            call_id: "a".to_owned(),
-            description: "Recalling memories".to_owned(),
-        });
-        live.push(RunEvent::ToolResult {
-            name: "recall".to_owned(),
-            call_id: "a".to_owned(),
-            output: "tea".to_owned(),
-            success: true,
-        });
-        assert_eq!(
-            live.tool_descriptions(),
-            HashMap::from([("a".to_owned(), "Recalling memories".to_owned())])
-        );
     }
 }

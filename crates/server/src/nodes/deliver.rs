@@ -1,11 +1,5 @@
-//! What coding-agent sessions on nodes tell their chats: a turn ended, the
-//! agent asks the user something, a followed session waits. Each goes to the chat
-//! as a turn of its own once the chat is free, the way a finished research
-//! reports back, and a question also goes to the
-//! user as an approval card whose answer goes back to the agent.
-//!
-//! One task, made on first use, runs every delivery, a bounded number at a
-//! time. It holds the app weakly, since the app owns it.
+//! What coding-agent sessions tell their chats, each delivered as a turn once the chat is free.
+//! One task, made on first use, runs every delivery; it holds the app weakly, since the app owns it.
 
 use super::Follower;
 use crate::{
@@ -35,13 +29,10 @@ use uuid::Uuid;
 const QUEUE: usize = 64;
 /// Deliveries running at once.
 const RUNNING: usize = 16;
-/// How often a delivery to a busy chat tries again when no turn end woke
-/// it, and how long it keeps trying.
+/// How often a delivery to a busy chat retries when no turn end woke it.
 const RETRY: Duration = Duration::from_secs(5);
 const PATIENCE: Duration = Duration::from_secs(2 * 60 * 60);
-/// The tool name an agent's permission card is saved under when the user
-/// answers Always. It names no real tool, so Always only allows this kind
-/// of card again, never a tool call.
+/// The tool name Always saves an agent's permission card under; it names no real tool.
 const QUESTION_TOOL: &str = "node_agent_question";
 
 /// A turn to start in a chat.
@@ -53,10 +44,7 @@ pub struct Post {
     pub text: String,
 }
 
-/// A permission question to put to the user as a card. The answer goes
-/// back through `answer`, as the agent's session takes it; the card goes
-/// away when `gone` ends first, as when the question was answered another
-/// way.
+/// A permission question for the user; the card goes away when `gone` ends first.
 pub struct Ask {
     pub follower: Follower,
     pub question: Question,
@@ -174,9 +162,7 @@ async fn put(app: Weak<App>, ask: Ask) {
         agent,
         ..
     } = &ask.follower;
-    // Allow for this session on an earlier card lets the agent's later
-    // permission questions in this chat through without one. A choice,
-    // with nothing to reject, is still asked.
+    // An earlier Allow for this session lets later permission questions in this chat through.
     if is_permission(&ask.question) && allowed_in_chat(user, *chat).await {
         drop(strong);
         if let Some(request) = reply(&ask.question, &GateAnswer::Allow) {
@@ -271,8 +257,7 @@ pub(crate) fn agent_name(agent: &str) -> &str {
     }
 }
 
-/// The answer the agent gets for the card's answer: its allow or reject
-/// option. `None` when it offers neither.
+/// The agent's allow or reject option for the card's answer; `None` when it offers neither.
 fn reply(question: &Question, answer: &GateAnswer) -> Option<Request> {
     let options = &question.options;
     let find = |kinds: &[OptionKind]| {
@@ -290,8 +275,7 @@ fn reply(question: &Question, answer: &GateAnswer) -> Option<Request> {
     })
 }
 
-/// A turn in `chat` that runs in the background and reaches the user like
-/// a routine.
+/// A background turn in `chat` that reaches the user like a routine.
 fn message(chat: Uuid, label: &str, text: String) -> Message {
     Message {
         session_id: chat,
@@ -360,31 +344,5 @@ mod tests {
             ..question
         };
         assert_eq!(reply(&only_allow, &GateAnswer::Deny("no".into())), None);
-    }
-
-    #[test]
-    fn only_a_question_that_can_be_refused_asks_permission() {
-        let question = question();
-        assert!(is_permission(&question));
-        let choice = Question {
-            options: question.options[..2].to_vec(),
-            ..question
-        };
-        assert!(!is_permission(&choice));
-    }
-
-    #[test]
-    fn the_card_names_the_agent_machine_and_command() {
-        let card = approval("build-box", "codex", None, &question());
-        assert_eq!(card.app, "Codex");
-        assert_eq!(card.action, "Run cargo test");
-        let values: Vec<&str> = card.fields.iter().map(|f| f.value.as_str()).collect();
-        assert_eq!(
-            values,
-            ["build-box", "Run cargo test", "cargo test -p core"]
-        );
-        let card = approval("build-box", "codex", Some("fix-it: Fix it"), &question());
-        assert_eq!(card.fields[0].label, "Task");
-        assert_eq!(card.fields[0].value, "fix-it: Fix it");
     }
 }

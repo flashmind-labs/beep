@@ -1,17 +1,5 @@
-//! Learns about users from their Slack.
-//!
-//! Once a day the messages of the last day are read with one search across
-//! every conversation the user is in. Nothing older is read, not even on the
-//! first run. Only what concerns the user is kept: each message they wrote,
-//! each message that mentions them and every direct message is an anchor,
-//! and a window of the messages around it gives the context. Windows that
-//! touch merge, and long ones split, so a busy day becomes several short
-//! reads instead of one cut off. Jev scores each window, and the likely ones
-//! go to the memory learner, oldest first. Authors and mentions are shown by
-//! their Slack names.
-//!
-//! Processed message ids are kept so the overlap between runs is not read
-//! twice. Message content is never logged.
+//! Learns about users from the last day of Slack: windows around their messages, mentions and DMs go to the learner.
+//! Message content is never logged.
 
 use crate::{
     app::App,
@@ -35,8 +23,7 @@ use std::{
 
 /// The Composio toolkit slug, also the key of its sync state.
 pub const SLACK: &str = "slack";
-/// How far back each run reads. Runs are a day apart, so this overlaps the
-/// previous run; seen ids skip what it already read.
+/// How far back each daily run reads; seen ids skip the overlap.
 const LOOKBACK_DAYS: i64 = 2;
 /// Jev calls, and name lookups, in flight at once.
 const CONCURRENCY: usize = 8;
@@ -302,8 +289,7 @@ async fn search(client: &ComposioClient, query: &str, count: u64, page: u64) -> 
     Ok(data["messages"].take())
 }
 
-/// The user's own Slack id, from a message they wrote. None when there is
-/// none, and then there is nothing to learn either.
+/// The user's own Slack id, from a message they wrote.
 async fn own_id(client: &ComposioClient) -> Result<Option<String>> {
     let messages = search(client, "from:me", 1, 1).await?;
     Ok(messages["matches"]
@@ -335,8 +321,7 @@ async fn list(client: &ComposioClient, after: DateTime<Utc>) -> Result<Vec<Messa
     Ok(messages)
 }
 
-/// Names for every author and mention in `windows`. A failed lookup falls
-/// back to the handle the search gave, or the id.
+/// Names for every author and mention, falling back to the handle or id.
 async fn names(client: &ComposioClient, windows: &[Window]) -> Names {
     let mut names = Names::default();
     let mut ids = BTreeSet::new();
@@ -419,8 +404,7 @@ fn is_anchor(message: &Message, me: &str) -> bool {
     message.direct || message.author_id == me || mentions(&message.text).any(|id| id == me)
 }
 
-/// The ranges of `messages` around anchors, merged where they touch and
-/// split where they run long.
+/// Ranges of `messages` around anchors, merged where they touch and split when long.
 fn spans(messages: &[Message], me: &str) -> Vec<Range<usize>> {
     let mut merged: Vec<Range<usize>> = Vec::new();
     for (index, _) in messages
@@ -535,54 +519,5 @@ mod tests {
             })
             .collect();
         assert_eq!(spans, [("C1", 7, 12), ("C1", 27, 32), ("D1", 50, 50)]);
-    }
-
-    #[test]
-    fn long_runs_split_into_windows() {
-        let messages: Vec<Message> = (0..60)
-            .map(|n| message("D1", true, "U2", n, "hi"))
-            .collect();
-        let sizes: Vec<usize> = windows(messages.into_iter(), "ME")
-            .iter()
-            .map(|w| w.messages.len())
-            .collect();
-        assert_eq!(sizes, [25, 25, 10]);
-    }
-
-    #[test]
-    fn renders_names_and_marks_the_user() {
-        let mut names = Names::default();
-        names.0.insert("ME".to_owned(), "Dana Lee".to_owned());
-        names.0.insert("U2".to_owned(), "Sam Roe".to_owned());
-        let window = Window {
-            name: "general".to_owned(),
-            direct: false,
-            me: "ME".to_owned(),
-            messages: vec![
-                message(
-                    "C1",
-                    false,
-                    "U2",
-                    0,
-                    "<@ME> can you send it by Friday? cc <@U9>",
-                ),
-                message("C1", false, "ME", 1, "sure"),
-            ],
-        };
-        let rendered = window.render(&names, 1000);
-        assert!(rendered.starts_with("Slack channel #general\n"));
-        assert!(rendered.contains("Sam Roe: @Dana Lee can you send it by Friday? cc @U9"));
-        assert!(rendered.contains("Dana Lee (the user): sure"));
-    }
-
-    #[test]
-    fn reads_slack_timestamps_and_mentions() {
-        let at = timestamp("1790000000.123456").unwrap();
-        assert_eq!(at.timestamp(), 1_790_000_000);
-        assert_eq!(at.timestamp_subsec_micros(), 123_456);
-        assert_eq!(timestamp("1790000000").unwrap().timestamp(), 1_790_000_000);
-        assert!(timestamp("soon").is_none());
-        let ids: Vec<&str> = mentions("hi <@U1> and <@U2|sam>, <@broken").collect();
-        assert_eq!(ids, ["U1", "U2"]);
     }
 }

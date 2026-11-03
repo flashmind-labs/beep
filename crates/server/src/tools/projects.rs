@@ -1,6 +1,4 @@
-//! `projects`: the user's projects, where each is checked out, their open
-//! pull requests, issues and tasks, and the coding agents working in them.
-//! It only reads, so it never asks first.
+//! `projects`: the user's projects, checkouts, open items and agents. Read only.
 
 use crate::{
     api::machine_sessions,
@@ -23,8 +21,7 @@ use std::{
 
 pub(crate) const NAME: &str = "projects";
 
-/// The line the projects section of a turn's context starts with, also how
-/// a chat finds the one it last got.
+/// The projects section's first line, also how a chat finds the last one it got.
 pub(crate) const HEADER: &str = "The user's projects (`projects` gives their machines, open PRs, \
     issues, tasks and coding sessions):";
 
@@ -127,8 +124,7 @@ impl Tool for ProjectsTool {
     }
 }
 
-/// The context's projects section: the names only, so "my projects"
-/// resolves without a call. `None` without projects.
+/// The context's projects section, names only; `None` without projects.
 pub(crate) fn context_block(names: &[RepoName]) -> Option<String> {
     if names.is_empty() {
         return None;
@@ -179,8 +175,7 @@ async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
         let name = row.name.to_string();
         let mut url = None;
         let mut places = Vec::new();
-        // A machine since unlinked has no name and is left out, as the
-        // imported list leaves it out.
+        // A machine since unlinked has no name and is left out.
         for import in imports
             .iter()
             .filter(|import| import.project.eq_ignore_ascii_case(&name))
@@ -256,8 +251,7 @@ async fn live(app: &App, user: &User) -> Live {
     }
 }
 
-/// The user's open items on their git hosts, and notes on the hosts that
-/// did not answer.
+/// The user's open items on their git hosts, and notes on hosts that did not answer.
 async fn git_items(app: &App, user: &User) -> (Vec<GitItem>, Vec<String>) {
     let logins = match user.git_logins(&app.credential_key).await {
         Ok(logins) => logins,
@@ -351,8 +345,7 @@ fn sessions_of<'a>(project: &Project, live: &'a Live) -> Vec<&'a MachineSession>
         .collect()
 }
 
-/// Whether the session runs in one of the project's folders, or under one,
-/// as a worktree there does.
+/// Whether the session runs in or under one of the project's folders.
 fn in_project(project: &Project, session: &MachineSession) -> bool {
     project.places.iter().any(|place| {
         place.endpoint == session.machine_id
@@ -363,8 +356,7 @@ fn in_project(project: &Project, session: &MachineSession) -> bool {
     })
 }
 
-/// A pull request that waits on the user: a review asked of them, or their
-/// own with changes asked for or failing checks.
+/// A pull request waiting on the user: a review request, or theirs with changes asked or failing checks.
 fn waits_on_user(item: &GitItem) -> bool {
     item.kind == (GitItemKind::PullRequest {})
         && (item.review_requested

@@ -1,5 +1,4 @@
-//! The user's pull requests and issues in a project, for the apps: which
-//! wait on a reply, asking the agent for one, and the chats about one.
+//! The user's pull requests and issues in a project, and the chats about them.
 
 use super::{
     Reply,

@@ -23,11 +23,15 @@ pub(crate) fn checkout(dir: &Path) -> Option<Checkout> {
     let top = PathBuf::from(lines.next()?.trim());
     let common = PathBuf::from(lines.next()?.trim());
     let root = main_folder(dir, &top, &common);
-    let origin = git(&root, &["remote", "get-url", "origin"]).unwrap_or_default();
-    Some(Checkout {
-        root,
-        origin: origin.trim().to_owned(),
-    })
+    let origin = origin(&root);
+    Some(Checkout { root, origin })
+}
+
+/// The `origin` remote of the checkout at `root`; empty when it has none.
+pub(super) fn origin(root: &Path) -> String {
+    git(root, &["remote", "get-url", "origin"])
+        .map(|url| url.trim().to_owned())
+        .unwrap_or_default()
 }
 
 /// The checkout's main folder: the one holding the shared `.git`, else the
@@ -67,11 +71,11 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::fs;
 
-    fn run(dir: &Path, args: &[&str]) {
+    pub(in crate::found) fn run(dir: &Path, args: &[&str]) {
         let ok = Command::new("git")
             .args(args)
             .current_dir(dir)

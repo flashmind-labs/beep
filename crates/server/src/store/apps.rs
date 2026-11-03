@@ -30,8 +30,7 @@ pub struct CustomMcp {
     pub url: String,
     pub label: String,
     pub sign_in: bool,
-    /// The tools the user turned on, by their names on the server. `None`
-    /// until the user picks.
+    /// The tools the user turned on, by server name; `None` until the user picks.
     pub tools: Option<Vec<String>>,
 }
 
@@ -65,9 +64,7 @@ impl Store {
             .collect()
     }
 
-    /// Adds a server the user gave by URL, or changes its name and URL.
-    /// Returns false when `name` is already taken by a server that is not
-    /// the user's own addition, such as Fastmail.
+    /// Adds or renames a custom server; false when `name` belongs to a non-custom server such as Fastmail.
     pub(crate) async fn add_custom_mcp(
         &self,
         user: &UserKey,
@@ -120,8 +117,7 @@ impl Store {
         Ok(())
     }
 
-    /// Saves or clears the address of a catalog server's account, kept in
-    /// `label` since only added servers use that for a name.
+    /// Saves or clears a catalog server's account address, kept in `label`.
     pub(crate) async fn set_mcp_address(
         &self,
         user: &UserKey,
@@ -139,9 +135,7 @@ impl Store {
         Ok(())
     }
 
-    /// Saves a server's config. Credentials are untouched: they change only
-    /// through `save_mcp_credentials`, so a stale config cannot roll back a
-    /// rotated refresh token.
+    /// Saves a server's config but never its credentials, so a stale config cannot roll back a rotated refresh token.
     pub(crate) async fn save_mcp_config(
         &self,
         user: &UserKey,
@@ -180,8 +174,7 @@ impl Store {
         Ok(())
     }
 
-    /// Every app the user set permissions for. A level this build does not
-    /// know reads as `Ask`.
+    /// Every app the user set permissions for; unknown levels read as `Ask`.
     pub(crate) async fn app_permissions(&self, user: &UserKey) -> Result<Vec<AppPermissionRow>> {
         let rows = sqlx::query("SELECT app, level, allowed FROM app_permissions WHERE user_id=$1")
             .bind(user.as_str())

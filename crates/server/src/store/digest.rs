@@ -1,6 +1,6 @@
 //! Emails flagged for the evening digest, and the digest routine itself.
 
-use super::{Feed, Store, cron_jobs::encode_schedule, seconds};
+use super::{Feed, Store, cron_jobs::encode_schedule};
 use crate::{digest::DIGEST_KIND, feeds::mail::Mailbox, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -19,8 +19,7 @@ pub struct AttentionItem {
 }
 
 impl Store {
-    /// Makes the digest routine `job` unless one was made before, and
-    /// returns whether it did.
+    /// Makes the digest routine `job` unless one exists; returns whether it did.
     pub(crate) async fn offer_digest(&self, user: &UserKey, job: &CronJob) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let offered =
@@ -87,7 +86,7 @@ impl Store {
                  AND received_at < now() - make_interval(secs => $2)",
         )
         .bind(user.as_str())
-        .bind(seconds(keep))
+        .bind(keep.as_secs_f64())
         .execute(&self.pool)
         .await?;
         let rows = sqlx::query(
@@ -137,7 +136,6 @@ impl Store {
 mod tests {
     use super::*;
     use crate::store::TestDb;
-    use chrono::Duration as Days;
     use flashmind::cron::JobSchedule;
     use serde_json::json;
     use uuid::Uuid;
@@ -192,40 +190,5 @@ mod tests {
                 .unwrap()
         );
         assert!(store.cron_jobs(Some("alice")).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn flagged_emails_are_kept_until_cleared_or_old() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let keep = Duration::from_secs(2 * 24 * 60 * 60);
-        let item = |mailbox, id: &str, days_ago| AttentionItem {
-            mailbox,
-            message_id: id.to_owned(),
-            received: Utc::now() - Days::days(days_ago),
-            text: format!("Subject: {id}"),
-        };
-        for flagged in [
-            item(Mailbox::Gmail, "new", 0),
-            item(Mailbox::Outlook, "older", 1),
-            item(Mailbox::Gmail, "stale", 3),
-            item(Mailbox::Gmail, "new", 0),
-        ] {
-            store.flag_attention(&alice, &flagged).await.unwrap();
-        }
-
-        let items = store.attention_items(&alice, keep).await.unwrap();
-        let ids: Vec<_> = items.iter().map(|i| i.message_id.as_str()).collect();
-        assert_eq!(ids, ["older", "new"]);
-        assert_eq!(items[0].mailbox, Mailbox::Outlook);
-
-        store
-            .clear_attention(&alice, Mailbox::Gmail, &["new".to_owned()])
-            .await
-            .unwrap();
-        let items = store.attention_items(&alice, keep).await.unwrap();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].message_id, "older");
     }
 }

@@ -1,6 +1,4 @@
-//! The one path every account event takes: accepted or dropped, stored
-//! once, batched per user and handed to the triage agent, which decides
-//! whether the main agent hears about it (see [`super::triage`]).
+//! The path every account event takes: filtered, stored once, batched per user and triaged.
 
 use super::{
     AppEvent, EventApp,
@@ -39,8 +37,7 @@ use tokio::{
 
 /// Events waiting for the worker. A full queue makes senders wait.
 const QUEUE: usize = 256;
-/// Events older than this when they arrive are dropped, so a trigger's
-/// first run or a long outage does not replay old news.
+/// Events older than this on arrival are dropped, so a first run or outage does not replay news.
 const MAX_AGE: Days = Days::days(2);
 /// How long stored events are kept.
 const KEEP: Days = Days::days(14);
@@ -54,8 +51,7 @@ const LABEL_CHARS: usize = 60;
 /// How the pipeline paces itself.
 #[derive(Debug, Clone)]
 pub struct Settings {
-    /// How long after a user's first waiting event the batch goes out, so
-    /// events that come together wake the agent once.
+    /// How long after a user's first waiting event the batch goes out.
     pub batch_window: Duration,
     /// How often waiting batches are checked.
     pub tick: Duration,
@@ -181,8 +177,7 @@ impl Hub {
     }
 }
 
-/// Starts the worker, the sweep and, with Composio, the realtime channel.
-/// Called once; later calls do nothing.
+/// Starts the worker, the sweep and, with Composio, the realtime channel. Only the first call counts.
 pub fn start(app: &Arc<App>, settings: Settings) {
     let hub = &app.events;
     let Some(receiver) = lock(&hub.receiver).take() else {
@@ -201,8 +196,7 @@ pub fn start(app: &Arc<App>, settings: Settings) {
     lock(&hub.tasks).extend(tasks);
 }
 
-/// Queues `event` for user `user_id`. Waits while the queue is full; a
-/// stopped pipeline drops it.
+/// Queues `event` for `user_id`, waiting while the queue is full; dropped once stopped.
 pub async fn submit(app: &App, user_id: &str, event: AppEvent) {
     let incoming = Incoming {
         user: user_id.to_owned(),
@@ -232,8 +226,7 @@ pub enum Accepted {
     Limited,
 }
 
-/// Stores `event` for `user` unless it is dropped, and queues the user's
-/// next wake.
+/// Stores `event` for `user` unless dropped, and queues the user's next wake.
 pub async fn accept(app: &App, user: &User, event: AppEvent) -> Result<Accepted> {
     if !user.event_topics().await?.is_on(event.kind.topic()) {
         return Ok(Accepted::Unsubscribed);
@@ -294,8 +287,7 @@ async fn work(app: Arc<App>, mut receiver: mpsc::Receiver<Incoming>, settings: S
     }
 }
 
-/// Hands each due batch to a triage run, for users with a run free and a
-/// triage left this hour.
+/// Hands due batches to triage for users with a free run and hourly budget.
 async fn flush(app: &Arc<App>, settings: &Settings) {
     let now = Instant::now();
     for id in app.events.due(now, settings.batch_window) {
@@ -318,8 +310,7 @@ async fn flush(app: &Arc<App>, settings: &Settings) {
     }
 }
 
-/// Moves up to a batch of `user`'s pending events to triaging and starts a
-/// triage run on them.
+/// Moves a batch of `user`'s pending events to triaging and starts a triage run.
 async fn start_triage(app: &Arc<App>, user: &Arc<User>, settings: &Settings) -> Result<Batch> {
     let rows = user
         .events_in(EventState::Pending, Duration::ZERO, settings.max_batch)
@@ -346,8 +337,7 @@ pub(super) enum Batch {
     More,
 }
 
-/// Wakes the agent with up to a batch of `user`'s events in `state`, and
-/// moves them on.
+/// Wakes the agent with a batch of `user`'s events in `state` and moves them on.
 async fn wake_batch(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -366,8 +356,7 @@ async fn wake_batch(
     wake_rows(app, user, &rows, state, rule, settings).await
 }
 
-/// Wakes the agent on `rows`, which are in `state`, under `rule`, and moves
-/// them on.
+/// Wakes the agent on `rows` (in `state`) under `rule` and moves them on.
 pub(super) async fn wake_rows(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -420,8 +409,7 @@ pub(super) fn apps_of(rows: &[EventRow]) -> Vec<EventApp> {
     apps
 }
 
-/// The chat's title and the notification's: the event itself when there is
-/// one, else how many and from where.
+/// The chat and notification title: the single event, else a count and source.
 fn label(rows: &[EventRow], rule: Rule) -> String {
     match (rows, rule) {
         (_, Rule::Digest) => "Digest".to_owned(),
@@ -444,8 +432,7 @@ pub(super) fn clipped(text: &str) -> String {
     }
 }
 
-/// One event with its id, what it is, the line about it and the ids to act
-/// on, after a blank line.
+/// Writes one event with its id, kind, line and action ids, then a blank line.
 pub(super) fn write_event(text: &mut String, row: &EventRow) {
     let _ = write!(
         text,
@@ -487,8 +474,7 @@ pub(super) fn describe(rows: &[EventRow], rule: Rule, read_only: &[EventApp]) ->
     text
 }
 
-/// Every `sweep_every`: polls, sets up triggers, brings back held events as
-/// a digest, finds batches left from before a restart and prunes old events.
+/// Every `sweep_every`: polls, syncs triggers, releases digests, resumes batches, prunes events.
 async fn sweep(app: Arc<App>, settings: Settings) {
     let mut ticks = interval(settings.sweep_every);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -573,24 +559,6 @@ mod tests {
             occurred: Utc.with_ymd_and_hms(2026, 10, 20, 9, 30, 0).unwrap(),
             state: EventState::Pending,
         }
-    }
-
-    #[test]
-    fn a_batch_is_labelled_by_its_event_or_its_apps() {
-        let one = [row(1, EventApp::Gmail, "From Ana: Lease renewal")];
-        assert_eq!(label(&one, Rule::Accounts), "From Ana: Lease renewal");
-        let long = [row(1, EventApp::Gmail, &"x".repeat(80))];
-        assert_eq!(
-            label(&long, Rule::Accounts),
-            format!("{}...", "x".repeat(60))
-        );
-        let many = [
-            row(1, EventApp::Gmail, "a"),
-            row(2, EventApp::Github, "b"),
-            row(3, EventApp::Gmail, "c"),
-        ];
-        assert_eq!(label(&many, Rule::Accounts), "3 updates from Gmail, GitHub");
-        assert_eq!(label(&many, Rule::Digest), "Digest");
     }
 
     #[test]

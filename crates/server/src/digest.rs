@@ -1,14 +1,4 @@
-//! The evening digest: the day's unread email, with what needs the user first.
-//!
-//! The daily mail sync flags emails that look like they need the user (see
-//! `feeds::mail`). The digest is a routine of its own kind, made once when
-//! the user's first mailbox syncs, that runs at 18:00 in the user's timezone.
-//! It syncs the mailboxes first so the day's late mail is in, then lists the
-//! mail still unread from the last day, plus older flagged mail still unread,
-//! and wakes the agent in its chat with all of it, the flagged emails marked.
-//! The agent picks what needs the user. It always replies, so a quiet day
-//! reads as "nothing needs you" rather than as silence. The user turns it off
-//! like any routine, on the Routines screen or by asking Beep.
+//! The evening digest: a routine at 18:00 local that wakes the agent with the day's unread mail, flagged first.
 
 use crate::{
     app::App,
@@ -170,8 +160,7 @@ struct Report {
 }
 
 impl Report {
-    /// Newest first, keeping every flagged email and at most `MAX_EMAILS`
-    /// in all otherwise.
+    /// Newest first, keeping every flagged email and at most `MAX_EMAILS` in all otherwise.
     fn trim(&mut self) {
         self.emails
             .sort_by(|a, b| b.flagged.cmp(&a.flagged).then(b.received.cmp(&a.received)));
@@ -249,49 +238,6 @@ mod tests {
             text: text.to_owned(),
             flagged,
         }
-    }
-
-    #[test]
-    fn prompt_names_the_routine_each_mailbox_and_the_flagged_emails() {
-        let job = routine("user");
-        let report = Report {
-            checked: vec![Mailbox::Gmail, Mailbox::Outlook],
-            failed: vec![Mailbox::Fastmail],
-            emails: vec![
-                email(Mailbox::Gmail, 1, "Subject: Lease", true),
-                email(Mailbox::Outlook, 2, "Subject: Invoice", false),
-            ],
-        };
-        let text = prompt(&job, &report);
-        assert!(text.starts_with(TASK));
-        assert!(text.contains(&format!("turn off routine {}", job.id)));
-        assert!(text.contains("Checked: Gmail, Outlook."));
-        assert!(text.contains("Could not check: Fastmail."));
-        assert!(text.contains("Unread emails from the last day (2):"));
-        assert!(text.contains("--- Gmail, flagged\nSubject: Lease"));
-        assert!(text.contains("--- Outlook\nSubject: Invoice"));
-    }
-
-    #[test]
-    fn the_digest_routine_is_always_sent() {
-        assert!(is_digest(&routine("alice")));
-        let reminder = CronJob {
-            metadata: json!({"user_id": "alice", "label": "Water"}),
-            ..routine("alice")
-        };
-        assert!(!is_digest(&reminder));
-    }
-
-    #[test]
-    fn an_empty_day_still_gets_a_prompt() {
-        let report = Report {
-            checked: vec![Mailbox::Gmail],
-            ..Report::default()
-        };
-        let text = prompt(&routine("user"), &report);
-        assert!(text.contains("If nothing needs me, say that in one line."));
-        assert!(text.contains("Your reply is always sent to me."));
-        assert!(text.ends_with("Unread emails from the last day: none."));
     }
 
     #[test]

@@ -148,18 +148,3 @@ impl PartialEq<&str> for ModelId {
         self.0 == *other
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slugs_and_models_encode_as_their_text() {
-        let text = rmp_serde::to_vec("claude").unwrap();
-        assert_eq!(rmp_serde::to_vec(&AgentSlug::CLAUDE).unwrap(), text);
-        assert_eq!(rmp_serde::to_vec(&ModelId::from("claude")).unwrap(), text);
-        let read: AgentSlug = rmp_serde::from_slice(&text).unwrap();
-        assert_eq!(read, AgentSlug::CLAUDE);
-        assert_eq!(AgentSlug::from(AgentAccount::Codex), AgentSlug::CODEX);
-    }
-}

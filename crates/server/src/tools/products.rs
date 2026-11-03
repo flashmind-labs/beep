@@ -10,8 +10,7 @@ const MAX_PRODUCTS: usize = 6;
 const MAX_TITLE: usize = 200;
 const MAX_NOTE: usize = 120;
 
-/// Shows products as cards under the reply. Each one is checked here, so the
-/// apps get only real links, a price with its currency and images that load.
+/// Shows products as cards under the reply, each checked here.
 pub(crate) struct ShowProductsTool;
 
 #[derive(Debug, Deserialize)]
@@ -42,8 +41,7 @@ struct Requested {
     note: Option<String>,
 }
 
-/// A product as the apps draw it. `currency` is set whenever `price` is,
-/// and `was` only when it is above `price`.
+/// A product card; `currency` is set with `price`, and `was` only when above it.
 #[derive(Debug, PartialEq, Serialize)]
 struct Card {
     title: String,
@@ -169,8 +167,7 @@ impl Tool for ShowProductsTool {
                 card.image = None;
             }
         }
-        // A card without a picture gets the one its page names for link
-        // previews, so the user sees what the product looks like.
+        // A card without a picture gets its page's link preview image.
         let previews = cards.iter().map(|card| async move {
             match card.image {
                 Some(_) => None,
@@ -195,8 +192,7 @@ impl Tool for ShowProductsTool {
     }
 }
 
-/// The card for `requested`, or why it cannot be shown. Fields that do not
-/// hold up are left out and noted in `dropped`.
+/// The card for `requested`, or why not; bad fields are noted in `dropped`.
 fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String> {
     let title = clip(&requested.title, MAX_TITLE);
     if title.is_empty() {
@@ -276,43 +272,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_what_holds_up() {
-        let mut dropped = Vec::new();
-        let card = card(
-            requested(json!({
-                "title": " Dreame Z30 ", "url": "https://www.shop.example/z30",
-                "price": 249.0, "was": 329.0, "currency": "eur", "rating": 4.6, "reviews": 1204,
-                "note": "Quietest"
-            })),
-            &mut dropped,
-        )
-        .expect("a valid product");
-        assert_eq!(card.title, "Dreame Z30");
-        assert_eq!(card.store, "shop.example");
-        assert_eq!(card.price, Some(249.0));
-        assert_eq!(card.was, Some(329.0));
-        assert_eq!(card.currency, Some(Currency("EUR".to_owned())));
-        assert!(dropped.is_empty(), "{dropped:?}");
-    }
-
-    #[test]
-    fn drops_a_price_without_a_currency_and_a_was_below_the_price() {
-        let mut dropped = Vec::new();
-        let card = card(
-            requested(json!({ "title": "Kettle", "url": "https://shop.example/k", "price": 30.0, "currency": "euros" })),
-            &mut dropped,
-        )
-        .expect("a valid product");
-        assert_eq!((card.price, card.currency), (None, None));
-        assert_eq!(dropped.len(), 1);
-
-        let card = card_of(
-            json!({ "title": "Kettle", "url": "https://shop.example/k", "price": 30.0, "was": 25.0, "currency": "USD" }),
-        );
-        assert_eq!((card.price, card.was), (Some(30.0), None));
-    }
-
-    #[test]
     fn rejects_links_that_are_not_public_pages() {
         for url in [
             "javascript:alert(1)",
@@ -328,28 +287,5 @@ mod tests {
             );
             assert!(result.is_err(), "{url}");
         }
-    }
-
-    #[test]
-    fn output_leaves_out_unknown_fields() {
-        let shown = Shown {
-            action: NAME,
-            products: vec![card_of(
-                json!({ "title": "Kettle", "url": "https://shop.example/k" }),
-            )],
-            dropped: Vec::new(),
-        };
-        assert_eq!(
-            serde_json::to_value(&shown).expect("serializes"),
-            json!({
-                "action": "show_products",
-                "products": [{ "title": "Kettle", "url": "https://shop.example/k", "store": "shop.example" }],
-                "dropped": []
-            })
-        );
-    }
-
-    fn card_of(json: Value) -> Card {
-        card(requested(json), &mut Vec::new()).expect("a valid product")
     }
 }

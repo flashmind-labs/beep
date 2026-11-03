@@ -1,13 +1,11 @@
-//! Which device started each coding-agent session, so its alerts go to
-//! that device only.
+//! Which device started each coding-agent session, so its alerts go to that device only.
 
 use super::Store;
 use crate::user::UserKey;
 use anyhow::{Context, Result};
 use iroh::EndpointId;
 
-/// A session on a machine: the node's key, the agent, and the agent's own
-/// id for the session.
+/// A session on a machine: node key, agent, and the agent's session id.
 #[derive(Clone, Copy)]
 pub(crate) struct SessionOn<'a> {
     pub machine: &'a EndpointId,
@@ -16,8 +14,7 @@ pub(crate) struct SessionOn<'a> {
 }
 
 impl Store {
-    /// Remembers that `device` started `on`. Starting it again, as a resume
-    /// does, makes the newer device the one told.
+    /// Remembers that `device` started `on`; a resume makes the newer device the one told.
     pub(crate) async fn record_agent_start(
         &self,
         user: &UserKey,
@@ -41,8 +38,7 @@ impl Store {
         Ok(())
     }
 
-    /// The device that started `on` for `user`; `None` for a session no
-    /// device started through Beep.
+    /// The device that started `on` for `user`, if one did through Beep.
     pub(crate) async fn agent_starter(
         &self,
         user: &UserKey,
@@ -62,45 +58,5 @@ impl Store {
         device
             .map(|device| device.parse().context("a saved device key does not parse"))
             .transpose()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::test_db::TestDb;
-    use iroh::SecretKey;
-
-    fn key(n: u8) -> EndpointId {
-        SecretKey::from_bytes(&[n; 32]).public()
-    }
-
-    #[tokio::test]
-    async fn the_latest_start_names_the_device() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let bob = UserKey::for_test("bob");
-        let machine = key(9);
-        let on = SessionOn {
-            machine: &machine,
-            agent: "claude",
-            session: "a3f9c1",
-        };
-        assert_eq!(store.agent_starter(&alice, on).await.unwrap(), None);
-        store.record_agent_start(&alice, on, &key(1)).await.unwrap();
-        assert_eq!(store.agent_starter(&alice, on).await.unwrap(), Some(key(1)));
-        assert_eq!(
-            store.agent_starter(&bob, on).await.unwrap(),
-            None,
-            "only its own user's"
-        );
-        store.record_agent_start(&alice, on, &key(2)).await.unwrap();
-        assert_eq!(store.agent_starter(&alice, on).await.unwrap(), Some(key(2)));
-        let codex = SessionOn {
-            agent: "codex",
-            ..on
-        };
-        assert_eq!(store.agent_starter(&alice, codex).await.unwrap(), None);
     }
 }

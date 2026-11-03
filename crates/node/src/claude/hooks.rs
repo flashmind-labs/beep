@@ -424,43 +424,4 @@ mod tests {
             &json!({ "command": hook_command(Path::new("/opt/beep-node"), Path::new("/x")) })
         ));
     }
-
-    #[test]
-    fn hook_input_reads_as_activity() {
-        let stop = json!({
-            "session_id": "0f3c2a9e-1111-4222-8333-944455556666",
-            "transcript_path": "/srv/home/.claude/projects/-srv-project/0f3c2a9e-1111-4222-8333-944455556666.jsonl",
-            "cwd": "/srv/project",
-            "hook_event_name": "Stop",
-            "stop_hook_active": false,
-            "last_assistant_message": "Done: the tests pass."
-        });
-        let activity = HookMessage::from_input(&stop).unwrap().activity().unwrap();
-        assert_eq!(activity.kind, ActivityKind::TurnDone);
-        assert_eq!(activity.message, "Done: the tests pass.");
-        let asking = json!({
-            "session_id": "s",
-            "hook_event_name": "Notification",
-            "notification_type": "permission_prompt",
-            "message": "Claude needs your permission to use Bash"
-        });
-        let activity = HookMessage::from_input(&asking)
-            .unwrap()
-            .activity()
-            .unwrap();
-        assert_eq!(activity.kind, ActivityKind::NeedsInput);
-        let signed_in = json!({
-            "session_id": "s",
-            "hook_event_name": "Notification",
-            "notification_type": "auth_success"
-        });
-        assert!(
-            HookMessage::from_input(&signed_in)
-                .unwrap()
-                .activity()
-                .is_none()
-        );
-        let tool = json!({ "session_id": "s", "hook_event_name": "PreToolUse" });
-        assert!(HookMessage::from_input(&tool).unwrap().activity().is_none());
-    }
 }

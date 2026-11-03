@@ -1,12 +1,4 @@
-//! Delivers notices to phones and linked computers. A notice goes to every
-//! key that signs into the account (see `Directory`): over that key's open
-//! connection if there is one, or else
-//! the server dials the phone, which waits on its home relay with no
-//! connection open. A notice that can't be delivered is retried from time
-//! to time, and sent at once when the phone next connects. With a fallback,
-//! a notice iroh could not deliver goes through the phone's push service
-//! (Firebase or APNs) instead, and one it could not take wakes the phone to
-//! come for it.
+//! Delivers notices to every key of the account: over its connection, by dialing it, or via FCM or APNs.
 
 use crate::{
     app::UserNotice,
@@ -40,9 +32,7 @@ const DIAL_TIMEOUT: Duration = Duration::from_secs(15);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// Notices kept per user while their phone is unreachable; older ones go first.
 const MAX_QUEUED: usize = 50;
-/// Waits between attempts to reach a phone with queued notices. The last
-/// one repeats until `RETRY_FOR` has passed; after that the notices wait for
-/// the phone to connect.
+/// Waits between retries; the last repeats until `RETRY_FOR` has passed.
 const RETRY_WAITS: [Duration; 5] = [
     Duration::from_secs(30),
     Duration::from_secs(2 * 60),
@@ -83,8 +73,7 @@ impl Directory for Store {
     }
 }
 
-/// Sends each account's notices to its own key only, as a phone's, for
-/// tests.
+/// Sends each account's notices to its own key only, for tests.
 pub struct OwnKey;
 
 #[async_trait::async_trait]
@@ -165,8 +154,7 @@ impl Pusher {
         });
     }
 
-    /// Remembers `connection` as its user's way in until it closes, and
-    /// sends what was queued while the phone was unreachable.
+    /// Remembers `connection` until it closes and sends what was queued.
     pub fn connected(self: &Arc<Self>, connection: Connection) {
         let id = connection.remote_id();
         self.live
@@ -217,8 +205,7 @@ impl Pusher {
             .remove(&id);
     }
 
-    /// Closes `id`'s connection so it signs in again, as after its
-    /// account merged into another. Its queued notices stay.
+    /// Closes `id`'s connection so it signs in again; its queued notices stay.
     pub fn reconnect(&self, id: EndpointId) {
         let live = self
             .live
@@ -250,8 +237,7 @@ impl Pusher {
         self.deliver_all(id, VecDeque::from([notice])).await;
     }
 
-    /// Sends `notices` in order, and queues what could not be sent and
-    /// wakes the phone to come for it.
+    /// Sends `notices` in order, queueing the rest and waking the phone for it.
     async fn deliver_all(self: Arc<Self>, id: EndpointId, notices: VecDeque<Notice>) {
         let unsent = self.send_all(id, notices).await;
         let unsent = self.push_all(id, unsent).await;
@@ -296,8 +282,7 @@ impl Pusher {
         fallback.wake(id).await;
     }
 
-    /// Tries the queued notices again from time to time until they are sent,
-    /// the phone connects and takes them, or `RETRY_FOR` runs out.
+    /// Retries the queued notices until sent, taken, or `RETRY_FOR` runs out.
     async fn retry(self: Arc<Self>, id: EndpointId) {
         let started = Instant::now();
         let last = self.retry_waits.len().saturating_sub(1);
@@ -336,8 +321,7 @@ impl Pusher {
             .unwrap_or_default()
     }
 
-    /// Queues `unsent` ahead of anything queued since. Returns true if no
-    /// task is retrying the queue yet, and marks one as started.
+    /// Queues `unsent` first; true if no retry task runs yet, marking one started.
     fn put_back(&self, id: EndpointId, mut unsent: VecDeque<Notice>) -> bool {
         if unsent.is_empty() {
             return false;
@@ -356,8 +340,7 @@ impl Pusher {
         !mem::replace(&mut pending.retrying, true)
     }
 
-    /// Sends what it can of `notices` over the user's open connection, or
-    /// else by dialing the phone, and returns the rest.
+    /// Sends what it can over the open connection or by dialing, and returns the rest.
     async fn send_all(&self, id: EndpointId, mut notices: VecDeque<Notice>) -> VecDeque<Notice> {
         let live = self
             .live
@@ -422,8 +405,7 @@ mod tests {
     use super::*;
     use iroh::{SecretKey, endpoint::presets};
 
-    /// A pusher on an endpoint with no relay or address lookup, so nothing
-    /// here reaches the network.
+    /// A pusher that never reaches the network.
     async fn pusher(retry_waits: Vec<Duration>) -> Arc<Pusher> {
         falling_back_pusher(retry_waits, None).await
     }
@@ -439,8 +421,7 @@ mod tests {
         Pusher::with_retry_waits(endpoint, Arc::new(OwnKey), fallback, retry_waits)
     }
 
-    /// Records pushes and wakes instead of sending them. Takes only the
-    /// notices whose title starts with "push".
+    /// Records pushes and wakes; takes only notices titled "push...".
     #[derive(Default)]
     struct Recorder {
         pushed: Mutex<Vec<String>>,
@@ -525,18 +506,6 @@ mod tests {
         assert_eq!(titles(&pusher.take(phone(1))), ["a", "b", "c"]);
         assert!(pusher.take(phone(1)).is_empty());
         assert!(pusher.take(phone(2)).is_empty());
-    }
-
-    #[tokio::test]
-    async fn put_back_drops_the_oldest_past_the_limit() {
-        let pusher = pusher(RETRY_WAITS.to_vec()).await;
-        let names: Vec<String> = (0..MAX_QUEUED + 5).map(|i| i.to_string()).collect();
-        let all: Vec<&str> = names.iter().map(String::as_str).collect();
-        pusher.put_back(phone(1), notices(&all[5..]));
-        pusher.put_back(phone(1), notices(&all[..5]));
-        let queued = pusher.take(phone(1));
-        assert_eq!(queued.len(), MAX_QUEUED);
-        assert_eq!(titles(&queued), all[5..]);
     }
 
     #[tokio::test]

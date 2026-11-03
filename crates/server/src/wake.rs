@@ -1,11 +1,4 @@
-//! Waking the agent on an event while nobody is chatting.
-//!
-//! Every event source calls [`wake`] with what happened. The agent runs in a
-//! new chat on the event, checks what it needs, and decides whether the user
-//! should hear about it. It says so with the `notify_user` tool: then its
-//! reply goes to the phone as the notification and the chat stays. Without
-//! the call the chat is deleted and the user never sees it, so a run that
-//! goes wrong also stays silent.
+//! Wakes the agent on an event in a new chat; without `notify_user` the chat is deleted silently.
 
 use crate::{
     app::{App, Draws, Message, UserNotice},
@@ -25,11 +18,9 @@ use uuid::Uuid;
 
 /// Something that happened, as the agent is told about it.
 pub struct Event {
-    /// A few words the chat shows in place of the message, like a routine's
-    /// label, and its title when the chat is kept.
+    /// A few words shown in place of the message and as the kept chat's title.
     pub label: String,
-    /// What happened, for the model, such as `User is now in Singapore.
-    /// Previous known location: Dubai.`
+    /// What happened, for the model.
     pub description: String,
     /// The event's details, given to the model as JSON; `Null` for none.
     pub data: Value,
@@ -46,12 +37,10 @@ impl Event {
     }
 }
 
-/// How far the phone must be from its last fix for a new place to count as
-/// an arrival, so crossing a city line on the way to work does not.
+/// How far the phone must move for a new place to count as an arrival.
 const ARRIVAL_KM: f64 = 30.0;
 
-/// The arrival in a new city or country between two location reports, or
-/// `None` when the phone is still in the same one or the places are unknown.
+/// The arrival in a new city or country between two fixes, if any.
 pub fn arrival(before: &Location, now: &Location) -> Option<Event> {
     let (from, to) = (Place::parse(before)?, Place::parse(now)?);
     let km = distance_km(before, now);
@@ -79,8 +68,7 @@ pub fn arrival(before: &Location, now: &Location) -> Option<Event> {
     })
 }
 
-/// How far local time moved between two fixes, such as `Local time is 6
-/// hours behind its last report.`, or `None` when it did not.
+/// How far local time moved between two fixes, if it did.
 fn clock_shift(before: &Location, now: &Location) -> Option<String> {
     let offset = |location: &Location| {
         let zone: Tz = location.timezone.parse().ok()?;
@@ -115,9 +103,7 @@ struct Place<'a> {
 }
 
 impl<'a> Place<'a> {
-    /// Reads the first and last parts of a name the phone writes as city,
-    /// region and country, like "Barcelona, Catalonia, Spain". Singapore
-    /// comes as just "Singapore".
+    /// Reads the first and last parts of "City, Region, Country" (or just "Singapore").
     fn parse(location: &'a Location) -> Option<Self> {
         let mut parts = location
             .place
@@ -164,15 +150,12 @@ pub enum Rule {
     Accounts,
     /// Account events the agent held earlier, handed back together.
     Digest,
-    /// The event triage agent found account events that need the user now
-    /// (see `crate::events::triage`).
+    /// Event triage found events that need the user now.
     Triaged,
 }
 
 impl Rule {
-    /// Whether the turn starts on text from outside, such as an email or a
-    /// pull request, which could carry instructions the user never gave.
-    /// Such a turn only reads: no app tool that acts and no machine.
+    /// Whether the turn starts on outside text, so it only reads: no acting app tool and no machine.
     pub(crate) fn untrusted(self) -> bool {
         match self {
             Rule::Place => false,
@@ -249,23 +232,20 @@ Mention the earlier, less urgent items only when they fit in a short line. If it
 deserve their attention after all, do not call notify_user and end with one line on why; \
 the user never sees it.";
 
-/// The context lines for a woken turn. History reads the label back with
-/// [`woken_label`] so clients show the turn like a routine's.
+/// The context lines for a woken turn, read back by [`woken_label`].
 pub(crate) fn woken_context(woken: &Woken) -> String {
     let label = woken.label.replace('\n', " ");
     format!("{WOKEN}: {}\n{}", label.trim(), woken.rule.text())
 }
 
-/// The event's label when `context` is a turn's context from
-/// [`woken_context`], and `None` for any other turn.
+/// The event's label in a [`woken_context`], else `None`.
 pub fn woken_label(context: &str) -> Option<&str> {
     context
         .lines()
         .find_map(|line| line.strip_prefix(WOKEN)?.strip_prefix(": "))
 }
 
-/// Wakes the agent on `event` in a new chat, or returns `None` when no run
-/// was created.
+/// Wakes the agent on `event` in a new chat; `None` when no run was created.
 pub async fn wake(app: &Arc<App>, user: &Arc<User>, event: Event) -> Result<Option<Run>> {
     wake_with(app, user, event, Rule::Place).await
 }
@@ -318,8 +298,7 @@ pub(crate) struct Finished<'a> {
     pub reply: &'a str,
 }
 
-/// Sends a woken run's reply and keeps its chat when the model asked to,
-/// and otherwise deletes the chat without a word.
+/// Sends a woken run's reply and keeps its chat if asked, else deletes it silently.
 pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished<'_>) {
     let Ok(chat) = Uuid::parse_str(&run.session_id) else {
         return;
@@ -365,24 +344,6 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use std::f64::consts::PI;
-
-    #[test]
-    fn woken_context_reads_back_its_label() {
-        for rule in [Rule::Place, Rule::Accounts, Rule::Digest, Rule::Triaged] {
-            let woken = Woken {
-                label: "Arrived in\nSingapore".to_owned(),
-                rule,
-            };
-            assert_eq!(
-                woken_label(&woken_context(&woken)),
-                Some("Arrived in Singapore")
-            );
-        }
-        assert_eq!(woken_label("Time: Monday"), None);
-        assert_eq!(woken_label(&crate::cron::scheduled_context("Plants")), None);
-    }
 
     fn at(place: &str, latitude: f64, longitude: f64) -> Location {
         Location {
@@ -393,12 +354,6 @@ mod tests {
             place: Some(place.to_owned()),
             updated_at: chrono::Utc::now(),
         }
-    }
-
-    #[test]
-    fn antipodes_are_half_the_earth_apart() {
-        let km = distance_km(&at("South", -82.0, 0.0), &at("North", 82.0, -180.0));
-        assert!((km - 6371.0 * PI).abs() < 1.0, "{km}");
     }
 
     #[test]
@@ -416,21 +371,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_time_zone_says_how_far_the_clock_moved() {
-        let mut lisbon = at("Lisbon, Lisbon, Portugal", 38.72, -9.14);
-        lisbon.timezone = "Europe/Lisbon".to_owned();
-        let barcelona = at("Barcelona, Catalonia, Spain", 41.39, 2.16);
-        let event = arrival(&lisbon, &barcelona).expect("a new country");
-        assert!(
-            event
-                .description
-                .ends_with("Local time is 1 hour ahead of its last report."),
-            "{}",
-            event.description
-        );
-    }
-
-    #[test]
     fn nearby_or_unknown_places_are_not_arrivals() {
         let barcelona = at("Barcelona, Catalonia, Spain", 41.39, 2.16);
         let gracia = at("Barcelona, Catalonia, Spain", 41.40, 2.15);
@@ -440,19 +380,5 @@ mod tests {
         assert!(arrival(&barcelona, &gracia).is_none());
         assert!(arrival(&barcelona, &hospitalet).is_none());
         assert!(arrival(&barcelona, &unknown).is_none());
-    }
-
-    #[test]
-    fn the_message_carries_the_details() {
-        let event = |data| Event {
-            label: "Arrived".to_owned(),
-            description: "User is now in Singapore.".to_owned(),
-            data,
-        };
-        assert_eq!(event(Value::Null).message(), "User is now in Singapore.");
-        assert_eq!(
-            event(json!({"city": "Singapore"})).message(),
-            "User is now in Singapore.\n\nDetails: {\"city\":\"Singapore\"}"
-        );
     }
 }

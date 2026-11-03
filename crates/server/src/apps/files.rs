@@ -1,7 +1,4 @@
-//! App tool results that point at a file, such as a OneDrive download or a
-//! mail attachment, saved into the user's home folder as they arrive.
-//! Composio hands back a short-lived `s3url` rather than the file, so the
-//! model would otherwise have to fetch it before it expires.
+//! Saves files linked from app tool results (Composio's short-lived `s3url`) into the user's home folder.
 
 use crate::{paging, workspace::Workspace};
 use async_trait::async_trait;
@@ -121,9 +118,7 @@ fn find_links(value: &Value, links: &mut Vec<Link>) {
     }
 }
 
-/// Adds where each linked file went, walking in the same order as
-/// `find_links`: `saved_as` with its path in the user's home folder, or
-/// `save_error`.
+/// Adds `saved_as` or `save_error` to each link, in `find_links` order.
 fn mark_saved(value: &mut Value, saved: &mut impl Iterator<Item = anyhow::Result<String>>) {
     match value {
         Value::Array(items) => items.iter_mut().for_each(|item| mark_saved(item, saved)),

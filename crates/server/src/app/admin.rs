@@ -1,10 +1,7 @@
-//! Admin commands over a Unix socket, so only something on the server itself
-//! can send them (`beep-admin`). One command per connection: a line in, the
-//! reply lines out.
+//! Admin commands over a local Unix socket (`beep-admin`): one command line in, reply lines out.
 //!
-//! `rescan [USER_ID]` reads the connected mailboxes and calendars of every
-//! user, or of one, again from the start and turns them into memories.
-//! `split-memories USER_ID` reviews one user's existing memories in batches.
+//! `rescan [USER_ID]` rereads mailboxes and calendars into memories; `split-memories USER_ID`
+//! reviews one user's memories in batches.
 
 use super::App;
 use crate::profile;

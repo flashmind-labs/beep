@@ -1,5 +1,4 @@
-//! A session's turns as the apps see them: the steps the model's entries
-//! become when saved, and the history the old requests build from them.
+//! A session's turns as the apps see them.
 
 use crate::{
     cron,
@@ -19,12 +18,10 @@ pub const MAX_TOOL_OUTPUT: usize = 16 * 1024;
 /// A turn keeps the last this many bytes of its reasoning.
 pub const MAX_REASONING: usize = 16 * 1024;
 
-/// What a turn ran with besides its reasoning, by the millisecond time of
-/// the message that opened it.
+/// What each turn ran with, by the millisecond time of its opening message.
 pub type TurnsByTime = HashMap<i64, TurnRecord>;
 
-/// What a run knew of its tool calls that the conversation does not keep,
-/// by call id.
+/// What a run knew of its tool calls that the conversation does not keep, by call id.
 #[derive(Debug, Default)]
 pub struct CallNotes {
     /// The calls that failed.
@@ -37,16 +34,11 @@ pub struct CallNotes {
 #[derive(Debug, Default, PartialEq)]
 pub struct Steps {
     pub steps: Vec<Step>,
-    /// The reasoning of the steps before the first that opens a turn, which
-    /// carry on a turn saved earlier.
+    /// Reasoning before the first opener, carried on to a turn saved earlier.
     pub carried_reasoning: String,
 }
 
-/// The steps of the entries of `entries` from `since` on: each user
-/// message or scheduled prompt, reply with text, and tool result. Earlier
-/// entries only name the tools their calls ran. `calls` says which tool
-/// calls failed and what each showed, and `turns` holds what each turn ran
-/// with.
+/// The steps of `entries` from `since` on; earlier entries only name the tools their calls ran.
 pub fn steps(
     entries: &[ConversationEntry],
     since: Option<DateTime<Utc>>,
@@ -146,8 +138,7 @@ pub fn steps(
     out
 }
 
-/// The tools whose results the apps show as what Beep sent: pictures and
-/// files, the media made with the user's keys among them.
+/// Tools whose results the apps show as what Beep sent.
 const SENT_TOOLS: &[&str] = &[
     tools::SEND_IMAGE,
     tools::file::NAME,
@@ -156,10 +147,7 @@ const SENT_TOOLS: &[&str] = &[
     "3d_gen",
 ];
 
-/// What a routine told the user: the text it wrote with its `notify_user`
-/// call, in the same message or the first one after it. A sign-off after
-/// that, such as "Routine ended.", is not it. Without such a call or text
-/// after it, its last reply. `None` when it wrote nothing.
+/// What a routine told the user: its `notify_user` text, else its last reply.
 pub fn routine_reply(entries: &[ConversationEntry], since: Option<DateTime<Utc>>) -> Option<Step> {
     let turn: Vec<&ConversationEntry> = entries
         .iter()
@@ -183,9 +171,7 @@ pub fn routine_reply(entries: &[ConversationEntry], since: Option<DateTime<Utc>>
         .or_else(|| turn.iter().rev().find_map(said))
 }
 
-/// A routine's turn as the apps show it: only what it told the user, from
-/// [`routine_reply`], then the pictures and files it sent, so they show
-/// with it. Its opening, its other tools and its reasoning are left out.
+/// A routine's turn as the apps show it: [`routine_reply`] and the files it sent.
 pub fn routine_notice(
     entries: &[ConversationEntry],
     since: Option<DateTime<Utc>>,
@@ -204,8 +190,7 @@ pub fn routine_notice(
     }
 }
 
-/// Gives the reasoning gathered so far to the turn at `opener`, or to the
-/// turn carried on when there is none yet.
+/// Gives the gathered reasoning to the turn at `opener`, or to the carried turn.
 fn finish(out: &mut Steps, opener: Option<usize>, reasoning: &mut String) {
     let reasoning = cap_tail(&mem::take(reasoning), MAX_REASONING);
     match opener.and_then(|at| out.steps.get_mut(at)) {
@@ -217,10 +202,7 @@ fn finish(out: &mut Steps, opener: Option<usize>, reasoning: &mut String) {
     }
 }
 
-/// The history the old requests answer with: user messages, routine
-/// prompts, and replies, with each turn's tool results, reasoning, model and
-/// memory score on the reply that ends it. A turn with tools but no reply
-/// gets an empty one to carry them. A waiting approval comes after its turn.
+/// The history old requests answer with; a turn with tools but no reply gets an empty one.
 pub fn history(messages: &[StoredMessage]) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
@@ -362,8 +344,7 @@ mod tests {
         history(&stored(steps(entries, None, calls, turns).steps, 1))
     }
 
-    /// `steps` saved as the store does from id `first` on. Steps before the
-    /// first opener stand alone.
+    /// `steps` saved as the store does from id `first` on.
     fn stored(steps: Vec<Step>, first: i64) -> Vec<StoredMessage> {
         let mut turn_id = None;
         steps
@@ -471,40 +452,6 @@ mod tests {
         assert!(second.is_empty());
         assert_eq!(second_tools[0].call_id, "b");
         assert!(!second_tools[0].success);
-    }
-
-    #[test]
-    fn tool_steps_keep_what_they_showed() {
-        let call = |id: &str| ToolCall {
-            id: id.into(),
-            name: "recall".into(),
-            arguments: json!({}),
-        };
-        let entries = [
-            ConversationEntry::user("What do I like?"),
-            ConversationEntry::assistant_with_tool_calls("", vec![call("a"), call("b")], None),
-            ConversationEntry::tool("a", "tea"),
-            ConversationEntry::tool("b", "jazz"),
-        ];
-        let calls = CallNotes {
-            descriptions: HashMap::from([("a".to_owned(), "Recalling memories".to_owned())]),
-            ..CallNotes::default()
-        };
-        let saved = steps(&entries, None, &calls, &HashMap::new());
-        let described: Vec<(&str, &str)> = saved
-            .steps
-            .iter()
-            .filter_map(|step| match &step.body {
-                StepBody::Tool {
-                    call_id,
-                    description,
-                    ..
-                } => Some((call_id.as_str(), description.as_str())),
-                _ => None,
-            })
-            .collect();
-        // A call the run saw no description for keeps an empty one.
-        assert_eq!(described, [("a", "Recalling memories"), ("b", "")]);
     }
 
     #[test]

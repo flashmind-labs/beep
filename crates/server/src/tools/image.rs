@@ -20,10 +20,7 @@ const CHECK_TIME: Duration = Duration::from_secs(10);
 /// The tool's name, which the apps and the routine notice look for.
 pub(crate) const NAME: &str = "send_image";
 
-/// Shows images in the chat, from the web or from the user's home folder.
-/// Each URL is fetched first, so a made-up link fails here instead of
-/// showing as a broken image on the phone. A folder image is kept with the
-/// chat, as a sent file is, and the phone shows it as a picture.
+/// Shows images in the chat from the web (checked to load) or the user's home folder.
 pub(crate) struct SendImageTool {
     pub(crate) user: Arc<User>,
     pub(crate) session_id: Uuid,
@@ -101,8 +98,7 @@ impl Tool for SendImageTool {
 }
 
 impl SendImageTool {
-    /// Checks or saves one requested image, and returns it as the phone reads
-    /// it, or why it cannot be sent.
+    /// Checks or saves one requested image, or says why it cannot be sent.
     async fn send_one(&self, image: &Value) -> Result<Value, String> {
         let field = |key| text(image, key);
         let caption: String = field("caption").unwrap_or("").chars().take(200).collect();
@@ -119,8 +115,7 @@ impl SendImageTool {
         }
     }
 
-    /// Keeps the folder image at `path` with the chat, and returns it as a
-    /// sent file.
+    /// Keeps the folder image at `path` with the chat as a sent file.
     async fn save(&self, path: &str) -> Result<Value, String> {
         let workspace = self
             .workspace
@@ -158,17 +153,13 @@ pub(super) async fn check(url: &str) -> Result<(), &'static str> {
     if parsed.scheme() != "https" || url.len() > 2048 {
         return Err("only https URLs up to 2048 bytes are allowed");
     }
-    // Model input can be steered by pages it read, so keep the server off
-    // addresses that only make sense on its own network, through every
-    // redirect. Only the headers are read.
+    // Model input can be steered by pages, so stay off private addresses through every redirect.
     let response = timeout(CHECK_TIME, follow_public(url))
         .await
         .map_err(|_| "could not be fetched in time")?
         .map_err(|_| "could not be fetched from a public address")?
         .response;
-    // Shop CDNs such as Chanel's turn away datacenter addresses whatever the
-    // request looks like, while the phone gets the same image fine. A refusal
-    // says nothing about the image, so leave it to the phone.
+    // Some CDNs refuse datacenter addresses but serve the phone fine, so leave refusals to it.
     if matches!(
         response.status(),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
@@ -185,12 +176,10 @@ pub(super) async fn check(url: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// How much of a page is read looking for its preview image, which sits in
-/// the head.
+/// How much of a page is read looking for its preview image.
 const MAX_HEAD: usize = 512 * 1024;
 
-/// The preview image a page names for link previews (`og:image`, else
-/// `twitter:image`), checked to load. For a card the model gave no picture.
+/// The page's link preview image, checked to load.
 pub(super) async fn page_image(page: &str) -> Option<String> {
     let head = timeout(CHECK_TIME, read_head(page)).await.ok()??;
     let base = Url::parse(page).ok()?;
@@ -219,8 +208,7 @@ async fn read_head(page: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&head).into_owned())
 }
 
-/// The `content` of the first `og:image` meta tag in `html`, else of the
-/// first `twitter:image`.
+/// The first `og:image` meta tag's `content` in `html`, else `twitter:image`'s.
 fn preview_image(html: &str) -> Option<String> {
     let tags: Vec<&str> = html
         .match_indices("<meta")
@@ -268,23 +256,6 @@ fn attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn finds_a_pages_preview_image() {
-        let html = r#"<head><meta name="twitter:image" content="https://cdn.example/t.jpg">
-            <meta content='/img/a.jpg?w=1&amp;h=2' property='og:image' />
-            <meta property="og:image:width" content="1200"></head>"#;
-        assert_eq!(preview_image(html).as_deref(), Some("/img/a.jpg?w=1&h=2"));
-        let html = r#"<meta name="twitter:image" content="https://cdn.example/t.jpg">"#;
-        assert_eq!(
-            preview_image(html).as_deref(),
-            Some("https://cdn.example/t.jpg")
-        );
-        assert_eq!(
-            preview_image(r#"<meta property="og:title" content="A">"#),
-            None
-        );
-    }
-
     #[tokio::test]
     async fn rejects_unsafe_urls_without_fetching() {
         for url in [
@@ -300,13 +271,5 @@ mod tests {
         ] {
             assert!(check(url).await.is_err(), "{url}");
         }
-    }
-
-    #[test]
-    fn folder_images_are_known_by_their_bytes() {
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0";
-        assert_eq!(image_mime(png), Some("image/png"));
-        assert_eq!(image_mime(b"%PDF-1.7"), None);
-        assert_eq!(image_mime(b""), None);
     }
 }

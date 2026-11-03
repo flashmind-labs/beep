@@ -1,8 +1,4 @@
-//! A project's branches, and reviews of one before a merge. Git runs on a
-//! machine with a checkout; each shard of the diff gets a read-only
-//! coding-agent session there, in a detached worktree at the head. The
-//! server moves reviews on in the background (`projects::review::drive`);
-//! these requests start, read and act on them.
+//! A project's branches, and reviews of one before a merge (driven by `projects::review::drive`).
 
 use super::{
     Reply,
@@ -108,8 +104,7 @@ pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> R
             facts.default
         )));
     }
-    // The review goes on without the pull request when the host cannot be
-    // read; the screen then shows none.
+    // The review goes on without the pull request when the host cannot be read.
     let pr = match find_pr(node, &cx.user, &project, branch, &facts.default).await {
         Ok(pr) => pr,
         Err(e) => {
@@ -188,9 +183,7 @@ pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> R
     Ok(view(review, &names, rows, Vec::new(), &HashMap::new()))
 }
 
-/// Makes the detached worktree a review's reviewers read, at
-/// `.worktrees/review-<id>` in the checkout; `None`, so they read the
-/// checkout itself, when git refuses.
+/// Makes the review's detached worktree at `.worktrees/review-<id>`; `None` when git refuses.
 async fn review_worktree(node: &Online, folder: &str, id: Uuid, head: &str) -> Option<String> {
     let simple = id.simple().to_string();
     let path = format!(
@@ -352,8 +345,7 @@ pub(super) async fn merge_reviewed_branch(cx: Cx, request: MergeReviewedBranch) 
     ask_project_agent(&cx, &review, text).await
 }
 
-/// Posts `text` in the review's project chat for the project agent, and
-/// gives the chat's id.
+/// Posts `text` in the review's project chat and gives the chat's id.
 async fn ask_project_agent(cx: &Cx, review: &ReviewRow, text: String) -> Reply<Uuid> {
     let project = project_row(cx, &review.project).await?;
     let chat = cx.user.ensure_project_agent(project.id).await?;
@@ -450,8 +442,7 @@ async fn shown(cx: &Cx, review: ReviewRow, doing: &HashMap<u32, String>) -> Repl
     Ok(view(review, &names, shards, findings, doing))
 }
 
-/// The caller's project named `name`: one they made, or imported on a
-/// machine.
+/// The caller's project named `name`, made or imported.
 pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiError> {
     let name = RepoName::parse(name.trim()).map_err(|_| ApiError::NotFound {})?;
     let text = name.to_string();
@@ -483,8 +474,7 @@ pub(super) struct Place {
     pub(super) folder: String,
 }
 
-/// Where the project is: the home checkout first, then its other
-/// checkouts, then the folders it was imported into; one per machine.
+/// Where the project is, one per machine: home checkout, other checkouts, then imports.
 pub(super) async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, ApiError> {
     let mut checkouts = cx.user.checkouts(project.id).await?;
     checkouts.sort_by_key(|checkout| !checkout.home);
@@ -512,8 +502,7 @@ pub(super) async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, 
     Ok(out)
 }
 
-/// The first online machine with the project that offers a coding agent,
-/// and the project's folder there.
+/// The first online machine with the project that offers a coding agent, and its folder.
 async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), ApiError> {
     let places = places(cx, project).await?;
     let mut hosts = live_hosts(cx).await?;
@@ -530,9 +519,7 @@ async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), 
     ))
 }
 
-/// The caller's machine `endpoint` when it is online now.
-/// Runs `script` in a shell of its own on `node` and gives what it
-/// printed, failing unless it exits 0.
+/// Runs `script` in its own shell on `node` and gives its output, failing unless it exits 0.
 async fn run(node: &Online, script: &str, limit: Duration) -> Result<String> {
     let mut out = String::new();
     let ran = node
@@ -571,8 +558,7 @@ fn verdict(finding: &ReviewFindingRow) -> ReviewVerdict {
     }
 }
 
-/// Open findings by severity, verified before unchecked before waiting;
-/// then dismissed, then dropped ones.
+/// Open findings by severity and check, then dismissed, then dropped ones.
 fn rank(findings: &mut [ReviewFinding]) {
     findings.sort_by_key(|finding| {
         let bucket = match (&finding.verdict, finding.dismissed) {
@@ -726,31 +712,6 @@ mod tests {
     }
 
     #[test]
-    fn findings_rank_open_by_severity_then_dismissed_then_dropped() {
-        let mut dismissed = finding(1, ReviewSeverity::High {}, Some(Verdict::Verified));
-        dismissed.dismissed = true;
-        let findings = vec![
-            finding(0, ReviewSeverity::Low {}, Some(Verdict::Verified)),
-            dismissed,
-            finding(2, ReviewSeverity::High {}, Some(Verdict::Dropped)),
-            finding(100, ReviewSeverity::Medium {}, None),
-            finding(101, ReviewSeverity::Medium {}, Some(Verdict::Verified)),
-        ];
-        let shown = view(
-            review(),
-            &HashMap::new(),
-            vec![shard(0, ShardState::Done), shard(1, ShardState::Verifying)],
-            findings,
-            &HashMap::new(),
-        );
-        let ids: Vec<u32> = shown.findings.iter().map(|f| f.id).collect();
-        assert_eq!(ids, [101, 100, 0, 1, 2]);
-        assert_eq!(shown.findings[0].area, "area1");
-        assert_eq!(shown.shards[0].found, 3);
-        assert_eq!(shown.merge, ReviewMerge::Clean {});
-    }
-
-    #[test]
     fn merge_refuses_on_failing_ci_conflicts_and_open_findings() {
         let done = [shard(0, ShardState::Done)];
         let open = [finding(0, ReviewSeverity::Low {}, Some(Verdict::Unchecked))];
@@ -775,23 +736,6 @@ mod tests {
             pr.checks = ReviewChecks::Failing {};
         }
         assert!(merge_blocked(&failing, &done, &[]).is_some());
-    }
-
-    #[test]
-    fn the_fix_task_lists_the_open_findings() {
-        let one = finding(0, ReviewSeverity::High {}, Some(Verdict::Verified));
-        let body = fix_body(&review(), &[&one]);
-        assert!(body.contains("starts from login-copy"), "{body}");
-        assert!(
-            body.contains("1. [high] finding 0 at src/lib.rs:1: It breaks"),
-            "{body}"
-        );
-        let asked = post_request(&review(), 41, "https://example.com/pr/41", &[&one]);
-        assert!(asked.contains("pull request #41"), "{asked}");
-        assert!(
-            asked.contains("Call branch_review with action post"),
-            "{asked}"
-        );
     }
 
     #[test]

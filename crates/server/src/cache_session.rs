@@ -1,11 +1,4 @@
-//! One OpenRouter session per model for the whole server.
-//!
-//! OpenRouter keeps calls with the same `session_id` on the provider that
-//! holds their prompt cache. Chats, routines, wakes, research, groups and
-//! sub-agents of one kind share their system prompt and tools, so every call
-//! to a model shares one session, and a new chat starts on the provider that
-//! already caches that prefix. The id comes from the server's key and the
-//! model, so it stays the same across restarts.
+//! One OpenRouter session per model for the whole server, so calls share the provider's prompt cache.
 
 use async_trait::async_trait;
 use flashmind::types::{

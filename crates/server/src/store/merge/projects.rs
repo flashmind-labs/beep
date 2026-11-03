@@ -1,7 +1,4 @@
-//! A merged account's projects. A project is known by its name, compared
-//! without case, in every table that names it. When the account joined has
-//! a project of the same name, both stay: the moved one, in every table, is
-//! renamed by [`copy_name`].
+//! A merged account's projects, matched by case-insensitive name; a clash renames the moved one via [`copy_name`].
 
 use crate::{
     api::project_sync::MAX_NAME,
@@ -11,9 +8,7 @@ use anyhow::Result;
 use sqlx::PgConnection;
 use std::collections::HashSet;
 
-/// The tables that name a project, and the column that names it. Their
-/// rows move with the project; a project's tasks, checkouts and chats hang
-/// off `projects` by its id.
+/// Tables naming a project and the naming column; tasks, checkouts and chats hang off `projects` by id.
 pub(super) const NAMED: &[(&str, &str)] = &[
     ("projects", "name"),
     ("project_imports", "project"),
@@ -35,8 +30,7 @@ struct Name {
     lower: String,
 }
 
-/// Moves the projects of `source` to `target`, renaming each one `target`
-/// also has.
+/// Moves `source`'s projects to `target`, renaming clashes.
 pub(super) async fn move_projects(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     let moved = names(tx, source).await?;
     let kept: HashSet<String> = names(tx, target)
@@ -79,12 +73,7 @@ pub(super) async fn move_projects(tx: &mut PgConnection, source: &str, target: &
     Ok(())
 }
 
-/// The `n`th name a moved project may take when the kept account has its
-/// name: `<name>-copy`, then `<name>-copy-2` and on. An `owner/repo` name
-/// stays one, so imports, sync, memory scopes and checkout folders take it
-/// (`RepoName`, the import's repository parts, `project_sync::project_name`
-/// and `RepoName::memory_scope`); the name is cut to leave room for the
-/// suffix.
+/// The `n`th rename for a clashing project: `<name>-copy`, `<name>-copy-2`, ...; keeps `owner/repo` shape, truncated to fit.
 pub(super) fn copy_name(name: &str, n: u32) -> String {
     let suffix = match n {
         1 => "-copy".to_owned(),
@@ -101,8 +90,7 @@ pub(super) fn copy_name(name: &str, n: u32) -> String {
     format!("{}{suffix}", &name[..keep])
 }
 
-/// Every project name of `user`, once each without case; as `projects`
-/// spells it when it has one.
+/// Every project name of `user`, once case-insensitively, spelled as `projects` has it.
 async fn names(tx: &mut PgConnection, user: &str) -> Result<Vec<Name>> {
     let union = NAMED
         .iter()
@@ -136,8 +124,7 @@ mod tests {
         },
     };
 
-    /// Every rule a project name meets on its way through imports, sync,
-    /// memory and checkout folders.
+    /// Every rule a project name must pass across imports, sync, memory and checkout folders.
     fn passes_every_rule(name: &str) {
         let repo = RepoName::parse(name).unwrap_or_else(|e| panic!("{name}: {e}"));
         // A project's memories are scoped by its repository part.

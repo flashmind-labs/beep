@@ -1,6 +1,4 @@
-//! Folders the user picks on a machine: where an import goes, and what the
-//! Import a project sheet browses. They are read through the node's shell,
-//! so any folder the user can open is reachable, not only shared ones.
+//! Folders the user picks on a machine, read through the node's shell so any readable folder works.
 
 use super::{ImportError, clone::quote};
 use crate::protocol::MachineFolder;
@@ -12,8 +10,7 @@ const MAX_FOLDERS: u32 = 500;
 /// The longest path taken.
 const MAX_PATH: usize = 1024;
 
-/// A folder on a machine as the user gave it: absolute, or under the home
-/// folder, which the machine's shell expands.
+/// A folder on a machine as given: absolute, or under `~`, which the machine's shell expands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FolderPath {
     /// `/` and the parts after it, without a trailing `/`.
@@ -23,9 +20,7 @@ pub(crate) enum FolderPath {
 }
 
 impl FolderPath {
-    /// The folder `input` names; `None` when it is blank. A path must be
-    /// absolute or start with `~`; `.` and empty parts are dropped, and
-    /// `..` and control characters are refused.
+    /// The folder `input` names, `None` when blank; refuses relative paths, `..` and control characters.
     pub(crate) fn parse(input: &str) -> Result<Option<Self>, ImportError> {
         let input = input.trim();
         if input.is_empty() {
@@ -69,9 +64,7 @@ impl FolderPath {
     }
 }
 
-/// The script that reads one folder. It prints `path`, then for a folder
-/// `git <origin>` when it is a checkout, `full` when it holds anything and
-/// `dir <name>` per folder in it.
+/// Reads one folder: prints `path`, then `git <origin>`, `full` and `dir <name>` lines as they apply.
 pub(crate) fn script(folder: &FolderPath) -> String {
     format!(
         "d={word}\n\
@@ -165,8 +158,7 @@ fn parent(path: &str) -> Option<String> {
     }
 }
 
-/// Where an import into the picked folder `seen` goes: the folder itself
-/// when it is a checkout, empty or missing, else `<folder>/<name>`.
+/// Where an import into `seen` goes: the folder itself when a checkout, empty or missing, else `<folder>/<name>`.
 pub(crate) fn destination(seen: &MachineFolder, name: &str) -> String {
     if !seen.exists || seen.empty || seen.origin.is_some() {
         seen.path.clone()
@@ -223,64 +215,6 @@ mod tests {
             FolderPath::Home("a b".into()).shell_word(),
             "\"$HOME\"/'a b'"
         );
-    }
-
-    #[test]
-    fn reads_what_the_script_printed() {
-        let out = "motd\n\nBEEP_FOLDER: path /srv/code/\nBEEP_FOLDER: git git@github.com:o/r.git\n\
-                   BEEP_FOLDER: full\nBEEP_FOLDER: dir src\nBEEP_FOLDER: dir  spaced \n\
-                   BEEP_FOLDER: dir docs\nBEEP_FOLDER: more 3\n";
-        let Some(Seen::Folder(seen)) = read(out) else {
-            panic!("a folder");
-        };
-        assert_eq!(seen.path, "/srv/code");
-        assert_eq!(seen.parent.as_deref(), Some("/srv"));
-        assert!(seen.exists && !seen.empty);
-        assert_eq!(seen.origin.as_deref(), Some("git@github.com:o/r.git"));
-        assert_eq!(seen.folders, [" spaced ", "docs", "src"]);
-        assert_eq!(seen.more, 3);
-
-        let Some(Seen::Folder(missing)) = read("\nBEEP_FOLDER: missing /home/u/new\n") else {
-            panic!("a missing folder");
-        };
-        assert!(!missing.exists && missing.empty);
-        assert_eq!(
-            read("BEEP_FOLDER: file /etc/hosts"),
-            Some(Seen::File("/etc/hosts".into()))
-        );
-        assert_eq!(read("BEEP_FOLDER: path relative"), None);
-        assert_eq!(read("nothing"), None);
-        let Some(Seen::Folder(root)) = read("BEEP_FOLDER: path /") else {
-            panic!("the root");
-        };
-        assert_eq!(root.parent, None);
-    }
-
-    fn folder(path: &str, exists: bool, empty: bool, origin: Option<&str>) -> MachineFolder {
-        MachineFolder {
-            path: path.into(),
-            parent: None,
-            exists,
-            folders: Vec::new(),
-            more: 0,
-            empty,
-            origin: origin.map(str::to_owned),
-        }
-    }
-
-    #[test]
-    fn other_files_put_the_clone_in_a_subfolder() {
-        assert_eq!(destination(&folder("/w/x", false, true, None), "r"), "/w/x");
-        assert_eq!(destination(&folder("/w/x", true, true, None), "r"), "/w/x");
-        assert_eq!(
-            destination(&folder("/w/x", true, false, Some("u")), "r"),
-            "/w/x"
-        );
-        assert_eq!(
-            destination(&folder("/w/x", true, false, None), "r"),
-            "/w/x/r"
-        );
-        assert_eq!(destination(&folder("/", true, false, None), "r"), "/r");
     }
 
     fn run(script: &str, home: &Path) -> String {

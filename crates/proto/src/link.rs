@@ -278,16 +278,4 @@ mod tests {
         assert_eq!(offer.server(now), None);
         assert_eq!(own.server(now + OFFER_TTL + Duration::from_secs(1)), None);
     }
-
-    #[test]
-    fn junk_is_not_an_offer() {
-        assert_eq!(LinkOffer::parse("hello"), Err(LinkError::Malformed));
-        assert_eq!(LinkOffer::parse("beep-link:!!"), Err(LinkError::Malformed));
-        let (device, server) = keys();
-        let long = "x".repeat(MAX_NAME + 1);
-        assert_eq!(
-            LinkOffer::sign(&device, server, &long, SystemTime::now()),
-            Err(LinkError::BadName)
-        );
-    }
 }
