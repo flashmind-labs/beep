@@ -158,6 +158,22 @@ impl Store {
         rows.iter().map(session).collect()
     }
 
+    /// The session `chat` of `user` as `sessions` lists it; `None` when it
+    /// is not theirs.
+    pub(crate) async fn session_of(&self, user: &UserKey, chat: Uuid) -> Result<Option<Session>> {
+        let row = sqlx::query(&format!(
+            "SELECT {} FROM chats c
+             JOIN chat_members m ON m.chat_id = c.id
+             WHERE m.user_id = $1 AND c.id = $2 AND c.kind = 'session'",
+            session_columns()
+        ))
+        .bind(user.as_str())
+        .bind(chat)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(session).transpose()
+    }
+
     /// Up to `limit` sessions with a message from the user or a reply that
     /// holds `query`, ignoring case, most recently changed first, each with
     /// its latest such message.

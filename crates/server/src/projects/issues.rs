@@ -415,15 +415,35 @@ pub(crate) fn untracked(open: Vec<OpenIssue>, tracked: &[u64]) -> Vec<OpenIssue>
     left
 }
 
-/// The open issues on `project`'s host that no task tracks and the user
-/// did not dismiss, newest first. Empty when it has no issues host.
+/// The open issues on `project`'s host that no task tracks, newest first.
+/// Empty when it has no issues host.
 pub(crate) async fn list_open(
     fleet: &dyn Fleet,
     user: &User,
     project: &ProjectRow,
 ) -> Result<Vec<OpenIssue>, IssueError> {
+    match read_open(fleet, user, project).await? {
+        Some(read) => untracked_now(user, project, &read).await,
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Every open issue on a project's host, as it was read.
+#[derive(Debug, Clone)]
+pub(crate) struct HostIssues {
+    pub(crate) host: IssueHost,
+    pub(crate) open: Vec<OpenIssue>,
+}
+
+/// Every open issue on `project`'s host, tracked or not. `None` when it
+/// has no issues host.
+pub(crate) async fn read_open(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+) -> Result<Option<HostIssues>, IssueError> {
     let Some(sources) = issue_sources(fleet, user, project).await? else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let (source, open) = read_any(
         fleet,
@@ -433,18 +453,31 @@ pub(crate) async fn list_open(
         parse_open_issues,
     )
     .await?;
+    Ok(Some(HostIssues {
+        host: source.host.clone(),
+        open,
+    }))
+}
+
+/// The issues of `read` that no task of `project` tracks now, newest first.
+pub(crate) async fn untracked_now(
+    user: &User,
+    project: &ProjectRow,
+    read: &HostIssues,
+) -> Result<Vec<OpenIssue>, IssueError> {
     let tracked: Vec<u64> = user
         .project_tasks(project.id)
         .await?
         .into_iter()
-        .filter(|task| task.issue_host.as_ref() == Some(&source.host))
+        .filter(|task| task.issue_host.as_ref() == Some(&read.host))
         .filter_map(|task| task.issue.map(|issue| issue.number))
         .collect();
-    Ok(untracked(open, &tracked))
+    Ok(untracked(read.open.clone(), &tracked))
 }
 
 /// The open pull requests on a project's host, and whether each is the
 /// user's.
+#[derive(Debug, Clone)]
 pub(crate) struct ListedPr {
     pub(crate) pr: OpenPr,
     /// Opened by the account the host's CLI is signed in as. False when

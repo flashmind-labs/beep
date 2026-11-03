@@ -4,8 +4,8 @@
 mod board;
 mod forgejo;
 pub(crate) mod forks;
-mod github;
+pub(crate) mod github;
 mod host;
 
 pub use board::GitBoard;
-pub(crate) use host::Caller;
+pub(crate) use host::{Caller, HostError, send_error, status_error};

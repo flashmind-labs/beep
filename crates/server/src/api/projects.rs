@@ -72,14 +72,14 @@ pub(super) async fn list_project_issues(
     cx: Cx,
     req: ListProjectIssues,
 ) -> Reply<Vec<ProjectIssue>> {
-    project_issues(&cx.app, &cx.user, ProjectId(req.project_id)).await
+    super::project_watch::copied_issues(&cx.app, &cx.user, ProjectId(req.project_id)).await
 }
 
 pub(super) async fn list_project_pull_requests(
     cx: Cx,
     req: ListProjectPullRequests,
 ) -> Reply<Vec<ProjectPullRequest>> {
-    project_pull_requests(&cx.app, &cx.user, ProjectId(req.project_id)).await
+    super::project_watch::copied_pull_requests(&cx.app, &cx.user, ProjectId(req.project_id)).await
 }
 
 pub(super) async fn get_pull_request_head(
@@ -126,7 +126,7 @@ pub(super) fn issue_refusal(error: IssueError) -> ApiError {
     }
 }
 
-fn issue_view(issue: OpenIssue) -> ProjectIssue {
+pub(super) fn issue_view(issue: OpenIssue) -> ProjectIssue {
     ProjectIssue {
         number: issue.number,
         title: issue.title,
@@ -138,24 +138,7 @@ fn issue_view(issue: OpenIssue) -> ProjectIssue {
     }
 }
 
-/// The open issues of the project no task tracks.
-async fn project_issues(
-    app: &Arc<App>,
-    user: &Arc<User>,
-    id: ProjectId,
-) -> Reply<Vec<ProjectIssue>> {
-    let project = project_of(user, id).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    let open = issues::list_open(&fleet, user, &project)
-        .await
-        .map_err(issue_refusal)?;
-    Ok(open.into_iter().map(issue_view).collect())
-}
-
-fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
+pub(super) fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
     let pr = listed.pr;
     ProjectPullRequest {
         number: pr.number,
@@ -167,23 +150,6 @@ fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
         created_at: pr.created_at.into(),
         updated_at: pr.updated_at.into(),
     }
-}
-
-/// Every open pull request of the project, newest first.
-async fn project_pull_requests(
-    app: &Arc<App>,
-    user: &Arc<User>,
-    id: ProjectId,
-) -> Reply<Vec<ProjectPullRequest>> {
-    let project = project_of(user, id).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    let open = issues::list_open_prs(&fleet, user, &project)
-        .await
-        .map_err(issue_refusal)?;
-    Ok(open.into_iter().map(pull_request_view).collect())
 }
 
 /// How the app asked the worker to start, checked.

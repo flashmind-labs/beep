@@ -7,7 +7,7 @@ use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
     home_sessions::AgentSessions,
-    projects::ProjectRow,
+    projects::{ProjectRow, unknown_op},
     research,
     state::LinkState,
     view_cache::{View, ViewCache},
@@ -17,7 +17,7 @@ use beep_proto::{
     DismissUpdates, ImportedProject, ListCrons, ListImportedProjects, ListMachineDetails,
     ListMachineStats, ListMachines, ListPendingApprovals, ListResearches, ListUpdates, Machine,
     MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
-    PendingApproval, ResearchStatus, ResearchSummary, Session,
+    OpenUpdateChat, PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -397,6 +397,17 @@ pub async fn center_answer_agent(
 #[tauri::command]
 pub async fn center_dismiss_updates(beep: Service<'_>, ids: Vec<i64>) -> Result<()> {
     beep.call(DismissUpdates { ids }).await
+}
+
+/// The chat about an update, which opens with Beep telling it; made on the
+/// first ask. `None` from a server too old to make one.
+#[tauri::command]
+pub async fn center_open_update_chat(beep: Service<'_>, id: i64) -> Result<Option<String>> {
+    match beep.call(OpenUpdateChat { id }).await {
+        Ok(session) => Ok(Some(session.id)),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// What Home shows. A section is `None` when the server cannot list it for

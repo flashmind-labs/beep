@@ -255,14 +255,19 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         if (chat.messages.isEmpty()) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(if (compact) 20.dp else 24.dp), verticalArrangement = Arrangement.Center) {
                 // Updates from the user's apps sit on their own card, never inside a reply. Tapping one
-                // starts this empty chat with its summary in the composer, for the user to send or change.
+                // opens its chat, where Beep's first message tells it and the user replies. A server
+                // from before update chats leaves its summary in this chat's composer instead.
                 val updates by repository.updates.collectAsState()
                 LifecycleResumeEffect(chat.id) { repository.loadUpdates(); onPauseOrDispose {} }
                 if (updates.isNotEmpty()) {
                     UpdatesCard(updates, onOpen = { update ->
                         repository.dismissUpdates(listOf(update.id))
-                        draft = update.summary
-                        focusInput.value = true
+                        scope.launch {
+                            if (!repository.openUpdateChat(update)) {
+                                draft = update.summary
+                                focusInput.value = true
+                            }
+                        }
                     }, onDismiss = repository::dismissUpdates)
                     Spacer(Modifier.height(20.dp))
                 }

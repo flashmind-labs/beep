@@ -26,6 +26,7 @@ pub(crate) use agent_sessions::machine_sessions;
 mod branch_work;
 mod credentials;
 mod crons;
+mod custom_agents;
 mod devices;
 mod findings;
 mod git_items;
@@ -40,6 +41,7 @@ mod memories;
 mod project_groups;
 mod project_import;
 mod project_sync;
+mod project_watch;
 mod projects;
 mod research;
 mod reviews;
@@ -276,6 +278,7 @@ pub fn router() -> Router {
         .call(project_groups::delete_project_group)
         .call(updates::list_updates)
         .call(updates::dismiss_updates)
+        .call(updates::open_update_chat)
         .call(create_node_token)
         .call(revoke_node_token)
         .call(remove_machine)
@@ -307,6 +310,7 @@ pub fn router() -> Router {
         .call(work_files::list_work_folder)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
+        .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
@@ -320,6 +324,9 @@ pub fn router() -> Router {
         .call(project_sync::get_project_sync_detail)
         .call(project_sync::pause_project_sync)
         .call(project_sync::resolve_sync_conflict)
+        .call(project_watch::get_project_lists)
+        .call(project_watch::list_project_runs)
+        .call(project_watch::get_project_run)
 }
 
 type Reply<T> = Result<T, ApiError>;
