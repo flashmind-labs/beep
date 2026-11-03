@@ -9,6 +9,7 @@
 //! bindings.
 
 pub mod agent_ids;
+mod agent_notice;
 pub mod client;
 pub mod groups;
 pub mod link;
@@ -29,6 +30,7 @@ mod compat;
 uniffi::setup_scaffolding!();
 
 pub use agent_ids::{AgentSlug, ModelId};
+pub use agent_notice::{AgentNoticeKey, NotAgentKey};
 pub use flashmind_types::ReasoningLevel;
 use link::LinkOffer;
 pub use secret::SecretText;
@@ -5392,6 +5394,8 @@ pub struct UpdatePage {
 pub struct Notice {
     pub title: String,
     pub body: String,
+    /// The chat or group the notice is about. On a computer it may instead
+    /// be an `AgentNoticeKey`, for a coding-agent notice.
     pub session_id: String,
     /// Slug of an app that lost its login; tapping the notice opens Apps.
     pub app: Option<String>,
