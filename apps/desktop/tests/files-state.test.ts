@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_UPLOAD, type Listing, type TreeEntry, highlight, joinPath, languageOf, mentionText, parentPath, terminalName,
+  MAX_UPLOAD, type Listing, type TreeEntry, failedListing, highlight, joinPath, languageOf, mentionText, parentPath, terminalName,
   treeRows, uploadParts, uploadRefusal, withMentions,
 } from "../src/files-state.ts";
 
@@ -71,4 +71,11 @@ test("highlighting marks keywords, strings and comments, escaped", () => {
 test("terminal tabs are named by folder and number", () => {
   assert.equal(terminalName("/srv/project/.worktrees/fix-login/", []), "fix-login 1");
   assert.equal(terminalName("/srv/fix-login", ["fix-login 1", "fix-login 3"]), "fix-login 2");
+});
+
+test("a session folder the machine no longer has reads as empty, not as an error", () => {
+  const gone = "bad request: build-box: the folder /tmp/agent/scratchpad is not there: No such file or directory (os error 2)";
+  assert.deepEqual(failedListing(gone), { entries: [], more: 0, error: "" });
+  assert.equal(failedListing("bad request: build-box: permission denied").error, "build-box: permission denied");
+  assert.match(failedListing("unknown op 812").error, /Update Beep/);
 });
