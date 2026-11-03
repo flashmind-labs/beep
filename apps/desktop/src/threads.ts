@@ -1,22 +1,18 @@
-// A project's issues and pull requests, and the user's threads there. The
-// board's Issues tile and the Pull requests tile's rows, and the project
-// page's Pull requests and Issues sections: every open PR with Let the
-// agent reply, Continue and Review; every open issue, an untracked one with
-// Work on it, Plan and Discuss, a tracked one with its task; a
-// thread of the user's gets Let the agent reply when someone wrote after
-// them, and Discuss. center.ts draws the page; this file keeps the state.
+// A project's issues and pull requests, and the user's threads there, for
+// the project page's list: every open PR with Let the agent reply, Continue
+// and Review; every open issue, an untracked one with Work on it, Plan and
+// Discuss, a tracked one with its task; a thread of the user's gets Let the
+// agent reply when someone wrote after them, and Discuss. center.ts draws
+// the page; this file keeps the state.
 import type { invoke as Invoke } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
-import { prLabel } from "./project.ts";
 import type { ProjectAgent, TaskRow } from "./project.ts";
-import type { TileData } from "./board.ts";
 import { STATE_LABEL, reviewState } from "./review.ts";
 import type { ReviewState, ReviewView } from "./review.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, fitRows, freshNote, stateChip } from "./components/parts.ts";
+import { emptyPanel, freshNote, stateChip } from "./components/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
-import { checksText, going, hostLabel } from "./runs.ts";
 import type { ChecksRow } from "./runs.ts";
 
 /// An open issue no task tracks (IssueRow).
@@ -85,9 +81,6 @@ export type TaskLink = Pick<TaskRow, "id" | "title" | "state" | "pr_url" | "issu
 /// A branch review as the pull request rows read it.
 export type PrReview = Pick<ReviewView, "branch"> & Parameters<typeof reviewState>[0];
 
-/// The rows a section shows before Show all.
-export const SHOWN = 10;
-
 /// How long after a try the lists may be read again unasked: the page
 /// cache's time for the code host's lists.
 const REFRESH_GAP = REFRESH_MS;
@@ -97,73 +90,8 @@ export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
   return t.kind === "pr" ? `PR #${t.number}` : `#${t.number}`;
 }
 
-/// The Issues tile from the open issues no task tracks; undefined while
-/// they load, null from a server too old to list them. `error` is why the
-/// host could not be read, shown in place of an empty list.
-export function issueTile(list: readonly Pick<IssueRow, "number" | "title" | "url" | "labels" | "comments">[] | null | undefined, error = ""): TileData {
-  if (list === undefined) return { count: "", rows: [], empty: "Loading…" };
-  if (list === null) return { count: "", rows: [], empty: "The server lists no issues yet" };
-  if (error && !list.length) return { count: "", rows: [], empty: error };
-  return {
-    count: list.length ? `${list.length} untracked` : "",
-    rows: list.map(i => ({ code: `#${i.number}`, text: i.title, url: i.url, note: i.labels?.[0] || (i.comments ? `${i.comments} comments` : "") })),
-    empty: "No untracked issues",
-  };
-}
-
 /// An open PR as `threadTile` reads it.
 type OpenPr = Pick<PullRequestRow, "number" | "title" | "url" | "author" | "draft" | "mine" | "created_at">;
-
-/// The Pull requests tile. With the project's open PRs (`open`): the threads
-/// waiting on the user's reply first, then every other open PR newest
-/// first, someone else's noting its author. Without them (loading, or a
-/// server too old to list them), the user's threads: their open PRs, those
-/// waiting on a reply first; `fallback` (the tasks' PRs) while those load
-/// or on a server too old to list them.
-export function threadTile(
-  list: readonly (Pick<ThreadRow, "kind" | "number" | "title" | "needs_reply"> & Partial<Pick<ThreadRow, "url">>)[] | null | undefined,
-  fallback: TileData,
-  open?: readonly OpenPr[] | null,
-): TileData {
-  if (Array.isArray(open)) {
-    const threads = Array.isArray(list) ? list : [];
-    const waiting = threads.filter(t => t.needs_reply);
-    const waitingPrs = new Set(waiting.filter(t => t.kind === "pr").map(t => t.number));
-    const mine = new Set(threads.filter(t => t.kind === "pr").map(t => t.number));
-    const byNumber = new Map(open.map(p => [p.number, p]));
-    const rest = open.filter(p => !waitingPrs.has(p.number)).sort((a, b) => b.created_at - a.created_at || b.number - a.number);
-    /// The author of someone else's PR; a draft of the user's says so.
-    const note = (p: OpenPr | undefined) => !p ? "" : p.mine || mine.has(p.number) ? (p.draft ? "draft" : "") : p.author;
-    const count = rest.length + waitingPrs.size;
-    return {
-      count: count ? `${count} open` : "",
-      rows: [
-        ...waiting.map(t => ({
-          code: threadCode(t).replace(/^PR /, ""),
-          text: t.title,
-          url: t.url,
-          chip: { cls: "wait", text: "reply" },
-          note: t.kind === "pr" ? note(byNumber.get(t.number)) : "",
-        })),
-        ...rest.map(p => ({ code: `#${p.number}`, text: p.title, url: p.url, chip: null, note: note(p) })),
-      ],
-      empty: "No open pull requests",
-    };
-  }
-  if (!Array.isArray(list)) return fallback;
-  const prs = list.filter(t => t.kind === "pr");
-  const waiting = list.filter(t => t.needs_reply).length;
-  return {
-    count: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} reply` : prs.length ? `${prs.length} open` : "",
-    rows: [...list.filter(t => t.needs_reply), ...prs.filter(t => !t.needs_reply)].map(t => ({
-      code: threadCode(t).replace(/^PR /, ""),
-      text: t.title,
-      url: t.url,
-      chip: t.needs_reply ? { cls: "wait", text: "reply" } : null,
-    })),
-    empty: fallback?.rows?.length ? fallback.empty : "No open pull requests of yours",
-  };
-}
 
 /// The line under an issue: who opened it, when, its labels and comments.
 export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "labels" | "comments">>, ago: Ago) {
@@ -286,36 +214,6 @@ export function issueLines(issues: readonly IssueRow[], tasks: readonly TaskLink
       task: t,
     })),
   ];
-}
-
-/// The Issues section's count line: "14 open · 6 not tracked".
-export function issueCount(lines: readonly Pick<IssueLine, "task">[]) {
-  if (!lines.length) return "";
-  const untracked = lines.filter(l => !l.task).length;
-  return untracked === lines.length ? `${lines.length} open, none tracked` : `${lines.length} open · ${untracked} not tracked`;
-}
-
-/// The rows a section shows: all of them once Show all was clicked, else
-/// the first `SHOWN`; `hidden` counts the rest.
-export function firstRows<T>(rows: readonly T[], all: boolean, limit = SHOWN): { rows: T[]; hidden: number } {
-  if (all || rows.length <= limit) return { rows: [...rows], hidden: 0 };
-  return { rows: rows.slice(0, limit), hidden: rows.length - limit };
-}
-
-/// The issues the Issues section shows before Show all.
-export const ISSUES_SHOWN = 3;
-
-/// Every label on the open issues, with how many carry it, most used first.
-export function issueLabels(lines: readonly Pick<IssueLine, "issue">[]) {
-  const counts = new Map<string, number>();
-  for (const l of lines) for (const label of l.issue?.labels || []) counts.set(label, (counts.get(label) || 0) + 1);
-  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count }));
-}
-
-/// The lines whose issue carries any of `picked`; all of them when none is.
-export function withLabels<T extends Pick<IssueLine, "issue">>(lines: readonly T[], picked: ReadonlySet<string>): T[] {
-  if (!picked.size) return [...lines];
-  return lines.filter(l => (l.issue?.labels || []).some(label => picked.has(label)));
 }
 
 /// The longest slug of a title an issue's branch takes.
@@ -558,161 +456,44 @@ export function makeThreads(deps: ThreadDeps) {
     return a;
   }
 
-  /// A section of the project page: its heading with the count, then the
-  /// error, the loading line or its rows, with Show all past `SHOWN`.
-  function section(agent: Agent, id: string, title: string, count: string, body: HTMLElement[], note?: HTMLElement) {
-    const box = h("div");
-    box.id = id;
-    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), deps.mode?.(agent.project_id) ?? null, button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
-    if (note) box.append(note);
-    return box;
-  }
-
-  /// The section's note in place of its rows: why the host could not be
-  /// read, that it loads, or that there is none.
-  function emptyNote(text: string, bad = false) {
-    return emptyPanel(h("span", bad ? "cc-err" : "", text));
-  }
-
-  /// The rows, the first `SHOWN` until Show all.
-  function rowsPanel<T>(agent: Agent, key: string, lines: readonly T[], draw: (line: T) => HTMLElement, limit = SHOWN, head?: HTMLElement) {
-    const s = of(agent.project_id);
-    const { rows, hidden } = firstRows(lines, s.all.has(key), limit);
-    const out = head ? [head, ...rows.map(draw)] : rows.map(draw);
-    if (hidden) {
-      out.push(h("div", "pj-task pj-more", h("span", "t dmuted", `${hidden} more`),
-        h("span", "acts", button(`Show all ${lines.length}`, "quiet small", () => { s.all.add(key); redraw(); }))));
-    } else if (s.all.has(key) && lines.length > limit) {
-      out.push(h("div", "pj-task pj-more", h("span", "t"), h("span", "acts", button("Show fewer", "quiet small", () => { s.all.delete(key); redraw(); }))));
-    }
-    return h("div", "cc-panel", ...out);
-  }
-
-  /// A pull request's checks from its newest workflow runs; a failing one
-  /// opens its run in the Actions section.
-  /// `named` puts the host before it, for a pull request whose head ran
-  /// on more than one host.
-  function checksEl(c: ChecksRow, ctx: RepoActs, named = false) {
-    const cls = c.state === "failed" ? "bad" : c.state === "passed" ? "ok" : going(c.state) ? "run" : "";
-    const text = named ? `${hostLabel(c.host)}: ${checksText(c)}` : checksText(c);
-    if (c.state === "failed" && ctx.showRun) {
-      const a = h("a", `pj-chk ${cls}`, text);
-      a.href = "#";
-      a.addEventListener("click", e => { e.preventDefault(); ctx.showRun!(c.run_id, c.host); });
-      return a;
-    }
-    return h("span", `pj-chk ${cls}`, going(c.state) ? h("span", "dspin") : null, text);
-  }
-
   /// A row's actions and why its last one failed.
   function actsEl(s: ProjectThreads, keys: string[], buttons: HTMLButtonElement[]) {
     const err = keys.map(k => s.failed.get(k)).find(Boolean);
     return h("span", "acts", ...buttons, err ? h("span", "cc-err", err) : null);
   }
 
-  /// The Pull requests section: every open PR of the repository, with its
-  /// author, age, review, checks and task, Let the agent reply when someone
-  /// wrote after the user, Continue, Review and Open.
-  function prsSection(agent: Agent, ctx: RepoActs) {
+  /// A pull request's buttons on the project page: Let the agent reply when
+  /// someone wrote after the user, Continue and Review, and why the last one
+  /// failed.
+  function prButtons(agent: Agent, ctx: RepoActs, l: PrLine) {
     const s = of(agent.project_id);
-    ensure(agent.project_id);
-    const list = s.prs;
-    const title = "Pull requests";
-    if (s.prsError && !list?.length) return section(agent, "sec-prs", title, "", [emptyNote(s.prsError, true)]);
-    if (list === undefined) return section(agent, "sec-prs", title, "", [emptyNote("Reading the pull requests…")]);
-    if (list === null) return section(agent, "sec-prs", title, "", [emptyNote("The server needs an update before it lists pull requests.")]);
-    const lines = prLines(list, ctx.tasks, s.threads, ctx.reviews);
-    const waiting = lines.filter(l => l.needs_reply).length;
-    const count = lines.length ? `${lines.length} open${waiting ? ` · ${waiting} ${waiting === 1 ? "needs" : "need"} your reply` : ""}` : "";
-    if (!lines.length) return section(agent, "sec-prs", title, "", [emptyNote("No open pull requests.")]);
-    const draw = (l: PrLine) => {
-      const n = l.pr.number;
-      const chip = prChip(l);
-      const runs = ctx.checks?.filter(c => c.number === n) ?? [];
-      const meta = h("span", "m", ...prMeta(runs.length ? { ...l, checks: null } : l, ago).map(t => h("span", "", t)));
-      // The first is the pull request's own host; a mirror's checks name it.
-      runs.forEach((c, i) => meta.append(checksEl(c, ctx, i > 0)));
-      const buttons: HTMLButtonElement[] = [];
-      if (l.needs_reply) {
-        buttons.push(button(s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${n}`, async () => {
-          openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n }));
-        })));
-      }
-      const cont = button(s.busy.has(`c${n}`) ? "Reading…" : "Continue", l.needs_reply ? "" : "pri", () => act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)));
-      cont.disabled = s.busy.has(`c${n}`);
-      cont.title = "Start a coding agent on this pull request's branch";
-      buttons.push(cont);
-      if (l.branch && ctx.review) buttons.push(button("Review", "", () => ctx.review!(l.branch!)));
-      buttons.push(button("Open", "", () => openUrl(l.pr.url)));
-      const row = h("div", "pj-task pj-issue pj-hv", h("span", "t", link(`PR #${n}`, l.pr.url), ` ${l.pr.title}`),
-        chip ? stateChip(chip.cls, chip.text, chip.cls === "running") : null,
-        meta, actsEl(s, [`r${n}`, `c${n}`], buttons));
-      row.title = l.pr.title;
-      return row;
-    };
-    const body: HTMLElement[] = [];
-    if (s.prsError) body.push(h("div", "cc-err", s.prsError));
-    body.push(rowsPanel(agent, "prs", lines, draw));
-    return section(agent, "sec-prs", title, count, body);
+    const n = l.pr.number;
+    const buttons: HTMLButtonElement[] = [];
+    if (l.needs_reply) {
+      buttons.push(button(s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${n}`, async () => {
+        openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n }));
+      })));
+    }
+    const cont = button(s.busy.has(`c${n}`) ? "Reading…" : "Continue", l.needs_reply ? "" : "pri", () => act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)));
+    cont.disabled = s.busy.has(`c${n}`);
+    cont.title = "Start a coding agent on this pull request's branch";
+    buttons.push(cont);
+    if (l.branch && ctx.review) buttons.push(button("Review", "", () => ctx.review!(l.branch!)));
+    return actsEl(s, [`r${n}`, `c${n}`], buttons);
   }
 
-  /// The Issues section: every open issue, one no task tracks with Work on
-  /// it, Plan and Discuss, a task's with its task.
-  function issuesSection(agent: Agent, ctx: RepoActs) {
+  /// An open issue's buttons: Work on it, Plan and Discuss.
+  function issueButtons(agent: Agent, ctx: RepoActs, i: IssueRow) {
     const s = of(agent.project_id);
-    ensure(agent.project_id);
-    const list = s.issues;
-    const title = "Issues";
-    if (s.issuesError && !list?.length) return section(agent, "sec-issues", title, "", [emptyNote(s.issuesError, true)]);
-    if (list === undefined) return section(agent, "sec-issues", title, "", [emptyNote("Reading the issues…")]);
-    if (list === null) return section(agent, "sec-issues", title, "", [emptyNote("The server needs an update before it lists issues.")]);
-    const lines = issueLines(list, ctx.tasks);
-    if (!lines.length) return section(agent, "sec-issues", title, "", [emptyNote("No open issues.")]);
-    const draw = (l: IssueLine) => {
-      const n = l.number;
-      const code = l.url ? link(`#${n}`, l.url) : h("span", "", `#${n}`);
-      if (l.task) {
-        const t = l.task;
-        return h("div", "pj-task pj-issue", h("span", "t", code, ` ${l.title}`),
-          stateChip(t.state, t.state, t.state === "running"),
-          h("span", "m", h("span", "", `task: ${t.title}`), t.pr_url ? link(prLabel(t.pr_url), t.pr_url) : null));
-      }
-      const i = l.issue!;
-      const busy = s.busy.has(`i${n}`);
-      const buttons = [
-        button("Work on it", "pri", () => ctx.workOn(i)),
-        button("Plan", "", () => track(agent, n)),
-        button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)),
-      ];
-      for (const b of buttons) b.disabled = busy;
-      buttons[0].title = "Start a coding agent on a new branch for this issue";
-      const meta = h("span", "m", issueMeta({ ...i, labels: [] }, ago), ...(i.labels || []).map(labelChip));
-      return h("div", "pj-task pj-issue pj-hv", h("span", "t", code, ` ${i.title}`), meta, actsEl(s, [`i${n}`, `d${n}`], buttons));
-    };
-    // A label on a row or in the bar narrows the list to it; again widens.
-    const toggle = (label: string) => {
-      if (!s.labels.delete(label)) s.labels.add(label);
-      redraw();
-    };
-    const labelChip = (label: string) => {
-      const b = h("button", `pj-label${s.labels.has(label) ? " on" : ""}`, label);
-      b.title = s.labels.has(label) ? "Show every issue again" : `Show only issues labeled ${label}`;
-      b.addEventListener("click", () => toggle(label));
-      return b;
-    };
-    const labels = issueLabels(lines);
-    for (const picked of [...s.labels]) if (!labels.some(l => l.name === picked)) s.labels.delete(picked);
-    const bar = labels.length
-      ? h("div", "pj-labels", h("span", "lbl", "Labels"),
-        ...labels.flatMap(l => [labelChip(l.name), h("small", "", String(l.count))]),
-        s.labels.size ? button("Clear", "quiet small", () => { s.labels.clear(); redraw(); }) : null)
-      : undefined;
-    const shown = withLabels(lines, s.labels);
-    const body: HTMLElement[] = [];
-    if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
-    body.push(h("div", "cc-panel", ...(bar ? [bar] : []), fitRows(shown.map(draw), ISSUES_SHOWN)));
-    return section(agent, "sec-issues", title, issueCount(lines), body,
-      h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
+    const n = i.number;
+    const buttons = [
+      button("Work on it", "pri", () => ctx.workOn(i)),
+      button("Plan", "", () => track(agent, n)),
+      button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)),
+    ];
+    for (const b of buttons) b.disabled = s.busy.has(`i${n}`);
+    buttons[0].title = "Start a coding agent on a new branch for this issue";
+    return actsEl(s, [`i${n}`, `d${n}`], buttons);
   }
 
   /// The user's pull requests and issues, with replies and chats.
@@ -767,8 +548,13 @@ export function makeThreads(deps: ThreadDeps) {
     threads: (id: string) => of(id).threads,
     prs: (id: string) => of(id).prs,
     syncedAt: (id: string) => of(id).syncedAt,
-    prsSection,
-    issuesSection,
+    prsError: (id: string) => of(id).prsError,
+    /// Every open pull request with its task, review and reply, waiting first.
+    prLines: (agent: Agent, ctx: RepoActs) => prLines(of(agent.project_id).prs || [], ctx.tasks, of(agent.project_id).threads, ctx.reviews),
+    /// Every open issue, with the task that tracks it.
+    issueLines: (agent: Agent, ctx: RepoActs) => issueLines(of(agent.project_id).issues || [], ctx.tasks),
+    prButtons,
+    issueButtons,
     threadsPanel,
   };
 }

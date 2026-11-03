@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prLines, prMeta, prChip, issueLines, issueCount, issueBranch, issuePrompt, prPrompt, prNumber, makeThreads, type ThreadDeps } from "../src/threads.ts";
+import { prLines, prMeta, prChip, issueLines, issueBranch, issuePrompt, prPrompt, prNumber, makeThreads, type ThreadDeps } from "../src/threads.ts";
 import type { KeptThreads } from "../src/threads.ts";
 import { PageCache } from "../src/pagecache.ts";
 
@@ -65,9 +65,6 @@ test("the issues are the untracked ones, then the tasks' still going", () => {
   const lines = issueLines(issues, tasks);
   assert.deepEqual(lines.map(l => [l.number, l.task?.id ?? null]), [[52, null], [44, "a"]]);
   assert.equal(lines[1].url, "u44");
-  assert.equal(issueCount(lines), "2 open · 1 not tracked");
-  assert.equal(issueCount(lines.slice(0, 1)), "1 open, none tracked");
-  assert.equal(issueCount([]), "");
 });
 
 test("Work on it and Continue fill the start form", () => {
