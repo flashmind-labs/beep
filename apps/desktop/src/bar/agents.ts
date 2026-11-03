@@ -2,7 +2,7 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, duration, heading, keptSteps, keptThoughts, liveThought, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, thoughtTail, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { composeField, composeMessage } from "./compose.ts";
@@ -65,11 +65,13 @@ export interface AgentHost {
   capabilities: string[];
 }
 
-/// One line of a session's log. Only the agent's own have `html`.
+/// One line of a session's log. Only the agent's own and its thoughts
+/// have `html`; a thought that ended has `ms`.
 export interface AgentEntry {
   kind: string;
   text: string;
   html?: string;
+  ms?: number | null;
 }
 
 /// One session in full, as `agent_view` returns it.
@@ -572,6 +574,16 @@ function agentClick(e: MouseEvent) {
     return drawAgentBody(clickedRow(all));
   }
   if (target.closest("#agbody pre.out.all")) return;
+  // A thought opens and folds in place, so only it animates.
+  const thought = target.closest<HTMLElement>("#agbody [data-thought]");
+  if (thought && AG.open) {
+    const opened = turnsOf(AG.open.session).thoughts, at = Number(thought.dataset.thought);
+    const open = !opened.delete(at);
+    if (open) opened.add(at);
+    thought.parentElement?.classList.toggle("open", open);
+    thought.setAttribute("aria-expanded", String(open));
+    return;
+  }
   // A finished turn's heading or folded line opens its steps; the heading folds them again.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
   if (turn && AG.open) {
@@ -781,8 +793,32 @@ function entryPic(n: string) {
   return gonePic(label);
 }
 
+/// The thought still arriving, by its place, which shows "Thinking" with
+/// its newest line; set by each draw of the turns.
+let liveAt: number | null = null;
+
+/// How long the "Thinking" sweep takes, as in the CSS.
+const SWEEP_MS = 1800;
+
+/// A thought as one line that opens to its text. The sweep keeps its
+/// phase across redraws, so a poll does not restart it, and an opened
+/// thought stays open, by its place in the session.
+function thoughtRow(en: AgentEntry, at: number) {
+  const live = at === liveAt;
+  const open = !!AG.open && turnsOf(AG.open.session).thoughts.has(at);
+  const label = live ? "Thinking" : thoughtLabel(en.ms);
+  const tail = live ? thoughtTail(en.text) : "";
+  const phase = live ? ` style="animation-delay:-${Date.now() % SWEEP_MS}ms"` : "";
+  const body = en.html ?? esc(en.text).replace(/\n/g, "<br>");
+  return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}">`
+    + `<button data-thought="${at}" aria-expanded="${open}"><span class="lb"${phase}>${label}</span>`
+    + (tail ? `<span class="ln">${esc(tail)}</span>` : "") + `<span class="cv">${ICON.chev}</span></button>`
+    + `<div class="bd"><div><div class="tx md">${body}</div></div></div></div>`;
+}
+
 export function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
+  if (en.kind === "thought") return thoughtRow(en, at);
   // Codex echoes answered questions as a message: show them as answered.
   const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
@@ -814,13 +850,15 @@ interface TurnMemory {
   ends: Map<number, number>;
   running: number | null;
   opened: Set<number>;
+  /// The thoughts opened to their text.
+  thoughts: Set<number>;
 }
 
 const turnMemory = new Map<string, TurnMemory>();
 
 function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set() });
   return m;
 }
 
@@ -877,6 +915,7 @@ function turnsHtml(p: AgentPage) {
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
+  liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   return turns.map(t => {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
@@ -905,6 +944,9 @@ function turnsHtml(p: AgentPage) {
     else {
       const kept = new Set(keptSteps(p.entries, t, p.earlier));
       if (newest != null) kept.add(newest);
+      // While it runs, the thoughts since the newest step stay in view.
+      if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
+      keptThoughts(p.entries, t, kept, p.earlier);
       const folding = t.steps.filter(at => !kept.has(at));
       // Pictures the folded steps looked at show small under the line.
       const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
@@ -917,8 +959,12 @@ function turnsHtml(p: AgentPage) {
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
     const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
-    const thought = running && state === "working" && doing && doing !== shownTitle
-      ? `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing === "Thinking" ? "Thinking…" : doing)}</div>` : "";
+    const thought = running && state === "working" && doing && doing !== shownTitle && liveAt == null
+      // A thought without text yet (or one the agent keeps to itself) sweeps
+      // like one that has it, with nothing to open.
+      ? doing === "Thinking"
+        ? `<div class="dthink live"><span class="lb" style="animation-delay:-${Date.now() % SWEEP_MS}ms">Thinking</span></div>`
+        : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
     return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, clock, commandDetail, commandOf, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, toolKind } from "../src/agentturns.ts";
+import { beepCall, beepLine, clock, commandDetail, commandOf, duration, folded, heading, keptSteps, keptThoughts, liveThought, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, thoughtTail, toolKind } from "../src/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -177,4 +177,42 @@ test("only the newest step of a running turn starts open when it failed", () => 
   assert.equal(stepOpen(true, false, false), false);
   assert.equal(stepOpen(true, false, true), true);
   assert.equal(stepOpen(false, true, false), false);
+});
+
+const th = (text: string, ms: number | null = null) => ({ kind: "thought", text, ms });
+
+test("a thought reads how long it took, or just Thought when that is not known", () => {
+  assert.equal(thoughtLabel(12_400), "Thought for 12s");
+  assert.equal(thoughtLabel(80_000), "Thought for 1m 20s");
+  assert.equal(thoughtLabel(300), "Thought for 1s", "never 0s");
+  assert.equal(thoughtLabel(null), "Thought");
+  assert.equal(thoughtLabel(undefined), "Thought");
+});
+
+test("the preview beside Thinking is the thought's newest line, plain", () => {
+  assert.equal(thoughtTail("**Reading**\n\nThe test expects `Wrong password`.\n"), "The test expects Wrong password.");
+  assert.equal(thoughtTail("## Plan\n- check the *fixtures*"), "check the fixtures");
+  assert.equal(thoughtTail("  \n"), "");
+});
+
+test("only the running turn's last entry, a thought without a length, is still thinking", () => {
+  const log = [u("go"), th("Reading", 4000), t("Read `a.rs` [completed]"), th("Now the tests")];
+  const [turn] = splitTurns(log);
+  assert.equal(liveThought(log, turn, true), 3);
+  assert.equal(liveThought(log, turn, false), null, "a finished turn thinks no more");
+  const ended = [...log.slice(0, 3), th("Now the tests", 2000)];
+  assert.equal(liveThought(ended, splitTurns(ended)[0], true), null);
+  const answered = [...log, a("Done.")];
+  assert.equal(liveThought(answered, splitTurns(answered)[0], true), null);
+});
+
+test("thoughts fold with the tools, and stay in view when no tool is left to fold", () => {
+  const withTools = [u("go"), th("Reading", 1000), t("Read `a.rs` [completed]"), th("Done", 1000), a("Fixed.")];
+  const turn = splitTurns(withTools)[0];
+  assert.deepEqual([...keptThoughts(withTools, turn, new Set(keptSteps(withTools, turn)))], []);
+  // The running turn keeps its newest tool in view: nothing left to fold.
+  assert.deepEqual([...keptThoughts(withTools, turn, new Set([2]))].sort(), [1, 2, 3]);
+  const onlyThoughts = [u("hi"), th("Greeting", 1000), a("Hello.")];
+  const plain = splitTurns(onlyThoughts)[0];
+  assert.deepEqual([...keptThoughts(onlyThoughts, plain, new Set(keptSteps(onlyThoughts, plain)))], [1]);
 });

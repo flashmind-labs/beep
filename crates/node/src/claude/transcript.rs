@@ -326,10 +326,7 @@ impl Digest {
     }
 
     fn push(&mut self, kind: EntryKind, text: &str) {
-        self.entries.push(Entry {
-            kind,
-            text: cut(text, MAX_ENTRY),
-        });
+        self.entries.push(Entry::new(kind, cut(text, MAX_ENTRY)));
     }
 }
 

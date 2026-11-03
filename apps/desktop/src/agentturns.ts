@@ -9,6 +9,8 @@ import { plural } from "./components/format.ts";
 export interface LogEntry {
   kind: string;
   text: string;
+  /// How long a thought took, once it ended.
+  ms?: number | null;
 }
 
 /// One turn, by the entries' places in the session.
@@ -222,6 +224,14 @@ export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
   });
 }
 
+/// `kept` with the turn's thoughts added when no tool is left to fold:
+/// thoughts fold with tools, and with none there is no line to open.
+export function keptThoughts(entries: LogEntry[], t: Turn, kept: Set<number>, offset = 0) {
+  const folds = t.steps.some(at => !kept.has(at) && entries[at - offset].kind === "tool");
+  if (!folds) for (const at of t.steps) if (entries[at - offset].kind === "thought") kept.add(at);
+  return kept;
+}
+
 /// Whether a turn with no message of its own is only notes, which show as
 /// they are, without a heading.
 export function onlyNotes(entries: LogEntry[], t: Turn, offset = 0) {
@@ -234,6 +244,29 @@ export function duration(ms: number) {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`;
+}
+
+/// A thought's line once it ended: "Thought for 12s", or "Thought" when
+/// its length is not known (a replayed session, an older node).
+export function thoughtLabel(ms?: number | null) {
+  return ms == null ? "Thought" : `Thought for ${duration(Math.max(ms, 1000))}`;
+}
+
+/// The newest line of a thought, plain, for the faded preview beside
+/// "Thinking": its last line with text, without Markdown marks.
+export function thoughtTail(text: string) {
+  const lines = text.split("\n").map(l => l.replace(/^\s*(?:#+|[-*+]|\d+\.)\s+/, "").replace(/[*_`]/g, "").trim()).filter(Boolean);
+  return lines.at(-1) ?? "";
+}
+
+/// The place of the thought still arriving: the running turn's last entry,
+/// a thought without a length. Null when there is none.
+export function liveThought(entries: LogEntry[], t: Turn, running: boolean, offset = 0) {
+  if (!running || t.answer.length) return null;
+  const at = t.steps.at(-1);
+  if (at == null) return null;
+  const en = entries[at - offset];
+  return en.kind === "thought" && en.ms == null ? at : null;
 }
 
 /// A time of day as HH:MM, in local time.

@@ -102,21 +102,32 @@ struct StepRow {
 struct EntryRow {
     kind: &'static str,
     text: String,
-    /// What the agent said, as the chat shows Beep's replies: its Markdown
-    /// as cleaned HTML. Only on the agent's own entries.
+    /// What the agent said or thought, as the chat shows Beep's replies:
+    /// its Markdown as cleaned HTML. Only on the agent's own entries and
+    /// its thoughts.
     #[serde(skip_serializing_if = "Option::is_none")]
     html: Option<String>,
+    /// How long a thought took, in milliseconds, once it ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ms: Option<u64>,
 }
 
 impl From<AgentEntry> for EntryRow {
     fn from(entry: AgentEntry) -> Self {
         // The bar draws the pictures of image lines after the text.
-        let html = matches!(entry.kind, AgentEntryKind::Agent {})
-            .then(|| markdown::to_html(&without_image_lines(&entry.text)));
+        let (html, ms) = match entry.kind {
+            AgentEntryKind::Agent {} => (
+                Some(markdown::to_html(&without_image_lines(&entry.text))),
+                None,
+            ),
+            AgentEntryKind::Thought { ms } => (Some(markdown::to_html(&entry.text)), ms),
+            _ => (None, None),
+        };
         Self {
             kind: entry.kind.into(),
             text: entry.text,
             html,
+            ms,
         }
     }
 }
@@ -705,5 +716,17 @@ mod tests {
             text: "Read file [completed]".into(),
         });
         assert_eq!(tool.html, None);
+    }
+
+    #[test]
+    fn a_thought_comes_as_html_with_its_time() {
+        let thought = EntryRow::from(AgentEntry {
+            kind: AgentEntryKind::Thought { ms: Some(12_000) },
+            text: "**Reading** the `tests`".into(),
+        });
+        assert_eq!(thought.kind, "thought");
+        assert_eq!(thought.ms, Some(12_000));
+        let html = thought.html.expect("a thought carries its HTML");
+        assert!(html.contains("<strong>Reading</strong>"), "{html}");
     }
 }
