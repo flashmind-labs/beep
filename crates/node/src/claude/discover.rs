@@ -321,7 +321,7 @@ fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
 /// What `transcript` says, read from its tail (and its head for when it
 /// started, when the file system does not say).
 fn summary(transcript: &Transcript) -> io::Result<Summary> {
-    let (digest, _) = transcript::digest_tail(&transcript.path, 0)?;
+    let digest = transcript::digest_tail(&transcript.path, 0)?;
     let started_at = transcript
         .created
         .map(unix)
