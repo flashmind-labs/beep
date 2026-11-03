@@ -580,6 +580,15 @@ impl Beep {
         self.update_saved(|s| s.send_on_pause = on);
     }
 
+    /// Whether coding agents notify when they ask or finish a turn.
+    pub fn agent_notices(&self) -> bool {
+        self.saved().agent_notices
+    }
+
+    pub fn set_agent_notices(&self, on: bool) {
+        self.update_saved(|s| s.agent_notices = on);
+    }
+
     /// Chats live mode talked in, newest last.
     pub fn live_chats(&self) -> Vec<Uuid> {
         self.saved().live_chats.clone()

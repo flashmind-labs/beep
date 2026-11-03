@@ -23,6 +23,8 @@ interface MacSettings {
   notice_voice: NoticeVoice;
   /// In live mode a pause sends, rather than only "send".
   send_on_pause: boolean;
+  /// Coding agents notify when they ask something or finish a turn.
+  agent_notices: boolean;
 }
 
 /// Settings, This Mac (`mac_control`): whether Beep may use it, where its
@@ -78,6 +80,13 @@ function voiceNotesRow(cur: NoticeVoice) {
   return `<div class="dtoggle"><span><b>Voice notes</b><small>${VOICE_NOTES_SAY[cur] ?? ""}</small></span></div>
     <div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:6px 0 10px">${VOICE_NOTES.map(([k, label]) =>
       `<button class="dchip" role="radio" aria-checked="${cur === k}" aria-pressed="${cur === k}" data-vn="${k}">${label}</button>`).join("")}</div>`;
+}
+
+/// Settings, General: whether coding agents notify when they ask or finish.
+function agentNoticesRow(on: boolean) {
+  const why = on ? "When a coding agent asks something or finishes a turn, unless its session is on screen." : "Coding agents only show under Waiting in the menu bar.";
+  return `<div class="dtoggle"><span><b>Coding agent notifications</b><small>${why}</small></span>
+    <button class="dswitch" id="agentNotices" role="switch" aria-checked="${on}" aria-label="Coding agent notifications"></button></div>`;
 }
 
 /// Settings, under Voice notes: what ends a spoken message in live mode.
@@ -256,6 +265,11 @@ function bindSettings(el: Element) {
     invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
   each("data-vn", b => b.addEventListener("click", () => thenRedraw(invoke("set_notice_voice", { choice: b.dataset.vn }))));
   each("data-pause", b => b.addEventListener("click", () => thenRedraw(invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }))));
+  $in("#agentNotices")?.addEventListener("click", e => {
+    const sw = e.currentTarget as HTMLButtonElement;
+    sw.disabled = true;
+    thenRedraw(invoke("set_agent_notices", { enabled: sw.getAttribute("aria-checked") !== "true" }));
+  });
   bindCreds(el);
   bindAgents(el);
   $in("#autostart")?.addEventListener("click", async e => {
@@ -331,7 +345,7 @@ export async function renderSettings(confirm = false, root?: HTMLElement) {
   const sections = `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
-      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}</section>`
+      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`
     + (linked && (!MODELS.info || canPickModel()) ? sec("models", "Models", setModelsHtml()) : "")
     + (linked ? sec("apps", "Apps", setAppsHtml()) : "")
     + (linked && mac ? `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>` : "")
