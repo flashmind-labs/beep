@@ -5,6 +5,7 @@ import { attachedCount, unattach } from "./attach.ts";
 import { answer, newChat, openInWindow, renderChat, send, sendQueued, stop, toWindow } from "./chat.ts";
 import { chatAction, chatMode, drawChats, openRow, renderChats } from "./chats.ts";
 import { $, $$, bar, G, here, invoke, PANE, queued, S, windowHooks } from "./core.ts";
+import { composeMessage } from "./compose.ts";
 import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "./groups.ts";
 import { toggleKeys } from "./hints.ts";
 import { openSession } from "./history.ts";
@@ -194,8 +195,8 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }
     const ask = t.id === "ask" ? t.value! : null;
-    if (cmd && e.shiftKey && e.key === "Enter" && ask != null) { e.preventDefault(); return research(ask); }
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && ask != null) { e.preventDefault(); return send(ask); }
+    if (cmd && e.shiftKey && e.key === "Enter" && ask != null) { e.preventDefault(); return research(composeMessage(ask)); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && ask != null) { e.preventDefault(); return send(composeMessage(ask)); }
     if (!PANE && e.key === "ArrowUp" && ask === "") { e.preventDefault(); return renderChats(); }
     if (e.key === "Backspace" && !cmd && ask === "" && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
   }

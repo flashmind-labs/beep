@@ -6,6 +6,7 @@ import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitType
 import { folderOn, type MachineFolder, type ProjectRow } from "../projects-state.ts";
 import type { CachedViews } from "../cached.ts";
 import type { HomeView } from "../home.ts";
+import { composeField, composeMessage } from "./compose.ts";
 import { hints } from "./hints.ts";
 import type { Machine } from "./machines.ts";
 
@@ -152,6 +153,7 @@ function drawFrame() {
     f.prompt = (e.target as HTMLTextAreaElement).value;
     if (AG.error === "prompt") { AG.error = ""; drawParts(); }
   });
+  composeField($$<HTMLTextAreaElement>("#agprompt"));
   bar.onclick = onClick;
   drawParts();
 }
@@ -621,7 +623,7 @@ export async function startAgent() {
       machineId: machine,
       agent: f.agent,
       cwd: cwd || null,
-      prompt: f.prompt.trim(),
+      prompt: composeMessage(f.prompt),
       chat: f.chat,
       model,
       effort: f.effort || null,
