@@ -8,7 +8,7 @@
 // takes a typed path too, offering the machine's folders as it is typed.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
-import { START, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
+import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
 import type { ImportEvent, MachineFolder, ProjectRow } from "./projects-state.ts";
 import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
 import type { BranchPicks, PreviewView } from "./branchwork.ts";
@@ -33,6 +33,32 @@ export interface ImportProjectOptions {
   repo?: string | null;
   /// Picks the machine, as Clone here does.
   machine?: string | null;
+  /// Fills in the folder it goes in.
+  folder?: string | null;
+}
+
+/// The machine and the folder projects went under at the last import, kept
+/// across launches so the next import starts there.
+export interface LastImport {
+  machine: string;
+  root: string | null;
+}
+
+const LAST_KEY = "beep.lastImport.v1";
+
+export function lastImport(): LastImport | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
+    return v && typeof v.machine === "string" ? { machine: v.machine, root: typeof v.root === "string" ? v.root : null } : null;
+  } catch {
+    return null;
+  }
+}
+
+/// Notes where `project` landed, for the next import.
+export function keepLastImport(project: ProjectRow) {
+  const last: LastImport = { machine: project.machine_id, root: importRoot(project.folder, project.name) };
+  try { localStorage.setItem(LAST_KEY, JSON.stringify(last)); } catch { /* kept for this launch only */ }
 }
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
@@ -82,6 +108,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   previewError = "";
   picks = {};
   resetFolder();
+  if (options.folder) folderText = options.folder;
   listed.clear();
   draw();
   learnBase();
@@ -172,6 +199,7 @@ async function submit() {
   const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
   try {
     const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees });
+    keepLastImport(project);
     update({ type: "done", project });
     // The sheet may have closed while cloning: the project still lands.
     if (!root && onDone) { const then = onDone; onDone = null; then(project); }

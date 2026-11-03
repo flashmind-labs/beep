@@ -279,6 +279,20 @@ export function runningLine(
   return { title: r.title || project || ag.name, sub: [ag.name, project, r.machine_name].filter(Boolean).join(" · ") };
 }
 
+/// When a Running now row last moved: an agent's last step or reply (its
+/// end, once it stopped), a research's start.
+export const runningAt = (r: Pick<RunningAgent, "kind" | "started_at" | "last_activity"> | Pick<RunningResearch, "kind" | "started_at">) =>
+  r.kind === "agent" ? r.last_activity || r.started_at : r.started_at;
+
+/// Running now rows, the one that moved last first.
+export function byRecent<T extends Parameters<typeof runningAt>[0]>(rows: readonly T[]) {
+  return [...rows].sort((a, b) => runningAt(b) - runningAt(a));
+}
+
+/// What names a Running now row across redraws.
+export const runningKey = (r: Pick<RunningAgent, "kind" | "machine_id" | "id"> | Pick<RunningResearch, "kind" | "session">) =>
+  r.kind === "agent" ? `agent:${r.machine_id}:${r.id}` : `research:${r.session}`;
+
 /// An imported project's folder on one machine.
 type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder">;
 

@@ -54,6 +54,12 @@ const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
 /// events under, in a `usage_update`.
 const CLAUDE_RATE_LIMIT: &str = "_claude/rateLimit";
 
+/// The most of a thought kept to find its line.
+const MAX_THOUGHT: usize = 8 * 1024;
+
+/// The most of a subagent's steps its entry names; it counts them all.
+const MAX_STEPS: usize = 60;
+
 /// ACP tool kinds that change files.
 const EDIT_KINDS: &[ToolKind] = &[ToolKind::Edit, ToolKind::Delete, ToolKind::Move];
 
@@ -100,6 +106,11 @@ pub(crate) struct Live {
     /// The image lines of the pictures tool calls showed this turn, each
     /// also shown as an agent image: at most `image_files::MAX_PER_TURN`.
     turn_images: Vec<String>,
+    /// The thought arriving now, for the line the summary shows while the
+    /// agent thinks; thoughts are not kept in the transcript.
+    thought: String,
+    /// The last update was part of `thought`.
+    in_thought: bool,
 }
 
 /// The tokens one turn used, as its prompt response says.
@@ -134,6 +145,10 @@ struct ToolCall {
     output: String,
     /// The image lines of the pictures it showed.
     pictures: Vec<String>,
+    /// The subagent's tool call this one ran in, whose entry shows it.
+    parent: Option<ToolCallId>,
+    /// The calls a subagent this tool started ran, in order.
+    steps: Vec<ToolCallId>,
 }
 
 impl Live {
@@ -286,6 +301,9 @@ impl Live {
     pub(crate) fn apply(&mut self, update: &SessionUpdate) -> bool {
         let before = self.info.state.clone();
         let title = self.info.title.clone();
+        if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
+            self.in_thought = false;
+        }
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
                 ContentBlock::Text(text) => self.message_chunk(&text.text),
@@ -322,11 +340,7 @@ impl Live {
                     _ => {}
                 }
             }
-            SessionUpdate::AgentThoughtChunk(_) => {
-                if self.info.state.summary.is_empty() {
-                    self.info.state.summary = "Thinking".into();
-                }
-            }
+            SessionUpdate::AgentThoughtChunk(chunk) => self.thought_chunk(&chunk.content),
             SessionUpdate::ToolCall(call) => self.tool_call(call),
             SessionUpdate::ToolCallUpdate(update) => self.tool_call_update(update),
             SessionUpdate::Plan(plan) => {
@@ -565,6 +579,24 @@ impl Live {
         }
     }
 
+    /// Part of a thought: the summary says "Thinking" until the thought has
+    /// a line to show, then that line.
+    fn thought_chunk(&mut self, content: &ContentBlock) {
+        if !self.in_thought {
+            self.in_thought = true;
+            self.thought.clear();
+            self.info.state.summary = "Thinking".into();
+        }
+        if let ContentBlock::Text(text) = content
+            && self.thought.len() < MAX_THOUGHT
+        {
+            self.thought.push_str(&text.text);
+        }
+        if let Some(line) = thought_line(&self.thought) {
+            self.info.state.summary = cut(&line, MAX_LINE);
+        }
+    }
+
     fn message_chunk(&mut self, text: &str) {
         if self.in_message
             && let Some(last) = self.transcript.back_mut()
@@ -581,6 +613,9 @@ impl Live {
 
     fn tool_call(&mut self, call: &AcpToolCall) {
         self.in_message = false;
+        // A subagent's own call goes on the entry of the call that started
+        // it, not in the transcript.
+        let parent = parent_tool(call.meta.as_ref()).filter(|id| self.tools.contains_key(id));
         let mut tool = ToolCall {
             entry: 0,
             title: call.title.clone(),
@@ -589,13 +624,49 @@ impl Live {
             paths: paths(&call.locations, call.raw_input.as_ref()),
             output: String::new(),
             pictures: Vec::new(),
+            parent: parent.clone(),
+            steps: Vec::new(),
         };
         let pictures = self.tool_output(&mut tool, &call.content);
-        tool.entry = self.push_entry(EntryKind::Tool, tool.entry_text());
-        self.tool_images(&pictures);
         self.info.state.summary = cut(&tool.title, MAX_LINE);
         self.finish_tool(&tool);
-        self.tools.insert(call.tool_call_id.clone(), tool);
+        match parent {
+            Some(parent) => {
+                if let Some(owner) = self.tools.get_mut(&parent) {
+                    tool.entry = owner.entry;
+                    owner.steps.push(call.tool_call_id.clone());
+                }
+                self.tools.insert(call.tool_call_id.clone(), tool);
+                self.write_tool(&parent);
+            }
+            None => {
+                tool.entry = self.push_entry(EntryKind::Tool, tool.entry_text());
+                self.tools.insert(call.tool_call_id.clone(), tool);
+            }
+        }
+        self.tool_images(&pictures);
+    }
+
+    /// Writes tool `id`'s entry again: its own text, and the steps of the
+    /// subagent it started.
+    fn write_tool(&mut self, id: &ToolCallId) {
+        let Some(tool) = self.tools.get(id) else {
+            return;
+        };
+        let steps: Vec<Step<'_>> = tool
+            .steps
+            .iter()
+            .filter_map(|step| self.tools.get(step))
+            .map(|step| Step {
+                status: step.status,
+                title: &step.title,
+            })
+            .collect();
+        let text = tool.entry_with(&steps);
+        let entry = tool.entry;
+        if let Some(entry) = self.entry_mut(entry) {
+            entry.text = text;
+        }
     }
 
     fn tool_call_update(&mut self, update: &ToolCallUpdate) {
@@ -624,13 +695,14 @@ impl Live {
             Some(content) => self.tool_output(&mut call, content),
             None => Vec::new(),
         };
-        let text = call.entry_text();
-        if let Some(entry) = self.entry_mut(call.entry) {
-            entry.text = text;
-        }
-        self.tool_images(&pictures);
         self.finish_tool(&call);
+        let shown = call
+            .parent
+            .clone()
+            .unwrap_or_else(|| update.tool_call_id.clone());
         self.tools.insert(update.tool_call_id.clone(), call);
+        self.write_tool(&shown);
+        self.tool_images(&pictures);
     }
 
     /// Sets what `tool` showed: its text, and a line for each picture,
@@ -667,15 +739,39 @@ impl Live {
     }
 }
 
+/// One call a subagent ran, as its parent's entry names it.
+struct Step<'a> {
+    status: ToolCallStatus,
+    title: &'a str,
+}
+
 impl ToolCall {
     /// Its title and status, what it showed, then its image lines whole.
     fn entry_text(&self) -> String {
+        self.entry_with(&[])
+    }
+
+    /// Its entry with the steps of the subagent it started: a line
+    /// `[steps] N`, then `[step <status>] <title>` for each of the last
+    /// `MAX_STEPS`, before what it showed.
+    fn entry_with(&self, steps: &[Step<'_>]) -> String {
         let mut lines = String::new();
         for line in &self.pictures {
             lines.push('\n');
             lines.push_str(line);
         }
         let mut text = format!("{} [{}]", self.title, wire_name(&self.status));
+        if !steps.is_empty() {
+            text.push_str(&format!("\n[steps] {}", steps.len()));
+            for step in &steps[steps.len().saturating_sub(MAX_STEPS)..] {
+                let title = step.title.lines().next().unwrap_or_default();
+                text.push_str(&format!(
+                    "\n[step {}] {}",
+                    wire_name(&step.status),
+                    cut(title, MAX_LINE)
+                ));
+            }
+        }
         if !self.output.is_empty() {
             text.push('\n');
             text.push_str(&self.output);
@@ -840,6 +936,55 @@ fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The subagent tool call a call ran in, as Claude Code's adapter stamps
+/// it (`_meta.claudeCode.parentToolUseId`).
+fn parent_tool(meta: Option<&serde_json::Map<String, Value>>) -> Option<ToolCallId> {
+    let id = meta?.get("claudeCode")?.get("parentToolUseId")?.as_str()?;
+    Some(ToolCallId::new(id.to_owned()))
+}
+
+/// The line a thought shows while it arrives: its last bold heading
+/// (`**Planning the fix**`), else its first sentence once that is whole.
+/// `None` until there is one.
+fn thought_line(text: &str) -> Option<String> {
+    let mut heading = None;
+    let mut rest = text;
+    while let Some(start) = rest.find("**") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("**") else {
+            break;
+        };
+        let bold = after[..end].trim();
+        if !bold.is_empty() && !bold.contains('\n') {
+            heading = Some(bold);
+        }
+        rest = &after[end + 2..];
+    }
+    if let Some(heading) = heading {
+        return Some(heading.to_owned());
+    }
+    let text = text.trim_start();
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        let end = match c {
+            '\n' => Some(at),
+            '.' | '!' | '?' if chars.peek().is_some_and(|(_, next)| next.is_whitespace()) => {
+                Some(at + c.len_utf8())
+            }
+            _ => None,
+        };
+        if let Some(end) = end {
+            let line: String = text[..end]
+                .chars()
+                .filter(|c| !matches!(c, '*' | '`'))
+                .collect();
+            let line = line.trim();
+            return (!line.is_empty()).then(|| line.to_owned());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -1323,5 +1468,74 @@ mod tests {
     fn cutting_keeps_characters_whole() {
         assert_eq!(cut("héllo", 2), "h");
         assert_eq!(cut("hi", 10), "hi");
+    }
+
+    #[test]
+    fn a_thought_shows_its_heading_or_first_whole_sentence() {
+        assert_eq!(
+            thought_line("**Planning the fix**\n\nI will"),
+            Some("Planning the fix".into())
+        );
+        assert_eq!(
+            thought_line("**Reading**\n\nok. **Running the tests** now"),
+            Some("Running the tests".into())
+        );
+        assert_eq!(
+            thought_line("Let me check `src/main.rs`. Then"),
+            Some("Let me check src/main.rs.".into())
+        );
+        assert_eq!(thought_line("Looking at e.g"), None, "not whole yet");
+        assert_eq!(thought_line("**Half"), None);
+        assert_eq!(
+            thought_line("First line\nsecond"),
+            Some("First line".into())
+        );
+    }
+
+    #[test]
+    fn a_subagents_calls_go_on_the_call_that_started_it() {
+        let mut live = live();
+        live.prompted("look around");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "task", "title": "Explore the code",
+            "status": "in_progress", "_meta": {"claudeCode": {"toolName": "Agent"}}
+        })));
+        let inner = |id: &str, title: &str| {
+            update(json!({
+                "sessionUpdate": "tool_call", "toolCallId": id, "title": title, "status": "in_progress",
+                "_meta": {"claudeCode": {"toolName": "Read", "parentToolUseId": "task"}}
+            }))
+        };
+        live.apply(&inner("r1", "Read src/main.rs"));
+        live.apply(&inner("r2", "grep -n todo"));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update", "toolCallId": "r1", "status": "completed",
+            "_meta": {"claudeCode": {"parentToolUseId": "task"}}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update", "toolCallId": "task", "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "Found it"}}]
+        })));
+        let (entries, _) = live.transcript(10);
+        assert_eq!(
+            entries.len(),
+            2,
+            "the subagent's calls are not entries of their own"
+        );
+        assert_eq!(
+            entries[1].text,
+            "Explore the code [completed]\n[steps] 2\n[step completed] Read src/main.rs\n[step in_progress] grep -n todo\nFound it"
+        );
+    }
+
+    #[test]
+    fn a_call_whose_parent_is_unknown_is_its_own_entry() {
+        let mut live = live();
+        live.prompted("hi");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Read a.rs", "status": "completed",
+            "_meta": {"claudeCode": {"parentToolUseId": "gone"}}
+        })));
+        assert_eq!(live.transcript(10).0[1].text, "Read a.rs [completed]");
     }
 }

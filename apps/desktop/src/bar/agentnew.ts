@@ -1,7 +1,6 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
-import { modelMachine } from "./agentmodels.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "./core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../projects-state.ts";
@@ -26,11 +25,32 @@ export interface AgentPlace {
   project?: string | null;
 }
 
-/// Where Auto would start a session, as `agent_preview` says.
-interface AgentPick {
-  machine_id: string;
-  machine_name: string;
-  why: string;
+/// The machine last picked for each project ("" for none), so the form
+/// opens on it next time.
+const LAST_MACHINE = "beep.lastMachine.v1";
+
+function lastMachines(): Record<string, string> {
+  try {
+    const kept = JSON.parse(localStorage.getItem(LAST_MACHINE) ?? "{}");
+    return kept && typeof kept === "object" ? kept : {};
+  } catch {
+    return {};
+  }
+}
+
+/// The machine last picked for `project`, or "".
+export function lastMachine(project: string | null | undefined) {
+  const id = lastMachines()[project ?? ""];
+  return typeof id === "string" ? id : "";
+}
+
+function keepMachine(project: string | null | undefined, machine: string) {
+  if (!machine) return;
+  try {
+    localStorage.setItem(LAST_MACHINE, JSON.stringify({ ...lastMachines(), [project ?? ""]: machine }));
+  } catch {
+    // Only a convenience: the form then opens without a machine.
+  }
 }
 
 /// Every machine of the user's, online or not, for the Machine menu; null
@@ -76,7 +96,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+  AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   AG.error = "";
   AG.busy = false;
   drawFrame();
@@ -89,7 +109,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
 }
 
 export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
-/// The agents the chosen machine offers; for Auto, any machine's.
+/// The agents the chosen machine offers; before one is picked, any machine's.
 export function formAgents() {
   const host = formHost();
   const all = host ? host.agents : [...new Set((AG.hosts ?? []).flatMap(m => m.agents))];
@@ -131,11 +151,9 @@ function drawFrame() {
   $$("#agprompt").addEventListener("input", e => {
     f.prompt = (e.target as HTMLTextAreaElement).value;
     if (AG.error === "prompt") { AG.error = ""; drawParts(); }
-    previewAuto();
   });
   bar.onclick = onClick;
   drawParts();
-  previewAuto();
 }
 
 /// Brings the form's choices in line with the machine picked, then draws
@@ -143,6 +161,8 @@ function drawFrame() {
 function drawParts() {
   if (S.view !== "agentnew" || !$("#agbox")) return;
   const f = AG.form, hosts = AG.hosts ?? [];
+  // A remembered machine that no longer runs agents is not picked.
+  if (AG.hosts && f.machine && !formHost()) f.machine = "";
   f.agent = harnessFor(f.agent, formAgents(), AGENT_ORDER);
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();
@@ -156,7 +176,10 @@ function drawParts() {
   const title = formTitle(f.project);
   $$("#agtitle").innerHTML = title.name ? `${esc(title.lead)} <b>${esc(title.name)}</b>?` : esc(title.lead);
   const go = $$<HTMLButtonElement>("#aggo");
-  go.disabled = AG.busy || !hosts.length;
+  go.disabled = AG.busy || !hosts.length || !f.machine;
+  go.title = f.machine ? "Start (⌘↩)" : "Pick a machine first";
+  // The key hints give way to an open menu.
+  bar.classList.toggle("agc-menuopen", !!f.open);
   go.innerHTML = AG.busy ? '<span class="dspin"></span>' : UP;
   drawPill(none);
   drawPicker();
@@ -195,7 +218,7 @@ function drawPicker() {
     offered: formAgents(),
     everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
     machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
-    noMachine: "Pick a machine, or describe the task so Auto picks one, to list its models.",
+    noMachine: "Pick a machine to list its models.",
     anchor: () => $("#agpillb"),
     bounds: () => bar,
     changed: what => {
@@ -209,6 +232,8 @@ function drawPicker() {
 }
 
 addEventListener("resize", () => { if (S.view === "agentnew") placeMenu(); });
+// The menu floats over the page, so it follows its pill when the form scrolls.
+addEventListener("scroll", () => { if (S.view === "agentnew") placeMenu(); }, { capture: true, passive: true });
 
 /// Project, Machine and Folder under the box, with whichever menu is open.
 function drawUnder() {
@@ -223,26 +248,36 @@ function drawUnder() {
     : `<button class="agc-pill" id="agfoldb" aria-expanded="${f.open === "folder"}" title="${esc(f.cwd.trim() || host?.workspace || "The machine's workspace")}">${FOLDER}${folderText}${sub}${CARET}</button>`;
   const base = checkout && makesBranch(f.checkout ?? "auto", busy) ? `<span class="bar"></span>${baseButton()}` : "";
   const project = `<button class="agc-pill" id="agprojb" aria-expanded="${f.open === "project"}" title="${f.project ? "The project this agent works on" : "Pick a project, or run in a folder"}">${PROJECT}${esc(f.project || "No project")}${CARET}</button>`;
-  el.innerHTML = `${project}<span class="bar"></span><button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Auto")}${CARET}</button><span class="bar"></span>${folder}${base}${projectMenu()}${hostMenu()}${folderMenu(checkout, busy)}${baseMenu()}`;
+  el.innerHTML = `${project}<span class="bar"></span><button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Pick a machine")}${CARET}</button><span class="bar"></span>${folder}${base}${projectMenu()}${hostMenu()}${folderMenu(checkout, busy)}${baseMenu()}`;
   placeMenu();
   if (f.typing) bindFolderField();
   if (f.baseTyping) bindBaseField();
 }
 
-/// Lines the open menu up under its pill, inside the row.
+/// Places the open menu by its pill, over the page so nothing clips it:
+/// below when it fits, else above, scrolling inside. The key hints hide
+/// while it is open.
 function placeMenu() {
   const f = AG.form;
-  const pill = f.open === "project" ? "#agprojb" : f.open === "host" ? "#aghostb" : f.open === "folder" ? "#agfoldb" : null;
-  const menu = $<HTMLElement>("#agunder > .agc-menu"), under = $("#agunder"), anchor = pill ? $<HTMLElement>(pill) : null;
-  if (!menu || !under || !anchor) return;
-  menu.style.left = `${Math.max(0, Math.min(anchor.offsetLeft, under.clientWidth - menu.offsetWidth))}px`;
+  const pill = f.open === "project" ? "#agprojb" : f.open === "host" ? "#aghostb" : f.open === "folder" ? "#agfoldb" : f.open === "base" ? "#agbaseb" : null;
+  const menu = $<HTMLElement>("#agunder > .agc-menu"), anchor = pill ? $<HTMLElement>(pill) : null;
+  if (!menu || !anchor) return;
+  menu.classList.add("float");
+  menu.style.maxHeight = "";
+  const a = anchor.getBoundingClientRect(), view = bar.getBoundingClientRect();
+  const at = placeMenuAt(a, { width: menu.offsetWidth, height: menu.scrollHeight },
+    { top: Math.max(0, view.top), bottom: Math.min(innerHeight, view.bottom), width: innerWidth });
+  menu.style.top = `${at.top}px`;
+  menu.style.left = `${at.left}px`;
+  menu.style.maxHeight = `${at.maxHeight}px`;
+  menu.classList.toggle("up", at.up);
 }
 
 /// The Project menu: the user's projects, then none.
 function projectMenu() {
   const f = AG.form;
   if (f.open !== "project") return "";
-  const machine = f.machine === "auto" ? null : f.machine;
+  const machine = f.machine || null;
   const rows = (PROJECTS ?? []).map(p => {
     const here = machine ? p.places.find(x => x.machine === machine) : null;
     const where = here ? tildePath(here.cwd, formHost()?.home) : `${p.places.length} ${p.places.length === 1 ? "machine" : "machines"}`;
@@ -253,9 +288,9 @@ function projectMenu() {
   return `<div class="agc-menu" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), none].join("")}</div>`;
 }
 
-/// Sets the form's project, at its checkout on the machine picked; a
-/// project not on that machine goes to Auto. Null leaves the project for
-/// the workspace.
+/// Sets the form's project, on the machine last picked for it, else the
+/// one picked when the project is there, else none. Null leaves the
+/// project for the workspace.
 function setProject(name: string | null) {
   const f = AG.form, p = name ? PROJECTS?.find(x => x.name === name) : null;
   f.checkout = "auto";
@@ -264,19 +299,22 @@ function setProject(name: string | null) {
     f.project = null;
     f.places = undefined;
     f.cwd = "";
+    f.machine = lastMachine(null) || f.machine;
     return;
   }
-  if (f.machine !== "auto" && !p.places.some(x => x.machine === f.machine)) f.machine = "auto";
+  const last = lastMachine(p.name);
+  if (last && p.places.some(x => x.machine === last)) f.machine = last;
+  else if (f.machine && !p.places.some(x => x.machine === f.machine)) f.machine = "";
   f.project = p.name;
   f.places = p.places;
-  f.cwd = folderOn(p.places[0]?.cwd ?? "", f.machine === "auto" ? null : f.machine, p.places);
+  f.cwd = folderOn(p.places[0]?.cwd ?? "", f.machine || null, p.places);
   if (!BRANCHES.has(p.name)) loadBranches(p.name);
 }
 
 /// After a folder is picked or typed: the project whose checkout it is,
 /// else none.
 function projectForFolder() {
-  const f = AG.form, machine = f.machine === "auto" ? null : f.machine;
+  const f = AG.form, machine = f.machine || null;
   const p = PROJECTS ? projectAt(PROJECTS, machine, f.cwd) : null;
   if (p) {
     f.project = p.name;
@@ -325,12 +363,11 @@ function hostMenu() {
   const f = AG.form;
   if (f.open !== "host") return "";
   const rows = machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
-  return `<div class="agc-menu" role="menu"><button data-agm="auto" class="${f.machine === "auto" ? "on" : ""}"><span></span>Auto<small>best fit</small></button><hr>
-    ${rows.map(m => `<button data-agm="${esc(m.id)}" class="${f.machine === m.id ? "on" : ""}"${m.enabled ? "" : " disabled"}><span class="dot${m.online ? "" : " off"}"></span>${esc(m.name)}<small>${esc(m.note)}</small></button>`).join("")}</div>`;
+  return `<div class="agc-menu cols" role="menu">${rows.map(m => `<button data-agm="${esc(m.id)}" class="${f.machine === m.id ? "on" : ""}"${m.enabled ? "" : " disabled"}><span class="dot${m.online ? "" : " off"}"></span><span>${esc(m.name)}</span><small>${esc(m.note)}</small></button>`).join("")}</div>`;
 }
 
 /// Whether the folder is one of the project's checkouts on the machine
-/// the session would start on (any of them on Auto before it picks).
+/// picked (any of them before one is).
 function checkoutHere() {
   const f = AG.form, cwd = f.cwd.trim();
   if (!cwd || !f.places?.length) return false;
@@ -341,7 +378,7 @@ function checkoutHere() {
 function folderMenu(checkout: boolean, busy: boolean) {
   const f = AG.form;
   if (f.open !== "folder") return "";
-  const machine = f.machine === "auto" ? null : f.machine, host = formHost();
+  const machine = f.machine || null, host = formHost();
   if (!f.project) {
     // Outside a project: the workspace, then the projects checked out on
     // the machine; picking one sets the Project pill.
@@ -374,12 +411,12 @@ function folderMenu(checkout: boolean, busy: boolean) {
   return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
 }
 
-/// The Auto line under the box: where it would start now.
+/// The line under the box until a machine is picked.
 function drawWhy() {
   const f = AG.form, el = $$("#agwhy");
-  const html = f.machine === "auto" && AG.hosts?.length ? pickNote() : "";
-  el.hidden = !html;
-  el.innerHTML = html ? `<span class="ddot"></span><span>${html}</span>` : "";
+  const show = !f.machine && !!AG.hosts?.length;
+  el.hidden = !show;
+  el.innerHTML = show ? '<span class="ddot off"></span><span>Pick a machine to start.</span>' : "";
 }
 
 function onClick(e: MouseEvent) {
@@ -392,7 +429,7 @@ function onClick(e: MouseEvent) {
   if (at("#agpillb")) return togglePicker();
   if (at("#agprojb")) { f.open = f.open === "project" ? null : "project"; return drawParts(); }
   const project = at("[data-agp]");
-  if (project) { setProject(project.dataset.agp || null); f.open = null; drawParts(); return previewAuto(); }
+  if (project) { setProject(project.dataset.agp || null); f.open = null; return drawParts(); }
   if (at("#aghostb")) { f.open = f.open === "host" ? null : "host"; return drawParts(); }
   if (at("#agfoldb")) { f.open = f.open === "folder" ? null : "folder"; return drawParts(); }
   if (at("#agbaseb")) {
@@ -407,13 +444,13 @@ function onClick(e: MouseEvent) {
   const machine = at("[data-agm]");
   if (machine) {
     f.machine = machine.dataset.agm!;
-    f.cwd = folderOn(f.cwd, f.machine === "auto" ? null : f.machine, f.places);
+    keepMachine(f.project, f.machine);
+    f.cwd = folderOn(f.cwd, f.machine, f.places);
     f.open = null;
-    drawParts();
-    return previewAuto();
+    return drawParts();
   }
   const folder = at("[data-agf]");
-  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = "auto"; f.open = null; projectForFolder(); drawParts(); return previewAuto(); }
+  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = "auto"; f.open = null; projectForFolder(); return drawParts(); }
   const checkout = at("[data-agk]");
   if (checkout) { f.checkout = checkout.dataset.agk as CheckoutPick; f.open = null; return drawParts(); }
   const tree = at("[data-agw]");
@@ -476,7 +513,7 @@ const listed = new Map<string, string[]>();
 /// folders under what is typed, Enter or a click elsewhere keeps it.
 function bindFolderField() {
   const f = AG.form, input = $$<HTMLInputElement>("#agcwd");
-  input.addEventListener("input", () => { f.cwd = input.value; f.checkout = "auto"; lookFolders(input); previewAuto(); });
+  input.addEventListener("input", () => { f.cwd = input.value; f.checkout = "auto"; lookFolders(input); });
   input.addEventListener("keydown", e => {
     const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
     if (act.type === "none") {
@@ -503,8 +540,8 @@ function doneTyping() {
   drawParts();
 }
 
-/// Offers the folders under what is typed, on the machine the session
-/// would start on; nothing on Auto before it picks.
+/// Offers the folders under what is typed, on the machine picked; nothing
+/// before one is.
 function lookFolders(input: HTMLInputElement) {
   clearTimeout(lookupTimer);
   const ask = ++lookup, machine = formModelMachine(), typed = splitTyped(input.value);
@@ -542,61 +579,11 @@ function showMenu(input: HTMLInputElement, next: FolderMenu) {
   });
 }
 
-// ----- Auto -----
-
-/// What Auto would pick for the form as it stands: the server's answer for
-/// `key`, else nothing while it is asked.
-export const PICK: { key: string; pick: AgentPick | null; error: string; timer: ReturnType<typeof setTimeout> | undefined } = { key: "", pick: null, error: "", timer: undefined };
-
-/// The line under the box when Auto is on: where it would start now.
-export function pickNote() {
-  const f = AG.form;
-  if (!f?.prompt.trim()) return "";
-  if (PICK.key !== pickKey()) return '<span class="dspin"></span> Choosing a machine…';
-  if (PICK.error) return esc(PICK.error);
-  if (!PICK.pick) return "";
-  return `Auto would pick <b>${esc(PICK.pick.machine_name)}</b>. ${esc(PICK.pick.why)}`;
-}
-
-export function pickKey() {
-  const f = AG.form;
-  return JSON.stringify([f.prompt.trim(), f.cwd.trim(), f.agent]);
-}
-
-/// Asks the server where Auto would start the form, once typing pauses.
-/// Starting nothing; the answer only fills the note.
-export function previewAuto() {
-  clearTimeout(PICK.timer);
-  const f = AG.form;
-  const auto = S.view === "agentnew" && f.machine === "auto" && AG.hosts?.length;
-  if (!auto) return;
-  if ($("#agwhy")) drawWhy();
-  if (!f.prompt.trim() || PICK.key === pickKey()) return;
-  PICK.timer = setTimeout(async () => {
-    const key = pickKey();
-    let pick: AgentPick | null = null, error = "";
-    try {
-      pick = await invoke<AgentPick | null>("agent_preview", { agent: f.agent, cwd: f.cwd.trim() || null, prompt: f.prompt.trim() });
-    } catch (e) {
-      error = String(e).replace(/^bad request: /, "");
-    }
-    if (key !== pickKey()) return;
-    Object.assign(PICK, { key, pick, error });
-    if (S.view !== "agentnew") return;
-    // The models, worktrees and folders follow the machine Auto picked.
-    if (!f.typing) drawParts();
-    else drawWhy();
-  }, 450);
-}
-
 // ----- Models -----
 
-/// The machine the picker lists models on: the one picked, else the one
-/// Auto would pick for the form as it stands.
+/// The machine the picker lists models on: the one picked, or null.
 function formModelMachine() {
-  const f = AG.form;
-  const auto = PICK.key === pickKey() ? PICK.pick?.machine_id ?? null : null;
-  return modelMachine(f.machine, auto);
+  return AG.form.machine || null;
 }
 
 /// Keeps the model with the machine and harness it was picked for, and
@@ -615,14 +602,15 @@ export async function startAgent() {
   const f = AG.form;
   if (AG.busy || S.view !== "agentnew") return;
   if (!f.prompt.trim()) { AG.error = "prompt"; drawParts(); return $("#agprompt")?.focus(); }
+  if (!f.machine) { f.open = "host"; return drawParts(); }
   AG.busy = true;
   AG.error = "";
   f.open = null;
   drawParts();
   try {
-    // A model is for the machine it was listed on, which Auto then keeps.
     const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
-    const machine = f.machine === "auto" ? (model ? formModelMachine() : null) : f.machine;
+    const machine = f.machine;
+    keepMachine(f.project, machine);
     // In a project's checkout, an existing worktree is a folder to start
     // in, and the node makes a new branch or worktree before it starts.
     const busy = folderBusy(AG.sessions, formModelMachine(), f.cwd);

@@ -4,7 +4,7 @@
 
 use super::{
     AgentKind,
-    acp::{self, Line, LineReader, Offered, Prompt, ResumeMethod},
+    acp::{self, Line, LineReader, ModelSwitch, Offered, Prompt, ResumeMethod},
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     image_files,
     images::{Images, Picture},
@@ -64,9 +64,17 @@ const EVENTS: usize = 64;
 #[derive(Debug)]
 pub(super) enum Command {
     Prompt(Prompt),
-    Answer { question: u32, reply: String },
+    Answer {
+        question: u32,
+        reply: String,
+    },
     Cancel,
     Close,
+    /// Switches the model or thinking level from the next turn.
+    Configure {
+        model: Option<String>,
+        effort: Option<Effort>,
+    },
 }
 
 struct Order {
@@ -180,6 +188,7 @@ impl Session {
             model,
             effort,
             thinking: None,
+            switch: None,
             bypass_mode: acp::bypass_mode(&kind.name),
             compactor: Compactor::new(&kind.name, policy),
             asked: VecDeque::new(),
@@ -243,6 +252,12 @@ enum Reply {
         model: String,
         result: Result<(), agent_client_protocol::Error>,
     },
+    /// The answer to switching the running session's model or thinking
+    /// level, `what` saying which, as the transcript notes it.
+    Reconfigured {
+        what: String,
+        result: Result<(), agent_client_protocol::Error>,
+    },
     /// The answer to setting how hard the new session thinks.
     EffortSet {
         effort: Effort,
@@ -286,6 +301,9 @@ struct Actor {
     effort: Option<Effort>,
     /// The session's option that sets how hard it thinks, once it said.
     thinking: Option<SessionConfigId>,
+    /// How the session switches models, once it said; `None` when it
+    /// cannot.
+    switch: Option<ModelSwitch>,
     /// The session mode that turns the agent's permission prompts off, set
     /// before the first prompt: Claude Code's `bypassPermissions`. Every
     /// agent runs without prompts, and a permission request that comes
@@ -523,6 +541,10 @@ impl Actor {
                 return Ok(self.ready(cx, session, Offered::default()));
             }
             Reply::ModelSet { result: Ok(()), .. } => self.think(cx),
+            Reply::Reconfigured { what, result } => match result {
+                Ok(()) => self.note(&format!("Switched to {what} from the next turn")),
+                Err(e) => self.note(&format!("Could not switch to {what}: {e}")),
+            },
             Reply::EffortSet { effort, result } => {
                 if let Err(e) = result {
                     self.note(&format!(
@@ -623,6 +645,7 @@ impl Actor {
     ) -> Option<End> {
         self.acp_session = Some(session.clone());
         self.thinking = offered.thinking;
+        self.switch = offered.switch.clone();
         self.live
             .send_modify(|live| live.agent_session = Some(session.to_string()));
         let Some(model) = self.model.take() else {
@@ -751,7 +774,52 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Close => Ok(Ok(())),
+            Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
         }
+    }
+
+    /// Switches the running session to `model` and `effort`, which the
+    /// agent applies from its next turn. Refused, sending nothing, when it
+    /// cannot switch what is asked.
+    fn configure(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        model: Option<String>,
+        effort: Option<Effort>,
+    ) -> Result<(), String> {
+        let Some(session) = self.acp_session.clone() else {
+            return Err("the agent is still starting; switch once it is ready".into());
+        };
+        let title = agent_title(&self.agent);
+        let mut requests = Vec::new();
+        if let Some(model) = model {
+            let Some(switch) = &self.switch else {
+                return Err(format!(
+                    "{title} here cannot switch models in a running session"
+                ));
+            };
+            let request = acp::switch_model(&session, switch, &model)
+                .map_err(|e| format!("{title} could not switch to {model}: {e}"))?;
+            requests.push((request, model));
+        }
+        if let Some(effort) = effort {
+            let Some(id) = &self.thinking else {
+                return Err(format!("{title} here cannot change how hard it thinks"));
+            };
+            let request = acp::set_effort(&session, id, effort)
+                .map_err(|e| format!("{title} could not think at {}: {e}", effort.as_str()))?;
+            requests.push((request, format!("thinking {}", effort.as_str())));
+        }
+        if requests.is_empty() {
+            return Err("nothing to switch".into());
+        }
+        for (request, what) in requests {
+            self.send(cx, request, move |result| Reply::Reconfigured {
+                what,
+                result: result.map(drop),
+            });
+        }
+        Ok(())
     }
 
     /// Refuses a prompt with images the agent does not take, rather than
@@ -1795,6 +1863,60 @@ cat > /dev/null
         let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
         assert_eq!(args.trim(), "--model=openai:gpt-test");
         assert_eq!(sent(&log)[2]["method"], "session/prompt", "no switch");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that offers two models, ends its first turn, then
+    /// answers the switch that comes after.
+    const SWITCH_LATER_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"fast"},{"modelId":"deep"}],"currentModelId":"fast"}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+read -r line; log "$1"
+reply '{}'
+cat > /dev/null
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_running_session_switches_its_model_for_the_next_turn() {
+        let dir = temp("model-later");
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", SWITCH_LATER_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, &dir, None)).unwrap();
+        settle(&session).await;
+        // It cannot think at another level: refused, nothing sent.
+        let refused = session
+            .order(Command::Configure {
+                model: None,
+                effort: Some(Effort::High),
+            })
+            .await;
+        assert!(
+            refused
+                .unwrap_err()
+                .contains("cannot change how hard it thinks")
+        );
+        session
+            .order(Command::Configure {
+                model: Some("deep".into()),
+                effort: None,
+            })
+            .await
+            .unwrap();
+        until(&session, |live| {
+            live.transcript(10)
+                .0
+                .iter()
+                .any(|entry| entry.text.contains("Switched to deep"))
+        })
+        .await;
+        let sent = sent(&log);
+        assert_eq!(sent[3]["method"], "session/set_model");
+        assert_eq!(sent[3]["params"]["modelId"], "deep");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

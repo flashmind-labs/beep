@@ -3,6 +3,7 @@
 // view: its facts, the reviewers' shards, the verified findings and the
 // actions (fix with a worker, post the review, merge), polled while the
 // reviewers read. center.ts draws the page; this file keeps the state.
+import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import { agentLabel, reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
@@ -281,7 +282,6 @@ export function branchTile(
 }
 
 const TICK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-const INITIALS: Record<string, string> = { claude: "CC", codex: "CX", gemini: "GM", opencode: "OC", pi: "PI", flsh: "FL" };
 
 /// What the window hands `makeReviews`. `machines()` gives Home's machines,
 /// for where a worktree goes.
@@ -611,7 +611,7 @@ export function makeReviews(deps: ReviewDeps) {
         const c = shardChip(s);
         const chipEl = h("span", `pj-st ${c.cls}`, c.spin ? h("span", "dspin") : null, c.text);
         chipEl.title = s.note || c.text;
-        return h("div", "rv-shard", h("span", `cc-ag ${s.agent}`, INITIALS[s.agent] || s.agent.slice(0, 2).toUpperCase()),
+        return h("div", "rv-shard", harnessEl(s.agent),
           h("span", "t", h("b", "", s.area), h("span", "", shardLine(s, r.machine_name))), chipEl);
       })),
       h("div", "rv-hint", "Each reviewer sees the full stat and its shard's diff. A fresh verifier checks every finding before it counts."));

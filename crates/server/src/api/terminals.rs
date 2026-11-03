@@ -52,16 +52,31 @@ async fn with_states(cx: &Cx, rows: Vec<TerminalRow>) -> Reply<Vec<Terminal>> {
         };
         tasks.insert(place, listed);
     }
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            let state = match tasks.get(&Place::of(&row)) {
-                Some(Some(listed)) => state_of(&row, listed),
-                _ => TerminalState::Offline {},
-            };
-            view(row, &names, state)
-        })
-        .collect())
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let state = match tasks.get(&Place::of(&row)) {
+            Some(Some(listed)) => state_of(&row, listed),
+            _ => TerminalState::Offline {},
+        };
+        // An interactive terminal whose shell exited is done: its row goes,
+        // as the node drops it too.
+        if ended_for_good(&row, &state) {
+            cx.user.remove_terminal(row.id).await?;
+            continue;
+        }
+        out.push(view(row, &names, state));
+    }
+    Ok(out)
+}
+
+/// Whether `row` is an interactive terminal that will never run again: it
+/// exited, was stopped, or its node no longer has it.
+fn ended_for_good(row: &TerminalRow, state: &TerminalState) -> bool {
+    row.pty
+        && matches!(
+            state,
+            TerminalState::Exited { .. } | TerminalState::Stopped {} | TerminalState::Gone {}
+        )
 }
 
 pub(super) async fn start_terminal(cx: Cx, request: StartTerminal) -> Reply<Terminal> {
@@ -375,6 +390,25 @@ mod tests {
             TerminalState::Gone {}
         );
         assert_eq!(state_of(&row, &[]), TerminalState::Gone {});
+    }
+
+    #[test]
+    fn only_an_ended_interactive_terminal_is_dropped() {
+        let pty = TerminalRow { pty: true, ..row() };
+        assert!(ended_for_good(
+            &pty,
+            &TerminalState::Exited { code: Some(0) }
+        ));
+        assert!(ended_for_good(&pty, &TerminalState::Stopped {}));
+        assert!(ended_for_good(&pty, &TerminalState::Gone {}));
+        assert!(!ended_for_good(&pty, &TerminalState::Running {}));
+        // Its machine is away: it may still run there.
+        assert!(!ended_for_good(&pty, &TerminalState::Offline {}));
+        // A background task keeps its last lines to read.
+        assert!(!ended_for_good(
+            &row(),
+            &TerminalState::Exited { code: Some(1) }
+        ));
     }
 
     #[test]
