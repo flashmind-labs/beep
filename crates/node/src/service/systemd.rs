@@ -10,7 +10,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-const UNIT: &str = "beep-node.service";
+pub(super) const UNIT: &str = "beep-node.service";
 
 /// Whether a systemd user instance answers here; the reason when not.
 pub(super) fn usable() -> Result<(), String> {
@@ -91,14 +91,16 @@ fn active() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn unit_path() -> Result<PathBuf> {
+pub(super) fn unit_path() -> Result<PathBuf> {
     Ok(dirs::config_dir()
         .context("this system has no config folder")?
         .join("systemd/user")
         .join(UNIT))
 }
 
-/// The unit file.
+/// The unit file. `KillMode=mixed` stops only the node at first, so it
+/// closes its agent sessions itself and says they ended with it; what is
+/// left is killed once the node exits.
 fn unit(launch: &Launch) -> String {
     let exec: Vec<String> = std::iter::once(launch.exe.display().to_string())
         .chain(launch.args())
@@ -114,6 +116,8 @@ fn unit(launch: &Launch) -> String {
          ExecStart={}\n\
          Restart=always\n\
          RestartSec=5\n\
+         KillMode=mixed\n\
+         TimeoutStopSec=20\n\
          Environment={}\n\
          \n\
          [Install]\n\
@@ -212,6 +216,7 @@ mod tests {
         );
         assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/user/50%%/bin\"\n"));
         assert!(unit.contains("Restart=always\n"));
+        assert!(unit.contains("KillMode=mixed\n"), "{unit}");
         assert!(unit.contains("WantedBy=default.target"));
         // The node's own filter keeps the networking crates quiet.
         assert!(!unit.contains("RUST_LOG"), "{unit}");

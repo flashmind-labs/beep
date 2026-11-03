@@ -68,6 +68,9 @@ struct Summary {
     last_message: String,
     /// Unix seconds.
     started_at: u64,
+    /// Unix seconds of its last timestamped line. Claude Code also appends
+    /// lines without one, such as its artifact ledger, between turns.
+    last_at: Option<u64>,
 }
 
 /// One transcript file.
@@ -331,6 +334,7 @@ fn summary(transcript: &Transcript) -> io::Result<Summary> {
         last_message: digest.last_message.clone().unwrap_or_default(),
         cwd: digest.cwd,
         started_at,
+        last_at: digest.last_at,
     })
 }
 
@@ -344,11 +348,16 @@ fn describe(
         .memos
         .summaries
         .read(&transcript.path, || summary(transcript))?;
+    // Its last entry, not the file's time: lines written between turns
+    // touch the file too.
+    let active = summary.last_at.map_or(transcript.modified, |at| {
+        UNIX_EPOCH + Duration::from_secs(at)
+    });
     let found = presence(
         &Seen {
             id: &transcript.id,
             folder: folder_of(transcript),
-            modified: transcript.modified,
+            modified: active,
             newest_in_folder,
         },
         snapshot,
@@ -359,7 +368,7 @@ fn describe(
         cwd: summary.cwd.unwrap_or_default(),
         title: summary.title,
         started_at: summary.started_at,
-        last_activity: unix(transcript.modified),
+        last_activity: unix(active),
         presence: found.presence,
         pid: found.pid,
         last_prompt: summary.last_prompt,
@@ -645,5 +654,23 @@ mod tests {
 
         fs::write(&path, FIXTURE.replace("whole suite", "net tests")).expect("a change");
         assert_eq!(prompt(&store), "now run the net tests");
+    }
+
+    /// Lines Claude Code writes between turns, such as its artifact
+    /// ledger, touch the file but are not activity: the session's time is
+    /// its last entry's, and nothing running it shows it stopped.
+    #[test]
+    fn lines_between_turns_do_not_make_a_session_recent() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let project = root.path().join("projects").join("-srv-project");
+        fs::create_dir_all(&project).expect("folders");
+        let ledger = r#"{"type":"artifact-autoreact-ledger","v":1,"artifacts":{}}"#;
+        let text = format!("{FIXTURE}{ledger}\n{ledger}\n");
+        fs::write(project.join(format!("{ID}.jsonl")), text).expect("a transcript");
+        let store = Store::at(root.path());
+        let listed = list(&store, &Snapshot::default(), 10, None).expect("the listing");
+        // 2026-10-29T08:03:45Z, the fixture's last entry.
+        assert_eq!(listed[0].last_activity, 1_793_261_025);
+        assert_eq!(listed[0].presence, Presence::Stopped);
     }
 }

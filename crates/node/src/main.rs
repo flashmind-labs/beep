@@ -14,6 +14,7 @@ use logforth::{
 use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[derive(Parser)]
@@ -128,6 +129,22 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
+    /// Shows the service's log, without the info lines of iroh and the
+    /// networking crates under it (warnings and errors still show).
+    Logs {
+        /// How far back to start, such as 45s, 30m, 1h or 2d.
+        #[arg(long, default_value = "1h", value_parser = service::logs::parse_since)]
+        since: Duration,
+        /// Keeps printing new lines as they are written.
+        #[arg(short, long)]
+        follow: bool,
+        /// Shows only the last N lines, after leaving out the noise.
+        #[arg(short = 'n', long, value_name = "N")]
+        lines: Option<usize>,
+        /// Shows every line, the networking crates' too.
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -190,9 +207,10 @@ fn stopped() -> Result<impl Future<Output = ()>> {
 
 /// The log filter unless `RUST_LOG` says otherwise: the node at info, the
 /// networking crates under it (iroh, its QUIC and port mapping) only when
-/// something goes wrong, since they log every packet path at info.
-const LOG_FILTER: &str =
-    "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn";
+/// something goes wrong, since they log every packet path at info. The log
+/// bridge prints their spans as `tracing::span`, which is as noisy.
+const LOG_FILTER: &str = "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,\
+                          portmapper=warn,igd_next=warn,tracing::span=warn";
 
 /// Logs to stderr, or to daily files next to `log_file` when given.
 fn start_logging(log_file: Option<&Path>) -> Result<()> {
@@ -344,6 +362,20 @@ async fn main() -> Result<()> {
                 );
             }
             Ok(())
+        }
+        Command::Logs {
+            since,
+            follow,
+            lines,
+            all,
+        } => {
+            let options = service::logs::LogOptions {
+                since,
+                follow,
+                lines,
+                all,
+            };
+            tokio::task::spawn_blocking(move || service::logs::show(&options)).await?
         }
         Command::Env => {
             println!("{:#?}", env::probe().await);
