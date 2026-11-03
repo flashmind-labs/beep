@@ -112,8 +112,6 @@ pub async fn serve(
         .collect();
     let folders = Folders::new(&shared);
     offers.agents.share_folders(shared.clone());
-    // The sessions Beep started here before, whose folders stay reachable.
-    offers.agents.keep_ledger(&state.dir).await;
     // The agents' logs read once ahead, so the first file request for a
     // session started outside Beep does not wait for them.
     let agents = offers.agents.clone();
@@ -174,6 +172,8 @@ pub async fn serve(
         () = stay => {}
         () = stop => {}
     }
+    // Agents that end from here on ended with the node, whatever their exit.
+    offers.agents.begin_stopping();
     // Stopped, the machine keeps no token: teacli's config, its shim and
     // the env vars go.
     if let Some(provision) = &offers.provision {

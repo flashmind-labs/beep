@@ -102,7 +102,7 @@ pub(super) fn log_dir() -> Result<PathBuf> {
 }
 
 /// The log file's name; the node starts a dated one each day.
-const LOG_NAME: &str = "beep-node.log";
+pub(super) const LOG_NAME: &str = "beep-node.log";
 
 /// `DOMAIN\user`, whom the task runs as and whose logon starts it.
 fn user() -> Result<String> {
@@ -254,7 +254,7 @@ fn from_utf16(bytes: &[u8]) -> String {
     String::from_utf16_lossy(units)
 }
 
-fn installed() -> bool {
+pub(super) fn installed() -> bool {
     Command::new("schtasks")
         .args(["/Query", "/TN", TASK])
         .stdin(Stdio::null())

@@ -3,7 +3,7 @@
 //! folder and the harnesses' own folders; the server passes them through
 //! and keeps nothing.
 
-use super::{Reply, agent_control::live_host};
+use super::{Reply, agent_control::live_host_back};
 use crate::{
     nodes::NodeWork,
     protocol::{ApiError, CustomAgent, ListCustomAgents},
@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub(super) async fn list_custom_agents(cx: Cx, list: ListCustomAgents) -> Reply<Vec<CustomAgent>> {
-    let live = live_host(&cx, &list.machine_id).await?;
+    let live = live_host_back(&cx, &list.machine_id).await?;
     let machine = &live.host.machine_name;
     let read = live.online.custom_agents(&list.folder).await.map_err(|e| {
         ApiError::bad_request(format!(
