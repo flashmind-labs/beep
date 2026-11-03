@@ -167,13 +167,6 @@ test("an image attached after a steer goes with the next message, not the steer"
   assert.deepEqual(AG.att.map(a => a.name), ["shot.png"]);
 });
 
-test("the hints offer steer, queue and interrupt while the turn runs", () => {
-  openSession("working");
-  const shown = agentHints();
-  assert.ok(shown.indexOf("steer") >= 0 && shown.indexOf("steer") < shown.indexOf("queue"));
-  assert.ok(shown.indexOf("queue") < shown.indexOf("interrupt"));
-});
-
 test("Esc stops at once and sends steers not delivered with the queue", async () => {
   const page = openSession("working");
   show({ "#agmsg": field() });

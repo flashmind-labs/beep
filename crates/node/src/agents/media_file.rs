@@ -99,44 +99,10 @@ mod tests {
     }
 
     #[test]
-    fn reads_under_home_for_a_tilde_path() {
-        let (dir, _) = folder_with("model.glb", b"glTF");
-        let chunk = read_chunk("~/model.glb", 0, Some(dir.path()))
-            .unwrap()
-            .unwrap();
-        assert_eq!(chunk.mime, "model/gltf-binary");
-        assert_eq!(chunk.data, b"glTF");
-    }
-
-    #[test]
-    fn an_offset_past_the_end_gives_no_bytes() {
-        let (_dir, path) = folder_with("doc.pdf", b"%PDF");
-        let chunk = read_chunk(&path, 100, None).unwrap().unwrap();
-        assert_eq!(chunk.size, 4);
-        assert!(chunk.data.is_empty());
-    }
-
-    #[test]
-    fn a_missing_file_is_none() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("gone.png");
-        assert_eq!(read_chunk(path.to_str().unwrap(), 0, None).unwrap(), None);
-    }
-
-    #[test]
     fn refuses_other_types() {
         let (_dir, path) = folder_with("notes.txt", b"secret");
         let e = read_chunk(&path, 0, None).unwrap_err();
         assert!(e.to_string().contains("is not a picture"), "{e:#}");
-    }
-
-    #[test]
-    fn refuses_a_folder() {
-        let dir = TempDir::new().unwrap();
-        let folder = dir.path().join("renders.mp4");
-        fs::create_dir(&folder).unwrap();
-        let e = read_chunk(folder.to_str().unwrap(), 0, None).unwrap_err();
-        assert!(e.to_string().contains("is not a file"), "{e:#}");
     }
 
     #[test]

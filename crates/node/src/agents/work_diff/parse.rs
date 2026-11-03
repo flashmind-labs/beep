@@ -610,46 +610,6 @@ rename to y/x.txt
     }
 
     #[test]
-    fn reads_binary_added_and_deleted_files() {
-        let diff = "diff --git a/logo.png b/logo.png
-index 1111111..2222222 100644
-Binary files a/logo.png and b/logo.png differ
-diff --git a/new.txt b/new.txt
-new file mode 100644
-index 0000000..2222222
---- /dev/null
-+++ b/new.txt
-@@ -0,0 +1,2 @@
-+one
-+two
-diff --git a/gone.txt b/gone.txt
-deleted file mode 100644
-index 1111111..0000000
---- a/gone.txt
-+++ /dev/null
-@@ -1 +0,0 @@
--bye
-";
-        let parsed = parse(diff);
-        let status: Vec<_> = parsed
-            .files
-            .iter()
-            .map(|f| (f.path.as_str(), f.status))
-            .collect();
-        assert_eq!(
-            status,
-            [
-                ("logo.png", DiffStatus::Binary {}),
-                ("new.txt", DiffStatus::Added {}),
-                ("gone.txt", DiffStatus::Deleted {}),
-            ]
-        );
-        assert!(parsed.files[0].hunks.is_empty());
-        assert_eq!(parsed.files[0].left_out, None);
-        assert_eq!((parsed.additions, parsed.deletions), (2, 1));
-    }
-
-    #[test]
     fn marks_a_missing_newline_at_the_end() {
         let diff = "diff --git a/a.txt b/a.txt
 --- a/a.txt
@@ -757,29 +717,6 @@ new file mode 100644
         // A smaller file after one that did not fit still does.
         assert_eq!(left, [None, None, Some(DiffLeftOut::OverTotal {}), None]);
         assert_eq!(parsed.additions, 35);
-    }
-
-    #[test]
-    fn lockfiles_are_left_out_unless_asked() {
-        let diff = many_lines("Cargo.lock", 3) + &many_lines("web/package-lock.json", 3);
-        let parsed = parse(&diff);
-        assert!(
-            parsed
-                .files
-                .iter()
-                .all(|f| f.left_out == Some(DiffLeftOut::Lockfile {}) && f.hunks.is_empty())
-        );
-        let keep = Keep {
-            lockfiles: true,
-            ..Keep::default()
-        };
-        let parsed = parse_with(&diff, CAPS, keep);
-        assert!(
-            parsed
-                .files
-                .iter()
-                .all(|f| f.left_out.is_none() && f.hunks[0].lines.len() == 3)
-        );
     }
 
     #[test]

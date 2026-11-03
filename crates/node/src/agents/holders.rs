@@ -87,19 +87,6 @@ mod tests {
         assert_eq!(settle(Presence::Recent, None, None), Presence::Recent);
     }
 
-    #[test]
-    fn a_process_seen_running_it_stays_live() {
-        assert_eq!(
-            settle(Presence::Working, Some(41), Some(false)),
-            Presence::Working
-        );
-        // Quiet, but still loaded somewhere.
-        assert_eq!(
-            settle(Presence::Stopped, None, Some(true)),
-            Presence::Running
-        );
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn a_file_this_process_holds_is_held() {

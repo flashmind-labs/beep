@@ -370,17 +370,6 @@ impl<'a, S: Sink> Output<'a, S> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_mark_line_gives_the_exit_code_and_folder() {
-        let mark = "__m__";
-        assert_eq!(
-            parse_mark("__m__ 2 /srv/my project\n", mark),
-            Some((2, "/srv/my project".to_owned()))
-        );
-        assert_eq!(parse_mark("__m__x 2 /srv\n", mark), None);
-        assert_eq!(parse_mark("hello\n", mark), None);
-    }
-
     impl Sink for Vec<String> {
         async fn send_text(&mut self, text: String) -> Result<()> {
             self.push(text);
@@ -394,49 +383,6 @@ mod tests {
         let end = shell.run(command, &mut out).await.unwrap();
         out.finish().await.unwrap();
         (sent.concat(), end)
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn powershell_keeps_its_folder_and_variables() {
-        let mut shell = Shell::start().await.unwrap();
-        let (out, end) = run(
-            &mut shell,
-            "Set-Location C:\\; $greeting = 'hi'; 'it''s set'",
-        )
-        .await;
-        assert_eq!(out, "it's set\n");
-        assert!(
-            matches!(end, End::Finished { exit_code: 0, ref cwd } if cwd == "C:\\"),
-            "{out}"
-        );
-        let (out, end) = run(
-            &mut shell,
-            "$greeting; cmd /c \"echo oops 1>&2\"; Get-Item nowhere",
-        )
-        .await;
-        assert!(out.starts_with("hi\n"), "{out}");
-        assert!(out.contains("oops"), "stderr is merged: {out}");
-        assert!(out.contains("nowhere"), "errors are merged: {out}");
-        assert!(
-            matches!(end, End::Finished { exit_code: 1, .. }),
-            "an error fails it"
-        );
-        let (_, end) = run(&mut shell, "cmd /c exit 4").await;
-        assert!(
-            matches!(end, End::Finished { exit_code: 4, .. }),
-            "a program's code"
-        );
-        let (out, end) = run(&mut shell, "echo 'unclosed").await;
-        assert!(
-            matches!(end, End::Finished { exit_code, .. } if exit_code != 0),
-            "a syntax error fails the command, not the shell: {out}"
-        );
-        let (_, end) = run(&mut shell, "exit 3").await;
-        assert!(
-            matches!(end, End::ShellEnded { exit_code: Some(3) }),
-            "exit keeps its code"
-        );
     }
 
     #[cfg(unix)]

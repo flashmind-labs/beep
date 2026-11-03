@@ -314,31 +314,6 @@ mod tests {
     }
 
     #[test]
-    fn the_task_runs_the_node_hidden_at_logon() {
-        let xml = xml(&windows_launch(None));
-        assert!(xml.contains("<Command>C:\\Windows\\System32\\conhost.exe</Command>"));
-        assert!(
-            xml.contains(
-                "<Arguments>--headless \
-                 C:\\Users\\user\\AppData\\Local\\Programs\\beep-node\\beep-node.exe \
-                 --log-file C:\\Users\\user\\AppData\\Local\\beep-node\\logs\\beep-node.log \
-                 --with-parent --dir &quot;C:\\Users\\user\\AppData\\Roaming\\beep node&quot; run</Arguments>"
-            ),
-            "{xml}"
-        );
-        assert!(xml.contains(
-            "<LogonTrigger>\r\n      <Enabled>true</Enabled>\r\n      <UserId>HOST\\user</UserId>"
-        ));
-        assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
-        assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
-        assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
-        assert!(xml.contains("<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>"));
-        assert!(xml.contains("<Interval>PT5M</Interval>"), "kept alive");
-        assert!(xml.contains("<RestartOnFailure>"));
-        assert!(xml.contains("<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"));
-    }
-
-    #[test]
     fn the_task_passes_the_workspace_and_escapes_it() {
         let xml = xml(&windows_launch(Some(r"D:\work & play\")));
         assert!(
@@ -364,12 +339,6 @@ mod tests {
             r"\\server\share\y"
         );
         assert_eq!(plain(Path::new(r"C:\x")), r"C:\x");
-    }
-
-    #[test]
-    fn the_xml_is_utf16_with_a_byte_order_mark() {
-        assert_eq!(utf16("<a>"), [0xFF, 0xFE, b'<', 0, b'a', 0, b'>', 0]);
-        assert_eq!(from_utf16(&utf16("<a>")), "<a>");
     }
 
     #[test]

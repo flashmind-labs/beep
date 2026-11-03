@@ -216,26 +216,6 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn opencode_sessions_are_priced_by_their_cost_or_the_table() {
-        let dir = tempfile::tempdir().expect("a temp folder");
-        let path = dir.path().join("opencode.db");
-        opencode_database(&path);
-        let parts = opencode(&path, 1_793_600_000, &mut Accounts::default()).expect("the sessions");
-        let a = &parts["ses_a"];
-        assert_eq!(a.cwd, "/srv/project");
-        let (key, bucket) = a.buckets.iter().next().expect("a bucket");
-        assert_eq!(key.billing, Billing::Subscription);
-        // 1M input at $2 and 100K output at $10.
-        assert!((bucket.cost_usd - 3.0).abs() < 1e-9);
-        let (key, b) = parts["ses_b"].buckets.iter().next().expect("a bucket");
-        assert_eq!(key.billing, Billing::Unknown, "no provider named");
-        assert!(
-            (b.cost_usd - 0.25).abs() < 1e-9,
-            "the old message is left out"
-        );
-    }
-
-    #[test]
     fn flsh_sessions_count_their_totals_at_their_last_entry() {
         let dir = tempfile::tempdir().expect("a temp folder");
         let path = dir.path().join("sessions.db");

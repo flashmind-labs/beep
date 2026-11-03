@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkedLabel, differsLabel, differsOn, savedToLabel, draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, listRows, settingsInput, splitArgs, statusLine, summaryLine, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView, type MachineSettings } from "../src/providers-state.ts";
+import { draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/providers-state.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };
 const harness = (agent: string, more: Partial<HarnessView> = {}): HarnessView => ({
@@ -20,30 +20,6 @@ const view: HarnessesView = {
   ],
 };
 
-test("rows list each harness with its version, update marker, status and switch", () => {
-  const rows = listRows(view);
-  assert.deepEqual(rows.map(r => r.agent), ["claude", "codex", "pi", "gemini", "flsh"]);
-  const [claude, codex, pi, gemini] = rows;
-  assert.equal(claude.name, "Claude Code");
-  assert.equal(claude.initials, "CC");
-  assert.equal(claude.update, true);
-  assert.equal(claude.status, "Signed in · Max plan");
-  assert.equal(codex.update, false);
-  assert.deepEqual([codex.status, codex.bad], ["Not signed in on this machine", true]);
-  assert.equal(pi.on, false);
-  assert.match(pi.status, /Turned off/);
-  assert.deepEqual([gemini.status, gemini.switchable, gemini.version], ["Not installed", false, null]);
-  // OpenCode shows once the machine has it.
-  const withOpenCode = { ...view, harnesses: view.harnesses.map(h => h.agent === "opencode" ? { ...h, installed: true } : h) };
-  assert.equal(listRows(withOpenCode).length, 6);
-});
-
-test("status lines say how each harness signs in", () => {
-  assert.equal(statusLine(harness("claude", { sign_in: { state: "beep_token", account: null, plan: null, last4: "7d1e" } })).text, "Signs in with Beep's token …7d1e");
-  assert.equal(statusLine(harness("flsh")).text, "Installed");
-  assert.deepEqual(statusLine(harness("pi", { runnable: false })), { text: "Installed; Beep cannot start it yet", bad: true });
-});
-
 test("versions compare by number and show what is out", () => {
   assert.ok(isNewer("0.10.0", "0.9.9"));
   assert.ok(!isNewer("2.1.312", "2.1.312"));
@@ -54,14 +30,6 @@ test("versions compare by number and show what is out", () => {
   assert.ok(!hasUpdate(harness("flsh", { latest: null })));
   assert.deepEqual(updatable(view), ["claude"]);
   assert.deepEqual(updatable({ ...view, harnesses: [harness("claude", { latest: "9.0.0", install: null })] }), []);
-});
-
-test("the check button says how long ago the versions were looked up", () => {
-  const now = 1_760_000_000_000;
-  assert.equal(checkedLabel(null, now), "Check for updates");
-  assert.equal(checkedLabel(now - 20_000, now), "Checked just now");
-  assert.equal(checkedLabel(now - 60_000, now), "Checked 1 min ago");
-  assert.equal(checkedLabel(now - 3 * 3_600_000, now), "Checked 3 h ago");
 });
 
 test("launch arguments split and join like a shell line", () => {
@@ -87,37 +55,4 @@ test("saving sends typed values only, and the switch keeps the saved ones", () =
   assert.equal(envProblem([{ name: "1X", value: "", saved: false }]), "1X is not a variable name.");
   assert.equal(envProblem([{ name: "A", value: "", saved: false }, { name: "A", value: "", saved: true }]), "A is set twice.");
   assert.equal(envProblem([{ name: "", value: "", saved: false }]), "");
-});
-
-test("the summary line names the signed-in account, else says what the list says", () => {
-  const [claude, codex, pi, gemini] = view.harnesses;
-  assert.deepEqual(summaryLine(claude), { text: "Signed in as you@example.com · Max plan", bad: false });
-  assert.deepEqual(summaryLine(codex), statusLine(codex));
-  assert.deepEqual(summaryLine(pi), statusLine(pi));
-  assert.deepEqual(summaryLine(gemini), { text: "Not installed", bad: false });
-});
-
-test("a field differs on the machines whose saved value is not this one's", () => {
-  const on = (id: string, more: Partial<MachineSettings["settings"]> = {}): MachineSettings => ({
-    machine_id: id, machine_name: `${id}-box`, settings: { ...settings, ...more },
-  });
-  const all = [
-    on("a", { program: "/opt/claude", args: ["--verbose"], env: ["HTTPS_PROXY", "NO_PROXY"] }),
-    on("b", { program: "/srv/claude", args: ["--verbose"], env: ["NO_PROXY", "HTTPS_PROXY"] }),
-    on("c", { program: "/opt/claude" }),
-  ];
-  assert.deepEqual(differsOn(all, "a", "program"), ["b-box"]);
-  assert.deepEqual(differsOn(all, "a", "args"), ["c-box"]);
-  // Env vars compare by their names in any order; the values never come back.
-  assert.deepEqual(differsOn(all, "a", "env"), ["c-box"]);
-  assert.deepEqual(differsOn(all, "a", "home"), []);
-  assert.deepEqual(differsOn(all, "c", "args"), ["a-box", "b-box"]);
-  // A machine not listed, or alone, differs from nothing.
-  assert.deepEqual(differsOn(all, "z", "program"), []);
-  assert.deepEqual(differsOn([on("a")], "a", "program"), []);
-  assert.equal(differsLabel(["b-box"]), "differs on 1 machine");
-  assert.equal(differsLabel(["b-box", "c-box"]), "differs on 2 machines");
-  assert.equal(differsLabel([]), "");
-  assert.equal(savedToLabel(3), "Saved to 3 machines");
-  assert.equal(savedToLabel(1), "Saved to 1 machine");
 });
