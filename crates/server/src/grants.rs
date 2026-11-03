@@ -17,7 +17,7 @@
 //! send, so these checks, not the model, are what keeps a grant narrow.
 
 use crate::{
-    app::UserNotice,
+    app::{Reach, UserNotice},
     digest,
     permissions::{self, ApprovalPayload, ToolSlug},
     protocol::{Approval, ApprovalField, Grant, Notice},
@@ -752,6 +752,7 @@ impl RoutineGrants {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         });
     }
 

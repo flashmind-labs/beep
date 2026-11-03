@@ -16,7 +16,7 @@ use beep_server::protocol::{
     ListHarnessSettings, SaveFlshSettings, SaveHarnessSettingsAll, SecretText,
 };
 use beep_server::{
-    app::{App, ServerTools},
+    app::{App, Reach, ServerTools},
     client::{Client, Node},
     models::ModelChoices,
     nodes::{self, Follower, Online, StartOn},
@@ -1155,6 +1155,105 @@ async fn a_session_that_asks_or_finishes_notifies_unless_a_chat_hears_of_it() {
         .unwrap();
     assert_eq!(key.session, "a3f9c1", "the chat's session told nobody");
     assert_eq!(key.machine_id, machine);
+    assert_eq!(sent.to, Reach::Desktops, "no device started it");
+    center.shutdown().await;
+}
+
+/// A finished alert for `session`, as the fake node sends it.
+fn finished_alert(session: &str) -> Alert {
+    Alert {
+        session: session.into(),
+        agent: "claude".into(),
+        title: Some("Fix the login test".into()),
+        cwd: "/srv/project".into(),
+        kind: AlertKind::TurnEnded {
+            stop_reason: StopReason::EndTurn,
+            last_message: "All tests pass.".into(),
+            error: None,
+        },
+    }
+}
+
+/// Starts a session (the fake names it b0b0b0) on a node from `starter`,
+/// then has the node send a finished alert for it and one for a3f9c1,
+/// which no device started. Gives whom each alert went to, in order.
+async fn alert_reach(center: &mut CommandCenter, starter: &Client) -> Vec<(String, Reach)> {
+    let mut notices = center.app.notifications.subscribe();
+    let fake = FakeAgents {
+        alerts: Some(vec![finished_alert("b0b0b0"), finished_alert("a3f9c1")]),
+        ..FakeAgents::default()
+    };
+    let go = fake.alerts_go.clone();
+    let machine = center.node(0, "build-box", fake).await;
+    let started = starter
+        .call(&start(Some(machine), "Fix the login test"))
+        .await
+        .unwrap();
+    assert_eq!(started.session.id, "b0b0b0");
+    go.notify_one();
+    timeout(Duration::from_secs(20), async {
+        let mut reached = Vec::new();
+        while reached.len() < 2 {
+            let sent = notices.recv().await.expect("the notices go on");
+            if sent.notice.title.is_empty() {
+                continue;
+            }
+            let key: AgentNoticeKey = sent
+                .desktop
+                .expect("computers get the session")
+                .session_id
+                .parse()
+                .unwrap();
+            reached.push((key.session, sent.to));
+        }
+        reached
+    })
+    .await
+    .expect("both alerts arrive")
+}
+
+#[tokio::test]
+async fn a_session_started_on_the_phone_alerts_only_the_phone() {
+    let mut center = CommandCenter::new(1).await;
+    let (_node, phone) = center.phone(0).await;
+    let reached = alert_reach(&mut center, &phone).await;
+    assert_eq!(
+        reached,
+        [
+            ("b0b0b0".to_owned(), Reach::Device(center.keys[0].public())),
+            ("a3f9c1".to_owned(), Reach::Desktops),
+        ],
+        "the phone's session tells the phone; one started outside Beep tells the computers"
+    );
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_session_started_on_a_computer_alerts_only_that_computer() {
+    let mut center = CommandCenter::new(1).await;
+    let mut macs = Vec::new();
+    for name in ["MacBook", "Mac Studio"] {
+        let key = SecretKey::generate();
+        center.users[0]
+            .link_key(NewKey {
+                endpoint: key.public(),
+                name,
+                kind: DeviceKind::Desktop {},
+            })
+            .await
+            .unwrap();
+        macs.push(key);
+    }
+    let (_node, macbook) = phone(macs[0].clone(), &center.router).await;
+    let reached = alert_reach(&mut center, &macbook).await;
+    assert_eq!(
+        reached,
+        [
+            ("b0b0b0".to_owned(), Reach::Device(macs[0].public())),
+            ("a3f9c1".to_owned(), Reach::Desktops),
+        ],
+        "only the Mac that started it, not the other Mac or the phone"
+    );
     center.shutdown().await;
 }
 
