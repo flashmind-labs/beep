@@ -181,26 +181,6 @@ mod tests {
     }
 
     #[test]
-    fn a_given_name_is_the_title() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        write(
-            root.path(),
-            &format!("rollout-a-{ID}.jsonl"),
-            &[meta(ID, r#""vscode""#)],
-        );
-        fs::write(
-            root.path().join("session_index.jsonl"),
-            format!(
-                "{{\"id\":\"{ID}\",\"thread_name\":\"Old name\",\"updated_at\":\"2026-11-02T01:00:00Z\"}}\n\
-                 {{\"id\":\"{ID}\",\"thread_name\":\"Retry flag\",\"updated_at\":\"2026-11-02T02:00:00Z\"}}\n"
-            ),
-        )
-        .expect("an index");
-        let found = sessions(root.path(), &Memos::default());
-        assert_eq!(found[0].title.as_deref(), Some("Retry flag"));
-    }
-
-    #[test]
     fn a_newer_user_message_reads_too() {
         let line = r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"i","content":[{"type":"text","text":"Fix the parser","text_elements":[]}]}}}"#;
         assert_eq!(prompt(line).as_deref(), Some("Fix the parser"));

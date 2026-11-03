@@ -4,9 +4,11 @@
 // out of the window's start.
 
 import {
-  AmbientLight, Box3, Color, DirectionalLight, GridHelper, Group, HemisphereLight, Mesh, MeshStandardMaterial,
-  type Object3D, PerspectiveCamera, Scene, SRGBColorSpace, Texture, TextureLoader, Vector3, WebGLRenderer,
+  AmbientLight, type AnimationClip, AnimationMixer, Box3, Color, DirectionalLight, GridHelper, Group, HemisphereLight,
+  LoopOnce, LoopRepeat, Mesh, MeshStandardMaterial, type Object3D, PerspectiveCamera, Scene, SRGBColorSpace, Texture,
+  Vector3, WebGLRenderer,
 } from "three";
+import { clipName } from "./media-state.ts";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
@@ -17,6 +19,23 @@ export interface ModelInfo {
   format: string;
   triangles: number;
   meshes: number;
+  clips: number;
+}
+
+/// A glTF's animation: its clips, the one shown, and where it is.
+export interface Animation {
+  clips: { name: string; duration: number }[];
+  clip: number;
+  playing: boolean;
+  loop: boolean;
+  time(): number;
+  select(clip: number): void;
+  play(on: boolean): void;
+  seek(time: number): void;
+  setLoop(on: boolean): void;
+  /// Called on each change: each frame it plays, a stop at its end, and
+  /// each call above.
+  onchange: () => void;
 }
 
 export interface ModelView {
@@ -24,6 +43,8 @@ export interface ModelView {
   /// Frames the whole model again.
   reset(): void;
   wireframe(on: boolean): void;
+  /// Null when the model has no animation.
+  anim: Animation | null;
   /// Draws again after the box changed size.
   resize(): void;
   dispose(): void;
@@ -33,64 +54,84 @@ export interface ModelView {
 /// relative URI; the bytes, or null when it cannot be read.
 export type Sibling = (uri: string) => Promise<Uint8Array | null>;
 
-const GRAY = new MeshStandardMaterial({ color: 0xb8c4bd, roughness: 0.6, metalness: 0.05 });
+const gray = () => new MeshStandardMaterial({ color: 0xb8c4bd, roughness: 0.6, metalness: 0.05 });
 
 /// Parses `bytes` of a model file of extension `ext` into a scene node.
-async function parse(bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise<{ root: Object3D; format: string }> {
+async function parse(bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise<{ root: Object3D; format: string; clips: AnimationClip[] }> {
   if (ext === "stl") {
-    const geometry = new STLLoader().parse(bytes);
-    geometry.computeVertexNormals();
-    return { root: new Mesh(geometry, GRAY.clone()), format: "STL" };
+    // The loader keeps the file's own face normals.
+    return { root: new Mesh(new STLLoader().parse(bytes), gray()), format: "STL", clips: [] };
   }
   if (ext === "obj") {
     const root = new OBJLoader().parse(new TextDecoder().decode(bytes));
     // An OBJ's materials live in an .mtl the viewer does not read.
-    root.traverse(o => { if (o instanceof Mesh) o.material = GRAY.clone(); });
-    return { root, format: "OBJ" };
+    const material = gray();
+    root.traverse(o => { if (o instanceof Mesh) o.material = material; });
+    return { root, format: "OBJ", clips: [] };
   }
   const glb = ext === "gltf" ? await packGltf(bytes, sibling) : bytes;
   const loader = new GLTFLoader();
-  // Textures load as <img>, which the window's content policy allows for
-  // blob: URLs, rather than with fetch, which it does not.
+  // Pictures decode off the main thread with createImageBitmap, from
+  // their bytes: three's own bitmap loader fetches a blob: URL, which the
+  // window's content policy refuses.
   loader.register(parser => {
-    parser.textureLoader = new TextureLoader(parser.options.manager);
-    return { name: "beep_textures" };
+    const own = parser.loadImageSource.bind(parser);
+    const cache: Record<number, Promise<Texture>> = (parser as unknown as { sourceCache: Record<number, Promise<Texture>> }).sourceCache;
+    parser.loadImageSource = (i, imageLoader) => {
+      const def = parser.json.images[i];
+      if (def.bufferView === undefined) return own(i, imageLoader);
+      if (i in cache) return cache[i].then(t => t.clone());
+      return cache[i] = parser.getDependency("bufferView", def.bufferView)
+        .then(view => createImageBitmap(new Blob([view], { type: def.mimeType }), { premultiplyAlpha: "none" }))
+        .then(bitmap => {
+          const t = new Texture(bitmap);
+          t.userData.mimeType = def.mimeType;
+          t.needsUpdate = true;
+          return t;
+        });
+    };
+    return { name: "beep_bitmaps" };
   });
   const gltf = await loader.parseAsync(glb, "");
-  return { root: gltf.scene, format: ext === "gltf" ? "glTF" : "GLB" };
+  return { root: gltf.scene, format: ext === "gltf" ? "glTF" : "GLB", clips: gltf.animations };
 }
 
 const b64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const pad4 = (n: number) => (n + 3) & ~3;
 
 /// A `.gltf` and the files it names as one GLB, so nothing is fetched by
-/// URL: its buffers (beside it or in data URIs) joined into the binary
-/// chunk, and its pictures beside it as blob URLs.
+/// URL: its buffers and pictures (beside it or in data URIs) joined into
+/// the binary chunk.
 async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuffer> {
   const json = JSON.parse(new TextDecoder().decode(bytes));
   const buffers: { uri?: string; byteLength: number }[] = json.buffers ?? [];
   const parts: Uint8Array[] = [];
   const base: number[] = [];
   let length = 0;
-  for (const b of buffers) {
-    const data = !b.uri ? new Uint8Array(b.byteLength)
-      : b.uri.startsWith("data:") ? b64(b.uri.slice(b.uri.indexOf(",") + 1))
-      : await sibling(b.uri);
-    if (!data) throw new Error(`${b.uri} is not there`);
+  const read = (uri: string) => uri.startsWith("data:") ? b64(uri.slice(uri.indexOf(",") + 1)) : sibling(uri);
+  const add = (data: Uint8Array) => {
     base.push(length);
     parts.push(data);
     length = pad4(length + data.length);
+  };
+  for (const b of buffers) {
+    const data = b.uri ? await read(b.uri) : new Uint8Array(b.byteLength);
+    if (!data) throw new Error(`${b.uri} is not there`);
+    add(data);
   }
-  for (const v of json.bufferViews ?? []) {
+  json.bufferViews ??= [];
+  for (const v of json.bufferViews) {
     v.byteOffset = (v.byteOffset ?? 0) + base[v.buffer];
     v.buffer = 0;
   }
-  json.buffers = length ? [{ byteLength: length }] : [];
   for (const img of json.images ?? []) {
-    if (!img.uri || img.uri.startsWith("data:")) continue;
-    const data = await sibling(img.uri);
-    if (data) img.uri = URL.createObjectURL(new Blob([data as BlobPart], { type: img.mimeType || "image/png" }));
+    const data = img.uri && await read(img.uri);
+    if (!data) continue;
+    img.bufferView = json.bufferViews.push({ buffer: 0, byteOffset: length, byteLength: data.length }) - 1;
+    delete img.uri;
+    add(data);
   }
+  json.buffers = length ? [{ byteLength: length }] : [];
   const text = new TextEncoder().encode(JSON.stringify(json));
   const jsonLen = pad4(text.length), binLen = pad4(length);
   const total = 12 + 8 + jsonLen + (length ? 8 + binLen : 0);
@@ -113,13 +154,18 @@ async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuff
 
 /// Draws the model in `bytes` into `box`, filling it.
 export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise<ModelView> {
-  const { root, format } = await parse(bytes, ext, sibling);
-  const renderer = new WebGLRenderer({ antialias: true, alpha: true });
+  const { root, format, clips } = await parse(bytes, ext, sibling);
+  // A retina screen's pixels are fine enough without multisampling, which
+  // would cost four samples on each of them.
+  const renderer = new WebGLRenderer({ antialias: devicePixelRatio < 2, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.outputColorSpace = SRGBColorSpace;
   box.append(renderer.domElement);
 
   const scene = new Scene();
+  // Nothing moves but the camera and an animation, which update the
+  // matrices themselves, so a frame does not walk every node for them.
+  scene.matrixWorldAutoUpdate = false;
   scene.add(new HemisphereLight(0xe4eee8, 0x1a231e, 1.2), new AmbientLight(0xffffff, 0.25));
   const key = new DirectionalLight(0xffffff, 1.6), fill = new DirectionalLight(0x9dc3f0, 0.5);
   scene.add(key, fill);
@@ -136,6 +182,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
   scene.add(grid);
   key.position.set(radius * 2, radius * 3, radius * 2);
   fill.position.set(-radius * 2, radius, -radius * 1.5);
+  scene.updateMatrixWorld();
 
   const camera = new PerspectiveCamera(40, 1, radius / 100, radius * 100);
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -150,13 +197,33 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
     triangles += (g.index ? g.index.count : g.attributes.position?.count ?? 0) / 3;
   });
 
+  const mixer = clips.length ? new AnimationMixer(root) : null;
+  const actions = mixer ? clips.map(c => mixer.clipAction(c)) : [];
+  let anim: Animation | null = null;
+
+  // One draw per frame at most, and only when something moved: an orbit,
+  // a resize, a reset, or a playing animation.
+  let raf = 0, last = 0;
   const draw = () => renderer.render(scene, camera);
+  const frame = (now: number) => {
+    raf = 0;
+    if (mixer && anim?.playing) {
+      mixer.update(last ? (now - last) / 1000 : 0);
+      last = now;
+      root.updateMatrixWorld();
+      anim.onchange();
+      if (anim.playing) raf = requestAnimationFrame(frame);
+    }
+    draw();
+  };
+  const request = () => { raf ||= requestAnimationFrame(frame); };
   const resize = () => {
     const w = box.clientWidth, h = box.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    // Now, not next frame: setSize has just cleared the canvas.
     draw();
   };
   const reset = () => {
@@ -165,38 +232,105 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
     camera.position.copy(target).add(new Vector3(1, 0.7, 1.2).normalize().multiplyScalar(dist));
     controls.target.copy(target);
     controls.update();
-    draw();
+    request();
   };
-  // Drawn only when something moves: nothing spins in the background.
-  controls.addEventListener("change", draw);
+
+  if (mixer) {
+    const pose = () => {
+      mixer.update(0);
+      root.updateMatrixWorld();
+      request();
+    };
+    const a: Animation = anim = {
+      clips: clips.map((c, i) => ({ name: clipName(c.name, i), duration: c.duration })),
+      clip: 0,
+      playing: false,
+      loop: true,
+      time: () => actions[a.clip].time,
+      select(i) {
+        actions[a.clip].stop();
+        a.clip = i;
+        a.setLoop(a.loop);
+        actions[i].play();
+        actions[i].paused = !a.playing;
+        pose();
+        a.onchange();
+      },
+      play(on) {
+        const action = actions[a.clip];
+        if (on && !a.loop && action.time >= clips[a.clip].duration) action.time = 0;
+        action.enabled = true;
+        action.paused = !on;
+        a.playing = on;
+        last = 0;
+        request();
+        a.onchange();
+      },
+      seek(time) {
+        actions[a.clip].time = time;
+        actions[a.clip].enabled = true;
+        pose();
+        a.onchange();
+      },
+      setLoop(on) {
+        a.loop = on;
+        actions[a.clip].setLoop(on ? LoopRepeat : LoopOnce, Infinity);
+        actions[a.clip].clampWhenFinished = true;
+        a.onchange();
+      },
+      onchange: () => {},
+    };
+    // Played through once, it holds its last pose.
+    mixer.addEventListener("finished", () => {
+      a.playing = false;
+      a.onchange();
+    });
+    a.select(0);
+  }
+
+  // Shaders compile in parallel where the GPU allows, before the first
+  // frame needs them.
+  await renderer.compileAsync(scene, camera);
+  controls.addEventListener("change", request);
   const watch = new ResizeObserver(resize);
   watch.observe(box);
   resize();
   reset();
 
   return {
-    info: { format, triangles: Math.round(triangles), meshes },
+    info: { format, triangles: Math.round(triangles), meshes, clips: clips.length },
     reset,
     resize,
+    anim,
     wireframe(on) {
       root.traverse(o => {
         if (!(o instanceof Mesh)) return;
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) if ("wireframe" in m) m.wireframe = on;
       });
-      draw();
+      request();
     },
     dispose() {
+      cancelAnimationFrame(raf);
       watch.disconnect();
       controls.dispose();
+      mixer?.stopAllAction();
+      mixer?.uncacheRoot(root);
       root.traverse(o => {
         if (!(o instanceof Mesh)) return;
         o.geometry.dispose();
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-          for (const v of Object.values(m)) if (v instanceof Texture) v.dispose();
+          for (const v of Object.values(m)) {
+            if (!(v instanceof Texture)) continue;
+            v.dispose();
+            if (v.image instanceof ImageBitmap) v.image.close();
+          }
           m.dispose();
         }
       });
+      grid.dispose();
       renderer.dispose();
+      // Frees the GL context now: the window holds only a few at once.
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     },
   };

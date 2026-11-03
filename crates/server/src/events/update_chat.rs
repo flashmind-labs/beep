@@ -1,6 +1,4 @@
-//! A chat about one update from the Updates list. It opens with Beep telling
-//! the user the update, and keeps the update's events in what the agent
-//! reads, so Beep answers the user's reply knowing what came in.
+//! A chat about one item in the Updates list, opened by Beep and carrying its events as context.
 
 use super::pipeline::{clipped, write_event};
 use crate::{
@@ -16,8 +14,7 @@ use uuid::Uuid;
 /// How much of each event's source record the agent reads, in characters.
 const RAW_CHARS: usize = 4000;
 
-/// The chat about the user's update `id`, made on the first ask. `None`
-/// when the user has no such update.
+/// The chat about update `id`, made on first ask; `None` when the user has no such update.
 pub async fn open(user: &User, id: i64) -> Result<Option<Uuid>> {
     let Some(detail) = user.update_detail(id).await? else {
         return Ok(None);
@@ -36,8 +33,7 @@ pub async fn open(user: &User, id: i64) -> Result<Option<Uuid>> {
         .map(|opened| opened.chat))
 }
 
-/// What the agent reads: the update and its events, the user opening it,
-/// and Beep's `message` telling them.
+/// What the agent reads: the update and its events, the user opening it, and Beep's `message`.
 fn conversation(detail: &UpdateDetail, message: &str) -> Conversation {
     let mut chat = Conversation::new();
     chat.add(ConversationEntry::system_message(context(detail)));
@@ -53,8 +49,7 @@ fn app_name(detail: &UpdateDetail) -> Option<&'static str> {
     detail.events.first().map(|event| event.row.app.name())
 }
 
-/// The update as the triage agent passed it on, its events with their ids,
-/// and the records the apps sent.
+/// The update as triage passed it on, its events with ids, and the apps' records.
 fn context(detail: &UpdateDetail) -> String {
     let mut text = format!(
         "This chat is about an update from the user's apps, which they opened from their \

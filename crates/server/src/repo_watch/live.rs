@@ -1,8 +1,5 @@
-//! The copy of a project's workflow runs on each host its repository is on,
-//! and the live progress of the running ones: their jobs are read again
-//! only while a run is in progress and someone has the project page open,
-//! at most every 10 seconds, and not while that host's rate limit for the
-//! token runs low.
+//! The copy of a project's workflow runs on each host, and live job progress: read at most every
+//! 10 seconds while a run is going and the page is open, and not while the rate limit is low.
 
 use super::{
     actions::{ListedRun, MirrorHead, PrHeadRef, mirror_checks, pr_checks, progress},
@@ -40,8 +37,7 @@ const MAX_LOGS: usize = 8;
 /// What a project with no host says.
 const NO_HOST: &str = "This project has no GitHub or Forgejo host to read runs from.";
 
-/// One host's last runs read, the jobs read of each, and why the last read
-/// failed.
+/// One host's last runs, each run's jobs, and why the last read failed.
 #[derive(Default)]
 struct HostCopy {
     runs: Vec<ListedRun>,
@@ -49,8 +45,7 @@ struct HostCopy {
     jobs: HashMap<u64, Option<Vec<RunJob>>>,
     error: Option<String>,
     synced_at: Option<SystemTime>,
-    /// Whose rate limit the last reads used, to check it without the
-    /// target.
+    /// Whose rate limit the last reads used, to check it without the target.
     who: Option<Who>,
 }
 
@@ -110,8 +105,7 @@ impl RunsCopy {
         self.hosts.iter().any(|slot| slot.copy.synced_at.is_some())
     }
 
-    /// Takes the hosts found, keeping what was read of the ones still
-    /// there.
+    /// Takes the hosts found, keeping what was read of the ones still there.
     fn set_places(&mut self, places: Vec<RepoOnHost>) {
         let mut old = std::mem::take(&mut self.hosts);
         self.hosts = places
@@ -145,8 +139,7 @@ impl RunsCopy {
             .any(|slot| slot.copy.going() && slot.copy.limited(calls).is_none())
     }
 
-    /// What `ListProjectRuns` gives: the primary host's runs alone, as
-    /// before the other hosts were read.
+    /// What `ListProjectRuns` gives: the primary host's runs alone.
     fn primary_view(&self, calls: &HostCalls, heads: &[OpenHead]) -> ProjectRuns {
         let Some(slot) = self.primary() else {
             return ProjectRuns {
@@ -167,8 +160,7 @@ impl RunsCopy {
         }
     }
 
-    /// What `ListProjectRunsAll` gives: every host's runs, newest first,
-    /// and each pull request's checks on each host.
+    /// What `ListProjectRunsAll` gives: every host's runs newest first, and PR checks per host.
     fn hosted_view(&self, calls: &HostCalls, heads: &[OpenHead]) -> HostedRuns {
         let mut runs = Vec::new();
         let mut checks = Vec::new();
@@ -257,8 +249,7 @@ fn head_refs(heads: &[OpenHead]) -> Vec<PrHeadRef<'_>> {
         .collect()
 }
 
-/// Sorts runs from several hosts newest first by when they started; one
-/// not started yet is newest. Runs that tie keep their order.
+/// Sorts runs newest first by start, unstarted first; ties keep their order.
 fn newest_first(runs: &mut [HostedRun]) {
     runs.sort_by(|a, b| {
         let key = |r: &HostedRun| (r.run.started_at.is_none(), r.run.started_at);
@@ -304,8 +295,7 @@ impl RepoWatch {
         copy.hosted_view(&self.calls, &entry.heads())
     }
 
-    /// The copy, its lists read again as `lists` reads its lists, and the
-    /// running runs' jobs while the page asks.
+    /// The copy with its lists reread like `lists` does, and running jobs while the page asks.
     async fn read_runs<'a>(
         &self,
         app: &Arc<App>,
@@ -367,8 +357,7 @@ impl RepoWatch {
         entry.runs.timing().synced(Instant::now(), ok);
     }
 
-    /// The project's hosts into `copy`, with a target for each, or why
-    /// none can be read.
+    /// The project's hosts into `copy` with a target each, or why none can be read.
     async fn find_hosts(
         &self,
         app: &Arc<App>,
@@ -399,9 +388,7 @@ impl RepoWatch {
         Ok(Found { client, targets })
     }
 
-    /// Reads every host of `copy` as `plan` says, at once; `targets` are
-    /// theirs, in order. A host whose rate limit runs low is read only on
-    /// Refresh. Whether every host read.
+    /// Reads every host of `copy` concurrently per `plan`; low-limit hosts only on Refresh. Whether all read.
     async fn read_hosts(
         &self,
         calls: &Arc<Semaphore>,
@@ -427,9 +414,7 @@ impl RepoWatch {
                 let poll = plan.poll && !limited && slot.copy.going();
                 if plan.forced || (plan.stale && !limited) || poll {
                     let caller = target.caller(calls, client);
-                    // The list again too while polling: unchanged, it is a
-                    // 304 GitHub does not count, and it says when a run
-                    // ends.
+                    // Reread the list too: an unchanged one is a free 304, and it shows when a run ends.
                     self.read_list(&caller, &target, &mut slot.copy).await;
                     if poll || slot.copy.going() {
                         self.read_running(&caller, &target, &mut slot.copy).await;
@@ -484,8 +469,7 @@ impl RepoWatch {
         }
     }
 
-    /// One run on `host` (the primary host for `None`) with its jobs and,
-    /// when it failed, its failing job's log.
+    /// One run on `host` (`None` is primary) with its jobs and, if failed, the failing job's log.
     pub(crate) async fn run_detail(
         &self,
         app: &Arc<App>,
@@ -663,8 +647,7 @@ struct DetailRead<'a> {
     polled: bool,
 }
 
-/// The background sync's read of the run lists, unless an ask read them
-/// meanwhile; whether it read.
+/// The background sync's read of the run lists unless an ask read them meanwhile; whether it read.
 pub(super) async fn sync_in_background(
     app: &Arc<App>,
     user: &Arc<User>,

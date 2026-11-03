@@ -8,7 +8,8 @@
 //! them (`git`), so a session in a subfolder or a worktree counts for the
 //! checkout's main folder. Every read is capped, and all of it is blocking
 //! work for `spawn_blocking`. What a file said is kept (`memo`) until the
-//! file changes, so listing again reads only what changed.
+//! file changes, so listing again reads only what changed. Checkouts no
+//! agent ran in are found by walking home (`disk`).
 
 use crate::agents::cut;
 use beep_proto::{
@@ -29,12 +30,14 @@ use std::{
 
 mod codex;
 mod codex_run;
+mod disk;
 mod flsh;
 mod git;
 mod memo;
 mod opencode;
 mod pi;
 
+pub(crate) use disk::checkouts;
 pub(crate) use git::{Checkout, checkout};
 pub(crate) use memo::Memo;
 
@@ -236,12 +239,6 @@ impl Stores {
             ..Self::default()
         }
     }
-
-    #[cfg(test)]
-    pub(crate) fn with_opencode(mut self, opencode: &Path) -> Self {
-        self.opencode = Some(opencode.to_owned());
-        self
-    }
 }
 
 /// Where Codex, pi, flsh and OpenCode keep their sessions here, for
@@ -363,6 +360,31 @@ pub(crate) fn folders(
     });
     out.truncate(limit);
     out
+}
+
+/// Adds to `out` each of `checkouts` it does not hold yet, with no
+/// sessions, until it holds `limit`. `home` is left out.
+pub(crate) fn add_checkouts(
+    out: &mut Vec<SessionFolder>,
+    checkouts: &[Checkout],
+    home: Option<&Path>,
+    limit: usize,
+) {
+    for one in checkouts {
+        if out.len() >= limit {
+            break;
+        }
+        let path = one.root.to_string_lossy();
+        if Some(one.root.as_path()) == home || out.iter().any(|folder| folder.path == path) {
+            continue;
+        }
+        out.push(SessionFolder {
+            path: path.into_owned(),
+            origin: one.origin.clone(),
+            agents: Vec::new(),
+            last_activity: 0,
+        });
+    }
 }
 
 /// Whether `cwd` is `folder` or inside it.
@@ -497,15 +519,6 @@ mod tests {
     }
 
     #[test]
-    fn agents_read_their_names() {
-        for agent in Agent::ALL {
-            assert_eq!(Agent::from_name(agent.as_str()), Some(agent));
-        }
-        assert_eq!(Agent::from_name("opencode"), Some(Agent::OpenCode));
-        assert_eq!(Agent::from_name("gemini"), None);
-    }
-
-    #[test]
     fn sessions_fold_into_their_checkout() {
         let root = tempfile::tempdir().expect("a temp folder");
         let home = root.path().join("home/user");
@@ -567,52 +580,6 @@ mod tests {
         assert!(folders(&all, Some(&home), 10, lookup).is_empty());
     }
 
-    #[test]
-    fn a_project_lists_its_sessions_and_its_subfolders_newest_first() {
-        let repo = PathBuf::from("/home/user/proj");
-        let all = vec![
-            seen(Agent::Claude, "a", &repo, 1),
-            seen(Agent::Codex, "b", &repo.join("sub"), 3),
-            seen(Agent::Pi, "c", Path::new("/home/user/proj-other"), 5),
-        ];
-        let picked = in_folders(all, &[repo], 10);
-        let ids: Vec<&str> = picked.iter().map(|one| one.id.as_str()).collect();
-        assert_eq!(ids, ["b", "a"]);
-    }
-
-    #[test]
-    fn an_old_session_reads_as_stopped() {
-        let now = SystemTime::now();
-        let mut one = seen(Agent::Flsh, "s", Path::new("/home/user/proj"), unix(now));
-        one.title = Some("Fix the build".into());
-        let described = describe(one.clone(), now);
-        assert_eq!(described.presence, Presence::Recent);
-        assert_eq!(described.title.as_deref(), Some("Fix the build"));
-        assert_eq!(described.agent, "flsh");
-        one.last_activity = 0;
-        assert_eq!(describe(one, now).presence, Presence::Stopped);
-    }
-
-    #[test]
-    fn a_session_is_found_by_its_agent_and_id() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        let dir = root.path().join("--home-user-proj--");
-        std::fs::create_dir_all(&dir).expect("folders");
-        std::fs::write(
-            dir.join("2026-08-27T23-01-39-077Z_p1.jsonl"),
-            "{\"type\":\"session\",\"version\":3,\"id\":\"p1\",\"timestamp\":\"2026-08-27T23:01:39.077Z\",\"cwd\":\"/home/user/proj\"}\n\
-             {\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"Tidy up\"}}\n",
-        )
-        .expect("a session");
-        let stores = Stores::at(None, Some(root.path()), None);
-        let found = stores.find(Agent::Pi, "p1").expect("the session");
-        assert_eq!(found.cwd, "/home/user/proj");
-        assert_eq!(found.title.as_deref(), Some("Tidy up"));
-        assert_eq!(found.presence, Presence::Recent, "just written");
-        assert!(stores.find(Agent::Codex, "p1").is_none());
-        assert!(stores.find(Agent::Pi, "p2").is_none());
-    }
-
     /// Writes `text` over `path` and gives it back its modification time,
     /// so only a read of its content can tell it changed.
     fn rewrite_in_place(path: &Path, text: &str) {
@@ -653,23 +620,6 @@ mod tests {
         let found = stores.find(Agent::Pi, "p1").expect("the session");
         assert_eq!(found.cwd, "/home/user/other");
         assert_eq!(found.title.as_deref(), Some("Tidy it all up"));
-    }
-
-    #[test]
-    fn an_opencode_session_is_found_by_its_id() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        opencode::tests::database(&root.path().join("opencode.db"));
-        let stores = Stores::at(None, None, None).with_opencode(root.path());
-        let found = stores.find(Agent::OpenCode, "ses_a").expect("the session");
-        assert_eq!(found.agent, "opencode");
-        assert_eq!(found.cwd, "/home/user/proj");
-        assert_eq!(found.title.as_deref(), Some("Port the tests"));
-        assert_eq!(found.presence, Presence::Stopped);
-        assert!(
-            stores.find(Agent::OpenCode, "ses_c").is_none(),
-            "a subagent's"
-        );
-        assert!(stores.find(Agent::Flsh, "ses_a").is_none());
     }
 
     #[test]

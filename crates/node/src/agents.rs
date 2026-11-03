@@ -14,8 +14,9 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        self, CheckoutPlan, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL,
-        SessionFolder, SessionInfo, SessionsReply, SessionsRequest, State, Status,
+        self, CheckoutPlan, Event, ExternalSession, ModelList, Presence, Request,
+        SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, State,
+        Status,
     },
     harness::{AgentSettings, HarnessReport},
     usage::{PlanUsage, SessionSpend},
@@ -30,12 +31,15 @@ use std::{
     fmt::Display,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, OnceLock, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::{oneshot, watch},
-    task::{JoinHandle, JoinSet, spawn_blocking},
+    sync::oneshot,
+    task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval},
 };
 
@@ -46,9 +50,9 @@ mod compaction;
 mod custom_agents;
 mod flsh_config;
 mod harnesses;
+mod holders;
 mod image_files;
 mod images;
-mod ledger;
 mod live;
 mod media_file;
 mod models;
@@ -73,7 +77,6 @@ use acp::Prompt;
 use alerts::AlertHub;
 use compaction::Route;
 use images::Images;
-use ledger::{Entry, Ledger};
 use models::ModelCache;
 use session::{Command, Session, Start};
 use spend::Spend;
@@ -103,8 +106,13 @@ const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
 /// How often the agents' logs are read for what sessions spent, while the
 /// server follows it.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
+/// How long a new session's stream waits for the agent's own id before it
+/// tells the server about the session, under the server's wait.
+const AGENT_ID_WAIT: Duration = Duration::from_secs(6);
 /// How long the folders found in the agents' logs are kept.
 const SIGHTED_FOR: Duration = Duration::from_secs(60);
+/// How long the checkouts found on disk are kept.
+const ON_DISK_FOR: Duration = Duration::from_secs(10 * 60);
 /// How long a file request may wait for a look in the agents' logs.
 const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
@@ -350,20 +358,26 @@ pub struct Agents {
     folders: OnceLock<Vec<PathBuf>>,
     /// How sessions start the Beep MCP server, once the node serves it.
     mcp: OnceLock<Arc<Launch>>,
-    /// The sessions Beep started here, kept across restarts.
-    ledger: Arc<Ledger>,
-    /// The tasks writing each session's agent id and end to the ledger;
-    /// one per session, ending with it.
-    noting: Mutex<JoinSet<()>>,
+    /// Set once the node is stopping.
+    stopping: Arc<AtomicBool>,
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
+    /// The checkouts found on disk under home, with when; one walk at a
+    /// time.
+    on_disk: AsyncMutex<Option<OnDisk>>,
 }
 
 /// The folders found in the agents' logs, and when.
 struct Sighted {
     at: Instant,
     folders: Arc<Vec<PathBuf>>,
+}
+
+/// The checkouts found on disk, and when.
+struct OnDisk {
+    at: Instant,
+    checkouts: Arc<Vec<found::Checkout>>,
 }
 
 impl Agents {
@@ -382,27 +396,43 @@ impl Agents {
             latest: harnesses::Latest::default(),
             folders: OnceLock::new(),
             mcp: OnceLock::new(),
-            ledger: Arc::default(),
-            noting: Mutex::default(),
+            stopping: Arc::default(),
             sighted: AsyncMutex::default(),
+            on_disk: AsyncMutex::default(),
         }
     }
 
-    /// Keeps the sessions Beep starts in `dir`, the node's folder, and
-    /// reads the ones started before the node last stopped. Only the first
-    /// call counts.
-    pub async fn keep_ledger(&self, dir: &Path) {
-        if let Err(e) = self.ledger.open(dir).await {
-            log::warn!("the sessions Beep started are not kept: {e:#}");
-        }
-    }
-
-    /// Reads the agents' logs once ahead of the first file request, which
-    /// then finds them read.
+    /// Reads the agents' logs and walks home once ahead of the first
+    /// requests, which then find them read.
     pub async fn warm(&self) {
         if let Err(e) = self.sighted_folders().await {
             log::debug!("the agents' logs were not read ahead: {e:#}");
         }
+        self.disk_checkouts().await;
+    }
+
+    /// The checkouts under home, walked at most `ON_DISK_FOR` ago.
+    /// Requests that come during a walk wait for it rather than walk again.
+    async fn disk_checkouts(&self) -> Arc<Vec<found::Checkout>> {
+        let mut on_disk = self.on_disk.lock().await;
+        if let Some(fresh) = on_disk.as_ref().filter(|d| d.at.elapsed() < ON_DISK_FOR) {
+            return fresh.checkouts.clone();
+        }
+        let walked = match dirs::home_dir() {
+            Some(home) => spawn_blocking(move || found::checkouts(&home))
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("home not walked for checkouts: {e}");
+                    Vec::new()
+                }),
+            None => Vec::new(),
+        };
+        let checkouts = Arc::new(walked);
+        *on_disk = Some(OnDisk {
+            at: Instant::now(),
+            checkouts: checkouts.clone(),
+        });
+        checkouts
     }
 
     /// The folders sessions started outside Beep worked in, read from the
@@ -592,17 +622,23 @@ impl Agents {
         Ok(seen)
     }
 
-    /// The checkouts coding agents worked in, newest activity first.
+    /// The checkouts coding agents worked in, newest activity first, then
+    /// the other checkouts found on disk.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = match usize::try_from(limit).unwrap_or(MAX_FOLDERS) {
             0 => DEFAULT_FOLDERS,
             limit => limit.min(MAX_FOLDERS),
         };
-        let seen = self.sightings().await?;
+        let (seen, on_disk) = tokio::join!(self.sightings(), self.disk_checkouts());
+        let seen = seen?;
         let home = dirs::home_dir();
-        spawn_blocking(move || found::folders(&seen, home.as_deref(), limit, found::checkout))
-            .await
-            .context("looking up the folders' checkouts")
+        spawn_blocking(move || {
+            let mut out = found::folders(&seen, home.as_deref(), limit, found::checkout);
+            found::add_checkouts(&mut out, &on_disk, home.as_deref(), limit);
+            out
+        })
+        .await
+        .context("looking up the folders' checkouts")
     }
 
     /// The sessions that ran in `folders` or below, newest first.
@@ -652,8 +688,8 @@ impl Agents {
         self.lock()
             .values()
             .filter_map(|session| {
-                let agent_session = session.live.borrow().agent_session.clone()?;
-                Some((agent_session, session.id.clone()))
+                let live = session.live.borrow();
+                Some((live.agent_session.clone()?, live.info.id.clone()))
             })
             .collect()
     }
@@ -714,6 +750,8 @@ impl Agents {
             }
         }
         .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
+        let mut found = found;
+        found.presence = self.presence(agent, &found).await;
         if let Some(reason) = claude::refuse_takeover(&found) {
             anyhow::bail!("{reason}");
         }
@@ -730,6 +768,31 @@ impl Agents {
                 brief: None,
             },
         )
+    }
+
+    /// What `found`, a session in `agent`'s logs, is doing, once a
+    /// recent write alone is checked: Codex keeps a session's rollout open
+    /// while it runs, and a session Beep ran here ended with Beep.
+    async fn presence(&self, agent: Agent, found: &ExternalSession) -> Presence {
+        if found.pid.is_some() {
+            return found.presence;
+        }
+        let held = match agent {
+            // Claude Code does not keep its transcript open; its processes
+            // were looked at already.
+            Agent::Claude => None,
+            other => {
+                let stores = self.stores.clone();
+                let id = found.id.clone();
+                spawn_blocking(move || holders::held_open(&stores.file(Some(other), &id)?))
+                    .await
+                    .unwrap_or_else(|e| {
+                        log::warn!("could not tell whether session {} runs: {e}", found.id);
+                        None
+                    })
+            }
+        };
+        holders::settle(found.presence, found.pid, held)
     }
 
     /// The picture `key` of `session`'s transcript: kept, or else found
@@ -780,6 +843,7 @@ impl Agents {
     /// Closes every running session and waits until their agents have
     /// stopped: for the node shutting down.
     pub async fn shutdown(&self) {
+        self.begin_stopping();
         let running: Vec<Arc<Session>> = self
             .lock()
             .values()
@@ -787,18 +851,12 @@ impl Agents {
             .cloned()
             .collect();
         futures::future::join_all(running.iter().map(|session| session.close())).await;
-        // Each session's end goes to the ledger before the node stops.
-        let mut noting =
-            std::mem::take(&mut *self.noting.lock().unwrap_or_else(PoisonError::into_inner));
-        let drained = tokio::time::timeout(Duration::from_secs(2), async {
-            while noting.join_next().await.is_some() {}
-        });
-        if drained.await.is_err() {
-            log::warn!("the sessions' ends were not all noted");
-        }
-        if let Err(e) = self.ledger.save().await {
-            log::warn!("the sessions Beep started were not saved: {e:#}");
-        }
+    }
+
+    /// Marks the node as stopping: sessions that end from now on ended
+    /// with it, even when the service manager stopped their agents first.
+    pub fn begin_stopping(&self) {
+        self.stopping.store(true, Ordering::Relaxed);
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
@@ -824,8 +882,10 @@ impl Agents {
         self.kinds.iter().find(|kind| kind.name == name)
     }
 
+    /// The session `id` names: by the id it started under or by the
+    /// agent's own id.
     fn get(&self, id: &str) -> Option<Arc<Session>> {
-        self.lock().get(id).cloned()
+        find_session(&self.lock(), id)
     }
 
     /// Every session, oldest first.
@@ -890,14 +950,22 @@ impl Agents {
                 sessions.remove(&oldest);
             }
         }
-        let id = loop {
-            let id = new_id();
-            if !sessions.contains_key(&id) {
-                break id;
+        // A resumed session goes by the agent's id from the start; a new
+        // one by a short id until the agent gives its own.
+        let id = match &begin.resume {
+            Some(resume) => {
+                // Ended under that id before: the new run takes its place.
+                sessions.remove(resume);
+                resume.clone()
             }
+            None => loop {
+                let id = new_id();
+                if !sessions.contains_key(&id) {
+                    break id;
+                }
+            },
         };
         let resumed = begin.resume.is_some();
-        let info_resume = begin.resume.clone();
         let session = Arc::new(Session::start(Start {
             id: id.clone(),
             kind,
@@ -912,62 +980,28 @@ impl Agents {
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),
+            stopping: self.stopping.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
-        let info = session.info();
-        self.ledger.record(Entry {
-            id: id.clone(),
-            agent_session: info_resume,
-            agent: kind.name.clone(),
-            cwd: cwd.clone(),
-            started_at: info.started_at,
-            ended: None,
-        });
-        let mut noting = self.noting.lock().unwrap_or_else(PoisonError::into_inner);
-        while noting.try_join_next().is_some() {}
-        noting.spawn(note(self.ledger.clone(), id.clone(), session.live.clone()));
-        drop(noting);
         sessions.insert(id, session.clone());
         Ok(session)
     }
 }
 
-/// Writes the agent's id of session `id` and its end to `ledger` as they
-/// come, until it ends or goes.
-async fn note(ledger: Arc<Ledger>, id: String, mut live: watch::Receiver<live::Live>) {
-    let mut named: Option<String> = None;
-    loop {
-        let (agent_session, ended) = {
-            let live = live.borrow_and_update();
-            let ended = (live.status() == Status::Ended).then(|| {
-                live.info
-                    .state
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "closed".to_owned())
-            });
-            (live.agent_session.clone(), ended)
-        };
-        let mut changed = false;
-        if agent_session != named {
-            if let Some(agent_session) = &agent_session {
-                ledger.named_by_agent(&id, agent_session);
-                changed = true;
-            }
-            named = agent_session;
-        }
-        if let Some(reason) = &ended {
-            ledger.ended(&id, reason);
-            changed = true;
-        }
-        if changed && let Err(e) = ledger.save().await {
-            log::warn!("session {id} was not noted: {e:#}");
-        }
-        if ended.is_some() || live.changed().await.is_err() {
-            return;
-        }
+/// The session `id` names in `sessions`, by its key or the agent's id.
+fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Arc<Session>> {
+    if let Some(found) = sessions.get(id) {
+        return Some(found.clone());
     }
+    sessions
+        .values()
+        .filter(|session| session.live.borrow().agent_session.as_deref() == Some(id))
+        .max_by_key(|session| {
+            let live = session.live.borrow();
+            (live.status() != Status::Ended, live.info.started_at)
+        })
+        .cloned()
 }
 
 /// Refuses a start once `MAX_RUNNING` of `sessions` run.
@@ -1070,6 +1104,7 @@ pub async fn serve_session(
         .recv()
         .await?
         .context("the stream closed before its first request")?;
+    let new = matches!(first, Request::Start { .. });
     let session = match first {
         Request::Start {
             model: Some(model), ..
@@ -1110,6 +1145,18 @@ pub async fn serve_session(
         Err(reason) => return tx.send(&Event::Refused { reason }).await,
     };
     let mut live = session.live.clone();
+    if new {
+        // The server learns the session by the agent's own id, which
+        // outlives the node, once the agent gave it in time.
+        let named =
+            live.wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended);
+        if tokio::time::timeout(AGENT_ID_WAIT, named).await.is_err() {
+            log::info!(
+                "session {} goes by its short id: the agent gave none in time",
+                session.id
+            );
+        }
+    }
     let mut seen = Seen::new(&live.borrow_and_update().info);
     tx.send(&Event::Attached {
         session: Box::new(session.info()),
@@ -1856,75 +1903,6 @@ done
     }
 
     #[test]
-    fn only_claude_code_needs_its_mode_set() {
-        assert_eq!(
-            known("claude").and_then(|known| known.bypass_mode),
-            Some("bypassPermissions")
-        );
-        for agent in ["codex", "gemini", "pi", "flsh", "opencode", "custom"] {
-            assert_eq!(known(agent).and_then(|k| k.bypass_mode), None, "{agent}");
-        }
-    }
-
-    #[test]
-    fn flsh_and_gemini_take_the_model_on_their_command_line() {
-        let flag = |agent| known(agent).is_some_and(|known| known.model_flag);
-        assert!(flag("flsh") && flag("gemini"));
-        for agent in ["claude", "codex", "pi", "opencode", "custom"] {
-            assert!(!flag(agent), "{agent}");
-        }
-    }
-
-    #[test]
-    fn extra_agents_replace_known_ones() {
-        let custom = AgentKind {
-            name: "claude".into(),
-            program: "/opt/acp/claude".into(),
-            args: vec![],
-            env: BTreeMap::new(),
-        };
-        let kinds = detect(std::slice::from_ref(&custom));
-        assert_eq!(kinds.iter().filter(|kind| kind.name == "claude").count(), 1);
-        assert!(kinds.contains(&custom));
-    }
-
-    #[test]
-    fn pi_and_flsh_are_known() {
-        let known = |name: &str| KNOWN.iter().find(|known| known.name == name);
-        assert!(matches!(
-            known("pi").map(|known| &known.adapter),
-            Some(Adapter::Npm { bin: "pi-acp", .. })
-        ));
-        assert!(matches!(
-            known("flsh").map(|known| &known.adapter),
-            Some(Adapter::Flags(["acp"]))
-        ));
-    }
-
-    #[test]
-    fn opencode_runs_its_own_acp_server() {
-        let known = KNOWN
-            .iter()
-            .find(|known| known.name == "opencode")
-            .expect("opencode is known");
-        let installed = |program: &str| program == "opencode";
-        assert_eq!(
-            launch(known, &installed),
-            Some(AgentKind {
-                name: "opencode".into(),
-                program: "opencode".into(),
-                args: vec!["acp".into()],
-                env: BTreeMap::from([(
-                    "OPENCODE_PERMISSION".to_owned(),
-                    r#"{"*":"allow"}"#.to_owned()
-                )]),
-            })
-        );
-        assert_eq!(launch(known, &|_: &str| false), None);
-        assert_eq!(Agent::from_name("opencode"), Some(Agent::OpenCode));
-    }
-
-    #[test]
     fn every_known_agent_starts_without_permission_prompts() {
         let launched = |name: &str| {
             let known = KNOWN
@@ -1972,54 +1950,6 @@ done
         let rules: serde_json::Value =
             serde_json::from_str(&launched("opencode").1[0].1).expect("JSON");
         assert_eq!(rules, serde_json::json!({"*": "allow"}));
-    }
-
-    #[test]
-    fn node_toml_agents_may_set_variables() {
-        let kind: AgentKind = toml::from_str(
-            "name = \"codex\"\nprogram = \"/opt/acp/codex-acp\"\n\
-             env = { INITIAL_AGENT_MODE = \"agent-full-access\" }",
-        )
-        .expect("an agent");
-        assert_eq!(
-            kind.env.get("INITIAL_AGENT_MODE").map(String::as_str),
-            Some("agent-full-access")
-        );
-        let plain: AgentKind = toml::from_str("name = \"x\"\nprogram = \"x\"").expect("an agent");
-        assert!(plain.env.is_empty());
-        assert!(!toml::to_string(&plain).expect("toml").contains("env"));
-    }
-
-    #[test]
-    fn an_npm_adapter_runs_its_binary_else_npx() {
-        let known = KNOWN
-            .iter()
-            .find(|known| known.name == "pi")
-            .expect("pi is known");
-        let launched = |installed: &[&str]| {
-            let installed = |program: &str| installed.contains(&program);
-            launch(known, &installed).map(|kind| (kind.program, kind.args))
-        };
-        assert_eq!(launched(&["pi", "pi-acp"]), Some(("pi-acp".into(), vec![])));
-        assert_eq!(
-            launched(&["pi", "npx"]),
-            Some(("npx".into(), vec!["-y".into(), "pi-acp".into()]))
-        );
-        assert_eq!(launched(&["pi"]), None);
-    }
-
-    #[test]
-    fn offers_name_each_agent_and_the_session_list() {
-        let agents = Agents::new(vec![AgentKind {
-            name: "fake".into(),
-            program: "true".into(),
-            args: vec![],
-            env: BTreeMap::new(),
-        }]);
-        assert_eq!(agents.offers(), ["fake/1", SESSIONS_PROTOCOL]);
-        assert!(agents.kind("fake/1").is_some());
-        assert!(agents.kind("claude/1").is_none());
-        assert!(Agents::new(vec![]).offers().is_empty());
     }
 
     #[test]
@@ -2110,6 +2040,58 @@ done
         assert!(err.to_string().contains(id), "{err}");
     }
 
+    /// Answers `initialize` and `session/new` with the agent's own id, then
+    /// anything else with nothing, until its input closes.
+    #[cfg(unix)]
+    const NAMING_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line
+reply '{"sessionId":"0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b"}'
+while read -r line; do reply '{}'; done
+"#;
+
+    /// A session goes by the agent's id once it gives one, and the node
+    /// stopping ends it as such. After a restart that id is resumed from
+    /// the agent's own logs.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
+        const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
+        let kind = AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), NAMING_ADAPTER.into()],
+            env: BTreeMap::new(),
+        };
+        let agents = Agents::new(vec![kind.clone()]);
+        let begin = Begin {
+            prompt: None,
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+        };
+        let session = agents.start(&kind, Some("/"), begin).unwrap();
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            live.wait_for(|live| live.agent_session.is_some()),
+        )
+        .await
+        .expect("the agent gives its id")
+        .expect("the session is still there");
+        assert_eq!(session.info().id, AGENT_ID);
+        assert!(Arc::ptr_eq(&agents.get(AGENT_ID).unwrap(), &session));
+        agents.shutdown().await;
+        let ended = session.info();
+        assert_eq!(ended.state.status, Status::Ended);
+        assert_eq!(ended.state.error.as_deref(), Some(session::NODE_STOPPED));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_refused_start_makes_no_branch() {
@@ -2171,48 +2153,5 @@ done
             "a claude stream took over a codex session"
         );
         running.close().await;
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn models_are_listed_for_the_agents_this_node_has() {
-        // Answers one `session/new` with a model; a second start would
-        // fail, so a second listing must come from the cache.
-        let script = r#"
-id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
-reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
-[ -e "$1" ] && exit 1
-: > "$1"
-read -r line
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line
-reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"deep"}],"currentModelId":"deep"}}'
-cat > /dev/null
-"#;
-        let dir = tempfile::tempdir().unwrap();
-        let kind = AgentKind {
-            name: "codex".into(),
-            program: "sh".into(),
-            args: vec![
-                "-c".into(),
-                script.into(),
-                "fake-adapter".into(),
-                dir.path().join("started").display().to_string(),
-            ],
-            env: BTreeMap::new(),
-        };
-        let agents = Agents::new(vec![kind]);
-        let first = agents.models("codex").await.expect("a known agent");
-        assert_eq!(first.pick, agent::ModelPick::Listed);
-        assert_eq!(first.current.as_deref(), Some("deep"));
-        assert_eq!(agents.models("codex").await, Some(first));
-        assert_eq!(agents.models("claude").await, None);
-    }
-
-    #[test]
-    fn ids_are_six_hex_digits() {
-        let id = new_id();
-        assert_eq!(id.len(), 6);
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

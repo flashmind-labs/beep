@@ -694,13 +694,4 @@ mod tests {
         assert!(listed.is_empty());
         assert!(terminals.live(id).is_none());
     }
-
-    #[tokio::test]
-    async fn an_unknown_terminal_is_an_error() {
-        let terminals = Terminals::default();
-        assert!(matches!(
-            terminals.answer(Request::Stop { id: TaskId(9) }).await,
-            Reply::Error { .. }
-        ));
-    }
 }

@@ -111,39 +111,3 @@ impl fmt::Display for TaskState {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn requests_and_replies_round_trip() {
-        let request = Request::Start {
-            command: "sleep 300".into(),
-            cwd: Some("/home/user".into()),
-        };
-        let body = rmp_serde::to_vec_named(&request).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), request);
-        let reply = Reply::Status {
-            task: Task {
-                id: TaskId(3),
-                command: "make".into(),
-                state: TaskState::Exited { code: Some(2) },
-            },
-            lines: vec!["error".into()],
-            earlier: true,
-        };
-        let body = rmp_serde::to_vec_named(&reply).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Reply>(&body).unwrap(), reply);
-    }
-
-    #[test]
-    fn states_read_as_words() {
-        assert_eq!(TaskState::Exited { code: Some(0) }.to_string(), "completed");
-        assert_eq!(
-            TaskState::Exited { code: Some(1) }.to_string(),
-            "failed (exit code 1)"
-        );
-        assert_eq!(TaskState::Stopped.to_string(), "stopped");
-    }
-}

@@ -1,9 +1,4 @@
-//! Shrinks the model's context of long sessions, so later turns send less
-//! history. Right after a turn whose prompt reached `compact_at`, and again
-//! for any session left over it once it goes quiet, old tool output is
-//! dropped first; if that is not enough, the older turns are summarized.
-//! Only the model's context is compacted; the transcript the phone shows
-//! keeps every message.
+//! Shrinks the model's context of long sessions: old tool output first, then summaries. The transcript keeps everything.
 
 use crate::{
     app::App,
@@ -19,11 +14,9 @@ use flashmind::{
 };
 use std::{sync::Arc, time::Duration};
 
-/// The sweep compacts a session over `compact_at` that nobody has used for
-/// this long, in case compacting right after its turn lost to a newer run.
+/// How long a session over `compact_at` must be idle before the sweep compacts it.
 pub const IDLE_BEFORE_COMPACT: Duration = Duration::from_secs(15 * 60);
-/// Prompt size that triggers compaction. Past it models lose the thread and
-/// every turn costs more, whatever their window.
+/// Prompt size that triggers compaction.
 const LIMIT: u32 = 250_000;
 /// Assumed window when the provider does not report one, as flashmind does.
 const DEFAULT_WINDOW: u32 = 128_000;
@@ -46,8 +39,7 @@ pub fn start(app: Arc<App>) {
     });
 }
 
-/// Writes the summaries. Each session is summarized on the model its chat
-/// last ran on, so `default` only covers sessions without a usable turn.
+/// Writes the summaries on each chat's last model; `default` covers sessions without one.
 pub struct Summarizer<'a> {
     pub provider: &'a dyn LlmProvider,
     pub models: &'a ModelChoices,
@@ -80,14 +72,12 @@ impl Summarizer<'_> {
     }
 }
 
-/// Token limit for a model's context window: 250k, or 80% of a smaller
-/// window so the summary runs before the window fills mid-turn.
+/// Token limit for a context window: 250k, or 80% of a smaller window.
 pub fn compact_at(window: Option<u32>) -> u32 {
     LIMIT.min(window.unwrap_or(DEFAULT_WINDOW) / 5 * 4)
 }
 
-/// Compacts every session that is both idle and over the `compact_at` of the
-/// model it runs on.
+/// Compacts every idle session over its model's `compact_at`.
 pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>) {
     let lowest = summarizer.lowest_limit().await;
     let sessions = match store.sessions_to_compact(lowest, IDLE_BEFORE_COMPACT).await {
@@ -162,9 +152,7 @@ async fn compact(
     Ok(saved && summary.is_some())
 }
 
-/// Replaces long tool output older than the last `keep_recent_tokens` with a
-/// stub saying how much was there. The calls and the replies that used them
-/// stay. Returns the characters dropped.
+/// Stubs long tool output older than the last `keep_recent_tokens`; returns the characters dropped.
 fn trim_tool_output(conversation: &mut Conversation, keep_recent_tokens: u32) -> usize {
     let keep_chars = keep_recent_tokens as usize * CHARS_PER_TOKEN;
     let mut seen = 0;

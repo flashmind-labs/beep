@@ -12,8 +12,7 @@ use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Messages a member who joins gets in their log, the ones a group chat
-/// shows at once.
+/// How many recent messages a new member gets in their log.
 pub(crate) const JOIN_BACKLOG: i64 = 200;
 
 /// A group's own columns.
@@ -117,12 +116,10 @@ fn message(row: &PgRow) -> Result<MessageRow> {
     })
 }
 
-/// Letters and digits that read the same aloud and in any font: no 0/O,
-/// 1/I/L or U/V.
+/// Characters unambiguous aloud and in any font: no 0/O, 1/I/L or U/V.
 const CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTWXYZ";
 
-/// A new invite code, ten characters from [`CODE_ALPHABET`] so it can be
-/// typed: about 48 bits from a v4 UUID's random ones.
+/// A new ten-character invite code from [`CODE_ALPHABET`], about 48 random bits.
 pub(super) fn new_token() -> String {
     let base = CODE_ALPHABET.len() as u128;
     let mut random = Uuid::new_v4().as_u128();
@@ -148,8 +145,7 @@ async fn member_of(tx: &mut PgConnection, user: &str, id: Uuid) -> Result<bool> 
 }
 
 impl Store {
-    /// Makes the group `id` with `user` as its creator. `false` when the id
-    /// is taken.
+    /// Makes group `id` with `user` as creator; false when the id is taken.
     pub(crate) async fn create_group(
         &self,
         user: &UserKey,
@@ -281,14 +277,12 @@ impl Store {
         rows.iter().map(member).collect()
     }
 
-    /// The last `limit` messages of group `id`, oldest first. Callers check
-    /// membership first.
+    /// The last `limit` messages of group `id`, oldest first; callers check membership.
     pub(crate) async fn group_messages(&self, id: Uuid, limit: i64) -> Result<Vec<MessageRow>> {
         self.group_messages_until(id, i64::MAX, limit).await
     }
 
-    /// The last `limit` messages of group `id` up to and including message
-    /// `until`, oldest first.
+    /// The last `limit` messages of group `id` up to message `until`, oldest first.
     pub(crate) async fn group_messages_until(
         &self,
         id: Uuid,
@@ -307,9 +301,7 @@ impl Store {
         rows.iter().map(message).collect()
     }
 
-    /// Posts `user`'s message under their member name. Posting the same
-    /// request again returns the first message. `None` when `user` is not
-    /// in the group.
+    /// Posts `user`'s message under their member name, idempotent per request; `None` when not a member.
     pub(crate) async fn post_to_group(
         &self,
         user: &UserKey,
@@ -399,8 +391,7 @@ impl Store {
         Ok(posted)
     }
 
-    /// The invite token of group `id`, a new one with `reset`. `None` when
-    /// `user` is not in it.
+    /// Group `id`'s invite token, regenerated with `reset`; `None` when `user` is not a member.
     pub(crate) async fn group_invite(
         &self,
         user: &UserKey,
@@ -435,9 +426,7 @@ impl Store {
         }
     }
 
-    /// Adds `user` to the group behind `token` as `name`, or keeps them in
-    /// it under their old name. A new member gets the group's recent
-    /// messages in their log, and everyone the new member list.
+    /// Adds `user` to the group behind `token` as `name` (or keeps them), sending backlog and member list.
     pub(crate) async fn join_group(&self, user: &UserKey, token: &str, name: &str) -> Result<Join> {
         let mut tx = self.pool.begin().await?;
         let joined: Result<Option<Uuid>, sqlx::Error> = sqlx::query_scalar(
@@ -492,8 +481,7 @@ impl Store {
         self.set_member_flag(user, id, "pinned", pinned).await
     }
 
-    /// Lets Beep use `user`'s apps in group `id` when others ask, or stops it.
-    /// `false` when they are not in it.
+    /// Lets Beep use `user`'s apps in group `id`, or stops it; false when not a member.
     pub(crate) async fn share_group_apps(
         &self,
         user: &UserKey,
@@ -503,8 +491,7 @@ impl Store {
         self.set_member_flag(user, id, "shares_apps", shared).await
     }
 
-    /// Sets `user`'s own `column` for chat `id` and sends them the chat
-    /// again. `false` when they are not in it.
+    /// Sets `user`'s own `column` for chat `id` and resends the chat; false when not a member.
     pub(super) async fn set_member_flag(
         &self,
         user: &UserKey,
@@ -532,9 +519,7 @@ impl Store {
         Ok(true)
     }
 
-    /// Takes `user` out of group `id`, deleting it and its pictures when
-    /// nobody is left.
-    /// `false` when they were not in it.
+    /// Removes `user` from group `id`, deleting it when empty; false when not a member.
     pub(crate) async fn leave_group(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         if !member_of(&mut tx, user.as_str(), id).await? {

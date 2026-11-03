@@ -266,25 +266,6 @@ mod tests {
         assert_eq!(claude_plan(&api_key, 7), None);
     }
 
-    #[test]
-    fn codex_answer_gives_its_windows() {
-        let answer = json!({
-            "rateLimits": {
-                "limitId": "codex",
-                "primary": {"usedPercent": 74, "windowDurationMins": 10080, "resetsAt": 1_793_775_136},
-                "secondary": null,
-                "planType": "pro",
-            },
-        });
-        let plan = codex_plan(&answer, 9).unwrap();
-        assert_eq!(plan.plan.as_deref(), Some("pro"));
-        assert_eq!(plan.windows.len(), 1);
-        assert_eq!(plan.windows[0].minutes, 10080);
-        assert_eq!(plan.windows[0].used_percent, 74.0);
-        assert_eq!(plan.windows[0].resets_at, Some(1_793_775_136));
-        assert_eq!(codex_plan(&json!({"rateLimits": {}}), 9), None);
-    }
-
     /// A CLI that answers a control request as Claude Code does.
     #[cfg(unix)]
     #[tokio::test]

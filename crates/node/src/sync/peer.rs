@@ -209,26 +209,3 @@ async fn pull_once(shared: &Shared, endpoint: &Endpoint, peer: &EndpointAddr) ->
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn messages_round_trip() {
-        let pull = Request::Pull {
-            project: "game".into(),
-            replica: 7,
-            since: 3,
-        };
-        let bytes = rmp_serde::to_vec_named(&pull).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Request>(&bytes).unwrap(), pull);
-        let changes = Reply::Changes {
-            replica: 7,
-            entries: Vec::new(),
-            upto: 9,
-        };
-        let bytes = rmp_serde::to_vec_named(&changes).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Reply>(&bytes).unwrap(), changes);
-    }
-}

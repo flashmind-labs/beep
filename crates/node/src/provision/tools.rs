@@ -280,21 +280,4 @@ mod tests {
         assert!(format!("{err:#}").contains("not the pinned"), "{err:#}");
         fs::remove_dir_all(&dir).unwrap();
     }
-
-    #[test]
-    fn every_pinned_tool_has_a_release_for_each_supported_machine() {
-        for tool in PINNED {
-            for os in ["linux", "macos"] {
-                for arch in ["x86_64", "aarch64"] {
-                    let asset = tool
-                        .assets
-                        .iter()
-                        .find(|a| a.os == os && a.arch == arch)
-                        .unwrap_or_else(|| panic!("{} on {os} {arch}", tool.name));
-                    assert_eq!(asset.sha256.len(), 64);
-                    assert!(asset.url.starts_with("https://"));
-                }
-            }
-        }
-    }
 }

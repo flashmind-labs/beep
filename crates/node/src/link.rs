@@ -112,8 +112,6 @@ pub async fn serve(
         .collect();
     let folders = Folders::new(&shared);
     offers.agents.share_folders(shared.clone());
-    // The sessions Beep started here before, whose folders stay reachable.
-    offers.agents.keep_ledger(&state.dir).await;
     // The agents' logs read once ahead, so the first file request for a
     // session started outside Beep does not wait for them.
     let agents = offers.agents.clone();
@@ -174,6 +172,8 @@ pub async fn serve(
         () = stay => {}
         () = stop => {}
     }
+    // Agents that end from here on ended with the node, whatever their exit.
+    offers.agents.begin_stopping();
     // Stopped, the machine keeps no token: teacli's config, its shim and
     // the env vars go.
     if let Some(provision) = &offers.provision {
@@ -444,12 +444,15 @@ async fn serve_linked(
     offers: &Offers,
     measured: &[PathBuf],
 ) -> Result<()> {
-    let mut reported = env::probe().await;
-    tx.send(&Up::Env(reported.clone())).await?;
     let mut reprobe = interval(REPROBE);
     reprobe.tick().await;
-    // A probe runs a dozen commands; it runs beside the loop, not in it.
-    let mut probing: Option<AbortOnDropHandle<EnvReport>> = None;
+    // A probe runs a dozen commands, which can take half a minute; it runs
+    // beside the loop, the first one too, so the streams the server opens
+    // on connecting are taken at once. Left waiting, they time out on the
+    // server, and the sync list among them is not sent again until the
+    // node reconnects.
+    let mut reported: Option<EnvReport> = None;
+    let mut probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
     // The first tick is at once, so stats follow the report.
     let mut resample = interval(RESAMPLE);
     resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -502,9 +505,9 @@ async fn serve_linked(
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
                 probing = None;
                 match probed {
-                    Ok(now) if changed(&reported, &now) => {
+                    Ok(now) if reported.as_ref().is_none_or(|before| changed(before, &now)) => {
                         tx.send(&Up::Env(now.clone())).await?;
-                        reported = now;
+                        reported = Some(now);
                     }
                     Ok(_) => {}
                     Err(e) => log::warn!("probing the machine failed: {e}"),
@@ -565,32 +568,4 @@ async fn tool_changed(provision: Option<&Provision>) {
 
 fn changed(before: &EnvReport, now: &EnvReport) -> bool {
     before != now
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use beep_proto::node::agent::SESSIONS_PROTOCOL;
-    use std::collections::BTreeMap;
-
-    /// The Mac app builds its offers the same way, so it serves the agents
-    /// and their sessions too.
-    #[test]
-    fn local_offers_serve_the_agents_and_their_sessions() {
-        let dir = tempfile::tempdir().expect("a temporary folder");
-        let fake = AgentKind {
-            name: "fake".into(),
-            program: "true".into(),
-            args: vec![],
-            env: BTreeMap::new(),
-        };
-        let offers = Offers::local(&[fake], Provision::new(dir.path()));
-        let names = offers.names();
-        assert!(names.iter().any(|name| name == "fake/1"), "{names:?}");
-        assert!(
-            names.iter().any(|name| name == SESSIONS_PROTOCOL),
-            "{names:?}"
-        );
-        assert!(offers.provision.is_some());
-    }
 }

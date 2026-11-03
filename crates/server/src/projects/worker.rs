@@ -113,8 +113,7 @@ fn tail(text: &str) -> String {
     text[start..].to_owned()
 }
 
-/// Starts `task` as `request` asks: waits for its dependency, else picks a
-/// machine, makes the worktree, copies the inputs and starts the agent.
+/// Starts `task` per `request`: waits for its dependency, else places and starts the agent.
 pub(crate) async fn start_task(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -470,8 +469,7 @@ struct OnNode<'a> {
 }
 
 impl OnNode<'_> {
-    /// Makes the worktree, copies the inputs and starts the agent. Gives the
-    /// node and the agent's session, or why not, for the model.
+    /// Makes the worktree, copies inputs and starts the agent; the error is for the model.
     async fn start(&self, inputs: &[InputFile]) -> Result<(Online, String), String> {
         let placement = self.placement;
         let online = online(self.app, self.user, &placement.machine)
@@ -546,9 +544,8 @@ async fn run_checked(online: &Online, command: &str) -> Result<(), String> {
     }
 }
 
-/// Copies each input into `incoming` on the machine `to`, which commands
-/// name so. An input without a machine is on the user's environment, or on
-/// `to` when the environment is not there. Says where each landed.
+/// Copies each input into `incoming` on `to`; one without a machine comes from the user's
+/// environment (or `to` when absent). Says where each landed.
 pub(crate) async fn copy_inputs(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -634,8 +631,7 @@ async fn copy_input(
     }
 }
 
-/// Stops `worker`: closes its session, ends it, blocks its task when it was
-/// running and forgets its session. Nothing happens to an ended worker.
+/// Stops `worker`: closes and untracks its session, ends it, blocks a running task. No-op if ended.
 pub(crate) async fn stop_worker(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -645,8 +641,7 @@ pub(crate) async fn stop_worker(
     stop_worker_on(&fleet, user, worker).await
 }
 
-/// [`stop_worker`] through `fleet`. The slot it held may start a queued
-/// task.
+/// [`stop_worker`] through `fleet`, then refills the freed slot.
 pub(crate) async fn stop_worker_on(
     fleet: &dyn Fleet,
     user: &Arc<User>,

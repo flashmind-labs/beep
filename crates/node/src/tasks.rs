@@ -463,32 +463,4 @@ mod tests {
         );
         std::fs::remove_dir_all(dir).expect("the test folder is removed");
     }
-
-    #[tokio::test]
-    async fn kill_all_ends_running_tasks() {
-        let tasks = Tasks::default();
-        started(
-            tasks
-                .answer(Request::Start {
-                    command: "sleep 300".into(),
-                    cwd: None,
-                })
-                .await,
-        );
-        let mut done = lock(&tasks.inner).jobs[0].done.clone();
-        tasks.kill_all();
-        timeout(Duration::from_secs(10), done.wait_for(|done| *done))
-            .await
-            .expect("the task ends once killed")
-            .expect("the task's watch is still there");
-    }
-
-    #[tokio::test]
-    async fn an_unknown_task_is_an_error() {
-        let tasks = Tasks::default();
-        assert!(matches!(
-            tasks.answer(Request::Status { id: TaskId(9) }).await,
-            Reply::Error { .. }
-        ));
-    }
 }

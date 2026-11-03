@@ -1,24 +1,18 @@
-//! Tells the model when a tool result is only the first page. Mail and
-//! message searches return a page at a time, and a model that reads one
-//! page as the whole answer reports a partial list as complete.
+//! Tells the model when a tool result is only the first page.
 
 use flashmind::types::{ContentPart, tool::ToolResult};
 use serde_json::Value;
 
-/// Put before the result, where cutting a long output cannot drop it and
-/// readers that skip to the JSON still find it.
+/// Put before the result, so cutting a long output cannot drop it.
 const MORE: &str = "This is not every result: the tool says there are more pages. Before \
 giving a count, a total or saying this is all of them, or when acting on all of them, \
 fetch the next page with the cursor or page token below. Otherwise tell the user the list \
 is partial.\n";
 
-/// How deep in a result the paging fields are looked for. Composio puts
-/// them under `data`, sometimes one level further down.
+/// How deep paging fields are looked for (Composio nests them under `data`).
 const MAX_DEPTH: usize = 3;
 
-/// Replace the text of a successful result with `rewrite(text)`, keeping
-/// its media parts after it. Does nothing for other results or when
-/// `rewrite` returns `None`.
+/// Replaces a successful result's text with `rewrite(text)`, keeping its media parts.
 pub fn rewrite_text(result: &mut ToolResult, rewrite: impl FnOnce(String) -> Option<String>) {
     let ToolResult::Success { content, .. } = result else {
         return;
@@ -59,9 +53,7 @@ pub fn mark(output: String) -> String {
     }
 }
 
-/// Whether `value` says there is another page: a `hasMore` flag (Fastmail),
-/// a next page token or cursor (Gmail, Notion, Linear), an OData next link
-/// (Outlook), or a page number below the page count (Slack).
+/// Whether `value` says there is another page, in any provider's style.
 fn has_more(value: &Value, depth: usize) -> bool {
     let Value::Object(map) = value else {
         return false;

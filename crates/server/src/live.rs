@@ -1,5 +1,4 @@
-//! Event feed of a running run. Events are kept in memory only while the run is
-//! active; the finished turn is saved with the conversation.
+//! Event feed of a running run, kept in memory only while it is active.
 
 use crate::protocol::{Event, RunEvent};
 use flashmind::core::CancellationToken;

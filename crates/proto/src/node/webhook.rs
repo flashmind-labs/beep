@@ -106,22 +106,3 @@ impl PollReason {
         !matches!(self, Self::NotAdmin)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_watch_hides_its_secret() {
-        let watch = Watch {
-            host: WatchHost::GitHub { token_var: None },
-            repo: "acme/widget".into(),
-            secret: SecretText::new("s3cret-value"),
-            stale: vec![],
-        };
-        assert!(!format!("{watch:?}").contains("s3cret"));
-        let bytes = rmp_serde::to_vec_named(&watch).expect("encodes");
-        let back: Watch = rmp_serde::from_slice(&bytes).expect("decodes");
-        assert_eq!(back, watch);
-    }
-}

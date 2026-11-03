@@ -1,5 +1,4 @@
-//! A media call's arguments, read and checked, and how its approval card
-//! shows them.
+//! A media call's arguments, checked, and how its approval card shows them.
 
 use super::provider::{MediaKind, MediaProvider};
 use crate::{permissions::shorten, protocol::ApprovalField, tools::args::text};
@@ -46,8 +45,7 @@ pub(super) struct Call {
 }
 
 impl Call {
-    /// Reads `args` for a `kind` tool. The provider must be one the user
-    /// has a key for, among `available`.
+    /// Reads `args` for a `kind` tool; the provider must be among `available`.
     pub(super) fn parse(
         kind: MediaKind,
         available: &[MediaProvider],
@@ -186,8 +184,7 @@ pub(super) fn schema(kind: MediaKind, available: &[MediaProvider]) -> Value {
     })
 }
 
-/// What the approval card shows for a `kind` call with `args`: the prompt,
-/// the service and the model it runs on, then the rest.
+/// What the approval card shows for a `kind` call: prompt, service, model, then the rest.
 pub(crate) fn approval_fields(kind: MediaKind, args: &Value) -> Vec<ApprovalField> {
     let field = |label: &str, value: &str| ApprovalField {
         label: label.to_owned(),

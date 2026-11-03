@@ -1,12 +1,8 @@
-//! Auto: the machine a session started from the app runs on when the app
-//! names none. What the app asks for (`needs`) and the folder are hard
-//! requirements; what the prompt mentions (hints) only steers the pick.
+//! Auto picks a session's machine: `needs` and the folder are required, prompt hints only steer.
 
 use crate::protocol::MachineCapability;
 
-/// Words that hint at a capability, matched against whole words of the
-/// prompt and folder, lowercase. Two-word phrases are matched joined by a
-/// space.
+/// Lowercase words of the prompt and folder that hint at a capability.
 const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
     (
         MachineCapability::Xcode {},
@@ -116,8 +112,7 @@ pub(super) struct Pool {
     pub(super) missed: Vec<MachineCapability>,
 }
 
-/// The machines that offer the agent, have every need and the folder, and,
-/// when some of them do, every hint they can.
+/// The machines with the agent, every need and the folder, narrowed by hints when some match.
 pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
     let agent = wants.agent.to_owned();
     let names = |at: &[usize]| list(at.iter().map(|&at| candidates[at].name));
@@ -172,8 +167,7 @@ pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Po
     })
 }
 
-/// Whether picking in `pool` needs each machine's running sessions: when
-/// several fit and none is the user's environment.
+/// Whether picking needs running-session counts: several fit and none is the user's environment.
 pub(super) fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
     pool.at.len() > 1 && !pool.at.iter().any(|&at| candidates[at].workspace)
 }
@@ -185,8 +179,7 @@ pub(super) struct Choice {
     pub(super) why: String,
 }
 
-/// Picks in `pool` (never empty, as `pool` makes it): the user's
-/// environment, else the machine running the fewest sessions, then by name.
+/// Picks the user's environment, else the least busy machine, then by name; `pool` is never empty.
 pub(super) fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
     let wanted: Vec<&str> = wants
         .needs

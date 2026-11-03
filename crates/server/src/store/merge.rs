@@ -1,11 +1,4 @@
-//! Join codes, and moving one account into another when a device joins.
-//!
-//! A device that already has an account joins another by its code: every
-//! row of its own account moves to the other, its keys become the other's
-//! linked keys, and its account goes. Where both accounts hold the same
-//! thing, such as a place called Home or a setting, the account joined
-//! keeps its own. Usage counts add up, and a project both have keeps both,
-//! the moved one renamed (see `projects`).
+//! Join codes, and merging a joining device's account into another (the joined account wins on conflicts, counts add up).
 
 use super::{
     Account, Bumped, NewKey, Store, credentials::reseal_for, groups::new_token,
@@ -38,8 +31,7 @@ pub struct Inviter {
 pub enum Merge {
     /// The joining account is gone; its keys now sign into `target`.
     Merged { target: String, keys: Vec<String> },
-    /// The code is unknown, used or expired, or names another account than
-    /// the one the caller looked up.
+    /// The code is unknown, used, expired, or for another account.
     NoInvite,
     /// The code is the caller's own account's.
     SameAccount,
@@ -52,20 +44,16 @@ pub struct MergeInto<'a> {
     pub code: &'a str,
     /// The account the caller looked the code up as.
     pub target: &'a str,
-    /// Whether the account joined takes the joining one's outside id, so
-    /// the apps connected under it stay connected.
+    /// Whether the joined account takes the joining one's external id, keeping its apps connected.
     pub adopt_external_id: bool,
-    /// What the credentials are sealed with, to seal them again for the
-    /// account joined.
+    /// Key the credentials are sealed with, to reseal them for the joined account.
     pub credential_key: &'a CredentialKey,
 }
 
 mod projects;
 mod summed;
 
-/// Tables whose rows simply change owner. Where both accounts have a row
-/// with the same `key` columns, the joined account's row stays and the
-/// other goes.
+/// Tables whose rows change owner; on a `key` clash the joined account's row stays.
 const MOVED: &[(&str, &[&str])] = &[
     ("runs", &["request_id"]),
     ("files", &[]),
@@ -103,9 +91,7 @@ const MOVED: &[(&str, &[&str])] = &[
     ("project_webhooks", &[]),
 ];
 
-/// Tables with an owner that `merge_into` handles in its own way. With
-/// `MOVED`, `projects::NAMED`, `projects::OTHERS` and `summed::SUMMED`,
-/// every table that names a user; a test holds the schema to it.
+/// Tables `merge_into` handles specially; with the other lists, every user table (a test checks the schema).
 #[cfg(test)]
 const OWN: &[&str] = &[
     // Its codes go with the account.
@@ -127,8 +113,7 @@ const OWN: &[&str] = &[
 ];
 
 impl Store {
-    /// A new code for the account of `user`, shown by `endpoint`, which
-    /// takes `name`. Earlier codes of that key stop working.
+    /// A new code for `user`'s account shown by `endpoint`, taking `name`; earlier codes of that key stop working.
     pub(crate) async fn create_invite(
         &self,
         user: &UserKey,
@@ -183,9 +168,7 @@ impl Store {
         }))
     }
 
-    /// Links `key`, which has no account, to the one that made the live
-    /// code `code`, using the code up. `None` when the code is not live or
-    /// the key is linked already.
+    /// Links unlinked `key` to the account behind live `code`, using it up; `None` if not live or already linked.
     pub async fn redeem_invite(&self, code: &str, key: NewKey<'_>) -> Result<Option<String>> {
         let mut tx = self.pool.begin().await?;
         let target: Option<String> = sqlx::query_scalar(
@@ -218,8 +201,7 @@ impl Store {
         Ok(Some(target))
     }
 
-    /// Moves the account of `source` into the one that made the code,
-    /// using the code up.
+    /// Merges `source`'s account into the code's account, using the code up.
     pub(crate) async fn merge_into(&self, source: &UserKey, into: MergeInto<'_>) -> Result<Merge> {
         let source = source.as_str();
         let mut tx = self.pool.begin().await?;
@@ -325,8 +307,7 @@ impl Store {
     }
 }
 
-/// Moves the source's chat memberships, keeping the target's where both
-/// are in one group, and the messages the source wrote.
+/// Moves chat memberships (target's win in shared groups) and the source's messages.
 async fn move_chats(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     sqlx::query(
         "DELETE FROM chat_members s WHERE s.user_id=$1
@@ -349,8 +330,7 @@ async fn move_chats(tx: &mut PgConnection, source: &str, target: &str) -> Result
     Ok(())
 }
 
-/// Appends the source's update log to the target's, in order, and makes
-/// every client of either start over, since each holds only half.
+/// Appends the source's update log to the target's and resets every client of either.
 async fn move_updates(tx: &mut PgConnection, source: &str, target: &str) -> Result<Bumped> {
     sqlx::query(
         "DELETE FROM updates s WHERE s.user_id=$1 AND EXISTS (
@@ -394,8 +374,7 @@ async fn move_updates(tx: &mut PgConnection, source: &str, target: &str) -> Resu
     })
 }
 
-/// Moves the rows of `table`, dropping the source's where the target has
-/// one with the same `key`.
+/// Moves `table`'s rows, dropping the source's on a `key` clash.
 async fn move_rows(
     tx: &mut PgConnection,
     table: &str,
@@ -422,8 +401,7 @@ async fn move_rows(
     Ok(())
 }
 
-/// Habits, skills, the last location and the flsh settings, which each
-/// merge in their own way.
+/// Habits, skills, last location and flsh settings, each merged its own way.
 async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     // A habit both track keeps the target's, with the source's logs.
     sqlx::query(
@@ -485,8 +463,7 @@ async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Res
     Ok(())
 }
 
-/// Moves places and routines. A place both saved, by name, keeps the
-/// target's, and the source's routines there point at it.
+/// Moves places and routines; a same-named place keeps the target's, and source routines point at it.
 async fn move_places(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     // A routine's grants follow it by their foreign key, so a grant whose
     // call the target granted too goes first: the target's stays.
@@ -531,9 +508,7 @@ async fn move_places(tx: &mut PgConnection, source: &str, target: &str) -> Resul
     move_rows(tx, "grants", &[], source, target).await
 }
 
-/// Appends the source's saved instructions to the target's history, before
-/// the target's own, so the target's newest stays the one in use and every
-/// version is kept, numbered again from 1.
+/// Prepends the source's instructions to the target's history, renumbered from 1, so the target's newest stays current.
 async fn move_instructions(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     // Out of the way of the numbers the source's take.
     sqlx::query("UPDATE instructions_versions SET version = -version WHERE user_id=$1")
@@ -568,8 +543,7 @@ async fn move_instructions(tx: &mut PgConnection, source: &str, target: &str) ->
     Ok(())
 }
 
-/// Every table `merge_into` handles, for the test that holds the schema
-/// to it.
+/// Every table `merge_into` handles, for the schema test.
 #[cfg(test)]
 fn handled() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = MOVED.iter().map(|(table, _)| *table).collect();

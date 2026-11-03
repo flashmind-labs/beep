@@ -1,9 +1,4 @@
-//! Approvals background calls wait for: the card goes to the user's devices
-//! as a notice on the chat the work belongs to, and the answer comes back
-//! through the same `AnswerApproval` a turn's card uses. Once a question
-//! stops waiting, answered or withdrawn, a resolved notice tells every
-//! device to clear its card, and `ListQuestions` lists the ones still
-//! waiting.
+//! Approval cards for background calls, sent as notices and answered through `AnswerApproval`.
 
 use crate::{
     app::{Reach, UserNotice},
@@ -79,8 +74,7 @@ impl Approvals {
         });
     }
 
-    /// The questions `user`'s background work in `chat` waits on, oldest
-    /// first.
+    /// The questions `user`'s background work in `chat` waits on, oldest first.
     pub(crate) fn pending(&self, user: &str, chat: Uuid) -> Vec<PendingApproval> {
         self.pending_all(user)
             .into_iter()
@@ -89,8 +83,7 @@ impl Approvals {
             .collect()
     }
 
-    /// The questions `user`'s background work waits on in every chat, oldest
-    /// first, each with the chat it was asked in.
+    /// The questions `user`'s background work waits on in every chat, oldest first.
     pub(crate) fn pending_all(&self, user: &str) -> Vec<(Uuid, PendingApproval)> {
         let waiting = self.waiting();
         let mut pending: Vec<(u64, Uuid, PendingApproval)> = waiting
@@ -113,8 +106,7 @@ impl Approvals {
             .collect()
     }
 
-    /// Shows `user` the card for a call of `tool` made in `chat`, and returns
-    /// the answer to wait on. Dropping it withdraws the question.
+    /// Shows `user` the card for a call of `tool` and returns the answer; dropping it withdraws the question.
     pub(crate) fn ask(
         self: &Arc<Self>,
         user: &str,
@@ -180,10 +172,7 @@ impl Approvals {
         })
     }
 
-    /// Answers the question `query_id` that `user` was asked. `false` when
-    /// nothing of theirs waits under it, such as a turn's own card.
-    /// `for_session` with Allow also allows later cards of the same tool in
-    /// that chat.
+    /// Answers `query_id`; false when nothing of `user`'s waits under it. `for_session` allows later cards of the tool in that chat.
     pub(crate) async fn answer(
         &self,
         user: &User,

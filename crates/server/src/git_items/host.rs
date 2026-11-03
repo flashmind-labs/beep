@@ -1,5 +1,4 @@
-//! One call to a git host's API with a user's token, and why it failed in
-//! words for the user.
+//! One git host API call with a user's token, and its failure in plain words.
 
 use reqwest::{Client, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
@@ -8,8 +7,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Semaphore;
 
-/// Why a host's items are missing. The text never carries the host's own
-/// reply: a Forgejo URL is the user's to type, so it could be anything.
+/// Why a host's items are missing; never carries the host's own reply.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HostError {
     #[error("{0} refused the token. Check that it is current and can read your repositories.")]
@@ -30,8 +28,7 @@ pub enum HostError {
     Internal(String),
 }
 
-/// What a call needs: the client, the server-wide limit on calls in flight,
-/// the host's name for messages and the token.
+/// What a call needs: client, call limit, host name and token.
 pub struct Caller<'a> {
     pub client: &'a Client,
     pub calls: &'a Arc<Semaphore>,
@@ -39,8 +36,7 @@ pub struct Caller<'a> {
     pub token: &'a SecretString,
 }
 
-/// One page of a list, with the URL of the next page when the host's
-/// `Link` header names one.
+/// One page of a list, with the next page URL from `Link`.
 pub struct Page<T> {
     pub items: T,
     pub next: Option<String>,
@@ -89,8 +85,7 @@ impl Caller<'_> {
     }
 }
 
-/// The `rel="next"` URL of a `Link` header, as GitHub and Forgejo send it:
-/// `<https://host/a?page=2>; rel="next", <https://host/a?page=5>; rel="last"`.
+/// The `rel="next"` URL of a `Link` header.
 fn next_link(link: &str) -> Option<&str> {
     link.split(',').find_map(|part| {
         let (url, params) = part.trim().split_once(';')?;

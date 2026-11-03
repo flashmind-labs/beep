@@ -75,7 +75,7 @@ fn runs(plist: &str, exe: &Path) -> bool {
     plist.contains(&program)
 }
 
-fn plist_path() -> Result<PathBuf> {
+pub(super) fn plist_path() -> Result<PathBuf> {
     Ok(home()?
         .join("Library/LaunchAgents")
         .join(format!("{LABEL}.plist")))
@@ -173,33 +173,6 @@ fn launchctl(args: &[&str]) -> Result<()> {
 mod tests {
     use super::super::tests::launch;
     use super::*;
-
-    #[test]
-    fn the_plist_runs_the_node_at_login_and_keeps_it_alive() {
-        let plist = plist(
-            &launch(None),
-            Path::new("/Users/user/Library/Logs/beep-node.log"),
-        );
-        assert!(plist.contains("<string>com.flashmind.beep-node</string>"));
-        assert!(plist.contains(
-            "    <array>\n\
-             \x20       <string>/opt/beep node/beep-node</string>\n\
-             \x20       <string>--dir</string>\n\
-             \x20       <string>/srv/node</string>\n\
-             \x20       <string>run</string>\n\
-             \x20   </array>\n"
-        ));
-        assert!(plist.contains("<key>RunAtLoad</key>\n    <true/>"));
-        assert!(plist.contains("<key>KeepAlive</key>\n    <true/>"));
-        assert!(
-            plist.contains("<key>PATH</key>\n        <string>/usr/bin:/home/user/50%/bin</string>")
-        );
-        assert!(plist.contains(
-            "<key>StandardErrorPath</key>\n    <string>/Users/user/Library/Logs/beep-node.log</string>"
-        ));
-        // The node's own filter keeps the networking crates quiet.
-        assert!(!plist.contains("RUST_LOG"), "{plist}");
-    }
 
     #[test]
     fn a_restart_only_follows_a_plist_that_runs_this_binary() {

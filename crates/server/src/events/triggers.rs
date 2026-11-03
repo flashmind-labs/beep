@@ -1,6 +1,4 @@
-//! The Composio trigger instances each user's topics need, made on their
-//! connected accounts and disabled when a topic goes off. Their events come
-//! back over the realtime channel (see `super::realtime`).
+//! The Composio trigger instances each user's topics need; events return over `super::realtime`.
 
 use super::{Topic, normalize};
 use crate::{apps::connected_accounts, store::TriggerRow, user::User};
@@ -23,8 +21,7 @@ fn none() -> Value {
     json!({})
 }
 
-/// Each slug and config field was checked against Composio's v3.1 trigger
-/// types. Polling triggers run on Composio's side; the server only listens.
+/// Slugs and config checked against Composio's v3.1 trigger types.
 const SPECS: &[TriggerSpec] = &[
     TriggerSpec {
         topic: Topic::Mail,
@@ -70,9 +67,7 @@ const SPECS: &[TriggerSpec] = &[
     },
 ];
 
-/// Makes the triggers `user`'s topics want on their connected accounts and
-/// disables the ones they no longer want. Each trigger is tried on its own,
-/// so one refusal leaves the others set up.
+/// Creates wanted triggers on `user`'s accounts and disables unwanted ones, each independently.
 pub(crate) async fn sync_user(user: &User) -> Result<()> {
     let Some(client) = user.composio_client() else {
         return Ok(());

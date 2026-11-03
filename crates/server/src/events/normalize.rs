@@ -1,6 +1,4 @@
-//! Turns Composio trigger payloads and the server's own polls into
-//! [`AppEvent`]s. A happening gets the same key however it arrives, so a
-//! Gmail message seen by its trigger and by a poll is stored once.
+//! Turns Composio trigger payloads and polls into [`AppEvent`]s, keyed so both paths dedupe.
 
 use super::model::{AppEvent, DedupeKey, EventApp, EventKind, Source};
 use crate::feeds::mail::{BULK_LABELS, Email, Mailbox, timestamp};
@@ -34,8 +32,7 @@ pub struct TriggerMessage {
 }
 
 impl TriggerMessage {
-    /// Reads Composio's V3 envelope, the older V2 and V1 ones, and the
-    /// legacy realtime shape. `None` when it is none of them.
+    /// Reads Composio's V3, V2, V1 and legacy realtime envelopes; `None` for anything else.
     pub fn parse(payload: &Value) -> Option<Self> {
         let at = payload["timestamp"]
             .as_str()
@@ -82,9 +79,7 @@ impl TriggerMessage {
     }
 }
 
-/// The event a trigger message reports, or `None` for a trigger this
-/// module does not read or a message not worth an event, such as mail the
-/// user sent or a promotion.
+/// The event a trigger message reports; `None` for unread triggers, sent mail or promotions.
 pub fn from_trigger(message: &TriggerMessage) -> Option<AppEvent> {
     let data = &message.data;
     let mut event = match message.slug.as_str() {
@@ -277,8 +272,7 @@ fn google_calendar(slug: &str, data: &Value) -> Option<AppEvent> {
     })
 }
 
-/// A GitHub notification thread from `GITHUB_LIST_NOTIFICATIONS`, or `None`
-/// when it has no id or is a CI run that passed.
+/// A GitHub notification thread as an event; `None` without an id or for a passing CI run.
 pub fn from_github_notification(notification: &Value) -> Option<AppEvent> {
     let thread = str_of(notification, &["id"])?;
     let reason = str_of(notification, &["reason"]).unwrap_or_default();

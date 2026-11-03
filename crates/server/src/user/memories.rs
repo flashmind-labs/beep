@@ -18,8 +18,7 @@ use chrono::Utc;
 use std::{collections::HashMap, time::Instant};
 
 impl User {
-    /// Memories for automatic prompt context. The store's vector score is
-    /// 1 - L2 distance / 2; embeddings are unit vectors.
+    /// Memories for prompt context; the score is 1 - L2 distance / 2 over unit vectors.
     pub(crate) async fn prompt_memories(&self, query: &str) -> Result<Vec<Scored>> {
         const MIN_COSINE: f32 = 0.7;
         const CANDIDATES: usize = 32;
@@ -41,8 +40,7 @@ impl User {
             .collect())
     }
 
-    /// Memories that still hold, ranked against `query`, in `scope` when
-    /// given. An empty query lists the most recently changed.
+    /// Memories that still hold, ranked against `query`; an empty query lists the newest.
     pub async fn search_memories(
         &self,
         query: &str,
@@ -81,8 +79,7 @@ impl User {
             .collect())
     }
 
-    /// Stores a fact. Identical text in the same scope is reused; similarity
-    /// alone only signals that the scope may need curation.
+    /// Stores a fact, reusing identical text in its scope; similarity only signals curation.
     pub async fn remember(&self, fact: Fact<'_>) -> Result<Remembered> {
         let scope = fact.scope.clone().unwrap_or_default();
         let closest = self
@@ -136,16 +133,14 @@ impl User {
         self.store.memory_history(&self.key, id).await
     }
 
-    /// Counts a curation signal. A failure only delays curation, so it is
-    /// logged rather than failing the store or recall that saw it.
+    /// Counts a curation signal; a failure only delays curation, so it is logged.
     async fn note_signal(&self, scope: &Scope, signal: Signal) {
         if let Err(error) = self.store.note_signal(&self.key, scope, signal).await {
             log::warn!("unable to note a memory signal: {error}; user={self}");
         }
     }
 
-    /// The memories closest to the latest exchange. Jev and the learner both
-    /// see them, so a fact already known neither scores high nor is stored again.
+    /// The memories closest to the latest exchange, so a known fact is not stored again.
     pub async fn related_memories(&self, exchange: &Exchange) -> Result<Vec<Hit>> {
         let query = format!(
             "{}\n{}",
@@ -155,9 +150,7 @@ impl User {
         self.search_memories(&query, None, None, 15).await
     }
 
-    /// Reads a finished exchange and updates memory with what it teaches about
-    /// the user, returning the changes made. Failures are logged and dropped.
-    /// `known` comes from `related_memories`.
+    /// Updates memory from a finished exchange and returns the changes; failures are logged.
     pub async fn learn(
         &self,
         generator: Generator<'_>,
@@ -188,16 +181,14 @@ impl User {
         )
     }
 
-    /// Reads an email or a Slack conversation and updates memory with what
-    /// it teaches about the user, the same way `learn` does for a chat.
+    /// Like `learn`, for an email or a Slack conversation.
     pub async fn learn_reading(&self, generator: Generator<'_>, reading: &Reading) -> Vec<Learned> {
         let started = Instant::now();
         let attempt = async {
             let mut known = self
                 .search_memories(&reading.query, None, Some(&Scope::User), 15)
                 .await?;
-            // Anything can mention the user's name or family, which a search
-            // on its text would not bring up, so those facts always come along.
+            // A text search would miss the user's name or family, so those always come along.
             for category in ["identity", "people"] {
                 for hit in self
                     .search_memories("", Some(category), Some(&Scope::User), 15)
@@ -231,11 +222,8 @@ impl User {
         learned
     }
 
-    /// Applies the learner's `ops` from the chat, email or thread named by
-    /// `reference`, filing their facts in one Jev request. `scope` says what
-    /// each op's fact is about; `None` keeps an updated memory's scope and
-    /// makes a new one about the user. One op that fails leaves the others,
-    /// and those already saved are still reported.
+    /// Applies the learner's `ops`, filing them in one Jev request; a failed op leaves the others.
+    /// A `None` scope keeps an updated memory's scope and makes a new one about the user.
     pub(crate) async fn apply_all(
         &self,
         known: &[Hit],
@@ -329,10 +317,7 @@ impl User {
         }))
     }
 
-    /// Merges duplicates, settles contradictions and drops stale memories in
-    /// one scope, returning how many memories changed. What a merge or
-    /// rewrite replaces is kept as history of the memory that replaced it.
-    /// Only the user's own scope picks the profile.
+    /// Curates one scope, keeping what it replaces as history; returns how many changed.
     pub async fn curate_scope(&self, generator: Generator<'_>, scope: &Scope) -> Result<usize> {
         let rows: Vec<MemoryRow> = self
             .memory_rows()
@@ -406,8 +391,7 @@ impl User {
                     let Some(row) = by_id.get(id.as_str()) else {
                         continue;
                     };
-                    // A quote for the combined memory may contain facts the
-                    // user later deletes separately.
+                    // A combined quote may hold facts the user later deletes separately.
                     let origin = row.origin.as_ref().map(|origin| Origin {
                         reference: origin.reference.clone(),
                         quote: None,
@@ -437,8 +421,7 @@ impl User {
                         origin,
                         scope: Some(row.scope.clone()),
                     };
-                    // Keeping the combined text as history would make a later
-                    // deletion of one split fact leave that fact in history.
+                    // No combined history, so deleting one split fact leaves no trace of it.
                     changed += usize::from(self.store.update_memory(&self.key, &id, fact).await?);
                 }
                 Step::Forget(id) => {
@@ -512,8 +495,7 @@ impl User {
         if needs.is_empty() {
             return;
         }
-        // Marked even after a failure, so a bad answer waits for the next
-        // need rather than coming back every hour.
+        // Marked even after a failure, so a bad answer does not come back every hour.
         let rows = match self.memory_rows().await {
             Ok(rows) => rows,
             Err(error) => {
@@ -932,8 +914,7 @@ mod tests {
         assert_eq!(needs.len(), 1);
         assert_eq!(needs[0].scope, mac);
 
-        // The answer also names the user's memory and a profile; neither
-        // belongs to a machine's curation.
+        // The answer's user memory and profile do not belong to a machine's curation.
         let answer = Answer(format!(
             r#"{{"ops":[{{"op":"merge","ids":["{docker}","{compose}"],"content":"Runs Compose stacks on Docker."}},
             {{"op":"forget","id":"{mine}"}}],"core":["{docker}","{mine}"]}}"#

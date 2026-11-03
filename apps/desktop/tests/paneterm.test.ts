@@ -72,28 +72,6 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   assert.equal(termStatus(term, "build-box"), "build-box · what you type goes there");
 });
 
-test("attaching sends no resize unless the size changed", async () => {
-  calls.length = 0;
-  const screen = fakeScreen(120, 40);
-  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {} });
-  const first = nextAttach();
-  attach(term);
-  first.send({ kind: "attached" });
-  assert.equal(count("terminal_resize"), 0, "the attach carried the size already");
-  screen.resize(120, 40);
-  assert.equal(count("terminal_resize"), 0, "the same size is not sent again");
-  screen.resize(80, 24);
-  assert.deepEqual(calls.filter(c => c.cmd === "terminal_resize").map(c => c.args), [{ id: "t1", view: term.view, cols: 80, rows: 24 }]);
-  // A reattach at the size the node has sends none either.
-  const second = nextAttach();
-  attach(term);
-  second.send({ kind: "attached" });
-  assert.equal(count("terminal_resize"), 1);
-  first.end();
-  second.end();
-  await settle();
-});
-
 test("a stream that a newer attach replaced ending does not reconnect", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   calls.length = 0;

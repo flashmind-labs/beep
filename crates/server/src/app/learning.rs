@@ -1,5 +1,4 @@
-//! What the server adds to a turn after the model: Jev's scores for it and
-//! the calls it shows like the model's own.
+//! What the server adds to a turn after the model: Jev's scores and server-made calls.
 
 use super::App;
 use crate::{
@@ -30,8 +29,7 @@ data at their request; or a correction or a request to forget",
 that say nothing about the user, or facts already remembered",
 };
 
-/// Above this Jev score the user corrected the approach, and the chat is
-/// reviewed for skills straight away.
+/// Jev score above which the user corrected the approach, reviewing skills at once.
 pub(super) const CORRECTION_THRESHOLD: f64 = 0.7;
 const CORRECTION_QUESTION: &str = "In the latest turn, does the user correct how the assistant went about a task in the earlier turn?";
 const CORRECTION_CRITERIA: Criteria = Criteria {
@@ -77,11 +75,9 @@ impl fmt::Display for TurnState<'_> {
 pub(super) struct TurnScores {
     /// How likely the turn holds something worth remembering.
     pub(super) memory: Option<f64>,
-    /// Whether the user corrected how the earlier turn went about a task,
-    /// which is worth a skill review now.
+    /// Whether the user corrected the earlier turn's approach, worth a skill review now.
     pub(super) corrected: bool,
-    /// How likely the reply invites follow-ups. Asked only of a reply that
-    /// does not end on a question.
+    /// How likely the reply invites follow-ups; only asked when it does not end on a question.
     pub(super) follow_up: Option<f64>,
 }
 
@@ -90,8 +86,7 @@ const CORRECTED: &str = "corrected";
 const FOLLOW_UP: &str = "follow_up";
 
 impl App {
-    /// Asks Jev everything it decides about a finished turn in one request.
-    /// Without Jev, or when it fails, nothing is scored.
+    /// Asks Jev everything about a finished turn in one request; nothing is scored on failure.
     pub(super) async fn score_turn(&self, state: &TurnState<'_>) -> TurnScores {
         let Some(decision) = self.decision() else {
             return TurnScores::default();
@@ -124,8 +119,7 @@ impl App {
     }
 }
 
-/// A call the server made for the turn after the model finished, shown and
-/// saved like one the model made.
+/// A call the server made after the model finished, shown and saved like the model's own.
 pub(super) struct ServerCall {
     pub(super) name: String,
     pub(super) arguments: serde_json::Value,
@@ -176,9 +170,7 @@ pub(super) fn add_server_calls(
     }
 }
 
-/// `conversation` without the follow-up cards the server saved as
-/// `suggest_replies` calls. The model has no such tool, and seeing earlier
-/// turns call it, it calls it too.
+/// Drops saved `suggest_replies` cards, which the model would otherwise imitate.
 pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
     let mut dropped = HashSet::new();
     let entries = conversation.entries_mut();
@@ -222,8 +214,7 @@ pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
     }
 }
 
-/// `conversation` without the text the agent wrote from `since` on. Its
-/// calls stay, so a card it showed in that time is kept.
+/// Drops the agent's text from `since` on, keeping its calls (and the cards they showed).
 pub(super) fn drop_text_since(conversation: &mut Conversation, since: DateTime<Utc>) {
     let entries = conversation.entries_mut();
     entries.retain_mut(|entry| {
@@ -243,8 +234,7 @@ pub(super) fn drop_text_since(conversation: &mut Conversation, since: DateTime<U
     });
 }
 
-/// The last few turns before `turn_started`, oldest first, for the memory
-/// extractor to resolve references in the latest one.
+/// The last few turns before `turn_started`, oldest first, for the memory extractor.
 pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<Utc>) -> Vec<Turn> {
     let mut turns: Vec<Turn> = Vec::new();
     for entry in conversation.entries() {
