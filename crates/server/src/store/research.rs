@@ -3,6 +3,7 @@
 use super::{
     Store,
     chats::{SessionChat, ensure_session},
+    projects::end,
 };
 use crate::{
     research::{Entry, Member, Plan, Status},
@@ -10,7 +11,7 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{PgConnection, Row, postgres::PgRow};
 use uuid::Uuid;
 
 /// A research as the store keeps it.
@@ -166,28 +167,9 @@ impl Store {
         topic: &str,
     ) -> Result<ResearchRow> {
         let mut tx = self.pool.begin().await?;
-        if ensure_session(&mut tx, user.as_str(), chat).await? == SessionChat::Taken {
-            bail!("the chat is not the user's");
-        }
-        sqlx::query(
-            "INSERT INTO researches (id, chat_id, user_id, topic) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (chat_id) DO NOTHING",
-        )
-        .bind(Uuid::new_v4())
-        .bind(chat)
-        .bind(user.as_str())
-        .bind(topic.trim())
-        .execute(&mut *tx)
-        .await?;
-        let row = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM researches WHERE chat_id=$1 AND user_id=$2"
-        ))
-        .bind(chat)
-        .bind(user.as_str())
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        research_from(&row)
+        let done = start_research_in(&mut tx, user, chat, topic).await;
+        let keep = done.is_ok();
+        end(tx, keep, done).await
     }
 
     /// The research `chat` runs, if it is one.
@@ -420,6 +402,36 @@ impl Store {
             })
             .collect()
     }
+}
+
+/// The body of [`Store::start_research`], in its transaction.
+async fn start_research_in(
+    conn: &mut PgConnection,
+    user: &UserKey,
+    chat: Uuid,
+    topic: &str,
+) -> Result<ResearchRow> {
+    if ensure_session(conn, user.as_str(), chat).await? == SessionChat::Taken {
+        bail!("the chat is not the user's");
+    }
+    sqlx::query(
+        "INSERT INTO researches (id, chat_id, user_id, topic) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (chat_id) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(chat)
+    .bind(user.as_str())
+    .bind(topic.trim())
+    .execute(&mut *conn)
+    .await?;
+    let row = sqlx::query(&format!(
+        "SELECT {COLUMNS} FROM researches WHERE chat_id=$1 AND user_id=$2"
+    ))
+    .bind(chat)
+    .bind(user.as_str())
+    .fetch_one(&mut *conn)
+    .await?;
+    research_from(&row)
 }
 
 #[cfg(test)]
