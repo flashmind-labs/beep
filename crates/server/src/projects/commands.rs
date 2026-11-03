@@ -1175,7 +1175,7 @@ pub(crate) fn parse_pr(host: &IssueHost, out: &str) -> Result<Option<PrState>> {
 }
 
 /// Failing wins over pending, which wins over passing.
-fn checks_of(rollup: Option<&Value>) -> ChecksState {
+pub(super) fn checks_of(rollup: Option<&Value>) -> ChecksState {
     let Some(checks) = rollup
         .and_then(Value::as_array)
         .filter(|list| !list.is_empty())

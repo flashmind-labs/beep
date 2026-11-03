@@ -4,6 +4,7 @@
 /// The pages of Settings, in the order the left pane lists them.
 export const SETTINGS_PAGES = [
   ["general", "General"],
+  ["appearance", "Appearance"],
   ["models", "Models"],
   ["apps", "Apps"],
   ["mac", "This Mac"],

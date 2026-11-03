@@ -1,4 +1,6 @@
 // The orb window: live mode while the bar is hidden.
+import { followSkin } from "./skin.ts";
+followSkin();
 import { invoke, Channel, listen } from "./tauri.ts";
 import { OrbAsks } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";

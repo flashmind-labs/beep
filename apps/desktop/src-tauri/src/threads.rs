@@ -5,13 +5,14 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
+    markdown::untrusted_html,
     projects::unknown_op,
 };
 use beep_proto::{
-    GetProjectThread, GetPullRequestHead, GitItemKind, IssueStart, ListProjectIssues,
-    ListProjectPullRequests, ListProjectThreads, ListThreadChats, OpenThreadChat, ProjectIssue,
-    ProjectPullRequest, ProjectThread, PullRequestHead, ReplyToThread, ThreadChat, ThreadPost,
-    ThreadView, TrackProjectIssue,
+    GetProjectThread, GetPullRequestHead, GetThreadDetail, GitItemKind, IssueStart,
+    ListProjectIssues, ListProjectPullRequests, ListProjectThreads, ListThreadChats,
+    OpenThreadChat, ProjectIssue, ProjectPullRequest, ProjectThread, PullRequestHead,
+    ReplyToThread, ThreadChat, ThreadDetail, ThreadPost, ThreadView, TrackProjectIssue,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -334,6 +335,84 @@ pub async fn center_thread_view(
         number,
     });
     match read.await {
+        Ok(thread) => Ok(Some(thread.into())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// A comment or review with its text as cleaned HTML.
+#[derive(Debug, Serialize)]
+pub struct PostHtmlRow {
+    author: String,
+    /// In milliseconds since the Unix epoch.
+    at: u64,
+    html: String,
+}
+
+/// A pull request or issue read in full, for the project page's detail
+/// pane. Its text is the host's: the page shows it as data.
+#[derive(Debug, Serialize)]
+pub struct ThreadDetailRow {
+    kind: &'static str,
+    number: u64,
+    title: String,
+    url: String,
+    author: String,
+    /// `open`, `closed` or `merged`.
+    state: &'static str,
+    draft: bool,
+    labels: Vec<String>,
+    /// In milliseconds since the Unix epoch.
+    opened_at: u64,
+    /// The opening post as cleaned HTML.
+    body_html: String,
+    comments: Vec<PostHtmlRow>,
+    earlier: u32,
+    /// `none`, `approved` or `changes_requested`.
+    review: &'static str,
+    /// A `RunState` name, where the host says.
+    checks: Option<&'static str>,
+}
+
+impl From<ThreadDetail> for ThreadDetailRow {
+    fn from(t: ThreadDetail) -> Self {
+        Self {
+            kind: kind_name(t.kind),
+            number: t.number,
+            title: t.title,
+            url: t.url,
+            author: t.author,
+            state: t.state.into(),
+            draft: t.draft,
+            labels: t.labels,
+            opened_at: epoch_ms(t.opened_at),
+            body_html: untrusted_html(&t.body),
+            comments: t
+                .comments
+                .into_iter()
+                .map(|p| PostHtmlRow {
+                    author: p.author,
+                    at: epoch_ms(p.at),
+                    html: untrusted_html(&p.body),
+                })
+                .collect(),
+            earlier: t.earlier,
+            review: t.review.into(),
+            checks: t.checks.map(Into::into),
+        }
+    }
+}
+
+/// Pull request or issue `number` of the project read in full from its
+/// host now; `None` from a server too old to read one.
+#[tauri::command]
+pub async fn center_thread_detail(
+    beep: Service<'_>,
+    project_id: Uuid,
+    number: u64,
+) -> Result<Option<ThreadDetailRow>> {
+    match beep.call(GetThreadDetail { project_id, number }).await {
         Ok(thread) => Ok(Some(thread.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),

@@ -21,10 +21,8 @@ export function endedHtml(key: string, md: string) {
   return `<div class="kk ended">${esc(liveText(md))}</div>`;
 }
 
-/// Keeps a box at its newest line while it follows, and fades its top
-/// only once older lines went out of it.
+/// Keeps a box at its newest line while it follows.
 function fit(el: HTMLElement, follow: boolean) {
-  el.classList.toggle("ov", el.scrollHeight > el.clientHeight + 1);
   if (follow) el.scrollTop = el.scrollHeight;
 }
 

@@ -327,45 +327,6 @@ export function needsLine(n:
   return { title: n.question.text, sub: [agentOf(n.agent).name, n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
 }
 
-/// A section of Home, by the key its layout uses.
-export type HomeSection = "running" | "needs" | "terminals" | "updates" | "coming" | "projects" | "git" | "machines";
-
-/// The lists Home's layout looks at, only for whether they have rows.
-export type HomeLists = Partial<Record<"machines" | "running" | "needs_you" | "updates" | "coming_up" | "projects" | "terminals", readonly unknown[] | null>>
-  & { git?: { items?: unknown; hosts?: readonly unknown[] | null } | null };
-
-const has = (list: readonly unknown[] | null | undefined) => Array.isArray(list) && list.length > 0;
-const keep = (list: (HomeSection | false)[]) => list.filter((s): s is HomeSection => !!s);
-/// Terminals shows, one panel per machine, once both lists are there and
-/// there is a machine to open one on.
-const terms = (home: HomeLists) => Array.isArray(home.terminals) && has(home.machines);
-
-/// Home's rows of sections under Machines, each one or two wide, with Terminals
-/// on its own row after Running now, imported projects, then open PRs and
-/// issues by project (`home.git`, shown once a git host is saved), last.
-export function homeRows(home: HomeLists) {
-  const pairs = [
-    [has(home.running) && "running", has(home.needs_you) && "needs"],
-    [terms(home) && "terminals"],
-    [has(home.updates) && "updates", has(home.coming_up) && "coming"],
-    [has(home.projects) && "projects"],
-    [has(home.git?.hosts) && "git"],
-  ] satisfies (HomeSection | false)[][];
-  return pairs.map(keep).filter(p => p.length);
-}
-
-/// How wide Home's view must be, in CSS pixels, to split into two columns.
-export const WIDE_HOME_PX = 1280;
-
-/// Home's two columns on a wide window: what to act on at the left (Needs you,
-/// Running now, Terminals, Updates, open PRs and issues), Machines, Projects
-/// and Coming up at the right.
-export function homeColumns(home: HomeLists) {
-  const left = keep([has(home.needs_you) && "needs", has(home.running) && "running", terms(home) && "terminals", has(home.updates) && "updates", has(home.git?.hosts) && "git"]);
-  const right = keep([Array.isArray(home.machines) && "machines", has(home.projects) && "projects", has(home.coming_up) && "coming"]);
-  return left.length && right.length ? { left, right } : null;
-}
-
 /// Home's "This Mac" row: its state, and the button that turns it on.
 export interface MacRow {
   name: string;
