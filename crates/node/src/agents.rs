@@ -55,6 +55,7 @@ pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
 
 use acp::Prompt;
+use compaction::Route;
 use images::Images;
 use models::ModelCache;
 use session::{Command, Session, Start};
@@ -117,11 +118,26 @@ impl std::fmt::Debug for AgentKind {
 /// ask; a permission request that comes anyway is allowed by the session.
 struct Known {
     name: &'static str,
+    /// What people call it, such as Claude Code.
+    title: &'static str,
     /// The CLI whose presence says the user has this agent.
     cli: &'static str,
     adapter: Adapter,
     /// Variables that turn its permission prompts off.
     env: &'static [(&'static str, &'static str)],
+    /// The session mode that asks no permission, for an agent whose
+    /// launch cannot set it, set once the session exists.
+    bypass_mode: Option<&'static str>,
+    /// It starts on a model given as `--model` on its command line; the
+    /// others switch over ACP once the session exists.
+    model_flag: bool,
+    /// How it is asked to compact.
+    compact: Route,
+}
+
+/// What the node knows of the agent `name`, when it is a known one.
+fn known(name: &str) -> Option<&'static Known> {
+    KNOWN.iter().find(|known| known.name == name)
 }
 
 enum Adapter {
@@ -138,56 +154,80 @@ const KNOWN: &[Known] = &[
     // The session switches it to `bypassPermissions` once it has one.
     Known {
         name: "claude",
+        title: "Claude Code",
         cli: "claude",
         adapter: Adapter::Npm {
             bin: "claude-agent-acp",
             package: "@agentclientprotocol/claude-agent-acp",
         },
         env: &[],
+        bypass_mode: Some("bypassPermissions"),
+        model_flag: false,
+        compact: Route::Advertised,
     },
     // Full access: approval policy `never` and sandbox `danger-full-access`,
     // for new and resumed sessions alike.
     Known {
         name: "codex",
+        title: "Codex",
         cli: "codex",
         adapter: Adapter::Npm {
             bin: "codex-acp",
             package: "@agentclientprotocol/codex-acp",
         },
         env: &[("INITIAL_AGENT_MODE", "agent-full-access")],
+        bypass_mode: None,
+        model_flag: false,
+        compact: Route::Advertised,
     },
     // YOLO approves every tool. Gemini CLI drops back to `default` in a
     // folder it does not trust, so the folder is trusted too.
     Known {
         name: "gemini",
+        title: "Gemini CLI",
         cli: "gemini",
         adapter: Adapter::Flags(&["--acp", "--approval-mode", "yolo"]),
         env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
+        bypass_mode: None,
+        model_flag: true,
+        compact: Route::OwnTrigger,
     },
     // pi has no permission prompts; only its extensions ask.
     Known {
         name: "pi",
+        title: "pi",
         cli: "pi",
         adapter: Adapter::Npm {
             bin: "pi-acp",
             package: "pi-acp",
         },
         env: &[],
+        bypass_mode: None,
+        model_flag: false,
+        compact: Route::Advertised,
     },
     // flsh never asks permission.
     Known {
         name: "flsh",
+        title: "flsh",
         cli: "flsh",
         adapter: Adapter::Flags(&["acp"]),
         env: &[],
+        bypass_mode: None,
+        model_flag: true,
+        compact: Route::OwnTrigger,
     },
     // Merged over its config as the last rule, which wins over the defaults
     // that ask (`doom_loop`, `external_directory`, reading `.env` files).
     Known {
         name: "opencode",
+        title: "OpenCode",
         cli: "opencode",
         adapter: Adapter::Flags(&["acp"]),
         env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
+        bypass_mode: None,
+        model_flag: false,
+        compact: Route::Always,
     },
 ];
 
@@ -1348,6 +1388,26 @@ while read -r line; do reply '{}'; done
         assert!(missing.unwrap().is_none());
         session.close().await;
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_claude_code_needs_its_mode_set() {
+        assert_eq!(
+            known("claude").and_then(|known| known.bypass_mode),
+            Some("bypassPermissions")
+        );
+        for agent in ["codex", "gemini", "pi", "flsh", "opencode", "custom"] {
+            assert_eq!(known(agent).and_then(|k| k.bypass_mode), None, "{agent}");
+        }
+    }
+
+    #[test]
+    fn flsh_and_gemini_take_the_model_on_their_command_line() {
+        let flag = |agent| known(agent).is_some_and(|known| known.model_flag);
+        assert!(flag("flsh") && flag("gemini"));
+        for agent in ["claude", "codex", "pi", "opencode", "custom"] {
+            assert!(!flag(agent), "{agent}");
+        }
     }
 
     #[test]
