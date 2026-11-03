@@ -11,6 +11,7 @@
 
 use crate::{
     apps::mcp::lost_login,
+    lock,
     protocol::{McpServer as McpServerInfo, McpTool, McpTools},
     store::{CustomMcp, McpServerRow},
     user::User,
@@ -29,6 +30,7 @@ use std::{
     sync::{Arc, LazyLock, Mutex, Weak},
     time::{Duration, Instant},
 };
+use tokio::time::{Instant as TokioInstant, sleep_until};
 
 /// Starts the row name of every server the user added, and so, upper-cased,
 /// the name of each of its tools: `MCP_MY-NOTES_SEARCH`. It keeps them apart
@@ -483,12 +485,49 @@ pub(crate) async fn register(registry: &McpRegistry, config: &McpServerConfig) -
     Ok(())
 }
 
-/// Closes the registry's connections once they have been idle a while, so
-/// thousands of users do not each hold one open to the same host.
-fn reap_later(registry: &McpRegistry) {
+/// The users whose registry has a reap waiting.
+static REAPS: LazyLock<Reaps> = LazyLock::new(Reaps::default);
+
+/// The last call of each user whose registry has a reap waiting, so a user
+/// has at most one reap task however many calls they make.
+#[derive(Default)]
+struct Reaps {
+    last_call: Mutex<HashMap<String, TokioInstant>>,
+}
+
+impl Reaps {
+    /// Notes a call of `user`'s at `now`. True when no reap waits for them
+    /// yet, so one has to start.
+    fn called(&self, user: &str, now: TokioInstant) -> bool {
+        lock(&self.last_call).insert(user.to_owned(), now).is_none()
+    }
+
+    /// When `user`'s reap is due, `IDLE` after their last call, or `None`
+    /// once it is due at `now`, when it stops waiting.
+    fn due(&self, user: &str, now: TokioInstant) -> Option<TokioInstant> {
+        let mut calls = lock(&self.last_call);
+        let at = *calls.get(user)? + IDLE;
+        if at <= now {
+            calls.remove(user);
+            return None;
+        }
+        Some(at)
+    }
+}
+
+/// Closes `user`'s registry's connections once they have been idle a
+/// while, so thousands of users do not each hold one open to the same
+/// host. One task per user waits for it, put back by each later call.
+fn reap_later(registry: &McpRegistry, user: &str) {
+    if !REAPS.called(user, TokioInstant::now()) {
+        return;
+    }
     let registry = registry.clone();
+    let user = user.to_owned();
     tokio::spawn(async move {
-        tokio::time::sleep(IDLE).await;
+        while let Some(at) = REAPS.due(&user, TokioInstant::now()) {
+            sleep_until(at).await;
+        }
         registry.reap_idle(IDLE).await;
     });
 }
@@ -707,7 +746,7 @@ impl Tool for CustomTool {
             _ => json!({}),
         };
         let result = self.registry.call_tool(server, &self.tool, args).await;
-        reap_later(&self.registry);
+        reap_later(&self.registry, &self.user);
         match result {
             Ok(result) => {
                 let text = result
@@ -772,6 +811,19 @@ impl Tool for CustomTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_user_has_one_reap_put_back_by_each_call() {
+        let reaps = Reaps::default();
+        let start = TokioInstant::now();
+        let minutes = |n: u64| start + Duration::from_secs(n * 60);
+        assert!(reaps.called("alice", start));
+        assert!(!reaps.called("alice", minutes(1)));
+        assert!(reaps.called("bob", minutes(1)));
+        assert_eq!(reaps.due("alice", minutes(5)), Some(minutes(6)));
+        assert_eq!(reaps.due("alice", minutes(6)), None);
+        assert!(reaps.called("alice", minutes(7)));
+    }
 
     #[test]
     fn names_are_prefixed_slugs() {

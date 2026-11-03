@@ -2,20 +2,21 @@
 //! notifications (review requests, mentions, assignments, failed CI and
 //! pull requests in watched repositories all show up there, account-wide),
 //! Fastmail, and Gmail or Outlook while their trigger is not set up or the
-//! realtime channel is down.
+//! realtime channel is down. A source whose app left the catalog is not
+//! polled, though its account and cursor stay.
 
 use super::{Topic, normalize, submit, triggers};
 use crate::{
     app::App,
-    apps::connected_slugs,
+    apps::{catalog_app, connected_slugs},
     feeds::mail::{self, Mailbox},
     store::Feed,
     user::{Topics, User},
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration as Days, SecondsFormat, Utc};
-use serde_json::json;
-use std::sync::Arc;
+use serde_json::{Value, json};
+use std::{collections::HashSet, sync::Arc};
 use strum::IntoStaticStr;
 
 /// How far back a source's first poll reads, so connecting does not replay
@@ -25,7 +26,8 @@ const FIRST_LOOKBACK: Days = Days::minutes(10);
 /// key drops what it saw already.
 const OVERLAP: Days = Days::minutes(2);
 const GITHUB_PAGE: u32 = 50;
-const GITHUB_MAX_PAGES: u32 = 5;
+/// The most pages of notifications one poll reads.
+const GITHUB_MAX_PAGES: u32 = 20;
 const GITHUB_TOPICS: [Topic; 7] = [
     Topic::GithubReviews,
     Topic::GithubMentions,
@@ -52,6 +54,20 @@ enum PollSource {
 impl PollSource {
     fn as_str(self) -> &'static str {
         self.into()
+    }
+
+    /// The catalog app the source reads.
+    fn app(self) -> &'static str {
+        match self.mailbox() {
+            Some(mailbox) => mailbox.slug(),
+            None => "github",
+        }
+    }
+
+    /// Whether the source's app is still in the catalog. One taken out is
+    /// left alone, even for users who connected it before.
+    fn listed(self) -> bool {
+        catalog_app(self.app()).is_some()
     }
 
     fn mailbox(self) -> Option<Mailbox> {
@@ -110,9 +126,12 @@ pub(super) async fn poll_user(app: &Arc<App>, user: &Arc<User>) {
 async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
     let mut sources = Vec::new();
     let wants_github = GITHUB_TOPICS.iter().any(|topic| topics.is_on(*topic));
-    if wants_github && let Some(client) = user.composio_client() {
+    if wants_github
+        && PollSource::Github.listed()
+        && let Some(client) = user.composio_client()
+    {
         match connected_slugs(&client, user.external_id()).await {
-            Ok(slugs) if slugs.contains("github") => sources.push(PollSource::Github),
+            Ok(slugs) if polls_github(&slugs) => sources.push(PollSource::Github),
             Ok(_) => {}
             Err(error) => log::warn!("events: unable to list accounts: {error:#}"),
         }
@@ -140,11 +159,17 @@ async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
                         })
             }
         };
-        if !triggered {
+        if !triggered && source.listed() {
             sources.push(source);
         }
     }
     sources
+}
+
+/// Whether GitHub notifications are polled for a user with the Composio
+/// accounts `connected`.
+fn polls_github(connected: &HashSet<String>) -> bool {
+    PollSource::Github.listed() && connected.contains(PollSource::Github.app())
 }
 
 /// Queues the GitHub notifications updated since `since`, and returns how
@@ -153,35 +178,54 @@ async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usi
     let Some(client) = user.composio_client() else {
         return Ok(0);
     };
-    let mut found = 0;
-    for page in 1..=GITHUB_MAX_PAGES {
+    let since = since.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let notifications = read_pages(|page| {
+        let client = client.clone();
         let arguments = json!({
-            "since": since.to_rfc3339_opts(SecondsFormat::Secs, true),
+            "since": since,
             "per_page": GITHUB_PAGE,
             "page": page,
         });
-        let response = client
-            .execute_tool("GITHUB_LIST_NOTIFICATIONS", arguments)
-            .await?;
-        if response.successful == Some(false) {
-            bail!("GitHub notifications failed");
-        }
-        let notifications = response.data["notifications"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        let count = notifications.len();
-        found += count;
-        for notification in &notifications {
-            if let Some(event) = normalize::from_github_notification(notification) {
-                submit(app, user.id(), event).await;
+        async move {
+            let response = client
+                .execute_tool("GITHUB_LIST_NOTIFICATIONS", arguments)
+                .await?;
+            if response.successful == Some(false) {
+                bail!("GitHub notifications failed");
             }
+            Ok(response.data["notifications"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default())
         }
-        if u32::try_from(count).is_ok_and(|count| count < GITHUB_PAGE) {
-            break;
+    })
+    .await?;
+    for notification in &notifications {
+        if let Some(event) = normalize::from_github_notification(notification) {
+            submit(app, user.id(), event).await;
         }
     }
-    Ok(found)
+    Ok(notifications.len())
+}
+
+/// Every item `fetch` gives from page 1 on, until a page comes back empty
+/// or `GITHUB_MAX_PAGES` were read. A short page is not taken as the last:
+/// the page size the tool honours may be below the one asked for.
+async fn read_pages<F, Fut>(mut fetch: F) -> Result<Vec<Value>>
+where
+    F: FnMut(u32) -> Fut,
+    Fut: Future<Output = Result<Vec<Value>>>,
+{
+    let mut items = Vec::new();
+    for page in 1..=GITHUB_MAX_PAGES {
+        let found = fetch(page).await?;
+        if found.is_empty() {
+            return Ok(items);
+        }
+        items.extend(found);
+    }
+    log::warn!("events: stopped after {GITHUB_MAX_PAGES} pages of GitHub notifications");
+    Ok(items)
 }
 
 /// Queues the unread mail of `mailbox` received since `since`.
@@ -199,4 +243,52 @@ async fn poll_mail(
         }
     }
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apps_left_out_of_the_catalog_are_not_polled() {
+        let connected = HashSet::from(["github".to_owned(), "gmail".to_owned()]);
+        assert!(!polls_github(&connected));
+        assert!(!PollSource::Github.listed());
+        for source in [PollSource::Gmail, PollSource::Outlook, PollSource::Fastmail] {
+            assert!(source.listed(), "{}", source.as_str());
+        }
+    }
+
+    #[tokio::test]
+    async fn every_page_is_read_until_one_is_empty() {
+        let pages = [vec![json!(1), json!(2)], vec![json!(3)], vec![json!(4)]];
+        let mut asked = Vec::new();
+        let read = read_pages(|page| {
+            asked.push(page);
+            let index = usize::try_from(page - 1).expect("a small page number");
+            let found = pages.get(index).cloned().unwrap_or_default();
+            async move { Ok(found) }
+        })
+        .await
+        .expect("the pages read");
+        assert_eq!(read, [json!(1), json!(2), json!(3), json!(4)]);
+        assert_eq!(asked, [1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn reading_stops_at_the_page_limit() {
+        let mut asked = 0;
+        let read = read_pages(|_| {
+            asked += 1;
+            let found = vec![json!(asked)];
+            async move { Ok(found) }
+        })
+        .await
+        .expect("the pages read");
+        assert_eq!(
+            read.len(),
+            usize::try_from(GITHUB_MAX_PAGES).expect("a small limit")
+        );
+        assert_eq!(asked, GITHUB_MAX_PAGES);
+    }
 }
