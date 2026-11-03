@@ -3,12 +3,16 @@
 //! clones. Both hosts answer these calls with the same fields; only the
 //! paging parameter differs.
 
-use super::host::{Caller, HostError};
+use super::host::{Caller, HostError, Page};
 use crate::projects::{branches::branch_name, model::RepoName};
-use serde::Deserialize;
+use reqwest::Url;
+use serde::{Deserialize, de::DeserializeOwned};
 
 /// The most forks, or open pull requests, one page reads.
 const PAGE: &str = "50";
+/// The most pages of one list read, so a huge repository cannot keep an
+/// import calling its host.
+const MAX_PAGES: usize = 20;
 
 /// Which API the calls go to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,12 +110,15 @@ pub(crate) async fn find(
     let Some(name) = fork_of(caller, lookup, base, &login, &parent.full_name).await? else {
         return Ok(None);
     };
-    let pulls: Vec<Pull> = caller
-        .get(&format!(
+    let pulls: Vec<Pull> = all_pages(
+        caller,
+        format!(
             "{base}/repos/{upstream}/pulls?state=open&{}",
             lookup.api.page()
-        ))
-        .await?;
+        ),
+        |_| false,
+    )
+    .await?;
     Ok(Some(Fork {
         branches: branches_from(&pulls, &login, &name),
         name,
@@ -143,20 +150,51 @@ async fn fork_of(
         Ok(_) | Err(HostError::Status { status: 404, .. }) => {}
         Err(e) => return Err(e),
     }
-    let forks: Vec<Repo> = caller
-        .get(&format!(
-            "{base}/repos/{upstream}/forks?{}",
-            lookup.api.page()
-        ))
-        .await?;
+    let owned = |repo: &Repo| {
+        repo.owner
+            .as_ref()
+            .is_some_and(|owner| owner.login.eq_ignore_ascii_case(login))
+    };
+    let forks: Vec<Repo> = all_pages(
+        caller,
+        format!("{base}/repos/{upstream}/forks?{}", lookup.api.page()),
+        |page| page.iter().any(owned),
+    )
+    .await?;
     Ok(forks
         .iter()
-        .find(|repo| {
-            repo.owner
-                .as_ref()
-                .is_some_and(|owner| owner.login.eq_ignore_ascii_case(login))
-        })
+        .find(|repo| owned(repo))
         .and_then(|repo| RepoName::parse(&repo.full_name).ok()))
+}
+
+/// Every item of the list at `first`, page by page as the host's `Link`
+/// header leads, up to `MAX_PAGES`. Stops after a page `found` is true for.
+/// A next page on another host is not followed, so the token stays with
+/// the host it is for.
+async fn all_pages<T: DeserializeOwned>(
+    caller: &Caller<'_>,
+    first: String,
+    found: impl Fn(&[T]) -> bool,
+) -> Result<Vec<T>, HostError> {
+    let origin = Url::parse(&first).ok().map(|url| url.origin());
+    let mut items = Vec::new();
+    let mut url = Some(first);
+    for _ in 0..MAX_PAGES {
+        let Some(at) = url.take() else {
+            break;
+        };
+        let page: Page<Vec<T>> = caller.get_page(&at).await?;
+        let done = found(&page.items);
+        items.extend(page.items);
+        if done {
+            break;
+        }
+        url = page.next.filter(|next| {
+            let next = Url::parse(next).ok().map(|url| url.origin());
+            next.is_some() && next == origin
+        });
+    }
+    Ok(items)
 }
 
 /// The head branches of `login`'s pull requests made from `fork`, once
@@ -199,8 +237,17 @@ mod tests {
     /// A host that answers each path from `routes` and 404 otherwise, and
     /// checks every call carries the token.
     async fn host(routes: HashMap<&'static str, &'static str>) -> String {
+        paged_host(routes, HashMap::new()).await
+    }
+
+    /// `host`, whose reply to each path in `next` links to the page there.
+    async fn paged_host(
+        routes: HashMap<&'static str, &'static str>,
+        next: HashMap<&'static str, &'static str>,
+    ) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
         let base = format!("http://{}", listener.local_addr().expect("an address"));
+        let here = base.clone();
         tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let mut data = Vec::new();
@@ -222,8 +269,12 @@ mod tests {
                     Some(_) => ("401 Unauthorized", "{}"),
                     None => ("404 Not Found", r#"{"message":"Not Found"}"#),
                 };
+                let link = next
+                    .get(path.as_str())
+                    .map(|next| format!("Link: <{here}{next}>; rel=\"next\"\r\n"))
+                    .unwrap_or_default();
                 let reply = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n{link}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 stream
@@ -328,6 +379,54 @@ mod tests {
             .expect("a fork");
         assert_eq!(fork.name.to_string(), "octo/widget-fork");
         assert_eq!(fork.branches, ["fix"]);
+    }
+
+    #[tokio::test]
+    async fn the_fork_and_branches_on_later_pages_are_found() {
+        let base = paged_host(
+            HashMap::from([
+                ("/repos/acme/widget", UPSTREAM),
+                (
+                    "/repos/octo/widget",
+                    r#"{"full_name": "octo/widget", "fork": false}"#,
+                ),
+                (
+                    "/repos/acme/widget/forks?per_page=50",
+                    r#"[{"full_name": "someone/widget", "owner": {"login": "someone"}}]"#,
+                ),
+                (
+                    "/repos/acme/widget/forks?per_page=50&page=2",
+                    r#"[{"full_name": "octo/widget-fork", "owner": {"login": "octo"}}]"#,
+                ),
+                (
+                    "/repos/acme/widget/pulls?state=open&per_page=50",
+                    r#"[{"user": {"login": "octo"},
+                         "head": {"ref": "first", "repo": {"full_name": "octo/widget-fork"}}}]"#,
+                ),
+                (
+                    "/repos/acme/widget/pulls?state=open&per_page=50&page=2",
+                    r#"[{"user": {"login": "octo"},
+                         "head": {"ref": "second", "repo": {"full_name": "octo/widget-fork"}}}]"#,
+                ),
+            ]),
+            HashMap::from([
+                (
+                    "/repos/acme/widget/forks?per_page=50",
+                    "/repos/acme/widget/forks?per_page=50&page=2",
+                ),
+                (
+                    "/repos/acme/widget/pulls?state=open&per_page=50",
+                    "/repos/acme/widget/pulls?state=open&per_page=50&page=2",
+                ),
+            ]),
+        )
+        .await;
+        let fork = look(&base, Api::GitHub, "acme/widget", Some("octo"))
+            .await
+            .expect("the host answers")
+            .expect("a fork");
+        assert_eq!(fork.name.to_string(), "octo/widget-fork");
+        assert_eq!(fork.branches, ["first", "second"]);
     }
 
     #[tokio::test]
