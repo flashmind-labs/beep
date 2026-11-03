@@ -5,7 +5,7 @@
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
-import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView } from "./providers-state.ts";
 import { emptyPanel } from "./components/parts.ts";
 
@@ -224,7 +224,7 @@ export function registerProviders(deps: ProvidersDeps) {
       out.push(row(`${name} does not say whether it is signed in. Run it on ${m} to sign in.`));
     }
     if (!hv.runnable) out.push(h("div", "hv-note", "Beep cannot start it yet: beep-node finds the agent and its ACP adapter when it starts. Restart beep-node after installing."));
-    if (hv.latest && versionLine(hv).includes("out")) {
+    if (hasUpdate(hv)) {
       const up = button(busy ? "Updating…" : `Update to v${hv.latest}`, "", () => update([hv.agent]));
       up.disabled = busy || !hv.install;
       if (!hv.install) up.title = "Beep knows no way to update it here";
