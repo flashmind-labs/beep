@@ -7,6 +7,7 @@ use super::{
     compaction::{COMPACTED_ENTRY, Usage},
     image_files,
     images::{Images, Picture, data_url},
+    usage::{UsageHub, claude_rate_limit},
 };
 use agent_client_protocol::schema::{
     MaybeUndefined,
@@ -18,15 +19,19 @@ use agent_client_protocol::schema::{
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::node::agent::{
-    AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question, SessionInfo,
-    Status, StopReason,
+use beep_proto::node::{
+    agent::{
+        AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question, SessionInfo,
+        Status, StopReason,
+    },
+    usage::{ModelTokens, TurnUsage},
 };
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -45,6 +50,10 @@ const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
 const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
 
+/// The `_meta` key claude-agent-acp forwards Claude Code's rate limit
+/// events under, in a `usage_update`.
+const CLAUDE_RATE_LIMIT: &str = "_claude/rateLimit";
+
 /// ACP tool kinds that change files.
 const EDIT_KINDS: &[ToolKind] = &[ToolKind::Edit, ToolKind::Delete, ToolKind::Move];
 
@@ -58,7 +67,7 @@ pub(crate) struct Live {
     pub(crate) agent_session: Option<String>,
     /// How full the context window is, as the agent last said. Kept on
     /// the node: the server is not told.
-    pub(crate) usage: Option<Usage>,
+    pub(crate) context: Option<Usage>,
     /// The names of the slash commands the agent advertises, such as
     /// `compact`.
     pub(crate) commands: Vec<String>,
@@ -80,6 +89,21 @@ pub(crate) struct Live {
     turn_start: u64,
     /// Image files the agent linked to this turn, as it named them.
     turn_links: Vec<String>,
+    /// Where finished turns' spending and plan limits go, shared by the
+    /// node's sessions.
+    usage: Arc<UsageHub>,
+    /// The session's cost so far as the agent last said, in US dollars:
+    /// the agent reports a running total.
+    cost_seen: f64,
+    /// What the session cost since the last turn was counted.
+    unbilled: Option<f64>,
+}
+
+/// The tokens one turn used, as its prompt response says.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct TurnTokens {
+    pub(crate) total: u64,
+    pub(crate) models: Vec<ModelTokens>,
 }
 
 /// The image files a finished turn named, for the session to read and
@@ -110,11 +134,57 @@ struct ToolCall {
 }
 
 impl Live {
-    pub(crate) fn new(info: SessionInfo, images: Arc<Images>) -> Self {
+    pub(crate) fn new(info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
         Self {
             info,
             images,
+            usage,
             ..Self::default()
+        }
+    }
+
+    /// Counts what the session spent since the last count, with `tokens`
+    /// the turn used, as a finished turn. Nothing when it spent nothing.
+    pub(crate) fn spent(&mut self, tokens: TurnTokens) {
+        let cost_usd = self.unbilled.take();
+        if tokens.total == 0 && tokens.models.is_empty() && cost_usd.is_none() {
+            return;
+        }
+        self.usage.record(TurnUsage {
+            session: self.info.id.clone(),
+            agent: self.info.agent.clone(),
+            cwd: self.info.cwd.clone(),
+            at: unix_now(),
+            cost_usd,
+            tokens: tokens.total,
+            models: tokens.models,
+        });
+    }
+
+    /// Takes a `usage_update`'s running cost and the rate limits it carries.
+    fn usage_update(
+        &mut self,
+        cost: Option<(f64, &str)>,
+        meta: Option<&serde_json::Map<String, Value>>,
+    ) {
+        if let Some((amount, "USD")) = cost
+            && amount.is_finite()
+            && amount >= 0.0
+        {
+            // A total lower than before starts again, as after a restart.
+            let delta = if amount >= self.cost_seen {
+                amount - self.cost_seen
+            } else {
+                amount
+            };
+            self.cost_seen = amount;
+            if delta > 0.0 {
+                *self.unbilled.get_or_insert(0.0) += delta;
+            }
+        }
+        if let Some(info) = meta.and_then(|meta| meta.get(CLAUDE_RATE_LIMIT)) {
+            self.usage
+                .update_windows("claude", claude_rate_limit(info), unix_now());
         }
     }
 
@@ -276,10 +346,15 @@ impl Live {
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
-                self.usage = Some(Usage {
+                self.context = Some(Usage {
                     used: usage.used,
                     size: usage.size,
                 });
+                let cost = usage
+                    .cost
+                    .as_ref()
+                    .map(|cost| (cost.amount, cost.currency.as_str()));
+                self.usage_update(cost, usage.meta.as_ref());
             }
             SessionUpdate::AvailableCommandsUpdate(update) => {
                 self.commands = update
@@ -330,7 +405,7 @@ impl Live {
             return;
         }
         self.push(EntryKind::Other, COMPACTED_ENTRY);
-        self.usage = None;
+        self.context = None;
         self.compacted = true;
     }
 
@@ -665,6 +740,12 @@ fn detail(input: &Value) -> Option<String> {
 }
 
 /// `text` cut to at most `max` bytes, on a character boundary.
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}
+
 pub(crate) fn cut(text: &str, max: usize) -> String {
     let mut out = String::new();
     push_cut(&mut out, text, max);
@@ -739,6 +820,7 @@ mod tests {
                 cwd: "/srv/project".into(),
                 ..SessionInfo::default()
             },
+            Arc::default(),
             Arc::default(),
         )
     }
@@ -988,6 +1070,47 @@ mod tests {
         assert_eq!(entries[1].text, (MAX_ENTRIES + 2).to_string());
     }
 
+    #[tokio::test]
+    async fn a_running_cost_is_counted_per_turn() {
+        let usage = Arc::new(UsageHub::default());
+        let mut live = Live::new(
+            SessionInfo {
+                id: "a3f9c1".into(),
+                agent: "opencode".into(),
+                cwd: "/srv/project".into(),
+                ..SessionInfo::default()
+            },
+            Arc::default(),
+            usage.clone(),
+        );
+        let cost = |amount: f64| {
+            update(
+                json!({"sessionUpdate": "usage_update", "used": 9, "size": 10,
+                "cost": {"amount": amount, "currency": "USD"}}),
+            )
+        };
+        live.apply(&cost(0.5));
+        live.apply(&cost(1.25));
+        live.spent(TurnTokens {
+            total: 900,
+            models: Vec::new(),
+        });
+        let first = usage.next_turn().await;
+        assert_eq!(first.cost_usd, Some(1.25));
+        assert_eq!((first.tokens, first.agent.as_str()), (900, "opencode"));
+        live.apply(&cost(1.5));
+        live.spent(TurnTokens::default());
+        assert_eq!(usage.next_turn().await.cost_usd, Some(0.25));
+        // A turn that spent nothing is not counted.
+        live.spent(TurnTokens::default());
+        live.spent(TurnTokens {
+            total: 5,
+            models: Vec::new(),
+        });
+        let last = usage.next_turn().await;
+        assert_eq!((last.tokens, last.cost_usd), (5, None));
+    }
+
     #[test]
     fn usage_commands_and_compactions_are_kept() {
         let mut live = live();
@@ -995,7 +1118,7 @@ mod tests {
             json!({"sessionUpdate": "usage_update", "used": 900, "size": 1000})
         )));
         assert_eq!(
-            live.usage,
+            live.context,
             Some(Usage {
                 used: 900,
                 size: 1000
@@ -1018,7 +1141,7 @@ mod tests {
         assert_eq!(entries.len(), 1, "shown once");
         assert_eq!(entries[0].kind, EntryKind::Other);
         assert_eq!(entries[0].text, COMPACTED_ENTRY);
-        assert_eq!(live.usage, None, "the usage before no longer holds");
+        assert_eq!(live.context, None, "the usage before no longer holds");
         assert!(live.take_compacted());
         assert!(!live.take_compacted());
     }
