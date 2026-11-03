@@ -92,6 +92,45 @@ pub struct HourSpend {
     pub cost_usd: f64,
     /// The tokens no price covered, of a model the node has no price for.
     pub unpriced_tokens: u64,
+    /// How it was paid for. `Unknown` from a node from before it said.
+    pub billing: Billing,
+}
+
+/// How what an agent spent was paid for.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Billing {
+    /// A subscription covered it, such as a Claude or ChatGPT plan or
+    /// GitHub Copilot: the tokens cost nothing more.
+    Subscription,
+    /// Paid by the token: an API key, OpenRouter, Bedrock, Vertex.
+    Metered,
+    /// The node could not tell, or a newer node named a way this one does
+    /// not know.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+impl Billing {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Subscription => "subscription",
+            Self::Metered => "metered",
+        }
+    }
+
+    /// The billing `as_str` names; `Unknown` for any other name.
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "subscription" => Self::Subscription,
+            "metered" => Self::Metered,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 impl HourSpend {
@@ -161,6 +200,7 @@ mod tests {
                 cache_write_tokens: 40,
                 cost_usd: 0.5,
                 unpriced_tokens: 0,
+                billing: Billing::Metered,
             }],
         };
         let body = rmp_serde::to_vec_named(&spend).unwrap();
@@ -180,6 +220,39 @@ mod tests {
         let read: TurnUsage = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(read.tokens, 5);
         assert_eq!(read.agent_session, None);
+    }
+
+    #[test]
+    fn an_older_hour_and_a_newer_billing_read_as_unknown() {
+        #[derive(Serialize)]
+        struct OlderHour {
+            hour: u64,
+            cost_usd: f64,
+        }
+        let body = rmp_serde::to_vec_named(&OlderHour {
+            hour: 3_600,
+            cost_usd: 1.0,
+        })
+        .unwrap();
+        let read: HourSpend = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(read.billing, Billing::Unknown);
+
+        #[derive(Serialize)]
+        struct NewerHour {
+            hour: u64,
+            billing: &'static str,
+        }
+        let body = rmp_serde::to_vec_named(&NewerHour {
+            hour: 3_600,
+            billing: "prepaid",
+        })
+        .unwrap();
+        let read: HourSpend = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(read.billing, Billing::Unknown);
+        assert_eq!(
+            Billing::from_name(Billing::Metered.as_str()),
+            Billing::Metered
+        );
     }
 
     #[test]

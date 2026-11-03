@@ -29,7 +29,7 @@ const DEFAULT_LISTED: usize = 20;
 
 /// Claude Code's own folder: `~/.claude`, unless `CLAUDE_CONFIG_DIR` says
 /// otherwise. `None` without a home folder.
-fn config_dir() -> Option<PathBuf> {
+pub(crate) fn config_dir() -> Option<PathBuf> {
     match std::env::var_os("CLAUDE_CONFIG_DIR") {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
         _ => dirs::home_dir().map(|home| home.join(".claude")),

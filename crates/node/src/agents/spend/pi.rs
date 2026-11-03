@@ -20,6 +20,7 @@ struct Entry {
 #[derive(Deserialize)]
 struct Message {
     role: Option<String>,
+    provider: Option<String>,
     model: Option<String>,
     usage: Option<Usage>,
     /// Unix milliseconds.
@@ -54,6 +55,7 @@ pub(super) fn line(text: &str) -> Option<Line> {
         "session" => Some(Line::Session {
             id: entry.id?,
             cwd: entry.cwd.unwrap_or_default(),
+            provider: None,
         }),
         "message" => {
             let message = entry.message?;
@@ -81,6 +83,7 @@ pub(super) fn line(text: &str) -> Option<Line> {
                 model: message.model,
                 tokens,
                 cost_usd: usage.cost.map(|cost| cost.total),
+                provider: message.provider,
                 ..Request::default()
             }))
         }
@@ -103,6 +106,7 @@ mod tests {
         };
         assert_eq!(request.tokens.total(), 25849);
         assert_eq!(request.cost_usd, Some(0.0078));
+        assert_eq!(request.provider.as_deref(), Some("openrouter"));
         assert_eq!(request.at, 1_793_614_500);
         let user = r#"{"type":"message","message":{"role":"user","content":"hi"}}"#;
         assert!(line(user).is_none());

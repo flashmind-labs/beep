@@ -8,8 +8,9 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    AgentSlug, AgentTokens, GetUsage, GetUsageReport, HarnessSpend, PeriodSpend, PlanLimits,
-    PlanWindow, ProjectSpend, UsageReport, UsageView,
+    AgentSlug, AgentTokens, GetSpendReport, GetUsage, GetUsageReport, HarnessBill, HarnessSpend,
+    ModelSpend, PeriodSpend, PlanLimits, PlanWindow, ProjectBill, ProjectSpend, SpendPeriod,
+    SpendReport, UsageReport, UsageView,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -26,6 +27,10 @@ pub struct UsageRow {
     week: PeriodRow,
     /// `None` from a server from before `GetUsageReport`.
     month: Option<PeriodRow>,
+    /// The dollars are metered API spend only, subscription use apart;
+    /// false from a server from before `GetSpendReport`, whose dollars
+    /// price every token at API prices.
+    metered: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +63,10 @@ pub struct SpendRow {
     project: String,
     cost_usd: f64,
     unpriced: Vec<TokensRow>,
+    /// The tokens of metered use; 0 from an older server.
+    metered_tokens: u64,
+    /// The tokens a subscription covered, by agent.
+    subscription: Vec<TokensRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,6 +78,8 @@ pub struct TokensRow {
 #[derive(Debug, Serialize)]
 pub struct HarnessRow {
     agent: AgentSlug,
+    /// A subscription covered it: tokens only.
+    subscription: bool,
     cost_usd: Option<f64>,
     tokens: u64,
     models: Vec<TokensRow>,
@@ -112,6 +123,71 @@ impl From<ProjectSpend> for SpendRow {
             project: s.project,
             cost_usd: s.cost_usd,
             unpriced: s.unpriced.into_iter().map(Into::into).collect(),
+            metered_tokens: 0,
+            subscription: Vec::new(),
+        }
+    }
+}
+
+impl From<ProjectBill> for SpendRow {
+    fn from(b: ProjectBill) -> Self {
+        Self {
+            project: b.project,
+            cost_usd: b.cost_usd,
+            unpriced: Vec::new(),
+            metered_tokens: b.metered_tokens,
+            subscription: b.subscription.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+fn model_rows(models: Vec<ModelSpend>) -> Vec<TokensRow> {
+    models
+        .into_iter()
+        .map(|m| TokensRow {
+            name: m.model.to_string(),
+            tokens: m.tokens,
+        })
+        .collect()
+}
+
+impl From<HarnessBill> for HarnessRow {
+    fn from(h: HarnessBill) -> Self {
+        Self {
+            agent: h.agent,
+            subscription: h.subscription,
+            cost_usd: h.cost_usd,
+            tokens: h.tokens,
+            models: model_rows(h.models),
+        }
+    }
+}
+
+impl From<SpendPeriod> for PeriodRow {
+    fn from(p: SpendPeriod) -> Self {
+        Self {
+            total: SpendRow {
+                project: String::new(),
+                cost_usd: p.cost_usd,
+                unpriced: Vec::new(),
+                metered_tokens: p.metered_tokens,
+                subscription: Vec::new(),
+            },
+            tokens: p.metered_tokens.saturating_add(p.subscription_tokens),
+            projects: p.projects.into_iter().map(Into::into).collect(),
+            harnesses: p.harnesses.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<SpendReport> for UsageRow {
+    fn from(r: SpendReport) -> Self {
+        Self {
+            limits: r.limits.into_iter().map(Into::into).collect(),
+            today: r.today.into(),
+            week: r.week.into(),
+            month: Some(r.month.into()),
+            metered: true,
         }
     }
 }
@@ -120,16 +196,10 @@ impl From<HarnessSpend> for HarnessRow {
     fn from(h: HarnessSpend) -> Self {
         Self {
             agent: h.agent,
+            subscription: false,
             cost_usd: h.cost_usd,
             tokens: h.tokens,
-            models: h
-                .models
-                .into_iter()
-                .map(|m| TokensRow {
-                    name: m.model.to_string(),
-                    tokens: m.tokens,
-                })
-                .collect(),
+            models: model_rows(h.models),
         }
     }
 }
@@ -152,6 +222,7 @@ impl From<UsageReport> for UsageRow {
             today: r.today.into(),
             week: r.week.into(),
             month: Some(r.month.into()),
+            metered: false,
         }
     }
 }
@@ -188,6 +259,7 @@ impl From<UsageView> for UsageRow {
             today: today.into(),
             week: week.into(),
             month: None,
+            metered: false,
         }
     }
 }
@@ -196,6 +268,11 @@ impl From<UsageView> for UsageRow {
 /// the pill hides. `refresh` has the machines read the plans again.
 #[tauri::command]
 pub async fn usage_get(beep: Service<'_>, refresh: bool) -> Result<Option<UsageRow>> {
+    match beep.call(GetSpendReport { refresh }).await {
+        Ok(report) => return Ok(Some(report.into())),
+        Err(e) if unknown_op(&e) => {}
+        Err(e) => return Err(e),
+    }
     match beep.call(GetUsageReport { refresh }).await {
         Ok(report) => return Ok(Some(report.into())),
         Err(e) if unknown_op(&e) => {}
