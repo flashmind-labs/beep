@@ -236,21 +236,23 @@ function drawModels() {
   placePicker();
 }
 
-/// Puts the picker by its pill, whole and inside the form's pane: above
-/// the pill when it fits, else below, else cut to the roomier side.
+/// Puts the picker under the box, its right edge at the pill's, whole and
+/// inside the form's pane: above the box when it does not fit below, else
+/// cut to the roomier side, where its columns scroll.
 function placePicker() {
-  const pick = $<HTMLElement>(".agc-pick"), pill = $("#agpillb");
-  if (!pick || !pill) return;
-  pick.style.maxHeight = "";
+  const pick = $<HTMLElement>(".agc-pick"), pill = $("#agpillb"), box = $("#agbox");
+  if (!pick || !pill || !box) return;
+  pick.style.removeProperty("--pick-h");
   pick.style.width = "";
-  const pane = bar.getBoundingClientRect(), a = pill.getBoundingClientRect();
+  const pane = bar.getBoundingClientRect(), a = pill.getBoundingClientRect(), b = box.getBoundingClientRect();
   const top = Math.max(0, pane.top), left = Math.max(0, pane.left);
   const view = { width: Math.min(pane.right, innerWidth) - left, height: Math.min(pane.bottom, innerHeight) - top };
-  const at = placePopover({ top: a.top - top, left: a.left - left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.scrollHeight }, view);
+  const anchor = { top: b.top - top, left: a.left - left, width: a.width, height: b.height };
+  const at = placePopover(anchor, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
   pick.style.top = `${at.top + top}px`;
   pick.style.left = `${at.left + left}px`;
   pick.style.width = `${at.width}px`;
-  pick.style.maxHeight = at.maxHeight === null ? "" : `${at.maxHeight}px`;
+  pick.style.setProperty("--pick-h", at.maxHeight === null ? "" : `${at.maxHeight}px`);
 }
 
 addEventListener("resize", () => { if (S.view === "agentnew") { placePicker(); placeMenu(); } });
