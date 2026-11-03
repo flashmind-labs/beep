@@ -122,6 +122,7 @@ const OWN: &[&str] = &[
     "crons",
     "grants",
     "instructions_versions",
+    "flsh_settings",
 ];
 
 impl Store {
@@ -420,8 +421,8 @@ async fn move_rows(
     Ok(())
 }
 
-/// Habits, skills and the last location, which each merge in their own
-/// way.
+/// Habits, skills, the last location and the flsh settings, which each
+/// merge in their own way.
 async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     // A habit both track keeps the target's, with the source's logs.
     sqlx::query(
@@ -460,6 +461,17 @@ async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Res
         .bind(target)
         .execute(&mut *tx)
         .await?;
+    // One row of flsh settings per user: the target's stays when both
+    // have one.
+    sqlx::query(
+        "DELETE FROM flsh_settings WHERE user_id=$1
+         AND EXISTS (SELECT 1 FROM flsh_settings WHERE user_id=$2)",
+    )
+    .bind(source)
+    .bind(target)
+    .execute(&mut *tx)
+    .await?;
+    move_rows(tx, "flsh_settings", &[], source, target).await?;
     // A timezone the target never set comes from the source.
     sqlx::query(
         "UPDATE users t SET timezone = s.timezone FROM users s

@@ -27,6 +27,7 @@ mod events;
 mod feeds;
 mod files;
 mod findings;
+mod flsh_settings;
 mod grants;
 mod groups;
 mod habits;
@@ -526,6 +527,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         92,
         "project webhooks",
         include_str!("../../migrations/0092_project_webhooks.sql"),
+    ),
+    (
+        97,
+        "flsh settings",
+        include_str!("../../migrations/0097_flsh_settings.sql"),
     ),
 ];
 

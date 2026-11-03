@@ -2,7 +2,7 @@
 //! knows (version, newest version, where it is, its sign-in), updating
 //! one, and the user's settings for each, applied when one starts.
 
-use super::{Adapter, AgentKind, KNOWN, unix_now};
+use super::{Adapter, AgentKind, KNOWN, flsh_config, models::flsh_config_dir, unix_now};
 use crate::{
     AsyncMutex,
     env::{claude_logged_in, opencode_logged_in, output},
@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::harness::{
     AgentSettings, HARNESSES, HarnessConfig, HarnessInfo, HarnessReport, harness, parse_version,
 };
+use beep_proto::{AgentSlug, FlshSettings};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -34,13 +35,20 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// The most of an update's output kept to say why it failed.
 const MAX_FAILURE: usize = 600;
 
-/// The user's settings for each harness, by agent, as the server last sent
-/// them.
+/// The user's settings for the harnesses, as the server last sent them.
 #[derive(Default)]
-pub(super) struct Settings(Mutex<HashMap<String, HarnessConfig>>);
+pub(super) struct Settings(Mutex<Saved>);
+
+#[derive(Default)]
+struct Saved {
+    /// Each harness's, by agent.
+    harnesses: HashMap<String, HarnessConfig>,
+    /// flsh's own, written to its config before it starts.
+    flsh: Option<FlshSettings>,
+}
 
 impl Settings {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, HarnessConfig>> {
+    fn lock(&self) -> MutexGuard<'_, Saved> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -52,17 +60,50 @@ impl Settings {
             .map(|config| (config.agent.clone(), config))
             .collect();
         log::info!(
-            "harness settings: {} harnesses, {} off",
+            "harness settings: {} harnesses, {} off, flsh settings {}",
             harnesses.len(),
-            harnesses.values().filter(|config| !config.enabled).count()
+            harnesses.values().filter(|config| !config.enabled).count(),
+            if settings.flsh.is_some() {
+                "set"
+            } else {
+                "unset"
+            },
         );
-        *self.lock() = harnesses;
+        *self.lock() = Saved {
+            harnesses,
+            flsh: settings.flsh,
+        };
+    }
+
+    /// Writes the user's flsh settings into the config `kind` (as
+    /// `configured` gives it) reads, before it starts. Nothing for another
+    /// agent, or while the user has none. An error when they cannot be
+    /// written: flsh must not start without a setting such as zero data
+    /// retention.
+    pub(super) async fn prepare(&self, kind: &AgentKind) -> Result<()> {
+        if AgentSlug::FLSH != kind.name.as_str() {
+            return Ok(());
+        }
+        let Some(flsh) = self.lock().flsh.clone() else {
+            return Ok(());
+        };
+        // flsh runs with the kind's variables on top of the node's own.
+        let env = |name: &str| match kind.env.get(name) {
+            Some(value) => Some(OsString::from(value)),
+            None => std::env::var_os(name),
+        };
+        let dir = flsh_config_dir(&env, dirs::home_dir().as_deref())
+            .context("flsh's config folder is not known")?;
+        tokio::task::spawn_blocking(move || flsh_config::apply(&dir, &flsh))
+            .await
+            .context("writing flsh's settings stopped")?
+            .context("Beep's flsh settings could not be written to flsh's config")
     }
 
     /// How `kind` starts with the user's settings; an error when they
     /// turned it off.
     pub(super) fn configured(&self, kind: &AgentKind) -> Result<AgentKind> {
-        match self.lock().get(&kind.name) {
+        match self.lock().harnesses.get(&kind.name) {
             Some(config) => {
                 ensure!(
                     config.enabled,
@@ -76,7 +117,7 @@ impl Settings {
     }
 
     fn get(&self, agent: &str) -> Option<HarnessConfig> {
-        self.lock().get(agent).cloned()
+        self.lock().harnesses.get(agent).cloned()
     }
 }
 
@@ -475,6 +516,49 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn flsh_settings_go_to_the_config_its_home_names() {
+        let home = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let settings = Settings::default();
+        settings.set(AgentSettings {
+            harnesses: vec![
+                HarnessConfig {
+                    home: Some(home.path().display().to_string()),
+                    ..HarnessConfig::new("flsh")
+                },
+                HarnessConfig {
+                    home: Some(other.path().display().to_string()),
+                    ..HarnessConfig::new("pi")
+                },
+            ],
+            flsh: Some(FlshSettings {
+                zdr: Some(true),
+                ..FlshSettings::default()
+            }),
+        });
+        let flsh = settings.configured(&kind("flsh")).unwrap();
+        settings.prepare(&flsh).await.unwrap();
+        let written = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
+        assert!(written.contains("zdr = true"), "{written}");
+        // Another agent's start writes nothing.
+        let pi = settings.configured(&kind("pi")).unwrap();
+        settings.prepare(&pi).await.unwrap();
+        assert!(!other.path().join("config.toml").exists());
+        // Without flsh settings, flsh's config is left as it is.
+        let untouched = tempfile::tempdir().unwrap();
+        settings.set(AgentSettings {
+            harnesses: vec![HarnessConfig {
+                home: Some(untouched.path().display().to_string()),
+                ..HarnessConfig::new("flsh")
+            }],
+            flsh: None,
+        });
+        let flsh = settings.configured(&kind("flsh")).unwrap();
+        settings.prepare(&flsh).await.unwrap();
+        assert!(!untouched.path().join("config.toml").exists());
+    }
+
     #[test]
     fn settings_change_the_launch_command() {
         let config = HarnessConfig {
@@ -490,6 +574,7 @@ mod tests {
         let settings = Settings::default();
         settings.set(AgentSettings {
             harnesses: vec![config],
+            ..AgentSettings::default()
         });
         let started = settings.configured(&kind("codex")).unwrap();
         assert_eq!(started.program, "/opt/codex/bin/codex-acp");
@@ -509,6 +594,7 @@ mod tests {
                 enabled: false,
                 ..HarnessConfig::new("codex")
             }],
+            ..AgentSettings::default()
         });
         let refused = settings.configured(&kind("codex")).unwrap_err();
         assert!(refused.to_string().contains("turned off"), "{refused}");

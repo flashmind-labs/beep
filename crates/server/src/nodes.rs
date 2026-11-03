@@ -187,6 +187,17 @@ impl Nodes {
         }
     }
 
+    /// Tells every node of the user that is online and takes them to
+    /// fetch its harness settings again, as when settings shared by all
+    /// machines change.
+    pub fn agent_settings_changed_everywhere(&self, user: &str) {
+        for online in self.lock().values().filter(|online| online.user == user) {
+            if let Some(changed) = &online.agent_settings {
+                changed.notify_one();
+            }
+        }
+    }
+
     fn insert(&self, node: EndpointId, online: Online) {
         // A node that reconnects replaces its old connection.
         if let Some(old) = self.lock().insert(node, online) {

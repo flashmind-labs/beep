@@ -88,6 +88,25 @@ pub(super) async fn save_harness_settings(
     Ok(())
 }
 
+pub(super) async fn get_flsh_settings(
+    cx: Cx,
+    GetFlshSettings {}: GetFlshSettings,
+) -> Reply<FlshSettings> {
+    Ok(cx.user.flsh_settings().await?.unwrap_or_default())
+}
+
+pub(super) async fn save_flsh_settings(
+    cx: Cx,
+    SaveFlshSettings { settings }: SaveFlshSettings,
+) -> Reply<()> {
+    settings
+        .check()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    cx.user.save_flsh_settings(&settings).await?;
+    cx.app.nodes.agent_settings_changed_everywhere(cx.user.id());
+    Ok(())
+}
+
 pub(super) async fn update_agent_harness(
     cx: Cx,
     UpdateAgentHarness { machine_id, agent }: UpdateAgentHarness,

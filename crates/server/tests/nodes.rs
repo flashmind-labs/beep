@@ -11,6 +11,9 @@ use beep_server::protocol::node::{
     AppInfo, AppName, GpuInfo, GpuVendor, LinkRx, LinkTx,
     desktop::{self, Reply, Screenshot},
 };
+use beep_server::protocol::{
+    FlshAutoCompact, FlshModelRule, FlshSettings, FlshSort, GetFlshSettings, SaveFlshSettings,
+};
 use beep_server::{
     app::{App, ServerTools},
     client::{Client, Node},
@@ -1656,6 +1659,55 @@ async fn a_harness_turned_off_is_not_offered() {
         .unwrap();
     let hosts = client.call(&ListAgentHosts {}).await.unwrap();
     assert_eq!(hosts[0].agents, ["claude"]);
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn flsh_settings_save_read_back_and_refuse_bad_values() {
+    let center = CommandCenter::new(1).await;
+    let (_node, client) = center.phone(0).await;
+    assert_eq!(
+        client.call(&GetFlshSettings {}).await.unwrap(),
+        FlshSettings::default()
+    );
+    let settings = FlshSettings {
+        zdr: Some(true),
+        sort: Some(FlshSort::Price),
+        models: vec![FlshModelRule {
+            model: "openrouter:vendor/model".parse().unwrap(),
+            autocompact: FlshAutoCompact {
+                enabled: true,
+                tokens: Some(80_000),
+            },
+        }],
+        ..FlshSettings::default()
+    };
+    client
+        .call(&SaveFlshSettings {
+            settings: settings.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(client.call(&GetFlshSettings {}).await.unwrap(), settings);
+    let too_small = FlshSettings {
+        autocompact: Some(FlshAutoCompact {
+            enabled: true,
+            tokens: Some(10),
+        }),
+        ..FlshSettings::default()
+    };
+    let refused = client
+        .call(&SaveFlshSettings {
+            settings: too_small,
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        refused.downcast::<ApiError>().unwrap(),
+        ApiError::BadRequest { .. }
+    ));
+    // A refused save keeps the settings before.
+    assert_eq!(client.call(&GetFlshSettings {}).await.unwrap(), settings);
     center.shutdown().await;
 }
 

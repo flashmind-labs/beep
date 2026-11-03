@@ -1023,6 +1023,19 @@ impl User {
         self.store.save_harness_settings(&self.key, key, save).await
     }
 
+    /// The user's flsh settings; `None` until they save some.
+    pub(crate) async fn flsh_settings(&self) -> Result<Option<crate::protocol::FlshSettings>> {
+        self.store.flsh_settings(&self.key).await
+    }
+
+    /// Saves the user's flsh settings in place of the ones before.
+    pub(crate) async fn save_flsh_settings(
+        &self,
+        settings: &crate::protocol::FlshSettings,
+    ) -> Result<()> {
+        self.store.save_flsh_settings(&self.key, settings).await
+    }
+
     /// The harnesses the user turned off, on any machine.
     pub(crate) async fn off_harnesses(&self) -> Result<Vec<crate::store::OffHarness>> {
         self.store.off_harnesses(&self.key).await
@@ -1063,7 +1076,16 @@ impl User {
                 env,
             });
         }
-        Ok(AgentSettings { harnesses })
+        // Settings that no longer read must not hold back the harnesses'
+        // own: the node then leaves flsh's config as it is.
+        let flsh = match self.flsh_settings().await {
+            Ok(flsh) => flsh,
+            Err(e) => {
+                log::warn!("flsh settings not sent; error={e:#}");
+                None
+            }
+        };
+        Ok(AgentSettings { harnesses, flsh })
     }
 
     /// The machines that sync each project, by project.
