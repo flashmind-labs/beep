@@ -254,7 +254,7 @@ export function folderNote(listing: MachineFolder | null | undefined, repo: stri
   if (!listing) return null;
   if (listing.origin != null) {
     const what = listing.origin ? repoFromRemote(listing.origin) : "a repository with no origin remote";
-    return `A checkout of ${what}. It is imported in place, without cloning.`;
+    return `A checkout of ${what}, imported in place.`;
   }
   if (!listing.exists) return "Not there yet: the clone makes it.";
   if (listing.empty) return "Empty: the clone goes here.";
@@ -271,7 +271,7 @@ export function folderHelp(state: Pick<ImportState, "machine" | "chosen">, machi
   if (!state.machine) return `Beep picks a machine and its default folder. ${tokens}`;
   if (state.chosen) return tokens;
   const m = (machines || []).find(x => x.id === state.machine);
-  return `The default on ${m ? m.name : "that machine"}. An empty folder takes the clone; one with other files gets it in a subfolder. ${tokens}`;
+  return `The default on ${m ? m.name : "that machine"}. ${tokens}`;
 }
 
 /// The Import a project sheet's state.
@@ -411,13 +411,6 @@ export function lookingText(machines: readonly { online: boolean }[] | null | un
   return `Looking through Claude Code, Codex, pi, flsh and OpenCode sessions on ${on}…`;
 }
 
-/// The coding agents running now in one of `project`'s folders, or below one,
-/// on the machine that folder is on.
-export function runningIn(project: { machines: readonly Pick<ProjectPlace, "id" | "folder">[] } | null | undefined, running: readonly RunningRow[] | null | undefined) {
-  const places = project?.machines || [];
-  return (running || []).filter(isAgent).filter(r => places.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
-}
-
 /// A project's past sessions without those running now (they show under
 /// Agents), newest first.
 export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "last_activity">>(sessions: readonly T[] | null | undefined, running: readonly { machine_id: string; id: string }[] | null | undefined) {
@@ -451,8 +444,8 @@ export const REMOVE_PROJECT = "Remove project…";
 export function removeProjectSheet(name: string) {
   return {
     title: `Remove ${name}?`,
-    text: "Beep forgets this project, stops syncing it and its workers on every machine, and deletes its chat and tasks in Beep.",
-    note: "Its files stay on your machines: nothing is deleted on any machine. Importing it again starts it afresh.",
+    text: "Beep stops syncing it and its workers, and deletes its chat and tasks.",
+    note: "Files on your machines stay.",
     action: "Remove project",
   };
 }

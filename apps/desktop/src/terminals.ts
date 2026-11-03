@@ -587,8 +587,7 @@ export function makeTerminals(deps: TerminalDeps) {
     });
     go.disabled = t.busy || !places.length;
     const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", anywhere ? "No machine is online" : "No machine has this project yet"));
-    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }),
-      h("small", "", "It keeps running when the window closes. Kill stops it."));
+    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }));
     const form = anywhere
       ? h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
         input("cwd", "Folder", "Empty for the workspace or home folder"),
@@ -686,7 +685,6 @@ export function makeTerminals(deps: TerminalDeps) {
       watch(null);
       if (!t.form) {
         out.push(h("div", "cc-panel cc-empty", h("b", "", t.list?.length ? "Pick a terminal" : "No terminals yet"),
-          h("span", "", "A terminal runs a shell or a command on one of your machines, such as a dev server, and keeps running apart from any chat."),
           button("New terminal", "pri", () => add.click())));
       }
     }
@@ -742,7 +740,6 @@ export function makeTerminals(deps: TerminalDeps) {
       watch(null);
       const any = (t.list || []).length > 0;
       right = h("div", "cc-conn", h("b", "", any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
-        h("span", "why", "Open one on any machine. It keeps running when you close the window, and you can attach again from here or your phone."),
         button("New terminal", "pri", () => newOn(places[0]?.id || null)));
     }
     const out: HTMLElement[] = [];

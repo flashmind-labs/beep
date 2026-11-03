@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, importRoot, folderUnder, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderOn, withSyncthing } from "../src/projects-state.ts";
+import { START, importRoot, folderUnder, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderOn, withSyncthing } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -102,7 +102,7 @@ test("a GitHub remote reads as org/repo, others as they are", () => {
 const listing = (over = {}) => ({ path: "/w/code", parent: "/w", exists: true, folders: [], more: 0, empty: false, origin: null, ...over });
 
 test("the note says what importing into a folder does", () => {
-  assert.equal(folderNote(listing({ origin: "git@github.com:org/app.git" }), ""), "A checkout of org/app. It is imported in place, without cloning.");
+  assert.equal(folderNote(listing({ origin: "git@github.com:org/app.git" }), ""), "A checkout of org/app, imported in place.");
   assert.match(folderNote(listing({ origin: "" }), "")!, /no origin remote/);
   assert.equal(folderNote(listing({ exists: false, empty: true }), "org/app"), "Not there yet: the clone makes it.");
   assert.equal(folderNote(listing({ empty: true }), "org/app"), "Empty: the clone goes here.");
@@ -166,17 +166,15 @@ test("the looking line names how many machines are online", () => {
   assert.match(lookingText([]), /on your machines…$/);
 });
 
-test("running agents in a project's folders show under Agents, not Sessions", () => {
-  const project = { machines: [{ id: "m1", folder: "/home/user/proj" }] };
-  const running = [agent("m1", "/home/user/proj/sub", 5), agent("m1", "/home/user/other", 5), agent("m2", "/home/user/proj", 5)];
+test("past sessions leave out the running ones, newest first", () => {
+  const running = [agent("m1", "/home/user/proj/sub", 5)];
   running[0].id = "s1";
-  assert.deepEqual(runningIn(project, running).map(r => r.cwd), ["/home/user/proj/sub"]);
   const sessions = [
     { machine_id: "m1", id: "s0", last_activity: 1 },
     { machine_id: "m1", id: "s1", last_activity: 9 },
     { machine_id: "m1", id: "s2", last_activity: 4 },
   ];
-  assert.deepEqual(pastSessions(sessions, runningIn(project, running)).map(s => s.id), ["s2", "s0"]);
+  assert.deepEqual(pastSessions(sessions, [running[0]]).map(s => s.id), ["s2", "s0"]);
 });
 
 test("a project's sessions redraw only when a read brings a different list", () => {
@@ -353,7 +351,7 @@ test("the remove sheet names the project and says no files are deleted", () => {
   assert.equal(s.action, "Remove project");
   assert.match(s.text, /stops syncing it and its workers/);
   assert.match(s.text, /deletes its chat and tasks/);
-  assert.match(s.note, /nothing is deleted on any machine/);
+  assert.match(s.note, /Files on your machines stay/);
   assert.equal(REMOVE_PROJECT, "Remove project…");
   for (const t of [s.title, s.text, s.note, s.action]) assert.doesNotMatch(t, /[—→⇒←]/);
 });

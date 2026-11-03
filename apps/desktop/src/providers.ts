@@ -287,7 +287,7 @@ export function registerProviders(deps: ProvidersDeps) {
         });
         out.push(acts(install, copy));
       } else {
-        out.push(h("div", "hv-note", "Beep knows no way to install it here. Install it on the machine, then check again."));
+        out.push(h("div", "hv-note", "Install it on the machine, then check again."));
       }
       return nodes(out);
     }
@@ -309,7 +309,7 @@ export function registerProviders(deps: ProvidersDeps) {
       const why = `${name} does not say whether it is signed in. Run it on ${m} to sign in.`;
       out.push(inSettings ? h("div", "hv-note", why) : row(why));
     }
-    if (!hv.runnable) out.push(h("div", "hv-note", "Beep cannot start it yet: beep-node finds the agent and its ACP adapter when it starts. Restart beep-node after installing."));
+    if (!hv.runnable) out.push(h("div", "hv-note", "Restart beep-node to use it."));
     if (hasUpdate(hv)) {
       const up = button(busy ? "Updating…" : `Update to v${hv.latest}`, "", () => update([hv.agent]));
       up.disabled = busy || !hv.install;
@@ -371,7 +371,7 @@ export function registerProviders(deps: ProvidersDeps) {
       envBox.replaceChildren(...rows);
     };
     drawEnv();
-    box.append(field("Environment", "Values are kept encrypted and never shown again. Keys belong in Credentials; Beep hands them to the agent itself.", envBox, differs("env")));
+    box.append(field("Environment", "Encrypted, never shown again. Put keys in Credentials.", envBox, differs("env")));
 
     const problem = h("span", "derr", "");
     const saveBtn = button(st.saving ? "Saving…" : "Save", "pri", () => {

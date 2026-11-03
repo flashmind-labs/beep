@@ -24,12 +24,12 @@ import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Place
 import { openGroupSheet } from "./groupsheet.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
-import { NEW_WINDOW, PROJECT_TABS, mainTarget, opensNewWindow, projectFirst, route, startView, windowTitle } from "./projectwindow.ts";
+import { NEW_WINDOW, PROJECT_TABS, mainTarget, opensNewWindow, route, startView, windowTitle } from "./projectwindow.ts";
 import type { CenterTarget, ProjectScope } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
-import { BAR_NOTE, type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "./bar/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner, preloadModels } from "./bar/agentpicker.ts";
@@ -55,7 +55,7 @@ import { windowTakes } from "./windowkeys.ts";
 import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, withoutResearch, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./bar/researches.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
-import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
+import type { ProjectAgent, ProjectView } from "./project.ts";
 
 // ---------- What the app gives ----------
 
@@ -407,9 +407,9 @@ function removeMachine(m: Removable) {
   confirmSheet({
     title: `Remove ${m.name}?`,
     text: m.online === false
-      ? "It is unlinked from your account. If it comes back online, it is turned away."
-      : "It is unlinked from your account and stops taking work. Agents running there stop with it.",
-    note: "Its files stay on the machine. To use it again, add it with a new setup command.",
+      ? "It is unlinked from your account."
+      : "It is unlinked and agents running there stop.",
+    note: "Its files stay on the machine.",
     action: "Remove",
     run: async () => {
       await invoke("remove_machine", { id: m.id });
@@ -1695,7 +1695,7 @@ function retryButton(label: string, cls: string) {
 /// What "Still connecting" says, with how long the server has been silent.
 function waitText() {
   const secs = Math.round((Date.now() - state.since) / 1000);
-  return `The server has not answered for ${secs} seconds. Beep keeps trying every few seconds; your chats show up as soon as it answers.`;
+  return `No answer from the server for ${secs} seconds. Still trying.`;
 }
 
 /// What Home shows before the server first answers: pulsing dots, never a
@@ -1716,7 +1716,7 @@ function connecting() {
   }
   const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
   if (!stuck()) {
-    return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"), h("span", "", "Your chats, machines and approvals load once the server answers."));
+    return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"));
   }
   return h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), h("span", "why", waitText()), h("div", "acts", retryButton("Retry now", "pri"), logButton()));
 }
@@ -1920,9 +1920,9 @@ function drawResearch(focus = false) {
   if (list == null) {
     if (!research.error) kids.push(h("div", "cc-panel", ...skeleton([70, 55, 62])));
   } else if (!list.length) {
-    kids.push(emptyPanel(h("b", "", "No research yet"), h("span", "", "A team of agents digs into a question and writes it up as a paper. Type a question above to start one.")));
+    kids.push(emptyPanel(h("b", "", "No research yet"), h("span", "", "Type a question above to start one.")));
   } else {
-    kids.push(h("div", "", h("div", "cc-sec", h("h4", "", "Research"), h("small", "", "Newest first, from every device")), researchTable(list)));
+    kids.push(h("div", "", h("div", "cc-sec", h("h4", "", "Research")), researchTable(list)));
   }
   const view = h("div", "cc-view", ...kids);
   if (old) { const top = old.scrollTop; old.replaceWith(view); view.scrollTop = top; } else el.append(view);
@@ -1992,7 +1992,7 @@ function overviewSection(rows: Project[]) {
       h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", plural(g.cards.length, "repo", "repos"))),
       h("div", "pj-grid", ...g.cards.map(projectCard))));
   const add = h("div", "cc-panel cc-row pj-add",
-    h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder your agents worked in, any folder, or a repository to clone.")),
+    h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")),
     button("Add", "", addProject));
   return [...out, add];
 }
@@ -2526,7 +2526,7 @@ const projectComp = (() => {
   const err = h("span", "cc-err");
   err.setAttribute("role", "status");
   const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, fresh, send);
-  const form = h("form", "cc-pjc", h("div", "box", input, row, pick), h("span", "note", BAR_NOTE), err);
+  const form = h("form", "cc-pjc", h("div", "box", input, row, pick), err);
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
@@ -3022,18 +3022,17 @@ function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
-  if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see the sessions your agents ran in it."));
+  if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see its sessions."));
   else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
     const past = pastSessions(sessions, running);
     body = past.length
       ? h("div", "cc-panel", fitRows(past.map(sessionRow), SESSIONS_SHOWN))
-      : emptyPanel(h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
+      : emptyPanel(h("span", "", "No sessions yet."));
   }
   const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
   note?.classList.add("ss-updating");
-  return section("sec-sessions", "Sessions", sessions?.length || "", null, body,
-    h("small", "", "from your coding agents in its folders on every machine, newest first"), note);
+  return section("sec-sessions", "Sessions", sessions?.length || "", null, body, note);
 }
 
 /// The agent view for a session row.
@@ -3096,8 +3095,7 @@ function foundSection() {
   const list = state.found.slice(0, 3).map(row => foundRow(row,
     { busy: state.importing, error: state.foundError?.name === row.name ? state.foundError.message : null }, importFromPage));
   const more = state.found.length > 3 ? button(`All ${state.found.length}`, "quiet small", addProject) : null;
-  return section("sec-found", "Found on your machines", "", more, h("div", "cc-panel ap-list", ...list),
-    h("small", "", "folders your coding agents worked in, without a project"));
+  return section("sec-found", "Found on your machines", "", more, h("div", "cc-panel ap-list", ...list));
 }
 
 let askedGit = false;
@@ -3133,7 +3131,7 @@ function drawProjects(el: HTMLElement) {
   } else if (!rows || !rows.length) {
     view.append(h("div", "cc-panel cc-empty",
       h("b", "", "No projects yet"),
-      h("span", "", "Add a folder your coding agents worked in, any folder, or a repository to clone."),
+      h("span", "", "A folder or a repository to clone."),
       importButton("pri")));
   } else {
     const shownRows = filterProjects(rows, state.picked);
@@ -3473,7 +3471,7 @@ function pinButton(c: ChatItem) {
 registerView("pane", {
   el: $("#pane-box"),
   title: paneTitle,
-  mount(el, arg) {
+  mount(_el, arg) {
     pane.mounted(true);
     pane.open(arg as PaneTarget);
   },

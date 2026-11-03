@@ -29,8 +29,8 @@ export interface LiveDeps {
   reload: (id: string, lists: boolean, runs: boolean) => void;
 }
 
-const LIVE_TIP = "Live: the host tells Beep about changes as they happen, through a webhook on one of your machines";
-const POLLING_TIP = "Polling: Beep reads the host every few minutes. Live updates need admin rights on the repository.";
+const LIVE_TIP = "Live: updates through a webhook";
+const POLLING_TIP = "Polling every few minutes. Live needs admin rights on the repository.";
 
 /// The chip next to a section's synced time; null while unknown.
 export function modeChip(h: MakeEl, mode: LiveMode | undefined) {

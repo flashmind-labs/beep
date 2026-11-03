@@ -480,10 +480,10 @@ export function makeReviews(deps: ReviewDeps) {
     task => { of(name).note = task.state === "running" ? `Started ${task.title}. It shows under Tasks.` : `Made ${task.title}; it starts when a worker slot frees.`; });
 
   const post = (name: string, r: ReviewView) => act(name, "post", () => invoke<string>("review_post", { review: r.id }),
-    () => { of(name).note = "Asked the project agent to post the review. Its approval card shows at the top of the project before anything posts."; });
+    () => { of(name).note = "Asked the project agent to post the review. Approve its card to post."; });
 
   const merge = (name: string, r: ReviewView) => act(name, "merge", () => invoke<string>("review_merge", { review: r.id }),
-    () => { of(name).note = "Asked the project agent to merge. Its card shows at the top of the project; nothing merges until you approve it."; });
+    () => { of(name).note = "Asked the project agent to merge. Approve its card to merge."; });
 
   // ---------- Branches ----------
 
@@ -593,8 +593,7 @@ export function makeReviews(deps: ReviewDeps) {
     const t = of(name);
     const out: HTMLElement[] = [];
     if (t.starting) {
-      out.push(emptyPanel(h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`),
-        h("span", "", "Fetching, reading the diff and starting a read-only reviewer per shard.")));
+      out.push(emptyPanel(h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`)));
       watch(null);
       return out;
     }
@@ -650,15 +649,14 @@ export function makeReviews(deps: ReviewDeps) {
     if (!running && findings.length && !openFindings(r).length) body.append(h("div", "rv-sum-row", readySummary(r)));
     const findSec = h("div", "", h("div", "cc-sec", h("h4", "", "Findings"), h("small", "", findingsSub(r))), body);
     const shards = h("div", "",
-      h("div", "cc-sec", h("h4", "", "Shards"), h("small", "", "read-only reviewers")),
+      h("div", "cc-sec", h("h4", "", "Shards")),
       h("div", "cc-panel", ...r.shards.map(s => {
         const c = shardChip(s);
         const chipEl = stateChip(c.cls, c.text, c.spin);
         chipEl.title = s.note || c.text;
         return h("div", "rv-shard", harnessEl(s.agent),
           h("span", "t", h("b", "", s.area), h("span", "", shardLine(s, r.machine_name))), chipEl);
-      })),
-      h("div", "rv-hint", "Each reviewer sees the full stat and its shard's diff. A fresh verifier checks every finding before it counts."));
+      })));
     out.push(h("div", "pj-cols", findSec, shards));
 
     const open = openFindings(r).length;

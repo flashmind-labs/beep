@@ -86,7 +86,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
       el("div", "am-head", el("b", "", group ? group.name : "New group"), el("kbd", "", "esc")),
       el("div", "am-label", "Folder"),
       el("div", "am-line", field, button("Add", "dbtn", () => { add(); field.focus(); })),
-      el("div", "am-sub", "Repos in this folder on any machine go in the group. The home folder and a leading Projects/ are left out, so ~/Projects/work on a Mac and ~/work on Linux are one folder."),
+      el("div", "am-sub", "Repos in this folder on any machine go in the group. ~/Projects/work and ~/work count as one folder."),
       ...rows,
       error ? el("div", "am-msg bad", error) : null,
       el("div", "am-sub", sum),

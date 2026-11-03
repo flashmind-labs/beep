@@ -226,7 +226,6 @@ function build() {
     search,
     bar,
     listBox,
-    el("div", "am-sub", "Import links the folder where it is and brings its sessions along. Your other machines with the same repository are linked too."),
     ways);
 }
 
@@ -242,7 +241,7 @@ function draw() {
   if (found === null) {
     listBox.replaceChildren(el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines)));
   } else if (!found.length) {
-    listBox.replaceChildren(el("div", "am-sub", error || "No other folders yet. Folders show up here once a coding agent has worked in them."));
+    listBox.replaceChildren(el("div", "am-sub", error || "No other folders yet."));
   } else if (!shown.length) {
     listBox.replaceChildren(el("div", "am-sub", `Nothing found matches “${query.trim()}”.`));
   } else {

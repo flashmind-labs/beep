@@ -870,7 +870,7 @@ function entryPic(n: string) {
 
 /// A reply's code blocks, each with a button that copies it.
 function withCopy(html: string) {
-  return html.replace(/<pre(\s[^>]*)?>/g, (m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
+  return html.replace(/<pre(\s[^>]*)?>/g, (_m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
 }
 
 /// The thought still arriving, by its place, which shows "Thinking" with

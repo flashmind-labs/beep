@@ -49,7 +49,7 @@ export async function openTerm(place: TermPlace, hooks: Pick<PaneTerm, "onEnd" |
   const row = await invoke<TerminalRow | null>("terminal_open", {
     terminal: { project: "", machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
-  if (!row) throw new Error("Beep's server needs an update before it opens a terminal here.");
+  if (!row) throw new Error("The server is too old for terminals here.");
   const t = paneTerm(row, makeScreen(), hooks);
   attach(t);
   return t;

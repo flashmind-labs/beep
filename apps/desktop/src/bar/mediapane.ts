@@ -562,14 +562,6 @@ export function showArtifact(path?: string) {
   return true;
 }
 
-/// Shows the subagents' tab, unfolding its dock.
-export function showSubagents() {
-  const d = dockOf(SUBS);
-  P.on[d] = SUBS;
-  P.layout.hidden[d] = false;
-  draw();
-}
-
 /// Opens a picture the log already shows (a data URL) in its own tab.
 export function openPicture(url: string, name: string) {
   open({ id: url, kind: "image", name: baseName(name), path: null, url });
@@ -676,10 +668,10 @@ async function readFile(machine: string, path: string, progress: (done: number, 
 }
 
 /// What an error from reading a file says to the user.
-function readError(e: unknown) {
-  const text = e instanceof Error ? e.message : String(e);
-  if (/no longer|not found|gone/i.test(text)) return "This file is not on the machine any more, or the machine is offline.";
-  if (/unknown op|unknown request|not serve|too old/i.test(text)) return "Beep cannot read this file yet: update Beep and beep-node on that machine.";
+export function readError(e: unknown) {
+  const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
+  if (/no longer|not found|gone/i.test(text)) return "File gone, or the machine is offline.";
+  if (/unknown op|unknown request|not serve|too old|closes the stream/i.test(text)) return "beep-node there is too old. Update it.";
   return text;
 }
 

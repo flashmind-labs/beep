@@ -23,7 +23,7 @@ test("Auto starts on the first machine by name with a checkout and an agent", ()
 
 test("the field asks for a task, or for a machine and folder first", () => {
   assert.equal(barPrompt("acme/widget", true), "Describe a task for a coding agent in acme/widget");
-  assert.equal(barPrompt("acme/widget", false), "Pick a machine and folder for acme/widget, then describe the task");
+  assert.equal(barPrompt("acme/widget", false), "Pick a machine and folder for acme/widget");
 });
 
 test("the Folder pill says what the agent works on", () => {

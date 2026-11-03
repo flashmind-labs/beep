@@ -385,13 +385,6 @@ export function makeRuns(deps: RunDeps) {
     if (s.open != null && s.detail && going(s.detail.run.state)) loadDetail(id, s.detail.run);
   }
 
-  function link(text: string, url: string) {
-    const a = h("a", "", text);
-    a.href = "#";
-    a.addEventListener("click", e => { e.preventDefault(); if (url) openUrl(url); });
-    return a;
-  }
-
   /// A job's or step's line: its dot, name and how long it took.
   function stepLine(name: string, state: RunState, r: Pick<RunRow, "started_at" | "finished_at">) {
     const cls = state === "failed" ? "bad" : going(state) ? "run" : state === "skipped" || state === "cancelled" ? "skip" : "ok";
@@ -422,7 +415,7 @@ export function makeRuns(deps: RunDeps) {
     if (d.log) {
       const where = [d.log.job, d.log.step].filter(Boolean).join(", ");
       box.append(h("span", "pj-log",
-        h("small", "", `End of the log of ${where}${d.log.truncated ? " (earlier lines left out)" : ""}. The host's text, which the agent treats as data.`),
+        h("small", "", `End of the log of ${where}${d.log.truncated ? " (earlier lines left out)" : ""}`),
         h("pre", "", d.log.text)));
     }
     const acts = h("span", "acts");

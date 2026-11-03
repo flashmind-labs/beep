@@ -8,9 +8,6 @@ import { MEDIA_EXTENSIONS } from "./media-state.ts";
 const STATUSES = ["pending", "in_progress", "completed", "failed"];
 const LIVE = new RegExp(`^([\\s\\S]*?) \\[(${STATUSES.join("|")})\\](?:\\n([\\s\\S]*))?$`);
 
-/// How many output lines a tool entry shows until it is opened.
-export const TOOL_LINES = 4;
-
 /// The parts of a tool entry: its title, its status (one of `STATUSES`, or
 /// "" when the text does not say) and its output, "" when it has none.
 export interface ToolParts {
@@ -39,15 +36,6 @@ function plainTitle(title: string) {
 function unfence(output: string) {
   const m = /^(`{3,}|~{3,})[^\n`]*\n([\s\S]*?)\n?\1\s*$/.exec(output.trim());
   return (m ? m[2] : output).replace(/\s+$/, "");
-}
-
-/// The output as the row shows it: closed, its first `TOOL_LINES` lines and
-/// how many more there are.
-export function toolLines(output: string, open = false) {
-  if (!output) return { shown: "", more: 0 };
-  const lines = output.split("\n");
-  if (open || lines.length <= TOOL_LINES) return { shown: output, more: 0 };
-  return { shown: lines.slice(0, TOOL_LINES).join("\n"), more: lines.length - TOOL_LINES };
 }
 
 const PASTE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
