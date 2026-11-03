@@ -1,21 +1,25 @@
 //! The command center's Cmd+K search: ranks actions, settings, projects,
-//! chats, memories, routines and machines against what was typed.
+//! coding-agent sessions, chats, memories, routines and machines against
+//! what was typed.
 
 use crate::{
-    beep::Beep, center::section, commands::MemoryView, error::Result, machines::MachineView,
+    agents::SessionRow, beep::Beep, center::section, commands::MemoryView, error::Result,
+    home_sessions::AgentSessions, machines::MachineView, view_cache::ViewCache,
 };
 use beep_proto::{
     ApiProvider, Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems,
-    ListImportedProjects, ListMachines, ListMemories, ListProjectBranches, Session, SessionMatch,
+    ListImportedProjects, ListMachines, ListMemories, ListProjectBranches, ListProjects,
+    MachineSession, ProjectAgent, Session, SessionMatch,
 };
 use serde::Serialize;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex, PoisonError},
+    time::SystemTime,
 };
 use strum::IntoEnumIterator;
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::{join, task::JoinSet};
 
 type Service<'a> = State<'a, Arc<Beep>>;
@@ -35,6 +39,11 @@ pub(crate) struct PaletteLists {
     routines: Option<Vec<Cron>>,
     machines: Option<Vec<MachineView>>,
     projects: Option<Vec<ImportedProject>>,
+    /// The projects board, which also holds projects never imported.
+    boards: Option<Vec<ProjectAgent>>,
+    /// The machines' coding-agent sessions. Read after the rest, since the
+    /// server asks every machine.
+    sessions: Option<Vec<MachineSession>>,
     prs: Option<Vec<PrRow>>,
     /// Read after the rest, since each project's are read on a machine.
     branches: Option<Vec<BranchRow>>,
@@ -132,6 +141,12 @@ pub(crate) enum HitKind {
     /// project and the branch, split by a space.
     Branch,
     Project,
+    /// A project on the board that is not imported. The id is its chat.
+    ProjectChat,
+    /// A folder coding agents worked in, not imported. The id is its name.
+    Folder,
+    /// A coding agent's session, under "Coding agents".
+    AgentSession,
     Chat,
     Memory,
     Routine,
@@ -216,6 +231,9 @@ pub(crate) struct Hit {
     detail: String,
     /// The one best hit, listed first under Top hit instead of its group.
     top: bool,
+    /// The session an `AgentSession` hit opens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<SessionRow>,
 }
 
 /// How well a text matches, best first.
@@ -284,11 +302,14 @@ fn with_top(mut groups: Vec<Vec<(Tier, Hit)>>) -> Vec<Hit> {
 
 /// Which group's best hit becomes the top hit on a tie: the things a
 /// search most often means first.
-const TOP_ORDER: [HitKind; 9] = [
+const TOP_ORDER: [HitKind; 12] = [
     HitKind::Project,
+    HitKind::ProjectChat,
+    HitKind::Folder,
     HitKind::Machine,
     HitKind::Code,
     HitKind::Branch,
+    HitKind::AgentSession,
     HitKind::Setting,
     HitKind::Chat,
     HitKind::Routine,
@@ -303,6 +324,7 @@ fn chat_hit(session: &Session, snippet: &str) -> Hit {
         title: session.title.clone(),
         detail: snippet.to_owned(),
         top: false,
+        session: None,
     }
 }
 
@@ -313,6 +335,7 @@ fn action_hit(action: PaletteAction) -> Hit {
         title: action.title().to_owned(),
         detail: String::new(),
         top: false,
+        session: None,
     }
 }
 
@@ -360,6 +383,216 @@ fn chat_hits(query: &str, chats: &ChatHits) -> Vec<(Tier, Hit)> {
         .collect()
 }
 
+/// The harness's name as the app shows it, such as "Claude Code".
+fn harness_name(agent: &str) -> &str {
+    match agent {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        "opencode" => "OpenCode",
+        other => other,
+    }
+}
+
+/// The last part of a path or of `org/repo`; `None` for a root or nothing.
+fn last_part(path: &str) -> Option<&str> {
+    path.rsplit(['/', '\\']).find(|part| !part.is_empty())
+}
+
+/// True when `cwd` is `folder` or inside it.
+fn within(cwd: &str, folder: &str) -> bool {
+    let folder = folder.trim_end_matches(['/', '\\']);
+    !folder.is_empty()
+        && cwd
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '\\']))
+}
+
+/// The project a session runs in: the imported project whose folder on its
+/// machine holds it (the deepest), else its folder's name.
+fn session_project<'a>(
+    session: &'a MachineSession,
+    imported: &'a [ImportedProject],
+) -> Option<&'a str> {
+    imported
+        .iter()
+        .filter(|p| p.machine_id == session.machine_id && within(&session.cwd, &p.folder))
+        .max_by_key(|p| p.folder.len())
+        .map(|p| p.project.as_str())
+        .or_else(|| last_part(&session.cwd))
+}
+
+/// A folder coding agents worked in that no project covers.
+struct FolderRow<'a> {
+    name: &'a str,
+    sessions: usize,
+    machines: Vec<&'a str>,
+}
+
+/// Projects by name, once each: imported ones, then the board's, then the
+/// folders coding agents worked in. A folder named like a listed
+/// project's repo is that project.
+fn project_hits(
+    query: &str,
+    lists: &PaletteLists,
+    imported: &[ImportedProject],
+) -> Vec<(Tier, Hit)> {
+    let mut hits = Vec::new();
+    let mut names: HashSet<&str> = HashSet::new();
+    let mut repos: HashSet<String> = HashSet::new();
+    for p in imported {
+        // A project is imported once per machine it is on; it lists once.
+        if !names.insert(p.project.as_str()) {
+            continue;
+        }
+        repos.insert(last_part(&p.project).unwrap_or(&p.project).to_lowercase());
+        let Some(tier) = tier(query, &p.project) else {
+            continue;
+        };
+        hits.push((
+            tier,
+            project_hit(
+                HitKind::Project,
+                p.project.clone(),
+                &p.project,
+                p.machine_name.clone(),
+            ),
+        ));
+    }
+    for b in lists.boards.iter().flatten() {
+        if !names.insert(b.name.as_str()) {
+            continue;
+        }
+        repos.insert(last_part(&b.name).unwrap_or(&b.name).to_lowercase());
+        let Some(tier) = tier(query, &b.name) else {
+            continue;
+        };
+        let detail = "Project chat · not imported".to_owned();
+        hits.push((
+            tier,
+            project_hit(HitKind::ProjectChat, b.chat_id.to_string(), &b.name, detail),
+        ));
+    }
+    let mut folders: Vec<FolderRow> = Vec::new();
+    for s in lists.sessions.iter().flatten() {
+        let Some(name) = session_project(s, imported) else {
+            continue;
+        };
+        if names.contains(name) || repos.contains(&name.to_lowercase()) {
+            continue;
+        }
+        let at = match folders.iter().position(|f| f.name == name) {
+            Some(at) => at,
+            None => {
+                folders.push(FolderRow {
+                    name,
+                    sessions: 0,
+                    machines: Vec::new(),
+                });
+                folders.len() - 1
+            }
+        };
+        let folder = &mut folders[at];
+        folder.sessions += 1;
+        if !folder.machines.contains(&s.machine_name.as_str()) {
+            folder.machines.push(&s.machine_name);
+        }
+    }
+    for f in folders {
+        let Some(tier) = tier(query, f.name) else {
+            continue;
+        };
+        let count = if f.sessions == 1 {
+            "1 session".to_owned()
+        } else {
+            format!("{} sessions", f.sessions)
+        };
+        let detail = format!("Not imported · {count} · {}", f.machines.join(", "));
+        hits.push((
+            tier,
+            project_hit(HitKind::Folder, f.name.to_owned(), f.name, detail),
+        ));
+    }
+    best(hits)
+}
+
+fn project_hit(kind: HitKind, id: String, name: &str, detail: String) -> Hit {
+    Hit {
+        kind,
+        id,
+        title: name.to_owned(),
+        detail,
+        top: false,
+        session: None,
+    }
+}
+
+/// A session that matched, and when it last moved.
+struct FoundSession {
+    tier: Tier,
+    at: SystemTime,
+    hit: Hit,
+}
+
+/// Coding-agent sessions found by title, project, harness or machine,
+/// the best match first, then the one that moved last.
+fn session_hits(
+    query: &str,
+    lists: &PaletteLists,
+    imported: &[ImportedProject],
+) -> Vec<(Tier, Hit)> {
+    let mut found: Vec<FoundSession> = lists
+        .sessions
+        .iter()
+        .flatten()
+        .filter_map(|s| {
+            let project = session_project(s, imported);
+            let harness = harness_name(&s.agent);
+            let title = s
+                .title
+                .as_deref()
+                .filter(|t| !t.trim().is_empty())
+                .or(project)
+                .unwrap_or(harness);
+            let tier = [
+                Some(title),
+                project,
+                Some(harness),
+                Some(s.agent.as_str()),
+                Some(s.machine_name.as_str()),
+            ]
+            .into_iter()
+            .flatten()
+            .filter_map(|text| tier(query, text))
+            .min()?;
+            let detail = [Some(harness), project, Some(s.machine_name.as_str())]
+                .into_iter()
+                .flatten()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let hit = Hit {
+                kind: HitKind::AgentSession,
+                id: format!("{} {}", s.machine_id, s.id),
+                title: title.to_owned(),
+                detail,
+                top: false,
+                session: Some(SessionRow::from(s.clone())),
+            };
+            Some(FoundSession {
+                tier,
+                at: s.last_activity,
+                hit,
+            })
+        })
+        .collect();
+    found.sort_by_key(|f| (f.tier, Reverse(f.at)));
+    found
+        .into_iter()
+        .take(PER_KIND)
+        .map(|f| (f.tier, f.hit))
+        .collect()
+}
+
 /// Hits for `query`, a group at a time. Nothing typed lists every action
 /// and the newest chats.
 pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<Hit> {
@@ -387,6 +620,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             title: m.content().to_owned(),
             detail: m.category().to_owned(),
             top: false,
+            session: None,
         };
         Some((tier(&query, m.content())?, hit))
     });
@@ -397,6 +631,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             title: r.label.clone(),
             detail: r.schedule.clone(),
             top: false,
+            session: None,
         };
         Some((tier(&query, &r.label)?, hit))
     });
@@ -407,6 +642,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             title: m.name().to_owned(),
             detail: if m.online() { "online" } else { "offline" }.to_owned(),
             top: false,
+            session: None,
         };
         Some((tier(&query, m.name())?, hit))
     });
@@ -420,25 +656,13 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
                 detail: format!("Settings · {}", section.title()),
                 title,
                 top: false,
+                session: None,
             };
             Some((tier, hit))
         });
-    let mut seen = HashSet::new();
-    let projects = lists.projects.iter().flatten().filter_map(|p| {
-        let tier = tier(&query, &p.project)?;
-        // A project is imported once per machine it is on; it lists once.
-        if !seen.insert(p.project.as_str()) {
-            return None;
-        }
-        let hit = Hit {
-            kind: HitKind::Project,
-            id: p.project.clone(),
-            title: p.project.clone(),
-            detail: p.machine_name.clone(),
-            top: false,
-        };
-        Some((tier, hit))
-    });
+    let imported = lists.projects.as_deref().unwrap_or_default();
+    let projects = project_hits(&query, lists, imported);
+    let sessions = session_hits(&query, lists, imported);
     let code = lists.prs.iter().flatten().filter_map(|pr| {
         let title = format!("{} · PR #{} {}", pr.repo, pr.number, pr.title);
         let tier = tier(&query, &pr.title)
@@ -450,6 +674,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             title,
             detail: pr.detail.clone(),
             top: false,
+            session: None,
         };
         Some((tier, hit))
     });
@@ -461,6 +686,7 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
             title: format!("{} · {}", b.project, b.name),
             detail: format!("Branch · {} ahead · {}", b.ahead, b.subject),
             top: false,
+            session: None,
         };
         Some((tier, hit))
     });
@@ -469,7 +695,8 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
         best(actions),
         best(settings.collect()),
         best(code.collect()),
-        best(projects.collect()),
+        projects,
+        sessions,
         chat_hits(&query, chats),
         best(memories.collect()),
         best(routines.collect()),
@@ -481,11 +708,12 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
 /// cannot give hides its group.
 #[tauri::command]
 pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -> Result<()> {
-    let (memories, routines, machines, projects, git) = join!(
+    let (memories, routines, machines, projects, boards, git) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListMachines {}),
         beep.call(ListImportedProjects {}),
+        beep.call(ListProjects {}),
         beep.call(ListGitItems {}),
     );
     let lists = PaletteLists {
@@ -495,6 +723,8 @@ pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -
         machines: section("machines", machines)
             .map(|all| all.into_iter().map(MachineView::from).collect()),
         projects: section("projects", projects),
+        boards: section("the projects board", boards),
+        sessions: None,
         prs: section("pull requests", git).map(|git| {
             git.items
                 .into_iter()
@@ -504,7 +734,33 @@ pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -
         }),
         branches: None,
     };
-    *cache.0.lock().unwrap_or_else(PoisonError::into_inner) = lists;
+    let mut cached = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
+    // The last sessions stay found until `center_palette_sessions` answers.
+    let sessions = cached.sessions.take();
+    *cached = PaletteLists { sessions, ..lists };
+    Ok(())
+}
+
+/// Reads the machines' coding-agent sessions for the palette to find.
+/// Called after `center_palette`, without holding up the first search:
+/// the server asks every machine.
+#[tauri::command]
+pub async fn center_palette_sessions(
+    app: AppHandle,
+    beep: Service<'_>,
+    views: State<'_, Arc<ViewCache>>,
+    agents: State<'_, Arc<AgentSessions>>,
+    cache: State<'_, PaletteCache>,
+) -> Result<()> {
+    let listed = agents.list(&app, beep.inner(), views.inner()).await;
+    let Some(sessions) = section("agent sessions", listed) else {
+        return Ok(());
+    };
+    cache
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .sessions = Some(sessions);
     Ok(())
 }
 
@@ -602,8 +858,9 @@ pub async fn center_find(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::{Machine, Memory, MemorySource};
-    use std::time::SystemTime;
+    use beep_proto::{AgentStatus, Machine, Memory, MemorySource};
+    use std::time::Duration;
+    use uuid::Uuid;
 
     fn routine(label: &str) -> Cron {
         Cron {
@@ -928,5 +1185,188 @@ mod tests {
         };
         let hits = rank("morning", &lists, &none());
         assert!(hits.iter().all(|h| !h.top));
+    }
+
+    fn agent_session(
+        id: &str,
+        title: Option<&str>,
+        cwd: &str,
+        machine: &str,
+        at: u64,
+    ) -> MachineSession {
+        MachineSession {
+            machine_id: machine.to_owned(),
+            machine_name: machine.to_owned(),
+            id: id.to_owned(),
+            agent: "claude".to_owned(),
+            title: title.map(str::to_owned),
+            cwd: cwd.to_owned(),
+            status: AgentStatus::Working {},
+            doing: None,
+            started_at: SystemTime::UNIX_EPOCH,
+            last_activity: SystemTime::UNIX_EPOCH + Duration::from_secs(at),
+            external: false,
+            question: None,
+        }
+    }
+
+    fn board(name: &str, chat: u128) -> ProjectAgent {
+        ProjectAgent {
+            project_id: Uuid::from_u128(chat + 1000),
+            name: name.to_owned(),
+            chat_id: Uuid::from_u128(chat),
+            open_tasks: 0,
+            open_workers: 0,
+        }
+    }
+
+    #[test]
+    fn a_project_only_coding_agents_worked_in_is_found() {
+        let lists = PaletteLists {
+            projects: Some(vec![imported("acme/relay", "build-box")]),
+            sessions: Some(vec![
+                agent_session("1", Some("Desktop UI"), "/work/widget", "build-box", 5),
+                agent_session("2", None, "/work/widget", "mac-box", 9),
+            ]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("widget", &lists, &none());
+        let folders = of_kind(&hits, HitKind::Folder);
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].id, "widget");
+        assert_eq!(folders[0].title, "widget");
+        assert_eq!(
+            folders[0].detail,
+            "Not imported · 2 sessions · build-box, mac-box"
+        );
+        assert!(of_kind(&hits, HitKind::Project).is_empty());
+    }
+
+    #[test]
+    fn a_board_project_that_is_not_imported_opens_its_chat() {
+        let lists = PaletteLists {
+            projects: Some(vec![imported("acme/relay", "build-box")]),
+            boards: Some(vec![board("acme/relay", 1), board("acme/widget", 2)]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("acme", &lists, &none());
+        let imported = of_kind(&hits, HitKind::Project);
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].id, "acme/relay");
+        let chats = of_kind(&hits, HitKind::ProjectChat);
+        assert_eq!(chats.len(), 1);
+        assert_eq!(chats[0].title, "acme/widget");
+        assert_eq!(chats[0].id, Uuid::from_u128(2).to_string());
+    }
+
+    #[test]
+    fn projects_are_found_once_across_lists() {
+        let lists = PaletteLists {
+            projects: Some(vec![imported("acme/relay", "build-box")]),
+            boards: Some(vec![board("acme/relay", 1), board("acme/widget", 2)]),
+            sessions: Some(vec![
+                // Inside acme/relay's folder on its machine.
+                agent_session("1", None, "/srv/project/sub", "build-box", 1),
+                // A checkout named like the board's acme/widget.
+                agent_session("2", None, "/home/user/Widget", "mac-box", 2),
+            ]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("e", &lists, &none());
+        let titles: Vec<&str> = hits
+            .iter()
+            .filter(|h| {
+                matches!(
+                    h.kind,
+                    HitKind::Project | HitKind::ProjectChat | HitKind::Folder
+                )
+            })
+            .map(|h| h.title.as_str())
+            .collect();
+        assert_eq!(titles, ["acme/relay", "acme/widget"]);
+    }
+
+    #[test]
+    fn projects_from_every_list_rank_by_tier() {
+        let lists = PaletteLists {
+            projects: Some(vec![imported("acme/prewidget", "build-box")]),
+            sessions: Some(vec![agent_session(
+                "1",
+                None,
+                "/srv/widget",
+                "build-box",
+                1,
+            )]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("widget", &lists, &none());
+        let kinds: Vec<HitKind> = hits
+            .iter()
+            .filter(|h| matches!(h.kind, HitKind::Project | HitKind::Folder))
+            .map(|h| h.kind)
+            .collect();
+        assert_eq!(kinds, [HitKind::Folder, HitKind::Project]);
+    }
+
+    #[test]
+    fn coding_agents_are_found_by_title_project_harness_and_machine() {
+        let lists = PaletteLists {
+            sessions: Some(vec![agent_session(
+                "s1",
+                Some("Cross-machine desktop UI"),
+                "/srv/project/widget",
+                "build-box",
+                1,
+            )]),
+            ..PaletteLists::default()
+        };
+        for query in ["desktop", "widget", "claude code", "build-box"] {
+            let hits = rank(query, &lists, &none());
+            let found = of_kind(&hits, HitKind::AgentSession);
+            assert_eq!(found.len(), 1, "{query}");
+            assert_eq!(found[0].title, "Cross-machine desktop UI");
+            assert_eq!(found[0].detail, "Claude Code · widget · build-box");
+            assert!(found[0].session.is_some());
+        }
+        let hits = rank("nothing-like-it", &lists, &none());
+        assert!(of_kind(&hits, HitKind::AgentSession).is_empty());
+    }
+
+    #[test]
+    fn coding_agents_list_best_match_then_newest() {
+        let lists = PaletteLists {
+            sessions: Some(vec![
+                agent_session("old", Some("Widget login"), "/srv/a", "build-box", 1),
+                agent_session("sub", Some("Fix widget"), "/srv/b", "build-box", 9),
+                agent_session("new", Some("Widget sync"), "/srv/c", "build-box", 5),
+            ]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("widget", &lists, &none());
+        let titles: Vec<&str> = of_kind(&hits, HitKind::AgentSession)
+            .iter()
+            .map(|h| h.title.as_str())
+            .collect();
+        assert_eq!(titles, ["Widget sync", "Widget login", "Fix widget"]);
+    }
+
+    #[test]
+    fn an_untitled_session_is_named_by_its_project() {
+        let lists = PaletteLists {
+            projects: Some(vec![imported("acme/widget", "build-box")]),
+            sessions: Some(vec![agent_session(
+                "s1",
+                None,
+                "/srv/project/src",
+                "build-box",
+                1,
+            )]),
+            ..PaletteLists::default()
+        };
+        let hits = rank("widget", &lists, &none());
+        let found = of_kind(&hits, HitKind::AgentSession);
+        assert_eq!(found[0].title, "acme/widget");
+        assert_eq!(found[0].detail, "Claude Code · acme/widget · build-box");
+        assert!(of_kind(&hits, HitKind::Folder).is_empty());
     }
 }

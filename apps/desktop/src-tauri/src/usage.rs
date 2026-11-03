@@ -7,7 +7,7 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    AgentTokens, GetUsage, HarnessSpend, PlanLimits, PlanWindow, ProjectSpend, UsageView,
+    AgentSlug, AgentTokens, GetUsage, HarnessSpend, PlanLimits, PlanWindow, ProjectSpend, UsageView,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub struct UsageRow {
 
 #[derive(Debug, Serialize)]
 pub struct PlanRow {
-    agent: String,
+    agent: AgentSlug,
     plan: Option<String>,
     machine_name: String,
     as_of: u64,
@@ -57,7 +57,7 @@ pub struct TokensRow {
 
 #[derive(Debug, Serialize)]
 pub struct HarnessRow {
-    agent: String,
+    agent: AgentSlug,
     cost_usd: Option<f64>,
     tokens: u64,
     models: Vec<TokensRow>,
@@ -89,7 +89,7 @@ impl From<PlanLimits> for PlanRow {
 impl From<AgentTokens> for TokensRow {
     fn from(t: AgentTokens) -> Self {
         Self {
-            name: t.agent,
+            name: t.agent.to_string(),
             tokens: t.tokens,
         }
     }
@@ -115,7 +115,7 @@ impl From<HarnessSpend> for HarnessRow {
                 .models
                 .into_iter()
                 .map(|m| TokensRow {
-                    name: m.model,
+                    name: m.model.to_string(),
                     tokens: m.tokens,
                 })
                 .collect(),

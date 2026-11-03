@@ -8,6 +8,7 @@
 //! With the `uniffi` feature, the types a client sees also derive UniFFI
 //! bindings.
 
+pub mod agent_ids;
 pub mod client;
 pub mod groups;
 pub mod link;
@@ -27,6 +28,7 @@ mod compat;
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+pub use agent_ids::{AgentSlug, ModelId};
 pub use flashmind_types::ReasoningLevel;
 use link::LinkOffer;
 pub use secret::SecretText;
@@ -1085,6 +1087,12 @@ requests! {
     /// the project has no GitHub or Forgejo host; `BadRequest` saying why
     /// when no machine of the project can read it or the host refuses.
     262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
+    /// The branch the open pull request `number` of `project_id` is made
+    /// from, read from its host now, for Continue. `NotFound` when the
+    /// caller has no such project; `BadRequest` saying why when no machine
+    /// of the project can read it, the host refuses, or there is no such
+    /// pull request.
+    299 GetPullRequestHead { project_id: Uuid, number: u64 } => Call<PullRequestHead>
     /// The runs going on in any of the caller's sessions, started from any
     /// of their devices, so a chat list can mark the chats still
     /// answering. Empty when none runs.
@@ -1171,6 +1179,18 @@ requests! {
     /// the host could not be read. Read on each call. `BadRequest` saying
     /// why when `repo` is malformed.
     295 FindImportFork { repo: String } => Call<ImportFork>
+    /// Part of a media file on the caller's online machine `machine_id`,
+    /// such as a video, 3D model, PDF or picture a coding agent made.
+    /// `path` is absolute or starts `~/` (the node's home). Gives up to
+    /// [`AGENT_FILE_CHUNK`] bytes from `offset`, with the file's whole size
+    /// and MIME type; the app asks again from `offset` plus the bytes it
+    /// got until it has `size`. Only files whose extension [`media_mime`]
+    /// knows and of at most [`MAX_AGENT_FILE`] bytes. The server keeps
+    /// nothing. `NotFound` when the machine is not one of the caller's
+    /// online ones or the file is not there; `BadRequest` saying why for
+    /// another type, a file too large, or a node too old to read files
+    /// (updating beep-node may help).
+    300 GetAgentFile { machine_id: String, path: String, offset: u64 } => Call<AgentFileChunk>
 }
 
 /// What `FindImportFork` found.
@@ -1204,8 +1224,9 @@ pub struct UsageView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanLimits {
     /// `claude` or `codex`.
-    pub agent: String,
-    /// The plan, such as `max` or `pro`, when the agent says.
+    pub agent: AgentSlug,
+    /// The plan, such as `max` or `pro`, when the agent says: free-form
+    /// text the agent reports.
     pub plan: Option<String>,
     /// The machine that read it.
     pub machine_name: String,
@@ -1224,6 +1245,7 @@ pub struct PlanWindow {
     pub used_percent: f64,
     pub resets_at: Option<SystemTime>,
     /// What it is limited to, such as `Opus`; `None` for the whole plan.
+    /// Free-form text the agent reports.
     pub scope: Option<String>,
 }
 
@@ -1241,7 +1263,7 @@ pub struct ProjectSpend {
 /// The tokens one agent used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentTokens {
-    pub agent: String,
+    pub agent: AgentSlug,
     pub tokens: u64,
 }
 
@@ -1249,7 +1271,7 @@ pub struct AgentTokens {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessSpend {
     /// Its slug, such as `claude`.
-    pub agent: String,
+    pub agent: AgentSlug,
     /// At API prices, in US dollars, when it reports a cost; `None` for
     /// one that reports tokens only, such as Codex.
     pub cost_usd: Option<f64>,
@@ -1262,7 +1284,7 @@ pub struct HarnessSpend {
 /// The tokens one model used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelSpend {
-    pub model: String,
+    pub model: ModelId,
     pub tokens: u64,
 }
 
@@ -1547,12 +1569,20 @@ wire_enum! {
     /// What a coding agent starts on, as `StartAgentSession::checkout`
     /// asks: a new `beep/<slug>` branch in the checkout itself, or one in a
     /// new worktree at `.worktrees/beep-<slug>`, made from `base` (the
-    /// checkout's `HEAD` when `None`). See `node::agent::CheckoutPlan`.
+    /// checkout's `HEAD` when `None`). `NamedWorktree` is `NewWorktree` on
+    /// a branch named `branch` rather than from the prompt.
+    /// `BranchWorktree` starts on the existing branch `branch`: in the
+    /// worktree that has it checked out, else in a new one at
+    /// `.worktrees/<branch>` after fetching it from `origin`. A server
+    /// older than `Feature::BRANCH_WORKTREES` refuses both, and so does a
+    /// node from before them. See `node::agent::CheckoutPlan`.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentCheckoutPlan {
         0 NewBranch { base: Option<String> }
         1 NewWorktree { base: Option<String> }
+        2 NamedWorktree { base: Option<String>, branch: String } since BRANCH_WORKTREES
+        3 BranchWorktree { branch: String } since BRANCH_WORKTREES
     }
 }
 
@@ -2454,6 +2484,18 @@ pub struct ProjectPullRequest {
     pub updated_at: SystemTime,
 }
 
+/// The branch a pull request is made from, as `GetPullRequestHead` gives
+/// it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PullRequestHead {
+    pub number: u64,
+    /// Its name, without `origin/`.
+    pub branch: String,
+    /// The branch is in another repository, a fork, so `origin` lacks it.
+    pub fork: bool,
+}
+
 /// An open pull request or issue of the caller's, as
 /// `ListProjectThreads` gives it.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -2499,6 +2541,52 @@ pub struct AgentImageData {
     pub mime: String,
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
+}
+
+/// Part of a media file on a machine, as `GetAgentFile` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentFileChunk {
+    /// The whole file's size in bytes.
+    pub size: u64,
+    pub mime: String,
+    /// The bytes from the asked offset, at most [`AGENT_FILE_CHUNK`]; empty
+    /// at or past the end.
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+}
+
+/// The most of a file one `GetAgentFile` gives, well under a frame.
+pub const AGENT_FILE_CHUNK: usize = 4 * 1024 * 1024;
+
+/// The largest file `GetAgentFile` reads.
+pub const MAX_AGENT_FILE: u64 = 128 * 1024 * 1024;
+
+/// The MIME type of a media file `GetAgentFile` reads, by the extension of
+/// `path`, any case; `None` for any other file.
+pub fn media_mime(path: &str) -> Option<&'static str> {
+    let name = path.rsplit(['/', '\\']).next()?;
+    let (stem, ext) = name.rsplit_once('.')?;
+    if stem.is_empty() {
+        return None;
+    }
+    Some(match ext.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "glb" => "model/gltf-binary",
+        "gltf" => "model/gltf+json",
+        "obj" => "model/obj",
+        "stl" => "model/stl",
+        "pdf" => "application/pdf",
+        _ => return None,
+    })
 }
 
 /// A short name for an image's bytes, the same on the node and the server.
@@ -2736,7 +2824,7 @@ wire_enum! {
         1 Cancel {}
         2 Close {}
         3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
-        4 Configure { model: Option<String>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
+        4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
     }
 }
 
@@ -4868,6 +4956,19 @@ impl Notice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn media_mime_goes_by_extension() {
+        assert_eq!(media_mime("/out/clip.MP4"), Some("video/mp4"));
+        assert_eq!(media_mime("~/renders/scene.glb"), Some("model/gltf-binary"));
+        assert_eq!(media_mime("C:\\out\\report.pdf"), Some("application/pdf"));
+        assert_eq!(media_mime("/out/logo.svg"), Some("image/svg+xml"));
+        assert_eq!(media_mime("/out/take.mov"), Some("video/quicktime"));
+        assert_eq!(media_mime("/out/notes.txt"), None);
+        assert_eq!(media_mime("/out/mp4"), None);
+        assert_eq!(media_mime("/out/.png"), None);
+        assert_eq!(media_mime("/out.png/clip"), None);
+    }
 
     #[test]
     fn request_round_trip_is_compact() {
