@@ -3,6 +3,8 @@
 //! Read and written: the node's workspace and shared folders, and the
 //! folders coding agent sessions work in. Only read: the harnesses' session
 //! logs and Claude Code's temp folder, where it keeps the files it makes.
+//! The custom agents list (`SessionsRequest::CustomAgents`) reads only in
+//! the work folders.
 //! Every path is checked with its links and `..` resolved.
 
 use super::{Agents, media_file::resolve};
@@ -20,6 +22,8 @@ use tokio::task::spawn_blocking;
 pub(super) enum Access {
     Read,
     Write,
+    /// Read, but only in a work folder: a project folder asked for.
+    Work,
 }
 
 /// The folders a request may reach, as they were named.
@@ -48,6 +52,7 @@ impl Reach {
         match access {
             Access::Read => inside(&self.work) || inside(&self.read),
             Access::Write => inside(&self.work) && !inside(&self.no_write),
+            Access::Work => inside(&self.work),
         }
     }
 }
@@ -57,6 +62,7 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
     let what = match access {
         Access::Read => "read",
         Access::Write => "write",
+        Access::Work => "list custom agents in",
     };
     anyhow::anyhow!(
         "{asked} is outside the folders Beep may {what} on this node: its workspace, \
@@ -164,18 +170,38 @@ impl Agents {
     }
 }
 
-/// Claude Code's temp folder for this user:`claude-<uid>` in the temp
-/// folder, `/tmp` on Linux and `$TMPDIR` on macOS.
+/// Claude Code's temp folder for this user. See [`claude_temp_in`].
 pub(super) fn claude_temp() -> Option<PathBuf> {
     #[cfg(unix)]
     {
         let uid = rustix::process::getuid().as_raw();
-        Some(std::env::temp_dir().join(format!("claude-{uid}")))
+        Some(claude_temp_in(
+            std::env::var_os(CLAUDE_TEMP_VAR).as_deref(),
+            uid,
+        ))
     }
     #[cfg(not(unix))]
     {
         None
     }
+}
+
+/// What moves Claude Code's temp folder.
+#[cfg(unix)]
+const CLAUDE_TEMP_VAR: &str = "CLAUDE_CODE_TMPDIR";
+
+/// Claude Code's temp folder for `uid`: `claude-<uid>` in `set`, the
+/// value of `CLAUDE_CODE_TMPDIR`, or else in `/tmp`. Claude Code uses
+/// `/tmp` on macOS too, never `TMPDIR` or the per-user
+/// `/var/folders/.../T/`, so the folder does not depend on the
+/// environment launchd gives the node's service. A `CLAUDE_CODE_TMPDIR`
+/// set only in the user's shell is not seen by the service.
+#[cfg(unix)]
+fn claude_temp_in(set: Option<&std::ffi::OsStr>, uid: u32) -> PathBuf {
+    let base = set
+        .filter(|base| !base.is_empty())
+        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+    base.join(format!("claude-{uid}"))
 }
 
 #[cfg(test)]
@@ -342,10 +368,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn claude_codes_temp_folder_is_named_by_uid() {
+    fn claude_codes_temp_folder_is_in_tmp_by_uid() {
+        use std::ffi::OsStr;
+        // Wherever TMPDIR points, as it does under launchd on macOS.
+        assert_eq!(claude_temp_in(None, 501), Path::new("/tmp/claude-501"));
+        assert_eq!(
+            claude_temp_in(Some(OsStr::new("")), 1000),
+            Path::new("/tmp/claude-1000")
+        );
+        assert_eq!(
+            claude_temp_in(Some(OsStr::new("/srv/scratch")), 501),
+            Path::new("/srv/scratch/claude-501")
+        );
         let uid = rustix::process::getuid().as_raw();
-        let temp = claude_temp().unwrap();
-        assert_eq!(temp, std::env::temp_dir().join(format!("claude-{uid}")));
+        let set = std::env::var_os(CLAUDE_TEMP_VAR);
+        assert_eq!(claude_temp(), Some(claude_temp_in(set.as_deref(), uid)));
     }
 
     #[tokio::test]
@@ -360,6 +397,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(real, fs::canonicalize(&asked).unwrap());
+    }
+
+    #[test]
+    fn custom_agents_are_listed_only_in_a_work_folder() {
+        let project = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let logs = TempDir::new().unwrap();
+        fs::create_dir_all(project.path().join(".claude/agents")).unwrap();
+        fs::write(
+            project.path().join(".claude/agents/reviewer.md"),
+            "---\nname: reviewer\n---\nReview.",
+        )
+        .unwrap();
+        fs::create_dir_all(outside.path().join(".claude/agents")).unwrap();
+        let reach = Reach {
+            work: vec![project.path().to_owned()],
+            read: vec![logs.path().to_owned()],
+            no_write: Vec::new(),
+        };
+        let real = check(&reach, project.path(), Access::Work).unwrap();
+        let agents = super::super::custom_agents::list(&real, None).unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "reviewer");
+        for refused_folder in [outside.path(), logs.path(), Path::new("/etc")] {
+            let e = check(&reach, refused_folder, Access::Work).unwrap_err();
+            assert!(e.to_string().contains("outside the folders"), "{e:#}");
+        }
+        assert!(check(&reach, Path::new("relative/path"), Access::Work).is_err());
     }
 
     #[test]
