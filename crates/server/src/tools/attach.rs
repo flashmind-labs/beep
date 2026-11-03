@@ -130,6 +130,17 @@ fn media_type(path: &str) -> Option<&'static str> {
     }
 }
 
+/// The media type the call gave, else the one `path`'s extension says;
+/// `None` when neither is a type.
+fn chosen_type(given: Option<&str>, path: &str) -> Option<String> {
+    given
+        .map(str::trim)
+        .filter(|given| !given.is_empty())
+        .or_else(|| media_type(path))
+        .filter(|mime| mime.contains('/'))
+        .map(str::to_ascii_lowercase)
+}
+
 /// The file name at the end of `path`, for a label.
 fn file_name(path: &str) -> &str {
     path.trim_end_matches('/')
@@ -184,15 +195,11 @@ impl Tool for AttachTool {
             Ok(args) => args,
             Err(error) => return Ok(ToolResult::failure(call_id, error.to_string())),
         };
-        let given = args.media_type.as_deref().map(str::trim);
-        let mime = match given.or_else(|| media_type(&args.path)) {
-            Some(mime) if mime.contains('/') => mime.to_ascii_lowercase(),
-            _ => {
-                return Ok(ToolResult::failure(
-                    call_id,
-                    "Unknown file type. Specify its MIME type using media_type.",
-                ));
-            }
+        let Some(mime) = chosen_type(args.media_type.as_deref(), &args.path) else {
+            return Ok(ToolResult::failure(
+                call_id,
+                "Unknown file type. Specify its MIME type using media_type.",
+            ));
         };
         let (Some(llm), Some(provider)) = (ctx.llm, &ctx.provider) else {
             return Ok(ToolResult::failure(
@@ -288,6 +295,20 @@ mod tests {
         assert_eq!(media_type("voice.m4a"), Some("audio/mp4"));
         assert_eq!(media_type("notes.txt"), None);
         assert_eq!(media_type("README"), None);
+    }
+
+    #[test]
+    fn a_blank_given_type_falls_back_to_the_extension() {
+        assert_eq!(
+            chosen_type(Some(""), "letter.pdf").as_deref(),
+            Some("application/pdf")
+        );
+        assert_eq!(
+            chosen_type(Some(" Image/PNG "), "x").as_deref(),
+            Some("image/png")
+        );
+        assert_eq!(chosen_type(Some("pdf"), "letter.pdf"), None);
+        assert_eq!(chosen_type(None, "README"), None);
     }
 
     #[test]

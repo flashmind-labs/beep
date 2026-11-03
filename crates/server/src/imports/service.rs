@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     app::App,
-    credentials::{ForgejoUrl, Opened, Slot, github_for},
+    credentials::{ForgejoUrl, Opened, Slot},
     nodes::{Online, SHELL},
     protocol::{
         FoundProject, ImportFork, ImportedProject, MachineFolder, ProjectMachine,
@@ -95,7 +95,7 @@ async fn choose_machine(
 }
 
 /// The Forgejo servers among the user's credentials.
-fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {
+pub(super) fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {
     credentials
         .iter()
         .filter_map(|opened| match &opened.slot {
@@ -263,14 +263,7 @@ async fn look(
 /// The user's token for `repo`'s host, when they saved one: on GitHub, the
 /// account for the repository's owner.
 fn token_for<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<&'a SecretString> {
-    match &repo.host {
-        Host::GitHub => github_for(credentials, repo.org()),
-        Host::Forgejo(url) => credentials
-            .iter()
-            .find(|opened| matches!(&opened.slot, Slot::Forgejo(saved) if saved == url)),
-    }
-    .map(|opened| &opened.secret)
-    .filter(|secret| !secret.expose_secret().is_empty())
+    repo.credential(credentials).map(|opened| &opened.secret)
 }
 
 /// Clones on `node`, the user's `fork` when they have one; `true` when it

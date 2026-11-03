@@ -11,7 +11,9 @@ use super::{
     fleet::{self, Fleet, NodeFleet},
     gate::ProjectGate,
     issues::run_host,
-    model::{CHECK_EVERY, IDLE_CLOSE, IssueHost, ProjectId, TaskState, WorkerId, WorkerState},
+    model::{
+        CHECK_EVERY, IDLE_CLOSE, IssueHost, ProjectId, TaskState, WorkerId, WorkerState, pr_number,
+    },
     policy::{Verdict, WorkerScope},
     schedule::Due,
     turn::{CHECK_LABEL, REPLAN_LABEL, WORKER_LABEL},
@@ -55,11 +57,7 @@ async fn fleet_of_worker(app: &Arc<App>, worker: WorkerId) -> Result<Option<Node
 }
 
 fn fleet_of(app: &Arc<App>, owner: &str) -> Option<NodeFleet> {
-    let user = app.user(owner)?;
-    Some(NodeFleet {
-        app: app.clone(),
-        user,
-    })
+    Some(NodeFleet::new(app, &app.user(owner)?))
 }
 
 /// Handles a report from `worker`'s session. `waited` says a tool call
@@ -287,7 +285,7 @@ async fn find_pr(
         branch: &branch,
         base: &project.default_branch,
     };
-    let out = run_host(home.shell.as_ref(), prs, project, command).await?;
+    let out = run_host(home.as_ref(), prs, project, command).await?;
     parse_pr(prs, &out)
 }
 
@@ -319,13 +317,18 @@ async fn relabel(
         add,
         remove,
     };
-    if let Err(error) = run_host(home.shell.as_ref(), host, project, command).await {
+    if let Err(error) = run_host(home.as_ref(), host, project, command).await {
         log::warn!("projects: unable to relabel an issue: {error:#}");
     }
 }
 
 /// Blocks the task if it is still running, labelling its issue.
-async fn block(fleet: &dyn Fleet, user: &User, project: &ProjectRow, task: &TaskRow) -> Result<()> {
+pub(crate) async fn block(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    task: &TaskRow,
+) -> Result<()> {
     if task.state == TaskState::Running
         && user
             .move_task_state(task.id, TaskState::Running, TaskState::Blocked)
@@ -522,10 +525,7 @@ pub(crate) async fn reconnected(
     user: &Arc<User>,
     machine: iroh::EndpointId,
 ) -> Result<()> {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     reattach_all(&fleet, user, machine).await
 }
 
@@ -628,11 +628,6 @@ pub(crate) async fn on_due(app: &Arc<App>, due: Due, now: DateTime<Utc>) -> Resu
     }
 }
 
-/// The number at the end of a pull request's URL.
-fn pr_number(url: &str) -> Option<u64> {
-    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
-}
-
 /// Reads the pull requests of the project's tasks in review, finishes the
 /// merged ones, tells the chat what changed, and re-arms while a task is
 /// open to checks.
@@ -646,6 +641,14 @@ pub(crate) async fn check(
         fleet.projects().disarm(&Due::Check(project));
         return Ok(());
     };
+    // A failure on one pull request must not stop the checks for good.
+    let checked = check_prs(fleet, user, &project).await;
+    rearm_check(fleet, user, project.id, now).await?;
+    checked
+}
+
+/// [`check`]'s reading of the project's pull requests.
+async fn check_prs(fleet: &dyn Fleet, user: &Arc<User>, project: &ProjectRow) -> Result<()> {
     let mut changes = Vec::new();
     if let Some(prs) = &project.roles.prs {
         let tasks = user.project_tasks(project.id).await?;
@@ -655,7 +658,7 @@ pub(crate) async fn check(
             .filter_map(|task| Some((task, pr_number(task.pr_url.as_deref()?)?)))
             .take(MAX_CHECKED);
         for (task, number) in review {
-            let pr = match pr_status(fleet, user, &project, prs, number).await {
+            let pr = match pr_status(fleet, user, project, prs, number).await {
                 Ok(Some(pr)) => pr,
                 Ok(None) => continue,
                 Err(error) => {
@@ -669,7 +672,7 @@ pub(crate) async fn check(
                 changes.push(pr_line(task, &pr));
             }
             if pr.merged {
-                finish_task(fleet, user, &project, task).await?;
+                finish_task(fleet, user, project, task).await?;
             }
         }
     }
@@ -685,7 +688,7 @@ pub(crate) async fn check(
             ),
         );
     }
-    rearm_check(fleet, user, project.id, now).await
+    Ok(())
 }
 
 async fn rearm_check(
@@ -719,12 +722,9 @@ async fn pr_status(
         .await
         .map_err(anyhow::Error::msg)?;
     let command = HostCommand::PrStatus { number };
-    let out = timeout(
-        PR_LIMIT,
-        run_host(home.shell.as_ref(), prs, project, command),
-    )
-    .await
-    .context("the host did not answer in time")??;
+    let out = timeout(PR_LIMIT, run_host(home.as_ref(), prs, project, command))
+        .await
+        .context("the host did not answer in time")??;
     parse_pr(prs, &out)
 }
 
@@ -865,7 +865,7 @@ pub(crate) async fn finish_task(
         };
         match fleet::home_shell(fleet, user, project).await {
             Ok(home) => {
-                if let Err(error) = run_host(home.shell.as_ref(), host, project, command).await {
+                if let Err(error) = run_host(home.as_ref(), host, project, command).await {
                     log::warn!("projects: unable to close a done task's issue: {error:#}");
                 }
             }
@@ -934,6 +934,14 @@ async fn remove_worktree(
         }
     }
     Ok(())
+}
+
+/// [`fill_slots`] after something freed a slot. The thing that freed it is
+/// done either way, so a failure here is only logged.
+pub(crate) async fn refill(fleet: &dyn Fleet, user: &Arc<User>) {
+    if let Err(error) = fill_slots(fleet, user).await {
+        log::warn!("projects: queued tasks not started: {error:#}");
+    }
 }
 
 /// Starts the user's queued tasks, oldest first, until one finds the user's

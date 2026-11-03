@@ -1,7 +1,10 @@
 //! Charts under a reply, which the macOS app draws: a stock's price from
 //! Yahoo Finance, or numbers the model already got from a tool or a page.
 
-use super::stocks::{self, History, MAX_SYMBOLS, Symbol};
+use super::{
+    products::clip,
+    stocks::{self, History, MAX_SYMBOLS, Symbol},
+};
 use crate::protocol::{Chart, ChartAxis, ChartKind, ChartPoint, ChartRange, ChartSeries};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
@@ -441,15 +444,6 @@ fn time_ms(text: &str) -> Option<f64> {
         .or_else(|_| NaiveDate::parse_from_str(&format!("{text}-01"), "%Y-%m-%d"))
         .ok()?;
     Some(date.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis() as f64)
-}
-
-fn clip(text: &str, max: usize) -> String {
-    text.trim()
-        .chars()
-        .take(max)
-        .collect::<String>()
-        .trim_end()
-        .to_owned()
 }
 
 #[cfg(test)]

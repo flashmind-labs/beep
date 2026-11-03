@@ -63,3 +63,11 @@ pub mod workspace;
 pub use beep_proto::{self as protocol, client};
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
+
+/// Locks `mutex`, taking its value as it is when a holder panicked: the
+/// state the server guards with plain mutexes stays usable after a panic.
+pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}

@@ -4,6 +4,7 @@
 //! stay out of the members' own routines.
 
 use super::group_tools::GroupRun;
+use crate::tools::args::text;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
@@ -31,13 +32,6 @@ struct ReminderTool {
 
 pub(super) fn register(registry: &mut ToolRegistry, run: Arc<GroupRun>) {
     registry.register(Arc::new(ReminderTool { run }));
-}
-
-fn text<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
-    args.get(name)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
 }
 
 fn failure(ctx: &ToolContext<'_>, message: impl Into<String>) -> Result<ToolResult> {

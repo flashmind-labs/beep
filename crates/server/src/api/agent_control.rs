@@ -5,11 +5,10 @@
 use super::{
     Reply,
     agent_auto::{self, Candidate, Wants},
-    agent_sessions::{
-        Host, IN_FLIGHT, NODE_LIMIT, beep_session, external_session, limited, linked_keys,
-    },
+    agent_sessions::{Host, IN_FLIGHT, NODE_LIMIT, beep_session, external_session, limited},
     harnesses,
     machines::machine_capability,
+    own_nodes::{self, linked_keys},
 };
 use crate::{
     nodes::{Follower, NodeFile, Online, StartOn, agent_name},
@@ -89,11 +88,7 @@ pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
         .into_iter()
         .filter(|row| keys.contains(&row.endpoint))
         .filter_map(|row| {
-            let online = cx
-                .app
-                .nodes
-                .online(&row.endpoint)
-                .filter(|online| online.user == cx.user.id())?;
+            let online = own_nodes::online(cx, &row.endpoint)?;
             let agents: Vec<String> = online
                 .offers
                 .iter()

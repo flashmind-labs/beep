@@ -38,6 +38,7 @@ mod live;
 mod location;
 mod machines;
 mod memories;
+mod own_nodes;
 mod project_groups;
 mod project_import;
 mod project_sync;
