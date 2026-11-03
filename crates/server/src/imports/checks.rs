@@ -11,7 +11,7 @@
 use super::{remove, repo::same_repo};
 use crate::{
     app::App,
-    credentials::{ForgejoUrl, Slot},
+    credentials::ForgejoUrl,
     lock,
     protocol::{
         ProjectMachine,
@@ -221,15 +221,9 @@ async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyho
 /// The Forgejo servers the user has a token for, which name a remote's
 /// repository.
 pub(super) async fn forgejo_servers(app: &App, user: &User) -> anyhow::Result<Vec<ForgejoUrl>> {
-    Ok(user
-        .git_credentials(&app.credential_key)
-        .await?
-        .into_iter()
-        .filter_map(|opened| match opened.slot {
-            Slot::Forgejo(url) => Some(url),
-            _ => None,
-        })
-        .collect())
+    Ok(super::service::forgejo_of(
+        &user.git_credentials(&app.credential_key).await?,
+    ))
 }
 
 /// Records what a look at `endpoint` that started at `started` found: each
