@@ -33,6 +33,7 @@ mod login_path;
 mod machine;
 mod machines;
 mod markdown;
+mod mcp_command;
 mod news;
 mod notify;
 mod orb;
@@ -100,6 +101,10 @@ const CHAT_ITEM: &str = "chat:";
 struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
+    // An agent running the app as its Beep MCP server: no window, no log.
+    if let Some(status) = mcp_command::run(std::env::args_os().skip(1)) {
+        std::process::exit(status);
+    }
     logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
