@@ -246,7 +246,6 @@ pub(crate) enum FakeAttach {
     Fails,
     /// The machine no longer has the session.
     Refused,
-    Info(Box<SessionInfo>),
 }
 
 fn take<T: Clone>(list: &Mutex<Vec<T>>) -> Vec<T> {
@@ -432,7 +431,6 @@ impl Fleet for FakeFleet {
                 reason: format!("there is no session {:?}", worker.session),
             }
             .into()),
-            FakeAttach::Info(info) => Ok((**info).clone()),
         }
     }
 }

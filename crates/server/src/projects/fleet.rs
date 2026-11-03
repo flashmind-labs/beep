@@ -16,7 +16,7 @@ use crate::{
         agent::{OptionKind, Question, Request as AgentRequest, SessionInfo},
         files::{Reply, Request},
     },
-    store::{CheckoutRow, ProjectRow, TaskRow, WorkerRow},
+    store::{ProjectRow, TaskRow, WorkerRow},
     tools::machines::command_name,
     user::User,
 };
@@ -348,18 +348,12 @@ pub(crate) async fn project_public_text(
     Ok(public_text(machines).with_paths(&paths))
 }
 
-/// The home checkout and a shell on its machine.
-pub(crate) struct HomeShell {
-    pub(crate) checkout: CheckoutRow,
-    pub(crate) shell: Arc<dyn Shell>,
-}
-
 /// A shell on the home checkout's machine; the error is for the model.
 pub(crate) async fn home_shell(
     fleet: &dyn Fleet,
     user: &User,
     project: &ProjectRow,
-) -> Result<HomeShell, String> {
+) -> Result<Arc<dyn Shell>, String> {
     let checkouts = user
         .checkouts(project.id)
         .await
@@ -372,7 +366,7 @@ pub(crate) async fn home_shell(
     let Some(shell) = fleet.shell(&checkout.machine) else {
         return Err("The home checkout's machine is offline or offers no shell.".into());
     };
-    Ok(HomeShell { checkout, shell })
+    Ok(shell)
 }
 
 /// Whether `path` is in one of the folders the machine shares.

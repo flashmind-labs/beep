@@ -223,11 +223,6 @@ impl TaskSlug {
         worktree.join(&format!(".beep/incoming/{}", self.0))
     }
 
-    /// Where the task's outputs go in the `home` checkout.
-    pub(crate) fn outputs(&self, home: &MachinePath) -> MachinePath {
-        home.join(&format!(".beep/outputs/{}", self.0))
-    }
-
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -548,10 +543,6 @@ mod tests {
         assert_eq!(
             slug.incoming(&worktree).as_str(),
             "/srv/project/.worktrees/fix-it/.beep/incoming/fix-it"
-        );
-        assert_eq!(
-            slug.outputs(&checkout).as_str(),
-            "/srv/project/.beep/outputs/fix-it"
         );
     }
 

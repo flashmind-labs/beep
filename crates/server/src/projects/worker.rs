@@ -454,7 +454,7 @@ async fn relabel_running(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow,
         add: Some(LABEL_RUNNING),
         remove: &[LABEL_BLOCKED],
     };
-    if let Err(error) = run_host(home.shell.as_ref(), host, project, command).await {
+    if let Err(error) = run_host(home.as_ref(), host, project, command).await {
         log::warn!("projects: unable to label the issue running: {error:#}");
     }
 }
