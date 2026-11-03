@@ -1219,6 +1219,13 @@ requests! {
     /// outside `root`, a part out of order, a file too large, or a node too
     /// old to take files.
     303 WriteWorkFile { machine_id: String, root: String, path: String, offset: u64, size: u64, #[serde(with = "serde_bytes")] data: Vec<u8> } => Call<String>
+    /// What the caller's coding agents cost today, this week (from Monday)
+    /// and this month, in the caller's timezone, by project and by
+    /// harness, and how much of each agent's plan is used. Unlike
+    /// `GetUsage` it counts sessions started outside Beep too, as the
+    /// machines read them from the agents' own logs. `refresh` as in
+    /// `GetUsage`.
+    304 GetUsageReport { refresh: bool } => Call<UsageReport>
 }
 
 /// What `FindImportFork` found.
@@ -1231,6 +1238,31 @@ pub struct ImportFork {
     pub fork: Option<String>,
     /// The head branches of the caller's open pull requests from the fork.
     pub branches: Vec<String>,
+}
+
+/// What `GetUsageReport` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageReport {
+    /// As in `UsageView`.
+    pub limits: Vec<PlanLimits>,
+    pub today: PeriodSpend,
+    /// From Monday.
+    pub week: PeriodSpend,
+    /// From the first of the month.
+    pub month: PeriodSpend,
+}
+
+/// What coding agents spent over one period.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeriodSpend {
+    /// Every project together, `project` empty.
+    pub total: ProjectSpend,
+    /// Every token, priced or not.
+    pub tokens: u64,
+    /// By project, the most expensive first, only those that spent.
+    pub projects: Vec<ProjectSpend>,
+    /// By harness, the most expensive first, only those that spent.
+    pub harnesses: Vec<HarnessSpend>,
 }
 
 /// What `GetUsage` gives.

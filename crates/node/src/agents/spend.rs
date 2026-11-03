@@ -1,0 +1,163 @@
+//! What coding agent sessions on this machine spent, read from the agents'
+//! own logs, sessions started outside Beep included: Claude Code's and
+//! Codex's and pi's JSONL transcripts, and OpenCode's and flsh's
+//! databases. The server asks for it on a `FollowUsage` stream with
+//! `history` (see `super::send_usage`).
+//!
+//! Each pass reads only what changed since the last (`scan`), at most a
+//! bounded amount, and keeps per log file how far it read and what each
+//! session spent by hour and model (`ledger`), saved so a restart does not
+//! read it all again. Sessions are reported whole from the start of the
+//! window on, so a session read again replaces itself on the server
+//! rather than adding to it. Tokens are priced with `super::prices` unless
+//! the log has the cost.
+
+use beep_proto::node::usage::SessionSpend;
+use ledger::{Ledger, SessionKey};
+use std::{
+    path::PathBuf,
+    sync::{Mutex, PoisonError},
+};
+
+mod claude;
+mod codex;
+mod databases;
+mod ledger;
+mod pi;
+mod scan;
+
+pub(crate) use scan::Roots;
+
+use crate::{agents::prices::Tokens, found::Agent};
+
+/// How far back the logs are read: a month and a bit.
+const WINDOW_SECS: u64 = 35 * 24 * 3600;
+/// The most sessions one pass reports.
+const MAX_REPORTS: usize = 500;
+
+/// What one log line said.
+#[derive(Debug)]
+pub(super) enum Line {
+    /// The session the log is of, from its header.
+    Session { id: String, cwd: String },
+    /// The model the next requests run on.
+    Model(String),
+    /// One request to the model.
+    Request(Request),
+}
+
+/// One request and its tokens, as one log line records it.
+#[derive(Debug, Default)]
+pub(super) struct Request {
+    /// The session, when the line names it rather than the log's header.
+    session: Option<String>,
+    cwd: Option<String>,
+    /// Unix seconds.
+    at: u64,
+    model: Option<String>,
+    tokens: Tokens,
+    /// What it cost, when the log says.
+    cost_usd: Option<f64>,
+    /// Lines with the same key are copies of one request.
+    key: Option<u64>,
+    /// A running total that a repeated count repeats.
+    total: Option<u64>,
+}
+
+/// The logs and what was read of them.
+#[derive(Debug, Default)]
+pub(crate) struct Spend {
+    roots: Roots,
+    /// Where the ledger is saved; nowhere when `None`.
+    path: Option<PathBuf>,
+    /// Read from `path` at the first pass.
+    ledger: Mutex<Option<Ledger>>,
+}
+
+impl Spend {
+    /// The logs on this machine, the ledger in the node's cache folder.
+    pub(crate) fn locate() -> Self {
+        Self {
+            roots: Roots::locate(),
+            path: dirs::cache_dir().map(|dir| dir.join("beep-node").join("agent-spend.json")),
+            ledger: Mutex::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn at(roots: Roots, path: PathBuf) -> Self {
+        Self {
+            roots,
+            path: Some(path),
+            ledger: Mutex::default(),
+        }
+    }
+
+    /// Reads what changed in the logs by `now` (Unix seconds), and gives
+    /// the sessions the server has not heard of as they stand, the newest
+    /// first. Blocking: run it with `spawn_blocking`.
+    pub(crate) fn pass(&self, now: u64) -> Vec<SessionSpend> {
+        let since = now.saturating_sub(WINDOW_SECS);
+        let mut guard = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
+        let ledger = guard.get_or_insert_with(|| match &self.path {
+            Some(path) => Ledger::load(path),
+            None => Ledger::default(),
+        });
+        scan::pass(ledger, &self.roots, since);
+        forget_gone(ledger, since);
+        if let Some(path) = &self.path
+            && let Err(e) = ledger.save(path)
+        {
+            log::warn!(
+                "agent usage ledger not saved; path={} error={e}",
+                path.display()
+            );
+        }
+        let mut keys: Vec<(u64, &SessionKey)> = ledger
+            .unsent
+            .iter()
+            .map(|key| (ledger.last_hour(key), key))
+            .collect();
+        keys.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+        keys.into_iter()
+            .take(MAX_REPORTS)
+            .filter_map(|(_, key)| ledger.report(key, since))
+            .collect()
+    }
+
+    /// Notes that the server has `spend` as it stands; it is sent again
+    /// only once it changes.
+    pub(crate) fn sent(&self, spend: &SessionSpend) {
+        let Some(agent) = Agent::from_name(spend.agent.as_str()) else {
+            return;
+        };
+        let mut guard = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(ledger) = guard.as_mut() {
+            let key = SessionKey {
+                agent,
+                session: spend.session.clone(),
+            };
+            if ledger.unsent.remove(&key) {
+                ledger.changed = true;
+            }
+        }
+    }
+}
+
+/// Forgets the unsent sessions whose logs are all gone: there is nothing
+/// to send of them.
+fn forget_gone(ledger: &mut Ledger, since: u64) {
+    let gone: Vec<SessionKey> = ledger
+        .unsent
+        .iter()
+        .filter(|key| ledger.report(key, since).is_none())
+        .cloned()
+        .collect();
+    for key in gone {
+        ledger.unsent.remove(&key);
+        ledger.changed = true;
+    }
+}
+
+#[cfg(test)]
+mod tests;

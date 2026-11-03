@@ -4,16 +4,17 @@
 use super::Reply;
 use crate::{
     protocol::{
-        AgentSlug, AgentTokens, GetUsage, HarnessSpend, ModelSpend, PlanLimits, PlanWindow,
-        ProjectSpend, UsageView,
+        AgentSlug, AgentTokens, GetUsage, GetUsageReport, HarnessSpend, ModelId, ModelSpend,
+        PeriodSpend, PlanLimits, PlanWindow, ProjectSpend, UsageReport, UsageView,
     },
     router::Cx,
-    store::{ImportRow, ModelRow, PlanRow, SpendRow},
+    store::{DayModelRow, DaySpendRow, ImportRow, ModelRow, PlanRow, SpendRow},
 };
+use chrono::NaiveDate;
 use iroh::EndpointId;
 use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap},
+    cmp::{Ordering, Reverse},
+    collections::{BTreeMap, HashMap, HashSet},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -45,6 +46,92 @@ pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<U
         harnesses: harnesses(&spend, &models),
         week: total(spend.iter()),
     })
+}
+
+pub(super) async fn get_usage_report(
+    cx: Cx,
+    GetUsageReport { refresh }: GetUsageReport,
+) -> Reply<UsageReport> {
+    if refresh {
+        for node in cx.app.nodes.of_user(cx.user.id()) {
+            node.refresh_usage();
+        }
+    }
+    let periods = cx.user.usage_periods().await?;
+    let (days, models, plans, imports, nodes) = tokio::try_join!(
+        cx.user.day_spend(&periods),
+        cx.user.day_models(&periods),
+        cx.user.plan_usages(),
+        cx.user.imports(),
+        cx.user.nodes(),
+    )?;
+    let names: HashMap<EndpointId, String> = nodes
+        .into_iter()
+        .filter_map(|node| Some((node.endpoint.parse().ok()?, node.name)))
+        .collect();
+    let period = |from: NaiveDate| period_spend(&days, &models, &imports, from);
+    Ok(UsageReport {
+        limits: limits(plans, &names),
+        today: period(periods.today),
+        week: period(periods.week),
+        month: period(periods.month),
+    })
+}
+
+/// What was spent from the day `from` on, by project and by harness.
+fn period_spend(
+    days: &[DaySpendRow],
+    models: &[DayModelRow],
+    imports: &[ImportRow],
+    from: NaiveDate,
+) -> PeriodSpend {
+    // As this week's rows, every one counted as today's.
+    let rows: Vec<SpendRow> = days
+        .iter()
+        .filter(|row| row.day >= from)
+        .map(|row| SpendRow {
+            endpoint: row.endpoint,
+            cwd: row.cwd.clone(),
+            agent: row.agent.clone(),
+            today: true,
+            cost_usd: row.cost_usd,
+            tokens: row.tokens,
+            unpriced_tokens: row.unpriced_tokens,
+        })
+        .collect();
+    PeriodSpend {
+        total: total(rows.iter()),
+        tokens: rows.iter().map(|row| row.tokens).sum(),
+        projects: today(&rows, imports),
+        harnesses: harnesses(&rows, &period_models(models, from)),
+    }
+}
+
+/// The tokens by agent and model from the day `from` on, the most first:
+/// from the logs where an agent has any, else from the turns Beep watched.
+fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
+    let models: Vec<&DayModelRow> = models.iter().filter(|row| row.day >= from).collect();
+    let logged: HashSet<&AgentSlug> = models
+        .iter()
+        .filter(|row| row.from_logs)
+        .map(|row| &row.agent)
+        .collect();
+    let mut by_model: BTreeMap<(&AgentSlug, &ModelId), u64> = BTreeMap::new();
+    for row in models {
+        if row.from_logs == logged.contains(&row.agent) {
+            *by_model.entry((&row.agent, &row.model)).or_default() += row.tokens;
+        }
+    }
+    let mut out: Vec<ModelRow> = by_model
+        .into_iter()
+        .map(|((agent, model), tokens)| ModelRow {
+            agent: agent.clone(),
+            model: model.clone(),
+            tokens,
+        })
+        .collect();
+    out.sort_by_key(|row| Reverse(row.tokens));
+    out
 }
 
 /// Each agent's plan, Claude Code and Codex first.
@@ -309,6 +396,54 @@ mod tests {
             ]
         );
         assert_eq!(harnesses[2].models[0].model, "gpt-5-codex");
+    }
+
+    #[test]
+    fn periods_count_their_days_and_prefer_the_logs_models() {
+        let day = |d: u32| NaiveDate::from_ymd_opt(2026, 11, d).expect("a real day");
+        let spent = |cwd: &str, agent: &str, d: u32, cost: f64| DaySpendRow {
+            endpoint: machine(1),
+            cwd: cwd.into(),
+            agent: agent.into(),
+            day: day(d),
+            cost_usd: Some(cost),
+            tokens: 1_000,
+            unpriced_tokens: 0,
+        };
+        let model = |agent: &str, model: &str, d: u32, tokens: u64, from_logs: bool| DayModelRow {
+            agent: agent.into(),
+            model: model.into(),
+            day: day(d),
+            tokens,
+            from_logs,
+        };
+        let days = [
+            spent("/srv/widget", "claude", 1, 4.0),
+            spent("/srv/widget", "claude", 3, 1.5),
+            spent("/srv/relay", "codex", 3, 0.5),
+        ];
+        let models = [
+            model("claude", "claude-opus-5-5", 3, 900, true),
+            model("claude", "claude-opus-5-5", 3, 400, false),
+            model("claude", "claude-sonnet-5", 1, 700, true),
+            model("codex", "gpt-6-sol", 3, 1_000, false),
+        ];
+        let imports = [import("/srv/widget", "acme/widget")];
+
+        let today = period_spend(&days, &models, &imports, day(3));
+        assert!((today.total.cost_usd - 2.0).abs() < 1e-9);
+        assert_eq!(today.tokens, 2_000);
+        assert_eq!(today.projects[0].project, "acme/widget");
+        let claude = &today.harnesses[0];
+        assert_eq!(claude.agent, "claude");
+        assert_eq!(claude.models.len(), 1);
+        assert_eq!(claude.models[0].tokens, 900);
+        assert_eq!(today.harnesses[1].models[0].model, "gpt-6-sol");
+
+        let month = period_spend(&days, &models, &imports, day(1));
+        assert!((month.total.cost_usd - 6.0).abs() < 1e-9);
+        assert_eq!(month.harnesses[0].models[0].model, "claude-opus-5-5");
+        assert_eq!(month.harnesses[0].models[1].tokens, 700);
     }
 
     #[test]

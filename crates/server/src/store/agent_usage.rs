@@ -69,14 +69,14 @@ fn name(what: &str, value: &str, max: usize) -> Result<()> {
 }
 
 /// The node in `row`'s `endpoint_id`, which holds an `EndpointId`'s text.
-fn endpoint_of(row: &PgRow) -> Result<EndpointId> {
+pub(super) fn endpoint_of(row: &PgRow) -> Result<EndpointId> {
     let text: String = row.try_get("endpoint_id")?;
     text.parse()
         .with_context(|| format!("endpoint_id {text:?} is no node key"))
 }
 
 /// The agent in `row`'s `agent` column.
-fn agent_of(row: &PgRow) -> Result<AgentSlug> {
+pub(super) fn agent_of(row: &PgRow) -> Result<AgentSlug> {
     Ok(AgentSlug::new(row.try_get::<String, _>("agent")?))
 }
 
@@ -98,6 +98,10 @@ impl Store {
         let tokens = i64::try_from(turn.tokens)?;
         let unpriced = if cost.is_some() { 0 } else { tokens };
         let at = i64::try_from(turn.at)?;
+        let agent_session = turn
+            .agent_session
+            .as_deref()
+            .filter(|id| !id.is_empty() && id.len() <= MAX_NAME);
         let mut tx = self.pool.begin().await?;
         let day: NaiveDate = sqlx::query_scalar(
             "SELECT (to_timestamp($2) AT TIME ZONE
@@ -109,9 +113,10 @@ impl Store {
         .await?;
         sqlx::query(
             "INSERT INTO agent_usage (user_id, endpoint_id, session, day, agent, cwd, cost_usd,
-                 tokens, unpriced_tokens, turns)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)
+                 tokens, unpriced_tokens, turns, agent_session)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)
              ON CONFLICT (user_id, endpoint_id, session, day) DO UPDATE SET
+                 agent_session = COALESCE(excluded.agent_session, agent_usage.agent_session),
                  cost_usd = CASE WHEN excluded.cost_usd IS NULL THEN agent_usage.cost_usd
                      ELSE COALESCE(agent_usage.cost_usd, 0) + excluded.cost_usd END,
                  tokens = agent_usage.tokens + excluded.tokens,
@@ -127,6 +132,7 @@ impl Store {
         .bind(cost)
         .bind(tokens)
         .bind(unpriced)
+        .bind(agent_session)
         .execute(&mut *tx)
         .await?;
         for model in turn.models.iter().take(MAX_WINDOWS) {

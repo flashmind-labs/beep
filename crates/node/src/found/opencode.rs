@@ -64,13 +64,18 @@ fn data_dir() -> Option<PathBuf> {
     Some(base.join("opencode"))
 }
 
-/// The sessions in `root`: a database, or a data folder of them.
-pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
-    let databases = if root.is_file() {
+/// The databases at `root`: the database itself, or those in the folder.
+pub(super) fn databases_at(root: &Path) -> Vec<PathBuf> {
+    if root.is_file() {
         vec![root.to_owned()]
     } else {
         databases(root)
-    };
+    }
+}
+
+/// The sessions in `root`: a database, or a data folder of them.
+pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
+    let databases = databases_at(root);
     let mut seen = Vec::new();
     for database in databases {
         match memos

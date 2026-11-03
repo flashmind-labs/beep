@@ -17,7 +17,7 @@ use beep_proto::node::{
         SessionInfo, SessionsReply, SessionsRequest, State, Status,
     },
     harness::{AgentSettings, HarnessReport},
-    usage::PlanUsage,
+    usage::{PlanUsage, SessionSpend},
 };
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::{
-    task::spawn_blocking,
+    task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval},
 };
 
@@ -45,7 +45,9 @@ mod live;
 mod media_file;
 mod models;
 mod plans;
+mod prices;
 mod session;
+mod spend;
 mod usage;
 mod work_folder;
 
@@ -56,6 +58,7 @@ use acp::Prompt;
 use images::Images;
 use models::ModelCache;
 use session::{Command, Session, Start};
+use spend::Spend;
 use usage::{Plans, UsageHub};
 
 /// The most sessions running at once.
@@ -79,6 +82,9 @@ const MAX_IMAGE: usize = 7 * 1024 * 1024;
 /// the least time between two reads it asks for.
 const PLAN_EVERY: Duration = Duration::from_secs(5 * 60);
 const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
+/// How often the agents' logs are read for what sessions spent, while the
+/// server follows it.
+const SPEND_EVERY: Duration = Duration::from_secs(60);
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -245,6 +251,8 @@ pub struct Agents {
     images: Arc<Images>,
     /// What sessions spend and how much of the agents' plans is left.
     usage: Arc<UsageHub>,
+    /// What sessions spent, from the agents' own logs.
+    spend: Arc<Spend>,
     /// The models each agent offers, found lately.
     models: ModelCache,
     /// The user's settings for each agent, applied when one starts.
@@ -262,6 +270,7 @@ impl Agents {
             stores: Stores::locate(),
             images: Arc::default(),
             usage: Arc::default(),
+            spend: Arc::new(Spend::locate()),
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
@@ -980,7 +989,9 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             return agents.external.watch(tx, rx, sessions).await;
         }
         SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
-        SessionsRequest::FollowUsage {} => return send_usage(tx, rx, &agents).await,
+        SessionsRequest::FollowUsage { history } => {
+            return send_usage(tx, rx, &agents, history).await;
+        }
         SessionsRequest::Image { session, key } => match agents.image(&session, &key).await {
             Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
                 mime: picture.mime.clone(),
@@ -1129,8 +1140,9 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
 
 /// Sends the server what finished turns spent and each agent's plan
 /// usage, reading the plans every `PLAN_EVERY` and when the server asks,
-/// until the server closes the stream.
-async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents) -> Result<()> {
+/// until the server closes the stream. With `history`, also what sessions
+/// spent as the agents' logs tell it, read every `SPEND_EVERY`.
+async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bool) -> Result<()> {
     let mut plans = agents.usage.plans();
     let mut sent = Plans::new();
     let mut every = interval(PLAN_EVERY);
@@ -1138,6 +1150,11 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents) -> Result<(
     // A read runs a CLI or two; it runs beside the loop, not in it.
     let mut reading: Option<BoxFuture<'_, Vec<PlanUsage>>> = None;
     let mut last_read: Option<Instant> = None;
+    let mut every_scan = interval(SPEND_EVERY);
+    every_scan.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // A pass reads files; it runs on the blocking pool beside the loop.
+    // Dropped with the stream, it still finishes and saves what it read.
+    let mut scanning: Option<JoinHandle<Vec<SessionSpend>>> = None;
     loop {
         tokio::select! {
             turn = agents.usage.next_turn() => {
@@ -1158,6 +1175,22 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents) -> Result<(
                 last_read = Some(Instant::now());
                 for plan in read {
                     agents.usage.set_plan(plan);
+                }
+            }
+            _ = every_scan.tick(), if history && scanning.is_none() => {
+                let spend = agents.spend.clone();
+                scanning = Some(spawn_blocking(move || spend.pass(live::unix_now())));
+            }
+            Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
+                scanning = None;
+                match read {
+                    Ok(reports) => {
+                        for report in reports {
+                            tx.send(&SessionsReply::SessionSpend { usage: report.clone() }).await?;
+                            agents.spend.sent(&report);
+                        }
+                    }
+                    Err(e) => log::warn!("reading the agents' logs failed: {e}"),
                 }
             }
             message = rx.recv::<SessionsRequest>() => match message {

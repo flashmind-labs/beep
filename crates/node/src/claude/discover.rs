@@ -113,6 +113,11 @@ impl Store {
         })
     }
 
+    /// The folder of the projects' transcripts.
+    pub(super) fn projects(&self) -> PathBuf {
+        self.root.join("projects")
+    }
+
     #[cfg(test)]
     pub(super) fn at(root: &Path) -> Self {
         Self {

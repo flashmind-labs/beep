@@ -11,7 +11,10 @@
 //! file changes, so listing again reads only what changed.
 
 use crate::agents::cut;
-use beep_proto::node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder};
+use beep_proto::{
+    AgentSlug,
+    node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
+};
 use std::{
     cmp::Reverse,
     collections::HashMap,
@@ -47,7 +50,10 @@ const MAX_TITLE: usize = 300;
 const RECENT: Duration = Duration::from_secs(3 * 60);
 
 /// A coding agent whose sessions are read here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum Agent {
     Claude,
     Codex,
@@ -74,6 +80,11 @@ impl Agent {
             Self::Flsh => "flsh",
             Self::OpenCode => "opencode",
         }
+    }
+
+    /// The slug the wire names it by.
+    pub(crate) fn slug(self) -> AgentSlug {
+        AgentSlug::from(self.as_str())
     }
 
     pub(crate) fn from_name(name: &str) -> Option<Self> {
@@ -211,6 +222,34 @@ impl Stores {
         self.opencode = Some(opencode.to_owned());
         self
     }
+}
+
+/// Where Codex, pi, flsh and OpenCode keep their sessions here, for
+/// reading what they spent (`crate::agents::spend`).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LogRoots {
+    /// `CODEX_HOME`; its sessions are in `sessions/`.
+    pub(crate) codex: Option<PathBuf>,
+    pub(crate) pi: Option<PathBuf>,
+    pub(crate) flsh: Option<PathBuf>,
+    /// OpenCode's database, or its data folder of them.
+    pub(crate) opencode: Option<PathBuf>,
+}
+
+impl LogRoots {
+    pub(crate) fn locate() -> Self {
+        Self {
+            codex: codex::locate(),
+            pi: pi::locate(),
+            flsh: flsh::locate(),
+            opencode: opencode::locate(),
+        }
+    }
+}
+
+/// OpenCode's databases at `root`: the file itself, or those in the folder.
+pub(crate) fn opencode_databases(root: &Path) -> Vec<PathBuf> {
+    opencode::databases_at(root)
 }
 
 /// Sessions in one folder, per agent, as `folders` gathers them.
