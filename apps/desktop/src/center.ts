@@ -21,7 +21,11 @@ import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
-import { agentFor, tasksSection, workersSection, cardsSection, prsSection, barPlaceholder, chatStarted, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
+import { agentFor, tasksSection, workersSection, cardsSection, prsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
+import { BAR_NOTE, barCheckout, barPlace, barPrompt } from "./projectbar.ts";
+import { type BaseBranches, baseFor, type CheckoutPick, folderBusy, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
+import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner } from "./bar/agentpicker.ts";
+import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "./bar/agents.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { ALL, byMachine, makeTerminals, terminalNote, terminalTile, terminalWhere, terminalsCount } from "./terminals.ts";
@@ -1878,7 +1882,7 @@ function layoutSwitch() {
 /// id, `outcomes` of answered cards by query id, and `starting` the project
 /// whose agent the prompt bar is making.
 /// `tile` is the board tile opened in place of the board, null for the board.
-const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), starting: null as string | null, tile: null as string | null };
+const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 /// The project's terminals; the board's tile and its full view.
 const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects() });
@@ -1987,79 +1991,207 @@ function answerCard(agent: ProjectAgent, c: { query_id: string }, decision: stri
   setTimeout(loadProjectAgent, 1500);
 }
 
-/// The prompt bar under an imported project; kept across redraws so what
-/// is typed stays. Sending opens the project chat, where the project agent
-/// plans the work and runs the coding agents; "Open chat" goes there once
-/// the chat has turns.
+/// The bar under a project: it starts a coding agent in the project's
+/// checkout, by default on a new branch in a new worktree, and opens its
+/// session. Kept across redraws so what is typed stays.
+const pc = {
+  project: null as string | null,
+  machine: "auto",
+  checkout: "new" as CheckoutPick,
+  hosts: null as AgentHost[] | null,
+  sessions: [] as AgentSession[],
+  branches: new Map<string, BaseBranches | null>(),
+  starting: false,
+  /// The harness, model and thinking picked, and the machine and harness
+  /// the model was picked for, as `machine/agent`.
+  picked: { agent: "", model: "", effort: null, query: "" } as Picked,
+  modelFor: "",
+  /// Whether the picker shows.
+  open: false,
+};
+
 const projectComp = (() => {
   const input = h("input");
   input.type = "text";
   input.autocomplete = "off";
   input.spellcheck = false;
-  input.setAttribute("aria-label", "Ask the project agent");
-  const note = h("span", "cc-err");
-  note.setAttribute("role", "status");
-  const open = h("button", "dbtn quiet small", "Open chat");
-  open.type = "button";
-  open.addEventListener("click", () => {
-    const agent = agentFor(state.agents, state.picked);
-    if (agent) go("pane", { chat: { session: agent.chat_id } });
-  });
-  const send = h("button", "dbtn pri", "Send", h("kbd", "", "⏎"));
+  input.setAttribute("aria-label", "Task for a coding agent");
+  const machine = h("button", "pill");
+  machine.type = "button";
+  machine.title = "The machine it runs on";
+  const folder = h("button", "pill");
+  folder.type = "button";
+  folder.title = "New worktree, the checkout, or an existing worktree";
+  const harness = h("button", "pill");
+  harness.type = "button";
+  harness.title = "Harness, model and thinking";
+  const pick = h("div", "pick");
+  const send = h("button", "dbtn pri", "Start", h("kbd", "", "⏎"));
   send.type = "submit";
-  const form = h("form", "cc-comp", input, note, open, send);
-  form.addEventListener("submit", e => {
-    e.preventDefault();
-    sendToProject(input, note);
+  const err = h("span", "cc-err");
+  err.setAttribute("role", "status");
+  const row = h("div", "row", machine, folder, h("span", "sp"), harness, send);
+  const form = h("form", "cc-pjc", h("div", "box", input, row, pick), h("span", "note", BAR_NOTE), err);
+  form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
+  machine.addEventListener("click", e => {
+    const p = barProject();
+    if (!p) return;
+    const able = (pc.hosts ?? []).filter(m => m.agents.length && p.places.some(x => x.machine === m.machine_id));
+    openMenu(e, "Machine", [
+      { label: "Auto", on: () => { pc.machine = "auto"; redrawProjects(); } },
+      ...able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; redrawProjects(); } })),
+    ]);
   });
-  return { form, input, open, send };
+  folder.addEventListener("click", e => {
+    const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+    if (!place) return;
+    const trees = knownWorktrees(pc.sessions, place.machine_id, place.cwd);
+    const pick = (to: CheckoutPick) => () => { pc.checkout = to; redrawProjects(); };
+    openMenu(e, "Folder", [
+      { label: "New worktree", on: pick("new") },
+      { label: "New branch in the checkout", on: pick("branch") },
+      { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
+      ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
+    ]);
+  });
+  // The start form's picker, here above the bar.
+  harness.addEventListener("click", () => {
+    pc.open = !pc.open;
+    pc.picked.query = "";
+    redrawProjects();
+    if (pc.open) focusSearch(pick);
+  });
+  // Esc or a click outside closes it.
+  form.addEventListener("keydown", e => {
+    if (e.key !== "Escape" || !pc.open) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeBarPicker();
+    harness.focus();
+  });
+  addEventListener("mousedown", e => {
+    if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
+  }, true);
+  return { form, input, machine, folder, harness, send, err, pick };
 })();
 
-/// Points the prompt bar at project `name`: its placeholder, whether its
-/// chat has turns to open, and whether its agent is being made.
-function drawProjectComp(name: string) {
-  const c = projectComp;
-  c.input.placeholder = barPlaceholder(name);
-  c.open.hidden = !chatStarted(state.pview.get(name)?.view?.turns);
-  const starting = pa.starting === name;
-  c.send.disabled = starting;
-  c.send.firstChild!.textContent = starting ? "Starting" : "Send";
+function closeBarPicker() {
+  pc.open = false;
+  redrawProjects();
 }
 
-/// Sends the bar's prompt to the picked project's agent, making the agent
-/// first when there is none, and shows the project chat with the reply
-/// streaming.
-async function sendToProject(input: HTMLInputElement, note: HTMLElement) {
-  const name = state.picked;
-  const text = input.value.trim();
-  if (!name || !text || pa.starting) return;
-  note.textContent = "";
-  let agent = agentFor(state.agents, name);
-  if (!agent) {
-    pa.starting = name;
-    redrawProjects();
-    try {
-      const made = agent = await invoke<ProjectAgent>("center_open_project", { name });
-      state.agents = [...(state.agents || []).filter(a => a.name !== made.name), made];
-    } catch (e) {
-      note.textContent = failure(e);
-      return;
-    } finally {
-      pa.starting = null;
-      redrawProjects();
-    }
+/// The machine the bar starts on, its harnesses, and the harness picked
+/// there, kept with the model when the machine or harness changes.
+function barHarness(place: { machine_id: string } | null) {
+  const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
+  const offered = host ? [...host.agents].sort(byPreference) : [];
+  const agent = harnessFor(pc.picked.agent || null, offered, AGENT_ORDER);
+  if (agent && agent !== pc.picked.agent) pc.picked.effort = keepEffort(agent, pc.picked.effort);
+  pc.picked.agent = agent ?? "";
+  const key = host && agent ? `${host.machine_id}/${agent}` : "";
+  if (pc.modelFor !== key) { pc.picked.model = ""; pc.modelFor = key; }
+  return { host, offered, agent };
+}
+
+/// The picked project and its checkouts.
+function barProject() {
+  const p = state.picked ? filterProjects(projectRows() || [], state.picked)[0] : null;
+  return p ? { name: p.name, places: projectPlaces(p) } : null;
+}
+
+/// Reads what the bar needs for project `name`: the machines that run
+/// agents, the sessions (for worktrees) and the project's branches.
+function loadProjectBar(name: string) {
+  const redraw = () => { if (shown === "projects" && state.picked === name) redrawProjects(); };
+  invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
+  invoke<AgentSession[]>("agent_sessions").then(list => { pc.sessions = list; }).catch(e => console.warn("agent sessions:", e));
+  if (!pc.branches.has(name)) {
+    invoke<BaseBranches | null>("project_branches", { project: name })
+      .catch(() => null)
+      .then(list => { pc.branches.set(name, list); redraw(); });
   }
-  input.value = "";
-  go("pane", { chat: { session: agent.chat_id } });
+}
+
+/// Points the bar at project `name`: its field, machine, folder and harness.
+function drawProjectComp(name: string) {
+  const c = projectComp;
+  if (pc.project !== name) {
+    pc.project = name;
+    pc.machine = "auto";
+    pc.checkout = "new";
+    c.err.textContent = "";
+    loadProjectBar(name);
+  }
+  const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
+  c.input.placeholder = barPrompt(name, !!place || pc.hosts === null);
+  c.machine.replaceChildren(place ? place.machine_name : pc.machine === "auto" ? "Auto" : "No checkout", ...(place?.auto ? [" ", h("small", "", "Auto")] : []));
+  const co = barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
+  c.folder.replaceChildren(co.label, " ", h("small", "", co.sub));
+  c.folder.disabled = !place;
+  const { offered, agent } = barHarness(place);
+  if (agent && host) {
+    modelsOn(host.machine_id, agent, () => { if (shown === "projects" && state.picked === name) redrawProjects(); });
+    c.harness.innerHTML = pillInner(agent, pc.picked.model, pc.picked.effort, host.machine_id);
+  } else {
+    c.harness.replaceChildren("Coding agent");
+  }
+  c.harness.disabled = !agent;
+  if (!agent) pc.open = false;
+  c.harness.setAttribute("aria-expanded", String(pc.open));
+  drawBarPicker(host, offered);
+  c.send.disabled = pc.starting || !place;
+  c.send.firstChild!.textContent = pc.starting ? "Starting" : "Start";
+}
+
+/// The picker above the bar, when open.
+function drawBarPicker(host: AgentHost | null, offered: string[]) {
+  const el = projectComp.pick, p = pc.picked;
+  if (!pc.open || !host || !p.agent) { el.innerHTML = ""; closedPicker(el); return; }
+  const focused = el.contains(document.activeElement);
+  drawPicker(el, {
+    picked: p,
+    offered,
+    everywhere: [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
+    machine: { id: host.machine_id, name: host.machine_name },
+    noMachine: "",
+    anchor: () => projectComp.harness,
+    bounds: () => projectComp.form.parentElement,
+    changed: what => {
+      if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
+      if (what === "agent") p.effort = keepEffort(p.agent, p.effort);
+      if (what !== "models") redrawProjects();
+      else if (state.picked) drawProjectComp(state.picked);
+      if (what === "agent") focusSearch(el);
+    },
+  });
+  if (focused) focusSearch(el);
+}
+
+/// Starts a coding agent on the bar's task in the project's checkout, then
+/// opens its session; Esc there comes back to the project.
+async function startFromBar() {
+  const c = projectComp, p = barProject(), text = c.input.value.trim();
+  const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  if (!p || !place || !text || pc.starting) return;
+  const { agent } = barHarness(place);
+  const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
+  const busy = folderBusy(pc.sessions, place.machine_id, place.cwd);
+  const { cwd, checkout } = startPlace(pc.checkout, busy, place.cwd, baseFor(null, pc.branches.get(p.name)));
+  c.err.textContent = "";
+  pc.starting = true;
+  pc.open = false;
+  redrawProjects();
   try {
-    await pane.ask(agent.chat_id, text);
+    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt: text, chat: null, model, effort, checkout });
+    c.input.value = "";
+    go("pane", { agent: started.session });
   } catch (e) {
-    // Back on the project with the prompt as typed, where the error shows.
-    openProjects(name);
-    input.value = text;
-    note.textContent = failure(e);
+    c.err.textContent = failure(e).replace(/^bad request: /, "");
+  } finally {
+    pc.starting = false;
+    redrawProjects();
   }
-  reloadChats();
 }
 
 /// Reads the project agents, then the picked project's tasks, workers and
@@ -2307,9 +2439,8 @@ function drawProjects(el: HTMLElement) {
   } else {
     el.prepend(view);
   }
-  // The bar shows on an imported project once the server is known to run
-  // project agents.
-  if (one?.imported && state.agents) {
+  // The bar starts coding agents in the project's checkout.
+  if (one) {
     drawProjectComp(one.name);
     if (projectComp.form.parentNode !== el) el.append(projectComp.form);
   } else {
@@ -2716,8 +2847,8 @@ document.addEventListener("keydown", e => {
 });
 
 /// ⌘N: the project's chat while a project or its chat shows, else a new
-/// general chat. A project with no chat yet gets its prompt bar, where
-/// sending starts one.
+/// general chat. A project with no chat gets its bar, which starts a
+/// coding agent.
 function newChatHere() {
   const on = paneOn();
   const name = newChatProject({ shown, picked: state.picked, view: on.view, session: on.session }, state.agents);

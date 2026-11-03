@@ -72,6 +72,22 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 }
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-pjc { flex: none; margin: 0 16px 14px; display: grid; gap: 6px }
+.cc-pjc .box { border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,30,.92); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
+.cc-pjc .box:focus-within { border-color: rgba(59,155,122,.6) }
+.cc-pjc input { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; min-width: 0; user-select: text }
+.cc-pjc input::placeholder { color: var(--dim) }
+.cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.cc-pjc .sp { flex: 1 }
+.cc-pjc .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; max-width: 100% }
+.cc-pjc .pill:hover { background: rgba(228,238,232,.06) }
+.cc-pjc .pill[disabled] { color: var(--dim); cursor: default; background: transparent }
+.cc-pjc .pill small { color: var(--muted); font-size: 12px }
+.cc-pjc .pill .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8.5px; flex: none }
+.cc-pjc .pill svg { color: var(--muted); flex: none }
+.cc-pjc .pill[aria-expanded="true"] { background: rgba(228,238,232,.06) }
+.cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--muted) }
+.cc-pjc .cc-err:empty { display: none }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 .cc-link { cursor: pointer }

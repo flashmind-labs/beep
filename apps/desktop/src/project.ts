@@ -224,17 +224,6 @@ export function workerSession(w: Pick<WorkerRow, "machine_id" | "machine_name" |
 /// A worker's state as the agent view words a session's.
 const WORKER_STATUS: Record<string, string> = { starting: "starting", running: "working", waiting: "idle" };
 
-/// What the prompt bar under project `name` asks for.
-export function barPlaceholder(name: string) {
-  return `Ask the project agent about ${name}`;
-}
-
-/// Whether the project chat has anything to open: something said by the
-/// user or the agent.
-export function chatStarted<T extends { role: string }>(turns: readonly T[] | null | undefined) {
-  return (turns || []).some(t => t.role === "user" || t.role === "assistant");
-}
-
 // ---------- Drawing ----------
 
 /// A `dbtn` button with `cls`.
