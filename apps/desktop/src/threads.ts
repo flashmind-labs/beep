@@ -230,14 +230,20 @@ export function makeThreads(deps: ThreadDeps) {
     return s;
   };
 
+  /// Projects whose first read is on its way; a draw asking again waits.
+  const first = new Set<string>();
+
   async function load(id: string) {
     const s = of(id);
+    if (s.issues === undefined && first.has(id)) return;
+    first.add(id);
     const [issues, threads, chats, prs] = await Promise.allSettled([
       invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
       invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
       invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
       invoke<PullRequestRow[] | null>("center_project_pull_requests", { projectId: id }),
     ]);
+    first.delete(id);
     s.error = "";
     /// What a list becomes: what came back, else what it had or none.
     const settle = <T>(r: PromiseSettledResult<T[] | null>, had: T[] | null | undefined) => {
