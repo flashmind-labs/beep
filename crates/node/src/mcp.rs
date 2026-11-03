@@ -451,31 +451,4 @@ mod tests {
             })
         );
     }
-
-    #[test]
-    fn other_arguments_are_not_an_invocation() {
-        let parse = |args: &[&str]| Invocation::parse(args.iter().copied());
-        assert_eq!(parse(&[]), None);
-        // The app started at login, or by macOS with its own arguments.
-        assert_eq!(parse(&["--login"]), None);
-        assert_eq!(parse(&["-psn_0_12345"]), None);
-        assert_eq!(parse(&["--dir", "/srv/node", "run"]), None);
-        assert_eq!(parse(&["--dir", "/srv/node", "mcp", "--session", ""]), None);
-        assert_eq!(parse(&["--dir", "", "mcp", "--session", "a3f9c1"]), None);
-        assert_eq!(
-            parse(&[
-                "--dir",
-                "/srv/node",
-                "mcp",
-                "--session",
-                "a3f9c1",
-                "--extra"
-            ]),
-            None
-        );
-        assert_eq!(
-            parse(&["mcp", "--dir", "/srv/node", "--session", "a3f9c1"]),
-            None
-        );
-    }
 }

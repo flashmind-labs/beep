@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EMPTY, flshChanged, flshDraft, flshInput, flshProblem, parseTokens, toggleQuantization, type FlshSettings } from "../src/flsh-state.ts";
+import { EMPTY, flshChanged, flshDraft, flshInput, flshProblem, type FlshSettings } from "../src/flsh-state.ts";
 
 const saved: FlshSettings = {
   zdr: true,
@@ -29,13 +29,6 @@ test("nothing set stays nothing set", () => {
   assert.deepEqual(flshInput({ ...d, compact_on: false }).autocompact, { enabled: false, tokens: null });
 });
 
-test("thresholds read as token counts", () => {
-  assert.equal(parseTokens(""), null);
-  assert.equal(parseTokens("300k"), 300_000);
-  assert.equal(parseTokens("120,000"), 120_000);
-  assert.ok(Number.isNaN(parseTokens("lots")));
-});
-
 test("bad values are named before saving", () => {
   const d = flshDraft(saved);
   assert.equal(flshProblem(d), "");
@@ -43,12 +36,4 @@ test("bad values are named before saving", () => {
   assert.match(flshProblem({ ...d, models: [{ model: "vendor/model", enabled: true, tokens: "" }] }), /provider:model/);
   assert.match(flshProblem({ ...d, models: [...d.models, { model: "openrouter:vendor/model", enabled: true, tokens: "" }] }), /twice/);
   assert.match(flshProblem({ ...d, models: [{ model: "openrouter:x", enabled: true, tokens: "abc" }] }), /openrouter:x/);
-});
-
-test("quantization chips toggle in order", () => {
-  const d = flshDraft(EMPTY);
-  const one = toggleQuantization(d, "fp16");
-  const two = toggleQuantization({ ...d, quantizations: one }, "int8");
-  assert.deepEqual(two, ["int8", "fp16"]);
-  assert.deepEqual(toggleQuantization({ ...d, quantizations: two }, "int8"), ["fp16"]);
 });

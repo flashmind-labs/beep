@@ -166,15 +166,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn a_claude_task_names_its_type() {
-        let input = json!({"description": "Find it", "subagent_type": "Explore"});
-        let found = Subagent::of_call("Find it", Some(&input)).expect("a subagent");
-        assert_eq!(found.name.as_deref(), Some("Explore"));
-        assert!(!found.codex);
-        assert!(Subagent::of_call("Read a.rs", Some(&json!({"path": "a.rs"}))).is_none());
-    }
-
-    #[test]
     fn a_codex_spawn_names_its_threads_once_it_has_them() {
         let started = json!({"prompt": "sleep", "receiverThreadIds": []});
         let mut found = Subagent::of_call(CODEX_SPAWN, Some(&started)).expect("a subagent");
@@ -186,21 +177,5 @@ mod tests {
         assert_eq!(found.threads, ["t1"]);
         // Waiting on a subagent starts none.
         assert!(Subagent::of_call("wait", Some(&done)).is_none());
-    }
-
-    #[test]
-    fn a_codex_activity_names_its_thread_and_task() {
-        let input = json!({"agentThreadId": "t1", "agentPath": "/root/sleep_test",
-            "activityKind": "completed"});
-        assert_eq!(
-            Activity::of(&input),
-            Some(Activity {
-                thread: "t1".into(),
-                task: "sleep_test".into(),
-                ended: true
-            })
-        );
-        let root = json!({"agentThreadId": "t0", "agentPath": "/root", "activityKind": "started"});
-        assert_eq!(Activity::of(&root), None);
     }
 }

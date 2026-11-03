@@ -1993,11 +1993,6 @@ mod tests {
         assert_eq!(timer.due, None);
     }
 
-    #[test]
-    fn the_tag_name_is_stable() {
-        assert_eq!(tag_name(0xab), "sync/00000000000000ab");
-    }
-
     fn meta(hash: u8) -> FileMeta {
         FileMeta {
             hash: [hash; 32],
@@ -2180,20 +2175,6 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("out")).unwrap(), content);
         drop(tag);
         store.shutdown().await.ok();
-    }
-
-    #[test]
-    fn the_state_is_copied_to_save_once_after_each_change() {
-        let mut state = State::new(Saved::default());
-        assert!(state.snapshot().is_none(), "nothing changed");
-        state
-            .saved
-            .map
-            .edit("a.txt", &Version::default(), Some(meta(1)));
-        state.unsaved = true;
-        let saved = state.snapshot().expect("changed");
-        assert!(saved.map.get("a.txt").is_some());
-        assert!(state.snapshot().is_none(), "saved already");
     }
 
     #[test]

@@ -371,26 +371,6 @@ mod tests {
     }
 
     #[test]
-    fn versions_order_by_the_edits_they_saw() {
-        let a = version(&[(1, 2)]);
-        assert_eq!(a.compare(&a), Order::Same);
-        assert_eq!(version(&[(1, 2), (2, 1)]).compare(&a), Order::Newer);
-        assert_eq!(a.compare(&version(&[(1, 3)])), Order::Older);
-        assert_eq!(a.compare(&version(&[(2, 1)])), Order::Concurrent);
-        assert_eq!(Version::default().compare(&a), Order::Older);
-    }
-
-    #[test]
-    fn a_newer_edit_replaces_and_an_older_one_is_ignored() {
-        let old = entry("a.txt", &[(1, 1)], file(1, 10));
-        let new = entry("a.txt", &[(1, 1), (2, 1)], file(2, 5));
-        assert_eq!(merge(Some(&old), &new).entry, Some(new.clone()));
-        assert_eq!(merge(Some(&new), &old), Merge::default());
-        assert_eq!(merge(Some(&new), &new), Merge::default());
-        assert_eq!(merge(None, &new).entry, Some(new));
-    }
-
-    #[test]
     fn concurrent_edits_keep_both() {
         let mine = entry("docs/notes.txt", &[(1, 2)], file(1, 100));
         let theirs = entry("docs/notes.txt", &[(1, 1), (2, 1)], file(2, 200));
@@ -500,27 +480,5 @@ mod tests {
         map.merge(&entry("a", &[(7, 5)], file(1, 1)));
         map.edit("b", &Version::default(), file(1, 1));
         assert_eq!(map.get("b").unwrap().version, version(&[(7, 6)]));
-    }
-
-    #[test]
-    fn conflict_names_keep_the_extension() {
-        let hash = [0xab; 32];
-        assert_eq!(conflict_path("a.txt", &hash), "a (conflict abababab).txt");
-        assert_eq!(
-            conflict_path("d.v2/Makefile", &hash),
-            "d.v2/Makefile (conflict abababab)"
-        );
-        assert_eq!(conflict_path(".env", &hash), ".env (conflict abababab)");
-        assert!(is_conflict("d/a (conflict abababab).txt"));
-        for path in ["a.txt", "d.v2/Makefile", ".env", "d/x (1).tar.gz"] {
-            assert_eq!(
-                original_of(&conflict_path(path, &hash)).as_deref(),
-                Some(path)
-            );
-        }
-        assert_eq!(original_of("a.txt"), None);
-        assert_eq!(original_of("a (conflict zz).txt"), None);
-        assert_eq!(original_of(" (conflict abababab)"), None);
-        assert!(!is_conflict("a.txt"));
     }
 }

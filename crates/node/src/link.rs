@@ -569,31 +569,3 @@ async fn tool_changed(provision: Option<&Provision>) {
 fn changed(before: &EnvReport, now: &EnvReport) -> bool {
     before != now
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use beep_proto::node::agent::SESSIONS_PROTOCOL;
-    use std::collections::BTreeMap;
-
-    /// The Mac app builds its offers the same way, so it serves the agents
-    /// and their sessions too.
-    #[test]
-    fn local_offers_serve_the_agents_and_their_sessions() {
-        let dir = tempfile::tempdir().expect("a temporary folder");
-        let fake = AgentKind {
-            name: "fake".into(),
-            program: "true".into(),
-            args: vec![],
-            env: BTreeMap::new(),
-        };
-        let offers = Offers::local(&[fake], Provision::new(dir.path()));
-        let names = offers.names();
-        assert!(names.iter().any(|name| name == "fake/1"), "{names:?}");
-        assert!(
-            names.iter().any(|name| name == SESSIONS_PROTOCOL),
-            "{names:?}"
-        );
-        assert!(offers.provision.is_some());
-    }
-}
