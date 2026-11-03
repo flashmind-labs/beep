@@ -1,6 +1,4 @@
-//! The project agents, their tasks and workers, for the apps. The handlers
-//! check the caller and hand the work to functions of the app and the user,
-//! which the tests call directly.
+//! The project agents, their tasks and workers, for the apps.
 
 use super::Reply;
 use crate::{
@@ -63,9 +61,6 @@ pub(super) async fn list_project_overview(
 ) -> Reply<Vec<ProjectOverview>> {
     project_overview(&cx.user).await
 }
-
-// The issue requests are scoped by the project's owner: another user's
-// project is not found.
 
 pub(super) async fn list_project_issues(
     cx: Cx,
@@ -167,8 +162,7 @@ fn issue_work(start: &IssueStart) -> Result<IssueWork, ApiError> {
     Ok(IssueWork { agent, machine })
 }
 
-/// Makes a task tracking the issue `number`, then starts it or has it
-/// planned.
+/// Makes a task tracking the issue `number`, then starts or plans it.
 async fn track_issue(
     app: &Arc<App>,
     user: &Arc<User>,

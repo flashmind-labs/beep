@@ -1,7 +1,4 @@
-//! The diff viewer: what changed in a coding agent session's checkout, or
-//! on a project's branch. The node runs git where the checkout is, checks
-//! the folder is in its reach and caps what it sends; the server passes the
-//! diff through and keeps nothing.
+//! The diff viewer for a session's checkout or a project's branch; the node runs git.
 
 use super::{
     Reply,

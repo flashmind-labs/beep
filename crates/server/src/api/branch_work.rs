@@ -1,5 +1,4 @@
-//! Giving a project's branch a worktree on one of the caller's machines,
-//! from the Branches panel or for the branches an import picked.
+//! Giving a project's branch a worktree on one of the caller's machines.
 
 use super::{
     Reply,
@@ -54,9 +53,7 @@ pub(super) async fn add_branch_worktree(
         .map_err(|why| ApiError::bad_request(format!("{name}: {why}")))
 }
 
-/// Adds the worktrees an import asked for, each on its machine (the one
-/// it was imported on when it names none). One that fails is logged: the
-/// import stands either way.
+/// Adds the worktrees an import asked for; one that fails is logged and the import stands.
 pub(super) async fn add_import_worktrees(
     cx: &Cx,
     imported: &ImportedProject,

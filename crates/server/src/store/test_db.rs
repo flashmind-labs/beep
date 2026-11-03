@@ -1,5 +1,4 @@
-//! A throwaway schema in the test database, so tests run in parallel
-//! without seeing each other's rows.
+//! A throwaway schema in the test database, so tests run in parallel without seeing each other's rows.
 
 use super::{
     CreateRun, FinishedTurn, RunStatus, Store, WordEmbedder,
@@ -21,8 +20,7 @@ use sqlx::{
 use std::{collections::HashMap, str::FromStr, sync::Arc, thread};
 use uuid::Uuid;
 
-/// Names the database tests run against, such as
-/// `postgres://beep:beep@127.0.0.1:55432/beep`.
+/// Env var naming the test database URL.
 const URL_VAR: &str = "BEEP_TEST_DATABASE_URL";
 
 /// Accounts every test store has, since rows need an account to belong to.
@@ -51,9 +49,7 @@ pub fn test_steps(conversation: &Conversation) -> Vec<Step> {
     .steps
 }
 
-/// Runs one turn in session `chat` of `user`: `prompt` sent at `at`
-/// milliseconds and a reply a millisecond later. Returns the id of the
-/// message that opened it.
+/// Runs one turn in `chat`: `prompt` at `at` ms, reply 1 ms later; returns the opening message id.
 #[doc(hidden)]
 pub async fn test_turn(
     store: &Store,
@@ -80,8 +76,7 @@ pub struct TestTurn<'a> {
     pub calls: usize,
 }
 
-/// [`test_turn`] with tool calls between the prompt and the reply, each a
-/// millisecond apart.
+/// [`test_turn`] with tool calls between prompt and reply, 1 ms apart.
 #[doc(hidden)]
 pub async fn test_turn_with(
     store: &Store,
@@ -153,8 +148,7 @@ pub struct TestDb {
 }
 
 impl TestDb {
-    /// Creates an empty schema in the database named by
-    /// `BEEP_TEST_DATABASE_URL`.
+    /// Creates an empty schema in the `BEEP_TEST_DATABASE_URL` database.
     pub async fn new() -> Result<Self> {
         let url = std::env::var(URL_VAR)
             .with_context(|| format!("{URL_VAR} is not set; run `just test-db` for one"))?;
@@ -187,15 +181,12 @@ impl TestDb {
         Ok(Self { url, schema })
     }
 
-    /// Opens a store on this schema, with the accounts tests use. Opening it
-    /// again sees the same data.
+    /// Opens a store on this schema with the test accounts; reopening sees the same data.
     pub async fn store(&self) -> Result<Store> {
         self.store_with(Arc::new(WordEmbedder)).await
     }
 
-    /// A pool on this schema as it was before chats had message rows, with
-    /// the accounts tests use. [`Self::store`] then migrates it the rest of
-    /// the way.
+    /// A pool on this schema before message rows existed, with test accounts; [`Self::store`] migrates the rest.
     #[cfg(test)]
     pub(crate) async fn legacy_pool(&self) -> Result<PgPool> {
         let pool = self.pool().await?;
@@ -206,8 +197,7 @@ impl TestDb {
         Ok(pool)
     }
 
-    /// A pool on this schema migrated up to `last`, for testing the
-    /// migration after it. [`Self::store`] then migrates the rest.
+    /// A pool on this schema migrated up to `last`; [`Self::store`] migrates the rest.
     #[cfg(test)]
     pub(crate) async fn pool_at(&self, last: i64) -> Result<PgPool> {
         let pool = self.pool().await?;
@@ -215,8 +205,7 @@ impl TestDb {
         Ok(pool)
     }
 
-    /// A pool on this schema, for tests that check rows no store method
-    /// reads back.
+    /// A pool on this schema, for checking rows no store method reads.
     #[doc(hidden)]
     pub async fn raw_pool(&self) -> Result<PgPool> {
         self.pool().await
@@ -231,8 +220,7 @@ impl TestDb {
             .await?)
     }
 
-    /// [`Self::store`] with a real embedder, for evals that need memory
-    /// search by meaning.
+    /// [`Self::store`] with a real embedder, for evals.
     pub async fn store_with(&self, embedder: Arc<dyn EmbeddingProvider>) -> Result<Store> {
         let store = Store::with_pool(self.pool().await?, embedder).await?;
         add_users(&store.pool).await?;

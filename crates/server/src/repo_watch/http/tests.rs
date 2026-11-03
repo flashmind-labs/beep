@@ -11,8 +11,7 @@ struct Count {
     n: u32,
 }
 
-/// Calls `url` on the host with a plain client: the test host is on
-/// localhost, which the server's own client refuses.
+/// Calls `url` with a plain client, since the server's client refuses localhost.
 async fn call<T: DeserializeOwned>(
     calls: &HostCalls,
     who: &Who,

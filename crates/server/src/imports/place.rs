@@ -1,5 +1,4 @@
-//! Where an imported project goes on a machine, and which machine takes it
-//! when the user does not say.
+//! Where an imported project goes on a machine, and which machine takes it by default.
 
 use super::{ImportError, repo::RepoRef};
 
@@ -13,9 +12,7 @@ pub(crate) struct Folders<'a> {
     pub(crate) workspace: Option<&'a str>,
 }
 
-/// The project's folder: `<workspace or home>/projects/<org>/<repo>` on
-/// Linux, `~/Projects/<org>/<repo>` on macOS and Windows. `None` when the
-/// machine has not said where its home folder is.
+/// `<workspace or home>/projects/<org>/<repo>` on Linux, else `~/Projects/<org>/<repo>`; `None` without a home.
 pub(crate) fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<String> {
     let linux = match folders.os {
         Some(os) => os == "linux",
@@ -52,8 +49,7 @@ pub(crate) struct Candidate<'a> {
     pub(crate) workspace: bool,
 }
 
-/// The machine to import onto, by index: `wanted` by id, else the user's
-/// environment, else the only machine online that runs commands.
+/// The machine to import onto, by index: `wanted`, else the environment, else the only online one.
 pub(crate) fn choose(
     candidates: &[Candidate<'_>],
     wanted: Option<&str>,

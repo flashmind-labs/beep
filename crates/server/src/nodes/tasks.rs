@@ -1,5 +1,4 @@
-//! Background commands on a node (`process/1`). Each call opens its own
-//! stream; the tasks belong to the node and outlive it.
+//! Background commands on a node (`process/1`), one stream per call.
 
 use super::Online;
 use crate::protocol::node::process::{PROTOCOL, Reply, Request, TaskId};
@@ -27,8 +26,7 @@ impl Online {
             .context("the node closed the process session")
     }
 
-    /// Stops the node's task `id` while it still runs `command`; a task
-    /// that ended, or another command under that number, is left alone.
+    /// Stops task `id` if it still runs `command`; one reusing its number is left alone.
     pub(crate) async fn stop_task(&self, id: TaskId, command: &str) -> Result<()> {
         match self.tasks(&Request::Status { id }).await? {
             Reply::Status { task, .. } if task.command == command && task.state.is_running() => {

@@ -1,7 +1,4 @@
-//! Reports from a node session to the chat it works for. A finished turn
-//! or a question nobody waits for starts a turn in that chat, the way a
-//! finished research reports back; a question also goes to the user as an
-//! approval card, and their answer goes back to the agent.
+//! Reports from a node session to its chat: a finished turn or unwaited question starts a turn there.
 
 use super::{AgentLinks, LinkOrder, Watched, order};
 use crate::{
@@ -119,8 +116,7 @@ impl Reporter {
         }
     }
 
-    /// The card for `question`; it goes away once the question is answered
-    /// some other way or the session goes.
+    /// The card for `question`; it goes away once answered elsewhere or the session goes.
     fn ask(&self, follower: Follower, question: Question) -> Ask {
         ask_card(
             &self.state,
@@ -133,9 +129,7 @@ impl Reporter {
     }
 }
 
-/// The card for `question` of `session`, the session's state and orders
-/// given; it goes away once the question is answered some other way or the
-/// session goes.
+/// The card for `question` of `session`; it goes away once answered elsewhere or the session goes.
 pub(super) fn ask_card(
     state: &watch::Receiver<Watched>,
     orders: &mpsc::Sender<LinkOrder>,

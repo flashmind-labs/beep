@@ -1,7 +1,4 @@
-//! Sends notices to Android phones through Firebase Cloud Messaging. Each
-//! notice is sealed to the phone's endpoint id, so Google carries it without
-//! reading it. A notice too big for a push waits on the server, and an empty
-//! push wakes the phone to fetch it over iroh.
+//! Sends notices to Android phones through FCM, sealed to the phone so Google cannot read them.
 
 use crate::{
     AsyncMutex,
@@ -57,8 +54,7 @@ struct AccessToken {
     refresh_at: Instant,
 }
 
-/// Sends data-only pushes through the FCM HTTP v1 API to the tokens the
-/// user's phones registered.
+/// Sends data-only pushes through the FCM HTTP v1 API.
 pub struct Firebase {
     client: Client,
     account: ServiceAccount,
@@ -175,8 +171,7 @@ impl Firebase {
     }
 }
 
-/// Whether a 400 body blames the token itself, as for the placeholder early
-/// builds registered. A 400 about the rest of the message keeps the token.
+/// Whether a 400 body blames the token itself rather than the message.
 fn rejects_token(body: &str) -> bool {
     let Ok(body) = serde_json::from_str::<Value>(body) else {
         return false;

@@ -1,5 +1,4 @@
-//! The merge against the schema: every table that names a user is merged,
-//! and a merge with rows in all of them keeps them, by the merge's rules.
+//! The merge against the schema: every user table is merged and keeps its rows by the merge's rules.
 
 use super::{account, key};
 use crate::{
@@ -19,8 +18,7 @@ use std::{
 };
 use uuid::Uuid;
 
-/// Every table with a column naming a user, and that column: `user_id`,
-/// or any other with a foreign key to `users`.
+/// Every table with a column naming a user, and that column.
 async fn owner_columns(pool: &PgPool) -> Vec<(String, String)> {
     sqlx::query_as(
         "SELECT c.relname::text, a.attname::text
@@ -79,8 +77,7 @@ async fn every_table_with_an_owner_is_merged() {
     }
 }
 
-/// Rows both accounts get, `{t}` their tag and `{chat}` a chat of theirs.
-/// Where a table has a key per user, both rows have the same one.
+/// Rows both accounts get (`{t}` tag, `{chat}` their chat); per-user keys match.
 const BOTH: &[&str] = &[
     "INSERT INTO actions (user_id, description) VALUES ($1, 'action {t}')",
     "INSERT INTO files (id, user_id, name, mime, data)
@@ -177,8 +174,7 @@ const BOTH: &[&str] = &[
      VALUES ($1, '2026-01-01', 'opus', 'beep', 2)",
 ];
 
-/// Rows only the source has, none of them the same as the target's but
-/// the one grant.
+/// Rows only the source has, none clashing with the target's but the one grant.
 const SOURCE_ONLY: &[&str] = &[
     "INSERT INTO agent_images (user_id, key, file_id, machine_id, session)
      VALUES ($1, 'own', 'file-s', 'm', 's')",
@@ -200,8 +196,7 @@ const TARGET_ONLY: &[&str] = &[
     "INSERT INTO instructions_versions (user_id, version, text) VALUES ($1, 2, 't2')",
 ];
 
-/// How many of the source's rows a table drops for the target's: the
-/// target's row wins on a key, and counts of one key add up into one row.
+/// How many source rows each table drops: key clashes and summed counts.
 const DROPPED: &[(&str, i64)] = &[
     ("agent_images", 1),
     ("agent_model_usage", 1),

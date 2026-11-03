@@ -1,7 +1,4 @@
-//! Keeps one member's private memories out of a group chat. Beep may use
-//! what it knows about each member, but a reply that states it is held back
-//! before anyone sees it: first a word-for-word check, then Jev reads the
-//! reply against the memories that were in the run's context.
+//! Keeps one member's private memories out of a group chat reply: a word-for-word check, then Jev.
 
 use crate::{
     decision::{Criteria, DecisionTool},
@@ -9,12 +6,10 @@ use crate::{
 };
 use std::{collections::HashSet, fmt::Write};
 
-/// Jev's probability from which a reply counts as leaking. Low on purpose:
-/// a false alarm costs a rewrite, a miss exposes someone.
+/// Jev's probability from which a reply leaks; low, since a miss exposes someone.
 pub const LEAK_THRESHOLD: f64 = 0.3;
 
-/// Words in a row a reply may share with a memory before it counts as
-/// quoting it.
+/// Words in a row a reply may share with a memory before it counts as quoting it.
 const SHINGLE: usize = 4;
 
 /// What Beep says when it cannot reply without a member's private memories.
@@ -100,8 +95,7 @@ impl Gate<'_> {
         }
     }
 
-    /// The reply to send: `draft` when it is clean, else one rewrite when
-    /// that is clean, else the refusal.
+    /// `draft` when clean, else one clean rewrite, else the refusal.
     pub async fn screen(&self, draft: String, generator: Generator<'_>) -> String {
         let Some(leak) = self.check(&draft).await else {
             return draft;
@@ -131,8 +125,7 @@ impl Gate<'_> {
         text
     }
 
-    /// The chat, one quoted message per line, so a message cannot pass
-    /// for a line by someone else.
+    /// The chat, one quoted message per line.
     fn transcript(&self) -> String {
         let mut text = String::new();
         for said in self.chat {
@@ -141,8 +134,7 @@ impl Gate<'_> {
         text
     }
 
-    /// The reply goes first: Jev keeps only the start of a long state, and
-    /// the memories and chat can fill it on their own.
+    /// The reply goes first, since Jev keeps only the start of a long state.
     fn state(&self, reply: &str) -> String {
         format!(
             "Beep's reply:\n{reply}\n\nPrivate memories (never shown to the group):\n{}\nThe chat:\n{}",
@@ -172,10 +164,7 @@ fn shingles(words: &[String]) -> HashSet<&[String]> {
     words.windows(SHINGLE).collect()
 }
 
-/// Whether `reply` repeats `SHINGLE` words in a row of a secret, or a
-/// whole short secret, that its owner has not said in the chat. Only the
-/// owner's own words count: anyone else could type a memory in to make it
-/// look said.
+/// Whether `reply` quotes a secret its owner has not said in the chat (only the owner's words count).
 fn quotes(secrets: &[Secret], chat: &[Said], reply: &str) -> bool {
     let reply = words(reply);
     let written = shingles(&reply);
@@ -201,9 +190,7 @@ fn quotes(secrets: &[Secret], chat: &[Said], reply: &str) -> bool {
     })
 }
 
-/// Private details that must not reach text that gets published (commit
-/// messages, pull request bodies): machine names, the user name, home
-/// paths, IP addresses and `host:port` pairs.
+/// Private details that must not reach published text: machine and user names, home paths, IPs and `host:port`.
 #[derive(Debug, Clone)]
 pub struct PublicText {
     /// Machine and user names, lowercase, as they were given.
@@ -212,8 +199,7 @@ pub struct PublicText {
 }
 
 impl PublicText {
-    /// `machine_names` are the machines' names; the user name is the last
-    /// segment of each of `home_paths`.
+    /// The user name is the last segment of each of `home_paths`.
     pub fn new(machine_names: &[String], home_paths: &[String]) -> PublicText {
         let users = home_paths
             .iter()
@@ -237,8 +223,7 @@ impl PublicText {
         PublicText { names, home_paths }
     }
 
-    /// Also treats `paths`, such as checkouts and shared folders, as private,
-    /// without taking their last segment for a user name.
+    /// Also treats `paths` as private, without taking user names from them.
     pub fn with_paths(mut self, paths: &[String]) -> PublicText {
         for path in paths {
             let path = path.trim_end_matches('/');
@@ -295,8 +280,7 @@ fn has_whole(haystack: &str, needle: &str) -> bool {
     })
 }
 
-/// Whether `path` is in `haystack` and not followed by a letter or digit,
-/// so `/home/sam` does not match `/home/samuel`.
+/// Whether `path` is in `haystack` not followed by a letter or digit.
 fn has_path(haystack: &str, path: &str) -> bool {
     !path.is_empty()
         && haystack.match_indices(path).any(|(at, _)| {

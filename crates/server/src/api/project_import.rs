@@ -1,6 +1,4 @@
-//! Importing a project onto one of the caller's machines, listing the ones
-//! imported, and browsing a machine's folders to pick where one goes (see
-//! `crate::imports`).
+//! Importing projects onto the caller's machines and browsing their folders (`crate::imports`).
 
 use super::{Reply, branch_work::add_import_worktrees};
 use crate::{

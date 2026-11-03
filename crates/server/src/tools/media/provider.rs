@@ -95,9 +95,7 @@ impl MediaKind {
         }
     }
 
-    /// The model `provider` makes it with when the call names none.
-    /// `from_image` says the call starts from an image, which some services
-    /// take on another model.
+    /// The model `provider` uses when the call names none, which may differ `from_image`.
     pub(crate) fn default_model(
         self,
         provider: MediaProvider,
@@ -140,8 +138,7 @@ impl Keys {
         )
     }
 
-    /// The services the user has a key for that make `kind`, the default
-    /// first.
+    /// The services the user has a key for that make `kind`, the default first.
     pub(crate) fn providers(&self, kind: MediaKind) -> Vec<MediaProvider> {
         kind.providers()
             .iter()

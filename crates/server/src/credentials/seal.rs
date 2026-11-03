@@ -1,6 +1,4 @@
-//! Credentials are sealed before they reach the database. The key is
-//! derived from the server's own secret key, which the server already keeps
-//! in a file of its own, so a copy of the database alone opens nothing.
+//! Seals credentials with a key derived from the server's secret key, so the database alone opens nothing.
 
 use super::Slot;
 use anyhow::{Result, anyhow, ensure};
@@ -17,8 +15,7 @@ const NONCE_LEN: usize = 12;
 /// The Poly1305 tag every sealed value ends with.
 const TAG_LEN: usize = 16;
 
-/// What a sealed value belongs to, bound into it as associated data: a
-/// sealed value copied onto another row, user or slot does not open.
+/// Associated data for a sealed value, so it does not open on another row, user or slot.
 pub struct Owner<'a> {
     /// The user's key in the store.
     pub user: &'a str,
@@ -40,8 +37,7 @@ impl Owner<'_> {
     }
 }
 
-/// What a harness's sealed env vars belong to: the user, the machine and
-/// the agent. The prefix keeps them apart from any credential's.
+/// Associated data for a harness's env vars: user, machine and agent.
 pub struct HarnessOwner<'a> {
     pub user: &'a str,
     pub machine: &'a str,
@@ -56,8 +52,7 @@ impl HarnessOwner<'_> {
     }
 }
 
-/// What a project webhook's secret belongs to: the user and the webhook's
-/// row. The prefix keeps it apart from any credential's.
+/// Associated data for a project webhook's secret: user and webhook row.
 pub struct WebhookOwner<'a> {
     pub user: &'a str,
     pub id: &'a str,
@@ -75,15 +70,13 @@ impl WebhookOwner<'_> {
 pub struct CredentialKey(SecretBox<[u8; 32]>);
 
 impl CredentialKey {
-    /// The key for the server whose identity is `server`. The same server
-    /// key always gives the same credentials key.
+    /// The key for the server whose identity is `server`, deterministically.
     pub fn derive(server: &SecretKey) -> Self {
         let key = blake3::derive_key(KEY_CONTEXT, &server.to_bytes());
         Self(SecretBox::new(Box::new(key)))
     }
 
-    /// A key nothing else knows, for a server without a key file and for
-    /// tests. What it seals is lost when the process ends.
+    /// A throwaway key; what it seals is lost when the process ends.
     pub fn random() -> Self {
         let mut key = [0; 32];
         OsRng.fill_bytes(&mut key);

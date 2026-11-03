@@ -1,5 +1,4 @@
-//! The web pages each turn's reply used, kept with the message that opened
-//! the turn so the apps show them again when a chat is loaded.
+//! Web pages each turn's reply used, kept with its opening message.
 
 use super::{
     Store,
@@ -12,10 +11,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 impl Store {
-    /// Adds `sources` to the turn opened by message `turn` of `chat`, after
-    /// the ones it has, as a resumed turn does. Pages it lists already are
-    /// skipped, and a turn keeps at most `MAX_SOURCES`. The chat counts as
-    /// changed when any were added.
+    /// Appends new `sources` to turn `turn` of `chat`, skipping known pages, up to `MAX_SOURCES`; marks the chat changed if any added.
     pub(crate) async fn save_sources(
         &self,
         chat: Uuid,
@@ -77,9 +73,7 @@ impl Store {
         Ok(())
     }
 
-    /// The sources of each turn of `chat` that has some, oldest first, by
-    /// when its opening message was sent in milliseconds. The caller checks
-    /// the user may read it.
+    /// Sources per turn of `chat`, oldest first, by opening message time in ms; the caller checks access.
     pub(crate) async fn session_sources(&self, chat: Uuid) -> Result<Vec<TurnSources>> {
         let rows = sqlx::query(
             "SELECT floor(extract(epoch FROM m.sent_at) * 1000)::bigint AS message,

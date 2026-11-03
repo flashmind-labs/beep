@@ -1,13 +1,9 @@
-//! When a chat is ready for a watcher: it has messages the watcher has not
-//! read, no run is going on in it, and either it has been quiet for a while
-//! or a task in it just ended. A watcher that failed waits longer after
-//! each failure before it tries the same messages again.
+//! When a chat is ready for a watcher: unread messages, no run, and quiet or a task just ended.
 
 use chrono::{DateTime, TimeDelta, Utc};
 use uuid::Uuid;
 
-/// A watcher that failed this many times in a row gives up on what it was
-/// reading and moves past it.
+/// Failures in a row after which a watcher moves past what it was reading.
 pub(crate) const MAX_FAILURES: i32 = 3;
 
 /// Where a session is: its last message and when it last changed.

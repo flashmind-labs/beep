@@ -1,9 +1,5 @@
-//! Shell commands for the git and host work a project does on a machine,
-//! and parsers for what they print. The builders only make text: running it
-//! is [`Shell`]'s job. Every argument is quoted.
-//!
-//! Text that goes to a host (issue and comment bodies) should be checked with
-//! [`HostCommand::leaks`] first.
+//! Shell commands for a project's git and host work, and parsers for their output. Every
+//! argument is quoted; check host-bound text with [`HostCommand::leaks`] first.
 
 use super::model::{
     IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility, remote_parts,
@@ -77,9 +73,8 @@ pub(crate) fn exclude_project_dirs(checkout: &MachinePath) -> String {
     )
 }
 
-/// Makes the task's worktree on a new `beep/<slug>` branch from `base`:
-/// `origin`'s after a fetch, or the local branch when it has commits
-/// `origin` lacks (a branch not pushed yet, or pushed behind).
+/// Makes the task's worktree on a new `beep/<slug>` branch from `origin`'s `base`, or the
+/// local one when it has commits `origin` lacks.
 pub(crate) fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) -> String {
     let repo = quote(checkout.as_str());
     let local = quote(&format!("refs/heads/{base}"));
@@ -116,8 +111,7 @@ const REMOTES_MARK: &str = "== remotes";
 const CONFIG_MARK: &str = "== config";
 const HEAD_MARK: &str = "== head";
 
-/// Prints the checkout's remotes (raw URLs, before `insteadOf` rewrites), its
-/// `beep.issues` and `beep.prs` settings and the default branch.
+/// Prints the checkout's raw remote URLs, its `beep.issues`/`beep.prs` settings and default branch.
 pub(crate) fn read_setup(checkout: &MachinePath) -> String {
     let repo = quote(checkout.as_str());
     format!(
@@ -188,9 +182,7 @@ pub(crate) fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupErro
     })
 }
 
-/// The host of `url` when it is a remote of `name`: a path ending in
-/// `owner/repo`, with an optional `.git`, ignoring case. A Forgejo server
-/// under a sub-path puts its own segments before them.
+/// The host of `url` when its path ends in `name` (optional `.git`, any case).
 fn remote_host(url: &str, name: &RepoName) -> Option<String> {
     let (host, path) = remote_parts(url)?;
     let path = path.trim_matches('/');
@@ -200,11 +192,8 @@ fn remote_host(url: &str, name: &RepoName) -> Option<String> {
     path.ends_with(&tail).then(|| host.to_ascii_lowercase())
 }
 
-/// What goes before a `gh` command for `repo` (`owner/repo`) so it runs as
-/// the user's GitHub account for that owner: the machine holds that
-/// account's token in the owner's var when it is not the default one
-/// (see `credentials::for_machines`), and `GH_TOKEN` otherwise. Only the
-/// variable's name is in the command, never the token.
+/// Prefix that makes `gh` run as the user's account for `repo`'s owner (see
+/// `credentials::for_machines`). Only the variable's name is in the command, never the token.
 pub(crate) fn gh_account(repo: &str) -> String {
     repo.split_once('/')
         .and_then(|(owner, _)| github_owner_var(owner))
@@ -747,8 +736,7 @@ impl HostCommand<'_> {
     }
 }
 
-/// Most open issues or pull requests one list reads. teacli prints each
-/// one's whole text, so it reads fewer to stay under the output cap.
+/// Most open issues or pull requests one list reads (fewer for teacli, which prints whole text).
 pub(crate) const GH_OPEN_LIMIT: usize = 100;
 pub(crate) const TEA_OPEN_LIMIT: usize = 25;
 
@@ -756,11 +744,11 @@ const PR_FIELDS: &str = "state,mergedAt,reviewDecision,statusCheckRollup,url,num
 
 // ---- what the hosts print ----
 
-fn json(out: &str) -> Result<Value> {
+pub(super) fn json(out: &str) -> Result<Value> {
     serde_json::from_str(out.trim()).context("the host did not print JSON")
 }
 
-fn text(value: &Value, key: &str) -> String {
+pub(super) fn text(value: &Value, key: &str) -> String {
     value
         .get(key)
         .and_then(Value::as_str)
@@ -915,8 +903,7 @@ fn comment_count(item: &Value) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
-/// The open issues [`HostCommand::ListOpenIssues`] printed, leaving out
-/// pull requests, which Forgejo lists with the issues.
+/// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
 pub(crate) fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
     let value = json(out)?;
     let items = value
@@ -978,8 +965,7 @@ pub(crate) struct OpenPr {
     pub(crate) head: String,
 }
 
-/// The time in the first of `keys` that holds one; `what` names it in
-/// the error.
+/// The time in the first of `keys` that holds one; `what` names it in the error.
 fn time_of(item: &Value, keys: &[&str], what: &str, number: u64) -> Result<DateTime<Utc>> {
     let at = keys
         .iter()
@@ -991,8 +977,7 @@ fn time_of(item: &Value, keys: &[&str], what: &str, number: u64) -> Result<DateT
         .with_timezone(&Utc))
 }
 
-/// The open pull requests [`HostCommand::ListOpenPrs`] printed: gh's jq
-/// gives `isDraft` and camelCase times, Forgejo `draft` and snake_case.
+/// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case).
 pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
     let value = json(out)?;
     let items = value
@@ -1040,9 +1025,7 @@ pub(crate) struct PrHead {
     pub(crate) fork: bool,
 }
 
-/// The pull request head [`HostCommand::ViewPrHead`] printed: gh gives
-/// `headRefName` and `isCrossRepository`, Forgejo `head.ref` and the
-/// repositories of `head` and `base` (a deleted fork's is null).
+/// Parses [`HostCommand::ViewPrHead`] from gh or Forgejo (a deleted fork's repo is null).
 pub(crate) fn parse_pr_head(out: &str) -> Result<PrHead> {
     let item = json(out)?;
     let number = item
@@ -1100,8 +1083,7 @@ pub(crate) fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
     })
 }
 
-/// The login [`HostCommand::WhoAmI`] printed: gh prints it bare, teacli
-/// prints the user as JSON.
+/// Parses [`HostCommand::WhoAmI`]: bare from gh, JSON from teacli.
 pub(crate) fn parse_login(out: &str) -> Result<String> {
     let out = out.trim();
     let login = match serde_json::from_str::<Value>(out) {
@@ -1135,8 +1117,7 @@ pub(crate) struct PrState {
     pub(crate) url: String,
     pub(crate) merged: bool,
     pub(crate) open: bool,
-    /// `APPROVED`, `CHANGES_REQUESTED` or `REVIEW_REQUIRED`, when the host
-    /// says. Forgejo's pull request JSON carries no review decision.
+    /// `APPROVED`, `CHANGES_REQUESTED` or `REVIEW_REQUIRED`; always `None` on Forgejo.
     pub(crate) review: Option<String>,
     /// Forgejo's pull request JSON carries no checks, so this is `None` there.
     pub(crate) checks: ChecksState,
@@ -1226,8 +1207,7 @@ fn checks_of(rollup: Option<&Value>) -> ChecksState {
     }
 }
 
-/// Whether the repository is public. Anything unreadable counts as public,
-/// which is the cautious answer for what may be said in it.
+/// Whether the repository is public; anything unreadable counts as public, the cautious answer.
 pub(crate) fn parse_visibility(_host: &IssueHost, out: &str) -> Visibility {
     let Ok(value) = json(out) else {
         return Visibility::Public;

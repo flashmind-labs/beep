@@ -1,5 +1,4 @@
-//! Checks a token with its host before it is saved, and learns who it
-//! signs in as.
+//! Checks a token with its host before it is saved, and learns its login.
 
 use super::{ForgejoUrl, net::PublicOnly};
 use reqwest::{Client, StatusCode, header, redirect::Policy};
@@ -21,8 +20,7 @@ pub enum Checked {
     Valid { login: Option<String> },
     /// The host refused it; the text says why, for the user.
     Refused(String),
-    /// The host could not be asked, such as a server only the user's own
-    /// network reaches.
+    /// The host could not be reached, such as one only the user's network reaches.
     Unreachable,
 }
 
@@ -36,8 +34,7 @@ pub struct Checker {
     client: Client,
 }
 
-/// A client for calls to a git host with a user's token: it reaches only
-/// public addresses and follows no redirect.
+/// A git host client that reaches only public addresses and follows no redirect.
 pub fn host_client() -> anyhow::Result<Client> {
     Ok(Client::builder()
         .timeout(TIMEOUT)
@@ -62,10 +59,7 @@ impl Checker {
         self.user(GITHUB_USER, "GitHub", token).await
     }
 
-    /// The orgs `token` can see, from `GET https://api.github.com/user/orgs`:
-    /// one page of at most [`MAX_ORGS`]. Empty when GitHub does not say,
-    /// such as for a token without `read:org`; the account then serves
-    /// only its own repositories.
+    /// The orgs `token` can see (one page, at most [`MAX_ORGS`]); empty when GitHub does not say.
     pub async fn github_orgs(&self, token: &SecretString) -> Vec<String> {
         let sent = self
             .client
@@ -156,9 +150,7 @@ impl Checker {
     }
 }
 
-/// What the user is told about a refusal. It never carries the host's
-/// status or body: the URL is the user's to type, so the reply could be
-/// anything the server can reach.
+/// What the user is told about a refusal; never the host's status or body.
 fn refused(host: &str, status: StatusCode) -> Checked {
     Checked::Refused(match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {

@@ -1,5 +1,4 @@
-//! What a review allows: the findings still open, and whether a merge may
-//! ask.
+//! What a review allows: open findings and whether a merge may ask.
 
 use super::drive::running;
 use crate::{
@@ -7,8 +6,7 @@ use crate::{
     store::{ReviewFindingRow, ReviewRow, ShardRow, Verdict},
 };
 
-/// Why merging is off: a running review, open findings, conflicts or
-/// failing checks; `None` when it may ask.
+/// Why merging is off (running review, open findings, conflicts, failing checks); `None` if not.
 pub(crate) fn merge_blocked(
     review: &ReviewRow,
     shards: &[ShardRow],
@@ -47,8 +45,7 @@ pub(crate) fn merge_blocked(
     None
 }
 
-/// Findings neither dismissed nor dropped by the verifier, most severe
-/// first.
+/// Findings neither dismissed nor dropped by the verifier, most severe first.
 pub(crate) fn open(findings: &[ReviewFindingRow]) -> Vec<&ReviewFindingRow> {
     let mut open: Vec<&ReviewFindingRow> = findings
         .iter()

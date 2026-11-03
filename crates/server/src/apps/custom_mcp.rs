@@ -1,13 +1,5 @@
 //! Remote MCP servers the user adds by URL.
-//!
-//! Every call leaves from this server, so all users of one MCP server look
-//! like a single client to it, and a ban would hit all of them. Calls are
-//! limited per host across users and per user, a host that answers 429 or
-//! keeps failing is left alone for a while, and nothing is retried here.
-//!
-//! The URL must be https and resolve only to public addresses, checked when
-//! the server is added and again before connecting, so a user cannot point
-//! the server at its own network.
+//! Calls are rate limited per host and per user, and the URL must be https resolving only to public addresses.
 
 use crate::{
     apps::mcp::lost_login,
@@ -32,17 +24,13 @@ use std::{
 };
 use tokio::time::{Instant as TokioInstant, sleep_until};
 
-/// Starts the row name of every server the user added, and so, upper-cased,
-/// the name of each of its tools: `MCP_MY-NOTES_SEARCH`. It keeps them apart
-/// from catalog apps, so a server named "gmail" cannot pose as Gmail.
+/// Prefix of every added server's row name and tool name, so "gmail" cannot pose as Gmail.
 pub(crate) const PREFIX: &str = "mcp_";
 /// Longest part of a row name after `PREFIX`.
 const MAX_SLUG: usize = 16;
 /// Longest name a model provider takes for a tool.
 const MAX_TOOL_NAME: usize = 64;
-/// Most tools of one server the agent works well with, and how many are on
-/// until the user picks; every schema goes out with each model request.
-/// The user may turn on more.
+/// How many of a server's tools are on until the user picks.
 pub(crate) const MAX_TOOLS: usize = 25;
 /// Longest tool description and schema kept.
 const MAX_DESCRIPTION: usize = 1000;
@@ -70,13 +58,10 @@ const RECHECK_AFTER: Duration = Duration::from_secs(5 * 60);
 /// How long a connection stays open after its last call.
 const IDLE: Duration = Duration::from_secs(5 * 60);
 
-/// The shared limits of every server process user. Static because the
-/// limit is the host's, whichever user and registry calls it.
+/// Limits shared by every user, since the limit is the host's.
 pub(crate) static LIMITS: LazyLock<Limits> = LazyLock::new(Limits::default);
 
-/// The row name for a server the user called `label`: `mcp_` and the label
-/// in lower case, with anything but letters and digits as `-`. No `_`, so a
-/// tool name splits back into server and tool at its second `_`.
+/// `mcp_` plus the lowercased label with non-alphanumerics as `-` (no `_`, so tool names split back).
 pub(crate) fn server_name(label: &str) -> Option<String> {
     let mut slug = String::new();
     for c in label.trim().chars().flat_map(char::to_lowercase) {
@@ -111,8 +96,7 @@ pub(crate) enum UrlError {
     Private,
 }
 
-/// The URL when it is https without credentials and every address its host
-/// has is public.
+/// The URL when it is https without credentials and every address of its host is public.
 pub(crate) async fn check_url(url: &str) -> Result<Url, UrlError> {
     let url = Url::parse(url.trim()).map_err(|_| UrlError::NotHttps)?;
     if url.scheme() != "https" || url.host_str().is_none() {
@@ -138,10 +122,7 @@ pub(crate) async fn check_url(url: &str) -> Result<Url, UrlError> {
     Ok(url)
 }
 
-/// Whether `ip` is reachable on the public internet: not loopback, private,
-/// link-local, shared, documentation, multicast or reserved. IPv6 must be
-/// global unicast (2000::/3), which also leaves out mesh ranges such as
-/// 200::/7.
+/// Whether `ip` is public; IPv6 must be global unicast (2000::/3), which excludes mesh ranges.
 fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => public_v4(ip),
@@ -350,8 +331,7 @@ impl Limits {
     }
 }
 
-/// Checks `url` again when its host was not checked lately, so a name that
-/// now points somewhere private is caught before connecting.
+/// Checks `url` again when its host was not checked lately.
 pub(crate) async fn recheck(url: &str) -> Result<(), UrlError> {
     let host = host_of(url);
     let now = Instant::now();
@@ -398,8 +378,7 @@ pub(crate) fn info(
     }
 }
 
-/// The registry config for an added server: its URL always from the row,
-/// with the tools cached at its last connect.
+/// The registry config for an added server: URL from the row, tools from its last connect.
 pub(crate) fn config_of(row: &McpServerRow, custom: &CustomMcp) -> McpServerConfig {
     let cached_tools = serde_json::from_value::<McpServerConfig>(row.config.clone())
         .map(|stored| stored.cached_tools)
@@ -412,17 +391,14 @@ pub(crate) fn config_of(row: &McpServerRow, custom: &CustomMcp) -> McpServerConf
     }
 }
 
-/// Whether the agent gets the server's tools: it needs no sign-in, or the
-/// user signed in.
+/// Whether the server needs no sign-in or the user signed in.
 pub(crate) fn ready(row: &McpServerRow) -> bool {
     row.custom
         .as_ref()
         .is_some_and(|custom| !custom.sign_in || row.credentials.is_some())
 }
 
-/// Keeps the added servers' tools and tokens in `mcp_servers`. It lists no
-/// servers, so the registry never connects to them all at once on start:
-/// each is added when a call needs it, under the limits.
+/// Stores added servers' tools and tokens; lists none, so the registry connects each lazily.
 pub(crate) struct CustomProvider {
     pub(crate) user: Weak<User>,
 }
@@ -476,8 +452,7 @@ impl McpConfigProvider for CustomProvider {
     }
 }
 
-/// Registers `config` with `registry` when it is not yet, so a call can
-/// connect it.
+/// Registers `config` with `registry` unless it already is.
 pub(crate) async fn register(registry: &McpRegistry, config: &McpServerConfig) -> Result<()> {
     if registry.get_config(&config.name).await.is_none() {
         registry.add(config.clone()).await?;
@@ -488,22 +463,19 @@ pub(crate) async fn register(registry: &McpRegistry, config: &McpServerConfig) -
 /// The users whose registry has a reap waiting.
 static REAPS: LazyLock<Reaps> = LazyLock::new(Reaps::default);
 
-/// The last call of each user whose registry has a reap waiting, so a user
-/// has at most one reap task however many calls they make.
+/// Last call time of each user with a reap waiting, so each user has at most one reap task.
 #[derive(Default)]
 struct Reaps {
     last_call: Mutex<HashMap<String, TokioInstant>>,
 }
 
 impl Reaps {
-    /// Notes a call of `user`'s at `now`. True when no reap waits for them
-    /// yet, so one has to start.
+    /// Notes a call; true when no reap waits yet.
     fn called(&self, user: &str, now: TokioInstant) -> bool {
         lock(&self.last_call).insert(user.to_owned(), now).is_none()
     }
 
-    /// When `user`'s reap is due, `IDLE` after their last call, or `None`
-    /// once it is due at `now`, when it stops waiting.
+    /// When `user`'s reap is due, or `None` once it is due at `now`.
     fn due(&self, user: &str, now: TokioInstant) -> Option<TokioInstant> {
         let mut calls = lock(&self.last_call);
         let at = *calls.get(user)? + IDLE;
@@ -515,9 +487,7 @@ impl Reaps {
     }
 }
 
-/// Closes `user`'s registry's connections once they have been idle a
-/// while, so thousands of users do not each hold one open to the same
-/// host. One task per user waits for it, put back by each later call.
+/// Closes `user`'s idle registry connections after `IDLE`, one waiting task per user.
 fn reap_later(registry: &McpRegistry, user: &str) {
     if !REAPS.called(user, TokioInstant::now()) {
         return;
@@ -532,9 +502,7 @@ fn reap_later(registry: &McpRegistry, user: &str) {
     });
 }
 
-/// The tool name the agent calls `tool` of server `name` by:
-/// `MCP_MY-NOTES_SEARCH_PAGES`, with the tool's part in letters, digits and
-/// `_` only, cut to fit.
+/// The agent's name for `tool` of server `name`, such as `MCP_MY-NOTES_SEARCH_PAGES`.
 pub(crate) fn tool_name(name: &str, tool: &str) -> String {
     let mut out = name.to_ascii_uppercase();
     out.push('_');
@@ -551,8 +519,7 @@ pub(crate) fn tool_name(name: &str, tool: &str) -> String {
     out
 }
 
-/// Whether each of a server's tools can go to the agent: its schema fits,
-/// and no tool before it takes the same agent name.
+/// Whether each tool's schema fits and its agent name is not taken by an earlier one.
 fn usable(server: &str, defs: &[McpToolDef]) -> Vec<bool> {
     let mut seen = HashSet::new();
     defs.iter()
@@ -564,8 +531,7 @@ fn usable(server: &str, defs: &[McpToolDef]) -> Vec<bool> {
         .collect()
 }
 
-/// Whether the agent gets each of a server's tools: the usable ones the
-/// user turned on, or until they pick, the first `MAX_TOOLS` usable ones.
+/// The usable tools the user turned on, or the first `MAX_TOOLS` until they pick.
 fn enabled(server: &str, defs: &[McpToolDef], chosen: Option<&[String]>) -> Vec<bool> {
     let mut left = MAX_TOOLS;
     usable(server, defs)
@@ -617,9 +583,7 @@ pub(crate) fn tool_list(server: &str, defs: &[McpToolDef], chosen: Option<&[Stri
     }
 }
 
-/// The user's picks after turning `tool` on or off. Until then the picks
-/// are the default ones, and a pick of a tool the server stopped listing
-/// is kept for when it lists it again.
+/// The user's picks after turning `tool` on or off; picks of unlisted tools are kept.
 pub(crate) fn choose(
     server: &str,
     defs: &[McpToolDef],
@@ -649,8 +613,7 @@ fn description_of(def: &McpToolDef) -> String {
         .to_owned()
 }
 
-/// The agent tools of the user's ready added servers, from the schemas
-/// cached at their last connect, the ones the user turned on.
+/// The agent tools the user turned on, from the ready servers' cached schemas.
 pub(crate) fn custom_tools(
     registry: &McpRegistry,
     owner: &Weak<User>,

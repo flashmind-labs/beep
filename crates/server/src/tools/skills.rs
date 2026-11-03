@@ -1,5 +1,4 @@
-//! `skill`: loads a skill the context lists, for the user's chats or for a
-//! group's, and in the user's chats saves new ones and rewrites them.
+//! `skill`: loads a listed skill, and in the user's own chats creates and updates them.
 
 use super::memory::{arg, opt_arg, reply};
 use crate::{
@@ -31,8 +30,7 @@ impl Action {
 pub(crate) struct SkillTool {
     pub store: Store,
     pub owner: SkillOwner,
-    /// Whether it may create and update skills, not only view them. A
-    /// group's run holds members' private memories, so it only views.
+    /// Whether it may create and update skills; a group's run only views.
     pub writes: bool,
 }
 

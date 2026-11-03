@@ -1,6 +1,4 @@
-//! Sends one admin command to the server running on this machine, over its
-//! admin socket, and prints the reply. In the container:
-//! `docker compose exec server beep-admin rescan [USER_ID]`.
+//! Sends one admin command to the local server's admin socket and prints the reply.
 
 use anyhow::{Context, Result, ensure};
 use std::{

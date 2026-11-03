@@ -1,7 +1,4 @@
-//! The agent's event tools: `event_topics` lists and changes which account
-//! events the user gets, and `recent_events` says what came in and what the
-//! triage agent made of it, in any chat; `hold_events` keeps events of a
-//! woken turn for a later digest.
+//! The agent's event tools: `event_topics`, `recent_events` and `hold_events`.
 
 use super::{Topic, Urgency, Verdict, triggers};
 use crate::{
