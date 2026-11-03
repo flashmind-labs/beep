@@ -1,6 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseTool, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
+import { imageLines, parseTool, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
+
+test("image lines come out of an entry's text anywhere, in order", () => {
+  const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
+  assert.deepEqual(imageLines(`Saved chart.png\n[image: ${a}]\nand more\n[image: ${b}]\n`), {
+    text: "Saved chart.png\nand more", names: [a, b],
+  });
+  assert.deepEqual(imageLines(`Read: shot.png (failed)\n[image: ${a}]`), {
+    text: "Read: shot.png (failed)", names: [a],
+  });
+  assert.deepEqual(imageLines("no pictures [image: inline] here"), {
+    text: "no pictures [image: inline] here", names: [],
+  });
+});
 
 test("a live tool entry splits into title, status and output", () => {
   assert.deepEqual(parseTool("cargo test -p beep-node [completed]\nrunning 12 tests\nok"), {
