@@ -8,18 +8,14 @@
 //! `working_dir` column is skipped.
 
 use super::{Agent, MAX_FILES, Memos, Seen, prompt_title};
-use rusqlite::{Connection, OpenFlags};
 use std::{
     env, fs,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 
 /// The most databases read in one listing.
 const MAX_DATABASES: usize = 300;
-/// How long a locked database is waited on.
-const BUSY: Duration = Duration::from_millis(200);
 
 const QUERY: &str = "SELECT m.chat_key, m.title, m.working_dir, m.created_at,
         (SELECT MAX(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key),
@@ -77,11 +73,7 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
 }
 
 fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
-    let conn = Connection::open_with_flags(
-        database,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.busy_timeout(BUSY)?;
+    let conn = super::open_database(database)?;
     let mut statement = conn.prepare(QUERY)?;
     let limit = i64::try_from(MAX_FILES).unwrap_or(i64::MAX);
     let rows = statement.query_map([limit], |row| {
@@ -112,6 +104,7 @@ fn seconds(at: Option<i64>) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     const SCHEMA: &str = "CREATE TABLE sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT, chat_key TEXT NOT NULL,

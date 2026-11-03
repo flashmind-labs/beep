@@ -6,6 +6,7 @@
 
 use super::{
     acp::{Line, LineReader},
+    unix_now,
     usage::claude_window,
 };
 use crate::process::{GroupLeader, STOP_GRACE, own_group};
@@ -15,10 +16,7 @@ use beep_proto::{
     node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage},
 };
 use serde_json::{Value, json};
-use std::{
-    process::Stdio,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{process::Stdio, time::Duration};
 use tokio::{
     io::{AsyncWriteExt, BufReader},
     process::{ChildStdin, Command},
@@ -76,7 +74,7 @@ pub(super) async fn read_claude(command: Command) -> Result<Option<PlanUsage>> {
     if answer["subtype"] != "success" {
         bail!("Claude Code refused: {}", answer["error"]);
     }
-    Ok(claude_plan(&answer["response"], now()))
+    Ok(claude_plan(&answer["response"], unix_now()))
 }
 
 /// Codex's plan usage; `None` when it is signed in with an API key.
@@ -100,7 +98,7 @@ pub(super) async fn read_codex(command: Command) -> Result<Option<PlanUsage>> {
     if let Some(error) = answer.get("error") {
         bail!("Codex refused: {}", error["message"]);
     }
-    Ok(codex_plan(&answer["result"], now()))
+    Ok(codex_plan(&answer["result"], unix_now()))
 }
 
 /// Starts `command`, sends it `first` as JSON lines and answers each line
@@ -157,12 +155,6 @@ async fn write(stdin: &mut ChildStdin, messages: &[Value]) -> Result<()> {
     }
     stdin.flush().await?;
     Ok(())
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
 }
 
 /// The plan in Claude Code's answer to `get_usage`: `rate_limits` holds

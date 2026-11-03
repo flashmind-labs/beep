@@ -11,20 +11,16 @@
 //! that is locked or of another shape is skipped.
 
 use super::{Agent, MAX_FILES, Memos, Seen, prompt_title};
-use rusqlite::{Connection, OpenFlags};
 use std::{
     env,
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 
 /// The most databases read in one listing.
 const MAX_DATABASES: usize = 8;
-/// How long a locked database is waited on.
-const BUSY: Duration = Duration::from_millis(200);
 /// The title OpenCode gives a session before it names it.
 const UNNAMED: &str = "New session - ";
 
@@ -116,11 +112,7 @@ fn databases(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
-    let conn = Connection::open_with_flags(
-        database,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.busy_timeout(BUSY)?;
+    let conn = super::open_database(database)?;
     let mut statement = conn.prepare(QUERY)?;
     let limit = i64::try_from(MAX_FILES).unwrap_or(i64::MAX);
     let rows = statement.query_map([limit], |row| {
@@ -153,6 +145,7 @@ fn seconds(at: Option<i64>) -> u64 {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     const SCHEMA: &str = "CREATE TABLE project (
             id TEXT PRIMARY KEY, worktree TEXT NOT NULL, time_created INTEGER NOT NULL,
