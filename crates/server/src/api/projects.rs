@@ -8,7 +8,6 @@ use crate::{
     projects::{
         fleet::NodeFleet,
         issues::{self, IssueError, IssueWork, ListedPr, OpenIssue},
-        lifecycle::fill_slots,
         model::{ProjectId, RepoName, TaskId, TaskState, WorkerAgent, WorkerId},
         tools::{drop_task, reopen_task},
         worker::stop_worker,
@@ -341,10 +340,6 @@ async fn update_task(
         TaskState::Dropped if task.state.is_open() => {
             let said = drop_task(&fleet, user, &project, &task).await?;
             log::info!("projects: the user dropped a task: {said}");
-            // The slot its worker held may start a queued task.
-            if let Err(error) = fill_slots(&fleet, user).await {
-                log::warn!("projects: queued tasks not started: {error:#}");
-            }
         }
         TaskState::Planned
             if matches!(
@@ -374,13 +369,6 @@ async fn stop(app: &Arc<App>, user: &Arc<User>, id: WorkerId) -> Reply<()> {
         .await?
         .ok_or(ApiError::NotFound {})?;
     stop_worker(app, user, &worker).await?;
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    if let Err(error) = fill_slots(&fleet, user).await {
-        log::warn!("projects: queued tasks not started: {error:#}");
-    }
     Ok(())
 }
 

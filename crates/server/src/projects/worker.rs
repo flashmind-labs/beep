@@ -654,12 +654,20 @@ pub(crate) async fn stop_worker(
     stop_worker_on(&fleet, user, worker).await
 }
 
-/// [`stop_worker`] through `fleet`.
+/// [`stop_worker`] through `fleet`. The slot it held may start a queued
+/// task.
 pub(crate) async fn stop_worker_on(
     fleet: &dyn Fleet,
-    user: &User,
+    user: &Arc<User>,
     worker: &WorkerRow,
 ) -> Result<()> {
+    end_worker(fleet, user, worker).await?;
+    super::lifecycle::refill(fleet, user).await;
+    Ok(())
+}
+
+/// [`stop_worker_on`] without starting queued tasks.
+pub(crate) async fn end_worker(fleet: &dyn Fleet, user: &User, worker: &WorkerRow) -> Result<()> {
     let Some(current) = user.project_worker(worker.id).await? else {
         return Ok(());
     };

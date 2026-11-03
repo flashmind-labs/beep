@@ -76,6 +76,30 @@ fn now() -> DateTime<Utc> {
 }
 
 impl Harness {
+    /// A task waiting for a free slot.
+    async fn queued(&self, title: &str) -> TaskRow {
+        let task = self
+            .user
+            .create_tasks(self.project.id, &[new_task(title)])
+            .await
+            .expect("a task")
+            .remove(0);
+        self.user
+            .set_task_start(
+                task.id,
+                Some(&StartRequest {
+                    base: None,
+                    machine: None,
+                    agent: None,
+                    persona: None,
+                    inputs: Vec::new(),
+                }),
+            )
+            .await
+            .expect("queued");
+        task
+    }
+
     /// A task in `state`, with issue #12, its PR when in review, and a
     /// worker that finished a turn at `last_turn`.
     async fn working(&self, state: TaskState, last_turn: DateTime<Utc>) -> (TaskRow, WorkerRow) {
@@ -244,28 +268,32 @@ async fn a_steered_worker_is_not_idle() {
 }
 
 #[tokio::test]
+async fn dropping_a_running_task_starts_a_queued_one() {
+    let h = harness().await;
+    let (task, _) = h.working(TaskState::Running, minutes_ago(5)).await;
+    let queued = h.queued("Next one").await;
+    crate::projects::tools::drop_task(&h.fleet, &h.user, &h.project, &task)
+        .await
+        .expect("it drops");
+    assert_eq!(h.fleet.starts(), vec![queued.slug]);
+}
+
+#[tokio::test]
+async fn stopping_a_worker_starts_a_queued_task() {
+    let h = harness().await;
+    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    let queued = h.queued("Next one").await;
+    crate::projects::worker::stop_worker_on(&h.fleet, &h.user, &worker)
+        .await
+        .expect("it stops");
+    assert_eq!(h.fleet.starts(), vec![queued.slug]);
+}
+
+#[tokio::test]
 async fn merged_pr_finishes_the_task() {
     let h = harness().await;
     let (task, worker) = h.working(TaskState::Review, minutes_ago(5)).await;
-    let queued = h
-        .user
-        .create_tasks(h.project.id, &[new_task("Next one")])
-        .await
-        .expect("a task")
-        .remove(0);
-    h.user
-        .set_task_start(
-            queued.id,
-            Some(&StartRequest {
-                base: None,
-                machine: None,
-                agent: None,
-                persona: None,
-                inputs: Vec::new(),
-            }),
-        )
-        .await
-        .expect("queued");
+    let queued = h.queued("Next one").await;
     h.pr(
         r#"{"number":7,"url":"https://github.com/acme/widget/pull/7","state":"MERGED",
         "mergedAt":"2026-11-01T10:00:00Z","reviewDecision":"APPROVED","statusCheckRollup":[],
