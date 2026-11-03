@@ -26,7 +26,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex, PoisonError,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -230,6 +230,8 @@ pub(crate) struct FakeFleet {
     pub(crate) start_fails: Mutex<Option<String>>,
     /// What went to sessions.
     pub(crate) sent: Mutex<Vec<AgentRequest>>,
+    /// When set, sends to sessions fail, as on a machine that dropped.
+    pub(crate) send_fails: AtomicBool,
     /// The questions put to the user.
     pub(crate) asked: Mutex<Vec<Question>>,
     /// The status [`Fleet::session_info`] gives; none fails it.
@@ -395,6 +397,9 @@ impl Fleet for FakeFleet {
     }
 
     async fn send_session(&self, _worker: &WorkerRow, request: AgentRequest) -> Result<()> {
+        if self.send_fails.load(Ordering::Relaxed) {
+            bail!("the machine dropped");
+        }
         push(&self.sent, request);
         Ok(())
     }

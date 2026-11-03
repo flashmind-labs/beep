@@ -367,19 +367,38 @@ pub(crate) async fn asked(
     question: Question,
     report: bool,
 ) -> Result<()> {
-    let Some(Working {
+    let Some(working) = working(fleet, user, worker).await? else {
+        return Ok(());
+    };
+    let worker = &working.worker;
+    if !worker.state.is_live() || !fleet.projects().take_question(worker.id, question.id) {
+        return Ok(());
+    }
+    let (worker_id, question_id) = (worker.id, question.id);
+    let handled = handle_question(fleet, user, working, question, report).await;
+    // One that was not handled is handled again when it next shows up, as
+    // on a catch-up, instead of being dropped.
+    if handled.is_err() {
+        fleet.projects().forget_question(worker_id, question_id);
+    }
+    handled
+}
+
+/// Answers `question` by the policy when it can, else puts it to the user.
+async fn handle_question(
+    fleet: &dyn Fleet,
+    user: &Arc<User>,
+    working: Working,
+    question: Question,
+    report: bool,
+) -> Result<()> {
+    let Working {
         worker,
         task,
         project,
         chat,
         machine,
-    }) = working(fleet, user, worker).await?
-    else {
-        return Ok(());
-    };
-    if !worker.state.is_live() || !fleet.projects().take_question(worker.id, question.id) {
-        return Ok(());
-    }
+    } = working;
     let gate = ProjectGate::new(user.app_rules().await?, None, project.visibility);
     let machines = fleet.machines().await?;
     let public_text = fleet::project_public_text(fleet, user, &project, &machines).await?;
