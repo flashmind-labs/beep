@@ -238,6 +238,7 @@ pub fn router() -> Router {
         .call(terminals::get_terminal)
         .call(terminals::close_terminal)
         .call(terminals::open_terminal)
+        .call(terminals::list_all_terminals)
         .duplex(terminals::attach::attach_terminal)
         .call(reviews::list_project_branches)
         .call(reviews::start_branch_review)

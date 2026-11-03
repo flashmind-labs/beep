@@ -56,6 +56,14 @@ test("sections pair up and empty ones drop out", () => {
   assert.deepEqual(homeRows({ running: null, needs_you: [], updates: [], coming_up: null }), []);
 });
 
+test("Terminals takes its own row once the server lists them and a machine is linked", () => {
+  const full = { machines: [1], running: [1], needs_you: [1], updates: [1], coming_up: [1], terminals: [] };
+  assert.deepEqual(homeRows(full), [["running", "needs"], ["terminals"], ["updates", "coming"]]);
+  assert.deepEqual(homeRows({ ...full, terminals: null }), [["running", "needs"], ["updates", "coming"]]);
+  assert.deepEqual(homeRows({ ...full, machines: [] }), [["running", "needs"], ["updates", "coming"]]);
+  assert.deepEqual(homeColumns(full), { left: ["needs", "running", "terminals", "updates"], right: ["machines", "coming"] });
+});
+
 test("a wide Home puts what to act on left and machines right", () => {
   const full = { machines: [], running: [1], needs_you: [1], updates: [1], coming_up: [1] };
   assert.deepEqual(homeColumns(full), { left: ["needs", "running", "updates"], right: ["machines", "coming"] });
