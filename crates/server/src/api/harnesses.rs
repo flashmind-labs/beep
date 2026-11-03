@@ -2,7 +2,7 @@
 //! with what the node finds of each and the caller's settings for it, and
 //! installing or updating one there.
 
-use super::Reply;
+use super::{Reply, own_nodes};
 use crate::{
     credentials::CredentialKey,
     nodes::{Online, agent_name},
@@ -124,12 +124,7 @@ async fn online_machine(cx: &Cx, machine_id: &str) -> Reply<Machine> {
         .into_iter()
         .find(|node| node.endpoint == machine_id)
         .ok_or(ApiError::NotFound {})?;
-    let online = cx
-        .app
-        .nodes
-        .online(machine_id)
-        .filter(|online| online.user == cx.user.id())
-        .ok_or(ApiError::NotFound {})?;
+    let online = own_nodes::online(cx, machine_id).ok_or(ApiError::NotFound {})?;
     Ok(Machine {
         id: node.endpoint,
         name: node.name,
