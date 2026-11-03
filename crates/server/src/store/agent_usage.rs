@@ -4,12 +4,16 @@
 
 use super::Store;
 use crate::{
-    protocol::node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage, TurnUsage},
+    protocol::{
+        AgentSlug, ModelId,
+        node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage, TurnUsage},
+    },
     user::UserKey,
 };
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::{Row, types::Json};
+use iroh::EndpointId;
+use sqlx::{Row, postgres::PgRow, types::Json};
 
 /// The longest agent, model or session name kept, and the longest folder.
 const MAX_NAME: usize = 200;
@@ -23,9 +27,9 @@ const MAX_WINDOWS: usize = 16;
 /// today or earlier this week.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SpendRow {
-    pub(crate) endpoint: String,
+    pub(crate) endpoint: EndpointId,
     pub(crate) cwd: String,
-    pub(crate) agent: String,
+    pub(crate) agent: AgentSlug,
     /// Today rather than earlier this week.
     pub(crate) today: bool,
     /// `None` when none of its turns reported a cost.
@@ -37,16 +41,17 @@ pub(crate) struct SpendRow {
 /// The tokens one model of one agent used today.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ModelRow {
-    pub(crate) agent: String,
-    pub(crate) model: String,
+    pub(crate) agent: AgentSlug,
+    pub(crate) model: ModelId,
     pub(crate) tokens: u64,
 }
 
 /// One agent's plan usage as the store keeps it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlanRow {
-    pub(crate) agent: String,
-    pub(crate) endpoint: String,
+    pub(crate) agent: AgentSlug,
+    pub(crate) endpoint: EndpointId,
+    /// Free-form text the agent reports, such as `max`.
     pub(crate) plan: Option<String>,
     pub(crate) windows: Vec<LimitWindow>,
     pub(crate) read_at: DateTime<Utc>,
@@ -63,17 +68,29 @@ fn name(what: &str, value: &str, max: usize) -> Result<()> {
     Ok(())
 }
 
+/// The node in `row`'s `endpoint_id`, which holds an `EndpointId`'s text.
+fn endpoint_of(row: &PgRow) -> Result<EndpointId> {
+    let text: String = row.try_get("endpoint_id")?;
+    text.parse()
+        .with_context(|| format!("endpoint_id {text:?} is no node key"))
+}
+
+/// The agent in `row`'s `agent` column.
+fn agent_of(row: &PgRow) -> Result<AgentSlug> {
+    Ok(AgentSlug::new(row.try_get::<String, _>("agent")?))
+}
+
 impl Store {
     /// Adds one finished turn to its session's day, `endpoint` being the
     /// node that ran it.
     pub(crate) async fn add_turn_usage(
         &self,
         user: &UserKey,
-        endpoint: &str,
+        endpoint: &EndpointId,
         turn: &TurnUsage,
     ) -> Result<()> {
         name("session", &turn.session, MAX_NAME)?;
-        name("agent", &turn.agent, MAX_NAME)?;
+        name("agent", turn.agent.as_str(), MAX_NAME)?;
         name("folder", &turn.cwd, MAX_FOLDER)?;
         let cost = turn
             .cost_usd
@@ -102,10 +119,10 @@ impl Store {
                  turns = agent_usage.turns + 1",
         )
         .bind(user.as_str())
-        .bind(endpoint)
+        .bind(endpoint.to_string())
         .bind(&turn.session)
         .bind(day)
-        .bind(&turn.agent)
+        .bind(turn.agent.as_str())
         .bind(&turn.cwd)
         .bind(cost)
         .bind(tokens)
@@ -113,7 +130,7 @@ impl Store {
         .execute(&mut *tx)
         .await?;
         for model in turn.models.iter().take(MAX_WINDOWS) {
-            if model.model.is_empty() || model.model.len() > MAX_NAME {
+            if model.model.is_empty() || model.model.as_str().len() > MAX_NAME {
                 continue;
             }
             sqlx::query(
@@ -124,8 +141,8 @@ impl Store {
             )
             .bind(user.as_str())
             .bind(day)
-            .bind(&turn.agent)
-            .bind(&model.model)
+            .bind(turn.agent.as_str())
+            .bind(model.model.as_str())
             .bind(i64::try_from(model.tokens)?)
             .execute(&mut *tx)
             .await?;
@@ -151,9 +168,9 @@ impl Store {
         rows.iter()
             .map(|row| {
                 Ok(SpendRow {
-                    endpoint: row.try_get("endpoint_id")?,
+                    endpoint: endpoint_of(row)?,
                     cwd: row.try_get("cwd")?,
-                    agent: row.try_get("agent")?,
+                    agent: agent_of(row)?,
                     today: row.try_get("today")?,
                     cost_usd: row.try_get("cost")?,
                     tokens: u64::try_from(row.try_get::<i64, _>("tokens")?)?,
@@ -175,8 +192,8 @@ impl Store {
         rows.iter()
             .map(|row| {
                 Ok(ModelRow {
-                    agent: row.try_get("agent")?,
-                    model: row.try_get("model")?,
+                    agent: agent_of(row)?,
+                    model: ModelId::new(row.try_get::<String, _>("model")?),
                     tokens: u64::try_from(row.try_get::<i64, _>("tokens")?)?,
                 })
             })
@@ -188,10 +205,10 @@ impl Store {
     pub(crate) async fn save_plan_usage(
         &self,
         user: &UserKey,
-        endpoint: &str,
+        endpoint: &EndpointId,
         plan: &PlanUsage,
     ) -> Result<bool> {
-        name("agent", &plan.agent, MAX_NAME)?;
+        name("agent", plan.agent.as_str(), MAX_NAME)?;
         if plan.plan.as_ref().is_some_and(|p| p.len() > MAX_NAME) {
             bail!("the plan's name is too long");
         }
@@ -216,8 +233,8 @@ impl Store {
              WHERE excluded.read_at >= plan_usage.read_at",
         )
         .bind(user.as_str())
-        .bind(&plan.agent)
-        .bind(endpoint)
+        .bind(plan.agent.as_str())
+        .bind(endpoint.to_string())
         .bind(&plan.plan)
         .bind(Json(&windows))
         .bind(read_at)
@@ -239,8 +256,8 @@ impl Store {
             .map(|row| {
                 let Json(windows): Json<Vec<LimitWindow>> = row.try_get("windows")?;
                 Ok(PlanRow {
-                    agent: row.try_get("agent")?,
-                    endpoint: row.try_get("endpoint_id")?,
+                    agent: agent_of(row)?,
+                    endpoint: endpoint_of(row)?,
                     plan: row.try_get("plan")?,
                     windows,
                     read_at: row.try_get("read_at")?,

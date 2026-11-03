@@ -17,7 +17,7 @@ impl Online {
     pub(super) async fn keep_usage(&self, user: &User) -> Result<()> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::FollowUsage {}).await?;
-        let machine_id = self.connection.remote_id().to_string();
+        let machine_id = self.connection.remote_id();
         loop {
             let reply = tokio::select! {
                 reply = rx.recv::<SessionsReply>() => match reply? {
