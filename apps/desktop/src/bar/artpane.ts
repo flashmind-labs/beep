@@ -186,7 +186,7 @@ function about(a: Artifact, size: number | null) {
 /// What an error from reading an artifact says to the user.
 function readError(e: unknown) {
   const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
-  if (/no longer|not found|gone/i.test(text)) return "This file is not on the machine any more, or the machine is offline.";
+  if (/no longer|not found|gone|is not there/i.test(text)) return "This file is not on the machine any more, or the machine is offline.";
   if (/unknown op|not serve|closes the stream/i.test(text)) return "Update Beep's server and beep-node on that machine to show this.";
   return text;
 }
