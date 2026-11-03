@@ -158,7 +158,10 @@ mod tests {
     use super::*;
     use crate::protocol::node::process::{Task, TaskState};
     use serde_bytes::ByteBuf;
-    use std::sync::Mutex;
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
     use tokio::sync::mpsc;
 
     /// The node's side as channels: what the server told it, and what it
@@ -274,6 +277,52 @@ mod tests {
             ]
         );
         drop(keys_tx);
+    }
+
+    // A shell at its prompt sends nothing for as long as nobody types. The
+    // relay must not end then: an ended stream reads as a dropped one and
+    // the app reattaches.
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_terminal_stays_attached() {
+        let (told_tx, _told) = mpsc::unbounded_channel();
+        let (out_tx, out_rx) = mpsc::unbounded_channel();
+        let (keys_tx, keys_rx) = mpsc::unbounded_channel();
+        let shown = Arc::new(Shown::default());
+        let screen = shown.clone();
+        let mut relayed = tokio::spawn(async move {
+            relay(
+                &mut Node { told: told_tx },
+                &mut NodeOut(out_rx),
+                &mut App(keys_rx),
+                &*screen,
+            )
+            .await
+        });
+        // An hour idle, far past any request or connection timeout.
+        let idle = tokio::time::timeout(Duration::from_secs(60 * 60), &mut relayed).await;
+        assert!(idle.is_err(), "the relay ended while idle: {idle:?}");
+        out_tx
+            .send(PtyReply::Output {
+                at: 0,
+                data: bytes("% "),
+            })
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while shown.0.lock().unwrap().is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("output after the idle hour still came through");
+        drop(keys_tx);
+        relayed.await.unwrap().expect("a detach is no error");
+        assert_eq!(
+            shown.0.lock().unwrap().as_slice(),
+            &[TerminalEvent::Output {
+                at: 0,
+                data: bytes("% ")
+            }],
+        );
     }
 
     #[tokio::test]

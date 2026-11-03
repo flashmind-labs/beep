@@ -384,3 +384,22 @@ async fn serve_notices(connection: Connection, on_notice: OnNotice) {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An attached terminal holds its stream open for hours with nothing
+    // on it; the idle close must wait for it to end.
+    #[test]
+    fn a_connection_with_a_stream_open_is_never_idle() {
+        let activity = Arc::new(Activity::new());
+        let idle = Duration::from_nanos(1);
+        let stream = Busy::new(activity.clone());
+        *activity.last.lock().unwrap() = Instant::now() - Duration::from_secs(60 * 60);
+        assert_eq!(activity.until_idle(idle), idle);
+        drop(stream);
+        *activity.last.lock().unwrap() = Instant::now() - Duration::from_secs(1);
+        assert!(activity.until_idle(idle).is_zero());
+    }
+}
