@@ -471,6 +471,12 @@ pub enum SessionsRequest {
     CustomAgents {
         folder: String,
     },
+    /// Sends what the user would want to hear about the node's sessions,
+    /// as `Alert` replies, until the server closes the stream: a question
+    /// a session asks, a turn that ended with no prompt queued behind it,
+    /// and a session that failed. Alerts that came while no stream was
+    /// open wait, a bounded few. A node from before it closes the stream.
+    FollowAlerts {},
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -556,6 +562,40 @@ pub enum SessionsReply {
     CustomAgents {
         agents: Vec<crate::CustomAgent>,
     },
+    /// One alert on a `FollowAlerts` stream.
+    Alert {
+        alert: Alert,
+    },
+}
+
+/// Something a node's session did that the user would want to hear about.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Alert {
+    pub session: String,
+    /// The agent, such as `claude`.
+    pub agent: String,
+    /// The title the agent gave the session, when it gives one.
+    #[serde(default)]
+    pub title: Option<String>,
+    pub cwd: String,
+    pub kind: AlertKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlertKind {
+    /// The session waits for an answer to `question`.
+    Asks { question: Question },
+    /// A turn ended and no prompt waits behind it. `error` says why a
+    /// failed one failed.
+    TurnEnded {
+        stop_reason: StopReason,
+        last_message: String,
+        #[serde(default)]
+        error: Option<String>,
+    },
+    /// The agent stopped on its own: it failed or exited.
+    Failed { reason: String },
 }
 
 /// The models an agent can run on a node, as `SessionsRequest::Models`
