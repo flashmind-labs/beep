@@ -149,15 +149,26 @@ async fn node_sessions(online: Online, host: Host) -> Vec<MachineSession> {
     let outside = external
         .into_iter()
         .flatten()
-        .filter(|session| {
-            session.taken_over.is_none()
-                && matches!(
-                    session.presence,
-                    Presence::Working | Presence::Waiting | Presence::Running
-                )
-        })
+        .filter(|session| session.taken_over.is_none() && runs_now(session, SystemTime::now()))
         .map(|session| external_session(&host, session));
     beep.chain(outside).collect()
+}
+
+/// How long a session waiting for the user stays among those running now
+/// after its last entry.
+const IDLE_SHOWN: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Whether a session started outside Beep shows as running now: a process
+/// runs it, and it is in a turn or was active within `IDLE_SHOWN`. A
+/// terminal left open for days on an answered prompt is not.
+fn runs_now(session: &ExternalSession, now: SystemTime) -> bool {
+    match session.presence {
+        Presence::Working | Presence::Running => true,
+        Presence::Waiting => now
+            .duration_since(unix(session.last_activity))
+            .is_ok_and(|idle| idle < IDLE_SHOWN),
+        _ => false,
+    }
 }
 
 /// The sessions of `agent` started outside Beep; none when the node cannot
@@ -248,4 +259,24 @@ fn agent_option(option: AnswerOption) -> AgentOption {
 
 fn unix(seconds: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(seconds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_idle_for_a_day_is_not_running_now() {
+        let now = unix(10 * 24 * 60 * 60);
+        let session = |presence, hours_ago: u64| ExternalSession {
+            presence,
+            last_activity: 10 * 24 * 60 * 60 - hours_ago * 60 * 60,
+            ..ExternalSession::default()
+        };
+        assert!(runs_now(&session(Presence::Waiting, 2), now));
+        assert!(!runs_now(&session(Presence::Waiting, 25), now));
+        // A turn in progress shows however old its last entry.
+        assert!(runs_now(&session(Presence::Working, 200), now));
+        assert!(!runs_now(&session(Presence::Stopped, 0), now));
+    }
 }
