@@ -325,7 +325,12 @@ async fn relabel(
 }
 
 /// Blocks the task if it is still running, labelling its issue.
-async fn block(fleet: &dyn Fleet, user: &User, project: &ProjectRow, task: &TaskRow) -> Result<()> {
+pub(crate) async fn block(
+    fleet: &dyn Fleet,
+    user: &User,
+    project: &ProjectRow,
+    task: &TaskRow,
+) -> Result<()> {
     if task.state == TaskState::Running
         && user
             .move_task_state(task.id, TaskState::Running, TaskState::Blocked)
