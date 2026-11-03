@@ -584,6 +584,19 @@ export function makeThreads(deps: ThreadDeps) {
     return h("div", "cc-panel", ...out);
   }
 
+  /// Every row in a list that scrolls past the height of its first
+  /// `shown` rows, under `head`; no Show all, so a long list stays short.
+  function scrollPanel(rows: HTMLElement[], shown: number, head?: HTMLElement) {
+    const list = h("div", "pj-scroll", ...rows);
+    if (rows.length > shown) {
+      requestAnimationFrame(() => {
+        const tall = rows.slice(0, shown).reduce((sum, row) => sum + row.offsetHeight, 0);
+        if (tall > 0) list.style.maxHeight = `${tall}px`;
+      });
+    }
+    return h("div", "cc-panel", ...(head ? [head] : []), list);
+  }
+
   /// A pull request's checks from its newest workflow runs; a failing one
   /// opens its run in the Actions section.
   function checksEl(c: ChecksRow, ctx: RepoActs) {
@@ -702,7 +715,7 @@ export function makeThreads(deps: ThreadDeps) {
     const shown = withLabels(lines, s.labels);
     const body: HTMLElement[] = [];
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
-    body.push(rowsPanel(agent, "issues", shown, draw, ISSUES_SHOWN, bar));
+    body.push(scrollPanel(shown.map(draw), ISSUES_SHOWN, bar));
     return section(agent, "sec-issues", title, issueCount(lines), body,
       h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
   }
