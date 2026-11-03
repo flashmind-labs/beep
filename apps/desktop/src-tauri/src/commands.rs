@@ -185,9 +185,9 @@ pub(crate) async fn answer_chat(
     followed
 }
 
-/// What the orb's approval card shows, if live mode waits on one.
+/// The approvals the orb's card shows while live mode is on, oldest first.
 #[tauri::command]
-pub fn live_approval(voice: State<'_, Arc<Voice>>) -> Option<Waiting> {
+pub fn live_approval(voice: State<'_, Arc<Voice>>) -> Vec<Waiting> {
     voice.waiting()
 }
 
