@@ -326,12 +326,18 @@ export function makeReviews(deps: ReviewDeps) {
     return t;
   };
 
+  /// Projects whose first read is on its way; a draw asking again waits.
+  const first = new Set<string>();
+
   async function load(name: string) {
     const t = of(name);
+    if (t.branches === undefined && first.has(name)) return;
+    first.add(name);
     const [branches, reviews] = await Promise.all([
       invoke<BranchesView | null>("project_branches", { project: name }).catch((e): Branches | null => { t.error = reason(e); return t.branches ?? { default_branch: "", branches: [] }; }),
       invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { console.warn("reviews:", e); return t.reviews ?? []; }),
     ]);
+    first.delete(name);
     t.branches = branches;
     t.reviews = reviews;
     redraw();

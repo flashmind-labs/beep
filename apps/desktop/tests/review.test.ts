@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ReviewView } from "../src/review.ts";
-import { openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../src/review.ts";
+import type { ReviewDeps, ReviewView } from "../src/review.ts";
+import { makeReviews, openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../src/review.ts";
 
 const ago = () => "12 min";
 
@@ -110,4 +110,17 @@ test("a review whose branch moved is stale and cannot merge", () => {
   assert.equal(staleText(r, { head: null, stale: true }), "login-copy is gone since this review.");
   assert.equal(mergeBlock(r, { head: "9e1b2c4dddd", stale: true }), "Merge is off: the branch moved since this review");
   assert.equal(mergeBlock(r, { head: "3f2c1a0aaaa", stale: false }), "Merge always asks first. It never runs on its own.");
+});
+
+test("a second load while branches first load asks the server once", async () => {
+  const asked: string[] = [];
+  const invoke = (async (cmd: string) => {
+    asked.push(cmd);
+    return cmd === "project_branches" ? { default_branch: "main", branches: [] } : [];
+  }) as unknown as ReviewDeps["invoke"];
+  const revs = makeReviews({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openTile() {} });
+  await Promise.all([revs.load("acme"), revs.load("acme")]);
+  assert.equal(asked.filter(c => c === "project_branches").length, 1);
+  await revs.load("acme");
+  assert.equal(asked.filter(c => c === "project_branches").length, 2, "a later load reads again");
 });

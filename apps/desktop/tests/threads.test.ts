@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadCode, issueTile, threadTile, issueMeta, threadMeta, workChoices } from "../src/threads.ts";
+import { threadCode, issueTile, threadTile, issueMeta, threadMeta, workChoices, makeThreads, type ThreadDeps } from "../src/threads.ts";
 
 const ago = () => "2 h ago";
 
@@ -91,4 +91,14 @@ test("Work on it offers the machines' agents, first one picked", () => {
   const none = workChoices([], []);
   assert.equal(none.agent, null);
   assert.equal(none.machine, null);
+});
+
+test("a second load while the lists first load asks the server once", async () => {
+  const asked: string[] = [];
+  const invoke = (async (cmd: string) => { asked.push(cmd); return []; }) as unknown as ThreadDeps["invoke"];
+  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {} });
+  await Promise.all([thr.load("p1"), thr.load("p1")]);
+  assert.equal(asked.filter(c => c === "center_project_issues").length, 1);
+  await thr.load("p1");
+  assert.equal(asked.filter(c => c === "center_project_issues").length, 2, "a later load reads again");
 });
