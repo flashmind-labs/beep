@@ -64,6 +64,9 @@ pub struct Saved {
     /// Chats live mode talked in, newest last.
     #[serde(default)]
     pub live_chats: Vec<Uuid>,
+    /// Coding agents notify when they ask something or finish a turn.
+    #[serde(default = "on")]
+    pub agent_notices: bool,
 }
 
 fn on() -> bool {
@@ -117,6 +120,7 @@ impl Default for Saved {
             notice_voice: None,
             send_on_pause: true,
             live_chats: Vec::new(),
+            agent_notices: true,
         }
     }
 }
@@ -227,6 +231,16 @@ mod tests {
         let json = serde_json::to_string(&saved).expect("the state serializes");
         assert!(!parse(&json).uses_mac());
         assert!(!parse(&json).use_mac);
+    }
+
+    #[test]
+    fn agent_notices_are_on_until_turned_off() {
+        assert!(parse("{}").agent_notices);
+        let mut saved = Saved::default();
+        assert!(saved.agent_notices);
+        saved.agent_notices = false;
+        let json = serde_json::to_string(&saved).expect("the state serializes");
+        assert!(!parse(&json).agent_notices);
     }
 
     #[test]

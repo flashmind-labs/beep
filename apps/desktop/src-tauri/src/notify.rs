@@ -1,18 +1,18 @@
 //! Notices as macOS notifications. A click opens what a notice is about,
-//! its chat or group, in the command center; one that asks for approval
-//! also has Allow and Deny.
+//! its chat, group or coding-agent session, in the command center; one
+//! that asks for approval, or an agent's question, also has Allow and Deny.
 // Off macOS a notice is plain text, so the click and answer paths go unused.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::{
     beep::{Beep, Decision},
-    center::{self, CenterTarget},
+    center::{self, AgentTarget, CenterTarget},
     commands::{self, ChatAnswer},
     error::{DesktopError, Result},
     waiting::WaitingList,
     work,
 };
-use beep_proto::{AnswerGroupApproval, ApiError, Notice};
+use beep_proto::{AgentNoticeKey, AnswerAgentQuestion, AnswerGroupApproval, ApiError, Notice};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -41,6 +41,9 @@ pub fn notice(app: &AppHandle, notice: &Notice) {
 
 /// What a click on `notice` opens.
 fn click_target(notice: &Notice) -> CenterTarget {
+    if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
+        return CenterTarget::Agent(AgentTarget::notified(&key));
+    }
     if notice.group {
         return CenterTarget::Group {
             id: notice.session_id.clone(),
@@ -67,10 +70,15 @@ enum Ask {
     Work { session: String, query_id: String },
     /// Someone in group `group` asked Beep for it.
     Group { group: String, query_id: String },
+    /// A coding-agent session asks it, as the key names.
+    Agent(AgentNoticeKey),
 }
 
 /// The question `notice` asks, if it asks one.
 fn ask(notice: &Notice) -> Option<Ask> {
+    if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
+        return key.question.is_some().then_some(Ask::Agent(key));
+    }
     let pending = notice.approval.as_ref()?;
     // A resolved question is news that it stopped waiting, not a question.
     if notice.changed {
@@ -151,7 +159,27 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
             }
             Ok(())
         }
+        // The server refuses an answer to a question the session no longer
+        // asks, as a conflict.
+        Ask::Agent(key) => {
+            let Some(question) = key.question else {
+                return Ok(());
+            };
+            beep.call(AnswerAgentQuestion {
+                machine_id: key.machine_id,
+                agent: key.agent,
+                session: key.session,
+                question,
+                reply: agent_reply(allow).into(),
+            })
+            .await
+        }
     }
+}
+
+/// The reply that picks the agent's allow-once or reject-once option.
+fn agent_reply(allow: bool) -> &'static str {
+    if allow { "allow" } else { "deny" }
 }
 
 #[cfg(target_os = "macos")]
@@ -330,6 +358,36 @@ mod tests {
         lost.app = Some("gmail".into());
         assert_eq!(click_target(&lost), CenterTarget::Apps);
         assert_eq!(click_target(&sample("", None, false)), CenterTarget::Home);
+    }
+
+    fn agent_notice(question: Option<u32>) -> (Notice, AgentNoticeKey) {
+        let key = AgentNoticeKey {
+            machine_id: "m1".into(),
+            agent: "claude".into(),
+            session: "s1".into(),
+            question,
+            machine_name: "build-box".into(),
+        };
+        let mut notice = sample(&key.to_string(), None, false);
+        notice.title = "Claude Code on build-box asks".into();
+        (notice, key)
+    }
+
+    #[test]
+    fn an_agent_notice_opens_its_session_and_a_question_has_answers() {
+        let (asks, key) = agent_notice(Some(4));
+        assert_eq!(
+            click_target(&asks),
+            CenterTarget::Agent(AgentTarget::notified(&key))
+        );
+        assert_eq!(ask(&asks), Some(Ask::Agent(key)));
+        let (done, key) = agent_notice(None);
+        assert_eq!(
+            click_target(&done),
+            CenterTarget::Agent(AgentTarget::notified(&key))
+        );
+        assert_eq!(ask(&done), None, "a finished turn only opens");
+        assert_eq!((agent_reply(true), agent_reply(false)), ("allow", "deny"));
     }
 
     #[test]
