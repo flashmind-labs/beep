@@ -13,6 +13,7 @@ mod center;
 mod cli_login;
 mod commands;
 mod credentials;
+mod custom_agents;
 mod desktop;
 mod devices;
 mod error;
@@ -154,6 +155,7 @@ fn main() {
             work_files::agent_tree_text,
             work_files::agent_tree_save,
             work_files::agent_tree_upload,
+            custom_agents::custom_agents,
             agents::agent_steer,
             center::open_center,
             center::center_home,

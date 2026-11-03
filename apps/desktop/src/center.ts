@@ -40,6 +40,7 @@ import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { makeFileSync, fileSyncTile } from "./filesync.ts";
+import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace, makeCustomAgents } from "./customagents.ts";
 import { makeThreads, issueTile, threadTile, issueBranch, issuePrompt, prPrompt } from "./threads.ts";
 import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow } from "./threads.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
@@ -1818,7 +1819,31 @@ function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), agentsSection(running)), whereSection(p, rows, !!machines)];
+  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))), whereSection(p, rows, !!machines)];
+}
+
+/// The project's custom agents: the named agents its folder defines for
+/// each harness on one machine, and the user's own there.
+const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent });
+
+/// "Custom agents", read on this Mac's checkout or else the first machine
+/// with one. Named apart from "Agents", the ones running now.
+function customAgentsSection(rows: WhereRow[]) {
+  const place = agentsPlace(rows);
+  const { body, note, count } = cags.view(place);
+  return section("sec-custom-agents", "Custom agents", count || "", place ? button("Reload", "quiet small", () => cags.reload(place)) : null, body,
+    note && h("small", "", note));
+}
+
+/// Start on a custom agent: the bar on the machine it was read on, with
+/// its harness picked and "Use the <name> agent to " to finish.
+function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
+  const name = state.picked;
+  if (!name) return;
+  if (pc.project !== name) drawProjectComp(name);
+  pc.machine = place.id;
+  pc.picked.agent = a.harness;
+  fillBar(name, agentPrompt(a.name), null);
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -1899,7 +1924,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     prs: () => [thr.prsSection(agent, repoActs(p)), ...thr.threadsPanel(agent)],
     issues: () => [thr.issuesSection(agent, repoActs(p))],
     machines: () => [whereSection(p, rows, known)],
-    agents: () => [agentsSection(running), sessionsSection(p, running)],
+    agents: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
     sync: () => fsync.panel(p.name),
     branches: () => revs.branchesPanel(p.name),
@@ -2304,7 +2329,7 @@ function barExisting(name: string, place: { machine_id: string; cwd: string }) {
 
 /// Fills the bar for project `name` with `text` and `target`, on the
 /// machine last picked, and brings it into view.
-function fillBar(name: string, text: string, target: BarTarget) {
+function fillBar(name: string, text: string, target: BarTarget | null) {
   if (pc.project !== name) drawProjectComp(name);
   pc.target = target;
   projectComp.input.value = text;

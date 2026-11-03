@@ -1226,6 +1226,99 @@ requests! {
     /// machines read them from the agents' own logs. `refresh` as in
     /// `GetUsage`.
     304 GetUsageReport { refresh: bool } => Call<UsageReport>
+    /// The custom agents the coding agent harnesses define for the project
+    /// folder `folder` on the caller's online machine `machine_id`, then
+    /// the user's own there: Claude Code's `.claude/agents`, OpenCode's
+    /// `.opencode/agent` and `opencode.json`, Codex's `.codex/agents`,
+    /// pi's `.pi/agents` and flsh's `.agents`, each in the folder and in
+    /// the harness's folder in the node's home. `folder` is absolute or
+    /// starts `~/`. A file that does not read gives a row with `error`
+    /// set. `NotFound` when the machine is not one of the caller's online
+    /// ones; `BadRequest` saying why when the folder is not there or the
+    /// node is too old to read custom agents (updating beep-node may help).
+    305 ListCustomAgents { machine_id: String, folder: String } => Call<Vec<CustomAgent>>
+}
+
+/// One custom agent a coding agent harness defines, as
+/// `ListCustomAgents` reads it: a named prompt with a description, and
+/// optionally the model, tools and color it runs with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomAgent {
+    /// The name the harness knows it by; the file's stem when it names
+    /// none.
+    pub name: String,
+    pub harness: CustomAgentHarness,
+    pub scope: CustomAgentScope,
+    pub description: String,
+    /// As the file names it, such as `opus` or `inherit`.
+    pub model: Option<String>,
+    /// The tools it may use, as the file lists them; empty for all.
+    pub tools: Vec<String>,
+    /// As the file names it, such as `blue` or `#3b82f6`.
+    pub color: Option<String>,
+    /// The file it came from: relative to the project folder for a
+    /// project agent, starting `~/` for a user one.
+    pub path: String,
+    /// Its prompt, at most [`MAX_CUSTOM_AGENT_PROMPT`] bytes.
+    pub prompt: String,
+    /// The prompt goes on past what `prompt` holds.
+    pub prompt_cut: bool,
+    /// Why the file could not be read, when it could not; the other fields
+    /// then say what was found.
+    pub error: Option<String>,
+}
+
+/// The most of a custom agent's prompt `ListCustomAgents` gives.
+pub const MAX_CUSTOM_AGENT_PROMPT: usize = 16 * 1024;
+
+/// The most custom agents one `ListCustomAgents` gives.
+pub const MAX_CUSTOM_AGENTS: usize = 200;
+
+wire_enum! {
+    /// The coding agent harness that defines a `CustomAgent`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CustomAgentHarness {
+        0 Claude {}
+        1 OpenCode {}
+        2 Codex {}
+        3 Pi {}
+        4 Flsh {}
+    }
+}
+
+impl CustomAgentHarness {
+    /// The harness's id, as the apps name it elsewhere: `claude`,
+    /// `opencode`, `codex`, `pi` or `flsh`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude {} => "claude",
+            Self::OpenCode {} => "opencode",
+            Self::Codex {} => "codex",
+            Self::Pi {} => "pi",
+            Self::Flsh {} => "flsh",
+        }
+    }
+}
+
+wire_enum! {
+    /// Where a `CustomAgent` is defined: `Project` in the project folder,
+    /// so it travels with the repository, `User` in the user's own harness
+    /// folder on the machine.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CustomAgentScope {
+        0 Project {}
+        1 User {}
+    }
+}
+
+impl CustomAgentScope {
+    /// `project` or `user`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Project {} => "project",
+            Self::User {} => "user",
+        }
+    }
 }
 
 /// What `FindImportFork` found.
