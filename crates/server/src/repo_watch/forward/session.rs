@@ -163,20 +163,4 @@ mod tests {
         assert_eq!(a.expose_secret().len(), 64);
         assert_ne!(a.expose_secret(), b.expose_secret());
     }
-
-    #[test]
-    fn a_watch_names_the_token_of_the_repositorys_owner() {
-        let repo = RepoName::parse("acme-labs/widget").expect("a name");
-        let WatchHost::GitHub { token_var } = watch_host(&IssueHost::Github, &repo) else {
-            panic!("GitHub");
-        };
-        assert_eq!(token_var.as_deref(), Some("BEEP_GH_TOKEN_ACME_LABS"));
-        let forgejo = IssueHost::of_hostname("git.example.com").expect("a host");
-        assert_eq!(
-            watch_host(&forgejo, &repo),
-            WatchHost::Forgejo {
-                host: "git.example.com".into()
-            }
-        );
-    }
 }

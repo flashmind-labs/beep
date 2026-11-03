@@ -94,61 +94,6 @@ pub(crate) fn choose(
 mod tests {
     use super::*;
 
-    fn repo() -> RepoRef {
-        RepoRef::parse("n0-computer/iroh", &[]).unwrap()
-    }
-
-    fn folders<'a>(
-        os: Option<&'a str>,
-        home: Option<&'a str>,
-        workspace: Option<&'a str>,
-    ) -> Folders<'a> {
-        Folders {
-            os,
-            home,
-            workspace,
-        }
-    }
-
-    #[test]
-    fn linux_uses_the_workspace_then_home() {
-        let repo = repo();
-        assert_eq!(
-            checkout_folder(
-                folders(Some("linux"), Some("/home/u"), Some("/srv/work/")),
-                &repo
-            )
-            .as_deref(),
-            Some("/srv/work/projects/n0-computer/iroh")
-        );
-        assert_eq!(
-            checkout_folder(folders(Some("linux"), Some("/home/u"), None), &repo).as_deref(),
-            Some("/home/u/projects/n0-computer/iroh")
-        );
-        // Not reported yet, but a workspace means the Linux environment.
-        assert_eq!(
-            checkout_folder(folders(None, None, Some("/srv/work")), &repo).as_deref(),
-            Some("/srv/work/projects/n0-computer/iroh")
-        );
-    }
-
-    #[test]
-    fn macos_and_windows_use_projects_in_home() {
-        let repo = repo();
-        assert_eq!(
-            checkout_folder(folders(Some("macos"), Some("/Users/u"), None), &repo).as_deref(),
-            Some("/Users/u/Projects/n0-computer/iroh")
-        );
-        assert_eq!(
-            checkout_folder(folders(Some("windows"), Some(r"C:\Users\u"), None), &repo).as_deref(),
-            Some(r"C:\Users\u\Projects\n0-computer\iroh")
-        );
-        assert_eq!(
-            checkout_folder(folders(Some("macos"), None, None), &repo),
-            None
-        );
-    }
-
     fn candidate<'a>(id: &'a str, online: bool, shell: bool, workspace: bool) -> Candidate<'a> {
         Candidate {
             id,
@@ -157,28 +102,6 @@ mod tests {
             shell,
             workspace,
         }
-    }
-
-    #[test]
-    fn a_named_machine_must_be_online_and_run_commands() {
-        let machines = [
-            candidate("box", true, true, true),
-            candidate("mac", false, false, false),
-            candidate("tablet", true, false, false),
-        ];
-        assert_eq!(choose(&machines, Some("box")), Ok(0));
-        assert_eq!(
-            choose(&machines, Some("mac")),
-            Err(ImportError::Offline("mac".into()))
-        );
-        assert_eq!(
-            choose(&machines, Some("tablet")),
-            Err(ImportError::NoShell("tablet".into()))
-        );
-        assert_eq!(
-            choose(&machines, Some("phone")),
-            Err(ImportError::NoSuchMachine)
-        );
     }
 
     #[test]

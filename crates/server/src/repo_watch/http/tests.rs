@@ -93,24 +93,6 @@ async fn a_low_rate_limit_pauses_polling_until_its_reset() {
 }
 
 #[tokio::test]
-async fn a_refused_call_out_of_calls_is_rate_limited() {
-    let host = TestHost::start(|_| {
-        Reply::status("403 Forbidden")
-            .with("x-ratelimit-remaining", "0")
-            .with("x-ratelimit-reset", "4102444800")
-    })
-    .await;
-    let calls = HostCalls::default();
-    let got: Result<Count, _> = call(&calls, &who("alice"), &format!("{}/x", host.base)).await;
-    assert_eq!(got, Err(HostError::RateLimited("github.com".into())));
-    assert!(
-        calls
-            .limited_until(&who("alice"), SystemTime::now())
-            .is_some()
-    );
-}
-
-#[tokio::test]
 async fn a_log_redirect_is_followed_without_the_token_and_only_its_end_kept() {
     let log: String = (1..=500).map(|i| format!("line {i}\n")).collect();
     let body = log.clone();

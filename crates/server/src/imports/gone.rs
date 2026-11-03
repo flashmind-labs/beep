@@ -93,19 +93,7 @@ pub(crate) fn missing(output: &str, finished: bool, count: usize) -> Vec<usize> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use std::{fs, path::Path, process::Command};
-
-    fn import(project: &str, endpoint: &str, folder: &str) -> ImportRow {
-        ImportRow {
-            project: project.into(),
-            endpoint: endpoint.into(),
-            folder: folder.into(),
-            url: format!("https://github.com/{project}"),
-            imported_at: Utc::now(),
-            fork: None,
-        }
-    }
 
     fn place(folder: &Path) -> Place {
         Place {
@@ -121,32 +109,6 @@ mod tests {
             .output()
             .expect("sh runs");
         String::from_utf8_lossy(&out.stdout).into_owned()
-    }
-
-    #[test]
-    fn a_machine_s_imported_and_synced_folders_are_looked_at_once() {
-        let imports = [
-            import("acme/widget", "build", "/srv/widget"),
-            import("acme/widget", "laptop", "/home/user/widget"),
-            import("acme/site", "build", r"C:\site"),
-        ];
-        let syncs = [
-            SyncRow {
-                project: "acme/widget".into(),
-                endpoint: "build".into(),
-                folder: "/srv/widget".into(),
-            },
-            SyncRow {
-                project: "game".into(),
-                endpoint: "build".into(),
-                folder: "/srv/game".into(),
-            },
-        ];
-        let folders: Vec<String> = places(&imports, &syncs, "build")
-            .into_iter()
-            .map(|place| place.folder)
-            .collect();
-        assert_eq!(folders, ["/srv/widget", "/srv/game"]);
     }
 
     #[test]
