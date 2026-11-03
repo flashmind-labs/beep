@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { MacControl } from "../src/home.ts";
-import { agentOf, byRecent, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningKey, runningLine, thisMacRow } from "../src/home.ts";
+import { agentOf, byRecent, remotePath, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningKey, runningLine, thisMacRow } from "../src/home.ts";
 
 test("Running now puts the session that moved last first", () => {
   const agent = (id: string, started_at: number, last_activity: number) => ({ kind: "agent" as const, machine_id: "m", id, started_at, last_activity });
@@ -42,6 +42,24 @@ test("a running agent shows its title, then agent, repo and machine", () => {
   ];
   assert.deepEqual(runningLine(r, projects), { title: "Fix the build", sub: "Claude Code · widget · build-box" });
   assert.deepEqual(runningLine({ ...r, title: null, cwd: "" }), { title: "Claude Code", sub: "Claude Code · build-box" });
+});
+
+test("a running agent names its repo by the remote's full path, groups and all", () => {
+  const r = { kind: "agent" as const, agent: "claude", title: "Fix it", cwd: "/srv/project/wallet/.worktrees/fix", machine_id: "m1", machine_name: "build-box" };
+  const at = (url: string) => [{ name: "tech/wallet", url, machine_id: "m1", folder: "/srv/project/wallet" }];
+  assert.equal(runningLine(r, at("https://gitlab.example/acme/tech/wallet.git")).sub, "Claude Code · acme/tech/wallet · build-box");
+  assert.equal(runningLine(r, at("git@gitlab.example:acme/tech/wallet.git")).sub, "Claude Code · acme/tech/wallet · build-box");
+  assert.equal(runningLine(r, at("https://github.com/acme/wallet")).sub, "Claude Code · acme/wallet · build-box");
+  // No remote: the short name.
+  assert.equal(runningLine(r, at("")).sub, "Claude Code · wallet · build-box");
+});
+
+test("a remote's path drops the host, the port and .git", () => {
+  assert.equal(remotePath("ssh://git@git.example:2222/group/sub/repo.git"), "group/sub/repo");
+  assert.equal(remotePath("https://github.com/org/repo/"), "org/repo");
+  assert.equal(remotePath("https://github.com/org"), null);
+  assert.equal(remotePath("/srv/project/repo"), null);
+  assert.equal(remotePath(null), null);
 });
 
 test("a chat approval allows from the row and names no device", () => {
