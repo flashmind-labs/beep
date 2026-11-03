@@ -192,10 +192,11 @@ impl Store {
             Ok(kept) => self.attach(of, &staged).await.map(|()| kept),
             Err(error) => Err(error),
         };
-        if attached.is_err() && !staged.is_empty() {
-            if let Err(error) = self.drop_staged(&staged).await {
-                log::warn!("files: unable to drop files of a failed save: {error:#}");
-            }
+        if attached.is_err()
+            && !staged.is_empty()
+            && let Err(error) = self.drop_staged(&staged).await
+        {
+            log::warn!("files: unable to drop files of a failed save: {error:#}");
         }
         attached
     }
