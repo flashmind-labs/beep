@@ -22,6 +22,7 @@ mod git_items;
 mod grants;
 mod groups;
 mod harnesses;
+mod home_sessions;
 mod hotkey;
 mod identity;
 mod instructions;
@@ -47,6 +48,7 @@ mod terminals;
 mod threads;
 mod tool_labels;
 mod update;
+mod view_cache;
 mod voice;
 mod waiting;
 mod work;
@@ -145,6 +147,7 @@ fn main() {
             agents::agent_steer,
             center::open_center,
             center::center_home,
+            center::center_cached,
             center::center_answer_agent,
             center::center_dismiss_updates,
             center::center_open,
@@ -415,6 +418,12 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let identity = identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
     let chats = sync::Chats::load(dir.join("sync"));
+    let views = Arc::new(view_cache::ViewCache::load(
+        dir.join("views.json"),
+        env!("CARGO_PKG_VERSION"),
+    ));
+    app.manage(Arc::new(home_sessions::AgentSessions::new(&views)));
+    app.manage(views);
     let (beep, notices) =
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());

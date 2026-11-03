@@ -45,6 +45,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 /// lock, and every call behind it, for good.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const NOT_HERE: &str = "not available on desktop";
+/// How long a chat read from the copy waits for its tool labels.
+const LABELS_WAIT: Duration = Duration::from_millis(500);
 /// Chats remembered as live ones, for the mic in the chat list.
 const MAX_LIVE_CHATS: usize = 200;
 /// Images one message may carry, as many as the server takes.
@@ -733,7 +735,14 @@ impl Beep {
     pub async fn history(&self, id: String) -> Result<Vec<Turn>> {
         let session_id = Uuid::parse_str(&id).ok();
         if let Some(turns) = session_id.and_then(|id| self.chats.session(id)) {
-            let labels = self.tool_labels(session_id).await;
+            // The copy shows at once: the labels only name tool steps
+            // better, so a slow or absent server does not hold it back.
+            let labels = timeout(LABELS_WAIT, self.tool_labels(session_id))
+                .await
+                .unwrap_or_else(|_| {
+                    log::debug!("tool labels of {id} were slow; showing the chat without them");
+                    HashMap::new()
+                });
             return Ok(with_labels(turns, labels));
         }
         let (entries, images, labels) = join!(

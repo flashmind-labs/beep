@@ -299,22 +299,49 @@ impl Chats {
             .filter_map(group_message)
             .collect();
         Some(GroupChatView {
-            group: GroupView {
-                id: id.to_string(),
-                name: chat.title.clone(),
-                members: chat.members.clone(),
-                last: messages.last().cloned(),
-                updated_at: synced.latest(id),
-                beep_typing: false,
-                pinned: chat.pinned,
-                apps_shared: chat.apps_shared,
-            },
+            group: synced.group_view(chat, messages.last().cloned()),
             messages,
         })
+    }
+
+    /// The groups, newest first, or `None` before the copy is worth
+    /// showing. Whether Beep is typing is not in the copy.
+    pub fn groups(&self) -> Option<Vec<GroupView>> {
+        let synced = self.synced();
+        if !synced.ready {
+            return None;
+        }
+        let mut groups: Vec<GroupView> = synced
+            .chats
+            .values()
+            .filter(|chat| matches!(chat.kind, ChatKind::Group {}))
+            .map(|chat| {
+                let last = synced
+                    .messages
+                    .get(&chat.id)
+                    .and_then(|m| m.values().rev().find_map(group_message));
+                synced.group_view(chat, last)
+            })
+            .collect();
+        groups.sort_by_key(|g| Reverse(g.updated_at));
+        Some(groups)
     }
 }
 
 impl Synced {
+    fn group_view(&self, chat: &ChatInfo, last: Option<MessageView>) -> GroupView {
+        GroupView {
+            id: chat.id.to_string(),
+            name: chat.title.clone(),
+            members: chat.members.clone(),
+            last,
+            updated_at: self.latest(chat.id),
+            beep_typing: false,
+            pinned: chat.pinned,
+            apps_shared: chat.apps_shared,
+        }
+    }
+
     /// When chat `id` last had a message, in milliseconds.
     fn latest(&self, id: Uuid) -> i64 {
         self.messages
@@ -756,6 +783,11 @@ mod tests {
         assert_eq!(chats.session(session).unwrap().len(), 2);
         let view = chats.group(group).unwrap();
         assert_eq!(view.messages[0].seq, 12);
+        let listed = chats.groups().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "Trip");
+        assert_eq!(listed[0].last.as_ref().map(|m| m.seq), Some(12));
+        assert_eq!(listed[0].updated_at, 12_000);
         assert!(view.messages[0].html.contains("<strong>hey</strong>"));
         assert!(chats.session(group).is_none());
 
@@ -775,6 +807,7 @@ mod tests {
         ));
         let reopened = Chats::load(dir.clone());
         assert_eq!(reopened.last(), 7);
+        assert!(reopened.groups().unwrap().is_empty());
         assert_eq!(reopened.session(session).unwrap().len(), 1);
         assert!(reopened.group(group).is_none());
         assert!(!chat_file(&dir, group).exists());
