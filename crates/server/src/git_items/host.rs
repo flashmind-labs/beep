@@ -39,9 +39,21 @@ pub struct Caller<'a> {
     pub token: &'a SecretString,
 }
 
+/// One page of a list, with the URL of the next page when the host's
+/// `Link` header names one.
+pub struct Page<T> {
+    pub items: T,
+    pub next: Option<String>,
+}
+
 impl Caller<'_> {
     /// `GET url` with the token, read as JSON.
     pub async fn get<T: DeserializeOwned>(&self, url: &str) -> Result<T, HostError> {
+        Ok(self.get_page(url).await?.items)
+    }
+
+    /// `GET url` with the token, read as JSON, with the next page's URL.
+    pub async fn get_page<T: DeserializeOwned>(&self, url: &str) -> Result<Page<T>, HostError> {
         let host = self.host.to_owned();
         let _permit = self
             .calls
@@ -63,11 +75,33 @@ impl Caller<'_> {
         if !status.is_success() {
             return Err(status_error(host, status, reply.headers()));
         }
-        reply.json::<T>().await.map_err(|e| {
+        let next = reply
+            .headers()
+            .get(header::LINK)
+            .and_then(|link| link.to_str().ok())
+            .and_then(next_link)
+            .map(str::to_owned);
+        let items = reply.json::<T>().await.map_err(|e| {
             log::info!("reading open items from {host}: {e}");
             HostError::BadReply(host)
-        })
+        })?;
+        Ok(Page { items, next })
     }
+}
+
+/// The `rel="next"` URL of a `Link` header, as GitHub and Forgejo send it:
+/// `<https://host/a?page=2>; rel="next", <https://host/a?page=5>; rel="last"`.
+fn next_link(link: &str) -> Option<&str> {
+    link.split(',').find_map(|part| {
+        let (url, params) = part.trim().split_once(';')?;
+        let next = params
+            .split(';')
+            .any(|param| param.trim().eq_ignore_ascii_case("rel=\"next\""));
+        if !next {
+            return None;
+        }
+        url.trim().strip_prefix('<')?.strip_suffix('>')
+    })
 }
 
 /// Why a call that got no reply failed.
@@ -92,5 +126,19 @@ pub(crate) fn status_error(host: String, status: StatusCode, headers: &HeaderMap
             host,
             status: status.as_u16(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_next_link_is_read_from_the_header() {
+        assert_eq!(
+            next_link(r#"<https://h/a?page=2>; rel="next", <https://h/a?page=5>; rel="last""#),
+            Some("https://h/a?page=2")
+        );
+        assert_eq!(next_link(r#"<https://h/a?page=1>; rel="prev""#), None);
     }
 }
