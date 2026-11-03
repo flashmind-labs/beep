@@ -262,17 +262,17 @@ export function branchTile(
   if (data === null) return { count: "", rows: [], empty: "The server lists no branches" };
   const byBranch = new Map((reviews || []).map(r => [r.branch, r]));
   const rows: (TileRow & { work: boolean })[] = data.branches.map(b => {
-    const r = byBranch.get(b.name);
+    const r = byBranch.get(b.name), state = r && reviewState(r);
     const isDefault = b.name === data.default_branch;
     let note;
     if (isDefault) note = b.behind ? `default · ${b.behind} behind` : "default";
-    else if (r) note = STATE_LABEL[reviewState(r)].toLowerCase();
+    else if (state) note = STATE_LABEL[state].toLowerCase();
     else if (b.ahead) note = `+${b.ahead}${b.worktree ? " · worktree" : ""}${b.pushed ? "" : " · not pushed"}`;
     else note = `merged · ${ago(b.committed_at)}`;
     return {
       code: b.name,
       note,
-      chip: r && reviewState(r) !== "ready" && !isDefault ? { cls: reviewState(r) === "running" ? "run" : reviewState(r) === "blocked" ? "bad" : "wait", text: STATE_LABEL[reviewState(r)].toLowerCase() } : null,
+      chip: state && state !== "ready" && !isDefault ? { cls: state === "running" ? "run" : state === "blocked" ? "bad" : "wait", text: STATE_LABEL[state].toLowerCase() } : null,
       title: `${b.name}: ${b.subject}`,
       work: !isDefault && b.ahead > 0,
     };
