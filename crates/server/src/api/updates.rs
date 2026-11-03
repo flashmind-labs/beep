@@ -3,8 +3,8 @@
 
 use super::Reply;
 use crate::{
-    events::{self, EventApp},
-    protocol::{AppUpdate, DismissUpdates, ListUpdates},
+    events::{self, EventApp, update_chat},
+    protocol::{ApiError, AppUpdate, DismissUpdates, ListUpdates, OpenUpdateChat, Session},
     router::Cx,
 };
 use std::time::SystemTime;
@@ -28,4 +28,15 @@ pub(super) async fn dismiss_updates(cx: Cx, DismissUpdates { ids }: DismissUpdat
         cx.user.mark_delivered(&ids, None).await?;
     }
     Ok(())
+}
+
+/// The chat about an update, opening with Beep telling the user it.
+pub(super) async fn open_update_chat(
+    cx: Cx,
+    OpenUpdateChat { id }: OpenUpdateChat,
+) -> Reply<Session> {
+    let chat = update_chat::open(&cx.user, id)
+        .await?
+        .ok_or(ApiError::NotFound {})?;
+    cx.user.session_of(chat).await?.ok_or(ApiError::Internal {})
 }

@@ -756,6 +756,16 @@ final class AppModel {
     /// Updates dismissed here that a list may still carry, by id.
     @ObservationIgnored private var dismissedUpdates: Set<Int64> = []
 
+    /// Opens the update's chat, which starts with Beep telling it so the user can reply; the same chat
+    /// each time. False when the server could not, such as one from before update chats.
+    func openUpdateChat(_ update: AppUpdate) async -> Bool {
+        guard let session = try? await api().openUpdateChat(id: update.id) else { return false }
+        await refreshSessions()
+        openGroup = nil
+        open(session)
+        return true
+    }
+
     /// Takes updates off the card at once and tells the server, which keeps them gone on every device.
     func dismissUpdates(_ ids: [Int64]) {
         guard !ids.isEmpty else { return }
