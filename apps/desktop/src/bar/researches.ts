@@ -4,22 +4,13 @@ import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints, refreshHints } from "./hints.ts";
 import { notice } from "./media.ts";
 import { emptyPage, errLine } from "./memories.ts";
+import type { ResearchRow, ResearchStatus } from "../research-list.ts";
 
 // ---------- Research ----------
 
-/// Where a research is (ResearchStatus).
-export type ResearchStatus = "planning" | "researching" | "reviewing" | "writing" | "done" | "failed" | "stopped" | "interrupted";
-
+export type { ResearchStatus } from "../research-list.ts";
 /// A research on the account (ResearchItem).
-export interface Research {
-  session: string;
-  topic: string;
-  status: ResearchStatus;
-  round: number;
-  sources: number;
-  started_at: number;
-  finished_at: number | null;
-}
+export type Research = ResearchRow;
 
 /// Chats started as researches, which open in their own window.
 export const RESEARCHES = new Set<string>();
