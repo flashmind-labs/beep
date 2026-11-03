@@ -7,6 +7,7 @@
 use super::{
     Reply,
     agent_control::{Live, live_hosts},
+    own_nodes::{machine_names, online},
     projects::task_view,
 };
 use crate::{
@@ -530,23 +531,6 @@ async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), 
 }
 
 /// The caller's machine `endpoint` when it is online now.
-pub(super) fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
-    cx.app
-        .nodes
-        .online(endpoint)
-        .filter(|node| node.user == cx.user.id())
-}
-
-async fn machine_names(cx: &Cx) -> Result<HashMap<String, String>, ApiError> {
-    Ok(cx
-        .user
-        .nodes()
-        .await?
-        .into_iter()
-        .map(|node| (node.endpoint, node.name))
-        .collect())
-}
-
 /// Runs `script` in a shell of its own on `node` and gives what it
 /// printed, failing unless it exits 0.
 async fn run(node: &Online, script: &str, limit: Duration) -> Result<String> {

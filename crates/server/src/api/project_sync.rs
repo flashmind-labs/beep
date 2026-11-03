@@ -4,7 +4,10 @@
 //! machines it is on or to the top of the sidebar. The nodes sync node to node; these requests only change and
 //! read their lists.
 
-use super::{Reply, agent_sessions::linked_keys};
+use super::{
+    Reply,
+    own_nodes::{self, linked_keys},
+};
 use crate::{
     nodes::{Online, push_sync},
     protocol::{
@@ -48,10 +51,7 @@ async fn machines(cx: &Cx) -> Result<HashMap<String, NodeRow>, ApiError> {
 
 /// The caller's machine `machine_id` when it is online now.
 fn online(cx: &Cx, machine_id: &str) -> Option<Online> {
-    cx.app
-        .nodes
-        .online(machine_id)
-        .filter(|online| online.user == cx.user.id() && online.syncs())
+    own_nodes::online(cx, machine_id).filter(Online::syncs)
 }
 
 /// How each of `endpoints` stands, for those online that answer.
