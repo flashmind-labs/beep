@@ -101,7 +101,7 @@ pub(super) struct Start<'a> {
     /// The agent's id of an earlier session to resume instead of a new one.
     pub(super) resume: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
-    pub(super) model: Option<String>,
+    pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
     pub(super) effort: Option<Effort>,
     /// A first line for its transcript, such as the branch it started on.
@@ -134,7 +134,7 @@ impl Session {
         // others switch once the session exists.
         let known = known(&kind.name);
         let flag = model
-            .as_deref()
+            .as_ref()
             .filter(|_| known.is_some_and(|known| known.model_flag))
             .map(|model| format!("--model={model}"));
         let model = model.filter(|_| flag.is_none());
@@ -250,7 +250,7 @@ enum Reply {
     NewSession(Result<serde_json::Value, agent_client_protocol::Error>),
     /// The answer to switching the new session to `model`.
     ModelSet {
-        model: String,
+        model: ModelId,
         result: Result<(), agent_client_protocol::Error>,
     },
     /// The answer to switching the running session's model or thinking
@@ -297,7 +297,7 @@ struct Actor {
     /// The agent's id of an earlier session to resume.
     resume: Option<String>,
     /// The model a new session switches to before its first prompt.
-    model: Option<String>,
+    model: Option<ModelId>,
     /// How hard a new session thinks, set before its first prompt.
     effort: Option<Effort>,
     /// The session's option that sets how hard it thinks, once it said.
@@ -661,7 +661,7 @@ impl Actor {
             self.think(cx);
             return None;
         };
-        match acp::switch_model(&session, &switch, &model) {
+        match acp::switch_model(&session, &switch, model.as_str()) {
             Ok(request) => {
                 // The first prompt waits for the model.
                 self.send(cx, request, move |result| Reply::ModelSet {
@@ -1877,7 +1877,7 @@ cat > /dev/null
             cwd: dir,
             prompt: Some("go".into()),
             resume: None,
-            model: model.map(str::to_owned),
+            model: model.map(ModelId::new),
             effort: None,
             note: None,
             images: Arc::default(),
