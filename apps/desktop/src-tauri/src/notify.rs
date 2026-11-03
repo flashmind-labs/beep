@@ -162,7 +162,10 @@ mod mac {
         MainButton, Notification, NotificationResponse, error::NotificationResult,
     };
     use std::{
-        sync::{Mutex, Once, PoisonError},
+        sync::{
+            Once,
+            atomic::{AtomicUsize, Ordering},
+        },
         thread,
     };
     use tauri::AppHandle;
@@ -172,25 +175,25 @@ mod mac {
     /// notice shows without a click.
     const WAITERS: usize = 16;
 
-    static WAITING: Mutex<usize> = Mutex::new(0);
+    static WAITING: AtomicUsize = AtomicUsize::new(0);
 
     /// One of `WAITERS`, given back when dropped.
     struct Slot;
 
     impl Slot {
         fn take() -> Option<Self> {
-            let mut waiting = WAITING.lock().unwrap_or_else(PoisonError::into_inner);
-            if *waiting >= WAITERS {
+            // Past the cap the slot is handed straight back.
+            if WAITING.fetch_add(1, Ordering::Relaxed) >= WAITERS {
+                WAITING.fetch_sub(1, Ordering::Relaxed);
                 return None;
             }
-            *waiting += 1;
             Some(Self)
         }
     }
 
     impl Drop for Slot {
         fn drop(&mut self) {
-            *WAITING.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+            WAITING.fetch_sub(1, Ordering::Relaxed);
         }
     }
 
