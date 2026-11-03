@@ -1364,6 +1364,42 @@ requests! {
     /// past [`MAX_TREE_ENTRIES`] entries. A node from before it gives
     /// `path` alone. Errors as for `ListWorkFolder`.
     383 ListWorkTree { machine_id: String, root: String, path: String, ignored: bool, depth: u32 } => Call<WorkTree>
+    /// Has one of the caller's online machines install the newest
+    /// beep-node over itself and restart, as `beep-node update` does
+    /// there. The restart stops the agent sessions the node runs, so
+    /// while any run it is refused unless `stop_sessions`. The reply
+    /// comes once it is installed, before the restart. `NotFound` when
+    /// the machine is not the caller's; `BadRequest` saying why when it is
+    /// offline, too old to be updated this way, runs agent sessions, or
+    /// the update failed.
+    390 UpdateMachine { machine_id: String, stop_sessions: bool } => Call<MachineUpdate>
+    /// The caller's online machines that `UpdateMachine` can update. A
+    /// machine missing here is updated on the machine.
+    391 ListUpdatableMachines {} => Call<Vec<UpdatableMachine>>
+}
+
+/// A machine `UpdateMachine` can update (`ListUpdatableMachines`).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatableMachine {
+    /// Its `Machine::id`.
+    pub id: String,
+    /// The agent sessions running on it, which an update stops.
+    pub agent_sessions: u32,
+}
+
+/// What `UpdateMachine` did.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineUpdate {
+    /// The beep-node version it ran.
+    pub from: String,
+    /// The version installed, or `from` when that is already the newest.
+    pub to: String,
+    /// It restarts on `to`: it goes offline and connects again shortly.
+    pub restarting: bool,
+    /// Why it does not restart, in words for the user; empty otherwise.
+    pub note: String,
 }
 
 /// One machine's settings for a harness (`ListHarnessSettings`).

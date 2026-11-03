@@ -228,11 +228,42 @@ pub enum Restart {
 /// plist an older node wrote is written again first, with the same command
 /// and `PATH`, so it gets this node's settings.
 pub fn restart(exe: &Path) -> Result<Restart> {
+    restart_plan(exe)?.run()
+}
+
+/// What `restart` does for `exe`, done later with `Plan::run`. Only an
+/// older unit or plist is written again.
+pub fn restart_plan(exe: &Path) -> Result<Plan> {
+    let plain = |restart| Plan {
+        restart,
+        reload: false,
+    };
     match env::consts::OS {
-        "linux" => systemd::restart(exe),
-        "macos" => launchd::restart(exe),
-        "windows" => windows::restart(exe),
-        _ => Ok(Restart::NotInstalled),
+        "linux" => systemd::plan(exe).map(plain),
+        "macos" => launchd::plan(exe),
+        "windows" => windows::plan(exe).map(plain),
+        _ => Ok(plain(Restart::NotInstalled)),
+    }
+}
+
+/// A restart planned by `restart_plan`.
+#[derive(Debug)]
+pub struct Plan {
+    pub restart: Restart,
+    /// The plist was written again, so launchd loads it anew.
+    reload: bool,
+}
+
+impl Plan {
+    /// Restarts the service when planned, saying what it did.
+    pub fn run(self) -> Result<Restart> {
+        match self.restart {
+            Restart::Restarted(Manager::Systemd) => systemd::restart()?,
+            Restart::Restarted(Manager::Launchd) => launchd::restart(self.reload)?,
+            Restart::Restarted(Manager::TaskScheduler) => windows::restart()?,
+            _ => {}
+        }
+        Ok(self.restart)
     }
 }
 

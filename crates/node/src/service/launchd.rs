@@ -1,7 +1,7 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::{Launch, Manager, Restart, escape};
+use super::{Launch, Manager, Plan, Restart, escape};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -41,15 +41,32 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
-pub(super) fn restart(exe: &Path) -> Result<Restart> {
+/// Restarts the loaded service; `reload` loads its rewritten plist anew.
+pub(super) fn restart(reload: bool) -> Result<()> {
+    let domain = domain()?;
+    let service = format!("{domain}/{LABEL}");
+    if reload {
+        bootout(&service);
+        launchctl(&["bootstrap", &domain, &plist_path()?.display().to_string()])
+    } else {
+        launchctl(&["kickstart", "-k", &service])
+    }
+}
+
+/// What `restart` would do, without doing it.
+pub(super) fn plan(exe: &Path) -> Result<Plan> {
+    let plain = |restart| Plan {
+        restart,
+        reload: false,
+    };
     let path = plist_path()?;
     let plist = match fs::read_to_string(&path) {
         Ok(plist) => plist,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(plain(Restart::NotInstalled)),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
     if !runs(&plist, exe) {
-        return Ok(Restart::OtherBinary(path));
+        return Ok(plain(Restart::OtherBinary(path)));
     }
     let service = format!("{}/{LABEL}", domain()?);
     let loaded = Command::new("launchctl")
@@ -66,15 +83,12 @@ pub(super) fn restart(exe: &Path) -> Result<Restart> {
         fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
     }
     if !loaded {
-        return Ok(Restart::Stopped(Manager::Launchd));
+        return Ok(plain(Restart::Stopped(Manager::Launchd)));
     }
-    if newer.is_some() {
-        bootout(&service);
-        launchctl(&["bootstrap", &domain()?, &path.display().to_string()])?;
-    } else {
-        launchctl(&["kickstart", "-k", &service])?;
-    }
-    Ok(Restart::Restarted(Manager::Launchd))
+    Ok(Plan {
+        restart: Restart::Restarted(Manager::Launchd),
+        reload: newer.is_some(),
+    })
 }
 
 /// Whether `plist` starts the node from `exe`: its first program argument.
