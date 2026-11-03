@@ -41,7 +41,7 @@ mod memories;
 mod own_nodes;
 mod project_groups;
 mod project_import;
-mod project_sync;
+pub(crate) mod project_sync;
 mod project_watch;
 mod projects;
 mod research;
