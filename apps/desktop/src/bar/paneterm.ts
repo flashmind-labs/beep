@@ -4,7 +4,7 @@
 // session view shows; its screen is xterm.js, loaded on first use. When
 // its shell exits the tab goes.
 
-import { endsForGood, fromBase64, retryDelay, splice, type Screen, type TermEvent, type TerminalRow } from "../terminals.ts";
+import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals.ts";
 import { Channel, invoke } from "./core.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
@@ -23,6 +23,13 @@ export interface PaneTerm {
   next: number;
   tries: number;
   timer?: ReturnType<typeof setTimeout>;
+  /// This tab's name for its stream: another view of the same terminal
+  /// keeps its own.
+  view: string;
+  /// Counts attaches, so a stream that an attach replaced is ignored.
+  attaches: number;
+  /// The size the node last got from this tab.
+  sent: TermSize | null;
   /// Its shell exited, or its machine no longer has it.
   onEnd: () => void;
   /// How it stands changed.
@@ -43,32 +50,51 @@ export async function openTerm(place: TermPlace, hooks: Pick<PaneTerm, "onEnd" |
     terminal: { project: "", machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
   if (!row) throw new Error("Beep's server needs an update before it opens a terminal here.");
-  const screen = makeScreen();
-  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, ...hooks };
-  screen.onData(data => {
-    if (t.link === "attached") invoke("terminal_input", { id: row.id, data }).catch(() => {});
-  });
-  screen.onResize(({ cols, rows }) => {
-    if (t.link === "attached") invoke("terminal_resize", { id: row.id, cols, rows }).catch(() => {});
-  });
+  const t = paneTerm(row, makeScreen(), hooks);
   attach(t);
   return t;
 }
 
+/// Terminal `row` on `screen`, with typing and resizes wired to it; not
+/// attached yet.
+export function paneTerm(row: TerminalRow, screen: Screen, hooks: Pick<PaneTerm, "onEnd" | "onLink">): PaneTerm {
+  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, ...hooks };
+  screen.onData(data => {
+    if (t.link === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
+  });
+  screen.onResize(() => { if (t.link === "attached") sendSize(t); });
+  return t;
+}
+
+/// Tells the node the screen's size, when it changed since it last heard:
+/// a resize makes the shell draw its prompt again.
+function sendSize(t: PaneTerm) {
+  const now = t.screen.size();
+  if (!sizeChanged(t.sent, now)) return;
+  t.sent = now;
+  invoke("terminal_resize", { id: t.row.id, view: t.view, ...now }).catch(() => {});
+}
+
 /// Follows `t` from where its screen got to, until it ends or is detached;
-/// a dropped stream is attached again after a wait.
+/// a dropped stream is attached again after a wait, shown in the footer
+/// rather than on the screen.
 export function attach(t: PaneTerm) {
   clearTimeout(t.timer);
   t.link = "attaching";
   t.onLink();
+  const attempt = ++t.attaches;
+  // Whether this is still the tab's stream: one it replaced says nothing.
+  const current = () => t.attaches === attempt;
   const channel = new Channel<TermEvent>();
   channel.onmessage = ev => {
-    if (t.link === "detached") return;
+    if (t.link === "detached" || !current()) return;
     if (ev.kind === "attached") {
       t.link = "attached";
       t.tries = 0;
       t.screen.setInput(true);
       t.screen.focus();
+      // The screen may have been fitted while it attached.
+      sendSize(t);
     } else if (ev.kind === "output") {
       const bytes = fromBase64(ev.data);
       const { skip, gap } = splice(t.next, ev.at, bytes.length);
@@ -88,10 +114,12 @@ export function attach(t: PaneTerm) {
     }
     t.onLink();
   };
-  const { cols, rows } = t.screen.size();
-  invoke("terminal_attach", { id: t.row.id, from: t.next, cols, rows, onEvent: channel })
-    .then(() => { if (t.link === "attached" || t.link === "attaching") retry(t); })
-    .catch(() => { if (t.link !== "detached" && t.link !== "ended") retry(t); });
+  // The attach carries the size, so the node has it from here on.
+  const size = t.screen.size();
+  t.sent = size;
+  invoke("terminal_attach", { id: t.row.id, view: t.view, from: t.next, ...size, onEvent: channel })
+    .then(() => { if (current() && (t.link === "attached" || t.link === "attaching")) retry(t); })
+    .catch(() => { if (current() && t.link !== "detached" && t.link !== "ended") retry(t); });
 }
 
 function retry(t: PaneTerm) {
@@ -103,7 +131,6 @@ function retry(t: PaneTerm) {
     return;
   }
   t.link = "attaching";
-  t.screen.note("Reconnecting…");
   t.timer = setTimeout(() => attach(t), retryDelay(t.tries));
   t.onLink();
 }
@@ -114,7 +141,7 @@ export function detachTerm(t: PaneTerm) {
   const was = t.link;
   t.link = "detached";
   t.screen.setInput(false);
-  if (was === "attached" || was === "attaching") invoke("terminal_detach", { id: t.row.id }).catch(() => {});
+  if (was === "attached" || was === "attaching") invoke("terminal_detach", { id: t.row.id, view: t.view }).catch(() => {});
 }
 
 /// Detaches `t` and lets go of its screen.
@@ -138,7 +165,7 @@ export function forgetTerm(t: PaneTerm) {
 /// The footer line of a terminal tab.
 export function termStatus(t: PaneTerm, machine: string) {
   switch (t.link) {
-    case "attaching": return "Attaching…";
+    case "attaching": return t.tries ? `Reconnecting to ${machine}…` : "Attaching…";
     case "attached": return `${machine} · what you type goes there`;
     case "detached": return "Detached: it keeps running";
     case "ended": return t.row.state === "offline" ? `${machine} is offline; it may still run there` : "Ended";

@@ -57,7 +57,7 @@ export interface TerminalPlace {
 export interface Screen {
   el: HTMLElement;
   write(data: Uint8Array): void;
-  /// A dim line of our own, such as "Reconnecting…".
+  /// A dim line of our own, such as "… earlier output was not kept".
   note(text: string): void;
   size(): { cols: number; rows: number };
   /// Fits the screen to its element, once it is on the page.
@@ -126,6 +126,12 @@ interface Live {
   /// Failed attaches in a row, for the wait before the next.
   tries: number;
   timer?: ReturnType<typeof setTimeout>;
+  /// This view's name for its stream.
+  view: string;
+  /// Counts attaches, so a stream that an attach replaced is ignored.
+  attaches: number;
+  /// The size the node last got from this view.
+  sent: TermSize | null;
 }
 
 /// One project's terminals: `list` is undefined while it loads and null
@@ -231,6 +237,24 @@ export function fromBase64(data: string): Uint8Array {
   return out;
 }
 
+/// A terminal's size in cells.
+export interface TermSize {
+  cols: number;
+  rows: number;
+}
+
+/// Whether `now` differs from `sent`, the size the node last got. A resize
+/// to the size it already has makes the shell draw its prompt again.
+export function sizeChanged(sent: TermSize | null, now: TermSize) {
+  return !sent || sent.cols !== now.cols || sent.rows !== now.rows;
+}
+
+/// A name for one view of a terminal: two views of the same terminal
+/// each keep their own stream.
+export function newView(): string {
+  return crypto.randomUUID();
+}
+
 /// How long to wait before attach number `tries` (1 for the first retry).
 export function retryDelay(tries: number) {
   return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
@@ -244,9 +268,9 @@ export function endsForGood(state: string) {
 }
 
 /// The footer line of an open terminal.
-export function linkLabel(link: Link, watching: boolean, machine: string) {
+export function linkLabel(link: Link, watching: boolean, machine: string, tries = 0) {
   switch (link) {
-    case "attaching": return "Attaching…";
+    case "attaching": return tries ? `Reconnecting to ${machine}…` : "Attaching…";
     case "attached": return watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`;
     case "detached": return "Detached: it keeps running";
     case "ended": return "Ended";
@@ -321,33 +345,45 @@ export function makeTerminals(deps: TerminalDeps) {
     let live = lives.get(id);
     if (!live) {
       const screen = makeScreen();
-      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0 };
+      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null };
       lives.set(id, live);
       const l = live;
       screen.onData(data => {
         if (l.link !== "attached" || l.watching) return;
-        invoke("terminal_input", { id, data }).catch(e => { of(name).error = reason(e); redraw(); });
+        invoke("terminal_input", { id, view: l.view, data }).catch(e => { of(name).error = reason(e); redraw(); });
       });
-      screen.onResize(({ cols, rows }) => {
-        if (l.link === "attached") invoke("terminal_resize", { id, cols, rows }).catch(() => {});
-      });
+      screen.onResize(() => { if (l.link === "attached") sendSize(l); });
       attach(name, live);
     }
     return live;
   }
 
+  /// Tells the node the screen's size, when it changed since it last heard.
+  function sendSize(live: Live) {
+    const now = live.screen.size();
+    if (!sizeChanged(live.sent, now)) return;
+    live.sent = now;
+    invoke("terminal_resize", { id: live.id, view: live.view, ...now }).catch(() => {});
+  }
+
   /// Follows `live` from where its screen got to, until it ends or is
-  /// detached; a dropped stream is attached again after a wait.
+  /// detached; a dropped stream is attached again after a wait, shown in
+  /// the footer rather than on the screen.
   function attach(name: string, live: Live) {
     clearTimeout(live.timer);
     live.link = "attaching";
+    const attempt = ++live.attaches;
+    // Whether this is still the view's stream: one it replaced says nothing.
+    const current = () => lives.get(live.id) === live && live.attaches === attempt;
     const channel = new Channel<TermEvent>();
     channel.onmessage = ev => {
-      if (lives.get(live.id) !== live) return;
+      if (!current()) return;
       if (ev.kind === "attached") {
         live.link = "attached";
         live.tries = 0;
         live.screen.setInput(!live.watching);
+        // The screen may have been fitted while it attached.
+        sendSize(live);
         redraw();
       } else if (ev.kind === "output") {
         const bytes = fromBase64(ev.data);
@@ -371,14 +407,16 @@ export function makeTerminals(deps: TerminalDeps) {
         redraw();
       }
     };
-    const { cols, rows } = live.screen.size();
-    invoke("terminal_attach", { id: live.id, from: live.next, cols, rows, onEvent: channel })
+    // The attach carries the size, so the node has it from here on.
+    const size = live.screen.size();
+    live.sent = size;
+    invoke("terminal_attach", { id: live.id, view: live.view, from: live.next, ...size, onEvent: channel })
       .then(() => {
         // Ended, view only or detached on purpose; else the stream dropped.
-        if (lives.get(live.id) === live && (live.link === "attached" || live.link === "attaching")) retry(name, live, "");
+        if (current() && (live.link === "attached" || live.link === "attaching")) retry(name, live, "");
       })
       .catch(e => {
-        if (lives.get(live.id) !== live || live.link === "detached") return;
+        if (!current() || live.link === "detached") return;
         const why = reason(e);
         if (/needs an update/i.test(why)) {
           live.link = "view_only";
@@ -400,7 +438,6 @@ export function makeTerminals(deps: TerminalDeps) {
       return;
     }
     live.link = "attaching";
-    live.screen.note("Reconnecting…");
     live.timer = setTimeout(() => attach(name, live), retryDelay(live.tries));
     redraw();
   }
@@ -409,7 +446,7 @@ export function makeTerminals(deps: TerminalDeps) {
     clearTimeout(live.timer);
     live.link = "detached";
     live.screen.setInput(false);
-    invoke("terminal_detach", { id: live.id }).catch(() => {});
+    invoke("terminal_detach", { id: live.id, view: live.view }).catch(() => {});
   }
 
   /// Detaches and drops every live view, such as when the view closes.
@@ -590,7 +627,7 @@ export function makeTerminals(deps: TerminalDeps) {
     }
     const on = live.link === "attached" && open.state === "running";
     return h("div", "cc-panel tm-panel", head, body,
-      h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name)),
+      h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name, live.tries)),
         h("span", "", `started ${ago(open.started_at)}`)));
   }
 
