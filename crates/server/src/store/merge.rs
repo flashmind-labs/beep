@@ -97,6 +97,9 @@ const MOVED: &[(&str, &[&str])] = &[
     ("researches", &[]),
     ("chat_allows", &[]),
     ("finding_sightings", &[]),
+    // The webhooks Beep made, so they are removed later. Their secrets stay
+    // sealed to the old owner: the server never opens them again.
+    ("project_webhooks", &[]),
 ];
 
 /// Tables with an owner that `merge_into` handles in its own way. With
