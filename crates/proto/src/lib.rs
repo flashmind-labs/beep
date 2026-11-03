@@ -1135,9 +1135,10 @@ requests! {
     /// its beep-node is too old, sync is paused, or `path` is not a
     /// conflict copy there.
     292 ResolveSyncConflict { project: String, machine_id: String, path: String, keep: ConflictKeep } => Call<()>
-    /// Starts an interactive terminal of `project` on one of the caller's
-    /// online machines: `command` in `cwd`, or the user's shell there when
-    /// `command` is empty, in a pseudo-terminal of `cols` by `rows` cells,
+    /// Starts an interactive terminal of `project` (none when empty) on one
+    /// of the caller's online machines: `command` in `cwd` (the machine's
+    /// workspace, else its home folder, when empty), or the user's shell
+    /// there when `command` is empty, in a pseudo-terminal of `cols` by `rows` cells,
     /// named `name` (the command, or "shell", when empty). `AttachTerminal`
     /// follows it and types into it; `CloseTerminal` stops it. `NotFound`
     /// when the machine is not one of the caller's online ones;
@@ -1151,6 +1152,10 @@ requests! {
     /// cannot be typed into: it answers `ViewOnly` and ends. `NotFound`
     /// when the caller has no such terminal.
     273 AttachTerminal { id: Uuid, from: u64, cols: u32, rows: u32 } => Stream<TerminalEvent>
+    /// Every terminal of the caller on every machine, of any project or of
+    /// none (`project` empty), oldest first, with how each stands now.
+    /// Terminals of an offline machine are `Offline`.
+    293 ListAllTerminals {} => Call<Vec<Terminal>>
 }
 
 /// The coding agent harnesses on one machine, as `ListAgentHarnesses`
@@ -1716,12 +1721,13 @@ wire_enum! {
     }
 }
 
-/// A command kept running on one of the user's machines for a project.
+/// A command kept running on one of the user's machines, for a project or
+/// on its own.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Terminal {
     pub id: Uuid,
-    /// `org/repo`.
+    /// `org/repo`, or empty for a terminal of no project.
     pub project: String,
     pub machine_id: String,
     pub machine_name: String,

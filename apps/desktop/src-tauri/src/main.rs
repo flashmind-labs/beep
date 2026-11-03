@@ -244,6 +244,7 @@ fn main() {
             instructions::agent_files_read,
             instructions::agent_files_sync,
             terminals::terminals_list,
+            terminals::terminals_all,
             terminals::terminal_start,
             terminals::terminal_output,
             terminals::terminal_close,

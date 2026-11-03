@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stateLabel, terminalTile, terminalPlaces, splice, fromBase64, retryDelay, linkLabel } from "../src/terminals.ts";
+import { stateLabel, terminalTile, terminalPlaces, splice, fromBase64, retryDelay, linkLabel, byMachine, terminalWhere, terminalNote, terminalsCount } from "../src/terminals.ts";
 
 const ago = () => "2 h";
 
@@ -63,4 +63,28 @@ test("the footer says where typing goes", () => {
   assert.equal(linkLabel("attached", false, "build-box"), "Attached: what you type goes to build-box");
   assert.equal(linkLabel("attached", true, "build-box"), "Watching: typing is off");
   assert.equal(linkLabel("detached", false, "build-box"), "Detached: it keeps running");
+});
+
+test("every machine lists its terminals, and a removed one's go last", () => {
+  const machines = [{ id: "m1", name: "build-box", online: true }, { id: "m2", name: "gpu-box", online: false }];
+  const groups = byMachine(machines, [
+    { id: "a", machine_id: "m1", machine_name: "build-box" },
+    { id: "b", machine_id: "m9", machine_name: "old-box" },
+    { id: "c", machine_id: "m1", machine_name: "build-box" },
+  ]);
+  assert.deepEqual(groups.map(m => [m.name, m.online, m.terms.map(t => t.id)]), [
+    ["build-box", true, ["a", "c"]],
+    ["gpu-box", false, []],
+    ["old-box", false, ["b"]],
+  ]);
+  assert.equal(terminalsCount(groups), "3 on 2 machines");
+  assert.equal(terminalsCount(byMachine(machines, [])), "None open");
+});
+
+test("a terminal says where it runs and how it stands", () => {
+  assert.equal(terminalWhere({ project: "acme/widget", cwd: "/srv/project" }), "acme/widget · /srv/project");
+  assert.equal(terminalWhere({ project: "", cwd: "~" }), "~");
+  assert.equal(terminalNote({ state: "running", started_at: 1 }, ago), "2 h");
+  assert.equal(terminalNote({ state: "exited", code: 0, started_at: 1 }, ago), "exited 0");
+  assert.equal(terminalNote({ state: "exited", code: null, started_at: 1 }, ago), "ended");
 });

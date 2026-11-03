@@ -1,5 +1,5 @@
-//! A project's terminals for the window: commands kept running on the
-//! user's machines, their output, starting and closing them, and following
+//! Terminals for the window, of a project or on every machine: commands
+//! kept running on the user's machines, their output, starting and closing them, and following
 //! an interactive one live while typing into it.
 
 use crate::{
@@ -9,8 +9,9 @@ use crate::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AttachTerminal, CloseTerminal, GetTerminal, ListTerminals, MAX_TERMINAL_INPUT, OpenTerminal,
-    StartTerminal, Terminal, TerminalEvent, TerminalInput, TerminalOutput, TerminalState,
+    AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, ListTerminals,
+    MAX_TERMINAL_INPUT, OpenTerminal, StartTerminal, Terminal, TerminalEvent, TerminalInput,
+    TerminalOutput, TerminalState,
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -31,6 +32,8 @@ type Service<'a> = State<'a, Arc<Beep>>;
 #[derive(Debug, Serialize)]
 pub struct TerminalRow {
     id: Uuid,
+    /// `org/repo`, or empty for a terminal of no project.
+    project: String,
     machine_id: String,
     machine_name: String,
     name: String,
@@ -52,6 +55,7 @@ impl From<Terminal> for TerminalRow {
         };
         Self {
             id: t.id,
+            project: t.project,
             machine_id: t.machine_id,
             machine_name: t.machine_name,
             name: t.name,
@@ -87,6 +91,17 @@ pub async fn terminals_list(
     project: String,
 ) -> Result<Option<Vec<TerminalRow>>> {
     match beep.call(ListTerminals { project }).await {
+        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Every terminal on every machine; `None` from a server too old to list
+/// them.
+#[tauri::command]
+pub async fn terminals_all(beep: Service<'_>) -> Result<Option<Vec<TerminalRow>>> {
+    match beep.call(ListAllTerminals {}).await {
         Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
@@ -442,6 +457,7 @@ mod tests {
             state: TerminalState::Exited { code: Some(2) },
             started_at: UNIX_EPOCH,
         });
+        assert_eq!(row.project, "acme/widget");
         assert_eq!(row.state, "exited");
         assert_eq!(row.code, Some(2));
     }
