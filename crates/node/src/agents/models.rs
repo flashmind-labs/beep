@@ -188,7 +188,12 @@ async fn ask(child: &mut tokio::process::Child, cwd: &Path) -> Result<Offered> {
 /// flsh's models: `flsh models` lists every configured provider's, and its
 /// `config.toml` names the default. With no list, any name can be given.
 async fn flsh(kind: &AgentKind) -> ModelList {
-    let config = flsh_config_dir(&|name| std::env::var_os(name), dirs::home_dir().as_deref());
+    // flsh runs with the kind's variables on top of the node's own.
+    let env = |name: &str| match kind.env.get(name) {
+        Some(value) => Some(OsString::from(value)),
+        None => std::env::var_os(name),
+    };
+    let config = flsh_config_dir(&env, dirs::home_dir().as_deref());
     let current = match config {
         Some(dir) => spawn_blocking(move || flsh_default_model(&dir.join("config.toml")))
             .await
@@ -385,6 +390,20 @@ mod tests {
             flsh_config_dir(&none, Some(&home)),
             Some(home.join(".flashmind"))
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn flsh_reads_the_config_in_the_home_it_is_set_to() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("config.toml"), "model = \"set:home\"\n").unwrap();
+        let kind = AgentKind {
+            name: "flsh".into(),
+            program: "false".into(),
+            args: Vec::new(),
+            env: [("FLASHMIND_HOME".into(), dir.path().display().to_string())].into(),
+        };
+        assert_eq!(flsh(&kind).await.current.as_deref(), Some("set:home"));
     }
 
     #[test]
