@@ -2,7 +2,7 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, emptyPanel, errorNote, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, fitRows, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
 import { PageCache, backgroundTick, freshness, type PageSection, type SectionStore } from "./pagecache.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
@@ -2830,6 +2830,9 @@ async function loadWhere(name: string) {
 
 /// The sessions your coding agents ran in the project's folders, newest
 /// first, each resumable; those running now are under Agents.
+/// The sessions the Sessions section shows before it scrolls.
+const SESSIONS_SHOWN = 5;
+
 function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
@@ -2839,7 +2842,7 @@ function sessionsSection(p: Project, running: RunningAgent[]) {
   else {
     const past = pastSessions(sessions, running);
     body = past.length
-      ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
+      ? h("div", "cc-panel", fitRows(past.map(sessionRow), SESSIONS_SHOWN))
       : emptyPanel(h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
   const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;

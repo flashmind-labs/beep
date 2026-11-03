@@ -21,6 +21,18 @@ export function emptyPanel(...kids: Kid[]) {
   return el("div", "cc-panel cc-empty", ...kids);
 }
 
+/// `rows` in a box as tall as its first `shown` rows; the rest scroll.
+export function fitRows(rows: HTMLElement[], shown: number) {
+  const list = el("div", "pj-scroll", ...rows);
+  if (rows.length > shown && typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => {
+      const tall = rows.slice(0, shown).reduce((sum, row) => sum + row.offsetHeight, 0);
+      if (tall > 0) list.style.maxHeight = `${tall}px`;
+    });
+  }
+  return list;
+}
+
 /// A note above a list after a dot: `dot` is "", "off", "warn" or "bad".
 export function note(dot: string, ...kids: Kid[]) {
   return el("div", "cc-note", el("span", dot ? `ddot ${dot}` : "ddot"), el("span", "", ...kids));
