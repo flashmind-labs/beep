@@ -631,6 +631,8 @@ document.addEventListener("keydown", e => {
   if (e.metaKey && e.key === "'" && selectedText()) { e.preventDefault(); return quote(); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target === ask) {
     e.preventDefault();
+    // The lead is still answering: keep what was typed for after.
+    if (R.sending !== null) return;
     const text = ask.value;
     ask.value = "";
     growAsk();
