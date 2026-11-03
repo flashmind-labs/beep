@@ -5,7 +5,7 @@
 import { harnessEl } from "./harnessicon.ts";
 import type { ChatApproval } from "./home.ts";
 import { agentLabel, el } from "./projects-state.ts";
-import { dbtn, svgEl } from "./components/parts.ts";
+import { dbtn, emptyPanel, svgEl } from "./components/parts.ts";
 import type { Kid } from "./projects-state.ts";
 
 /// A project agent with its chat (ProjectAgent).
@@ -252,7 +252,7 @@ function acts(b: HTMLButtonElement, err: string | null | undefined) {
 
 /// An empty section's note.
 function empty(text: string) {
-  return el("div", "cc-panel cc-empty", el("span", "", text));
+  return emptyPanel(el("span", "", text));
 }
 
 /// The Tasks section. `act.change(task, change)` drops or reopens one.

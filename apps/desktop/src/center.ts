@@ -2,7 +2,7 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "./components/parts.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -222,11 +222,6 @@ function rowButton(label: string | Node, cls: string, on: () => void) {
   return button(label, cls, e => { e.stopPropagation(); on(); });
 }
 
-/// A note in red above a list: what failed.
-function errorNote(text: string) {
-  return h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", text));
-}
-
 /// Placeholder rows of these widths, in percent, while a list loads.
 function skeleton(widths: number[]) {
   return widths.map(w => {
@@ -358,7 +353,7 @@ function removeMachine(m: Removable) {
 function machinesSection(machines: MachineCard[]) {
   if (!machines.length && !thisMacRow(state.mac, machines)) {
     return section("sec-machines", "Machines", "", addMachineButton("small"),
-      h("div", "cc-panel cc-empty", h("b", "", "No machines linked yet"), addMachineButton("pri")));
+      emptyPanel(h("b", "", "No machines linked yet"), addMachineButton("pri")));
   }
   const online = machines.filter(m => m.online).length;
   const count = machines.length ? `${online} of ${machines.length} online` : "";
@@ -369,7 +364,7 @@ function offlineNote(machines: MachineCard[]) {
   const gone = machines.filter(m => !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
   if (!gone.length) return null;
   const names = gone.map(m => m.name).join(", ");
-  return h("div", "cc-note", h("span", "ddot bad"), h("span", "", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again."));
+  return note("bad", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again.");
 }
 
 // ---------- Running now ----------
@@ -768,7 +763,7 @@ function importWithSettings(p: OpenRepo) {
 function gitSection(view: GitItemsView) {
   const projects = projectsWithOpen(view, projectRows() || []);
   const notes = view.hosts.filter(x => x.error).map(x =>
-    h("div", "cc-note", h("span", "ddot bad"), h("span", "", x.error)));
+    note("bad", x.error));
   const body = projects.length
     ? projects.flatMap(openProjectRows)
     : [h("div", "cc-empty", h("span", "", notes.length ? "Nothing to show from the hosts that answered." : "No open pull requests or issues."))];
@@ -1538,7 +1533,7 @@ function page(home: HomeView, wide: boolean) {
   const out: HTMLElement[] = [];
   if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
   if (!machines && !running) {
-    out.push(h("div", "cc-note", h("span", "ddot off"), h("span", "", "Machines and running sessions aren't available for this account or server.")));
+    out.push(note("off", "Machines and running sessions aren't available for this account or server."));
   } else if (machines) {
     const note = offlineNote(machines);
     if (note) out.push(note);
@@ -1844,7 +1839,7 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
 function agentsSection(running: RunningAgent[]) {
   const list = running.length
     ? runningPanel(running)
-    : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
+    : emptyPanel(h("span", "", "No agent is working in this project right now."));
   return section("sec-project-agents", "Agents", running.length || "", null, list);
 }
 
@@ -2397,13 +2392,13 @@ function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
-  if (!p.imported) body = h("div", "cc-panel cc-empty", h("span", "", "Import this project to see the sessions your agents ran in it."));
-  else if (sessions === undefined) body = h("div", "cc-panel cc-empty", h("span", "", "Reading sessions…"));
+  if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see the sessions your agents ran in it."));
+  else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
     const past = pastSessions(sessions, running);
     body = past.length
       ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
-      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
+      : emptyPanel(h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
   return section("sec-sessions", "Sessions", sessions?.length || "", null, body,
     h("small", "", "from your coding agents in its folders on every machine, newest first"),
@@ -2502,7 +2497,7 @@ function drawProjects(el: HTMLElement) {
   const view = h("div", "cc-view");
   let one: Project | null = null;
   if (!state.home) {
-    view.append(h("div", "cc-panel cc-empty", h("b", "", "Loading projects…")));
+    view.append(emptyPanel(h("b", "", "Loading projects…")));
   } else if (!rows || !rows.length) {
     view.append(h("div", "cc-panel cc-empty",
       h("b", "", "No projects yet"),
