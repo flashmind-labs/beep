@@ -68,7 +68,6 @@ export function chartRow(turn: Turn, chart: Chart) {
 
 /// A value in the chart's unit: a currency code as money, % with its sign,
 /// anything else after the number.
-/// `digits` fixes the decimals, as an axis needs; otherwise they follow the size.
 export function chartValue(chart: { unit: string }, v: number, signed = false, digits: number | null = null) {
   const unit = chart.unit;
   const sign = signed && v > 0 ? "+" : "";

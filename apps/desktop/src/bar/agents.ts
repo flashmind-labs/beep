@@ -172,9 +172,8 @@ interface AgentState {
   paused: boolean;
   answering: number | null;
   barHidden: boolean;
-  /// Images pasted or dropped into the session's field, the error from the
-  /// last one and when it goes, and the session the server turned images
-  /// down for.
+  /// Images pasted or dropped into the session's field, the error from the last
+  /// one and when it goes, and the session the server turned images down for.
   att: Attached[];
   attError: string;
   attTimer: ReturnType<typeof setTimeout> | undefined;
@@ -222,7 +221,6 @@ export const agentPics = new Map<string, string>();
 export const AGENT_PICS_KEPT = 60;
 /// The pictures of `[image: image-<key>]` lines, read from the session's
 /// machine, by key, as data URLs: `null` for one the machine no longer has.
-/// Kept while the app runs.
 export const agentImages = new Map<string, Promise<string | null> | string | null>();
 let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
@@ -697,14 +695,7 @@ function stepMark(status: string) {
     : status ? '<span class="ddot off" title="Did not finish"></span>' : "";
 }
 
-/// A tool entry as one line: its mark and a short label ("Ran cargo
-/// test"). Opened, the label wraps to the whole command and the last lines
-/// of its output follow, then "Show all N lines" for all of it in a box
-/// that scrolls. A failed step is one line with its exit code like any
-/// other; only the newest step of a running turn starts open when it
-/// failed. `at` is its place in the session, which keeps it open across
-/// redraws. `pics` are the pictures it showed, drawn last. A subagent's
-/// call is a card.
+/// A tool entry as one line: its mark and a short label ("Ran cargo test").
 export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(en.text);
@@ -880,11 +871,7 @@ let liveAt: number | null = null;
 /// How long the "Thinking" sweep takes, as in the CSS.
 const SWEEP_MS = 1800;
 
-/// A thought as one line that opens to its text. While it streams it is
-/// open, its newest words lit like karaoke; once it ends it folds to
-/// "Thought for 12s", unless the reader opened, folded or scrolled it.
-/// The sweep keeps its phase across redraws, so a poll does not restart
-/// it, and an opened thought stays open, by its place in the session.
+/// A thought as one line that opens to its text.
 function thoughtRow(en: AgentEntry, at: number) {
   const live = at === liveAt, session = AG.open?.session ?? "";
   const m = AG.open ? turnsOf(AG.open.session) : null;
@@ -926,10 +913,9 @@ export function entryRow(en: AgentEntry, at: number) {
   return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
 }
 
-/// What this window knows of a session's turns: the ones it has seen,
-/// when it saw a turn start or end (entries carry no times), the turn
-/// running at the last draw, and the finished turns opened to their steps.
-/// Kept in memory only, by session.
+/// What this window knows of a session's turns: the ones it has seen, when it
+/// saw a turn start or end (entries carry no times), the turn running at the
+/// last draw, and the finished turns opened to their steps.
 interface TurnMemory {
   known: Set<number>;
   starts: Map<number, number>;
@@ -1010,10 +996,7 @@ function runRow(p: AgentPage, ats: number[]) {
 }
 
 /// The log in turns: each message, then a heading with how long the agent
-/// worked, then its work and its answer. Done, the work folds into one
-/// summary line, failures counted in it; notes, subagents and pictures
-/// stay in view. While it runs, only the newest step shows, with the
-/// thought's line.
+/// worked, then its work and its answer.
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   newestStep = null;
@@ -1107,9 +1090,8 @@ function questionCard(q: AgentQuestion) {
       <div class="dups">${buttons.join("")}</div></div>`;
 }
 
-/// A row of the log a redraw puts back where it was: found by `sel`,
-/// `off` pixels from the log's top. `scroll` is where the log was, for
-/// when the row went.
+/// A row of the log a redraw puts back where it was: found by `sel`, `off`
+/// pixels from the log's top.
 interface ScrollAnchor {
   sel: string | null;
   off: number;
@@ -1285,9 +1267,7 @@ function drawModelPicker() {
   });
 }
 
-/// Switches session `s` to the model or thinking in `next`. The pill shows
-/// a pick only once the node took it: a refused switch, or Default, which
-/// a running session cannot go back to, leaves what runs on the pill.
+/// Switches session `s` to the model or thinking in `next`.
 export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort") {
   const was = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const model = what === "model" ? next.model || null : null, effort = what === "effort" ? next.effort : null;
@@ -1326,8 +1306,7 @@ function drawQueue() {
 }
 
 /// Takes what waits in the field for a message: the words, the paths it
-/// mentions and the images. Null when there is nothing, or a file is still
-/// uploading, which would otherwise be left behind.
+/// mentions and the images.
 function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
   if (MN.uploads.length) {
     agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
@@ -1353,9 +1332,7 @@ function backInField(q: Pick<Waiting, "typed" | "paths" | "images">, sep = "\n")
   input?.focus();
 }
 
-/// Takes waiting message `i` out; to edit, it goes back in the field. A
-/// steer the node holds is taken back from it first, and the others sent
-/// again in order.
+/// Takes waiting message `i` out; to edit, it goes back in the field.
 async function editQueued(i: number, edit: boolean) {
   const q = AG.queue[i], o = AG.open;
   if (!q || q.state === "delivered") return;
@@ -1384,9 +1361,7 @@ function queueMessage(input: HTMLTextAreaElement) {
   redrawAgentHints();
 }
 
-/// Enter while the turn runs: steers it. The message and what is attached
-/// go to the node now, which hands them to the agent once its current tool
-/// call finishes.
+/// Enter while the turn runs: steers it.
 function steerMessage(input: HTMLTextAreaElement) {
   const q = takeMessage(input);
   if (!q) return;
@@ -1420,10 +1395,8 @@ async function sendSteer(q: Waiting) {
   redrawAgentHints();
 }
 
-/// Sends what was queued once the turn stopped or ended, as few messages
-/// as its images allow, in order. An ended session takes it back into the
-/// field, before what is typed there, to continue with; with no field on
-/// screen it stays queued.
+/// Sends what was queued once the turn stopped or ended, as few messages as its
+/// images allow, in order.
 function flushQueue() {
   const o = AG.open, page = AG.page, s = page?.session;
   const waiting = AG.queue.filter(q => q.how === "queue");
@@ -1466,9 +1439,8 @@ function flushQueue() {
   })();
 }
 
-/// Esc while the turn runs: stop it and keep the field, so a correction
-/// can be typed and sent. It reads as stopping at once; what is queued, and
-/// steers not delivered yet, go once the stop lands.
+/// Esc while the turn runs: stop it and keep the field, so a correction can be
+/// typed and sent.
 export function interruptAgent() {
   if (!turnRuns()) return false;
   steersToQueue(AG.queue);

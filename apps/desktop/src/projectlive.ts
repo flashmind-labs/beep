@@ -1,7 +1,5 @@
-// Whether the project page shown updates live (the host's webhook reaches
-// Beep through one of the user's machines) or by polling, and the reads it
-// starts. The window follows the project it shows; the server tells it
-// when the project's lists or runs were read again.
+// Whether the project page shown updates live (the host's webhook reaches Beep
+// through one of the user's machines) or by polling, and the reads it starts.
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeEl } from "./projects-state.ts";
 

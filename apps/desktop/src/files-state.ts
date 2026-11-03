@@ -2,6 +2,7 @@
 // the node lists it a folder at a time, what of it shows for a filter,
 // paths mentioned in a message, files dropped to upload, and the simple
 // highlighting of the text view. No page here, so the tests load it.
+import { esc } from "./components/format.ts";
 
 /// How git sees an entry changed (WorkEntry.change).
 export type GitChange = "untracked" | "added" | "modified" | "conflicted";
@@ -60,9 +61,7 @@ export function parentPath(path: string) {
   return at < 0 ? "" : path.slice(0, at);
 }
 
-/// The rows the tree shows: open folders' entries under them, depth
-/// first. With a `filter`, only names holding it (any case) and the
-/// folders on the way to them, among what has been read.
+/// The rows the tree shows: open folders' entries under them, depth first.
 export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlySet<string>, filter = ""): TreeRow[] {
   const want = filter.trim().toLowerCase();
   const out: TreeRow[] = [];
@@ -160,26 +159,24 @@ const KEYWORDS = new Set(("as async await break case catch class const continue 
   + "private pub raise return self Self static struct super switch this throw trait true True False try type typeof use var where while with yield").split(" "));
 const HASH_COMMENT = new Set(["Python", "Shell", "Ruby", "TOML", "YAML"]);
 
-const escHtml = (s: string) => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-/// One line as HTML, its strings, comments, numbers and keywords in
-/// spans (`s`, `c`, `n`, `k`). A comment or string over several lines is
-/// only marked on its first: this is a glance, not an editor.
+/// One line as HTML, its strings, comments, numbers and keywords in spans (`s`,
+/// `c`, `n`, `k`).
 export function highlight(line: string, lang: string) {
-  if (!lang || lang === "Text" || lang === "Markdown") return escHtml(line);
+  if (!lang || lang === "Text" || lang === "Markdown") return esc(line);
   const hash = HASH_COMMENT.has(lang);
   const re = hash
     ? /(#.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_.xXa-fA-F]*\b)|([A-Za-z_][A-Za-z0-9_]*)/g
     : /(\/\/.*$|\/\*.*?(?:\*\/|$))|("(?:[^"\\]|\\.)*"?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_.xXa-fA-F]*\b)|([A-Za-z_][A-Za-z0-9_]*)/g;
   let out = "", last = 0;
   for (const m of line.matchAll(re)) {
-    out += escHtml(line.slice(last, m.index));
+    out += esc(line.slice(last, m.index));
     const [all, comment, str, num, word] = m;
     const cls = comment ? "c" : str ? "s" : num ? "n" : word && KEYWORDS.has(word) ? "k" : "";
-    out += cls ? `<span class="${cls}">${escHtml(all)}</span>` : escHtml(all);
+    out += cls ? `<span class="${cls}">${esc(all)}</span>` : esc(all);
     last = m.index! + all.length;
   }
-  return out + escHtml(line.slice(last));
+  return out + esc(line.slice(last));
 }
 
 // ----- Terminals in the pane -----

@@ -121,17 +121,6 @@ const CONNECT_STUCK_MS = 15000;
 const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
-/// `picked` is the project the Projects page shows, null for all.
-/// `found` is what `found_projects` last gave (null before), `importing` the
-/// found row being imported and `foundError` why one failed, and
-/// `sessions` each project's past sessions once read, by name.
-/// `agents` lists the project agents (undefined before, null from a server
-/// without them) and `pview` each one's tasks, workers and chat, by name.
-/// `git` is what `git_items` last gave (null before, or from an old
-/// server), and `gitAll` the projects whose open items show in full.
-/// `groups` are the project groups (undefined before, null from a server
-/// without them), `renaming` the group whose name is being edited, with
-/// what is typed so far.
 const state = {
   home: null as HomeView | null,
   mac: null as MacControl | null,
@@ -154,9 +143,8 @@ const state = {
   groups: undefined as ProjectGroup[] | null | undefined,
   renaming: null as { id: string; draft: string } | null,
 };
-/// What each project's page last read, section by section: drawn at once
-/// when a project opens, then read again quietly. The app saves it a few
-/// seconds after a change, for this account only.
+/// What each project's page last read, section by section: drawn at once when a
+/// project opens, then read again quietly.
 const pages = new PageCache(null);
 /// The saved cache from `center_cached`, until this Mac's account is known.
 let pagesFile: unknown;
@@ -305,7 +293,6 @@ function skeleton(widths: number[]) {
 
 /// One row of Running now, Needs you, Updates or Coming up: a title and one
 /// muted line, opening `open` on a click, with `right` beside it.
-/// A row with no tile before its title.
 function bare(row: HTMLElement) { row.classList.add("bare"); return row; }
 
 function line(lead: Node | null, title: string, sub: string, right: Kid[], open: () => void) {
@@ -457,9 +444,8 @@ const runningTops = new Map<string, number>();
 /// How long a row takes to slide to its new place.
 const SLIDE_MS = 200;
 
-/// Slides each row of a just drawn panel from where it sat last time to
-/// where it sits now, so a session that moves to the top is seen moving.
-/// Nothing slides when the system asks for less motion.
+/// Slides each row of a just drawn panel from where it sat last time to where
+/// it sits now, so a session that moves to the top is seen moving.
 function slideRows(panel: HTMLElement) {
   requestAnimationFrame(() => {
     // A hidden panel (Home behind a project page) measures every row at 0
@@ -648,9 +634,8 @@ function dismissUpdates(ids: number[]) {
   });
 }
 
-/// Opens the update's chat, where Beep's first message tells it and the
-/// user replies; the same chat each time. A server too old to make one
-/// gets a new chat with the summary in the composer instead.
+/// Opens the update's chat, where Beep's first message tells it and the user
+/// replies; the same chat each time.
 async function openUpdate(u: UpdateRow) {
   dismissUpdates([u.id]);
   try {
@@ -880,10 +865,7 @@ let shown: string | null = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
 let shownArg: ViewArg;
 
-/// Adds a view the window can show. `mount(el, arg)` draws it into its own
-/// element, `unmount()` runs when another view takes over. `title` is a
-/// string or a function giving `{ title, sub, tools, scope }`, `scope` an
-/// element shown beside the title.
+/// Adds a view the window can show.
 export function registerView(name: string, view: CenterView) {
   let el = view.el;
   if (!el) {
@@ -922,10 +904,7 @@ function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
 }
 
-/// Shows view `name`, passing `arg` to its mount. The others are hidden,
-/// not destroyed, so a reply streaming in the pane keeps going under Home.
-/// In a project window, what is not the project's opens in the main
-/// window instead; false then.
+/// Shows view `name`, passing `arg` to its mount.
 export function go(name: string, arg?: ViewArg): boolean {
   if (route(windowScope(), name, arg) === "main") {
     toMain(mainTarget(name, arg));
@@ -967,11 +946,7 @@ function drawTop() {
 
 // ---------- Sidebar ----------
 
-/// A sidebar group. `load()` gives its items, or null to hide the group;
-/// `row(item)` draws one; `onPick(item)` runs on a click; `onTitle()`,
-/// when given, makes the title a button; `action()` adds a button beside
-/// the title; `empty` is what an empty group says; `foot()` adds rows
-/// after the items. Groups sort by `order`.
+/// A sidebar group.
 interface SidebarGroup<T> {
   order: number;
   title?: string;
@@ -1298,10 +1273,8 @@ function openProjectWindow(name: string) {
   invoke("center_open_project_window", { project: name }).catch(e => console.warn("opening a project window:", e));
 }
 
-/// Lets project `name` open in a window of its own: ⌘-click or
-/// middle-click on `clicks`, or "Open in New Window" from a right-click
-/// on `menu`. A ⌘-click is caught first, so the row's own click does not
-/// also run.
+/// Lets project `name` open in a window of its own: ⌘-click or middle-click on
+/// `clicks`, or "Open in New Window" from a right-click on `menu`.
 function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string) {
   const open = (e: MouseEvent) => {
     if (!opensNewWindow(e)) return;
@@ -1442,9 +1415,8 @@ function landed(p: { name: string }) {
   openProjects(p.name);
 }
 
-/// Opens the Import a project sheet, at the folder choice with `choose`;
-/// the project is selected once it is in. `repo` and `machine` fill it in,
-/// as Clone here does.
+/// Opens the Import a project sheet, at the folder choice with `choose`; the
+/// project is selected once it is in.
 function importSheet(choose = false, repo: string | null = null, machine: string | null = null) {
   openImportProject({
     machines: state.home?.machines || [],
@@ -1637,9 +1609,7 @@ function thisMacItem(mac: MacRow) {
 // ---------- Home ----------
 
 /// Machines across the top, then Running now beside Needs you and Updates
-/// beside Coming up. On a wide window, two columns instead: Needs you,
-/// Running now and Updates, beside Machines and Coming up. A section with
-/// nothing in it is left out; Machines stays to offer Add a machine.
+/// beside Coming up.
 function page(home: HomeView, wide: boolean) {
   const { machines, running, coming_up: coming, needs_you: needs } = home;
   const out: HTMLElement[] = [];
@@ -1698,10 +1668,8 @@ function waitText() {
   return `No answer from the server for ${secs} seconds. Still trying.`;
 }
 
-/// What Home shows before the server first answers: pulsing dots, never a
-/// blank page. Once stuck it says so and offers Retry; retries go on anyway.
-/// A failure waiting will not fix is said plainly, with the way to fix it
-/// and a Retry.
+/// What Home shows before the server first answers: pulsing dots, never a blank
+/// page.
 function connecting() {
   const p = problem();
   if (p) {
@@ -2177,9 +2145,8 @@ function boardOn(p: Project) {
   return layout === "board" && p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
 }
 
-/// Opens tile `key` in place of the board, or goes back with null, and
-/// stops the polling of every other tile. With `draw` false the caller
-/// draws.
+/// Opens tile `key` in place of the board, or goes back with null, and stops
+/// the polling of every other tile.
 function openTile(key: string | null, draw = true) {
   pa.tile = key;
   if (key !== "terminals") terms.stop();
@@ -2283,10 +2250,9 @@ function layoutSwitch() {
 
 // ---------- Project agent ----------
 
-/// What the agent sections are doing: `busy` and `errors` by task or worker
-/// id, `outcomes` of answered cards by query id, and `starting` the project
-/// whose agent the prompt bar is making.
-/// `tile` is the board tile opened in place of the board, null for the board.
+/// What the agent sections are doing: `busy` and `errors` by task or worker id,
+/// `outcomes` of answered cards by query id, and `starting` the project whose
+/// agent the prompt bar is making.
 const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 /// The project's terminals; the board's tile and its full view.
@@ -2460,9 +2426,8 @@ function answerCard(agent: ProjectAgent, c: { query_id: string }, decision: stri
   setTimeout(loadProjectAgent, 1500);
 }
 
-/// The bar under a project: it starts a coding agent in the project's
-/// checkout, by default as it is (the agent makes its own branch), and
-/// opens its session. Kept across redraws so what is typed stays.
+/// The bar under a project: it starts a coding agent in the project's checkout,
+/// by default as it is (the agent makes its own branch), and opens its session.
 const pc = {
   project: null as string | null,
   machine: "auto",
@@ -2747,9 +2712,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 }
 
 /// Starts a coding agent on the bar's task in the project's checkout, then
-/// opens its session; Esc there comes back to the project. With a target
-/// whose worktree already has a session, that session goes on with the
-/// task instead, unless `fresh` (Start new) starts another one there.
+/// opens its session; Esc there comes back to the project.
 async function startFromBar(fresh = false) {
   const c = projectComp, p = barProject(), text = c.input.value.trim();
   let place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
@@ -2833,9 +2796,7 @@ function loadView(name: string, after = false) {
 }
 
 /// Reads the project agents and, beside them, the picked project's tasks,
-/// workers and chat. Never two reads of the list at once: one asked for
-/// during a read runs once more after it. `after` is false for the
-/// window's own refresh, which takes a view read already on its way.
+/// workers and chat.
 let agentLoading = false, agentAgain = false;
 async function loadProjectAgent(after = true) {
   if (agentLoading) { agentAgain = true; return; }
@@ -2970,9 +2931,8 @@ function whereRow(p: Project, m: WhereRow) {
   return [name, what];
 }
 
-/// Asks the server where `name` lives on each machine; while it looks
-/// through one, it asks again shortly. A folder it finds brings that
-/// machine's sessions with it.
+/// Asks the server where `name` lives on each machine; while it looks through
+/// one, it asks again shortly.
 const readingWhere = new Set<string>();
 let whereTimer: ReturnType<typeof setTimeout> | undefined;
 /// Projects whose kept places are due another read on the next draw.
@@ -3013,9 +2973,8 @@ async function loadWhere(name: string) {
   if (state.picked === name) redrawProjects();
 }
 
-/// The sessions your coding agents ran in the project's folders, newest
-/// first, each resumable; those running now are under Agents.
-/// The sessions the Sessions section shows before it scrolls.
+/// The sessions your coding agents ran in the project's folders, newest first,
+/// each resumable; those running now are under Agents.
 const SESSIONS_SHOWN = 5;
 
 function sessionsSection(p: Project, running: RunningAgent[]) {
@@ -3062,9 +3021,8 @@ function sessionRow(s: SessionRow) {
   return h("div", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta), h("span", "acts", said, act));
 }
 
-/// The projects whose sessions are being read, and those to read again on
-/// the next draw. The last list read stays in `state.sessions` and shows
-/// meanwhile, so an opened project lists its sessions at once.
+/// The projects whose sessions are being read, and those to read again on the
+/// next draw.
 const readingSessions = new Set<string>();
 const sessionsDue = new Set<string>();
 async function loadSessions(name: string) {
@@ -3338,9 +3296,8 @@ async function loadAgents() {
 // ---------- Chats about one thread ----------
 
 
-/// Reads which chats are about one thread, for every project, then
-/// redraws what lists or heads them. A project whose read fails keeps
-/// what was known of it.
+/// Reads which chats are about one thread, for every project, then redraws what
+/// lists or heads them.
 function loadThreadChats() {
   if (threadsLoading) return threadsLoading;
   const agents = state.agents || [];
@@ -3513,10 +3470,8 @@ listen("center-open", () => takePending(null));
 
 // ---------- Settings ----------
 
-/// Settings as a sheet over the window: a dimmed backdrop and a centered
-/// sheet with its sections on the left. Esc or a click outside closes it;
-/// the view behind keeps its state. The sheet draws at once from what
-/// this Mac knows and fills in the server's parts as they answer.
+/// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
+/// with its sections on the left.
 let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null } | null = null;
 
 export function openSettings(section?: string) {
@@ -3667,9 +3622,8 @@ function inTerminal(e: KeyboardEvent) {
   return e.target instanceof Element && !!e.target.closest(".tm-xterm");
 }
 
-/// ⌘N: the project's chat while a project or its chat shows, else a new
-/// general chat. A project with no chat gets its bar, which starts a
-/// coding agent.
+/// ⌘N: the project's chat while a project or its chat shows, else a new general
+/// chat.
 function newChatHere() {
   const on = paneOn();
   const name = newChatProject({ shown, picked: state.picked, view: on.view, session: on.session }, state.agents);
@@ -3772,11 +3726,8 @@ async function refresh() {
 // "Still connecting" takes over once the wait passes its limit.
 setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
-/// Closing the main window only hides it (WKWebView may still call a
-/// hidden page visible, so Rust says so). Hidden, it keeps Home and the
-/// projects in step slowly: every `BACKGROUND_MS`, on the pushes below,
-/// never while the connection is down, and not on the late tick after
-/// the Mac slept, since reconnecting reads anyway.
+/// Closing the main window only hides it (WKWebView may still call a hidden
+/// page visible, so Rust says so).
 let windowHidden = false;
 const BACKGROUND_MS = 4 * 60_000;
 let lastBackground = Date.now();
@@ -3830,9 +3781,7 @@ $("#home-agent")?.addEventListener("click", () => {
   go("pane", { agentnew: { prompt } });
 });
 
-/// The first view. A project's own window starts on that project and
-/// never reads what the bar or tray left for the main window, so each
-/// window keeps its own history from there.
+/// The first view.
 async function start() {
   const project = await invoke<string | null>("center_window_project").catch(() => null);
   document.title = windowTitle(project);

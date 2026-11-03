@@ -1,7 +1,5 @@
 // The thought a coding agent streams, shown open with a karaoke band on its
-// newest words. The log is drawn again on every read of the session, so
-// what was revealed is kept here, by session and entry, and put back on
-// each draw; between reads, one animation frame loop reveals the rest.
+// newest words.
 
 import { BAND, firstShown, keptShown, liveText, reveal, splitBand } from "../karaoke.ts";
 import { esc } from "./core.ts";

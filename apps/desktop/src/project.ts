@@ -1,7 +1,5 @@
 // A project's agent on its page: the Tasks list, the Workers tree and the
-// cards its chat waits on. The chat itself opens in the pane from the
-// page's prompt bar. center.ts owns the page and its refreshes; this file
-// draws these sections and holds the pure pieces the tests check.
+// cards its chat waits on.
 import { harnessEl } from "./harnessicon.ts";
 import type { ChatApproval } from "./home.ts";
 import { agentLabel, el } from "./projects-state.ts";
@@ -331,9 +329,8 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
   return section("sec-workers", "Workers", live ? `${live} running` : "none running", el("div", "cc-panel pj-tree", ...nodes));
 }
 
-/// One card the project chat waits on: what it asks, its fields, and
-/// Approve, Allow for this session (the same action, until the chat ends)
-/// or Deny.
+/// One card the project chat waits on: what it asks, its fields, and Approve,
+/// Allow for this session (the same action, until the chat ends) or Deny.
 function card(c: ChatApproval, act: ProjectActs) {
   const out = act.outcome(c.query_id);
   const a = c.approval;

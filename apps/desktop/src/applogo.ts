@@ -2,9 +2,8 @@
 // it, or its first letter only when it has none.
 import { type AppLogo, logoFor } from "./approvals.ts";
 import { invoke } from "./tauri.ts";
+import { esc } from "./components/format.ts";
 
-const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESC[c]);
 
 /// The apps, listed once per window; a failed list is asked again next time.
 let apps: Promise<AppLogo[]> | null = null;

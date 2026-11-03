@@ -1,8 +1,4 @@
-// A project's branches and the review of one before a merge. The board's
-// Branches tile and its full list, each branch with Review; the review
-// view: its facts, the reviewers' shards, the verified findings and the
-// actions (fix with a worker, post the review, merge), polled while the
-// reviewers read. center.ts draws the page; this file keeps the state.
+// A project's branches and the review of one before a merge.
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import { agentLabel, reason } from "./projects-state.ts";
@@ -343,15 +339,13 @@ export function makeReviews(deps: ReviewDeps) {
     return t;
   };
 
-  /// Projects whose read is on its way (a load meanwhile is dropped), and
-  /// when each was last tried, so a failing machine is not asked on
-  /// every draw.
+  /// Projects whose read is on its way (a load meanwhile is dropped), and when
+  /// each was last tried, so a failing machine is not asked on every draw.
   const reading = new Set<string>();
   const tried = new Map<string, number>();
 
-  /// Reads `name` when it is due: never read, or `every` passed since the
-  /// last try (the refresh time by default). Every draw may ask; an action
-  /// reads anyway. The read, when one starts.
+  /// Reads `name` when it is due: never read, or `every` passed since the last
+  /// try (the refresh time by default).
   function ensure(name: string, every = REFRESH_MS): Promise<void> | undefined {
     const last = tried.get(name);
     const due = last === undefined ? kept.due(name, every) : Date.now() - last >= every;

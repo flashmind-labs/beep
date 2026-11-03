@@ -1,11 +1,7 @@
 // The "Add a project" sheet: the git checkouts your coding agents worked in
-// (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds), each with
-// Import, then "Choose a folder…" and "Clone a repository…", which open the
-// Import a project sheet. Import links the folder where it is, on every
-// machine that has it, so its sessions come along. A search filters the
-// list; ticked rows import together, three at a time. Typing goes to the
-// search, space ticks the focused row, ⌘↵ imports the ticked ones, Esc
-// closes it.
+// (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds),
+// each with Import, then "Choose a folder…" and "Clone a repository…", which
+// open the Import a project sheet.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
@@ -25,10 +21,9 @@ export interface AddProjectOptions {
   onClone?: () => void;
 }
 
-/// How a found row shows: `busy` names the row being imported (any
-/// non-null value disables Import), `error` is why this one failed, `quiet`
-/// drops the primary look from Import. In the sheet a row also has a tick
-/// (`pick`) and where its batch import stands (`status`).
+/// How a found row shows: `busy` names the row being imported (any non-null
+/// value disables Import), `error` is why this one failed, `quiet` drops the
+/// primary look from Import.
 export interface FoundRowState {
   busy?: string | null;
   error?: string | null;
@@ -52,9 +47,7 @@ const status = new Map<string, ImportState>();
 let batch = false;
 let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, listBox: HTMLDivElement | null = null;
 
-/// Imports a found row in place on each machine that has it. Resolves to the
-/// first import's project; a failure on one machine after another worked is
-/// logged, not thrown, so the project still lands.
+/// Imports a found row in place on each machine that has it.
 export async function importFound(row: FoundRow) {
   let first: ProjectRow | null = null;
   for (const one of importPlan(row)) {
@@ -152,10 +145,7 @@ function toggle(name: string) {
   draw();
 }
 
-/// Imports the ticked rows the search shows, a few at a time. Each row
-/// shows importing, done or why it failed; a failure leaves the rest going.
-/// When they all land the sheet closes; otherwise it stays open on the
-/// failures. The first that landed is opened either way.
+/// Imports the ticked rows the search shows, a few at a time.
 async function importPicked() {
   if (busy() || !found) return;
   const byName = new Map(found.map(row => [row.name, row]));
@@ -275,9 +265,8 @@ function way(title: string, sub: string, onClick: () => void) {
   return button(el("span", "", el("b", "", title), el("span", "", sub)), "", onClick);
 }
 
-/// One found checkout: its name, where it is on each machine, its sessions
-/// per agent and when one last ran, and Import. `onImport` defaults to
-/// importing it from this sheet.
+/// One found checkout: its name, where it is on each machine, its sessions per
+/// agent and when one last ran, and Import.
 export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (row: FoundRow) => void = doImport) {
   const st = state.status;
   const go = button(state.busy === row.name ? "Importing…" : st?.state === "failed" ? "Retry" : "Import", `dbtn${state.quiet ? "" : " pri"} small`, () => onImport(row));

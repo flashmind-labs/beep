@@ -1,13 +1,5 @@
-// The Artifacts tab of a coding agent session: the pages and documents
-// the agent made, read from its log. Claude Code publishes one with its
-// Artifact tool (`Artifact /srv/project/report.html`, its result giving
-// the claude.ai link); any agent writes .html, .md, .svg or image files
-// (`Write: …`, `Edit …`, or Codex's `(changed …)` lines). A file it only
-// wrote counts when it is outside the session's folder: one inside, such
-// as a README.md it edited, is a change to the repo and shows in Files and
-// Changes instead. The tab renders
-// the file the agent wrote; the claude.ai link only opens in the browser,
-// as it needs the user's own claude.ai login.
+// The Artifacts tab of a coding agent session: the pages and documents the
+// agent made, read from its log.
 
 import { imageLines, parseTool } from "./agentlog.ts";
 import { baseName, extension, resolvePath } from "./media-state.ts";
@@ -25,10 +17,7 @@ const KINDS: Record<string, ArtifactKind> = {
 /// What a kind is called in the list.
 export const KIND_NAMES: Record<ArtifactKind, string> = { html: "HTML", md: "Markdown", svg: "SVG", image: "Image" };
 
-/// What the frame of an HTML artifact may do: run its scripts, nothing
-/// more. Without `allow-same-origin` it has an origin of its own, so it
-/// cannot reach the window, its storage or Beep's calls; without
-/// `allow-top-navigation` it cannot move the window away.
+/// What the frame of an HTML artifact may do: run its scripts, nothing more.
 export const FRAME_SANDBOX = "allow-scripts";
 
 /// One artifact: a file the agent published or wrote, as its newest call
@@ -107,10 +96,8 @@ export interface LogEntry {
   text: string;
 }
 
-/// Every artifact among `entries`, the newest first; `earlier` is the
-/// place of the first entry in the session. A file written again is one
-/// artifact, as its newest call left it. A file never published that sits
-/// inside the session's folder is a repo file, not an artifact.
+/// Every artifact among `entries`, the newest first; `earlier` is the place of
+/// the first entry in the session.
 export function collectArtifacts(entries: LogEntry[], earlier: number, cwd: string): Artifact[] {
   const byPath = new Map<string, Artifact>();
   let turn = earlier, turnNo = 0;
@@ -163,9 +150,8 @@ export function relativeTo(cwd: string, path: string) {
 
 const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-/// The frame an HTML artifact shows in: the page served from its own
-/// origin (`src`), sandboxed to run scripts and nothing more, sent no
-/// referrer.
+/// The frame an HTML artifact shows in: the page served from its own origin
+/// (`src`), sandboxed to run scripts and nothing more, sent no referrer.
 export function frameHtml(src: string, title: string) {
   return `<iframe class="agartframe" sandbox="${FRAME_SANDBOX}" referrerpolicy="no-referrer" title="${attr(title)}" src="${attr(src)}"></iframe>`;
 }

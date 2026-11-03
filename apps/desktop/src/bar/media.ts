@@ -34,9 +34,7 @@ export type PicRef = { url: string } | ImageRef;
 /// A kept picture the viewer can save and copy. An agent's has no size.
 export type PicFile = Omit<SentFile, "size"> & { size?: number };
 
-/// A picture the viewer shows. One from a reply's text or an agent has a
-/// name of its own.
-/// `saves` marks a picture held as a data URL that can be saved and copied.
+/// A picture the viewer shows.
 export type ViewerPic = ({ url: string; file?: undefined; saves?: boolean } | { file: PicFile; url?: undefined; saves?: undefined }) & { caption?: string; name?: string };
 
 /// The kind of a file, as its chip says it: PDF, or its extension.

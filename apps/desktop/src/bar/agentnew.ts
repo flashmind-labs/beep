@@ -255,9 +255,8 @@ function drawUnder() {
   if (f.baseTyping) bindBaseField();
 }
 
-/// Places the open menu by its pill, over the page so nothing clips it:
-/// below when it fits, else above, scrolling inside. The key hints hide
-/// while it is open.
+/// Places the open menu by its pill, over the page so nothing clips it: below
+/// when it fits, else above, scrolling inside.
 function placeMenu() {
   const f = AG.form;
   const pill = f.open === "project" ? "#agprojb" : f.open === "host" ? "#aghostb" : f.open === "folder" ? "#agfoldb" : f.open === "base" ? "#agbaseb" : null;
@@ -289,9 +288,8 @@ function projectMenu() {
   return `<div class="agc-menu" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), none].join("")}</div>`;
 }
 
-/// Sets the form's project, on the machine last picked for it, else the
-/// one picked when the project is there, else none. Null leaves the
-/// project for the workspace.
+/// Sets the form's project, on the machine last picked for it, else the one
+/// picked when the project is there, else none.
 function setProject(name: string | null) {
   const f = AG.form, p = name ? PROJECTS?.find(x => x.name === name) : null;
   f.checkout = DEFAULT_CHECKOUT;
@@ -327,9 +325,8 @@ function projectForFolder() {
   }
 }
 
-/// The Base button, which the new branch starts from: the ref picked, else
-/// the project's default branch, else the checkout's HEAD. A field when a
-/// ref is being typed.
+/// The Base button, which the new branch starts from: the ref picked, else the
+/// project's default branch, else the checkout's HEAD.
 function baseButton() {
   const f = AG.form, base = baseFor(f.base, formBranches());
   if (f.baseTyping) {

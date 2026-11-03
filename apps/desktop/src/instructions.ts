@@ -1,7 +1,4 @@
-// The Instructions view: the user's rules for every agent Beep runs. An
-// editor over the saved versions, the agent files on each machine to import
-// from, writing the rules into those files, and the history. center.ts
-// registers it; instructions-state.ts holds the words and sums.
+// The Instructions view: the user's rules for every agent Beep runs.
 import type { invoke as Invoke } from "./tauri.ts";
 import type { Ago, Kid, MakeButton, MakeEl } from "./projects-state.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, mineLayer } from "./instructions-state.ts";
@@ -31,9 +28,7 @@ export interface InstructionsDeps {
   openSettings: () => void;
 }
 
-/// The view's state. `newest` is the saved version (null before the first,
-/// undefined while loading); `draft` what the editor holds when it differs.
-/// `versions` and `files` are undefined until read and null when that failed.
+/// The view's state.
 interface InstructionsState {
   tab: InstructionsTab;
   newest: VersionRow | null | undefined;

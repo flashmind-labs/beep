@@ -122,8 +122,7 @@ export function drawRoute(card: RouteCardEl) {
 export const MAP_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile";
 
 /// The route over Esri's dark gray map tiles: walks dotted, rides in their
-/// line's colour with a stop at each end. Both are in Web Mercator. The tiles
-/// reach past the viewBox, so a wide card has map out to its edges.
+/// line's colour with a stop at each end.
 export function routeSketch(r: RouteOption) {
   const pts = r.legs.flatMap(l => l.points);
   if (!pts.length) return "";
@@ -172,9 +171,8 @@ interface Box {
   h: number;
 }
 
-/// A label for each station to get on or off at, with its codes: a change
-/// at one station shares one label. A label goes beside its stop, toward the
-/// middle, and is left out when no side has room.
+/// A label for each station to get on or off at, with its codes: a change at
+/// one station shares one label.
 export function routeLabels(rides: RouteLeg[], at: (p: RoutePoint) => number[], W: number, H: number) {
   const labels: Label[] = [];
   for (const l of rides) {

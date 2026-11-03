@@ -21,10 +21,8 @@ export function lineCount(text: string) {
   return text.endsWith("\n") ? n - 1 : n;
 }
 
-/// Fences the text between the first two triple line breaks: "prompt",
-/// three line breaks, the content, three more, then the rest. Text that
-/// starts with `/` or `!`, or already has a fence, only loses its outer
-/// whitespace.
+/// Fences the text between the first two triple line breaks: "prompt", three
+/// line breaks, the content, three more, then the rest.
 export function fenceAfterBlankLine(text: string) {
   const trimmed = text.trim();
   if (trimmed.startsWith("/") || trimmed.startsWith("!") || text.includes("```") || text.includes("~~~")) return trimmed;

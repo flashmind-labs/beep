@@ -113,10 +113,7 @@ export function groupKeys(e: KeyboardEvent) {
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") setTimeout(findMention);
 }
 
-/// Keys while the bar shows live mode. ⌘/ opens what to say over it and esc
-/// closes that first (Rust keeps the sheet with the view). Keys that would
-/// open another view do nothing; a typed character leaves live mode, keeping
-/// the words, and goes in the prompt after them. True when the key is taken.
+/// Keys while the bar shows live mode.
 export function liveKeys(e: KeyboardEvent, cmd: boolean) {
   if (cmd && e.key === "/") { e.preventDefault(); invoke("live_sheet", { open: null }).catch(() => {}); return true; }
   if (e.key === "Escape") { e.preventDefault(); invoke("cancel_live").catch(() => {}); return true; }

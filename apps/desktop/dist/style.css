@@ -500,8 +500,6 @@ button.dachip:hover { border-color: #3A4A41 }
 
 
 /* Live mode: the orb, status word and captions in the dock */
-.dwave { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; height: 24px; overflow: hidden }
-.dwave i { width: 3px; flex: none; border-radius: 2px; background: var(--emerald); display: block }
 .dorb { --lvl: 0; --c1: #A6EBCF; --c2: #3B9B7A; --c3: #0F3B2C; --glow: 59,155,122; width: 116px; height: 116px; margin-top: 10px; position: relative; display: grid; place-items: center; border: 0; padding: 0; background: none }
 .dorb:focus-visible { outline: 2px solid var(--emerald); outline-offset: 2px; border-radius: 50% }
 .dorb.speak { --c1: #FFD0C7; --c2: #F07A6A; --c3: #5A231C; --glow: 240,122,106 }

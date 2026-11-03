@@ -83,17 +83,14 @@ export function appended(mine: string | null | undefined, extra: string | null |
   return a ? `${a}\n\n${b}\n` : `${b}\n`;
 }
 
-/// How the files on the machines stand, a machine counting as synced when
-/// every agent file it has holds the newest text. Machines that could not
-/// be read or have no agent are left out.
+/// How the files on the machines stand, a machine counting as synced when every
+/// agent file it has holds the newest text.
 export function syncSummary(read: readonly { error: string | null; files: readonly Pick<AgentFile, "synced">[] }[] | null | undefined): SyncSummary {
   const withFiles = (read || []).filter(m => !m.error && m.files.length);
   return { machines: withFiles.length, synced: withFiles.filter(m => m.files.every(f => f.synced)).length };
 }
 
-/// What a file's row says on the Sync tab. `saved` is whether any version
-/// was saved: before the first there is nothing to write, so a file is
-/// never "Not synced", only empty or holding its own text.
+/// What a file's row says on the Sync tab.
 export function fileState(file: Pick<AgentFile, "synced"> & Partial<Pick<AgentFile, "text">>, saved = true) {
   if (file.text == null) return { cls: "", text: "Not written yet" };
   if (!saved) return { cls: "", text: "Has its own text" };

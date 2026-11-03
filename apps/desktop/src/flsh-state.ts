@@ -1,6 +1,5 @@
 // flsh's own settings on the Coding agents page: OpenRouter routing and
-// auto-compact, the same on every machine. Pure, so the tests can drive
-// it; flsh.ts draws it.
+// auto-compact, the same on every machine.
 
 export const QUANTIZATIONS = ["int4", "int8", "fp4", "fp6", "fp8", "fp16", "bf16", "fp32", "unknown"] as const;
 export const SORTS = ["price", "throughput", "latency"] as const;

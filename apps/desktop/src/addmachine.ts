@@ -1,10 +1,4 @@
-// The "Add a machine" sheet. First, this Mac in one click: "Use this Mac"
-// turns on Let Beep use this Mac. Below it, for another machine, Beep makes
-// a one-time setup token, the machine
-// claims it with `beep-node setup <token>` and links itself to this
-// account. The sheet waits, asking which machine claimed the token, and flips to Linked
-// by itself. Esc or Cancel closes it and revokes a token nobody used.
-// The other sheets share its scrim and styles.
+// The "Add a machine" sheet.
 import { invoke } from "./tauri.ts";
 import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";

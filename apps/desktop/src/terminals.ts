@@ -1,12 +1,6 @@
-// Terminals: commands and shells kept running on the user's machines,
-// apart from any chat, like tmux sessions: the node owns them, so they keep
-// running with the window closed and can be attached to again. A project's
-// board has a Terminals tile and its full view: a tab per terminal, the
-// open one attached live so what is typed goes to it, and a form to start
-// one. The Terminals page (`ALL`) lists every terminal by machine and opens
-// new ones anywhere. center.ts draws the pages; this file keeps the
-// terminals' state. Terminals from before interactive ones are
-// view only: their last lines are read every few seconds instead.
+// Terminals: commands and shells kept running on the user's machines, apart
+// from any chat, like tmux sessions: the node owns them, so they keep running
+// with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
@@ -89,8 +83,6 @@ export interface MachineTerminals<T> {
 }
 
 /// The scope of the Terminals page: every terminal, of any project or none.
-/// Project names are never empty, and a terminal started there has no
-/// project.
 export const ALL = "";
 
 /// What the window hands `makeTerminals`.
@@ -264,9 +256,8 @@ export function retryDelay(tries: number) {
   return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
 }
 
-/// Whether a terminal that ended in `state` is done for good: it exited or
-/// was stopped, or its machine no longer has it. An offline one may still
-/// run.
+/// Whether a terminal that ended in `state` is done for good: it exited or was
+/// stopped, or its machine no longer has it.
 export function endsForGood(state: string) {
   return state === "exited" || state === "stopped" || state === "gone";
 }

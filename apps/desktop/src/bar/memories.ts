@@ -153,8 +153,7 @@ export function readDay(at: Date) {
   return ago === 0 ? "today" : ago === 1 ? "yesterday" : dayMonth(at);
 }
 /// The chips over the list: everything, the user, each subject by name, then
-/// the latest reads that added or confirmed memories. Empty when there is
-/// nothing to pick between.
+/// the latest reads that added or confirmed memories.
 export function memFilters(): MemFilter[] {
   const subjects = new Map<string, MemFilter & { ids: Set<string> }>();
   for (const sc of M.scopes.values()) {

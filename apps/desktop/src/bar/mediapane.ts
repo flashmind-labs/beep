@@ -1,9 +1,6 @@
-// The media pane of a coding agent session: pictures, videos, 3D models
-// and PDFs the agent made or looked at, its files, artifacts, terminals
-// and subagents, each a tab. A tab sits in one of two docks, right of the
-// conversation or under it, and drags by its tab to the other edge; each
-// dock resizes by its divider and folds to a strip. Where each tab sits
-// is kept per window.
+// The media pane of a coding agent session: pictures, videos, 3D models and
+// PDFs the agent made or looked at, its files, artifacts, terminals and
+// subagents, each a tab.
 
 import {
   actualView, baseName, type Box, type Dock, DOCKS, dropDock, fitView, type ImageView, type MediaKind, mediaKind,
@@ -409,9 +406,7 @@ export interface PaneArtifacts {
   turnStart: (turn: number) => number | undefined;
 }
 
-/// Draws the pane again: its tabs and the one on screen. `subs` are the
-/// subagents' rows and `count` how many, and `arts` the artifacts, as the
-/// log has them now.
+/// Draws the pane again: its tabs and the one on screen.
 export function drawPane(subs?: { html: string; count: number }, arts?: PaneArtifacts) {
   if (subs) { P.subs = subs.html; P.subCount = subs.count; }
   if (arts) setArtifacts(arts.list, arts.turnStart);
@@ -567,9 +562,8 @@ export function openPicture(url: string, name: string) {
   open({ id: url, kind: "image", name: baseName(name), path: null, url });
 }
 
-/// Opens the file at `path` (relative to the session's folder, absolute,
-/// or under `~/`) on the session's machine, when it is one the pane shows.
-/// False for a file it does not.
+/// Opens the file at `path` (relative to the session's folder, absolute, or
+/// under `~/`) on the session's machine, when it is one the pane shows.
 export function openPath(path: string) {
   const kind = mediaKind(path);
   if (!kind || !P.session) return false;

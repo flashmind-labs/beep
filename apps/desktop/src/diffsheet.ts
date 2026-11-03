@@ -1,7 +1,5 @@
-// A branch's diff, over the window: View diff on the Branches list, a
-// review and a task with a branch. The node with the project's checkout
-// reads it against the default branch, the branch's worktree with its
-// uncommitted changes when it has one. Esc or Close goes back.
+// A branch's diff, over the window: View diff on the Branches list, a review
+// and a task with a branch.
 import type { DiffView } from "./diff-state.ts";
 import { diffView } from "./diffview.ts";
 import { invoke } from "./tauri.ts";

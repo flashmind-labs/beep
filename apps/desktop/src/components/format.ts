@@ -1,5 +1,9 @@
 // Words for numbers and times, as the command center window says them.
 
+const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+/// `s` as HTML text or an attribute value.
+export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESCAPES[c]);
+
 /// "12 min", "3 h", "2 d" or "now": how long ago `ms` was.
 export function ago(ms: number, now = Date.now()) {
   const s = Math.max(0, Math.round((now - ms) / 1000));

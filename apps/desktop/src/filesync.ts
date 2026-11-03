@@ -1,8 +1,7 @@
 // A project's file sync: the board's File sync tile, and its full view with
 // each machine's state, transfer rate and time left, the changes still
-// waiting, the conflicts with a way to keep either side, and Pause/Resume
-// for every machine. center.ts draws the page; this file keeps the sync
-// detail and reads it again while the view is open.
+// waiting, the conflicts with a way to keep either side, and Pause/Resume for
+// every machine.
 import type { invoke as Invoke } from "./tauri.ts";
 import { bytes } from "./home.ts";
 import type { SyncRow } from "./home.ts";
@@ -167,8 +166,7 @@ export function waitingList(d: Pick<SyncDetail, "machines"> | null | undefined) 
 type RowLike = Pick<SyncRow, "machine_id" | "status" | "files" | "pending">;
 
 /// The board's File sync tile: one row per machine with its chip, from the
-/// detail once it is read, else from the `project_sync` rows. `names` gives
-/// a machine's name by id for those rows.
+/// detail once it is read, else from the `project_sync` rows.
 export function fileSyncTile(d: SyncDetail | null | undefined, rows?: readonly RowLike[] | null, names?: ReadonlyMap<string, string> | null): TileData {
   const machines: MachineDetail[] = d ? d.machines : (rows || []).map(r => ({
     machine_id: r.machine_id, machine_name: names?.get(r.machine_id) || "Machine", folder: "", status: r.status,

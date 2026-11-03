@@ -1,9 +1,5 @@
-// What a project's page last read, section by section, so an opened
-// project draws at once from it and then reads again quietly. The window
-// keeps it in memory while it lives and hands it to the app to save, so a
-// fresh start shows the last known data too. It belongs to one account:
-// a file saved for another is dropped, and so is everything on sign-out.
-// Pure state, no DOM, so the tests check it.
+// What a project's page last read, section by section, so an opened project
+// draws at once from it and then reads again quietly.
 
 /// A project page section the cache keeps: the project chat's view, where
 /// the project lives, its agent sessions, its pull requests and issues, its
@@ -29,18 +25,16 @@ export interface PageCacheFile {
 
 /// Raised whenever the saved layout changes.
 export const PAGE_CACHE_FORMAT = 1;
-/// How often a section reads again from the client, at most, unless the
-/// user asks with Refresh. Pull requests, issues and branches come from the
-/// code host through the server, so this stays at a few minutes.
+/// How often a section reads again from the client, at most, unless the user
+/// asks with Refresh.
 export const REFRESH_MS = 3 * 60_000;
 /// Where the project lives and its sessions come from the machines, not
 /// the code host, and change as agents start, so they read sooner.
 export const MACHINE_REFRESH_MS = 60_000;
 
 /// Opening a project reads what the server keeps of its code host (pull
-/// requests, issues, runs) again once it is this old, so an issue closed
-/// or a run started since shows. It is the server's copy: the host itself
-/// is read at most every few minutes whatever the window asks.
+/// requests, issues, runs) again once it is this old, so an issue closed or a
+/// run started since shows.
 export const SWITCH_MS = 20_000;
 
 /// Each section's `REFRESH_MS` or `MACHINE_REFRESH_MS`. The project
@@ -99,9 +93,8 @@ export interface Freshness {
   text: string;
 }
 
-/// The header note for data read at `at` (undefined: none yet), `loading`
-/// while a read is on its way. Data under `QUIET_MS` old says nothing, so
-/// the quick polls of an open page never flash a spinner.
+/// The header note for data read at `at` (undefined: none yet), `loading` while
+/// a read is on its way.
 export function freshness(at: number | undefined, loading: boolean, now: number): Freshness {
   const old = at === undefined ? Infinity : now - at;
   if (loading && old >= QUIET_MS) return { spin: true, text: "" };
@@ -138,8 +131,7 @@ export class PageCache {
   }
 
   /// The cache from a saved `file`, or an empty one when the file is for
-  /// another account or format, or does not parse. Answers past
-  /// `MAX_AGE_MS` stay behind.
+  /// another account or format, or does not parse.
   static from(file: unknown, account: string | null, clock: () => number = Date.now): PageCache {
     const cache = new PageCache(account, clock);
     cache.restore(file, account);

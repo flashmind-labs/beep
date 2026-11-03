@@ -1,6 +1,5 @@
-// The bar under a project page, as plain data: it starts a coding agent in
-// the project's checkout on a machine, by default in the checkout as it is.
-// center.ts draws it.
+// The bar under a project page, as plain data: it starts a coding agent in the
+// project's checkout on a machine, by default in the checkout as it is.
 
 import type { CheckoutPick } from "./bar/agentpick.ts";
 
@@ -21,8 +20,7 @@ export interface BarPlace {
 }
 
 /// Where the bar starts: on `machine` (a machine id, or "auto") at the
-/// project's checkout there. Auto takes the first machine by name that has
-/// both a checkout and a coding agent. Null when there is none.
+/// project's checkout there.
 export function barPlace(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[], machine: string): BarPlace | null {
   const able = hosts.filter(h => h.agents.length && places.some(p => p.machine === h.machine_id));
   const host = machine === "auto"

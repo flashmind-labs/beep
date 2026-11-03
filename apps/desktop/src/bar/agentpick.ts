@@ -40,9 +40,8 @@ const level = (value: string, label: string): Effort => ({ value, label });
 const OFF = level("off", "Off"), MINIMAL = level("minimal", "Minimal"), LOW = level("low", "Low"),
   MEDIUM = level("medium", "Medium"), HIGH = level("high", "High"), XHIGH = level("xhigh", "Extra high"), MAX = level("max", "Max");
 
-/// The levels each harness takes, as the server's `efforts` lists them:
-/// Claude Code's `--effort`, Codex's `model_reasoning_effort` and pi's
-/// `--thinking`. The rest have none.
+/// The levels each harness takes, as the server's `efforts` lists them: Claude
+/// Code's `--effort`, Codex's `model_reasoning_effort` and pi's `--thinking`.
 const EFFORTS: Record<string, readonly Effort[]> = {
   claude: [LOW, MEDIUM, HIGH, XHIGH, MAX],
   codex: [LOW, MEDIUM, HIGH],
@@ -78,9 +77,8 @@ export interface ModelRow {
   note: string;
 }
 
-/// The model column for `list` (`undefined` while the machine is asked,
-/// `null` when it cannot say), filtered by `query`. A harness that names
-/// models freely gets the query itself as a row to pick.
+/// The model column for `list` (`undefined` while the machine is asked, `null`
+/// when it cannot say), filtered by `query`.
 export function modelRows(list: AgentModels | null | undefined, query: string): { rows: ModelRow[]; note: string } {
   const q = query.trim(), lower = q.toLowerCase();
   // The harness's own "default" entry is our Default row: one row, whose
@@ -117,9 +115,8 @@ export interface MachineRow {
   enabled: boolean;
 }
 
-/// The Machine menu after Auto: each machine that can run an agent, then
-/// online ones without any, then offline ones, each by name. `known` are
-/// all the user's machines, when read.
+/// The Machine menu after Auto: each machine that can run an agent, then online
+/// ones without any, then offline ones, each by name.
 export function machineRows(
   hosts: readonly { machine_id: string; machine_name: string; agents: string[] }[],
   known: readonly { id: string; name: string; online: boolean }[] | null,
@@ -152,8 +149,6 @@ export function machineRows(
 export type CheckoutPick = "current" | "branch" | "new" | { worktree: string };
 
 /// What a start picks when the user picks nothing: the checkout as it is.
-/// Beep makes no branch; the agent is told to make its own branch and
-/// worktree before it changes files.
 export const DEFAULT_CHECKOUT: CheckoutPick = "current";
 
 /// The session fields the worktree list reads.
@@ -349,12 +344,9 @@ export interface Placement {
   maxHeight: number | null;
 }
 
-/// Places a popover of `size` by `anchor` inside a `view` of that size:
-/// above it with right edges lined up when it fits there, else below, else
-/// on the roomier side cut to fit. It stays `margin` inside the view.
-/// Where a menu opens from its pill: below it when it fits, else on the
-/// roomier side, cut to the room there so it scrolls. `area` is the band
-/// it must stay in (the window above the key hints), `width` the window's.
+/// Places a popover of `size` by `anchor` inside a `view` of that size: above
+/// it with right edges lined up when it fits there, else below, else on the
+/// roomier side cut to fit.
 export function placeMenuAt(anchor: Rect, size: { width: number; height: number }, area: { top: number; bottom: number; width: number }, margin = 8, gap = 4) {
   const below = area.bottom - margin - (anchor.top + anchor.height + gap);
   const above = anchor.top - gap - (area.top + margin);
