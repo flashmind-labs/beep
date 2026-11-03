@@ -98,6 +98,15 @@ pub enum Request {
         model: Option<ModelId>,
         effort: Option<Effort>,
     },
+    /// A message for the running turn: sent once the agent's current tool
+    /// call finishes, by stopping the turn there and prompting again, and
+    /// ahead of any `Prompt` waiting. With no turn running it goes as a
+    /// `Prompt`. A node from before it answers that it does not know the
+    /// request.
+    Steer { text: String, images: Vec<Upload> },
+    /// Takes back the `Steer`s not yet sent to the agent. A node from
+    /// before it answers that it does not know the request.
+    DropSteers {},
 }
 
 /// What the node sends on an agent stream.

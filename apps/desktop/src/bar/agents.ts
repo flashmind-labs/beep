@@ -3,6 +3,7 @@ import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from 
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { type Attached, batches, dropDelivered, markDelivered, steersToQueue, type Waiting } from "./agentqueue.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { composeField, composeMessage } from "./compose.ts";
@@ -92,15 +93,6 @@ export interface Started {
   why: string;
 }
 
-/// An image waiting to go with the next message.
-interface Attached {
-  name: string;
-  mime: string;
-  size: number;
-  /// Base64, and as a data URL for its chip.
-  data: string;
-  url: string;
-}
 
 /// The session the view follows, as the node knows it.
 interface OpenAgent {
@@ -146,10 +138,12 @@ export interface AgentForm {
   typing?: boolean;
 }
 
-/// What `agent_steer` sends: a message, stop the turn, close the session,
-/// or switch its model or thinking from the next turn.
-type Steer = { prompt: { text: string; images?: { name: string; mime: string; data: string }[] } } | { cancel: null } | { close: null }
-  | { configure: { model: string | null; effort: string | null } };
+type SentImage = { name: string; mime: string; data: string };
+/// What `agent_steer` sends: a message, one for the running turn, take
+/// those back, stop the turn, close the session, or switch its model or
+/// thinking from the next turn.
+type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
+  | { cancel: null } | { close: null } | { configure: { model: string | null; effort: string | null } };
 
 interface AgentState {
   readError: string;
@@ -191,9 +185,15 @@ interface AgentState {
   all: Set<number>;
   /// The subagent opened as its own conversation, by its call's place.
   child: number | null;
-  /// Messages typed while a turn runs, sent when it stops or ends.
-  queue: string[];
+  /// Messages typed while a turn runs: steers, sent at once and shown until
+  /// delivered, and queued ones, sent when it stops or ends.
+  queue: Waiting[];
   flushing: boolean;
+  /// Reads of the open session so far, which tell a read that left before
+  /// a steer was sent from one after.
+  polls: number;
+  /// The session whose turn the user stopped, until it no longer runs.
+  stopping: string | null;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
 }
@@ -205,7 +205,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
+  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false,
 };
 export const agentLog = () => import("../agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -224,6 +224,8 @@ export const agentImages = new Map<string, Promise<string | null> | string | nul
 let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 export const AGENT_POLL_MS = 1500;
+/// How often while a stopped turn has not ended yet.
+export const AGENT_STOP_POLL_MS = 400;
 /// A quiet session (idle, or started outside Beep) unchanged this long is
 /// asked every `AGENT_SLOW_MS`, and after `AGENT_PAUSE_AFTER` no more.
 export const AGENT_SLOW_AFTER = 2 * 60_000;
@@ -294,7 +296,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
+    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false,
   });
   drawAgentFrame();
   pollAgent();
@@ -311,7 +313,8 @@ export const agentOnScreen = () => document.visibilityState === "visible" && !AG
 export function agentDelay() {
   const s = AG.page?.session;
   if (!s || s.status === "ended") return null;
-  if (!s.external && AGENT_ACTIVE.has(s.status)) return AGENT_POLL_MS;
+  // Once stopped, the turn ending shows as soon as it does.
+  if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
   const still = Date.now() - AG.changed;
   if (still >= AGENT_PAUSE_AFTER) return null;
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
@@ -324,6 +327,7 @@ export async function pollAgent() {
   const o = AG.open;
   if (!o || !isOpen(o) || AG.inflight === o || !agentOnScreen()) return;
   AG.inflight = o;
+  const read = ++AG.polls;
   try {
     const page = await invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST });
     if (isOpen(o)) {
@@ -334,6 +338,8 @@ export async function pollAgent() {
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
+      if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
+      markDelivered(AG.queue, page.queued, read);
       drawAgentBody();
       flushQueue();
     }
@@ -374,11 +380,17 @@ if (!PANE) {
 /// Whether the server turned images down for the open session.
 export const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
 
-/// Whether the open session's turn runs, so Enter queues and Esc
-/// interrupts, as flsh does.
+/// Whether the open session's turn runs, so Enter steers, Option-Enter
+/// queues and Esc interrupts, as flsh does.
 const turnRuns = () => {
   const s = AG.page?.session;
   return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
+};
+
+/// Whether the user stopped the open session's turn and it has not ended.
+const stoppingNow = () => {
+  const s = AG.page?.session;
+  return !!s && AG.stopping === s.id && AGENT_ACTIVE.has(s.status);
 };
 
 /// The session's keys on one small line.
@@ -389,7 +401,11 @@ export function agentHints() {
   if (AG.child != null) return slim([["esc", "parent session"]]);
   if (s?.external) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
-  if (turnRuns()) return slim([["esc", AG.queue.length ? "interrupt and send queued" : "interrupt"], [ICON.ret, "queue"]]);
+  if (turnRuns()) {
+    const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
+    if (stoppingNow()) return slim(keys);
+    return slim([...keys, ["esc", AG.queue.length ? "interrupt and send queued" : "interrupt"]]);
+  }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
   return slim([...paste, [ICON.ret, "send"], ["esc", "back"]]);
@@ -526,12 +542,14 @@ const sessionPicks = new Map<string, { model: string; effort: string | null }>()
 /// The session the mentions waiting above the field belong to.
 let paneSessionKey = "";
 
+const STOP_MARK = '<span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>';
+
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
+    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${STOP_MARK}Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
@@ -559,7 +577,7 @@ function agentClick(e: MouseEvent) {
   if (target.closest("#agmodelb")) return toggleModelPicker();
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
-  if (queued) return editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
+  if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
@@ -619,7 +637,7 @@ function agentClick(e: MouseEvent) {
   }
   if (target.closest("#agparent2")) return closeChild();
   if (target.closest("#agresume")) return resumeAgent();
-  if (target.closest("#agstop")) return steerAgent({ cancel: null });
+  if (target.closest("#agstop")) return void interruptAgent();
   if (target.closest("#agclose")) return steerAgent({ close: null });
 }
 
@@ -989,8 +1007,8 @@ export function drawAgentBody(keep?: string) {
   const b = $<ChatBody>("#agbody"), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
-  const st = $("#agstate");
-  if (st) st.innerHTML = stateTag(s.status);
+  const st = $("#agstate"), stopping = stoppingNow();
+  if (st) st.innerHTML = stopping ? '<span class="dstate run">Stopping</span>' : stateTag(s.status);
   if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
   // Read where the reader is before the log is drawn again: only a reader
   // at the bottom follows new entries; anyone else stays where they are,
@@ -1003,7 +1021,9 @@ export function drawAgentBody(keep?: string) {
   const question = q ? questionCard(q) : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
-  const queued = p.queued ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${p.queued === 1 ? "1 message waits" : `${p.queued} messages wait`} for the turn to end</div>` : "";
+  // Steers sent from here show above the field; this counts the others.
+  const others = p.queued - AG.queue.filter(q => q.state === "sent" || q.state === "sending").length;
+  const queued = others > 0 ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${others === 1 ? "1 message waits" : `${others} messages wait`} for the turn to end</div>` : "";
   // The question, plan and files sit under the log, by the field.
   const card = question || plan || files || queued
     ? `<div class="dcard dcoder">${question}${plan}${files}${queued}<div style="height:12px"></div></div>` : "";
@@ -1031,8 +1051,15 @@ export function drawAgentBody(keep?: string) {
   const close = $("#agclose");
   if (close) close.style.display = s.status === "ended" ? "none" : "";
   // Only a turn that runs can be stopped.
-  const stop = $("#agstop");
-  if (stop) stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
+  const stop = $<HTMLButtonElement>("#agstop");
+  if (stop) {
+    stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
+    // Stopped: it says so at once, while the agent winds the turn down.
+    if (stop.disabled !== stopping) {
+      stop.disabled = stopping;
+      stop.innerHTML = stopping ? '<span class="dspin"></span>Stopping' : `${STOP_MARK}Stop`;
+    }
+  }
   if (scroll === "bottom") b.scrollTop = b.scrollHeight;
   else if (anchor) restoreScroll(b, anchor);
   // A row opened at the bottom pushes the bottom away: the log follows
@@ -1112,66 +1139,179 @@ export async function switchSessionModel(s: AgentRow, next: { model: string; eff
 
 // ----- Messages typed while a turn runs -----
 
-/// The queued messages above the field, each to edit or take out.
+/// The steers and queued messages above the field, each with what goes
+/// with it, to edit or take out.
 function drawQueue() {
   const field = $("#agfield");
   if (!field) return;
+  dropDelivered(AG.queue);
   const old = $("#agqueue");
-  const el = AG.queue.length ? h(`<div class="ag-queue" id="agqueue">${AG.queue.map((q, i) =>
-    `<div class="it"><span class="lbl">Queued</span><span class="t" title="${esc(q)}">${esc(q)}</span><button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button></div>`).join("")}</div>`) : null;
+  const chip = (t: string) => `<span class="qatt" title="${esc(t)}">${esc(t)}</span>`;
+  const row = (q: Waiting, i: number) => {
+    const steer = q.how === "steer", done = q.state === "delivered";
+    const label = steer ? (done ? "Steered" : "Steer") : "Queued";
+    const when = !steer ? "after the turn" : done ? "delivered" : q.state === "sending" ? "sending" : "after the current step";
+    const what = q.typed || (q.images.length || q.paths.length ? "" : q.text);
+    const buttons = done ? "" : `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`;
+    return `<div class="it${steer ? " steer" : ""}${done ? " done" : ""}"><span class="lbl">${label}</span><span class="t" title="${esc(q.text)}">${esc(what)}</span>`
+      + `${q.images.map(a => chip(a.name)).join("")}${q.paths.map(chip).join("")}<span class="w">${when}</span>${buttons}</div>`;
+  };
+  const el = AG.queue.length ? h(`<div class="ag-queue" id="agqueue">${AG.queue.map(row).join("")}</div>`) : null;
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) ($("#agatt") ?? field).before(el);
 }
 
-/// Takes queued message `i` out; to edit, it goes back in the field.
-function editQueued(i: number, edit: boolean) {
-  const [text] = AG.queue.splice(i, 1);
+/// Takes what waits in the field for a message: the words, the paths it
+/// mentions and the images. Null when there is nothing, or a file is still
+/// uploading, which would otherwise be left behind.
+function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
+  if (MN.uploads.length) {
+    agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
+    return null;
+  }
+  // Copies: what is attached next must not join this message.
+  const typed = composeMessage(input?.value ?? ""), images = AG.att.slice();
+  if (!typed && !images.length && !MN.paths.length) return null;
+  const paths = MN.paths.slice();
+  const text = paths.length ? withMentions(typed, takeMentions()) : typed;
+  if (input) input.value = "";
+  if (images.length) { AG.att = []; drawAgentAttached(); }
+  return { how: "queue", typed, text, paths, images, state: null, after: 0 };
+}
+
+/// Puts `q` back in the field, before what is typed there.
+function backInField(q: Pick<Waiting, "typed" | "paths" | "images">, sep = "\n") {
   const input = $<HTMLTextAreaElement>("#agmsg");
-  if (edit && input && text != null) input.value = input.value ? `${text}\n${input.value}` : text;
-  drawQueue();
-  redrawAgentHints();
+  if (input && q.typed) input.value = input.value ? `${q.typed}${sep}${input.value}` : q.typed;
+  MN.paths = [...q.paths, ...MN.paths.filter(p => !q.paths.includes(p))];
+  AG.att = [...q.images, ...AG.att];
+  drawAgentAttached();
   input?.focus();
 }
 
-/// Queues a message typed while the turn runs, as flsh does.
-function queueMessage(input: HTMLTextAreaElement) {
-  const text = composeMessage(input.value);
-  if (!text) return;
-  AG.queue.push(text);
-  input.value = "";
+/// Takes waiting message `i` out; to edit, it goes back in the field. A
+/// steer the node holds is taken back from it first, and the others sent
+/// again in order.
+async function editQueued(i: number, edit: boolean) {
+  const q = AG.queue[i], o = AG.open;
+  if (!q || q.state === "delivered") return;
+  AG.queue.splice(i, 1);
+  drawQueue();
+  if (q.how === "steer" && q.state === "sent") {
+    if (!await steerAgent({ drop_steers: null })) {
+      if (isOpen(o)) { AG.queue.splice(i, 0, q); drawQueue(); }
+      return;
+    }
+    if (!isOpen(o)) return;
+    for (const other of AG.queue.filter(x => x.how === "steer" && x.state === "sent")) await sendSteer(other);
+  }
+  if (edit) backInField(q);
   drawQueue();
   redrawAgentHints();
 }
 
-/// Sends what was queued once the turn stopped or ended, as one message.
-/// An ended session takes it back into the field, before what is typed
-/// there, to continue with; with no field on screen it stays queued.
+/// Option-Enter while the turn runs: queues the message, with what is
+/// attached, for after the turn.
+function queueMessage(input: HTMLTextAreaElement) {
+  const q = takeMessage(input);
+  if (!q) return;
+  AG.queue.push(q);
+  drawQueue();
+  redrawAgentHints();
+}
+
+/// Enter while the turn runs: steers it. The message and what is attached
+/// go to the node now, which hands them to the agent once its current tool
+/// call finishes.
+function steerMessage(input: HTMLTextAreaElement) {
+  const q = takeMessage(input);
+  if (!q) return;
+  q.how = "steer";
+  AG.queue.push(q);
+  sendSteer(q);
+}
+
+async function sendSteer(q: Waiting) {
+  const o = AG.open;
+  if (!o) return;
+  q.state = "sending";
+  drawQueue();
+  redrawAgentHints();
+  if (q.images.length) keepAgentPics(o, q.images);
+  const images = q.images.map(({ name, mime, data }) => ({ name, mime, data }));
+  const ok = await steerAgent({ steer: images.length ? { text: q.text, images } : { text: q.text } });
+  if (!isOpen(o)) return;
+  if (q.how !== "steer") {
+    // Esc made it a queued message while it was on its way.
+  } else if (ok) {
+    q.state = "sent";
+    q.after = AG.polls;
+  } else {
+    // Nothing went: it waits in the field again, under the note that says why.
+    const at = AG.queue.indexOf(q);
+    if (at >= 0) AG.queue.splice(at, 1);
+    backInField(q);
+  }
+  drawQueue();
+  redrawAgentHints();
+}
+
+/// Sends what was queued once the turn stopped or ended, as few messages
+/// as its images allow, in order. An ended session takes it back into the
+/// field, before what is typed there, to continue with; with no field on
+/// screen it stays queued.
 function flushQueue() {
   const o = AG.open, page = AG.page, s = page?.session;
-  if (!AG.queue.length || !o || !page || !s || AG.flushing || AGENT_ACTIVE.has(s.status)) return;
-  const text = AG.queue.join("\n\n"), ended = s.status === "ended" || s.external;
+  const waiting = AG.queue.filter(q => q.how === "queue");
+  if (!waiting.length || !o || !page || !s || AG.flushing || AGENT_ACTIVE.has(s.status)) return;
+  const ended = s.status === "ended" || s.external;
   const input = $<HTMLTextAreaElement>("#agmsg");
   if (ended && !input) return;
-  AG.queue = [];
+  AG.queue = AG.queue.filter(q => q.how !== "queue");
   drawQueue();
   redrawAgentHints();
   if (ended) {
-    input!.value = input!.value ? `${text}\n\n${input!.value}` : text;
+    backInField({
+      typed: waiting.map(q => q.typed).filter(Boolean).join("\n\n"),
+      paths: waiting.flatMap(q => q.paths),
+      images: waiting.flatMap(q => q.images),
+    }, "\n\n");
     return;
   }
   AG.flushing = true;
-  page.entries.push({ kind: "user", text });
-  drawAgentBody();
-  steerAgent({ prompt: { text } }).then(ok => {
+  (async () => {
+    const parts = batches(waiting, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL);
+    for (const [n, part] of parts.entries()) {
+      page.entries.push({ kind: "user", text: [part.text, ...part.images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") });
+      drawAgentBody();
+      if (part.images.length) keepAgentPics(o, part.images);
+      const images = part.images.map(({ name, mime, data }) => ({ name, mime, data }));
+      const ok = await steerAgent({ prompt: images.length ? { text: part.text, images } : { text: part.text } });
+      if (!ok) {
+        // What did not go waits again, ahead of anything queued since.
+        if (isOpen(o)) {
+          const left = parts.slice(n).map(b => ({ how: "queue" as const, typed: b.text, text: b.text, paths: [], images: b.images, state: null, after: 0 }));
+          AG.queue.unshift(...left);
+          drawQueue();
+          redrawAgentHints();
+        }
+        break;
+      }
+    }
     AG.flushing = false;
-    if (!ok && isOpen(o)) { AG.queue.unshift(text); drawQueue(); redrawAgentHints(); }
-  });
+  })();
 }
 
 /// Esc while the turn runs: stop it and keep the field, so a correction
-/// can be typed and sent; what is queued goes once the stop lands.
+/// can be typed and sent. It reads as stopping at once; what is queued, and
+/// steers not delivered yet, go once the stop lands.
 export function interruptAgent() {
   if (!turnRuns()) return false;
+  steersToQueue(AG.queue);
+  AG.stopping = AG.page!.session.id;
+  drawQueue();
+  redrawAgentHints();
+  drawAgentBody();
   steerAgent({ cancel: null });
   $("#agmsg")?.focus();
   return true;
@@ -1212,8 +1352,9 @@ export async function steerAgent(steer: Steer) {
   if (!o || AG.page?.session.external) return false;
   let ok = false;
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "configure" in steer ? steer : Object.keys(steer)[0] });
-    if ("prompt" in steer && steer.prompt.images) keepSentImages(keys, steer.prompt.images);
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer ? steer : Object.keys(steer)[0] });
+    const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
+    if (sent?.images) keepSentImages(keys, sent.images);
     AG.note = "";
     ok = true;
   } catch (e) {
@@ -1226,6 +1367,8 @@ export async function steerAgent(steer: Steer) {
 export async function sendAgentMessage() {
   const input = $<HTMLTextAreaElement>("#agmsg"), typed = composeMessage(input?.value ?? ""), images = AG.att;
   if (!typed && !images.length && !MN.paths.length) return;
+  // A file still on its way would be left out of the message.
+  if (MN.uploads.length) return agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
   // Paths from the Files tab and uploads go after what was typed, as `@path`.
   const text = MN.paths.length ? withMentions(typed, takeMentions()) : typed;
   const o = AG.open!, page = AG.page!;
@@ -1332,11 +1475,12 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
   if (S.view === "agent") {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
-    if (cmd && e.key === ".") { e.preventDefault(); steerAgent({ cancel: null }); return true; }
+    if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();
-      // While the turn runs, Enter queues; the queue goes when it stops.
-      if (turnRuns()) queueMessage(e.target as HTMLTextAreaElement);
+      // While the turn runs, Enter steers it after its current tool call,
+      // and Option-Enter queues for after the turn.
+      if (turnRuns()) (e.altKey ? queueMessage : steerMessage)(e.target as HTMLTextAreaElement);
       else sendAgentMessage();
       return true;
     }

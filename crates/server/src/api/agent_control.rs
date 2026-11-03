@@ -554,6 +554,7 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     let request = node_request(steer.steer)?;
     let images = matches!(request, Request::PromptImages { .. });
     let configure = matches!(request, Request::Configure { .. });
+    let drop_steers = matches!(request, Request::DropSteers {});
     let live = live_host(&cx, &steer.machine_id).await?;
     let listed = limited(live.online.agent_sessions()).await?;
     if !listed
@@ -567,7 +568,16 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
         .agent_session(&steer.agent, &steer.session)
         .await
         .map_err(|e| ApiError::bad_request(format!("Could not reach the session: {e:#}")))?;
-    link.send(request).await.map_err(|e| {
+    // A node from before steering takes the message as one for after the
+    // turn, which is the nearest it can do.
+    let fallback = queued_instead(&request);
+    let sent = match (link.send(request).await, fallback) {
+        (Err(e), Some(prompt)) if format!("{e:#}").contains("unknown request") => {
+            link.send(prompt).await
+        }
+        (sent, _) => sent,
+    };
+    sent.map_err(|e| {
         let error = format!("{e:#}");
         // A node from before images does not know the request.
         if images && error.contains("unknown request") {
@@ -577,6 +587,10 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
         } else if configure && error.contains("unknown request") {
             ApiError::bad_request(
                 "beep-node on that machine is too old to switch a running session's model. Update it.",
+            )
+        } else if drop_steers && error.contains("unknown request") {
+            ApiError::bad_request(
+                "beep-node on that machine is too old to take a message back. Update it.",
             )
         } else {
             ApiError::bad_request(error)
@@ -823,6 +837,22 @@ fn is_image_key(key: &str) -> bool {
     key.len() == 16 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// The prompt a node from before `Request::Steer` gets for one: the same
+/// message, sent after the running turn.
+fn queued_instead(request: &Request) -> Option<Request> {
+    let Request::Steer { text, images } = request else {
+        return None;
+    };
+    Some(if images.is_empty() {
+        Request::Prompt { text: text.clone() }
+    } else {
+        Request::PromptImages {
+            text: text.clone(),
+            images: images.clone(),
+        }
+    })
+}
+
 /// What the node is asked for `steer`; an empty message or images over the
 /// limits are refused.
 fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
@@ -838,6 +868,14 @@ fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
             check_agent_images(&images)?;
             Request::PromptImages { text, images }
         }
+        AgentSteer::Steer { text, images } if text.trim().is_empty() && images.is_empty() => {
+            return Err(ApiError::bad_request("The message is empty."));
+        }
+        AgentSteer::Steer { text, images } => {
+            check_agent_images(&images)?;
+            Request::Steer { text, images }
+        }
+        AgentSteer::DropSteers {} => Request::DropSteers {},
         AgentSteer::Cancel {} => Request::Cancel {},
         AgentSteer::Close {} => Request::Close {},
         AgentSteer::Configure {
@@ -1002,6 +1040,37 @@ mod tests {
             })
         );
         let empty = node_request(AgentSteer::PromptImages {
+            text: " ".into(),
+            images: Vec::new(),
+        });
+        assert!(empty.is_err(), "nothing to send");
+    }
+
+    #[test]
+    fn a_steer_goes_to_the_node_and_falls_back_to_a_prompt() {
+        let steer = node_request(AgentSteer::Steer {
+            text: "Use the fixture instead".into(),
+            images: vec![png("shot.png", 1024)],
+        })
+        .unwrap();
+        assert!(matches!(&steer, Request::Steer { images, .. } if images.len() == 1));
+        assert!(matches!(
+            queued_instead(&steer),
+            Some(Request::PromptImages { text, images }) if text == "Use the fixture instead" && images.len() == 1
+        ));
+        let words = node_request(AgentSteer::Steer {
+            text: "stop editing tests".into(),
+            images: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            queued_instead(&words),
+            Some(Request::Prompt {
+                text: "stop editing tests".into()
+            })
+        );
+        assert_eq!(queued_instead(&Request::Cancel {}), None);
+        let empty = node_request(AgentSteer::Steer {
             text: " ".into(),
             images: Vec::new(),
         });

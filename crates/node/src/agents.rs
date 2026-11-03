@@ -990,6 +990,16 @@ pub async fn serve_session(
                             }
                         }
                     }
+                    Ok(Some(Request::Steer { text, images })) => {
+                        match Prompt::with_images(text, images) {
+                            Ok(prompt) => Command::Steer(prompt),
+                            Err(error) => {
+                                tx.send(&Event::Ack { error: Some(error) }).await?;
+                                continue;
+                            }
+                        }
+                    }
+                    Ok(Some(Request::DropSteers {})) => Command::DropSteers,
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::Cancel {})) => Command::Cancel,
                     Ok(Some(Request::Close {})) => Command::Close,
