@@ -532,7 +532,7 @@ export function drawAgentFrame() {
     : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
-    <div class="agshell" id="agshell"><div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>${paneFrame()}</div>`;
+    <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
@@ -559,7 +559,7 @@ function agentClick(e: MouseEvent) {
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
   // A subagent opens as its own conversation; the crumb goes back.
-  const sub = target.closest<HTMLElement>(":is(#agbody, #agpane) [data-sub]");
+  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
   if (target.closest("#agparent")) return closeChild();
   // "Show all N lines" opens the whole output in a box that scrolls.
