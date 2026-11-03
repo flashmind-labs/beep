@@ -337,7 +337,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .ca-row { cursor: pointer }
 .ca-row:hover, .ca-row:focus-visible { background: var(--elev); outline: none }
 .ca-row.bad { cursor: default; background: none }
-.ca-row .acts { grid-column: 2; grid-row: 1 / span 2; padding-left: 12px }
 .ca-row .t { display: flex; align-items: center; gap: 6px }
 .ca-row .t b { font-weight: 500; flex: none }
 .ca-ic.cc-ag { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; flex: none; display: inline-grid }
@@ -858,3 +857,5 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 button.cc-note.in-go { width: 100%; text-align: left; font: inherit; font-size: 12.5px; cursor: pointer }
 button.cc-note.in-go:hover { border-color: #3A4A41 }
 .cc-note.in-go .go { margin-left: auto; color: var(--emerald); white-space: nowrap }
+.pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
+.pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
