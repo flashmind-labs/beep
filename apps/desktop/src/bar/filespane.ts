@@ -1,11 +1,11 @@
 // The Files tab of a coding agent session's pane: the session's working
-// folder on its machine as a tree, read a folder at a time as folders
-// open, what git ignores left out unless asked, git's marks beside what
+// folder on its machine as a tree, read three levels at a time and again
+// from a folder opened at the edge of what was read, what git ignores left out unless asked, git's marks beside what
 // changed. A click opens a file in the pane; a row drags into the message
 // as a mention; files dropped on a folder upload there; right-click has
 // the rest.
 
-import { type GitChange, type Listing, type TreeFolder, type TreeRow, failedListing, parentPath, treeRows } from "../files-state.ts";
+import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, failedListing, mergeTree, parentPath, treeRows } from "../files-state.ts";
 import { resolvePath } from "../media-state.ts";
 import { esc, h, invoke } from "./core.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./mediapane.ts";
@@ -18,6 +18,13 @@ const F = {
   /// The session's machine and folder the tree is of.
   key: "",
   listings: new Map<string, Listing>(),
+  /// The folders the tree was read from, read again on refresh.
+  roots: new Set<string>(),
+  /// Folders being read now.
+  reading: new Set<string>(),
+  /// The node reads one folder at a time (from before trees).
+  flat: false,
+  timer: undefined as ReturnType<typeof setInterval> | undefined,
   open: new Set<string>(),
   filter: "",
   ignored: false,
@@ -39,6 +46,9 @@ const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stro
 const FILE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
 const TWIST = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>';
 
+/// How often an open Files view reads its folders again.
+const REFRESH_MS = 30_000;
+
 /// The Files view of the pane's session, made once per session.
 export function filesView() {
   const s = paneSession();
@@ -47,6 +57,11 @@ export function filesView() {
   F.el?.remove();
   F.key = key;
   F.listings = new Map();
+  F.roots = new Set();
+  F.reading = new Set();
+  F.flat = false;
+  clearInterval(F.timer);
+  F.timer = setInterval(() => { if (F.el?.isConnected && !document.hidden) refresh(); }, REFRESH_MS);
   F.open = new Set();
   F.filter = "";
   F.picked = null;
@@ -98,21 +113,33 @@ export function reloadFolder(dir: string) {
   }
 }
 
+/// Reads every folder the tree was read from again, in place.
+function refresh() {
+  for (const dir of F.roots) load(dir);
+}
+
+/// Reads the tree from `dir` down and merges it in.
 async function load(dir: string) {
   const s = paneSession();
-  if (!s) return;
+  if (!s || F.reading.has(dir)) return;
   const key = F.key;
   const had = F.listings.get(dir);
   F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
+  F.reading.add(dir);
   draw();
   try {
-    const got = await invoke<TreeFolder>("agent_tree", { machineId: s.machine_id, root: s.cwd, path: dir, ignored: F.ignored });
+    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: s.cwd, path: dir, ignored: F.ignored });
     if (F.key !== key) return;
-    F.listings.set(dir, { entries: got.entries, more: got.more, error: "" });
-    if (!dir) F.git = got.git;
+    mergeTree(F.listings, got);
+    F.roots.add(dir);
+    const top = got.folders[0];
+    if (!dir && top) F.git = top.git;
+    F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
   } catch (e) {
     if (F.key !== key) return;
     F.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
+  } finally {
+    if (F.key === key) F.reading.delete(dir);
   }
   draw();
 }
@@ -149,7 +176,8 @@ function toggle(path: string) {
   if (F.open.has(path)) F.open.delete(path);
   else {
     F.open.add(path);
-    if (!F.listings.get(path)?.entries) load(path);
+    // Read on from a folder at the edge: shown at once when it was read.
+    if (!F.listings.get(path)?.entries || (!F.flat && atEdge(F.listings, path))) load(path);
   }
   draw();
 }
@@ -167,9 +195,9 @@ function wire(el: HTMLElement) {
   find.addEventListener("keydown", e => { if (e.key === "Escape" && find.value) { e.stopPropagation(); e.preventDefault(); find.value = ""; F.filter = ""; draw(); } });
   el.querySelector<HTMLInputElement>(".agfign input")!.addEventListener("change", e => {
     F.ignored = (e.target as HTMLInputElement).checked;
-    for (const dir of F.listings.keys()) load(dir);
+    refresh();
   });
-  el.querySelector("[data-frefresh]")!.addEventListener("click", () => { for (const dir of F.listings.keys()) load(dir); });
+  el.querySelector("[data-frefresh]")!.addEventListener("click", refresh);
   tree.addEventListener("click", e => {
     closeFilesMenu();
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");

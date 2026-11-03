@@ -1436,12 +1436,18 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             root,
             path,
             ignored,
+            depth,
         } => match agents.reachable(&root, reach::Access::Read).await {
             Ok(real) => {
                 work_request(move || {
                     let root = work_folder::WorkRoot::at(&real)?;
-                    let folder = work_folder::list(&root, &path, ignored)?;
-                    Ok(SessionsReply::Folder { folder })
+                    Ok(if depth == 0 {
+                        let folder = work_folder::list(&root, &path, ignored)?;
+                        SessionsReply::Folder { folder }
+                    } else {
+                        let tree = work_folder::tree(&root, &path, ignored, depth)?;
+                        SessionsReply::Tree { tree }
+                    })
                 })
                 .await
             }
