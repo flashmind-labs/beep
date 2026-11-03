@@ -30,6 +30,9 @@ fn runs(json: &str) -> Vec<WorkflowRun> {
     serde_json::from_str::<RunsReply>(json)
         .expect("the fixture is a run list")
         .runs()
+        .into_iter()
+        .map(|listed| listed.run)
+        .collect()
 }
 
 #[test]

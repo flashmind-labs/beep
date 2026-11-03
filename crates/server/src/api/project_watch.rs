@@ -7,7 +7,10 @@ use super::{
 };
 use crate::{
     app::App,
-    projects::{issues, model::ProjectId},
+    projects::{
+        issues,
+        model::{IssueHost, ProjectId},
+    },
     protocol::*,
     repo_watch::ListsCopy,
     repo_watch::{Changed, LiveState},
@@ -35,7 +38,27 @@ pub(super) async fn get_project_run(cx: Cx, req: GetProjectRun) -> Reply<Project
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
     cx.app
         .repo_watch
-        .run_detail(&cx.app, &cx.user, &project, req.run_id)
+        .run_detail(&cx.app, &cx.user, &project, None, req.run_id)
+        .await
+        .map_err(ApiError::bad_request)
+}
+
+pub(super) async fn list_project_runs_all(cx: Cx, req: ListProjectRunsAll) -> Reply<HostedRuns> {
+    let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
+    Ok(cx
+        .app
+        .repo_watch
+        .runs_everywhere(&cx.app, &cx.user, &project, req.refresh)
+        .await)
+}
+
+pub(super) async fn get_project_run_on(cx: Cx, req: GetProjectRunOn) -> Reply<ProjectRunDetail> {
+    let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
+    let host = IssueHost::of_hostname(req.host.trim())
+        .ok_or_else(|| ApiError::bad_request(format!("{} is not a git host.", req.host)))?;
+    cx.app
+        .repo_watch
+        .run_detail(&cx.app, &cx.user, &project, Some(&host), req.run_id)
         .await
         .map_err(ApiError::bad_request)
 }

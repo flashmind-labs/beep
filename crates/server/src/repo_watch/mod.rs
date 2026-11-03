@@ -7,6 +7,7 @@
 
 mod actions;
 mod forward;
+mod hosts;
 mod http;
 mod lists;
 mod live;
