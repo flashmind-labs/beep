@@ -55,6 +55,7 @@ mod transcribe;
 mod updates;
 mod usage;
 mod work;
+mod work_diff;
 mod work_files;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
@@ -311,6 +312,8 @@ pub fn router() -> Router {
         .call(work_files::list_work_folder)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
+        .call(work_diff::get_work_diff)
+        .call(work_diff::get_branch_diff)
         .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)

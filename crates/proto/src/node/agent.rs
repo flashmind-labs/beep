@@ -477,6 +477,27 @@ pub enum SessionsRequest {
     /// and a session that failed. Alerts that came while no stream was
     /// open wait, a bounded few. A node from before it closes the stream.
     FollowAlerts {},
+    /// What changed in the checkout `ask.root`, as `GetWorkDiff` asks it.
+    /// Answered with `Diff`, or `Error` saying why. A node from before it
+    /// closes the stream.
+    Diff {
+        ask: DiffAsk,
+    },
+}
+
+/// What `SessionsRequest::Diff` reads, as `GetWorkDiff` names it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiffAsk {
+    /// The folder in the checkout, absolute or starting `~/`.
+    pub root: String,
+    /// The branch to compare against; empty for the checkout's default.
+    pub base: String,
+    /// Empty for the working tree, else a branch.
+    pub head: String,
+    /// Files to give in full, and only them; empty for every file.
+    pub only: Vec<String>,
+    /// Lockfiles come with their lines.
+    pub lockfiles: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -565,6 +586,10 @@ pub enum SessionsReply {
     /// One alert on a `FollowAlerts` stream.
     Alert {
         alert: Alert,
+    },
+    /// The answer to `Diff`.
+    Diff {
+        diff: crate::WorkDiff,
     },
 }
 

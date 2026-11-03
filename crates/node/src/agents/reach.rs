@@ -3,8 +3,8 @@
 //! Read and written: the node's workspace and shared folders, and the
 //! folders coding agent sessions work in. Only read: the harnesses' session
 //! logs and Claude Code's temp folder, where it keeps the files it makes.
-//! The custom agents list (`SessionsRequest::CustomAgents`) reads only in
-//! the work folders.
+//! The custom agents list (`SessionsRequest::CustomAgents`) and diffs
+//! (`SessionsRequest::Diff`) read only in the work folders.
 //! Every path is checked with its links and `..` resolved.
 
 use super::{Agents, media_file::resolve};
@@ -24,6 +24,8 @@ pub(super) enum Access {
     Write,
     /// Read, but only in a work folder: a project folder asked for.
     Work,
+    /// Read as `Work`, for a checkout's diff.
+    Diff,
 }
 
 /// The folders a request may reach, as they were named.
@@ -52,7 +54,7 @@ impl Reach {
         match access {
             Access::Read => inside(&self.work) || inside(&self.read),
             Access::Write => inside(&self.work) && !inside(&self.no_write),
-            Access::Work => inside(&self.work),
+            Access::Work | Access::Diff => inside(&self.work),
         }
     }
 }
@@ -63,6 +65,7 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
         Access::Read => "read",
         Access::Write => "write",
         Access::Work => "list custom agents in",
+        Access::Diff => "read changes in",
     };
     anyhow::anyhow!(
         "{asked} is outside the folders Beep may {what} on this node: its workspace, \

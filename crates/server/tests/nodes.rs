@@ -23,14 +23,14 @@ use beep_server::{
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
         AgentModels, AgentNoticeKey, AgentSteer, AgentTokens, ApiError, CreateNodeToken,
-        CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind, GetAgentFile, GetAgentImage,
-        GetAgentSession, GetNodeToken, GetSpendReport, GetUsage, GetUsageReport, GitChange,
-        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
-        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource,
-        PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken,
-        SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload, WorkEntry, WorkFolder,
-        WriteWorkFile, image_key,
+        CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus,
+        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
+        GetUsageReport, GetWorkDiff, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
+        ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability,
+        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
+        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
+        WorkDiff, WorkEntry, WorkFolder, WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1327,6 +1327,44 @@ impl Protocol for FakeSessions {
                 ) if path.contains("..") => SessionsReply::Error {
                     message: format!("{path} leads outside the session's folder"),
                 },
+                // A diff: refused outside `/srv`, as a node refuses a
+                // folder outside its reach; else one file named by the head.
+                (SessionsRequest::Diff { ask }, _) if !ask.root.starts_with("/srv") => {
+                    SessionsReply::Error {
+                        message: format!(
+                            "{} is outside the folders Beep may read changes in",
+                            ask.root
+                        ),
+                    }
+                }
+                (SessionsRequest::Diff { ask }, _) => SessionsReply::Diff {
+                    diff: WorkDiff {
+                        root: ask.root,
+                        base: if ask.base.is_empty() {
+                            "origin/main".into()
+                        } else {
+                            ask.base
+                        },
+                        merge_base: "abc1234".into(),
+                        working_tree: ask.head.is_empty(),
+                        files: vec![DiffFile {
+                            path: if ask.head.is_empty() {
+                                "src/main.rs".into()
+                            } else {
+                                ask.head
+                            },
+                            old_path: None,
+                            status: DiffStatus::Modified {},
+                            additions: 1,
+                            deletions: 0,
+                            hunks: Vec::new(),
+                            left_out: None,
+                        }],
+                        additions: 1,
+                        deletions: 0,
+                        more: 0,
+                    },
+                },
                 (SessionsRequest::Folder { path, ignored, .. }, _) => SessionsReply::Folder {
                     folder: WorkFolder {
                         path,
@@ -2138,6 +2176,40 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
         assert!(matches!(error, ApiError::BadRequest { .. }), "{error:?}");
     }
     let missing = client.call(&read("gone.txt", 0, 10)).await.unwrap_err();
+    assert!(matches!(
+        missing.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_sessions_changes_are_read_through_its_node() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center.node(0, "build-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let ask = |root: &str| GetWorkDiff {
+        machine_id: build.clone(),
+        root: root.into(),
+        base: String::new(),
+        head: String::new(),
+        only: Vec::new(),
+        lockfiles: false,
+    };
+    let diff = client.call(&ask("/srv/project")).await.unwrap();
+    assert_eq!(diff.root, "/srv/project");
+    assert_eq!(diff.base, "origin/main");
+    assert!(diff.working_tree);
+    assert_eq!(diff.files[0].path, "src/main.rs");
+    let refused = client.call(&ask("/etc")).await.unwrap_err();
+    let refused = refused.downcast::<ApiError>().unwrap();
+    assert!(
+        matches!(&refused, ApiError::BadRequest { message } if message.contains("build-box")),
+        "{refused:?}"
+    );
+    let mut elsewhere = ask("/srv/project");
+    elsewhere.machine_id = "not-a-machine".into();
+    let missing = client.call(&elsewhere).await.unwrap_err();
     assert!(matches!(
         missing.downcast::<ApiError>().unwrap(),
         ApiError::NotFound {}
