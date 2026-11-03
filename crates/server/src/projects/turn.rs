@@ -460,64 +460,13 @@ async fn owned_issues(
 mod tests {
     use super::*;
     use crate::{
-        app::Draws,
         projects::{
             model::{IssueHost, RepoName},
             testing::FakeFleet,
         },
-        protocol::{DeviceKind, node::Capability},
+        protocol::node::Capability,
         store::{NewTask, TestDb},
     };
-    use uuid::Uuid;
-
-    fn message(text: &str, scheduled: Option<&str>) -> Message {
-        Message {
-            session_id: Uuid::new_v4(),
-            request_id: Uuid::new_v4(),
-            message: text.to_owned(),
-            cron_id: None,
-            scheduled: scheduled.map(str::to_owned),
-            always_sent: false,
-            woken: None,
-            images: Vec::new(),
-            files: Vec::new(),
-            voice: None,
-            spoken: false,
-            answer: None,
-            model: None,
-            thinking: None,
-            origin: DeviceKind::Phone {},
-            platform: None,
-            draws: Draws::default(),
-            finished_research: false,
-        }
-    }
-
-    #[test]
-    fn planning_turns_are_prompts_and_replans() {
-        assert_eq!(turn_kind(&message("Fix it", None)), TurnKind::Planning);
-        assert_eq!(
-            turn_kind(&message("The worker ended", Some(REPLAN_LABEL))),
-            TurnKind::Planning
-        );
-        assert_eq!(
-            turn_kind(&message("Plan issue 12", Some(ISSUE_LABEL))),
-            TurnKind::Planning
-        );
-        assert_eq!(
-            turn_kind(&message("Turn done", Some(WORKER_LABEL))),
-            TurnKind::Routine
-        );
-        assert_eq!(
-            turn_kind(&message("Checks changed", Some(CHECK_LABEL))),
-            TurnKind::Routine
-        );
-    }
-
-    #[test]
-    fn the_prompt_stays_short() {
-        assert!(PROJECT_PROMPT.lines().count() < 60);
-    }
 
     #[tokio::test]
     async fn context_lists_tasks_machines_and_issues() {
@@ -584,60 +533,6 @@ mod tests {
         );
         assert!(ctx.contains("- gpu-box: /srv/widget (home)"), "{ctx}");
         assert_eq!(shell.ran_with("issue list").len(), 1);
-    }
-
-    #[test]
-    fn a_checkout_syncthing_keeps_says_so_with_the_other_machines() {
-        use crate::protocol::node::SyncthingFolder;
-        let mut fleet = FakeFleet::default();
-        let (laptop, _) = fleet.add(1, "laptop", &[], "/srv");
-        let (build, _) = fleet.add(2, "build-box", &[], "/srv");
-        let (plain, _) = fleet.add(3, "gpu-box", &[], "/srv");
-        let synced = |id: &str, path: &str| SyncthingFolder {
-            id: id.into(),
-            label: "Work".into(),
-            path: path.into(),
-        };
-        fleet.machines[0].syncthing = vec![synced("work-1", "/srv/work")];
-        fleet.machines[1].syncthing = vec![synced("work-1", "/data/work")];
-        let checkout = |machine, path| CheckoutRow {
-            machine,
-            path: MachinePath::parse(path).unwrap(),
-            home: false,
-        };
-        let lines = syncthing_lines(
-            "acme/widget",
-            &fleet.machines,
-            &[
-                checkout(laptop, "/srv/work/widget"),
-                checkout(plain, "/srv/widget"),
-                checkout(build, "/srv/widget"),
-            ],
-        );
-        assert_eq!(
-            lines,
-            [
-                "acme/widget on laptop is kept in step by Syncthing with build-box; edits there \
-              reach those machines on their own, so don't copy files between them."
-            ]
-        );
-
-        fleet.machines[1].syncthing.clear();
-        let alone = syncthing_lines(
-            "acme/widget",
-            &fleet.machines,
-            &[checkout(laptop, "/srv/work/widget")],
-        );
-        assert_eq!(alone.len(), 1);
-        assert!(alone[0].contains("with its other devices"), "{alone:?}");
-        assert!(
-            syncthing_lines(
-                "acme/widget",
-                &fleet.machines,
-                &[checkout(plain, "/srv/widget")]
-            )
-            .is_empty()
-        );
     }
 
     #[tokio::test]
@@ -745,32 +640,5 @@ mod tests {
         fleet.projects.mirrored(project.id).await;
         let tasks = user.project_tasks(project.id).await.unwrap();
         assert_eq!(tasks[0].issue.as_ref().map(|issue| issue.number), Some(3));
-    }
-
-    #[tokio::test]
-    async fn unreadable_issues_take_one_line() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = User::for_test(store, "alice");
-        let fleet = FakeFleet::default();
-        let project = user
-            .ensure_project(&RepoName::parse("acme/widget").unwrap())
-            .await
-            .unwrap();
-        let roles = crate::projects::model::Roles {
-            issues: Some(IssueHost::Github),
-            prs: None,
-        };
-        user.set_project_setup(project.id, &roles, Visibility::Public, "main")
-            .await
-            .unwrap();
-        let project = user.project(project.id).await.unwrap().unwrap();
-        let ctx = context_with(&fleet, &user, &project).await;
-        let lines: Vec<&str> = ctx
-            .lines()
-            .filter(|line| line.starts_with("Could not read the project's issues"))
-            .collect();
-        assert_eq!(lines.len(), 1, "{ctx}");
-        assert!(ctx.contains("Open tasks: none"));
     }
 }

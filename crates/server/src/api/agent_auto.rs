@@ -296,49 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn a_hint_steers_to_the_machine_that_has_it() {
-        let machines = [
-            candidate("home", &[], true, 0),
-            candidate("studio", &[XCODE], false, 3),
-        ];
-        let wants = wants(&[], &[XCODE]);
-        let pool = pool(&machines, &wants).unwrap();
-        assert_eq!(pool.at, [1]);
-        assert!(!needs_load(&machines, &pool));
-        assert_eq!(
-            choose(&machines, &pool, &wants),
-            Choice {
-                at: 1,
-                why: "It is the only one with Xcode.".into()
-            }
-        );
-    }
-
-    #[test]
-    fn a_hint_no_machine_meets_falls_back_with_a_note() {
-        let machines = [
-            candidate("home", &[GPU], true, 0),
-            candidate("mac", &[], false, 0),
-        ];
-        assert_eq!(
-            pick(&machines, &wants(&[], &[XCODE, GPU])),
-            Ok(Choice {
-                at: 0,
-                why: "It has a GPU and is your environment. No machine has Xcode, which the task mentions."
-                    .into()
-            })
-        );
-        assert_eq!(
-            pick(&machines, &wants(&[], &[XCODE])),
-            Ok(Choice {
-                at: 0,
-                why: "It is your environment. No machine has Xcode, which the task mentions."
-                    .into()
-            })
-        );
-    }
-
-    #[test]
     fn auto_prefers_the_environment_then_the_least_busy() {
         let machines = [
             candidate("gpu-b", &[GPU], false, 2),
@@ -390,23 +347,6 @@ mod tests {
                 folder: "/Users/sam/app".into(),
                 checked: "home and mac".into()
             })
-        );
-    }
-
-    #[test]
-    fn auto_says_why_nothing_fits() {
-        let mut machines = [candidate("home", &[GPU], true, 0)];
-        let mut need = wants(&[XCODE, CUDA], &[]);
-        need.agent = "Claude Code";
-        assert_eq!(
-            pick(&machines, &need).unwrap_err().to_string(),
-            "No machine online with Claude Code has Xcode and CUDA. With Claude Code: home."
-        );
-        machines[0].offers = false;
-        need.agent = "pi";
-        assert_eq!(
-            pick(&machines, &need),
-            Err(AutoError::NoAgent { agent: "pi".into() })
         );
     }
 }

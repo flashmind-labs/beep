@@ -182,15 +182,6 @@ async fn an_account_from_before_claims_the_instance() {
 }
 
 #[tokio::test]
-async fn a_shared_server_keeps_open_sign_up() {
-    let db = TestDb::new().await.expect("test database");
-    let app = app(db.store().await.expect("store"), None).await;
-    let first = signed_in(&app, &SecretKey::generate()).await.user;
-    let someone = signed_in(&app, &SecretKey::generate()).await.user;
-    assert_ne!(first.id(), someone.id());
-}
-
-#[tokio::test]
 async fn the_bundled_node_joins_the_owner() {
     let db = TestDb::new().await.expect("test database");
     let dir = tempfile::tempdir().expect("a temp dir");

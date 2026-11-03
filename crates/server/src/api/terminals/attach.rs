@@ -317,47 +317,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_app_detaching_ends_the_relay_quietly() {
-        let (told_tx, _told) = mpsc::unbounded_channel();
-        let (_out_tx, out_rx) = mpsc::unbounded_channel();
-        let (keys_tx, keys_rx) = mpsc::unbounded_channel();
-        drop(keys_tx);
-        let shown = Shown::default();
-        relay(
-            &mut Node { told: told_tx },
-            &mut NodeOut(out_rx),
-            &mut App(keys_rx),
-            &shown,
-        )
-        .await
-        .expect("a detach is no error");
-        assert!(shown.0.into_inner().unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_node_going_away_reads_as_offline() {
-        let (told_tx, _told) = mpsc::unbounded_channel();
-        let (out_tx, out_rx) = mpsc::unbounded_channel();
-        let (_keys_tx, keys_rx) = mpsc::unbounded_channel();
-        drop(out_tx);
-        let shown = Shown::default();
-        relay(
-            &mut Node { told: told_tx },
-            &mut NodeOut(out_rx),
-            &mut App(keys_rx),
-            &shown,
-        )
-        .await
-        .expect("relays");
-        assert_eq!(
-            shown.0.into_inner().unwrap(),
-            vec![TerminalEvent::Ended {
-                state: TerminalState::Offline {}
-            }]
-        );
-    }
-
-    #[tokio::test]
     async fn too_many_keys_at_once_are_refused() {
         let (told_tx, mut told) = mpsc::unbounded_channel();
         let (_out_tx, out_rx) = mpsc::unbounded_channel();

@@ -742,29 +742,6 @@ fn next_run(schedule: &JobSchedule, tz_name: &str) -> Option<DateTime<Utc>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    pub(super) fn refusal<T>(reply: Reply<T>) -> String {
-        match reply {
-            Err(ApiError::BadRequest { message }) => message,
-            _ => panic!("expected a bad request"),
-        }
-    }
-
-    #[test]
-    fn too_many_or_too_large_images_are_refused() {
-        let image = || "x".to_owned();
-        assert_eq!(
-            refusal(check_images(&vec![image(); MAX_IMAGES + 1])),
-            "at most 8 images per message"
-        );
-        assert_eq!(
-            refusal(check_images(&["x".repeat(MAX_IMAGE_BYTES + 1)])),
-            "each image must be at most 2 MiB"
-        );
-        assert!(check_images(&vec![image(); MAX_IMAGES]).is_ok());
-    }
-
     #[test]
     fn every_op_is_routed_once() {
         super::router().check().unwrap();

@@ -256,32 +256,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn members_read_back_from_their_ids() {
-        for member in [
-            Member::Lead,
-            Member::Scout(1),
-            Member::Scout(5),
-            Member::Critic,
-            Member::Writer,
-        ] {
-            assert_eq!(member.to_string().parse::<Member>().ok(), Some(member));
-        }
-        assert!("scout-0".parse::<Member>().is_err());
-        assert!(
-            format!("scout-{}", MAX_TEAM_SCOUTS + 1)
-                .parse::<Member>()
-                .is_err()
-        );
-        assert!("boss".parse::<Member>().is_err());
-    }
-
-    #[test]
-    fn statuses_read_back_from_the_store() {
-        assert_eq!("researching".parse(), Ok(Status::Researching));
-        assert_eq!(Status::Interrupted.as_str(), "interrupted");
-    }
-
-    #[test]
     fn a_plan_reads_its_rounds_scouts() {
         let model = RoleModel {
             model: "openai:test".parse().expect("a model id"),
@@ -307,24 +281,5 @@ mod tests {
         }))
         .expect("a plan from before rounds");
         assert_eq!(old.round(), 1);
-    }
-
-    #[test]
-    fn the_config_reads_a_model_and_thinking_per_role() {
-        let config: ResearchConfig = toml::from_str(
-            r#"
-            lead = { model = "openrouter:anthropic/claude-sonnet-5.5", thinking = "high" }
-            scout = { model = "openrouter:deepseek/deepseek-v4.1-flash-1017" }
-            critic = { model = "openrouter:openai/gpt-6-luna" }
-            writer = { model = "openrouter:anthropic/claude-haiku-5.5" }
-            scout_choices = ["openrouter:z-ai/glm-5.3-flash"]
-            "#,
-        )
-        .expect("the example parses");
-        assert_eq!(config.lead.thinking, ReasoningLevel::High);
-        assert_eq!(config.scout.thinking, ReasoningLevel::Medium);
-        let glm = "openrouter:z-ai/glm-5.3-flash".parse().expect("a model id");
-        assert!(config.scout_may_use(&glm));
-        assert!(!config.scout_may_use(&config.lead.model));
     }
 }

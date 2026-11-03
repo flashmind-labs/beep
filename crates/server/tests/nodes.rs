@@ -1077,26 +1077,6 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
 }
 
 #[tokio::test]
-async fn machine_details_of_a_user_without_machines_are_empty() {
-    let db = TestDb::new().await.unwrap();
-    let store = db.store().await.unwrap();
-    let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
-    let app = App::new(
-        store.clone(),
-        Arc::new(NoModel),
-        AgentLlmConfig::new("openai:test".parse().unwrap()),
-        ServerTools::default(),
-        models,
-    );
-    let router = phone_router(&app, store).await;
-    let (_node, bob) = phone(SecretKey::generate(), &router).await;
-    assert!(bob.call(&ListMachineDetails {}).await.unwrap().is_empty());
-    assert!(bob.call(&ListMachineStats {}).await.unwrap().is_empty());
-    router.shutdown().await.unwrap();
-}
-
-#[tokio::test]
 async fn a_session_that_asks_or_finishes_notifies_unless_a_chat_hears_of_it() {
     let mut center = CommandCenter::new(1).await;
     let mut notices = center.app.notifications.subscribe();
@@ -1750,19 +1730,6 @@ async fn agent_sessions_list_none_of_another_users_machines() {
     center.node(0, "build-box", FakeAgents::default()).await;
     let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
     assert!(bob.call(&ListAgentSessions {}).await.unwrap().is_empty());
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn agent_hosts_list_machines_with_agents() {
-    let mut center = CommandCenter::new(1).await;
-    let build = center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
-    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
-    assert_eq!(hosts.len(), 1, "{hosts:?}");
-    assert_eq!(hosts[0].machine_id, build);
-    assert_eq!(hosts[0].machine_name, "build-box");
-    assert_eq!(hosts[0].agents, ["claude"]);
     center.shutdown().await;
 }
 

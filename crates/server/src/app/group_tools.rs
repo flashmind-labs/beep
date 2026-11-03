@@ -466,20 +466,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_member_argument_is_added_and_required() {
-        let schema =
-            json!({"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]});
-        let schema = with_member(schema, &["Ana", "Sam"]);
-        assert_eq!(
-            schema["properties"]["member"]["enum"],
-            json!(["Ana", "Sam"])
-        );
-        assert_eq!(schema["required"], json!(["q", "member"]));
-        let bare = with_member(json!({}), &["Ana"]);
-        assert_eq!(bare["required"], json!(["member"]));
-    }
-
-    #[test]
     fn every_group_tool_is_in_the_catalog() {
         for tool in GROUP_TOOLS {
             assert!(

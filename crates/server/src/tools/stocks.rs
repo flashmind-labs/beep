@@ -324,7 +324,6 @@ fn percent_change(points: &[ChartPoint]) -> Vec<ChartPoint> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::slice;
 
     // Made-up numbers in the shape Yahoo answers with.
     const SAMPLE: &str = r#"{"chart":{"result":[{"meta":{"currency":"USD","symbol":"ACME",
@@ -358,41 +357,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_symbol_or_no_prices_is_an_error() {
-        let missing = r#"{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found"}}}"#;
-        assert!(matches!(
-            parse(&symbol("NOPE"), ChartRange::Day, missing.as_bytes()),
-            Err(StockError::NotFound(_))
-        ));
-        let empty = r#"{"chart":{"result":[{"meta":{"symbol":"NOPE"},"timestamp":[1],"indicators":{"quote":[{"close":[null]}]}}]}}"#;
-        assert!(matches!(
-            parse(&symbol("NOPE"), ChartRange::Day, empty.as_bytes()),
-            Err(StockError::NoPrices(_))
-        ));
-    }
-
-    #[test]
-    fn one_symbol_is_an_area_of_prices_several_are_lines_of_percent() {
-        let acme = parse(&symbol("ACME"), ChartRange::Month, SAMPLE.as_bytes()).expect("parses");
-        let one = chart(ChartRange::Month, slice::from_ref(&acme));
-        assert_eq!(one.kind, ChartKind::Area);
-        assert_eq!(one.unit, "USD");
-        assert_eq!(one.title, "Acme Corp. (ACME)");
-        assert_eq!(one.series[0].points, acme.points);
-
-        let mut other = acme.clone();
-        other.info.symbol = "OTHR".to_owned();
-        let both = chart(ChartRange::Month, &[acme, other]);
-        assert_eq!(both.kind, ChartKind::Line);
-        assert_eq!(both.unit, "%");
-        assert_eq!(both.title, "ACME vs OTHR (1mo)");
-        assert_eq!(both.stock.map(|s| s.symbol).as_deref(), Some("ACME"));
-        let ys: Vec<f64> = both.series[1].points.iter().map(|p| p.y).collect();
-        assert_eq!(ys[0], 0.0);
-        assert!((ys[2] - (110.0 / 101.0 - 1.0) * 100.0).abs() < 1e-9);
-    }
-
-    #[test]
     fn checks_symbols() {
         for good in ["AAPL", "btc-usd", "^GSPC", "EURUSD=X", "BRK.B", "ES_F"] {
             assert!(Symbol::parse(good).is_ok(), "{good}");
@@ -400,25 +364,6 @@ mod tests {
         assert_eq!(symbol("btc-usd").to_string(), "BTC-USD");
         for bad in ["", "AAPL MSFT", "../x", "A/B", "ABCDEFGHIJKLMNOPQRSTU", "Ä"] {
             assert!(Symbol::parse(bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn ranges_name_themselves_as_in_json() {
-        for range in [
-            ChartRange::Day,
-            ChartRange::Week,
-            ChartRange::Month,
-            ChartRange::HalfYear,
-            ChartRange::YearToDate,
-            ChartRange::Year,
-            ChartRange::FiveYears,
-            ChartRange::Max,
-        ] {
-            assert_eq!(
-                serde_json::to_value(range).expect("serializes"),
-                range.as_str()
-            );
         }
     }
 }

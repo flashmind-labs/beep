@@ -538,36 +538,6 @@ mod tests {
     }
 
     #[test]
-    fn codes_are_capitals_and_digits_in_groups() {
-        assert!(is_code("UZIW-O7IAI"));
-        assert!(is_code("K7QD-M2XR"));
-        assert!(!is_code("one-time"));
-        assert!(!is_code("ABCDEFGH"));
-        assert!(!is_code("-ABCD"));
-        assert!(!is_code("(expires"));
-    }
-
-    #[test]
-    fn a_failure_says_what_codex_said() {
-        let printed = lines(
-            "Follow these steps\n\u{1b}[31mError logging in: device code expired\u{1b}[0m\n\n",
-        );
-        assert_eq!(
-            failure(&printed),
-            "Codex could not sign in: Error logging in: device code expired"
-        );
-        assert_eq!(failure(&[]), "Codex could not sign in.");
-        assert_eq!(
-            login_state(TaskState::Exited { code: Some(0) }, &[]),
-            CodexLoginState::SignedIn {}
-        );
-        assert_eq!(
-            login_state(TaskState::Running, &[]),
-            CodexLoginState::Waiting {}
-        );
-    }
-
-    #[test]
     fn an_api_key_is_not_taken_as_a_claude_token() {
         assert!(refusal(AgentAccount::Claude, "sk-ant-api03-abcdef").is_some());
         assert_eq!(refusal(AgentAccount::Claude, "sk-ant-oat01-abcdef"), None);

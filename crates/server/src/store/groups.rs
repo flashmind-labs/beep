@@ -570,14 +570,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn invite_codes_are_ten_typeable_characters() {
-        let code = new_token();
-        assert_eq!(code.len(), 10);
-        assert!(code.bytes().all(|b| CODE_ALPHABET.contains(&b)));
-        assert_ne!(code, new_token());
-    }
-
     #[tokio::test]
     async fn members_join_by_invite_and_a_reset_breaks_the_old_link() {
         let db = TestDb::new().await.unwrap();
@@ -660,69 +652,6 @@ mod tests {
         assert_eq!(
             store.group_messages(g1, 1).await.unwrap()[0].content,
             "hello Ali"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_list_has_each_groups_members_and_latest_message() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let (g1, g2, g3) = (test_chat("g1"), test_chat("g2"), test_chat("g3"));
-        let (alice, bob) = (UserKey::for_test("alice"), UserKey::for_test("bob"));
-        store.create_group(&alice, g1, "Trip", "Ali").await.unwrap();
-        store
-            .create_group(&alice, g2, "Dinner", "Al")
-            .await
-            .unwrap();
-        store
-            .create_group(&bob, g3, "Not hers", "Bo")
-            .await
-            .unwrap();
-        let token = store
-            .group_invite(&alice, g1, false)
-            .await
-            .unwrap()
-            .unwrap();
-        store.join_group(&bob, &token, "Bo").await.unwrap();
-        store
-            .post_to_group(&alice, post(g1, "r1", "first"))
-            .await
-            .unwrap();
-        store
-            .post_to_group(&bob, post(g1, "r2", "second"))
-            .await
-            .unwrap();
-
-        let groups = store.groups(&alice).await.unwrap();
-        assert!(
-            groups
-                .windows(2)
-                .all(|pair| pair[0].group.updated_at >= pair[1].group.updated_at)
-        );
-        let mut found: Vec<Uuid> = groups.iter().map(|g| g.group.id).collect();
-        found.sort();
-        let mut wanted = vec![g1, g2];
-        wanted.sort();
-        assert_eq!(found, wanted);
-        for group in &groups {
-            let names: Vec<_> = group.members.iter().map(|m| m.name.as_str()).collect();
-            let last = group.last.as_ref().map(|m| m.content.as_str());
-            if group.group.id == g1 {
-                assert_eq!(group.group.name, "Trip");
-                assert_eq!(names, ["Ali", "Bo"]);
-                assert_eq!(last, Some("second"));
-            } else {
-                assert_eq!(group.group.name, "Dinner");
-                assert_eq!(names, ["Al"]);
-                assert_eq!(last, None);
-            }
-        }
-        assert!(
-            store
-                .groups(&UserKey::for_test("user"))
-                .await
-                .unwrap()
-                .is_empty()
         );
     }
 

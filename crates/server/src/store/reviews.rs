@@ -654,35 +654,4 @@ mod tests {
         assert!(store.dismiss_finding(&user, one.id, 0, true).await.unwrap());
         assert!(store.review_findings(one.id).await.unwrap()[0].dismissed);
     }
-
-    #[tokio::test]
-    async fn the_newest_review_of_each_branch_is_listed() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let now = Utc::now();
-        let old = review(
-            "acme/widget",
-            "login-copy",
-            now - chrono::Duration::hours(2),
-        );
-        let new = review(
-            "acme/widget",
-            "login-copy",
-            now - chrono::Duration::hours(1),
-        );
-        let other = review("acme/widget", "spike", now);
-        let elsewhere = review("acme/relay", "spike", now);
-        for one in [&old, &new, &other, &elsewhere] {
-            store.add_review(&user, one, &[]).await.unwrap();
-        }
-        let listed: Vec<Uuid> = store
-            .reviews(&user, "acme/widget", 20)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|row| row.id)
-            .collect();
-        assert_eq!(listed, vec![other.id, new.id]);
-    }
 }

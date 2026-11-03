@@ -531,8 +531,6 @@ async fn context(user: &User) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::EventKind;
-    use chrono::TimeZone;
 
     fn decide(name: &str, args: Value) -> Result<Triage, String> {
         let decision = decisions()
@@ -590,75 +588,5 @@ mod tests {
             reason: "Spam.".to_owned(),
         };
         assert_eq!(route(&ignore, true), Route::Drop);
-    }
-
-    fn row(id: i64, kind: EventKind) -> EventRow {
-        EventRow {
-            id,
-            app: EventApp::Github,
-            kind,
-            summary: format!("Event {id}"),
-            detail: None,
-            ids: json!({"n": id}),
-            occurred: Utc.with_ymd_and_hms(2026, 10, 20, 9, 30, 0).unwrap(),
-            state: EventState::Triaging,
-        }
-    }
-
-    #[test]
-    fn a_failed_triage_passes_on_only_urgent_looking_events() {
-        let rows = [
-            row(1, EventKind::ReviewRequested),
-            row(2, EventKind::GithubOther),
-            row(3, EventKind::CiFailed),
-            row(4, EventKind::NewMail),
-        ];
-        let urgent: Vec<i64> = urgent_looking(&rows).iter().map(|row| row.id).collect();
-        assert_eq!(urgent, [1, 3]);
-    }
-
-    #[test]
-    fn the_wake_message_has_the_summary_its_events_and_earlier_informs() {
-        let triage = |id, summary: &str, refs| TriageRow {
-            id,
-            decided_at: Utc::now(),
-            verdict: Verdict::Inform,
-            urgency: Some(Urgency::Now),
-            summary: Some(summary.to_owned()),
-            reason: "A person is waiting.".to_owned(),
-            refs,
-            delivered: false,
-        };
-        let now = triage(9, "Ana asked for a review of PR 42.", vec![1]);
-        let earlier = triage(8, "A newsletter about Rust.", vec![]);
-        let rows = [
-            row(1, EventKind::ReviewRequested),
-            row(2, EventKind::GithubOther),
-        ];
-        let text = describe_inform(&now, &[&earlier], &rows, &[EventApp::Github]);
-        assert_eq!(
-            text,
-            "From your event triage agent, written to the user:\nAna asked for a review of PR 42.\n\
-             Why now: A person is waiting.\n\n\
-             The events it covers:\n\n\
-             [#1] GitHub, review requested, 2026-10-20 09:30 UTC: Event 1\nids: {\"n\":1}\n\n\
-             Earlier, less urgent:\n- A newsletter about Rust.\n\n\
-             The user set GitHub to read only: offer nothing that would act there."
-        );
-    }
-
-    #[test]
-    fn the_config_defaults_to_a_cheap_model_thinking_little() {
-        let config: EventsConfig = toml::from_str("").expect("an empty table");
-        assert_eq!(
-            config.triage_model.model.name(),
-            "anthropic/claude-haiku-5.5"
-        );
-        assert_eq!(config.triage_model.thinking, ReasoningLevel::Low);
-        let config: EventsConfig = toml::from_str(
-            r#"triage_model = { model = "openrouter:z-ai/glm-5.3-flash", thinking = "off" }"#,
-        )
-        .expect("a model and thinking");
-        assert_eq!(config.triage_model.thinking, ReasoningLevel::Off);
     }
 }

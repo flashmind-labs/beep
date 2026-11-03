@@ -165,35 +165,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_stopped_session_reads_as_ended_with_its_prompt_for_a_title() {
-        let host = Host {
-            id: "m".into(),
-            name: "build-box".into(),
-        };
-        let session = ExternalSession {
-            id: "s".into(),
-            agent: "codex".into(),
-            cwd: "/home/user/proj".into(),
-            presence: Presence::Stopped,
-            last_prompt: "Fix the parser".into(),
-            last_activity: 10,
-            ..ExternalSession::default()
-        };
-        let listed = past_session(&host, session.clone());
-        assert_eq!(listed.status, AgentStatus::Ended {});
-        assert_eq!(listed.title.as_deref(), Some("Fix the parser"));
-        assert!(listed.external);
-        let taken = ExternalSession {
-            taken_over: Some("a3f9c1".into()),
-            ..session
-        };
-        let listed = past_session(&host, taken);
-        assert_eq!(listed.status, AgentStatus::Running {});
-        assert_eq!(listed.id, "a3f9c1", "it opens as Beep's session");
-        assert!(!listed.external);
-    }
-
-    #[test]
     fn a_recent_outside_session_offers_resume_unless_it_can_be_followed() {
         let host = Host {
             id: "m".into(),

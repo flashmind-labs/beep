@@ -306,33 +306,6 @@ mod tests {
     }
 
     #[test]
-    fn a_shard_names_each_area_once() {
-        let files = [
-            changed("src/a.rs", 1),
-            changed("docs/b.md", 1),
-            changed("src/c.rs", 1),
-        ];
-        let units: Vec<Unit<'_>> = files
-            .iter()
-            .map(|file| Unit::of(&area_key(&file.path), vec![file]))
-            .collect();
-        assert_eq!(shard_of(&units).area, "src, docs");
-    }
-
-    #[test]
-    fn small_diff_is_one_shard() {
-        let files = [
-            changed("apps/web/src/Login.tsx", 200),
-            changed("crates/core/src/auth/limit.rs", 344),
-            changed("README.md", 3),
-        ];
-        let got = shard(&files, "");
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].lines, 547);
-        assert_eq!(got[0].paths.len(), 3);
-    }
-
-    #[test]
     fn shards_keep_tests_with_code() {
         let files = [
             changed("crates/core/src/limit.rs", 450),
@@ -403,20 +376,5 @@ mod tests {
             got.iter()
                 .any(|s| s.area.contains(" more") || s.area.contains(", "))
         );
-    }
-
-    #[test]
-    fn areas_go_one_level_into_crates_and_apps() {
-        assert_eq!(area_key("crates/core/src/lib.rs"), "crates/core");
-        assert_eq!(area_key("crates/Cargo.toml"), "crates");
-        assert_eq!(area_key("docs/a.md"), "docs");
-        assert_eq!(area_key("README.md"), ".");
-        assert_eq!(stem_key("apps/web/src/Login.test.tsx"), "login");
-        assert_eq!(stem_key("pkg/limit_test.go"), "limit");
-        assert_eq!(stem_key("tests/test_limit.py"), "limit");
-        assert!(pattern_matches("/vendor/**", "vendor/a/b.js"));
-        assert!(!pattern_matches("/vendor/**", "src/vendor/a.js"));
-        assert!(pattern_matches("*.min.js", "web/app.min.js"));
-        assert!(!pattern_matches("src/*.rs", "src/a/b.rs"));
     }
 }

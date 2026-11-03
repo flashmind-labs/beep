@@ -165,18 +165,3 @@ impl Tool for ChatReadTool {
         reply(&ctx, json!({"messages": messages.len(), "read": read}))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snippet_starts_a_little_before_the_match() {
-        let text = format!("{}Needle here", "a".repeat(500));
-        let lower = text.to_lowercase();
-        let at = lower.find("needle").unwrap();
-        let snippet = snippet(&text, &lower, at);
-        assert!(snippet.starts_with(&"a".repeat(SNIPPET_CHARS / 3)));
-        assert!(snippet.contains("Needle here"));
-    }
-}

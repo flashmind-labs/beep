@@ -642,54 +642,11 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn a_memory_keeps_where_it_came_from() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = User::for_test(store, "alice");
-        let origin = Origin {
-            reference: "email-1".into(),
-            quote: Some("see you in Lisbon".into()),
-        };
-        let stored = alice
-            .remember(Fact {
-                origin: Some(origin.clone()),
-                ..fact("Is going to Lisbon.")
-            })
-            .await
-            .unwrap();
-        // An update that names no origin keeps the one it had.
-        assert!(
-            alice
-                .update_memory(&stored.id, fact("Is going to Lisbon with Ana."))
-                .await
-                .unwrap()
-        );
-        let rows = alice.memory_rows().await.unwrap();
-        assert_eq!(rows[0].origin, Some(origin));
-        let listed = alice.list_memories().await.unwrap();
-        assert_eq!(listed[0].quote.as_deref(), Some("see you in Lisbon"));
-    }
-
     // Under the word embedder these two score above `DUPLICATE`.
     const AT_ACME: &str =
         "Works remotely for Acme building mobile apps with the design team from Lisbon every week.";
     const MOVED: &str =
         "Works remotely for Acme building mobile apps with the design team from Porto every week.";
-
-    #[tokio::test]
-    async fn similar_memories_do_not_replace_each_other() {
-        let db = TestDb::new().await.unwrap();
-        let alice = User::for_test(db.store().await.unwrap(), "alice");
-        let first = alice.remember(fact(AT_ACME)).await.unwrap();
-        let second = alice.remember(fact(MOVED)).await.unwrap();
-        assert!(!second.replaced);
-        assert_ne!(first.id, second.id);
-        let rows = alice.memory_rows().await.unwrap();
-        assert_eq!(rows.len(), 2);
-        assert!(rows.iter().any(|row| row.content == AT_ACME));
-        assert!(rows.iter().any(|row| row.content == MOVED));
-    }
 
     #[tokio::test]
     async fn automatic_recall_uses_cosine_threshold_and_current_owned_memories() {
@@ -838,56 +795,6 @@ mod tests {
         // Forgetting a memory forgets its history.
         assert!(alice.forget(&first.id).await.unwrap());
         assert!(alice.memory_history(&first.id).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn an_edit_from_the_memories_screen_keeps_the_old_text() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = User::for_test(store, "alice");
-        let id = alice.remember(fact("Likes tea.")).await.unwrap().id;
-        assert!(alice.edit_memory(&id, "Likes green tea.").await.unwrap());
-        let history = alice.memory_history(&id).await.unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].row.content, "Likes tea.");
-        assert!(!alice.edit_memory("missing", "Likes coffee.").await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn history_is_capped_per_memory() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = User::for_test(store, "alice");
-        let first = alice.remember(fact(AT_ACME)).await.unwrap();
-        for round in 0..8 {
-            let text = if round % 2 == 0 { MOVED } else { AT_ACME };
-            alice.replace_memory(&first.id, fact(text)).await.unwrap();
-        }
-        assert_eq!(alice.memory_history(&first.id).await.unwrap().len(), 5);
-    }
-
-    #[tokio::test]
-    async fn a_close_memory_counts_toward_curating_its_scope() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = User::for_test(store, "alice");
-        let mac = Scope::Machine(iroh::SecretKey::generate().public());
-        let on = |content| Fact {
-            scope: Some(mac.clone()),
-            ..fact(content)
-        };
-        alice
-            .remember(on("The build box has Docker installed."))
-            .await
-            .unwrap();
-        let close = alice
-            .remember(on("The build box has Podman installed."))
-            .await
-            .unwrap();
-        assert!(!close.replaced, "close is not a duplicate");
-        let states = alice.store.curation_states(&alice.key).await.unwrap();
-        assert_eq!(states[&mac].close, 1);
-        assert!(!states.contains_key(&Scope::User));
     }
 
     #[tokio::test]

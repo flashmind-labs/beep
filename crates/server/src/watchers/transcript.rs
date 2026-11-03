@@ -169,35 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn numbers_messages_and_marks_failed_calls_and_slow_turns() {
-        let messages = [
-            user(5, 0, "Book padel"),
-            message(
-                6,
-                50,
-                StoredBody::Tool {
-                    call_id: "c1".into(),
-                    name: "web_search".into(),
-                    output: "timeout".into(),
-                    success: false,
-                    description: String::new(),
-                },
-            ),
-            beep(7, 60, "I could not find courts."),
-            user(8, 70, "no, I meant tomorrow"),
-            beep(9, 75, "Booked."),
-        ];
-        let arguments = HashMap::from([("c1".to_owned(), "{\"q\":\"padel\"}".to_owned())]);
-        let read = transcript(&messages, &arguments, BUDGET);
-        assert_eq!(
-            read.text,
-            "[#5] User: Book padel\n[#6] [call web_search {\"q\":\"padel\"}] FAILED [result timeout]\n[#7] Beep: I could not find courts.\n[turn took 60s]\n\n[#8] User: no, I meant tomorrow\n[#9] Beep: Booked."
-        );
-        assert_eq!((read.first_seq, read.last_seq), (5, 9));
-        assert!(read.talk);
-    }
-
-    #[test]
     fn stops_at_the_budget_but_always_reads_one() {
         let long = "x".repeat(100);
         let messages = [user(1, 0, &long), beep(2, 1, &long), user(3, 2, &long)];

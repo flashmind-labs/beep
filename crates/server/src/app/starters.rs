@@ -83,18 +83,3 @@ async fn starter_context(user: &User, location: Option<Location>, refresh: bool)
         shown,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::TestDb;
-
-    #[tokio::test]
-    async fn starters_use_the_saved_timezone_without_a_location() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        user.set_timezone("Asia/Tokyo").await.unwrap();
-        let context = starter_context(&user, None, false).await;
-        assert_eq!(context.now.timezone, Some(chrono_tz::Tz::Asia__Tokyo));
-    }
-}

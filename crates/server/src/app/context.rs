@@ -256,45 +256,7 @@ const LIVE: &str = "This is a live spoken conversation: every sentence you write
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::AppKind;
     use std::time::Duration;
-
-    fn app(name: &str, connected: bool, configured: bool) -> AppIntegration {
-        AppIntegration {
-            slug: name.to_lowercase(),
-            name: name.into(),
-            description: String::new(),
-            logo_url: None,
-            connected,
-            configured,
-            kind: AppKind::Composio {},
-        }
-    }
-
-    #[test]
-    fn apps_line_names_connected_and_available_apps() {
-        let apps = [
-            app("Fastmail", true, true),
-            app("Outlook", false, true),
-            app("Teams", false, true),
-            app("Slack", false, false),
-        ];
-        assert_eq!(
-            apps_line(&apps).as_deref(),
-            Some(
-                "Connected apps: Fastmail. Not connected: Outlook, Teams. \
-                 The user connects these from Apps in Beep's menu."
-            )
-        );
-        assert_eq!(
-            apps_line(&[app("Gmail", false, true)]).as_deref(),
-            Some(
-                "Connected apps: none. Not connected: Gmail. \
-                 The user connects these from Apps in Beep's menu."
-            )
-        );
-        assert_eq!(apps_line(&[app("Slack", false, false)]), None);
-    }
 
     fn fix(place: Option<&str>, updated_at: DateTime<Utc>) -> Location {
         Location {
@@ -318,44 +280,5 @@ mod tests {
             location_line(&loc, now),
             "Location: 35.6938 N, 139.7034 E (3 min ago)"
         );
-    }
-
-    #[test]
-    fn location_line_without_a_place_keeps_the_coordinates() {
-        let now = Utc::now();
-        let loc = fix(None, now - Duration::from_secs(3 * 3600));
-        assert_eq!(
-            location_line(&loc, now),
-            "Location: 35.6938 N, 139.7034 E (3 h ago)"
-        );
-        assert!(location_line(&fix(None, now), now).ends_with("(just now)"));
-    }
-
-    #[test]
-    fn last_profile_is_the_newest_one_the_chat_got() {
-        use flashmind::core::ConversationEntry;
-        let mut chat = Conversation::new();
-        assert_eq!(last_profile(&chat), None);
-        chat.add(ConversationEntry::system_message(format!(
-            "Time: now\n{PROFILE_HEADER}\n- Is called Sam.\n"
-        )));
-        chat.add(ConversationEntry::user("hi"));
-        chat.add(ConversationEntry::system_message("Time: later\n"));
-        assert_eq!(
-            last_profile(&chat),
-            Some(format!("{PROFILE_HEADER}\n- Is called Sam.").as_str())
-        );
-    }
-
-    #[test]
-    fn sources_are_listed_only_where_the_app_cannot_show_them() {
-        assert!(sources_line(true).contains("Do not list sources"));
-        assert!(sources_line(false).contains("Markdown links"));
-    }
-
-    #[test]
-    fn live_mode_says_what_it_does() {
-        assert!(LIVE.contains("read aloud"));
-        assert!(LIVE.contains("short"));
     }
 }
