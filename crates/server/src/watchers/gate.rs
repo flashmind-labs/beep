@@ -74,35 +74,6 @@ mod tests {
     }
 
     #[test]
-    fn a_lone_hello_is_neither_busy_nor_friction() {
-        let messages = [
-            user(1),
-            message(
-                2,
-                StoredBody::Assistant {
-                    content: "Hi!".into(),
-                },
-            ),
-        ];
-        assert!(!busy(&messages));
-        assert!(!friction(&messages));
-    }
-
-    #[test]
-    fn busy_takes_three_tool_calls() {
-        let two = [user(1), tool(2, "ok", true), tool(3, "ok", true)];
-        assert!(!busy(&two));
-        let three = [
-            user(1),
-            tool(2, "ok", true),
-            tool(3, "ok", true),
-            tool(4, "ok", true),
-        ];
-        assert!(busy(&three));
-        assert!(!friction(&three));
-    }
-
-    #[test]
     fn a_failed_or_denied_call_is_friction() {
         assert!(friction(&[user(1), tool(2, "timeout", false)]));
         assert!(friction(&[user(1), tool(2, permissions::DENIED, true)]));

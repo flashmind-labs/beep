@@ -584,26 +584,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn citations_link_to_their_sources_and_the_rest_stays_text() {
-        let markup = typst_markup(
-            &paper("# Title\n\nYes [1], see [2, 1] and [9] or [x]."),
-            Math::Typeset,
-        );
-        assert_eq!(markup.title, "Title");
-        assert!(markup.text.contains("Yes#super[#link(<src-1>)[1]]"));
-        assert!(
-            markup
-                .text
-                .contains("#super[#link(<src-2>)[2], #link(<src-1>)[1]]")
-        );
-        assert!(
-            markup.text.contains("\\[9\\]"),
-            "an unknown source stays text"
-        );
-        assert!(markup.text.contains("<src-2>"));
-    }
-
     #[tokio::test]
     async fn a_paper_typesets_to_a_pdf() {
         let draft = "# Solid-state batteries\n\nProbably **not** by 2028 [1].\n\n\

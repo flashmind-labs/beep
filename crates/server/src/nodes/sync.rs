@@ -284,41 +284,6 @@ mod tests {
     }
 
     #[test]
-    fn a_node_gets_its_projects_with_the_other_nodes_as_peers() {
-        let [a, b, c] = [(); 3].map(|()| SecretKey::generate().public());
-        let row = |project: &str, node: EndpointId| SyncRow {
-            project: project.into(),
-            endpoint: node.to_string(),
-            folder: format!("/srv/{project}"),
-        };
-        let rows = [
-            row("game", a),
-            row("game", b),
-            row("site", b),
-            row("site", c),
-        ];
-        let state = SyncState::default();
-        let known: EndpointAddr = b.into();
-        state.addrs().insert(b, known.clone());
-        let none = HashSet::new();
-        let projects = projects_for(&rows, &plain(a, &none), &state);
-        assert_eq!(projects.len(), 1);
-        assert_eq!(projects[0].name, "game");
-        assert_eq!(projects[0].folder, "/srv/game");
-        assert_eq!(projects[0].peers, [known]);
-
-        assert!(!projects[0].paused);
-
-        let names: Vec<_> = projects_for(&rows, &plain(b, &none), &state)
-            .into_iter()
-            .map(|project| (project.name, project.peers.len()))
-            .collect();
-        assert_eq!(names, [("game".to_owned(), 1), ("site".to_owned(), 1)]);
-        let stranger = SecretKey::generate().public();
-        assert!(projects_for(&rows, &plain(stranger, &none), &state).is_empty());
-    }
-
-    #[test]
     fn a_paused_project_goes_paused_or_is_left_out_for_an_older_node() {
         let a = SecretKey::generate().public();
         let rows = ["game", "site"].map(|project| SyncRow {

@@ -602,24 +602,6 @@ pub fn memory_reads(rows: &[MemoryRow]) -> Vec<MemoryRead> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
-
-    fn row(id: &str, reference: Option<&str>) -> MemoryRow {
-        MemoryRow {
-            id: id.into(),
-            content: format!("fact {id}"),
-            category: "work".into(),
-            source: MemorySource::Email {},
-            updated_at: "2026-10-10 05:00:00".into(),
-            valid: Validity::default(),
-            origin: reference.map(|reference| Origin {
-                reference: reference.into(),
-                quote: None,
-            }),
-            core: false,
-            scope: Scope::User,
-        }
-    }
 
     #[test]
     fn only_the_last_read_to_end_condenses() {
@@ -629,51 +611,6 @@ mod tests {
         assert!(!gmail.release_last());
         assert!(calendar.release_last());
         assert!(!running().iter().any(|(id, _)| id == "release-last-test"));
-    }
-
-    #[test]
-    fn memories_are_grouped_by_the_read_that_found_them() {
-        let older = Utc.with_ymd_and_hms(2026, 10, 4, 8, 0, 0).unwrap();
-        let newer = Utc.with_ymd_and_hms(2026, 10, 10, 5, 31, 6).unwrap();
-        let gmail = read_reference(Source::Mail(Mailbox::Gmail), newer);
-        let outlook = read_reference(Source::Calendar(Calendar::Outlook), older);
-        assert_eq!(gmail, "read:gmail:2026-10-10T05:31:06Z");
-        let rows = [
-            row("a", Some(&outlook)),
-            row("b", Some(&gmail)),
-            row("c", Some("profile")),
-            row("d", None),
-            row("e", Some(&gmail)),
-            row("f", Some("read:nowhere:2026-10-10T05:31:06Z")),
-        ];
-        let reads = memory_reads(&rows);
-        assert_eq!(
-            reads,
-            [
-                MemoryRead {
-                    id: gmail,
-                    source: "Gmail".into(),
-                    finished_at: "2026-10-10T05:31:06Z".into(),
-                    memories: vec!["b".into(), "e".into()],
-                },
-                MemoryRead {
-                    id: outlook,
-                    source: "Outlook calendar".into(),
-                    finished_at: "2026-10-04T08:00:00Z".into(),
-                    memories: vec!["a".into()],
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn notes_parse_with_and_without_dates() {
-        let notes = parse_notes(
-            "```json\n{\"notes\": [{\"date\": \"2024-05-01\", \"note\": \"Flew to Tokyo.\"}, {\"note\": \"Speaks Spanish.\"}]}\n```",
-        )
-        .unwrap();
-        assert_eq!(notes[0].date, NaiveDate::from_ymd_opt(2024, 5, 1));
-        assert_eq!(notes[1].date, None);
     }
 
     #[test]

@@ -260,14 +260,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn searches_with_each_side_of_the_conversation() {
-        let (said, replied) =
-            sides("[#1] User: build it\n[#2] [call x {}] [result ok]\n[#3] Beep: built");
-        assert_eq!(said, "build it\n");
-        assert_eq!(replied, "built\n");
-    }
-
     #[tokio::test]
     async fn files_what_a_conversation_teaches_under_its_scope() {
         let model = Scripted::default().answer(

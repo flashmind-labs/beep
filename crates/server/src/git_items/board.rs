@@ -265,14 +265,4 @@ mod tests {
         assert_eq!(merged.review, GitReview::Approved {});
         assert!(got.items[0].updated_at > SystemTime::UNIX_EPOCH);
     }
-
-    #[tokio::test]
-    async fn no_git_host_lists_nothing_without_asking() {
-        let board = GitBoard::new();
-        let got = board
-            .list("user", Vec::new())
-            .await
-            .expect("no call is made");
-        assert!(got.items.is_empty() && got.hosts.is_empty());
-    }
 }

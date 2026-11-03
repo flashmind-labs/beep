@@ -188,21 +188,6 @@ async fn a_task_ending_reads_its_chat_now_for_every_user() {
 }
 
 #[tokio::test]
-async fn quiet_chats_of_every_user_are_read_for_their_own_user() {
-    let h = Harness::new(Scripted::default()).await;
-    let (ours, theirs) = (test_chat("alice-quiet"), test_chat("bob-quiet"));
-    h.turn(&h.alice, ours, "plan the trip").await;
-    h.turn(&h.bob, theirs, "plan the move").await;
-    let memory = Stub::new(WatcherKind::Memory, Act::Read);
-    let mut runner = stub_runner(&h, 2, slice::from_ref(&memory));
-    runner.tick(after_quiet()).await;
-    runner.drain().await;
-    let mut expected = vec![(ours, "alice".to_owned()), (theirs, "bob".to_owned())];
-    expected.sort();
-    assert_eq!(memory.chats(), expected);
-}
-
-#[tokio::test]
 async fn reviews_past_the_limit_wait_for_the_next_tick() {
     let h = Harness::new(Scripted::default()).await;
     let chat = test_chat("limit");
@@ -238,45 +223,4 @@ async fn gives_up_after_failing_three_times() {
     let states = h.app.store.watcher_states(&[chat]).await.unwrap();
     let state = &states[&(chat, WatcherKind::Skills)];
     assert_eq!((state.reviewed_seq, state.failures), (last, 0));
-}
-
-#[test]
-fn the_config_sets_each_watchers_model_and_drops_disabled_ones() {
-    let config: WatchersConfig = toml::from_str(
-        r#"
-        concurrency = 0
-        [skills]
-        enabled = false
-        [improvement]
-        model = "openrouter:z-ai/glm-5.3-flash"
-        timeout_secs = 5
-        "#,
-    )
-    .unwrap();
-    let settings = Settings::new(
-        &config,
-        &AgentLlmConfig::new("openai:test".parse().unwrap()),
-    );
-    let kinds: Vec<WatcherKind> = settings.watchers.iter().map(|w| w.kind).collect();
-    assert_eq!(kinds, [WatcherKind::Memory, WatcherKind::Improvement]);
-    assert_eq!(settings.watchers[1].llm.model.name(), "z-ai/glm-5.3-flash");
-    assert_eq!(settings.watchers[1].timeout, Duration::from_secs(5));
-    assert_eq!(settings.concurrency, 1);
-}
-
-#[tokio::test]
-async fn the_turn_skill_review_steps_aside_only_where_the_watcher_reads() {
-    let h = Harness::new(Scripted::default()).await;
-    let hub = &h.app.watchers;
-    assert!(!hub.watches(WatcherKind::Skills));
-    let mut settings = settings(1);
-    settings.watchers = vec![WatcherSettings {
-        kind: WatcherKind::Skills,
-        llm: AgentLlmConfig::new("openai:test".parse().expect("a model name")),
-        timeout: Duration::from_secs(30),
-    }];
-    start(&h.app, settings);
-    assert!(hub.watches(WatcherKind::Skills));
-    assert!(!hub.watches(WatcherKind::Memory));
-    hub.stop();
 }

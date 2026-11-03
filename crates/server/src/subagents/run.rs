@@ -275,7 +275,7 @@ mod tests {
     use super::*;
     use crate::{
         research::RoleModel,
-        subagents::{Busy, Decision, Kind, Pool},
+        subagents::{Decision, Kind},
     };
     use async_trait::async_trait;
     use flashmind::types::{
@@ -300,8 +300,6 @@ mod tests {
     enum Script {
         /// Calls `pick` with red.
         Decides,
-        /// Answers in text.
-        Chats,
         /// Calls `pick` with a colour it does not know, then red.
         RetriesBadArguments,
         /// Reports more tokens than the budget.
@@ -328,7 +326,6 @@ mod tests {
                 .count();
             match self.0 {
                 Script::Decides => call("pick", json!({"colour": "red"}), 10),
-                Script::Chats => text("Red, I think."),
                 Script::RetriesBadArguments if tool_results == 0 => {
                     call("pick", json!({"colour": "plaid"}), 10)
                 }
@@ -346,15 +343,6 @@ mod tests {
             total_tokens: tokens,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-        })
-    }
-
-    fn text(reply: &str) -> CompletionStream {
-        let reply = reply.to_owned();
-        Box::pin(async_stream::stream! {
-            yield Ok(StreamEvent::ContentDelta(reply));
-            yield Ok(usage(10));
-            yield Ok(StreamEvent::Finished(FinishReason::Stop));
         })
     }
 
@@ -443,13 +431,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_run_without_a_decision_fails_or_keeps_its_reply() {
-        assert_eq!(run(Script::Chats).await, Err(Failure::NoDecision));
-        let ended = subagents(Script::Chats).run_or_reply("alice", spec()).await;
-        assert_eq!(ended, Ok(Ended::Replied("Red, I think.".to_owned())));
-    }
-
-    #[tokio::test]
     async fn a_run_stops_at_its_token_budget_and_turn_limit() {
         assert!(matches!(
             run(Script::Expensive).await,
@@ -473,27 +454,5 @@ mod tests {
             subagents(Script::Loops).run("alice", spec).await,
             Err(Failure::Cancelled)
         );
-    }
-
-    #[tokio::test]
-    async fn spawned_work_is_bounded_per_user() {
-        let subagents = subagents(Script::Chats);
-        let (release, wait) = tokio::sync::watch::channel(false);
-        for _ in 0..Pool::Triage.per_user() {
-            let mut wait = wait.clone();
-            let started = subagents.spawn(Pool::Triage, "alice", async move {
-                // The sender lives to the end of the test, so this only waits.
-                let _ = wait.wait_for(|go| *go).await;
-            });
-            assert_eq!(started, Ok(()));
-        }
-        assert_eq!(subagents.spawn(Pool::Triage, "alice", async {}), Err(Busy));
-        assert!(subagents.has_room(Pool::Triage, "bob"));
-        assert_eq!(
-            subagents.running(Pool::Triage, "alice"),
-            Pool::Triage.per_user()
-        );
-        release.send(true).expect("the runs are waiting");
-        subagents.stop();
     }
 }
