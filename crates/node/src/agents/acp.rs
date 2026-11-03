@@ -303,7 +303,7 @@ pub(super) fn allow_option(options: &[AnswerOption]) -> Option<&AnswerOption> {
 }
 
 /// A message for the agent: its text, then any images.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(super) struct Prompt {
     pub(super) text: String,
     pub(super) images: Vec<Upload>,
