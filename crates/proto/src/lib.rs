@@ -1276,6 +1276,14 @@ requests! {
     /// tokens. A machine that cannot tell counts Claude Code and Codex as
     /// subscription, the other harnesses as metered.
     310 GetSpendReport { refresh: bool } => Call<SpendReport>
+    /// Follows `project_id` while its page is open: the first reply says
+    /// whether its host's events reach Beep now, and each later one comes
+    /// when the server read its lists or runs again, or when that changed.
+    /// While someone follows a project whose repository the user is an
+    /// admin of, one of their machines forwards its webhook. The page
+    /// keeps reading the lists every few minutes as before. `NotFound`
+    /// when the caller has no such project.
+    340 WatchProject { project_id: Uuid } => Stream<ProjectChange>
     /// As `ListProjectRuns`, from every host `project_id`'s repository is
     /// on: its GitHub and Forgejo hosts, from its roles, its imports and
     /// its checkout's remotes. One push to a repository mirrored on both
@@ -1339,6 +1347,23 @@ pub struct RunsHost {
     pub error: Option<String>,
     /// As `ProjectRuns::rate_limited_until`, for this host.
     pub rate_limited_until: Option<SystemTime>,
+}
+
+/// What `WatchProject` streams.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectChange {
+    /// The host's events reach Beep, so the lists and runs are read again
+    /// within seconds of a change. False while they are read every few
+    /// minutes only.
+    pub live: bool,
+    /// Why the project is not live, for the user; `None` when it is, or
+    /// while that is not known yet.
+    pub polling_why: Option<String>,
+    /// The pull request and issue lists were read again since the last
+    /// reply.
+    pub lists: bool,
+    /// The workflow runs were read again since the last reply.
+    pub runs: bool,
 }
 
 /// One custom agent a coding agent harness defines, as

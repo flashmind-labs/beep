@@ -21,6 +21,7 @@ import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectS
 import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderUnder, reason, el as h } from "./projects-state.ts";
 import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectRow, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
+import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
@@ -47,6 +48,7 @@ import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow
 import { fixPrompt, makeRuns, runTarget } from "./runs.ts";
 import type { RunDetail } from "./runs.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
+import { windowTakes } from "./windowkeys.ts";
 import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, withoutResearch, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./bar/researches.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
@@ -2257,6 +2259,18 @@ const revs = makeReviews({
   kept: keptSection("branches"),
 });
 
+/// Whether the project shown is live or polling; what its host changed is
+/// read again as the server says.
+const liveMode = makeProjectLive({
+  invoke, h,
+  redraw: () => redrawProjects(),
+  reload: (id: string, lists: boolean, ran: boolean) => {
+    if (lists) thr.load(id);
+    if (ran) runs.load(id);
+  },
+});
+listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
+
 /// The project's open issues and the user's threads there; the Issues
 /// tile, the rows of the Pull requests tile and their full lists.
 const thr = makeThreads({
@@ -2266,6 +2280,7 @@ const thr = makeThreads({
   openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
+  mode: liveMode.chip,
 });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
@@ -2274,6 +2289,7 @@ const runs = makeRuns({
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+  mode: liveMode.chip,
 });
 
 /// Every 10 seconds while a project page shows: the runs move on, but only
@@ -2953,6 +2969,7 @@ function drawProjects(el: HTMLElement) {
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
+    liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
     if (one) view.append(...projectDetail(one));
     else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
@@ -3424,11 +3441,16 @@ document.addEventListener("keydown", e => {
   // ⌘W closes this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
   if (key === "w" && !e.shiftKey) { e.preventDefault(); invoke("center_close_window").catch(() => window.close()); return; }
-  if (key === "k") { e.preventDefault(); return openPalette(); }
-  if (key === ",") { e.preventDefault(); return openSettings(); }
-  const to = PANE_KEYS[key];
-  // ⌘M on the start form picks the model there.
-  if (to && !(key === "m" && shown === "pane" && paneOn().view === "agentnew")) { e.preventDefault(); return go("pane", to); }
+  // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
+  if (windowTakes(key, shown === "pane" ? paneOn().view : undefined)) {
+    e.preventDefault();
+    if (key === "k") return openPalette();
+    if (key === ",") return openSettings();
+    // ⌘R opens the window's Research page, not the bar's list.
+    if (key === "r") return go("research");
+    const to = PANE_KEYS[key];
+    if (to) return go("pane", to);
+  }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
@@ -3557,7 +3579,7 @@ let windowHidden = false;
 const BACKGROUND_MS = 4 * 60_000;
 let lastBackground = Date.now();
 function onScreen() { return !windowHidden && document.visibilityState === "visible"; }
-listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); });
+listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); liveMode.follow(null); });
 listen("center-shown", () => { windowHidden = false; refresh(); });
 setInterval(() => {
   const now = Date.now(), last = lastBackground;

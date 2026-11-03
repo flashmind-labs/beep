@@ -650,16 +650,16 @@ struct DetailRead<'a> {
 }
 
 /// The background sync's read of the run lists, unless an ask read them
-/// meanwhile.
+/// meanwhile; whether it read.
 pub(super) async fn sync_in_background(
     app: &Arc<App>,
     user: &Arc<User>,
     project: &ProjectRow,
     entry: &Entry,
-) {
+) -> bool {
     let mut copy = entry.runs.copy.lock().await;
     if !entry.runs.stale() {
-        return;
+        return false;
     }
     let plan = Plan {
         forced: false,
@@ -669,6 +669,7 @@ pub(super) async fn sync_in_background(
     app.repo_watch
         .sync(app, user, project, entry, &mut copy, plan)
         .await;
+    true
 }
 
 #[cfg(test)]

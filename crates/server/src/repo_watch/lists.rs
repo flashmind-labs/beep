@@ -110,15 +110,18 @@ async fn read(
     entry.lists.timing().synced(Instant::now(), ok);
 }
 
-/// The background sync's read, unless an ask read it meanwhile.
+/// The background sync's read, unless an ask read it meanwhile; whether it
+/// read.
 pub(super) async fn sync_in_background(
     app: &Arc<App>,
     user: &Arc<User>,
     project: &ProjectRow,
     entry: &Entry,
-) {
+) -> bool {
     let mut copy = entry.lists.copy.lock().await;
-    if entry.lists.stale() {
-        read(app, user, project, entry, &mut copy).await;
+    if !entry.lists.stale() {
+        return false;
     }
+    read(app, user, project, entry, &mut copy).await;
+    true
 }
