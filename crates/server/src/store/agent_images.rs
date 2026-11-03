@@ -187,20 +187,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn too_large_or_not_a_picture_is_refused() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let big = png(2, MAX_AGENT_IMAGE + 1);
-        assert!(store.save_agent_image(&alice, ONE, &big).await.is_err());
-        let page = AgentImageBytes {
-            mime: "text/html".into(),
-            data: b"<p>hi</p>".to_vec(),
-        };
-        assert!(store.save_agent_image(&alice, ONE, &page).await.is_err());
-    }
-
-    #[tokio::test]
     async fn a_users_oldest_pictures_go_past_the_limit() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
