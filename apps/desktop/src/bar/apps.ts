@@ -79,6 +79,8 @@ interface AppsState {
   /// whose Remove waits for a second click.
   accounts: Record<string, AppAccount[]>;
   removing: string | null;
+  /// Why the open app's accounts did not load.
+  accountsError: string;
 }
 
 /// The Apps view: every app, the one being connected and the one whose
@@ -86,7 +88,7 @@ interface AppsState {
 export const A: AppsState = { apps: null, error: "", connecting: null, poll: undefined, open: null, perms: null,
   servers: null, adding: false, addError: "", waiting: null, busy: null,
   server: null, tools: null, asking: null, unadd: false,
-  accounts: {}, removing: null };
+  accounts: {}, removing: null, accountsError: "" };
 
 export const APP_LEVELS: [Level, string, string][] = [
   ["ask", "Ask first", "Beep shows what it is about to do and waits for you."],
@@ -98,13 +100,18 @@ export const APP_LEVELS: [Level, string, string][] = [
 const letterLogo = (name: string) => `<span class="dalogo">${esc(name.slice(0, 1).toUpperCase())}</span>`;
 const SPIN = '<span class="dmuted"><span class="dspin"></span></span>';
 
+/// Logos shipped with the app, for apps Composio has no logo for.
+const BUNDLED_LOGOS: Record<string, string> = { fastmail: "fastmail.svg" };
+
 export function appLogo(app: App) {
+  const bundled = BUNDLED_LOGOS[app.slug];
+  if (bundled) return `<img class="dalogo" src="${bundled}" alt="">`;
   if (!app.logo_url) return letterLogo(app.name);
   return `<img class="dalogo" src="${esc(app.logo_url)}" alt="" data-letter="${esc(app.name.slice(0, 1).toUpperCase())}">`;
 }
 /// A logo that does not load becomes the app's first letter.
 export function logoFallbacks(root: ParentNode) {
-  root.querySelectorAll<HTMLImageElement>("img.dalogo").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${esc(img.dataset.letter)}</span>`)), { once: true }));
+  root.querySelectorAll<HTMLImageElement>("img.dalogo[data-letter]").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${esc(img.dataset.letter)}</span>`)), { once: true }));
 }
 
 /// The top of a list in Apps: the error, or a spinner until `loaded`.
@@ -410,15 +417,27 @@ export async function renderAppPermissions(app: App | undefined) {
   logoFallbacks(bar);
   $$("#plist").addEventListener("click", permsClick);
   A.removing = null;
+  A.error = A.accountsError = "";
   drawPerms();
-  const accounts = app.kind === "fastmail" ? loadAccounts(app) : null;
+  // Each part draws when it arrives, so a slow account list holds up nothing.
+  if (app.kind === "fastmail") loadPageAccounts(app);
   try {
     A.perms = await invoke<AppPermissions>("app_permissions", { slug: app.slug });
-    A.error = "";
   } catch (e) {
     A.error = String(e);
   }
-  await accounts;
+  if (permsOn(app)) drawPerms();
+}
+
+/// The open app's accounts. Until they load the page shows the last ones
+/// listed; a failure shows with Retry.
+async function loadPageAccounts(app: App) {
+  try {
+    A.accounts[app.slug] = await invoke<AppAccount[]>("list_app_accounts", { slug: app.slug });
+    A.accountsError = "";
+  } catch (e) {
+    A.accountsError = String(e);
+  }
   if (permsOn(app)) drawPerms();
 }
 
@@ -473,7 +492,9 @@ export function drawPerms() {
   if (!list || !app) return;
   const accounts = A.accounts[app.slug];
   let html = listTop(p);
-  if (p && accounts?.length) html += drawAccounts(app, accounts);
+  if (A.accountsError) html += `<div class="dsec">Accounts</div><div class="daction"><span class="derr">${esc(app.name)} accounts did not load: ${esc(A.accountsError)}</span></div>`;
+  if (A.error || A.accountsError) html += '<div style="padding:4px 10px"><button class="dbtn" data-retry>Retry</button></div>';
+  if (accounts?.length) html += drawAccounts(app, accounts);
   if (p) {
     html += `<div class="dsec">When Beep acts in ${esc(app.name)}</div>` + APP_LEVELS.map(([level, title, detail]) =>
       `<button class="dlevel" role="radio" aria-checked="${p.level === level}" data-level="${level}"><span class="dradio"></span>
@@ -500,6 +521,7 @@ export async function permsClick(e: MouseEvent) {
     A.connecting = null;
     return drawPerms();
   }
+  if (target.closest("[data-retry]")) return renderAppPermissions(app);
   if (target.closest("[data-addaccount]")) return addAccount(app);
   const account = target.closest<HTMLElement>("[data-removing],[data-unremove],[data-remove]")?.dataset;
   if (account) {
