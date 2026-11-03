@@ -1,4 +1,6 @@
-import { agentAttach } from "./agents.ts";
+import { AGENT_IMAGE_TYPES, agentAttach } from "./agents.ts";
+import { PATH_TYPE } from "./filespane.ts";
+import { addMention, uploadDropped } from "./workdrop.ts";
 import { focusAsk } from "./chat.ts";
 import { $, bar, esc, h, ICON, invoke, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
@@ -159,22 +161,52 @@ document.addEventListener("paste", e => {
   const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
   if (!files.length) return;
   e.preventDefault();
-  agent ? agentAttach(files) : attach(files);
+  agent ? agentDrop(files) : attach(files);
 });
 
-// Dropping images and files on the chat attaches them too.
+/// Files pasted or dropped on a coding agent session: the pictures it
+/// takes attach to the message; anything else uploads into the session's
+/// folder and is mentioned.
+function agentDrop(files: Iterable<File>) {
+  const all = [...files];
+  const pics = all.filter(f => AGENT_IMAGE_TYPES.includes(f.type));
+  const rest = all.filter(f => !pics.includes(f));
+  if (rest.length) uploadDropped(rest);
+  return pics.length ? agentAttach(pics) : Promise.resolve();
+}
+
+// Dropping images and files on the chat attaches them too; a path dragged
+// from a session's Files tab onto its conversation is mentioned.
 bar.addEventListener("dragover", e => {
   const agent = agentField();
-  if ((S.view !== "chat" && !agent) || !e.dataTransfer?.types.includes("Files")) return;
+  const types = e.dataTransfer?.types ?? [];
+  if (agent && types.includes(PATH_TYPE)) {
+    if (!(e.target as HTMLElement).closest?.("#agconv")) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "copy";
+    $("#agfield")?.classList.add("dropping");
+    return;
+  }
+  if ((S.view !== "chat" && !agent) || !types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send them to the agent" : "Drop images or files to ask about them"}</div>`));
+  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send them to the agent, other files to upload them to its folder" : "Drop images or files to ask about them"}</div>`));
 });
-bar.addEventListener("dragleave", e => { if (!bar.contains(e.relatedTarget as Node | null)) $("#ddrop")?.remove(); });
+bar.addEventListener("dragleave", e => {
+  if (!bar.contains(e.relatedTarget as Node | null)) $("#ddrop")?.remove();
+  if (!$("#agconv")?.contains(e.relatedTarget as Node | null)) $("#agfield")?.classList.remove("dropping");
+});
 bar.addEventListener("drop", e => {
   $("#ddrop")?.remove();
+  $("#agfield")?.classList.remove("dropping");
+  const path = e.dataTransfer?.getData(PATH_TYPE);
+  if (agentField() && path) {
+    e.preventDefault();
+    addMention(path);
+    return;
+  }
   if (agentField() && e.dataTransfer?.files.length) {
     e.preventDefault();
-    agentAttach(e.dataTransfer.files).then(() => $("#agmsg")?.focus());
+    agentDrop(e.dataTransfer.files).then(() => $("#agmsg")?.focus());
     return;
   }
   if (S.view !== "chat" || !e.dataTransfer?.files.length) return;

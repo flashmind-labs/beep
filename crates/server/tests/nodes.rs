@@ -19,11 +19,13 @@ use beep_server::{
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
         AgentModels, AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, DeviceKind,
-        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetUsage, HarnessSettings,
-        ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions, ListMachineDetails,
-        ListMachineStats, ListMachines, ListMemoryScopes, MachineCapability, MemoryScope,
-        MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken,
-        SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload, image_key,
+        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetUsage, GitChange,
+        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes, ListWorkFolder,
+        MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
+        ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings,
+        StartAgentSession, SteerAgentSession, Upload, WorkEntry, WorkFolder, WriteWorkFile,
+        image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1223,6 +1225,54 @@ impl Protocol for FakeSessions {
                             data: data[from..].to_vec(),
                         }
                     }),
+                // The working folder's requests: a path with `..` is
+                // refused as the node does; anything else answers in kind.
+                (
+                    SessionsRequest::Folder { path, .. }
+                    | SessionsRequest::ReadFile { path, .. }
+                    | SessionsRequest::WriteFile { path, .. },
+                    _,
+                ) if path.contains("..") => SessionsReply::Error {
+                    message: format!("{path} leads outside the session's folder"),
+                },
+                (SessionsRequest::Folder { path, ignored, .. }, _) => SessionsReply::Folder {
+                    folder: WorkFolder {
+                        path,
+                        entries: vec![WorkEntry {
+                            name: "main.rs".into(),
+                            folder: false,
+                            size: 12,
+                            ignored,
+                            change: Some(GitChange::Modified {}),
+                        }],
+                        more: 0,
+                        git: true,
+                    },
+                },
+                (
+                    SessionsRequest::ReadFile {
+                        root,
+                        path,
+                        offset,
+                        len,
+                    },
+                    _,
+                ) => fake
+                    .files
+                    .iter()
+                    .find(|(at, _)| *at == format!("{root}/{path}"))
+                    .map_or(SessionsReply::NoFile {}, |(_, data)| {
+                        let from = usize::try_from(offset).unwrap().min(data.len());
+                        let to = (from + len as usize).min(data.len());
+                        SessionsReply::File {
+                            size: data.len() as u64,
+                            mime: "application/octet-stream".into(),
+                            data: data[from..to].to_vec(),
+                        }
+                    }),
+                (SessionsRequest::WriteFile { path, .. }, _) => SessionsReply::Written {
+                    path: format!("{path}.taken"),
+                },
                 _ => SessionsReply::Error {
                     message: "not faked".into(),
                 },
@@ -1845,6 +1895,82 @@ async fn agent_files_are_read_from_the_node_in_parts() {
             assert!(matches!(error, ApiError::BadRequest { .. }), "{request:?}");
         }
     }
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
+    let mut center = CommandCenter::new(1).await;
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                files: vec![("/srv/project/notes.txt".into(), b"0123456789".to_vec())],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let folder = client
+        .call(&ListWorkFolder {
+            machine_id: build.clone(),
+            root: "/srv/project".into(),
+            path: "src".into(),
+            ignored: true,
+        })
+        .await
+        .unwrap();
+    assert_eq!(folder.path, "src");
+    assert_eq!(folder.entries[0].change, Some(GitChange::Modified {}));
+    assert!(folder.entries[0].ignored);
+    let read = |path: &str, offset: u64, len: u32| ReadWorkFile {
+        machine_id: build.clone(),
+        root: "/srv/project".into(),
+        path: path.into(),
+        offset,
+        len,
+    };
+    let part = client.call(&read("notes.txt", 2, 3)).await.unwrap();
+    assert_eq!((part.size, part.data), (10, b"234".to_vec()));
+    let written = client
+        .call(&WriteWorkFile {
+            machine_id: build.clone(),
+            root: "/srv/project".into(),
+            path: ".beep/uploads/build.log".into(),
+            offset: 0,
+            size: 2,
+            data: b"hi".to_vec(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(written, ".beep/uploads/build.log.taken");
+    let too_big = WriteWorkFile {
+        machine_id: build.clone(),
+        root: "/srv/project".into(),
+        path: "big.bin".into(),
+        offset: 0,
+        size: MAX_WORK_UPLOAD + 1,
+        data: Vec::new(),
+    };
+    let outside = ListWorkFolder {
+        machine_id: build.clone(),
+        root: "/srv/project".into(),
+        path: "../etc".into(),
+        ignored: false,
+    };
+    for error in [
+        client.call(&too_big).await.unwrap_err(),
+        client.call(&outside).await.unwrap_err(),
+    ] {
+        let error = error.downcast::<ApiError>().unwrap();
+        assert!(matches!(error, ApiError::BadRequest { .. }), "{error:?}");
+    }
+    let missing = client.call(&read("gone.txt", 0, 10)).await.unwrap_err();
+    assert!(matches!(
+        missing.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
     center.shutdown().await;
 }
 

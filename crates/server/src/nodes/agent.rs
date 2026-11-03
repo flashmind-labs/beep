@@ -10,6 +10,7 @@
 
 use super::{Ask, Follower, Online};
 use crate::{
+    protocol::WorkFolder,
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
@@ -65,6 +66,30 @@ pub(crate) enum NodeFile {
     Missing,
     /// The node would not read it, saying why.
     Refused(String),
+}
+
+/// What a node answered when asked to work in a session's folder.
+pub(crate) enum NodeWork<T> {
+    Done(T),
+    /// The node would not, saying why.
+    Refused(String),
+}
+
+/// A read of part of a file in a session's folder.
+pub(crate) struct WorkRead<'a> {
+    pub(crate) root: &'a str,
+    pub(crate) path: &'a str,
+    pub(crate) offset: u64,
+    pub(crate) len: u32,
+}
+
+/// One part of a file written into a session's folder.
+pub(crate) struct WorkWrite {
+    pub(crate) root: String,
+    pub(crate) path: String,
+    pub(crate) offset: u64,
+    pub(crate) size: u64,
+    pub(crate) data: Vec<u8>,
 }
 
 /// What a session starts on besides its folder and prompt; the agent's
@@ -493,6 +518,61 @@ impl Online {
             SessionsReply::NoFile {} => Ok(NodeFile::Missing),
             SessionsReply::Error { message } => Ok(NodeFile::Refused(message)),
             other => bail!("the node answered {other:?}"),
+        }
+    }
+
+    /// The folder `path` inside the session folder `root` on the node. An
+    /// error when the node could not be asked, as one from before `Folder`
+    /// cannot.
+    pub(crate) async fn work_folder(
+        &self,
+        root: &str,
+        path: &str,
+        ignored: bool,
+    ) -> Result<NodeWork<WorkFolder>> {
+        let request = SessionsRequest::Folder {
+            root: root.to_owned(),
+            path: path.to_owned(),
+            ignored,
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::Folder { folder } => Ok(NodeWork::Done(folder)),
+            SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+            _ => bail!("the node answered something else"),
+        }
+    }
+
+    /// Part of the file `path` inside the session folder `root` on the
+    /// node, from `offset`. An error when the node could not be asked.
+    pub(crate) async fn read_work_file(&self, read: WorkRead<'_>) -> Result<NodeFile> {
+        let request = SessionsRequest::ReadFile {
+            root: read.root.to_owned(),
+            path: read.path.to_owned(),
+            offset: read.offset,
+            len: read.len,
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::File { size, mime, data } => Ok(NodeFile::Chunk { size, mime, data }),
+            SessionsReply::NoFile {} => Ok(NodeFile::Missing),
+            SessionsReply::Error { message } => Ok(NodeFile::Refused(message)),
+            _ => bail!("the node answered something else"),
+        }
+    }
+
+    /// Writes one part of a file into the session folder `root` on the
+    /// node; the path it went to. An error when the node could not be asked.
+    pub(crate) async fn write_work_file(&self, write: WorkWrite) -> Result<NodeWork<String>> {
+        let request = SessionsRequest::WriteFile {
+            root: write.root,
+            path: write.path,
+            offset: write.offset,
+            size: write.size,
+            data: write.data,
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
+            SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+            _ => bail!("the node answered something else"),
         }
     }
 

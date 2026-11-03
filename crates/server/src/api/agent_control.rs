@@ -123,7 +123,7 @@ pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
 }
 
 /// The caller's online machine `machine_id`, when it offers an agent.
-async fn live_host(cx: &Cx, machine_id: &str) -> Result<Live, ApiError> {
+pub(super) async fn live_host(cx: &Cx, machine_id: &str) -> Result<Live, ApiError> {
     live_hosts(cx)
         .await?
         .into_iter()

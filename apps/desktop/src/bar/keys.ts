@@ -9,7 +9,9 @@ import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, 
 import { toggleKeys } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { LV, VN } from "./live.ts";
+import { closeFilesMenu } from "./filespane.ts";
 import { viewerKeys } from "./media.ts";
+import { newTerminal } from "./mediapane.ts";
 import { drawMemories, M, memKeys, renderMemories } from "./memories.ts";
 import { canPickModel, modelKeys, renderModel } from "./model.ts";
 import { closeRerunMenu } from "./rerun.ts";
@@ -148,6 +150,12 @@ document.addEventListener("keydown", e => {
   // ⌘M picks the model while the start form shows.
   const formKey = S.view === "agentnew" && e.key.toLowerCase() === "m";
   if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase()) && !formKey) return;
+  // ⌃` opens a terminal in the session's folder, in its pane.
+  if (S.view === "agent" && e.ctrlKey && !cmd && e.key === "`") { e.preventDefault(); return newTerminal(); }
+  // Keys typed into a terminal of the pane are the terminal's: Tab, Esc
+  // and the arrows go to the shell.
+  if (!cmd && t instanceof Element && t.closest(".tm-xterm")) return;
+  if (e.key === "Escape" && closeFilesMenu()) { e.preventDefault(); return; }
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
   if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }

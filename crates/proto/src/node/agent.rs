@@ -428,6 +428,35 @@ pub enum SessionsRequest {
         path: String,
         offset: u64,
     },
+    /// The folder `path` inside the working folder `root`, as
+    /// `ListWorkFolder` asks it. Answered with `Folder`, or `Error` saying
+    /// why, for a path outside `root` among others. A node from before it
+    /// closes the stream.
+    Folder {
+        root: String,
+        path: String,
+        ignored: bool,
+    },
+    /// Up to `len` bytes of the file `path` inside `root` from `offset`,
+    /// as `ReadWorkFile` asks them. Answered with `File`, `NoFile` or
+    /// `Error`. A node from before it closes the stream.
+    ReadFile {
+        root: String,
+        path: String,
+        offset: u64,
+        len: u32,
+    },
+    /// Part of a file written into `root`, as `WriteWorkFile` sends it.
+    /// Answered with `Written`, or `Error` saying why. A node from before
+    /// it closes the stream.
+    WriteFile {
+        root: String,
+        path: String,
+        offset: u64,
+        size: u64,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -496,6 +525,14 @@ pub enum SessionsReply {
     },
     /// The answer to `File` when there is no file at its path.
     NoFile {},
+    /// The answer to `Folder`.
+    Folder {
+        folder: crate::WorkFolder,
+    },
+    /// The answer to `WriteFile`: the path inside the root it writes to.
+    Written {
+        path: String,
+    },
 }
 
 /// The models an agent can run on a node, as `SessionsRequest::Models`
