@@ -2376,7 +2376,7 @@ async fn what_agents_spend_and_their_plans_reach_the_pill() {
                 cost_usd: cost,
                 tokens,
                 models: vec![ModelTokens {
-                    model: format!("{agent}-model"),
+                    model: format!("{agent}-model").into(),
                     tokens,
                 }],
             },

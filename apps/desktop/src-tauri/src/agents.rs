@@ -14,7 +14,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentModel, AgentModels, AgentQuestion,
     AgentSessionView, AgentSteer, ApiError, GetAgentImage, GetAgentSession, ListAgentHosts,
-    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
+    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, ModelId, PreviewAgentMachine,
     ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload, check_agent_images,
     image_key,
     node::agent::{CheckoutPlan, Effort},
@@ -189,7 +189,7 @@ pub enum Steer {
     /// Switches the running session's model or thinking from its next turn.
     Configure {
         #[serde(default)]
-        model: Option<String>,
+        model: Option<ModelId>,
         #[serde(default)]
         effort: Option<Effort>,
     },
