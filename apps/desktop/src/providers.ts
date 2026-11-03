@@ -44,6 +44,9 @@ export function registerProviders(deps: ProvidersDeps) {
   const { registerView, invoke, h, button } = deps;
   const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, loading: false, note: "" };
   let el: HTMLElement | null = null;
+  /// Settings' breadcrumb, told of the agent picked, and the last it was told.
+  let onPick: ((agent: string) => void) | null = null;
+  let reported: string | null = null;
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
@@ -327,6 +330,10 @@ export function registerProviders(deps: ProvidersDeps) {
     const viewEl = h("div", "cc-view hv-view", ...body());
     const old = el.querySelector(":scope > .cc-view");
     if (old) old.replaceWith(viewEl); else el.append(viewEl);
+    if (onPick && st.picked && st.picked !== reported) {
+      reported = st.picked;
+      onPick(st.picked);
+    }
     if (label) {
       const again = viewEl.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(label)}"]`);
       again?.focus();
@@ -357,8 +364,14 @@ export function registerProviders(deps: ProvidersDeps) {
 
   registerView("providers", {
     title: () => ({ title: "Coding agents", sub: "What each machine can run", tools: tools() }),
-    mount(root) {
+    // Settings opens it at one agent (`arg.agent`) and follows the one
+    // picked (`arg.onPick`), for its breadcrumb.
+    mount(root, arg) {
       el = root;
+      const want = arg && typeof arg === "object" ? arg as { agent?: string; onPick?: (agent: string) => void } : {};
+      if (want.agent) st.picked = want.agent;
+      onPick = want.onPick ?? null;
+      reported = st.picked;
       draw();
       loadMachines();
     },
