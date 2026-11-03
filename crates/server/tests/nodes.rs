@@ -312,7 +312,15 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
     assert!(ran.fresh, "a timed out shell is replaced");
     assert_ne!(ran.output, "/\n");
 
-    // The report arrived after the hello; by now it is stored.
+    // The report follows the hello on its own, beside the sessions above;
+    // wait until it is stored.
+    timeout(Duration::from_secs(20), async {
+        while user.nodes().await.unwrap()[0].env.is_none() {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node reported");
     let rows = user.nodes().await.unwrap();
     let env = rows[0].env.as_ref().expect("the node reported");
     assert_eq!(env.os, std::env::consts::OS);

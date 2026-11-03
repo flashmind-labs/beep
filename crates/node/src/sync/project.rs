@@ -30,7 +30,7 @@ use futures::StreamExt as _;
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use iroh_blobs::{
     BlobFormat, Hash, HashAndFormat,
-    api::{Store, TempTag},
+    api::{Store, TempTag, remote::GetProgressItem},
     get::request::{GetBlobItem, get_blob},
     hashseq::HashSeq,
 };
@@ -70,6 +70,12 @@ const FULL_RESCAN: Duration = Duration::from_secs(10 * 60);
 /// How soon files that could not be fetched are tried again.
 const RETRY: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a fetch may wait for its next data before it gives up. A
+/// connection can stay open on a path that no longer carries data (a NAT
+/// mapping gone, with the relay keeping the connection alive); without a
+/// limit such a fetch waits forever. The next round fetches again over a
+/// new connection and keeps what came.
+const STALL: Duration = Duration::from_secs(30);
 /// What every disk keeps free beyond a fetch.
 const SPACE_MARGIN: u64 = 64 << 20;
 const CHUNK: usize = 1 << 20;
@@ -1223,21 +1229,29 @@ impl Task {
                     continue;
                 }
             };
-            let fetched = tokio::select! {
-                fetched = self.parts.store.remote().fetch(connection, content) => fetched,
-                () = self.shared.stop.cancelled() => bail!("stopped"),
-            };
+            let fetched = fetch_within(
+                &self.parts.store,
+                connection.clone(),
+                content,
+                STALL,
+                &self.shared.stop,
+            )
+            .await;
             match fetched {
-                Ok(_) if self.parts.store.blobs().has(content.hash).await? => {
+                Ok(()) if self.parts.store.blobs().has(content.hash).await? => {
                     return Ok(Fetched {
                         _tag: tag,
                         _room: room,
                     });
                 }
-                Ok(_) => last = Some(anyhow!("{} sent only part of it", peer.id)),
+                Ok(()) => last = Some(anyhow!("{} sent only part of it", peer.id)),
                 Err(e) => {
+                    if self.shared.stop.is_cancelled() {
+                        return Err(e);
+                    }
                     self.blobs.remove(&peer.id);
-                    last = Some(anyhow!("{}: {e}", peer.id));
+                    connection.close(0u32.into(), b"fetch failed");
+                    last = Some(e.context(peer.id.to_string()));
                 }
             }
         }
@@ -1453,6 +1467,32 @@ async fn copy_store(
 
 /// Copies blob `hash` from a peer into `out`, giving the hash of what was
 /// written. The blobs protocol checks every chunk against `hash`.
+/// Fetches `content` into `store` over `connection`, failing when no data
+/// comes for `stall`.
+async fn fetch_within(
+    store: &Store,
+    connection: Connection,
+    content: HashAndFormat,
+    stall: Duration,
+    stop: &CancellationToken,
+) -> Result<()> {
+    let items = store.remote().fetch(connection, content).stream();
+    let mut items = std::pin::pin!(items);
+    loop {
+        let item = tokio::select! {
+            item = timeout(stall, items.next()) => item
+                .map_err(|_| anyhow!("no data came for {} s", stall.as_secs_f32()))?,
+            () = stop.cancelled() => bail!("stopped"),
+        };
+        match item {
+            Some(GetProgressItem::Progress(_)) => {}
+            Some(GetProgressItem::Done(_)) => return Ok(()),
+            Some(GetProgressItem::Error(e)) => bail!("{e}"),
+            None => bail!("the fetch ended early"),
+        }
+    }
+}
+
 async fn copy_blob(
     connection: Connection,
     hash: Hash,
@@ -1464,7 +1504,8 @@ async fn copy_blob(
     let mut at = 0u64;
     loop {
         let item = tokio::select! {
-            item = items.next() => item,
+            item = timeout(STALL, items.next()) => item
+                .map_err(|_| anyhow!("no data came for {} s", STALL.as_secs()))?,
             () = stop.cancelled() => bail!("stopped"),
         };
         match item {
@@ -1741,6 +1782,48 @@ mod tests {
             .get("docs/notes.txt")
             .and_then(|entry| entry.file.as_ref().map(|file| file.hash));
         assert_eq!(listed, Some(*Hash::new(COPY).as_bytes()));
+        project.stop().await;
+    }
+
+    /// A blob peer that takes connections and never answers on them, like
+    /// one whose path stopped carrying data while the connection lives.
+    #[derive(Debug, Clone)]
+    struct Silent;
+
+    impl iroh::protocol::ProtocolHandler for Silent {
+        async fn accept(&self, connection: Connection) -> Result<(), iroh::protocol::AcceptError> {
+            connection.closed().await;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_fetch_that_gets_no_data_gives_up() {
+        let project = Project::new(&["notes.txt"]).await;
+        let silent = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+        let router = iroh::protocol::Router::builder(silent)
+            .accept(iroh_blobs::ALPN, Silent)
+            .spawn();
+        let connection = project
+            .task
+            .parts
+            .endpoint
+            .connect(router.endpoint().addr(), iroh_blobs::ALPN)
+            .await
+            .unwrap();
+        let content = HashAndFormat::raw(Hash::new("never sent"));
+        let stall = Duration::from_millis(200);
+        let stop = CancellationToken::new();
+        // The guard only keeps a regression from hanging the test run.
+        let fetched = timeout(
+            Duration::from_secs(20),
+            fetch_within(&project.task.parts.store, connection, content, stall, &stop),
+        )
+        .await
+        .expect("the fetch gives up on its own");
+        let error = fetched.expect_err("nothing was sent");
+        assert!(error.to_string().contains("no data came"), "{error:#}");
+        router.shutdown().await.unwrap();
         project.stop().await;
     }
 
