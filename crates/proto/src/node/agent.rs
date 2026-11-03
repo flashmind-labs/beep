@@ -342,6 +342,11 @@ pub enum SessionsRequest {
     Transcript {
         session: String,
         last: u32,
+        /// Keep the agent's thoughts, as `EntryKind::Thought` entries. A
+        /// server from before them leaves it out and gets none, so it
+        /// never shows a thought as an unknown entry.
+        #[serde(default)]
+        thoughts: bool,
     },
     /// Sessions of `agent` started outside Beep, newest first: at most
     /// `limit`, or only `session` when given.
@@ -1018,6 +1023,20 @@ impl ActivityKind {
 pub struct Entry {
     pub kind: EntryKind,
     pub text: String,
+    /// How long a thought took, in milliseconds, once it ended. Only on
+    /// `EntryKind::Thought` entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
+impl Entry {
+    pub fn new(kind: EntryKind, text: String) -> Self {
+        Self {
+            kind,
+            text,
+            ms: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1031,6 +1050,8 @@ pub enum EntryKind {
     Tool,
     /// A permission question and its answer.
     Question,
+    /// What the agent thought, as its `agent_thought_chunk`s said it.
+    Thought,
     #[serde(other)]
     Other,
 }
@@ -1042,6 +1063,7 @@ impl EntryKind {
             Self::Agent => "agent",
             Self::Tool => "tool",
             Self::Question => "question",
+            Self::Thought => "thought",
             Self::Other => "other",
         }
     }
@@ -1186,6 +1208,62 @@ mod tests {
         };
         let body = rmp_serde::to_vec_named(&start).unwrap();
         assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);
+    }
+
+    #[test]
+    fn a_transcript_ask_without_thoughts_reads_here_and_a_thought_reads_as_other_there() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        enum Older {
+            Transcript { session: String, last: u32 },
+        }
+        let body = rmp_serde::to_vec_named(&Older::Transcript {
+            session: "s".into(),
+            last: 5,
+        })
+        .unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
+            SessionsRequest::Transcript {
+                session: "s".into(),
+                last: 5,
+                thoughts: false,
+            }
+        );
+
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        enum OlderKind {
+            User,
+            #[serde(other)]
+            Other,
+        }
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct OlderEntry {
+            kind: OlderKind,
+            text: String,
+        }
+        let thought = Entry {
+            kind: EntryKind::Thought,
+            text: "hmm".into(),
+            ms: Some(1200),
+        };
+        let body = rmp_serde::to_vec_named(&thought).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Entry>(&body).unwrap(), thought);
+        assert_eq!(
+            rmp_serde::from_slice::<OlderEntry>(&body).unwrap(),
+            OlderEntry {
+                kind: OlderKind::Other,
+                text: "hmm".into()
+            }
+        );
+        let body = rmp_serde::to_vec_named(&OlderEntry {
+            kind: OlderKind::User,
+            text: "hi".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<Entry>(&body).unwrap(),
+            Entry::new(EntryKind::User, "hi".into())
+        );
     }
 
     #[test]

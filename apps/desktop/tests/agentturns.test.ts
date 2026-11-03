@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, clock, commandDetail, commandOf, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, toolKind } from "../src/agentturns.ts";
+import { beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, folded, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, thoughtTail, toolKind, toolRuns, turnStats, withoutDiffs } from "../src/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -177,4 +177,80 @@ test("only the newest step of a running turn starts open when it failed", () => 
   assert.equal(stepOpen(true, false, false), false);
   assert.equal(stepOpen(true, false, true), true);
   assert.equal(stepOpen(false, true, false), false);
+});
+
+const th = (text: string, ms: number | null = null) => ({ kind: "thought", text, ms });
+
+test("a thought reads how long it took, or just Thought when that is not known", () => {
+  assert.equal(thoughtLabel(12_400), "Thought for 12s");
+  assert.equal(thoughtLabel(80_000), "Thought for 1m 20s");
+  assert.equal(thoughtLabel(300), "Thought for 1s", "never 0s");
+  assert.equal(thoughtLabel(null), "Thought");
+  assert.equal(thoughtLabel(undefined), "Thought");
+});
+
+test("the preview beside Thinking is the thought's newest line, plain", () => {
+  assert.equal(thoughtTail("**Reading**\n\nThe test expects `Wrong password`.\n"), "The test expects Wrong password.");
+  assert.equal(thoughtTail("## Plan\n- check the *fixtures*"), "check the fixtures");
+  assert.equal(thoughtTail("  \n"), "");
+});
+
+test("only the running turn's last entry, a thought without a length, is still thinking", () => {
+  const log = [u("go"), th("Reading", 4000), t("Read `a.rs` [completed]"), th("Now the tests")];
+  const [turn] = splitTurns(log);
+  assert.equal(liveThought(log, turn, true), 3);
+  assert.equal(liveThought(log, turn, false), null, "a finished turn thinks no more");
+  const ended = [...log.slice(0, 3), th("Now the tests", 2000)];
+  assert.equal(liveThought(ended, splitTurns(ended)[0], true), null);
+  const answered = [...log, a("Done.")];
+  assert.equal(liveThought(answered, splitTurns(answered)[0], true), null);
+});
+
+test("thoughts fold with the tools, and stay in view when no tool is left to fold", () => {
+  const withTools = [u("go"), th("Reading", 1000), t("Read `a.rs` [completed]"), th("Done", 1000), a("Fixed.")];
+  const turn = splitTurns(withTools)[0];
+  assert.deepEqual([...keptThoughts(withTools, turn, new Set(keptSteps(withTools, turn)))], []);
+  // The running turn keeps its newest tool in view: nothing left to fold.
+  assert.deepEqual([...keptThoughts(withTools, turn, new Set([2]))].sort(), [1, 2, 3]);
+  const onlyThoughts = [u("hi"), th("Greeting", 1000), a("Hello.")];
+  const plain = splitTurns(onlyThoughts)[0];
+  assert.deepEqual([...keptThoughts(onlyThoughts, plain, new Set(keptSteps(onlyThoughts, plain)))], [1]);
+});
+
+const EDIT = "Edit `src/limits.rs` [completed]\n[diff] src/limits.rs +2 -1\n fn a() {\n-    3\n+    5\n+    6\n }";
+
+test("a tool row reads as kind, verb, target and what the right side says", () => {
+  assert.deepEqual(rowParts("cargo test -p invites [completed]"), { kind: "command", verb: "Ran", target: "cargo test -p invites", detail: "", bad: false });
+  assert.deepEqual(rowParts("cargo test [in_progress]", true), { kind: "command", verb: "Running", target: "cargo test", detail: "", bad: false });
+  assert.deepEqual(rowParts("cargo test [failed]\nprocess exited with code 101"), { kind: "command", verb: "Ran", target: "cargo test", detail: "exit 101", bad: true });
+  assert.deepEqual(rowParts(EDIT), { kind: "edit", verb: "Edited", target: "src/limits.rs", detail: "+2 -1", bad: false });
+  assert.deepEqual(rowParts("Read src/limits.rs (1 - 88) [completed]"), { kind: "read", verb: "Read", target: "src/limits.rs", detail: "L1-88", bad: false });
+  assert.deepEqual(rowParts("Read: src/a.rs:30-96"), { kind: "read", verb: "Read", target: "src/a.rs", detail: "L30-96", bad: false });
+  assert.deepEqual(rowParts("Grep: fn main [completed]"), { kind: "search", verb: "Searched", target: "fn main", detail: "", bad: false });
+  assert.deepEqual(rowParts("mcp__linear__get_issue [completed]"), { kind: "mcp", verb: "linear", target: "get_issue", detail: "MCP", bad: false });
+  assert.deepEqual(rowParts("TodoWrite: plan"), { kind: "other", verb: "TodoWrite", target: "plan", detail: "", bad: false });
+});
+
+test("an edit's diff is read back from its output, and the rest of the output kept apart", () => {
+  const output = "[diff] src/limits.rs +2 -1\n fn a() {\n-    3\n+    5\n… 3 more lines\nsaved";
+  assert.deepEqual(diffBlocks(output), [{ path: "src/limits.rs", added: 2, removed: 1, more: 3,
+    lines: [{ mark: " ", text: "fn a() {" }, { mark: "-", text: "    3" }, { mark: "+", text: "    5" }] }]);
+  assert.equal(withoutDiffs(output), "saved");
+  assert.deepEqual(diffBlocks("plain output"), []);
+});
+
+test("finished calls of one kind in a row fold into one run; failures, running calls and other entries stand alone", () => {
+  const log = [u("go"), t("Read a.rs [completed]"), t("Read b.rs [completed]"), t("Read c.rs [completed]"),
+    t("cargo test [completed]"), t("Read d.rs [failed]"), t("Read e.rs [completed]"), th("hmm", 1000), t("Read f.rs [completed]"), t("Read g.rs [in_progress]")];
+  assert.deepEqual(toolRuns(log, [1, 2, 3, 4, 5, 6, 7, 8, 9]), [[1, 2, 3], [4], [5], [6], [7], [8], [9]]);
+  assert.equal(runLabel("read", 6), "Read 6 files");
+  assert.equal(runLabel("command", 1), "Ran 1 command");
+  assert.equal(runLabel("search", 3), "Searched 3 times");
+});
+
+test("a turn's heading counts its calls and the files it changed", () => {
+  const log = [u("go"), t("Read a.rs [completed]"), t(EDIT), t(EDIT), t("Edit `b.rs` [completed]"), t("Edit `c.rs` [failed]"), a("Done.")];
+  assert.equal(turnStats(log, splitTurns(log)[0]), "5 tool calls · 2 files changed");
+  const quiet = [u("hi"), a("Hello.")];
+  assert.equal(turnStats(quiet, splitTurns(quiet)[0]), "");
 });
