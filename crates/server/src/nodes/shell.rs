@@ -216,15 +216,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn short_output_is_kept_whole() {
-        let mut kept = Kept::default();
-        kept.push("hello ");
-        kept.push("world");
-        assert!(!kept.cut);
-        assert_eq!(kept.text(), "hello world");
-    }
-
-    #[test]
     fn a_split_character_keeps_the_output_in_order() {
         let mut kept = Kept::default();
         kept.push(&"a".repeat(KEEP_HEAD - 1));

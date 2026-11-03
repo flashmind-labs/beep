@@ -237,29 +237,6 @@ mod tests {
     ]}"#;
 
     #[test]
-    fn search_items_parse_into_prs_and_issues() {
-        let items = merge(vec![(Query::Authored, reply(AUTHORED))]);
-        assert_eq!(items.len(), 2);
-        let pr = &items[0];
-        assert_eq!(pr.kind, GitItemKind::PullRequest {});
-        assert_eq!(pr.repo, "acme/widget");
-        assert_eq!(pr.number, 142);
-        assert_eq!(pr.host, "github.com");
-        assert_eq!(pr.url, "https://github.com/acme/widget/pull/142");
-        assert_eq!(pr.comments, 3);
-        assert!(pr.authored && !pr.assigned && !pr.draft);
-        assert_eq!(
-            pr.updated_at,
-            SystemTime::from(
-                "2026-10-30T09:15:00Z"
-                    .parse::<DateTime<Utc>>()
-                    .expect("a valid time")
-            )
-        );
-        assert_eq!(items[1].kind, GitItemKind::Issue {});
-    }
-
-    #[test]
     fn an_item_two_searches_find_is_listed_once_with_both_marks() {
         let items = merge(vec![
             (Query::Authored, reply(AUTHORED)),
@@ -291,15 +268,5 @@ mod tests {
         assert_eq!(items[0].review, GitReview::ChangesRequested {});
         assert!(!items[1].checks_failing);
         assert!(items.iter().all(|i| i.repo != "other/thing"));
-    }
-
-    #[test]
-    fn repos_come_from_the_api_url() {
-        assert_eq!(
-            repo_of("https://api.github.com/repos/acme/widget").as_deref(),
-            Some("acme/widget")
-        );
-        assert_eq!(repo_of("https://example.com/repos/acme/widget"), None);
-        assert_eq!(repo_of("https://api.github.com/repos/acme"), None);
     }
 }

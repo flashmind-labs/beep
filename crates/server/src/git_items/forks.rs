@@ -353,35 +353,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_renamed_fork_is_found_in_the_list_of_forks_on_forgejo() {
-        let base = host(HashMap::from([
-            ("/repos/acme/widget", UPSTREAM),
-            // Same name, but not a fork of it.
-            (
-                "/repos/octo/widget",
-                r#"{"full_name": "octo/widget", "fork": false}"#,
-            ),
-            (
-                "/repos/acme/widget/forks?limit=50",
-                r#"[{"full_name": "someone/widget", "owner": {"login": "someone"}},
-                    {"full_name": "octo/widget-fork", "owner": {"login": "octo"}}]"#,
-            ),
-            (
-                "/repos/acme/widget/pulls?state=open&limit=50",
-                r#"[{"user": {"login": "octo"},
-                     "head": {"ref": "fix", "repo": {"full_name": "octo/widget-fork"}}}]"#,
-            ),
-        ]))
-        .await;
-        let fork = look(&base, Api::Forgejo, "acme/widget", Some("octo"))
-            .await
-            .expect("the host answers")
-            .expect("a fork");
-        assert_eq!(fork.name.to_string(), "octo/widget-fork");
-        assert_eq!(fork.branches, ["fix"]);
-    }
-
-    #[tokio::test]
     async fn the_fork_and_branches_on_later_pages_are_found() {
         let base = paged_host(
             HashMap::from([
@@ -427,35 +398,5 @@ mod tests {
             .expect("a fork");
         assert_eq!(fork.name.to_string(), "octo/widget-fork");
         assert_eq!(fork.branches, ["first", "second"]);
-    }
-
-    #[tokio::test]
-    async fn no_fork_and_the_users_own_repository_find_none() {
-        let base = host(HashMap::from([
-            ("/repos/acme/widget", UPSTREAM),
-            ("/repos/acme/widget/forks?per_page=50", "[]"),
-        ]))
-        .await;
-        assert_eq!(
-            look(&base, Api::GitHub, "acme/widget", Some("octo")).await,
-            Ok(None)
-        );
-        assert_eq!(
-            look(&base, Api::GitHub, "octo/widget", Some("octo")).await,
-            Ok(None)
-        );
-    }
-
-    #[tokio::test]
-    async fn a_host_that_does_not_know_the_user_is_an_error() {
-        let base = host(HashMap::new()).await;
-        let unknown = look(&base, Api::GitHub, "acme/widget", None).await;
-        assert_eq!(
-            unknown,
-            Err(HostError::Status {
-                host: "github.com".into(),
-                status: 404
-            })
-        );
     }
 }

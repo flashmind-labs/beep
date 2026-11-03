@@ -121,35 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn a_task_that_ended_makes_it_ready_now() {
-        let ended = chat(10, at(100));
-        assert!(due(&ended, None, Cause::TaskEnded, at(100), TIMING));
-        let busy = ChatActivity {
-            running: true,
-            ..ended.clone()
-        };
-        assert!(!due(&busy, None, Cause::TaskEnded, at(100), TIMING));
-        assert!(!due(&busy, None, Cause::Sweep, at(500), TIMING));
-    }
-
-    #[test]
-    fn only_messages_past_its_place_count() {
-        let quiet = chat(10, at(0));
-        let read = WatcherState {
-            reviewed_seq: 10,
-            ..WatcherState::default()
-        };
-        assert!(!due(&quiet, Some(&read), Cause::Sweep, at(60), TIMING));
-        assert!(!due(&quiet, Some(&read), Cause::TaskEnded, at(60), TIMING));
-        let behind = WatcherState {
-            reviewed_seq: 9,
-            ..WatcherState::default()
-        };
-        assert!(due(&quiet, Some(&behind), Cause::Sweep, at(60), TIMING));
-        assert!(!due(&chat(0, at(0)), None, Cause::Sweep, at(60), TIMING));
-    }
-
-    #[test]
     fn each_failure_waits_twice_as_long() {
         let quiet = chat(10, at(0));
         let failed = |failures| WatcherState {

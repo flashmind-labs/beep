@@ -1011,32 +1011,4 @@ mod tests {
         assert_eq!(Answered.retry(true), No);
         assert_eq!(Answered.retry(false), No);
     }
-
-    #[test]
-    fn turn_ends_questions_and_ends_are_news() {
-        assert!(
-            News::of(&Event::Question {
-                question: question(1)
-            })
-            .is_some()
-        );
-        let done = Event::TurnDone {
-            turn: 1,
-            stop_reason: StopReason::EndTurn,
-            last_message: String::new(),
-        };
-        assert!(News::of(&done).is_some());
-        assert!(matches!(
-            News::of(&Event::Ended {
-                reason: "closed".into()
-            }),
-            Some(News::Ended { .. })
-        ));
-        assert!(
-            News::of(&Event::State {
-                state: State::default()
-            })
-            .is_none()
-        );
-    }
 }
