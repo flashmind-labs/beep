@@ -2683,7 +2683,7 @@ pub fn check_agent_images(images: &[Upload]) -> Result<(), ApiError> {
 }
 
 /// The image type `data` starts like, of `AGENT_IMAGE_TYPES`.
-fn sniff_image(data: &[u8]) -> Option<&'static str> {
+pub fn sniff_image(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("image/png")
     } else if data.starts_with(&[0xff, 0xd8, 0xff]) {

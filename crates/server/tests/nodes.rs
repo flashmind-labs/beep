@@ -1088,6 +1088,9 @@ struct FakeAgents {
     orders: Option<mpsc::UnboundedSender<Request>>,
     /// The PNGs `Image` finds, by session.
     images: Vec<(String, Vec<u8>)>,
+    /// The PNGs `FollowImages` sends, by session, before it holds the
+    /// stream.
+    sent: Vec<(String, Vec<u8>)>,
     /// What `Models` answers; `None` closes the stream unanswered, as a
     /// node from before it does.
     models: Option<ModelList>,
@@ -1122,6 +1125,18 @@ impl Protocol for FakeSessions {
             };
             if fake.hang {
                 // Holds the stream until the server drops it.
+                while rx.recv::<SessionsRequest>().await?.is_some() {}
+                return Ok(());
+            }
+            if matches!(request, SessionsRequest::FollowImages {}) {
+                for (session, data) in &fake.sent {
+                    tx.send(&SessionsReply::SessionImage {
+                        session: session.clone(),
+                        mime: "image/png".into(),
+                        data: data.clone(),
+                    })
+                    .await?;
+                }
                 while rx.recv::<SessionsRequest>().await?.is_some() {}
                 return Ok(());
             }
@@ -2027,8 +2042,9 @@ async fn agent_images_pass_through_from_the_node() {
     let not_found = |error: anyhow::Error| {
         matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
     };
-    let elsewhere = client.call(&get("000000", &key)).await.unwrap_err();
-    assert!(not_found(elsewhere), "another session's image is not found");
+    // Once read, the server keeps a copy, which any session shows by key.
+    let elsewhere = client.call(&get("000000", &key)).await.unwrap();
+    assert_eq!(elsewhere.data, png);
     let unknown = client.call(&get("a3f9c1", &image_key(b"other"))).await;
     assert!(not_found(unknown.unwrap_err()));
     let refused = client.call(&get("a3f9c1", "shot.png")).await.unwrap_err();
@@ -2036,8 +2052,8 @@ async fn agent_images_pass_through_from_the_node() {
         refused.downcast::<ApiError>().unwrap(),
         ApiError::BadRequest { .. }
     ));
-    // An image sent with a prompt goes to the node, and the server keeps
-    // nothing: the old listing stays empty for the apps that still ask.
+    // An image sent with a prompt goes to the node; the old listing stays
+    // empty for the apps that still ask.
     let steer = SteerAgentSession {
         machine_id: build.clone(),
         agent: "claude".into(),
@@ -2065,6 +2081,61 @@ async fn agent_images_pass_through_from_the_node() {
         .await
         .unwrap();
     assert!(listed.is_empty());
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn pictures_a_node_sends_show_while_it_is_offline() {
+    let mut center = CommandCenter::new(2).await;
+    let png = b"\x89PNG\r\n\x1a\nchart".to_vec();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                sent: vec![("a3f9c1".into(), png.clone())],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let get = GetAgentImage {
+        machine_id: build.clone(),
+        session: "a3f9c1".into(),
+        key: image_key(&png),
+    };
+    // The node cannot answer `Image`, so the picture comes from the copy
+    // kept of what it sent. Polls: keeping it has no signal to wait on.
+    let got = timeout(Duration::from_secs(20), async {
+        loop {
+            if let Ok(got) = client.call(&get).await {
+                return got;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the picture was kept");
+    assert_eq!(got.data, png);
+    assert_eq!(got.mime, "image/png");
+    // Another user does not get it.
+    let (_other, theirs) = center.phone(1).await;
+    assert!(theirs.call(&get).await.is_err());
+
+    for node in &center.nodes {
+        node.abort();
+    }
+    let online = center.app.nodes.online(&build).expect("still registered");
+    online.connection.close(0u32.into(), b"gone");
+    timeout(Duration::from_secs(20), async {
+        while center.app.nodes.online(&build).is_some() {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node went offline");
+    assert_eq!(client.call(&get).await.unwrap().data, png);
     center.shutdown().await;
 }
 

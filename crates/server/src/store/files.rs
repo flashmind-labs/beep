@@ -17,7 +17,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 /// How long a sent file stays downloadable.
-const FILE_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+pub(super) const FILE_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// A file to keep for a chat.
 pub struct NewFile<'a> {
@@ -54,15 +54,7 @@ impl Store {
     /// `FILE_KEEP` on the way, so nothing else has to sweep them; pictures
     /// stay with their chat.
     pub(crate) async fn save_file(&self, user: &UserKey, file: NewFile<'_>) -> Result<String> {
-        let expired: Vec<String> = sqlx::query_scalar(
-            "DELETE FROM files WHERE user_id=$1 AND message_id IS NULL
-             AND created_at < now() - make_interval(secs => $2) RETURNING id",
-        )
-        .bind(user.as_str())
-        .bind(seconds(FILE_KEEP))
-        .fetch_all(&self.pool)
-        .await?;
-        self.blobs.delete(&expired).await?;
+        self.drop_expired_files(user).await?;
         let id = Uuid::new_v4().simple().to_string();
         sqlx::query(
             "INSERT INTO files (id, user_id, chat_id, name, mime, data)
@@ -77,6 +69,19 @@ impl Store {
         .await?;
         self.put_blob(&id, file.data).await?;
         Ok(id)
+    }
+
+    /// Drops `user`'s files without a message older than `FILE_KEEP`.
+    pub(super) async fn drop_expired_files(&self, user: &UserKey) -> Result<()> {
+        let expired: Vec<String> = sqlx::query_scalar(
+            "DELETE FROM files WHERE user_id=$1 AND message_id IS NULL
+             AND created_at < now() - make_interval(secs => $2) RETURNING id",
+        )
+        .bind(user.as_str())
+        .bind(seconds(FILE_KEEP))
+        .fetch_all(&self.pool)
+        .await?;
+        self.blobs.delete(&expired).await
     }
 
     /// Keeps the pictures `user` sent with a message, in order, and returns

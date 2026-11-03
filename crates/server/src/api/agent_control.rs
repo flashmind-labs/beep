@@ -18,6 +18,7 @@ use crate::{
         *,
     },
     router::Cx,
+    store::{AgentImageBytes, AgentImageOf},
     tools::machines::command_name,
 };
 use futures::{StreamExt, stream};
@@ -584,16 +585,29 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     Ok(())
 }
 
-/// The server keeps no images of agent sessions; the apps read each from
-/// the node with `GetAgentImage`.
+/// The apps read each picture of a session by its key with
+/// `GetAgentImage`; there is nothing to list.
 pub(super) async fn list_agent_images(_: Cx, _: ListAgentImages) -> Reply<Vec<AgentImage>> {
     Ok(Vec::new())
 }
 
-/// Passes the node's picture through; nothing is kept.
+/// The kept copy of the picture, or else the node's, of which a copy is
+/// then kept so it shows while the machine is offline.
 pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentImageData> {
     if !is_image_key(&get.key) {
         return Err(ApiError::bad_request("That is not an image key."));
+    }
+    match cx.user.agent_image(&get.key).await {
+        Ok(Some(kept)) => {
+            return Ok(AgentImageData {
+                key: get.key,
+                mime: kept.mime,
+                data: kept.data,
+            });
+        }
+        Ok(None) => {}
+        // The node may still have it.
+        Err(e) => log::warn!("agent image not read; key={} error={e:#}", get.key),
     }
     let live = live_host(&cx, &get.machine_id).await?;
     let image = live
@@ -615,6 +629,17 @@ pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentIm
             get.key
         );
         return Err(ApiError::NotFound {});
+    }
+    let image = AgentImageBytes {
+        mime: image.mime,
+        data: image.data,
+    };
+    let of = AgentImageOf {
+        machine_id: &get.machine_id,
+        session: &get.session,
+    };
+    if let Err(e) = cx.user.save_agent_image(of, &image).await {
+        log::warn!("agent image not kept; key={} error={e:#}", get.key);
     }
     Ok(AgentImageData {
         key: get.key,
