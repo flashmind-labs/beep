@@ -1,8 +1,8 @@
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
-import { preloadModels } from "./agentpicker.ts";
+import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { clock, folded, heading, span, splitTurns, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { clock, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
@@ -140,8 +140,10 @@ export interface AgentForm {
   typing?: boolean;
 }
 
-/// What `agent_steer` sends: a message, or stop the turn, or close the session.
-type Steer = { prompt: { text: string; images?: { name: string; mime: string; data: string }[] } } | { cancel: null } | { close: null };
+/// What `agent_steer` sends: a message, stop the turn, close the session,
+/// or switch its model or thinking from the next turn.
+type Steer = { prompt: { text: string; images?: { name: string; mime: string; data: string }[] } } | { cancel: null } | { close: null }
+  | { configure: { model: string | null; effort: string | null } };
 
 interface AgentState {
   readError: string;
@@ -179,6 +181,15 @@ interface AgentState {
   /// tool entries, once loaded.
   opened: Set<number | string>;
   log: typeof import("../agentlog.ts") | null;
+  /// The steps whose whole output shows, by place in the session.
+  all: Set<number>;
+  /// The subagent opened as its own conversation, by its call's place.
+  child: number | null;
+  /// Messages typed while a turn runs, sent when it stops or ends.
+  queue: string[];
+  flushing: boolean;
+  /// Whether the model picker by the field is open.
+  modelOpen: boolean;
 }
 
 export const AG: AgentState = {
@@ -188,7 +199,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null,
+  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
 };
 export const agentLog = () => import("../agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -278,7 +289,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(),
+    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
   });
   drawAgentFrame();
   pollAgent();
@@ -319,6 +330,7 @@ export async function pollAgent() {
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
       drawAgentBody();
+      flushQueue();
     }
   } catch (e) {
     if (isOpen(o)) {
@@ -357,15 +369,25 @@ if (!PANE) {
 /// Whether the server turned images down for the open session.
 export const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
 
+/// Whether the open session's turn runs, so Enter queues and Esc
+/// interrupts, as flsh does.
+const turnRuns = () => {
+  const s = AG.page?.session;
+  return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
+};
+
+/// The session's keys on one small line.
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
-  if (q) return hints([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
-  if (s?.external) return hints([["esc", "back"]]);
-  if (s?.status === "ended") return hints([[ICON.ret, "continue"], ["esc", "back"]]);
+  const slim = (items: Parameters<typeof hints>[0]) => hints(items).replace('class="dhints"', 'class="dhints slim"');
+  if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
+  if (AG.child != null) return slim([["esc", "parent session"]]);
+  if (s?.external) return slim([["esc", "back"]]);
+  if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
+  if (turnRuns()) return slim([["esc", AG.queue.length ? "interrupt and send queued" : "interrupt"], [ICON.ret, "queue"]]);
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  const stop = AGENT_ACTIVE.has(s?.status) ? [["⌘.", "stop the turn"]] : [];
-  return hints([...paste, [ICON.ret, "send"], ...stop, ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -480,15 +502,29 @@ export function keepAgentPics(o: OpenAgent, images: Attached[]) {
   while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value!);
 }
 
+/// A session's folder as the header shows it: the repository and its
+/// worktree (`widget · fix-login`), else the folder's name.
+export function shortCwd(cwd: string) {
+  const m = /^(.*?)\/(?:\.claude\/worktrees|\.worktrees)\/(.+?)\/?$/.exec(cwd);
+  if (m) return `${folderName(m[1])} · ${m[2]}`;
+  return folderName(cwd) || cwd;
+}
+
+/// The harnesses that switch models in a running session.
+const SWITCHES = new Set(["claude", "codex", "opencode"]);
+/// The model and thinking switched to in each session from here, by session.
+const sessionPicks = new Map<string, { model: string; effort: string | null }>();
+
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><button class="dbtn" id="agstop" aria-label="Stop the turn"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button><button class="dbtn quiet" id="agclose">Close session</button></div>`;
-  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)">${esc(s.cwd)}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
+    : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
+  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="dbody" id="agbody" style="padding-top:10px"></div>${field}${agentHints()}`;
   drawAgentAttached();
+  drawModelPill();
   const b = $$<ChatBody>("#agbody");
   b.stuck = true;
   b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; };
@@ -502,6 +538,22 @@ function agentClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+  if (target.closest("#agmodelb")) return toggleModelPicker();
+  if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
+  const queued = target.closest<HTMLElement>("[data-agq]");
+  if (queued) return editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
+  // A subagent opens as its own conversation; the crumb goes back.
+  const sub = target.closest<HTMLElement>("#agbody [data-sub]");
+  if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
+  if (target.closest("#agparent")) return closeChild();
+  // "Show all N lines" opens the whole output in a box that scrolls.
+  const all = target.closest<HTMLElement>("#agbody [data-all]");
+  if (all) {
+    const at = Number(all.dataset.all);
+    if (!AG.all.delete(at)) AG.all.add(at);
+    return drawAgentBody();
+  }
+  if (target.closest("#agbody pre.out.all")) return;
   // A finished turn's heading or folded line opens its steps; the heading folds them again.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
   if (turn && AG.open) {
@@ -532,6 +584,7 @@ function agentClick(e: MouseEvent) {
     if (!AG.opened.delete(key)) AG.opened.add(key);
     return;
   }
+  if (target.closest("#agparent2")) return closeChild();
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return steerAgent({ cancel: null });
   if (target.closest("#agclose")) return steerAgent({ close: null });
@@ -550,26 +603,106 @@ export function userImages(text: string) {
   return { text: lines.join("\n"), names };
 }
 
-/// A tool entry as a row: a mark for how it went, its title in mono and
-/// the first lines of its output. `at` is its place in the session, which
-/// keeps it open across redraws. `pics` are the pictures it showed, drawn
-/// last.
-export function toolRow(en: AgentEntry, at: number, pics = "") {
-  const log = AG.log!;
-  const { title, status, output } = log.parseTool(en.text);
-  const open = AG.opened.has(at), { shown, more } = log.toolLines(output, open);
+/// A step's mark: done, failed, running or did not finish.
+function stepMark(status: string) {
   const running = AGENT_ACTIVE.has(AG.page?.session.status);
-  const mark = status === "completed" ? `<span class="dok" title="Done">${ICON.check}</span>`
+  return status === "completed" ? `<span class="dok" title="Done">${ICON.check}</span>`
     : status === "failed" ? `<span class="dbad" title="Failed">${ICON.x}</span>`
     : status && running ? `<span class="dspin" title="Running"></span>`
     : status ? '<span class="ddot off" title="Did not finish"></span>' : "";
-  const long = title.length > 140 || title.includes("\n");
-  const opens = more > 0 || open || long;
-  const toggle = more > 0 ? `<span class="more">${more === 1 ? "1 more line" : `${more} more lines`}</span>`
-    : open && (output.includes("\n") || long) ? '<span class="more">Show less</span>' : "";
-  return `<div class="dcoderen tool${status === "failed" ? " failed" : ""}${open ? " open" : ""}"${opens ? ` data-at="${at}"` : ""}>`
-    + `<span class="mk">${mark}</span><code class="tt">${esc(title)}</code>`
-    + (shown ? `<pre class="out">${esc(shown)}</pre>` : "") + toggle + pics + "</div>";
+}
+
+/// A tool entry as one line: its mark and a short label ("Ran cargo
+/// test"). Opened, it shows the whole command and the last lines of its
+/// output, then "Show all N lines" for all of it in a box that scrolls. A
+/// failed step shows its exit code and output's end until closed. `at` is
+/// its place in the session, which keeps it open across redraws. `pics`
+/// are the pictures it showed, drawn last. A subagent's call is a card.
+export function toolRow(en: AgentEntry, at: number, pics = "") {
+  const log = AG.log!;
+  const { title, status, output } = log.parseTool(en.text);
+  if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
+  const failed = status === "failed", open = failed ? !AG.opened.has(at) : AG.opened.has(at);
+  const live = status === "in_progress" && AGENT_ACTIVE.has(AG.page?.session.status);
+  const label = stepLabel(en.text, live);
+  const exit = failed ? log.exitCode(output) : null;
+  const long = title.includes("\n") || label.length > 80;
+  const tail = log.tailLines(output), whole = AG.all.has(at);
+  const body = !open ? ""
+    : (long ? `<pre class="cmd">${esc(title)}</pre>` : "")
+      + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
+      + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
+  const opens = !!output || long;
+  return `<div class="dcoderen tool${failed ? " failed" : ""}${open ? " open" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}>`
+    + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(title)}">${esc(label)}</code>`
+    + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "")
+    + body + pics + "</div>";
+}
+
+const SUB_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>';
+
+/// What the window saw of each subagent: when it started and ended, by
+/// session and the call's place. Calls carry no times.
+const subTimes = new Map<string, { start: number; live: boolean; end?: number }>();
+
+/// A subagent's call as its parts: name, how it stands, its steps.
+function subOf(at: number) {
+  const p = AG.page!, en = p.entries[at - p.earlier];
+  const { title, status, output } = AG.log!.parseTool(AG.log!.imageLines(en.text).text);
+  const sub = AG.log!.subagent(output) ?? { count: 0, steps: [], result: output };
+  const working = (status === "in_progress" || status === "pending") && AGENT_ACTIVE.has(p.session.status);
+  // Timed from when this window saw it working, if it did.
+  const key = `${AG.open?.session}\n${at}`, now = Date.now();
+  let seen = subTimes.get(key);
+  if (!seen) subTimes.set(key, seen = { start: now, live: working });
+  if (!working && seen.live && seen.end == null) seen.end = now;
+  const ms = !seen.live ? null : working ? now - seen.start : (seen.end ?? now) - seen.start;
+  return { title: title.split("\n")[0], status, working, failed: status === "failed", sub, ms };
+}
+
+/// One subagent as a row: its name, how it stands, how long and how many steps.
+function subRow(at: number) {
+  const x = subOf(at);
+  const st = x.working ? "working" : x.failed ? "failed" : "done";
+  const meta = [st, x.ms != null ? duration(x.ms) : "", x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`].filter(Boolean).join(" · ");
+  return `<button class="dsubrow" data-sub="${at}" title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}</b><small>${esc(meta)}</small></span></button>`;
+}
+
+/// Subagents started together as one card: "3 subagents · 2 working · 1 done".
+function subCard(ats: number[]) {
+  const all = ats.map(subOf), working = all.filter(x => x.working).length, failed = all.filter(x => x.failed).length;
+  const done = all.length - working - failed;
+  const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
+  const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} subagents</b><span>${esc(counts)}</span></div>` : "";
+  return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(subRow).join("")}</div>`;
+}
+
+/// The places of the subagents' calls among the entries shown.
+function subagentsShown(p: AgentPage) {
+  if (!AG.log) return [];
+  return p.entries.flatMap((en, i) => en.kind === "tool" && AG.log!.subagent(AG.log!.parseTool(en.text).output) ? [p.earlier + i] : []);
+}
+
+/// A subagent opened as its own conversation: the way back, what it was
+/// asked, its steps and what it answered.
+function childHtml(p: AgentPage, at: number) {
+  const x = subOf(at), s = p.session, k = agentKind(s.agent);
+  const steps = x.sub.steps.map(st => `<div class="dcoderen tool"><span class="mk">${stepMark(st.status)}</span><code class="tt" title="${esc(st.title)}">${esc(stepLabel(`${st.title} [${st.status}]`, st.status === "in_progress" && x.working))}</code></div>`).join("");
+  const earlier = x.sub.count > x.sub.steps.length ? `<div class="dmuted">${x.sub.count - x.sub.steps.length} earlier steps not shown</div>` : "";
+  const none = !x.sub.count && !x.working ? `<div class="dcoderen other">Steps not reported by ${esc(k.name)}.</div>` : "";
+  const result = x.sub.result ? `<div class="dcoderen agent">${esc(x.sub.result)}</div>` : x.working ? '<div class="dmuted"><span class="dspin"></span> Working…</div>' : "";
+  return `<div class="dcoderlog"><div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
+    <div class="dcoderen user"><b>Task</b><span>${esc(x.title)}</span></div>
+    <div class="dcoderturn"><span class="hd">${esc(x.working ? "Working" : x.ms != null ? `Worked for ${duration(x.ms)}` : "Worked")}</span></div>
+    ${earlier}${steps}${none}${result}</div>`;
+}
+
+/// Back from a subagent to its session.
+export function closeChild() {
+  if (AG.child == null) return false;
+  AG.child = null;
+  drawAgentBody();
+  return true;
 }
 
 /// An image a user entry carried: the one sent from here, the one read
@@ -587,6 +720,9 @@ function entryPic(n: string) {
 
 export function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
+  // Codex echoes answered questions as a message: show them as answered.
+  const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
+  if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
     const user = (s: string) => AG.log ? AG.log.userHtml(s, esc, i => AG.opened.has(`${at}:${i}`)) : esc(s);
@@ -598,9 +734,9 @@ export function entryRow(en: AgentEntry, at: number) {
   const { text: said, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}${pics}</div>` : `<div class="dcoderen agent">${esc(said)}${pics}</div>`;
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${en.html}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${esc(said)}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
-  return `<div class="dcoderen other">${text}</div>`;
+  return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
 }
 
 /// What this window knows of a session's turns: the ones it has seen,
@@ -637,16 +773,38 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
 
 const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 
+/// Rows for `ats` in order, subagents started one after another as one card.
+function rowsOf(p: AgentPage, ats: number[]) {
+  const out: string[] = [];
+  let run: number[] = [];
+  const isSub = (at: number) => {
+    const en = p.entries[at - p.earlier];
+    return en.kind === "tool" && !!AG.log?.subagent(AG.log.parseTool(en.text).output);
+  };
+  const flush = () => { if (run.length) out.push(subCard(run)); run = []; };
+  for (const at of ats) {
+    if (isSub(at)) { run.push(at); continue; }
+    flush();
+    out.push(entryRow(p.entries[at - p.earlier], at));
+  }
+  flush();
+  return out.join("");
+}
+
 /// The log in turns: each message, then a heading with how long the agent
-/// worked, then its steps (one line once the turn is done, unless opened)
-/// and its answer.
+/// worked, then its work and its answer. Done, the work folds into one
+/// summary line; failed steps, notes, subagents and pictures stay in view.
+/// While it runs, only the newest step shows, with the thought's line.
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
+  const entry = (at: number) => p.entries[at - p.earlier];
   return turns.map(t => {
+    // Notes before the first message are not a turn of work.
+    if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
     const last = t === lastTurn, running = active && last;
     const user = t.user == null ? "" : row(t.user);
     if (!running && !t.steps.length && !t.answer.length) return user;
@@ -657,16 +815,31 @@ function turnsHtml(p: AgentPage) {
     });
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
-    const fold = folded(t, running, m.opened.has(t.key));
+    const opened = m.opened.has(t.key);
     const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`;
     const head = `<div class="dcoderturn">`
-      + (running || !t.steps.length ? `<span class="hd">${label}</span>`
-        : `<button class="hd${fold ? "" : " open"}" data-turn="${t.key}" aria-expanded="${!fold}">${label}${ICON.chev}</button>`)
+      + (!t.steps.length ? `<span class="hd">${label}</span>`
+        : `<button class="hd${opened ? " open" : ""}" data-turn="${t.key}" aria-expanded="${opened}">${label}${ICON.chev}</button>`)
       + (start != null ? `<span class="when">${clock(start)}</span>` : "") + "</div>";
-    const steps = fold
-      ? `<button class="dcoderfold" data-turn="${t.key}"><span class="mk">${FOLD_ICON}</span><span>${esc(summary(p.entries, t, p.earlier))}</span><span class="go">${ICON.chev}</span></button>`
-      : t.steps.map(row).join("");
-    return user + head + steps + t.answer.map(row).join("");
+    let work: string;
+    // The newest step of a running turn, shown as it goes.
+    const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
+    if (opened) work = rowsOf(p, t.steps);
+    else {
+      const kept = new Set(keptSteps(p.entries, t, p.earlier));
+      if (newest != null) kept.add(newest);
+      const folding = t.steps.filter(at => !kept.has(at));
+      const fold = folding.some(at => entry(at).kind === "tool")
+        ? `<button class="dcoderfold" data-turn="${t.key}"><span class="mk">${FOLD_ICON}</span><span>${esc(summary(p.entries, t, p.earlier, folding))}</span><span class="go">${ICON.chev}</span></button>` : "";
+      work = fold + rowsOf(p, t.steps.filter(at => kept.has(at)));
+    }
+    // What the agent thinks or does now, on one dim line, unless the
+    // newest step says it already.
+    const doing = s.doing?.split("\n")[0].trim() ?? "";
+    const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
+    const thought = running && state === "working" && doing && doing !== shownTitle
+      ? `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing === "Thinking" ? "Thinking…" : doing)}</div>` : "";
+    return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
 }
 
@@ -692,37 +865,58 @@ function questionCard(q: AgentQuestion) {
       <div class="dups">${buttons.join("")}</div></div>`;
 }
 
+/// Where the reader is in the log: the first row in view and how far it
+/// sits from the top, so a redraw puts it back there.
+function scrollAnchor(b: HTMLElement) {
+  const top = b.getBoundingClientRect().top;
+  for (const el of b.querySelectorAll<HTMLElement>("[data-row]")) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > top) return { row: el.dataset.row!, off: r.top - top, scroll: b.scrollTop };
+  }
+  return { row: null, off: 0, scroll: b.scrollTop };
+}
+
+function restoreScroll(b: HTMLElement, a: ReturnType<typeof scrollAnchor>) {
+  const el = a.row != null ? b.querySelector<HTMLElement>(`[data-row="${a.row}"]`) : null;
+  if (el) b.scrollTop += el.getBoundingClientRect().top - b.getBoundingClientRect().top - a.off;
+  else b.scrollTop = a.scroll;
+}
+
 export function drawAgentBody() {
   const b = $<ChatBody>("#agbody"), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
   const st = $("#agstate");
   if (st) st.innerHTML = stateTag(s.status);
+  if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
+  // Read where the reader is before the log is drawn again: only a reader
+  // at the bottom follows new entries; anyone else stays where they are.
+  const anchor = b.stuck === false ? scrollAnchor(b) : null;
+  const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
+  if (child == null) AG.child = null;
   const mark = (x: string) => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--coral)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
-  // What the agent says it is doing now, on one line, unless the log's
-  // last row already shows it (an agent that names its running command).
-  const last = p.entries.at(-1);
-  const shown = last?.kind === "tool" && AG.log?.parseTool(last.text).title.trim() === s.doing?.trim();
-  const doing = s.doing && s.status !== "ended" && !shown
-    ? `<div class="row" style="padding:8px 12px 0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(s.doing)}">${esc(s.doing.split("\n")[0])}</div>` : "";
   const question = q ? questionCard(q) : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
   const queued = p.queued ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${p.queued === 1 ? "1 message waits" : `${p.queued} messages wait`} for the turn to end</div>` : "";
-  const card = doing || question || plan || files || queued
-    ? `<div class="dcard dcoder">${doing}${question}${plan}${files}${queued}<div style="height:12px"></div></div>` : "";
+  // The question, plan and files sit under the log, by the field.
+  const card = question || plan || files || queued
+    ? `<div class="dcard dcoder">${question}${plan}${files}${queued}<div style="height:12px"></div></div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
-  if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
-  const entries = p.entries.length ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
+  const entries = child != null ? childHtml(p, child) : p.entries.length && AG.log ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
-  b.innerHTML = why + card + entries + err + note + paused;
+  const subs = child == null ? subagentsShown(p) : [];
+  const aside = subs.length ? `<aside class="dsubs"><div class="h"><b>Subagents</b><span>${subs.length}</span></div>${subs.map(subRow).join("")}</aside>` : "";
+  b.innerHTML = `<div class="dagsplit${aside ? " has" : ""}"><div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>${aside}</div>`;
   fillAgentPics(b);
+  drawModelPill();
+  drawQueue();
   tickTurns();
   redrawAgentHints();
   // An ended session goes on from the field: the next message resumes it.
@@ -734,6 +928,130 @@ export function drawAgentBody() {
   const stop = $("#agstop");
   if (stop) stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
   if (b.stuck !== false) b.scrollTop = b.scrollHeight;
+  else if (anchor) restoreScroll(b, anchor);
+}
+
+// ----- Model and thinking -----
+
+/// The pill by the field: the harness, the model and thinking switched to.
+/// A harness that cannot switch in a running session shows it disabled.
+function drawModelPill() {
+  const el = $("#agmodel"), s = AG.page?.session;
+  if (!el || !s) return;
+  const can = SWITCHES.has(s.agent) && !s.external && s.status !== "ended";
+  const p = sessionPicks.get(s.id) ?? { model: "", effort: null };
+  const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
+  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, p.model, p.effort, s.machine_id)}</button>`;
+}
+
+function toggleModelPicker() {
+  AG.modelOpen = !AG.modelOpen;
+  drawModelPicker();
+  drawModelPill();
+}
+
+/// Closes the model picker; true when it was open, so Esc goes no further.
+export function closeModelPicker() {
+  if (!AG.modelOpen) return false;
+  AG.modelOpen = false;
+  drawModelPicker();
+  drawModelPill();
+  $("#agmsg")?.focus();
+  return true;
+}
+
+/// The picker by the pill, for the session's own harness: a model or a
+/// thinking level picked goes to the session for its next turn.
+function drawModelPicker() {
+  const el = $("#agpickm"), s = AG.page?.session;
+  if (!el) return;
+  if (!AG.modelOpen || !s) { el.innerHTML = ""; closedPicker(el); return; }
+  const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
+  const picked: Picked = { agent: s.agent, model: now.model, effort: now.effort, query: "" };
+  drawPicker(el, {
+    picked,
+    offered: [s.agent],
+    everywhere: [s.agent],
+    machine: { id: s.machine_id, name: s.machine_name },
+    noMachine: "",
+    anchor: () => $("#agmodelb"),
+    bounds: () => bar,
+    changed: what => {
+      if (what === "models") return drawModelPill();
+      if (what === "agent") return;
+      const model = what === "model" ? picked.model || null : null, effort = what === "effort" ? picked.effort : null;
+      sessionPicks.set(s.id, { model: picked.model, effort: picked.effort });
+      if (what === "model") AG.modelOpen = false;
+      drawModelPicker();
+      drawModelPill();
+      if (model || effort) steerAgent({ configure: { model, effort } });
+    },
+  });
+}
+
+// ----- Messages typed while a turn runs -----
+
+/// The queued messages above the field, each to edit or take out.
+function drawQueue() {
+  const field = $("#agfield");
+  if (!field) return;
+  const old = $("#agqueue");
+  const el = AG.queue.length ? h(`<div class="ag-queue" id="agqueue">${AG.queue.map((q, i) =>
+    `<div class="it"><span class="lbl">Queued</span><span class="t" title="${esc(q)}">${esc(q)}</span><button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button></div>`).join("")}</div>`) : null;
+  if (old) el ? old.replaceWith(el) : old.remove();
+  else if (el) ($("#agatt") ?? field).before(el);
+}
+
+/// Takes queued message `i` out; to edit, it goes back in the field.
+function editQueued(i: number, edit: boolean) {
+  const [text] = AG.queue.splice(i, 1);
+  const input = $<HTMLInputElement>("#agmsg");
+  if (edit && input && text != null) input.value = input.value ? `${text}\n${input.value}` : text;
+  drawQueue();
+  redrawAgentHints();
+  input?.focus();
+}
+
+/// Queues a message typed while the turn runs, as flsh does.
+function queueMessage(input: HTMLInputElement) {
+  const text = input.value.trim();
+  if (!text) return;
+  AG.queue.push(text);
+  input.value = "";
+  drawQueue();
+  redrawAgentHints();
+}
+
+/// Sends what was queued once the turn stopped or ended, as one message.
+/// An ended session takes it back into the field, to continue with.
+function flushQueue() {
+  const o = AG.open, page = AG.page, s = page?.session;
+  if (!AG.queue.length || !o || !page || !s || AG.flushing || AGENT_ACTIVE.has(s.status)) return;
+  const text = AG.queue.join("\n\n");
+  AG.queue = [];
+  drawQueue();
+  redrawAgentHints();
+  if (s.status === "ended" || s.external) {
+    const input = $<HTMLInputElement>("#agmsg");
+    if (input && !input.value) input.value = text;
+    return;
+  }
+  AG.flushing = true;
+  page.entries.push({ kind: "user", text });
+  drawAgentBody();
+  steerAgent({ prompt: { text } }).then(ok => {
+    AG.flushing = false;
+    if (!ok && isOpen(o)) { AG.queue.unshift(text); drawQueue(); redrawAgentHints(); }
+  });
+}
+
+/// Esc while the turn runs: stop it and keep the field, so a correction
+/// can be typed and sent; what is queued goes once the stop lands.
+export function interruptAgent() {
+  if (!turnRuns()) return false;
+  steerAgent({ cancel: null });
+  $("#agmsg")?.focus();
+  return true;
 }
 
 /// Answers the open question once: its buttons stay disabled, and a poll
@@ -771,7 +1089,7 @@ export async function steerAgent(steer: Steer) {
   if (!o || AG.page?.session.external) return false;
   let ok = false;
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer ? steer : Object.keys(steer)[0] });
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "configure" in steer ? steer : Object.keys(steer)[0] });
     if ("prompt" in steer && steer.prompt.images) keepSentImages(keys, steer.prompt.images);
     AG.note = "";
     ok = true;
@@ -892,7 +1210,13 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); steerAgent({ cancel: null }); return true; }
-    if (e.key === "Enter" && !e.isComposing && (e.target as HTMLElement).id === "agmsg") { e.preventDefault(); sendAgentMessage(); return true; }
+    if (e.key === "Enter" && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
+      e.preventDefault();
+      // While the turn runs, Enter queues; the queue goes when it stops.
+      if (turnRuns()) queueMessage(e.target as HTMLInputElement);
+      else sendAgentMessage();
+      return true;
+    }
     return false;
   }
   if (S.view === "agents") {
@@ -909,8 +1233,10 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
   return false;
 }
 
-/// Esc from an agent view.
+/// Esc from an agent view: closes the model picker, leaves a subagent for
+/// its session, interrupts a running turn, else goes back.
 export function agentBack() {
+  if (S.view === "agent" && (closeModelPicker() || closeChild() || interruptAgent())) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   return S.session ? openSession(S.session) : renderChat();

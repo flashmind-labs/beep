@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { imageLines, parseTool, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, parseTool, subagent, tailLines, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -67,4 +67,41 @@ test("a pasted block folds into a Pasted text line", () => {
   const html = userHtml('look:\n<pasted_content id="295e">\na <b>\nb\n</pasted_content id="295e">\nfix it', esc);
   assert.match(html, /^look:\n<details class="paste" data-paste="0"><summary>Pasted text · 2 lines<\/summary><pre>a &lt;b>\nb<\/pre><\/details>\nfix it$/);
   assert.equal(userHtml("plain <x>", esc), "plain &lt;x>");
+});
+
+test("an opened step shows the end of its output, counting wrapped lines", () => {
+  const out = Array.from({ length: 12 }, (_, i) => `line ${i}`).join("\n");
+  const tail = tailLines(out);
+  assert.equal(tail.shown, "line 7\nline 8\nline 9\nline 10\nline 11");
+  assert.equal(tail.total, 12);
+  assert.equal(tail.cut, true);
+  assert.deepEqual(tailLines("a\nb"), { shown: "a\nb", total: 2, cut: false });
+  // One long line of JSON is many lines on screen: only its end shows.
+  const json = `{"a":"${"x".repeat(2000)}"}`;
+  const long = tailLines(json);
+  assert.equal(long.total, 1);
+  assert.equal(long.cut, true);
+  assert.ok(long.shown.length <= 500, "five wrapped lines at most");
+  assert.ok(long.shown.endsWith('x"}'));
+});
+
+test("a failed command's exit code is read from its output", () => {
+  assert.equal(exitCode("error: build failed\nexit code: 101"), 101);
+  assert.equal(exitCode("Exited with 2"), 2);
+  assert.equal(exitCode("Exit status 1"), 1);
+  assert.equal(exitCode("no code here"), null);
+});
+
+test("a subagent's steps are read from its call", () => {
+  assert.deepEqual(subagent("[steps] 2\n[step completed] Read a.rs\n[step in_progress] grep x\nFound it"), {
+    count: 2, steps: [{ status: "completed", title: "Read a.rs" }, { status: "in_progress", title: "grep x" }], result: "Found it",
+  });
+  assert.equal(subagent("plain output"), null);
+});
+
+test("Codex's echo of answered questions reads as questions and answers", () => {
+  const text = '<send_user_message_question_reply>[{"answer":"Use the web app text","question":"Which error text?","questionItemId":"[q1]"},{"answer":"Yes","question":"Run tests?","questionItemId":"[q2]"}]</send_user_message_question_reply>';
+  assert.deepEqual(answeredQuestions(text), [{ question: "Which error text?", answer: "Use the web app text" }, { question: "Run tests?", answer: "Yes" }]);
+  assert.equal(answeredQuestions("<send_user_message_question_reply>not json</send_user_message_question_reply>"), null);
+  assert.equal(answeredQuestions("hello"), null);
 });
