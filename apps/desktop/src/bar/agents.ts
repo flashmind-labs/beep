@@ -190,6 +190,10 @@ interface AgentState {
   flushing: boolean;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
+  /// The picture open in the side panel, at fit or actual size, and the
+  /// panel's tab.
+  panel: { url: string; name: string; actual: boolean } | null;
+  tab: "subagents" | "image";
 }
 
 export const AG: AgentState = {
@@ -199,7 +203,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
+  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, modelOpen: false, panel: null, tab: "subagents",
 };
 export const agentLog = () => import("../agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -289,7 +293,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
+    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, modelOpen: false, panel: null, tab: "subagents",
   });
   drawAgentFrame();
   pollAgent();
@@ -561,11 +565,32 @@ function agentClick(e: MouseEvent) {
     if (!opened.delete(key)) opened.add(key);
     return drawAgentBody();
   }
-  // A picture opens full size, also one inside a tool row. One still
-  // loading opens once it is here.
-  const pic = target.closest<HTMLImageElement>("#agbody img.pic");
+  // The side panel: its tabs, closing it, fit or actual size, full size.
+  const tab = target.closest<HTMLElement>("#agbody [data-tab]");
+  if (tab) { AG.tab = tab.dataset.tab as AgentState["tab"]; return drawAgentBody(); }
+  if (target.closest("#agbody [data-panelclose]")) { AG.panel = null; AG.tab = "subagents"; return drawAgentBody(); }
+  const fit = target.closest<HTMLElement>("#agbody [data-fit]");
+  if (fit && AG.panel) { AG.panel.actual = fit.dataset.fit === "1"; return drawAgentBody(); }
+  if (target.closest("#agbody [data-full]") && AG.panel) {
+    const shown = AG.panel;
+    return openViewer([{ url: shown.url, name: shown.name, caption: "", saves: shown.url.startsWith("data:") }], 0);
+  }
+  if (target.closest("#agbody .dimgbox")) return;
+  // A file the reply names opens its picture, as its thumbnail does.
+  const link = target.closest<HTMLElement>("#agbody a.imgl[data-img]");
+  const linked = link ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic")[Number(link.dataset.img)] : null;
+  if (link && !linked) return;
+  // The agent's pictures open in the side panel when there is room; any
+  // other, or without room, full size. One still loading opens once it is here.
+  const pic = linked ?? target.closest<HTMLImageElement>("#agbody img.pic");
   if (pic) {
     if (!pic.getAttribute("src")) return;
+    const name = (link ? link.textContent : null) || pic.dataset.name || pic.alt;
+    if (!pic.closest(".dcoderen.user") && $("#agbody")!.clientWidth >= PANEL_MIN) {
+      AG.panel = { url: pic.src, name, actual: false };
+      AG.tab = "image";
+      return drawAgentBody();
+    }
     const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic[src]")];
     // Each opens by its data URL, which can be saved or copied.
     const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
@@ -677,6 +702,25 @@ function subCard(ats: number[]) {
   return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(subRow).join("")}</div>`;
 }
 
+/// How wide the log must be for the side panel to show; narrower, a
+/// picture opens full size and the panel hides.
+const PANEL_MIN = 820;
+
+/// The side panel: the session's subagents, and the picture opened from
+/// the log, each a tab when both are there.
+function sidePanel(subs: number[]) {
+  const img = AG.panel;
+  if (!subs.length && !img) return "";
+  const tab = img && (AG.tab === "image" || !subs.length) ? "image" : "subagents";
+  const tabs = `<div class="tabs">${subs.length ? `<button data-tab="subagents" class="${tab === "subagents" ? "on" : ""}">Subagents <small>${subs.length}</small></button>` : ""}`
+    + (img ? `<button data-tab="image" class="${tab === "image" ? "on" : ""}">Image</button><span class="sp"></span><button data-panelclose="1" aria-label="Close the image">${ICON.x}</button>` : "") + "</div>";
+  const body = tab === "image" && img
+    ? `<div class="nm" title="${esc(img.name)}">${esc(img.name)}</div><div class="dimgbox${img.actual ? " actual" : ""}"><img src="${esc(img.url)}" alt="${esc(img.name)}"></div>
+      <div class="acts"><button class="dbtn${img.actual ? "" : " on"}" data-fit="0">Fit</button><button class="dbtn${img.actual ? " on" : ""}" data-fit="1">Actual size</button><button class="dbtn" data-full="1" title="Full size, to save or copy">Open full size</button></div>`
+    : subs.map(subRow).join("");
+  return `<aside class="dsubs">${tabs}${body}</aside>`;
+}
+
 /// The places of the subagents' calls among the entries shown.
 function subagentsShown(p: AgentPage) {
   if (!AG.log) return [];
@@ -734,7 +778,9 @@ export function entryRow(en: AgentEntry, at: number) {
   const { text: said, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${en.html}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${esc(said)}${pics}</div>`;
+  // Image files the reply names link to its pictures, shown in a strip.
+  const linked = (html: string) => AG.log ? AG.log.linkImagePaths(html).html : html;
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${linked(en.html)}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
 }
@@ -829,8 +875,11 @@ function turnsHtml(p: AgentPage) {
       const kept = new Set(keptSteps(p.entries, t, p.earlier));
       if (newest != null) kept.add(newest);
       const folding = t.steps.filter(at => !kept.has(at));
+      // Pictures the folded steps looked at show small under the line.
+      const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
       const fold = folding.some(at => entry(at).kind === "tool")
-        ? `<button class="dcoderfold" data-turn="${t.key}"><span class="mk">${FOLD_ICON}</span><span>${esc(summary(p.entries, t, p.earlier, folding))}</span><span class="go">${ICON.chev}</span></button>` : "";
+        ? `<button class="dcoderfold" data-turn="${t.key}"><span class="mk">${FOLD_ICON}</span><span>${esc(summary(p.entries, t, p.earlier, folding))}</span><span class="go">${ICON.chev}</span></button>`
+          + (seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "") : "";
       work = fold + rowsOf(p, t.steps.filter(at => kept.has(at)));
     }
     // What the agent thinks or does now, on one dim line, unless the
@@ -912,7 +961,7 @@ export function drawAgentBody() {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? subagentsShown(p) : [];
-  const aside = subs.length ? `<aside class="dsubs"><div class="h"><b>Subagents</b><span>${subs.length}</span></div>${subs.map(subRow).join("")}</aside>` : "";
+  const aside = sidePanel(subs);
   b.innerHTML = `<div class="dagsplit${aside ? " has" : ""}"><div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>${aside}</div>`;
   fillAgentPics(b);
   drawModelPill();

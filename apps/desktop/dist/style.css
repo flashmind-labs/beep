@@ -609,6 +609,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcoder .q { margin: 10px 12px 0; padding: 10px; border-radius: 8px; background: var(--surface); display: grid; gap: 6px; font-size: 13px; line-height: 19px }
 /* The session's log reads in one column, as wide as the chat's. */
 #agbody { container-type: inline-size }
+.dbar[data-mode="window"] > #agbody:has(> .dagsplit.has) { padding-inline: 16px 20px }
 .dagmain { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
 .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 760px; margin-inline: auto }
 .dagsplit.has { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start }
@@ -638,6 +639,23 @@ button.dachip:hover { border-color: #3A4A41 }
 .ag-queue button svg { width: 12px; height: 12px }
 #agmodel { flex: none; display: flex } #agmodel .agc-pill.agm { font-size: 12px; max-width: 260px; overflow: hidden; white-space: nowrap }
 #agmodel .agc-pill.agm[disabled] { opacity: .55; cursor: default }
+.dsubs > .tabs { display: flex; align-items: center; gap: 4px; padding: 2px 2px 4px }
+.dsubs > .tabs button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--muted) }
+.dsubs > .tabs button.on { background: rgba(228, 238, 232, .08); color: var(--fg) }
+.dsubs > .tabs button small { color: var(--dim) } .dsubs > .tabs .sp { flex: 1 } .dsubs > .tabs svg { width: 12px; height: 12px }
+.dsubs > .nm { padding: 0 6px; font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dimgbox { max-height: 60vh; overflow: auto; border-radius: 8px; margin: 4px }
+.dimgbox img { display: block; max-width: 100%; height: auto; border-radius: 8px }
+.dimgbox.actual img { max-width: none }
+.dsubs > .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px }
+.dsubs > .acts .dbtn.on { border-color: var(--emerald) }
+.dcoderen.agent > .pics { flex-wrap: nowrap; overflow-x: auto; gap: 8px; margin-top: 8px }
+.dcoderen.agent > .pics .pic { height: 160px; max-height: 160px; width: auto; max-width: none; border-radius: 8px; flex: none }
+.dcoderen.agent > .pics img.pic:not([src]) { width: 240px }
+.dcoderen.agent a.imgl { font-family: var(--mono); font-size: 12.5px; color: var(--emerald); text-decoration: underline; cursor: pointer }
+.dcoderen.tool .pics .pic, .dfoldpics .pic { height: 44px; max-height: 44px; width: auto; border-radius: 5px; opacity: .6 }
+.dcoderen.tool .pics img.pic:not([src]), .dfoldpics img.pic:not([src]) { width: 66px }
+.dfoldpics { margin-top: -6px; padding-left: 24px }
 .dhints.slim { padding: 2px 16px 6px; border-top: 0; background: none; font-size: 11px; color: var(--dim); gap: 4px 12px }
 .dhints.slim kbd { font-size: 10.5px }
 .dcoderlog { display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 21px }
@@ -718,8 +736,8 @@ button.dachip:hover { border-color: #3A4A41 }
 .agc-pill small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis }
 .agc-pill svg { color: var(--muted); flex: none }
 .agc-pill .mono, .agc-menu .mono, .agc-list .mono { font-family: var(--mono); font-size: 12px }
-.agc .cc-ag { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 9.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev); flex: none }
-.agc .cc-ag.claude { color: #F2A27A } .agc .cc-ag.codex { color: #9DC3F0 }
+:is(.agc, #agmodel, #agpickm) .cc-ag { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 9.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev); flex: none }
+:is(.agc, #agmodel, #agpickm) .cc-ag.claude { color: #F2A27A } :is(.agc, #agmodel, #agpickm) .cc-ag.codex { color: #9DC3F0 }
 .agc-send { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--emerald); color: var(--ink); flex: none }
 .agc-send[disabled] { background: var(--elev); color: var(--dim); cursor: default }
 .agc-send:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px }

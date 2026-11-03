@@ -101,10 +101,11 @@ test("a step reads as one short line", () => {
   assert.equal(stepLabel("TodoWrite: plan"), "TodoWrite: plan");
 });
 
-test("notes, failures, pictures and subagents stay out of the fold", () => {
+test("notes, failures and subagents stay out of the fold; a tool's pictures fold, counted", () => {
   const log = [u("go"), t("ls [completed]"), t("cargo test [failed]\nexit code: 101"), { kind: "other", text: "Switched to deep from the next turn" },
     t("Explore [completed]\n[steps] 1\n[step completed] Read a.rs\nFound it"), t("Screenshot [completed]\n[image: image-0123456789abcdef]"), a("Done.")];
-  assert.deepEqual(keptSteps(log, splitTurns(log)[0]), [2, 3, 4, 5]);
+  assert.deepEqual(keptSteps(log, splitTurns(log)[0]), [2, 3, 4]);
+  assert.equal(summary(log, splitTurns(log)[0]), "Ran 3 commands, searched once, viewed 1 image");
 });
 
 test("notes before the first message are not a turn of work", () => {

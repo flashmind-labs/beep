@@ -94,7 +94,10 @@ export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.step
   ];
   const named = kinds.filter(k => k.text).slice(0, 2);
   const rest = tools.filter(en => !named.some(k => k.kind === toolKind(en.text))).length;
-  const parts = [...named.map(k => k.text), rest && `performed ${plural(rest, "other action", "other actions")}`].filter(Boolean).join(", ");
+  // Pictures the agent looked at fold away with the steps, counted.
+  const images = tools.reduce((n, en) => n + imageLines(en.text).names.length, 0);
+  const parts = [...named.map(k => k.text), images && `viewed ${plural(images, "image", "images")}`,
+    rest && `performed ${plural(rest, "other action", "other actions")}`].filter(Boolean).join(", ");
   const line = parts || plural(steps.length, "step", "steps");
   return line[0].toUpperCase() + line.slice(1);
 }
@@ -118,15 +121,15 @@ export function stepLabel(text: string, running = false) {
 }
 
 /// The steps of a turn that stay in view when it folds: notes (a model
-/// switch, a compaction), failed steps, subagents and steps that showed
-/// pictures.
+/// switch, a compaction), failed steps, subagents and the agent's own
+/// words that showed pictures. Pictures a tool showed fold with it.
 export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
   return t.steps.filter(at => {
     const en = entries[at - offset];
     if (en.kind === "other") return true;
     if (en.kind !== "tool") return imageLines(en.text).names.length > 0;
     const { status, output } = parseTool(imageLines(en.text).text);
-    return status === "failed" || imageLines(en.text).names.length > 0 || subagent(output) != null;
+    return status === "failed" || subagent(output) != null;
   });
 }
 

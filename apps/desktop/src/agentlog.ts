@@ -169,3 +169,28 @@ export function answeredQuestions(text: string): Answered[] | null {
     return null;
   }
 }
+
+const IMAGE_PATH = /(^|[\s(])((?:~|\.{1,2})?\/?[\w@%+-][\w@%+.\/-]*\.(?:png|jpe?g|gif|webp))(?=$|[\s).,;:!?])/gi;
+
+/// The agent's reply as HTML with each image file it names (relative to
+/// its folder or absolute) as a link, numbered in the order first named:
+/// the node shows those files as the reply's pictures in that order.
+/// Text inside links and code blocks is left alone.
+export function linkImagePaths(html: string) {
+  const paths: string[] = [];
+  let skip = 0;
+  const out = html.split(/(<[^>]+>)/).map(part => {
+    if (part.startsWith("<")) {
+      if (/^<(a|pre)\b/i.test(part)) skip++;
+      else if (/^<\/(a|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
+      return part;
+    }
+    if (skip) return part;
+    return part.replace(IMAGE_PATH, (_, lead: string, path: string) => {
+      let i = paths.indexOf(path);
+      if (i < 0) { i = paths.length; paths.push(path); }
+      return `${lead}<a class="imgl" data-img="${i}" title="${path}">${path}</a>`;
+    });
+  });
+  return { html: out.join(""), paths };
+}
