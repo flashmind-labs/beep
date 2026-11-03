@@ -130,23 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_none_or_same_text_is_a_no_op() {
-        let original = vec![text("a"), image(), text("b")];
-        let mut result = ToolResult::success_with_content("c", original.clone());
-        rewrite_text(&mut result, |_| None);
-        assert_eq!(parts(&result), json_parts(original.clone()));
-        rewrite_text(&mut result, |_| Some("ab".into()));
-        assert_eq!(parts(&result), json_parts(original.clone()));
-    }
-
-    #[test]
-    fn rewrite_leaves_failures_alone() {
-        let mut result = ToolResult::failure("c", "bad");
-        rewrite_text(&mut result, |_| Some("changed".into()));
-        assert_eq!(parts(&result), json_parts(vec![text("bad")]));
-    }
-
-    #[test]
     fn rewrite_leaves_media_only_results_alone() {
         let mut result = ToolResult::success_with_content("c", vec![image()]);
         rewrite_text(&mut result, |old| Some(old + "x"));

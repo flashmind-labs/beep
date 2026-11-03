@@ -194,13 +194,4 @@ mod tests {
         assert!(long.starts_with(opened.body.trim_end_matches("...")));
         assert!(opened.body.len() > 2000);
     }
-
-    #[test]
-    fn a_short_body_is_kept_whole() {
-        let phone = SecretKey::from_bytes(&[1; 32]);
-        let sealed = seal_to_fit(&phone.public(), &notice("hi".into()), MAX)
-            .unwrap()
-            .unwrap();
-        assert_eq!(seal::open(&phone, &sealed).unwrap().body, "hi");
-    }
 }

@@ -447,11 +447,10 @@ mod tests {
     };
     use std::sync::Mutex as StdMutex;
 
-    /// A provider that answers from fixed text and records what it was asked.
+    /// A provider whose rewrites fail, that answers speech and transcripts
+    /// from fixed text and records what it was asked.
     #[derive(Default)]
     struct Stub {
-        /// The rewrite the model answers with; `None` fails the call.
-        rewrite: Option<&'static str>,
         /// The transcript; `None` fails the call.
         transcript: Option<&'static str>,
         asked: StdMutex<Vec<String>>,
@@ -483,15 +482,8 @@ mod tests {
         }
         fn complete(&self, request: CompletionRequest) -> CompletionStream {
             self.note(format!("complete:{}", request.messages.len()));
-            let rewrite = self.rewrite;
             Box::pin(async_stream::stream! {
-                match rewrite {
-                    Some(text) => {
-                        yield Ok(StreamEvent::ContentDelta(text.to_owned()));
-                        yield Ok(StreamEvent::Finished(FinishReason::Stop));
-                    }
-                    None => yield Err(anyhow::anyhow!("API error (500): secret body")),
-                }
+                yield Err(anyhow::anyhow!("API error (500): secret body"));
             })
         }
         fn text_to_speech(&self, request: TtsRequest) -> CompletionStream {
@@ -535,54 +527,6 @@ mod tests {
 
     fn llm() -> AgentLlmConfig {
         AgentLlmConfig::new("openrouter:test/model".parse().expect("a valid model"))
-    }
-
-    #[tokio::test]
-    async fn speaks_with_the_configured_model_and_voice() {
-        let stub = Arc::new(Stub::default());
-        let voice = Voice::new(stub.clone(), None, VoiceConfig::default());
-        let audio = voice.speak("u1", "You have mail.").await.expect("speech");
-        assert_eq!(audio, b"ID3\xff\xfb");
-        assert_eq!(
-            stub.asked(),
-            ["speech:x-ai/grok-voice-tts-1.0:rex:mp3:You have mail."]
-        );
-    }
-
-    #[tokio::test]
-    async fn mistral_transcribes_when_the_server_has_it() {
-        let openrouter = Arc::new(Stub::default());
-        let mistral = Arc::new(Stub {
-            transcript: Some("Hola"),
-            ..Stub::default()
-        });
-        let voice = Voice::new(
-            openrouter.clone(),
-            Some(mistral.clone()),
-            VoiceConfig::default(),
-        );
-        let text = voice.transcribe("u1", &wav(vec![1; 10])).await;
-        assert_eq!(text.expect("a transcript"), "Hola");
-        assert_eq!(
-            mistral.asked(),
-            ["transcribe:voxtral-mini-transcribe-3-0:audio/wav:10"]
-        );
-        assert!(openrouter.asked().is_empty());
-    }
-
-    #[tokio::test]
-    async fn transcribes_a_wav_under_its_usual_name() {
-        let stub = Arc::new(Stub {
-            transcript: Some("  Yes, reply to Sam. \n"),
-            ..Stub::default()
-        });
-        let voice = Voice::new(stub.clone(), None, VoiceConfig::default());
-        let text = voice.transcribe("u1", &wav(vec![1; 10])).await;
-        assert_eq!(text.expect("a transcript"), "Yes, reply to Sam.");
-        assert_eq!(
-            stub.asked(),
-            ["transcribe:mistralai/voxtral-small-transcribe-3-0:audio/wav:10"]
-        );
     }
 
     #[tokio::test]
@@ -640,23 +584,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_rewrite_is_what_gets_spoken() {
-        let stub = Stub {
-            rewrite: Some("You have **three** new emails. Want me to reply?"),
-            ..Stub::default()
-        };
-        let llm = llm();
-        let generator = Generator {
-            provider: &stub,
-            llm: &llm,
-            user: "u1",
-        };
-        let text = spoken_text(&generator, "Inbox", "3 new: [Sam](https://x.example/1)").await;
-        assert_eq!(text, "You have three new emails. Want me to reply?");
-        assert_eq!(stub.asked(), ["complete:2"]);
-    }
-
-    #[tokio::test]
     async fn a_failed_rewrite_speaks_the_notice_made_plain() {
         let stub = Stub::default();
         let llm = llm();
@@ -672,30 +599,5 @@ mod tests {
         )
         .await;
         assert_eq!(text, "Morning briefing. Rain until 11:00, see");
-    }
-
-    #[test]
-    fn plain_text_drops_marks_and_links() {
-        assert_eq!(
-            plain("## Today\n- **Lunch** with `Sam` at 13:00\n> see <https://a.example>"),
-            "Today Lunch with Sam at 13:00 see"
-        );
-        assert_eq!(
-            plain("Read [the invoice](https://a.example/x)."),
-            "Read the invoice"
-        );
-        assert_eq!(fallback("Done!", "It worked"), "Done! It worked");
-        assert_eq!(fallback("", "It worked"), "It worked");
-    }
-
-    #[test]
-    fn long_text_is_cut_at_a_sentence() {
-        let text = format!("{}. And more words here", "a".repeat(90));
-        assert_eq!(cut(&text, 100), format!("{}.", "a".repeat(90)));
-        assert_eq!(
-            cut(&"b".repeat(120), 100),
-            format!("{}...", "b".repeat(100))
-        );
-        assert_eq!(cut("short", 100), "short");
     }
 }

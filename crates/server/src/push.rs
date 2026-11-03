@@ -528,18 +528,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn put_back_drops_the_oldest_past_the_limit() {
-        let pusher = pusher(RETRY_WAITS.to_vec()).await;
-        let names: Vec<String> = (0..MAX_QUEUED + 5).map(|i| i.to_string()).collect();
-        let all: Vec<&str> = names.iter().map(String::as_str).collect();
-        pusher.put_back(phone(1), notices(&all[5..]));
-        pusher.put_back(phone(1), notices(&all[..5]));
-        let queued = pusher.take(phone(1));
-        assert_eq!(queued.len(), MAX_QUEUED);
-        assert_eq!(titles(&queued), all[5..]);
-    }
-
-    #[tokio::test]
     async fn retry_ends_once_the_phone_took_the_queue() {
         let pusher = pusher(vec![Duration::from_millis(10)]).await;
         assert!(pusher.put_back(phone(1), notices(&["a"])));

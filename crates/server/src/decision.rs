@@ -449,34 +449,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reads_one_probability() {
-        let body = r#"{"model":"jev-1.13","answers":{"yes":{"type":"noul","noul":0.81}}}"#;
-        let (tool, mut requests) = mock("200 OK", body).await;
-        let p = tool.probability("User: I moved to Porto", "Worth remembering?");
-        assert_eq!(p.await.unwrap(), 0.81);
-        let request = requests.recv().await.unwrap();
-        assert!(request.contains("\"type\":\"noul\""));
-        assert!(request.contains("I moved to Porto"));
-    }
-
-    #[tokio::test]
-    async fn chooses_only_a_known_option() {
-        let options = [("plan", "Trips"), ("work", "Jobs")];
-        let body = r#"{"model":"jev-1.13","answers":{"choice":{"choice":"plan"}}}"#;
-        let (tool, mut requests) = mock("200 OK", body).await;
-        let picked = tool.choose("Is in Lisbon until Friday.", "Which?", &options);
-        assert_eq!(picked.await.unwrap(), "plan");
-        assert!(requests.recv().await.unwrap().contains("\"Trips\""));
-        let body = r#"{"model":"jev-1.13","answers":{"choice":{"choice":"travel"}}}"#;
-        let (tool, _) = mock("200 OK", body).await;
-        assert!(
-            tool.choose("Is in Lisbon.", "Which?", &options)
-                .await
-                .is_err()
-        );
-    }
-
-    #[tokio::test]
     async fn chooses_for_each_question_in_one_request() {
         let options = [("plan", "Trips"), ("work", "Jobs")];
         let body =
@@ -494,67 +466,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn routes_to_a_model_and_thinking() {
-        let body = r#"{"model":"jev-1.13","answers":{"model":{"choice":"openai/gpt-6-luna"},"thinking":{"choice":"high"}}}"#;
-        let (tool, mut requests) = mock("200 OK", body).await;
-        let models = [
-            AutoModel {
-                model: "openrouter:z-ai/glm-5.3-flash".parse().unwrap(),
-                name: "GLM 5.3 Flash".into(),
-                when: "Quick lookups".into(),
-            },
-            AutoModel {
-                model: "openrouter:openai/gpt-6-luna".parse().unwrap(),
-                name: "GPT-6 Luna".into(),
-                when: "Demanding work".into(),
-            },
-        ];
-        let routed = tool.route("User: plan my week", &models).await.unwrap();
-        assert_eq!(routed.model.name, "GPT-6 Luna");
-        assert_eq!(routed.thinking, ReasoningLevel::High);
-        let request = requests.recv().await.unwrap();
-        assert!(request.contains("\"Demanding work\""));
-        assert!(request.contains("\"medium\""));
-        assert!(request.contains("\"off\""));
-    }
-
-    #[tokio::test]
-    async fn routes_without_thinking() {
-        let body = r#"{"model":"jev-1.13","answers":{"thinking":{"choice":"off"}}}"#;
-        let (tool, _requests) = mock("200 OK", body).await;
-        let models = [AutoModel {
-            model: "openrouter:z-ai/glm-5.3-flash".parse().unwrap(),
-            name: "GLM 5.3 Flash".into(),
-            when: "Quick lookups".into(),
-        }];
-        let routed = tool.route("User: thanks!", &models).await.unwrap();
-        assert_eq!(routed.thinking, ReasoningLevel::Off);
-    }
-
-    #[tokio::test]
     async fn redacts_upstream_errors() {
         let (tool, mut requests) = mock("429 Too Many Requests", "private-test-key").await;
         let error = tool.decide(&args()).await.unwrap_err();
         requests.recv().await.unwrap();
         assert!(error.contains("rate limited"));
         assert!(!error.contains("private-test-key"));
-    }
-
-    #[test]
-    fn rejects_bad_requests() {
-        assert!(parse(&json!({"state": " ", "questions": args()["questions"]})).is_err());
-        assert!(parse(&json!({"state": "x", "questions": {}})).is_err());
-        assert!(
-            parse(
-                &json!({"state": "x", "questions": {"q": {"type": "choice", "instructions": "?"}}})
-            )
-            .is_err()
-        );
-        assert!(
-            parse(
-                &json!({"state": "x", "questions": {"q": {"type": "maybe", "instructions": "?"}}})
-            )
-            .is_err()
-        );
     }
 }

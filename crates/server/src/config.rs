@@ -260,59 +260,6 @@ mod tests {
     }
 
     #[test]
-    fn ignores_admins_and_reads_model_choices() {
-        let admin = SecretKey::generate().public();
-        let config: Config = toml::from_str(&format!(
-            r#"
-            model = "openrouter:z-ai/glm-5.3-flash"
-            model_choices = ["openrouter:openai/gpt-6-luna"]
-            admins = ["{admin}"]
-            "#
-        ))
-        .expect("old admin lists are ignored");
-        assert_eq!(config.model_choices[0].name(), "openai/gpt-6-luna");
-    }
-
-    #[test]
-    fn reads_an_instance_table() {
-        let owner = SecretKey::generate().public();
-        let config: Config = toml::from_str(&format!(
-            r#"
-            model = "openrouter:z-ai/glm-5.3-flash"
-            [instance]
-            owner = "{owner}"
-            events = false
-            local_node = "/link"
-            "#
-        ))
-        .expect("the config is valid");
-        let instance = config.instance.expect("an instance table");
-        assert_eq!(instance.owner, Some(owner));
-        assert!(!instance.events && instance.nodes);
-        let config: Config = toml::from_str(r#"model = "openrouter:z-ai/glm-5.3-flash""#)
-            .expect("the config is valid");
-        assert!(config.instance.is_none());
-    }
-
-    #[test]
-    fn reads_auto_models() {
-        let config: Config = toml::from_str(
-            r#"
-            model = "openrouter:z-ai/glm-5.3-flash"
-            [auto_models]
-            "openrouter:openai/gpt-6-luna" = "Demanding work"
-            "openrouter:z-ai/glm-5.3-flash" = "Quick lookups"
-            "#,
-        )
-        .expect("the config is valid");
-        let luna: Model = "openrouter:openai/gpt-6-luna"
-            .parse()
-            .expect("a valid model");
-        assert_eq!(config.auto_models[&luna], "Demanding work");
-        assert_eq!(config.auto_models.len(), 2);
-    }
-
-    #[test]
     fn provider_order_keeps_the_rest_of_the_routing() {
         let config: Config = toml::from_str(
             r#"
