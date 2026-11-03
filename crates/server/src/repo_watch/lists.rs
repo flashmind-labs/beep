@@ -1,5 +1,4 @@
-//! The copy of a project's open pull requests and issues, read on a
-//! machine of the project with its host's CLI.
+//! The copy of a project's open pull requests and issues, read with its host's CLI on a project machine.
 
 use super::{
     timing::AskRead,
@@ -32,10 +31,7 @@ pub(crate) struct ListsCopy {
 }
 
 impl RepoWatch {
-    /// `project`'s lists from the copy, read first when there is none or
-    /// when `refresh` may read now. A copy a few minutes old is given as it
-    /// is and read again in the background, which tells the pages
-    /// following the project.
+    /// `project`'s lists from the copy, read first when missing or on `refresh`; an old copy syncs in the background.
     pub(crate) async fn lists(
         &self,
         app: &Arc<App>,
@@ -55,8 +51,7 @@ impl RepoWatch {
     }
 }
 
-/// What the user reads of why a list failed. A store error is logged
-/// rather than shown.
+/// What the user reads of why a list failed; store errors are logged instead.
 fn message(error: IssueError) -> String {
     match error {
         IssueError::Store(e) => {
@@ -67,8 +62,7 @@ fn message(error: IssueError) -> String {
     }
 }
 
-/// Reads both lists into `copy`. A list that fails keeps the one read
-/// before, with its error.
+/// Reads both lists into `copy`; a failing list keeps its previous value with the error.
 async fn read(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -117,8 +111,7 @@ async fn read(
     entry.lists.timing().synced(Instant::now(), ok);
 }
 
-/// The background sync's read, unless an ask read it meanwhile; whether it
-/// read.
+/// The background sync's read unless an ask read it meanwhile; whether it read.
 pub(super) async fn sync_in_background(
     app: &Arc<App>,
     user: &Arc<User>,

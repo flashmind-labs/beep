@@ -1,6 +1,4 @@
-//! App tool results with HTML in them, such as an email body, turned into
-//! Markdown before the model reads them. A newsletter's markup and CSS can be
-//! ten times the length of its text, and the line that matters gets lost in it.
+//! Turns HTML in app tool results, such as email bodies, into Markdown before the model reads them.
 
 use crate::paging;
 use async_trait::async_trait;
@@ -76,7 +74,6 @@ fn convert_output(output: &str) -> Option<String> {
 }
 
 /// Converts every HTML string under `value` and says whether there was one.
-/// An object whose `contentType` said `html` says `markdown` after.
 fn convert_value(value: &mut Value) -> bool {
     match value {
         Value::String(text) if is_html(text) => {
@@ -118,8 +115,7 @@ fn is_html(text: &str) -> bool {
     HTML_TAGS.iter().any(|tag| lower.contains(tag))
 }
 
-/// Raw mode lays out the tables emails use for their layout as plain blocks
-/// instead of drawing them. Blank runs collapse to one blank line.
+/// Raw mode: layout tables become plain blocks, blank runs collapse to one line.
 fn to_markdown(html: &str) -> String {
     let Ok(markdown) = html2text::config::plain()
         .raw_mode(true)

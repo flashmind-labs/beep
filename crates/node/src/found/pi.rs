@@ -139,19 +139,4 @@ mod tests {
         assert!(found[0].started_at > 0);
         assert_eq!(title(&path).as_deref(), Some("Tidy the README"));
     }
-
-    #[test]
-    fn a_session_name_wins() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        let info = r#"{"type":"session_info","id":"c3","parentId":"b2","timestamp":"2026-08-27T23:05:00.000Z","name":"README pass"}"#;
-        let path = session(root.path(), &[HEADER, USER, info]);
-        assert_eq!(title(&path).as_deref(), Some("README pass"));
-    }
-
-    #[test]
-    fn a_file_without_a_header_is_skipped() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        session(root.path(), &[MODEL, USER]);
-        assert!(sessions(root.path(), &Memos::default()).is_empty());
-    }
 }

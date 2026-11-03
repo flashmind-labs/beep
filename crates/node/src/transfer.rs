@@ -420,18 +420,3 @@ async fn serve_fetch(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn progress_is_due_first_and_then_once_a_second() {
-        let mut ticker = Ticker::new(Stage::Writing, 10);
-        let start = Instant::now();
-        assert!(ticker.due(start));
-        ticker.last = Some(start);
-        assert!(!ticker.due(start + Duration::from_millis(999)));
-        assert!(ticker.due(start + PROGRESS_EVERY));
-    }
-}

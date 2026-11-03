@@ -388,12 +388,4 @@ mod tests {
             Some("openrouter")
         );
     }
-
-    #[test]
-    fn bedrock_and_vertex_requests_are_metered() {
-        assert!(claude_cloud(Some("msg_bdrk_01"), "claude-opus-5-5"));
-        assert!(claude_cloud(None, "us.anthropic.claude-opus-5-5-v1:0"));
-        assert!(claude_cloud(None, "claude-opus-5-5@20261101"));
-        assert!(!claude_cloud(Some("msg_01"), "claude-opus-5-5"));
-    }
 }

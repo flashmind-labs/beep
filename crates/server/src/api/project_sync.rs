@@ -1,8 +1,4 @@
-//! Keeping a project's folder in step across the caller's machines: turning
-//! it on or off per machine, how each machine stands, what sync leaves out,
-//! pausing it, settling its conflicts, and pinning a project to the
-//! machines it is on or to the top of the sidebar. The nodes sync node to node; these requests only change and
-//! read their lists.
+//! Project folder sync across the caller's machines; the nodes sync, these edit their lists.
 
 use super::{
     Reply,
@@ -74,8 +70,7 @@ async fn statuses(cx: &Cx, endpoints: Vec<String>) -> HashMap<String, Vec<Projec
         .await
 }
 
-/// The caller's projects, or only `only`: every synced one, and every
-/// pinned one.
+/// The caller's synced or pinned projects, or only `only`.
 async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiError> {
     let machines = machines(cx).await?;
     let rows: Vec<SyncRow> = cx
@@ -126,10 +121,8 @@ fn empty(project: String, pinned: bool) -> ProjectSync {
     }
 }
 
-/// `status` is `None` when the machine is offline or did not answer, and
-/// `Some(None)` when it answered without the project: it refused it, or,
-/// when the project is `paused`, it is too old to pause and stopped it.
-/// A paused machine shows `InSync`: nothing moves, and nothing failed.
+/// `status` is `None` when the machine did not answer, `Some(None)` when it answered without the
+/// project. A paused machine shows `InSync`.
 fn machine_sync(
     row: &SyncRow,
     name: String,
@@ -175,8 +168,7 @@ fn machine_sync(
     machine
 }
 
-/// How a machine stands in detail: `machine_sync`'s answer, and whether it
-/// is paused, how far it is and what still waits.
+/// How a machine stands in detail: `machine_sync`'s answer plus pause and progress.
 fn machine_detail(
     row: &SyncRow,
     name: String,
@@ -408,8 +400,7 @@ pub(super) async fn list_project_syncthing(
     Ok(syncthing_places(name, &imports, &syncs, &machines))
 }
 
-/// The folders of `project`, imported or synced, that the machine they are
-/// on reported as kept in step by Syncthing.
+/// The folders of `project` that their machine reported as kept in step by Syncthing.
 fn syncthing_places(
     project: &str,
     imports: &[ImportRow],
@@ -470,8 +461,7 @@ pub(super) async fn get_sync_skipped(cx: Cx, request: GetSyncSkipped) -> Reply<S
     })
 }
 
-/// A path left out as the app shows it; one left out by a rule this
-/// server does not know is not shown.
+/// A path left out as the app shows it; an unknown rule's is not shown.
 fn skipped_file(path: SkippedPath) -> Option<SkippedFile> {
     let rule = match path.rule {
         Rule::Git => SkipRule::Git {},

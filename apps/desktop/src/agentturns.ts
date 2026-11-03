@@ -394,13 +394,6 @@ export function thoughtLabel(ms?: number | null) {
   return ms == null ? "Thought" : `Thought for ${duration(Math.max(ms, 1000))}`;
 }
 
-/// The newest line of a thought, plain, for the faded preview beside
-/// "Thinking": its last line with text, without Markdown marks.
-export function thoughtTail(text: string) {
-  const lines = text.split("\n").map(l => l.replace(/^\s*(?:#+|[-*+]|\d+\.)\s+/, "").replace(/[*_`]/g, "").trim()).filter(Boolean);
-  return lines.at(-1) ?? "";
-}
-
 /// The place of the thought still arriving: the running turn's last entry,
 /// a thought without a length. Null when there is none.
 export function liveThought(entries: LogEntry[], t: Turn, running: boolean, offset = 0) {

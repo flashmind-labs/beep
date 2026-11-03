@@ -1,9 +1,5 @@
-//! Moves reviews on in the background, whether or not a screen is open:
-//! a reviewer whose turn ended gives its findings (duplicates of another
-//! shard's merged away), each finding is checked once by a verifier on the
-//! cheapest offered model, and a done review's worktree is removed. Only
-//! this loop writes a review's progress; every step is safe to repeat
-//! after a restart.
+//! Moves reviews on in the background: collects and dedupes findings, verifies each once, and
+//! removes done worktrees. Only this loop writes progress; every step is safe to repeat.
 
 use super::{
     git::remove_review_worktree,
@@ -111,8 +107,7 @@ fn finished(info: &SessionInfo) -> bool {
     }
 }
 
-/// What a running reviewer does now, by shard, read from its machine
-/// without changing anything.
+/// What each running reviewer is doing, by shard, read without changing anything.
 pub(crate) async fn doing(node: &Online, shards: &[ShardRow]) -> HashMap<u32, String> {
     let mut out = HashMap::new();
     if !shards
@@ -138,8 +133,7 @@ pub(crate) async fn doing(node: &Online, shards: &[ShardRow]) -> HashMap<u32, St
     out
 }
 
-/// What the agent said in a session's last entries, oldest first, else
-/// its last message.
+/// What the agent said in a session's last entries, oldest first, else its last message.
 async fn reply_text(node: &Online, info: &SessionInfo) -> String {
     match timeout(NODE_LIMIT, node.transcript(&info.id, REPLY_ENTRIES, false)).await {
         Ok(Ok((entries, _))) => {
@@ -209,8 +203,7 @@ pub(crate) fn finding_rows(shard: u32, reported: Vec<Reported>) -> Vec<ReviewFin
         .collect()
 }
 
-/// Moves the review on as far as its machine allows. A machine that is
-/// offline or does not answer leaves it as it is, for the next round.
+/// Moves the review on as far as its machine allows; an unreachable one leaves it for later.
 pub(crate) async fn advance(app: &Arc<App>, user: &Arc<User>, review: &ReviewRow) -> Result<()> {
     let Some(node) = online(app, user, &review.endpoint) else {
         return Ok(());
@@ -257,8 +250,7 @@ const GONE: &str = "The reviewer's session is gone from its machine.";
 const TOO_LONG: &str = "The reviewer ran too long and was stopped.";
 const NO_FINDINGS: &str = "The reviewer ended without listing its findings.";
 
-/// Takes a finished reviewer's findings, or fails a shard whose reviewer
-/// is gone, said nothing usable or read too long.
+/// Takes a finished reviewer's findings, or fails the shard when the reviewer is gone or unusable.
 async fn read_shard(
     node: &Online,
     user: &User,
@@ -322,8 +314,7 @@ fn verifier_llm(app: &App) -> AgentLlmConfig {
     llm
 }
 
-/// Checks each of the shard's findings with a fresh verifier and marks the
-/// shard done. A finding whose check fails stays unchecked.
+/// Verifies each of the shard's findings and marks it done; a failed check stays unchecked.
 async fn verify_shard(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -358,8 +349,7 @@ async fn verify_shard(
     Ok(())
 }
 
-/// One verifier's verdict on one finding, read with the code it names;
-/// `None` when the code or the model cannot be read.
+/// One verifier's verdict on one finding; `None` when the code or model cannot be read.
 async fn verify(
     app: &App,
     user: &User,

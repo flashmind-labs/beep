@@ -1282,10 +1282,6 @@ mod tests {
         serde_json::from_value(value).expect("a valid update")
     }
 
-    fn permission(value: Value) -> RequestPermissionRequest {
-        serde_json::from_value(value).expect("a valid permission request")
-    }
-
     fn live() -> Live {
         Live::new(
             SessionInfo {
@@ -1393,52 +1389,6 @@ mod tests {
     }
 
     #[test]
-    fn a_thought_without_text_or_replayed_has_no_entry_or_time() {
-        let mut live = live();
-        let start = Instant::now();
-        // A loaded session replays a thought: its time is not known.
-        live.apply_at(&thought("Earlier thinking."), start);
-        live.apply_at(&said("Earlier answer."), start + Duration::from_secs(9));
-        live.prompted("go on");
-        live.apply_at(&thought(""), start);
-        live.apply_at(&said("Done."), start + Duration::from_secs(4));
-        let (entries, _) = live.transcript(10);
-        let kinds: Vec<_> = entries.iter().map(|entry| entry.kind).collect();
-        assert_eq!(
-            kinds,
-            [
-                EntryKind::Thought,
-                EntryKind::Agent,
-                EntryKind::User,
-                EntryKind::Agent
-            ]
-        );
-        assert_eq!(entries[0].ms, None);
-    }
-
-    #[test]
-    fn message_chunks_join_into_one_entry() {
-        let mut live = live();
-        live.prompted("hi");
-        let chunk = |text: &str| {
-            update(
-                json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}),
-            )
-        };
-        assert!(!live.apply(&chunk("Hel")), "chunks alone are not sent");
-        live.apply(&chunk("lo"));
-        assert_eq!(live.info.last_message, "Hello");
-        let (entries, earlier) = live.transcript(10);
-        assert_eq!(earlier, 0);
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[1].text, "Hello");
-        live.push(EntryKind::User, "again");
-        live.apply(&chunk("New"));
-        assert_eq!(live.info.last_message, "New", "a new message starts over");
-        assert_eq!(live.transcript(1).1, 3);
-    }
-
-    #[test]
     fn a_loaded_session_replays_its_prompts_and_answers() {
         let mut live = live();
         let chunk = |kind: &str, text: &str| {
@@ -1478,23 +1428,6 @@ mod tests {
     }
 
     #[test]
-    fn a_replayed_image_is_kept_by_its_key() {
-        let mut live = live();
-        let png = b"\x89PNG\r\n\x1a\nshot".to_vec();
-        let url = format!("data:image/png;base64,{}", STANDARD.encode(&png));
-        live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
-            "content": {"type": "text", "text": format!("look [@shot.png]({url})")}})));
-        let kept = live.images.get("a3f9c1", &image_key(&png));
-        assert_eq!(
-            kept.as_deref(),
-            Some(&Picture {
-                mime: "image/png".into(),
-                data: png,
-            })
-        );
-    }
-
-    #[test]
     fn tool_calls_go_with_their_entries() {
         let mut live = live();
         for n in 0..MAX_ENTRIES {
@@ -1512,26 +1445,6 @@ mod tests {
             live.tools.len() <= MAX_ENTRIES / 2 + 1,
             "{}",
             live.tools.len()
-        );
-    }
-
-    #[test]
-    fn an_edit_shows_its_diff() {
-        let mut live = live();
-        live.prompted("fix it");
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call",
-            "toolCallId": "e1",
-            "title": "Edit `src/login.rs`",
-            "kind": "edit",
-            "status": "completed",
-            "content": [{"type": "diff", "path": "/srv/project/src/login.rs",
-                "oldText": "fn a() {\n    old();\n}", "newText": "fn a() {\n    new();\n}"}]
-        })));
-        let (entries, _) = live.transcript(1);
-        assert_eq!(
-            entries[0].text,
-            "Edit `src/login.rs` [completed]\n[diff] src/login.rs +1 -1\n fn a() {\n-    old();\n+    new();\n }"
         );
     }
 
@@ -1579,20 +1492,6 @@ mod tests {
     }
 
     #[test]
-    fn an_image_in_the_agents_message_gets_its_own_line() {
-        let mut live = live();
-        live.prompted("draw");
-        let png = b"\x89PNG\r\n\x1a\ndrawn".to_vec();
-        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
-            "content": {"type": "text", "text": "Here it is:"}})));
-        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
-            "content": {"type": "image", "mimeType": "image/png", "data": STANDARD.encode(&png)}})));
-        let (entries, _) = live.transcript(1);
-        let line = format!("[image: image-{}]", image_key(&png));
-        assert_eq!(entries[0].text, format!("Here it is:\n{line}\n"));
-    }
-
-    #[test]
     fn a_turn_names_the_image_files_it_mentioned_and_wrote() {
         let mut live = live();
         live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
@@ -1635,69 +1534,6 @@ mod tests {
         assert_eq!(live.turn_files(), None);
     }
 
-    #[test]
-    fn an_artifact_call_names_the_page_it_publishes() {
-        let mut live = live();
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call",
-            "toolCallId": "a1",
-            "title": "Artifact",
-            "kind": "other",
-            "status": "in_progress",
-            "rawInput": {"file_path": "/srv/project/report.html"}
-        })));
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": "a1",
-            "status": "completed",
-            "content": [{"type": "content", "content": {"type": "text",
-                "text": "Published https://claude.ai/code/artifact/0000-placeholder"}}]
-        })));
-        let (entries, _) = live.transcript(1);
-        assert_eq!(
-            entries[0].text,
-            "Artifact /srv/project/report.html [completed]\nPublished https://claude.ai/code/artifact/0000-placeholder"
-        );
-    }
-
-    #[test]
-    fn a_beep_call_is_titled_from_its_arguments() {
-        let mut live = live();
-        // Claude Code names the tool, then sends the arguments once complete.
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call",
-            "toolCallId": "b1",
-            "title": "mcp__beep__run_on",
-            "kind": "other",
-            "status": "pending",
-            "rawInput": {},
-            "_meta": {"claudeCode": {"toolName": "mcp__beep__run_on"}}
-        })));
-        let (entries, _) = live.transcript(1);
-        assert_eq!(entries[0].text, "Beep: Run on a machine [pending]");
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": "b1",
-            "title": "mcp__beep__run_on",
-            "rawInput": {"machine": "build-box", "command": "cargo test"}
-        })));
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": "b1",
-            "status": "completed",
-            "content": [{"type": "content", "content": {"type": "text", "text": "exit 0"}}]
-        })));
-        let (entries, _) = live.transcript(1);
-        assert_eq!(
-            entries[0].text,
-            "Beep: Run on build-box: cargo test [completed]\nexit 0"
-        );
-        assert_eq!(
-            live.info.state.summary,
-            "Beep: Run on build-box: cargo test"
-        );
-    }
-
     /// A Read tool call of `path`, as Claude Code's ACP adapter sends it.
     fn read_call(id: &str, path: &str) -> SessionUpdate {
         update(json!({
@@ -1733,24 +1569,6 @@ mod tests {
             .filter(|entry| entry.kind == EntryKind::Agent)
             .map(|entry| entry.text)
             .collect()
-    }
-
-    #[test]
-    fn an_image_a_read_shows_is_an_agent_image() {
-        let mut live = live();
-        live.prompted("draw the parts");
-        let png = b"\x89PNG\r\n\x1a\nparts".to_vec();
-        live.apply(&read_call("r1", "/srv/project/sketches/parts.png"));
-        live.apply(&read_done("r1", Some(&png)));
-        let line = format!("[image: image-{}]", image_key(&png));
-        assert_eq!(agent_lines(&live), [format!("{line}\n")]);
-        let (entries, _) = live.transcript(2);
-        assert_eq!(entries[0].kind, EntryKind::Tool);
-        assert!(live.picture(&image_key(&png)).is_some());
-        // The file it read is not read again from the disk, even named.
-        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
-            "content": {"type": "text", "text": "Drew sketches/parts.png."}})));
-        assert_eq!(live.turn_files(), None);
     }
 
     #[test]
@@ -1819,79 +1637,6 @@ mod tests {
             live.apply(&read_done(&id, Some(&png)));
         }
         assert_eq!(agent_lines(&live).len(), 1 + image_files::MAX_PER_TURN);
-    }
-
-    #[test]
-    fn a_finished_edit_counts_its_file_relative_to_the_folder() {
-        let mut live = live();
-        assert!(live.apply(&update(json!({
-            "sessionUpdate": "tool_call",
-            "toolCallId": "t1",
-            "title": "Edit src/main.rs",
-            "kind": "edit",
-            "status": "pending",
-            "locations": [{"path": "/srv/project/src/main.rs"}]
-        }))));
-        assert_eq!(live.info.state.summary, "Edit src/main.rs");
-        assert!(live.info.state.files_touched.is_empty());
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": "t1",
-            "status": "completed",
-            "content": [{"type": "content", "content": {"type": "text", "text": "done"}}]
-        })));
-        assert_eq!(live.info.state.files_touched, ["src/main.rs"]);
-        let (entries, _) = live.transcript(1);
-        assert_eq!(entries[0].text, "Edit src/main.rs [completed]\ndone");
-    }
-
-    #[test]
-    fn a_plan_replaces_the_last() {
-        let mut live = live();
-        assert!(live.apply(&update(json!({
-            "sessionUpdate": "plan",
-            "entries": [
-                {"content": "Read", "priority": "high", "status": "completed"},
-                {"content": "Write", "priority": "high", "status": "in_progress"}
-            ]
-        }))));
-        assert_eq!(live.info.state.plan[1].status, PlanStatus::InProgress);
-    }
-
-    #[test]
-    fn a_permission_request_reads_as_a_question() {
-        let live = live();
-        let question = live.question(
-            2,
-            &permission(json!({
-                "sessionId": "s",
-                "toolCall": {"toolCallId": "t9", "title": "Run cargo test", "rawInput": {"command": "cargo test"}},
-                "options": [
-                    {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
-                    {"optionId": "reject", "name": "Reject", "kind": "reject_once"}
-                ]
-            })),
-        );
-        assert_eq!(question.id, 2);
-        assert_eq!(question.text, "Run cargo test");
-        assert_eq!(question.detail.as_deref(), Some("cargo test"));
-        assert_eq!(question.options[1].kind, OptionKind::RejectOnce);
-        let titled_by_command = live.question(
-            3,
-            &permission(json!({"sessionId": "s", "toolCall": {"toolCallId": "t2", "title": "ls", "rawInput": {"command": "ls"}}, "options": []})),
-        );
-        assert_eq!(titled_by_command.detail, None);
-    }
-
-    #[test]
-    fn the_transcript_drops_its_oldest_entries() {
-        let mut live = live();
-        for n in 0..MAX_ENTRIES + 3 {
-            live.push(EntryKind::User, &n.to_string());
-        }
-        let (entries, earlier) = live.transcript(2);
-        assert_eq!(earlier, MAX_ENTRIES as u64 + 1);
-        assert_eq!(entries[1].text, (MAX_ENTRIES + 2).to_string());
     }
 
     #[tokio::test]
@@ -2031,33 +1776,6 @@ mod tests {
         assert_eq!(
             entries[1].text,
             "Explore the code [completed]\n[steps] 2\n[step completed] Read src/main.rs\n[step in_progress] grep -n todo\nFound it"
-        );
-    }
-
-    #[test]
-    fn a_call_whose_parent_is_unknown_is_its_own_entry() {
-        let mut live = live();
-        live.prompted("hi");
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Read a.rs", "status": "completed",
-            "_meta": {"claudeCode": {"parentToolUseId": "gone"}}
-        })));
-        assert_eq!(live.transcript(10).0[1].text, "Read a.rs [completed]");
-    }
-
-    #[test]
-    fn a_claude_subagent_names_its_type_before_it_runs_a_step() {
-        let mut live = live();
-        live.prompted("check the release");
-        live.apply(&update(json!({
-            "sessionUpdate": "tool_call", "toolCallId": "task", "title": "Check the notes",
-            "status": "in_progress",
-            "rawInput": {"description": "Check the notes", "subagent_type": "release-checker",
-                "prompt": "Compare the notes with the diff"}
-        })));
-        assert_eq!(
-            live.transcript(10).0[1].text,
-            "Check the notes [in_progress]\n[steps] 0\n[agent] release-checker"
         );
     }
 

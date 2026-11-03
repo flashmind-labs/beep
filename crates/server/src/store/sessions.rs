@@ -3,7 +3,6 @@
 use super::{
     Store,
     chats::{SESSION_TITLE, delete_chat, touch},
-    seconds,
     updates::{Readers, UpdateOp, log_chat, log_messages},
 };
 use crate::{protocol::Session, user::UserKey};
@@ -33,8 +32,7 @@ pub enum DeletedTurn {
     Busy,
 }
 
-/// A session `Store::search_sessions` found, with its latest message that
-/// matched.
+/// A session `Store::search_sessions` found, with its latest matching message.
 pub struct FoundSession {
     pub session: Session,
     pub text: String,
@@ -56,8 +54,7 @@ pub struct QuietSession {
     pub context_tokens: u32,
 }
 
-/// A session's model context with the stored text it was read from, so a
-/// later write can check nothing changed it in between.
+/// A session's model context plus the stored text it came from, for change checks on write.
 pub struct StoredContext {
     raw: String,
     pub conversation: Conversation,
@@ -70,10 +67,7 @@ fn session_ref(row: &PgRow) -> Result<SessionRef> {
     })
 }
 
-/// Removes the user message sent at `timestamp` and every entry up to the
-/// next turn from a model context: the reply, its tool calls and their results, and the context
-/// entries placed just before the message. With `TurnsToDelete::Onward` it
-/// removes everything from there to the end. Says whether it found the turn.
+/// Removes the turn sent at `timestamp` (or everything onward with `Onward`) from a context; says whether found.
 fn remove_turn(conversation: &mut Conversation, timestamp: i64, which: TurnsToDelete) -> bool {
     let is_user = |kind: &EntryKind| matches!(kind, EntryKind::User { .. });
     // Each turn opens with developer context (time, place, apps). A
@@ -108,12 +102,10 @@ fn remove_turn(conversation: &mut Conversation, timestamp: i64, which: TurnsToDe
     true
 }
 
-/// The columns id, title, pinned and updated_at of a session, reading
-/// `chats c` and `chat_members m`.
+/// Session id, title, pinned and updated_at columns, reading `chats c` and `chat_members m`.
 const SESSION_COLUMNS: &str = "c.id, {title}, m.pinned, c.updated_at";
 
-/// A session is listed once a turn is saved, or while its first run is
-/// going, so it shows on every device the moment it is asked.
+/// Listed once a turn is saved or its first run is going, so it shows everywhere at once.
 const SHOWN: &str = "(EXISTS (SELECT 1 FROM sessions s WHERE s.chat_id = c.id)
     OR EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running'))";
 
@@ -158,8 +150,7 @@ impl Store {
         rows.iter().map(session).collect()
     }
 
-    /// The session `chat` of `user` as `sessions` lists it; `None` when it
-    /// is not theirs.
+    /// Session `chat` of `user` as listed; `None` when not theirs.
     pub(crate) async fn session_of(&self, user: &UserKey, chat: Uuid) -> Result<Option<Session>> {
         let row = sqlx::query(&format!(
             "SELECT {} FROM chats c
@@ -174,9 +165,7 @@ impl Store {
         row.as_ref().map(session).transpose()
     }
 
-    /// Up to `limit` sessions with a message from the user or a reply that
-    /// holds `query`, ignoring case, most recently changed first, each with
-    /// its latest such message.
+    /// Up to `limit` sessions with a message containing `query` (case-insensitive), newest first, with the latest match.
     pub(crate) async fn search_sessions(
         &self,
         user: &UserKey,
@@ -236,8 +225,7 @@ impl Store {
         Ok(true)
     }
 
-    /// Stores a generated title, unless the user named the session. Returns
-    /// whether it was stored.
+    /// Stores a generated title unless the user named the session; returns whether stored.
     pub async fn set_generated_title(&self, session: &SessionRef, title: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let stored = sqlx::query(
@@ -270,10 +258,7 @@ impl Store {
         .await?)
     }
 
-    /// Sessions that changed since their title was written, have had no
-    /// activity for `idle`, and have no run in progress. Sessions untouched
-    /// for a day keep the title they have, so old chats are not all retitled
-    /// at once.
+    /// Sessions changed since titling, idle for `idle`, with no run; ones untouched for a day are skipped.
     pub async fn sessions_to_title(&self, idle: Duration) -> Result<Vec<SessionRef>> {
         let rows = sqlx::query(
             "SELECT m.user_id, c.id FROM chats c
@@ -287,7 +272,7 @@ impl Store {
                AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running')
              LIMIT 20",
         )
-        .bind(seconds(idle))
+        .bind(idle.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(session_ref).collect()
@@ -313,8 +298,7 @@ impl Store {
         Ok(self.delete_sessions(user, &[chat]).await? > 0)
     }
 
-    /// Deletes sessions with their runs, messages and files and returns how
-    /// many existed.
+    /// Deletes sessions with their runs, messages and files; returns how many existed.
     pub(crate) async fn delete_sessions(&self, user: &UserKey, ids: &[Uuid]) -> Result<u64> {
         let mut tx = self.pool.begin().await?;
         let owned: Vec<Uuid> = sqlx::query_scalar(
@@ -339,9 +323,7 @@ impl Store {
         Ok(owned.len() as u64)
     }
 
-    /// Deletes `chat` only while it shows nothing and has no run going, as
-    /// one checked step: another run may start in it as soon as the run that
-    /// made it ends. `false` when it was kept or gone already.
+    /// Atomically deletes `chat` if it shows nothing and has no run; false when kept or gone.
     pub(crate) async fn delete_empty_session(&self, user: &UserKey, chat: Uuid) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         // Locking the chat holds off a run or message that would name it.
@@ -366,9 +348,7 @@ impl Store {
         Ok(true)
     }
 
-    /// Removes the turn whose opening message was sent at `timestamp`, in
-    /// milliseconds since the epoch, from the messages and the context, and
-    /// with `TurnsToDelete::Onward` every turn after it too.
+    /// Removes the turn sent at `timestamp` (ms) from messages and context, and later turns with `Onward`.
     pub(crate) async fn delete_turn(
         &self,
         user: &UserKey,
@@ -494,8 +474,7 @@ impl Store {
         .transpose()
     }
 
-    /// Replaces the context with its compacted form, unless a run changed it
-    /// since `before` was loaded. Returns whether it was replaced.
+    /// Replaces the context with its compacted form unless changed since `before`; returns whether replaced.
     pub async fn save_compacted(
         &self,
         session: &SessionRef,
@@ -516,8 +495,7 @@ impl Store {
         Ok(changed == 1)
     }
 
-    /// Sessions whose last prompt reached `min_tokens` and that have had no
-    /// activity for `idle`, with no run in progress.
+    /// Sessions whose last prompt reached `min_tokens`, idle for `idle`, with no run.
     pub async fn sessions_to_compact(
         &self,
         min_tokens: u32,
@@ -532,7 +510,7 @@ impl Store {
                AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running')",
         )
         .bind(i64::from(min_tokens))
-        .bind(seconds(idle))
+        .bind(idle.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()

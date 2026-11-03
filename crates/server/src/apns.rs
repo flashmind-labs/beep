@@ -1,8 +1,4 @@
-//! Sends notices to iPhones through the Apple Push Notification service.
-//! A notice goes as an alert whose text is a placeholder and whose payload
-//! carries the notice sealed to the phone, as for Firebase; the app's
-//! notification service extension opens it and shows the real text. A
-//! changed chat or a wake goes as a background push, which shows nothing.
+//! Sends notices to iPhones through APNs, sealed to the phone and opened by the app's extension.
 
 use crate::{
     AsyncMutex,
@@ -24,8 +20,7 @@ use std::{
 
 const PRODUCTION: &str = "https://api.push.apple.com";
 const SANDBOX: &str = "https://api.sandbox.push.apple.com";
-/// Apple refuses a provider token older than an hour and asks that it be
-/// renewed no more than every 20 minutes.
+/// Apple refuses tokens older than an hour and renewals more often than every 20 minutes.
 const TOKEN_LIFETIME: Duration = Duration::from_secs(40 * 60);
 /// APNs takes 4096 bytes of payload; this leaves room for the rest of it.
 const MAX_SEALED: usize = 3600;
@@ -59,8 +54,7 @@ struct Push {
 }
 
 impl Push {
-    /// `notice` sealed to `phone`, shown by the app's extension. `None` when
-    /// it does not fit even without a body.
+    /// `notice` sealed to `phone`; `None` when it does not fit even without a body.
     fn notice(phone: &EndpointId, notice: &Notice) -> Result<Option<Self>> {
         if notice.changed || notice.title.is_empty() {
             return Ok(Some(Self::wake()));
@@ -285,10 +279,7 @@ mod tests {
         assert!(push.payload.to_string().len() <= 4096);
     }
 
-    /// Checks a real key against Apple: a made-up token comes back as no
-    /// longer registered only when the key, team and topic are accepted.
-    /// `BEEP_APNS_KEY_FILE`, `BEEP_APNS_KEY_ID`, `BEEP_APNS_TEAM_ID` and
-    /// `BEEP_APNS_TOPIC` name them.
+    /// Checks a real key against Apple, named by the `BEEP_APNS_*` env vars.
     #[tokio::test]
     #[ignore = "talks to Apple"]
     async fn apple_takes_the_key() {

@@ -1,5 +1,4 @@
-//! Open pull requests and issues on a Forgejo or Gitea server, from its
-//! issue search.
+//! Open pull requests and issues on a Forgejo or Gitea server.
 
 use super::host::{Caller, HostError};
 use crate::{

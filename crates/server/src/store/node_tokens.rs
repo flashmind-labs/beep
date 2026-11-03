@@ -1,5 +1,4 @@
-//! One-time setup tokens that link a machine to an account (see
-//! `beep_proto::setup`). The store keeps each token's hash, never its secret.
+//! One-time setup tokens linking a machine to an account; only their hashes are stored.
 
 use super::{Account, Store};
 use crate::{protocol::DeviceKind, user::UserKey};
@@ -29,9 +28,7 @@ pub enum Claim {
     Unknown,
     Expired,
     Used,
-    /// The machine's key belongs to another account, signing into it or
-    /// removed from it. Only a new key, made by deleting the node's key
-    /// folder, can link that machine here.
+    /// The machine's key belongs to another account; only a new key can link it here.
     OtherAccount,
 }
 
@@ -45,8 +42,7 @@ pub struct ClaimedNode {
 }
 
 impl Store {
-    /// Keeps a new token's `hash` for the user, working for `ttl`. Returns
-    /// when it expires.
+    /// Keeps a new token `hash` valid for `ttl`; returns its expiry.
     pub(crate) async fn create_node_token(
         &self,
         user: &UserKey,
@@ -73,8 +69,7 @@ impl Store {
         Ok(expires_at)
     }
 
-    /// Stops the user's unused token `hash` from working. False when the
-    /// user has no such token or it was used.
+    /// Revokes the user's unused token `hash`; false when missing or used.
     pub(crate) async fn revoke_node_token(&self, user: &UserKey, hash: &str) -> Result<bool> {
         let deleted =
             sqlx::query("DELETE FROM node_tokens WHERE hash=$1 AND user_id=$2 AND used_at IS NULL")
@@ -86,8 +81,7 @@ impl Store {
         Ok(deleted > 0)
     }
 
-    /// The key that claimed the user's token `hash`: `None` when there is
-    /// no such token, `Some(None)` while it is unused.
+    /// The key that claimed token `hash`: `None` if no such token, `Some(None)` while unused.
     pub(crate) async fn node_token_claimer(
         &self,
         user: &UserKey,
@@ -102,11 +96,8 @@ impl Store {
         )
     }
 
-    /// Links the claiming machine's key to the account that made the token,
-    /// as an accepted link offer does, and spends the token in the same
-    /// transaction. A key of that same account claims it too, as when a
-    /// machine is set up again or comes back after the user removed it:
-    /// the key row is restored and takes the new name.
+    /// Links the claiming key to the token's account and spends the token in one transaction.
+    /// A key of the same account may reclaim (machine set up again): its row is restored and renamed.
     pub async fn claim_node_token(&self, claim: ClaimNode<'_>) -> Result<Claim> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(

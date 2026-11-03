@@ -11,8 +11,7 @@ pub struct TurnTimer {
     started: Instant,
     /// Building the time, location and apps block.
     context: Duration,
-    /// Everything before the first model call: loading the conversation,
-    /// tools, apps and context, and waiting for image descriptions.
+    /// Everything before the first model call.
     prepared: Option<Duration>,
     /// When the model call in flight was sent, until its first output.
     call_sent: Option<Instant>,

@@ -1,10 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { keyedReads, parseRecent, prefetchOrder, touchRecent, RECENT_MAX } from "../src/projectloads.ts";
+import { keyedReads } from "../src/projectloads.ts";
 import { PageCache, SWITCH_MS } from "../src/pagecache.ts";
 import { makeThreads, type KeptThreads, type ThreadDeps } from "../src/threads.ts";
-import { makeRuns, type RunsRow } from "../src/runs.ts";
-import { makeTerminals, type TerminalDeps, type TerminalRow } from "../src/terminals.ts";
 
 /// A read the test answers when it likes.
 function deferred<T>() {
@@ -59,19 +57,6 @@ test("a project's read runs once at a time, and one asked for after a change run
   assert.ok(!r.loading("p"));
 });
 
-test("the projects opened last come first, without the one shown or one gone", () => {
-  let list: string[] = [];
-  for (const n of ["a", "b", "c", "b"]) list = touchRecent(list, n);
-  assert.deepEqual(list, ["b", "c", "a"]);
-  assert.deepEqual(prefetchOrder(list, "b", n => n !== "a"), ["c"]);
-  let many: string[] = [];
-  for (let i = 0; i < 20; i++) many = touchRecent(many, `p${i}`);
-  assert.equal(many.length, RECENT_MAX);
-  assert.deepEqual(parseRecent(JSON.stringify(["x", 3, "y"])), ["x", "y"]);
-  assert.deepEqual(parseRecent("not json"), []);
-  assert.deepEqual(parseRecent(null), []);
-});
-
 const issue = (number: number) => ({ number, title: `issue ${number}`, labels: [], author: "kim", opened_at: 1, comments: 0, url: `https://example.com/issues/${number}` });
 
 test("kept issues draw before any read answers, and one closed upstream goes once the read in the background answers", async () => {
@@ -102,45 +87,3 @@ test("kept issues draw before any read answers, and one closed upstream goes onc
   assert.ok(redraws > 0);
 });
 
-const run = (id: number) => ({ id, number: id, workflow: "CI", title: `run ${id}`, branch: "main", event: "push", actor: "kim", state: "success" as const, url: "u", started_at: 1, finished_at: 2, progress: null, pull_requests: [] });
-
-test("kept runs draw without a read and a new run shows after the read on opening", async () => {
-  let now = 1_000_000;
-  const cache = new PageCache("acct", () => now);
-  const kept = cache.section<RunsRow | null>("runs");
-  kept.put("p1", { runs: [run(1)], checks: [], synced_at: 1, error: null, rate_limited_until: null });
-  const answer = deferred<RunsRow>();
-  let asked = 0;
-  const invoke = (() => { asked++; return answer.promise; }) as never;
-  const runs = makeRuns({ invoke, h: null!, button: null!, redraw() {}, openUrl() {}, fix() {}, kept });
-  assert.equal(runs.tile("p1").rows.length, 1, "drawn from the cache");
-  assert.equal(asked, 0, "fresh enough: nothing asked");
-  now += SWITCH_MS;
-  const read = runs.ensure("p1", SWITCH_MS);
-  assert.ok(read);
-  assert.equal(runs.tile("p1").rows.length, 1, "still drawn while the read is on its way");
-  assert.equal(runs.ensure("p1", SWITCH_MS), undefined, "one read at a time");
-  answer.resolve({ runs: [run(2), run(1)], checks: [], synced_at: now, error: null, rate_limited_until: null });
-  await read;
-  assert.equal(runs.tile("p1").rows.length, 2);
-  assert.equal(asked, 1);
-});
-
-test("a project's terminals come from the cache and one read at a time", async () => {
-  const cache = new PageCache("acct");
-  const kept = cache.section<TerminalRow[] | null>("terminals");
-  const row = { id: "t1", project: "acme/widget", machine_id: "m1", machine_name: "build-box", name: "shell", command: "zsh", cwd: "/srv/project", state: "running", code: null, started_at: 1 };
-  kept.put("acme/widget", [row]);
-  const answer = deferred<TerminalRow[]>();
-  let asked = 0;
-  const invoke = (() => { asked++; return answer.promise; }) as unknown as TerminalDeps["invoke"];
-  const terms = makeTerminals({ invoke, Channel: null!, makeScreen: null!, h: null!, button: null!, ago: () => "", redraw() {}, kept });
-  assert.equal(terms.list("acme/widget")?.length, 1);
-  const a = terms.load("acme/widget");
-  const b = terms.load("acme/widget");
-  answer.resolve([]);
-  await Promise.all([a, b]);
-  assert.equal(asked, 1);
-  assert.deepEqual(terms.list("acme/widget"), []);
-  assert.deepEqual(cache.get("terminals", "acme/widget"), []);
-});

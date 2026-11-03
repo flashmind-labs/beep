@@ -76,11 +76,6 @@ export function openTitle(hosts: readonly Pick<GitHostRow, "forgejo">[]) {
   return `Open on ${names.join(" and ") || "your git hosts"}`;
 }
 
-/// Whether Home shows the section: only once a git host is saved.
-export function showsOpen(view: { items?: unknown; hosts?: readonly unknown[] | null } | null | undefined) {
-  return Array.isArray(view?.hosts) && view.hosts.length > 0;
-}
-
 /// Whether an item waits on the user: a PR asking for their review, or
 /// one of theirs with changes requested or failing checks.
 export function waitsOnYou(item: Item) {

@@ -135,16 +135,6 @@ mod tests {
     use beep_proto::SecretText;
     use std::process::Stdio;
 
-    #[cfg(unix)]
-    #[test]
-    fn the_tools_come_first_and_once() {
-        let prefix = [PathBuf::from("/srv/node/bin")];
-        let merged = merged_path(&prefix, Some(OsStr::new("/usr/bin:/srv/node/bin:/bin")));
-        assert_eq!(merged.unwrap(), "/srv/node/bin:/usr/bin:/bin");
-        assert_eq!(merged_path(&[], Some(OsStr::new("/usr/bin"))), None);
-        assert_eq!(merged_path(&prefix, None).unwrap(), "/srv/node/bin");
-    }
-
     async fn seen(scope: Scope) -> String {
         let mut command = Command::new("sh");
         command

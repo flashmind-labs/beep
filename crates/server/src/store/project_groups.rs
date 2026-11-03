@@ -1,5 +1,4 @@
-//! Project groups: folders a user lists projects under, kept as
-//! `groups::project_group_path` gives them. The apps do the matching.
+//! Project groups: folders a user lists projects under, matched by the apps.
 
 use super::Store;
 use crate::{protocol::ProjectGroup, user::UserKey};
@@ -29,8 +28,7 @@ impl Store {
             .collect())
     }
 
-    /// Makes a group, or changes the user's group `id`. `None` when the
-    /// user has no group `id`.
+    /// Makes a group or changes group `id`; `None` when missing.
     pub(crate) async fn save_project_group(
         &self,
         user: &UserKey,

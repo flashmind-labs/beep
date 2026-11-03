@@ -1,5 +1,4 @@
-//! A git host for tests: answers each path with what a handler gives and
-//! keeps every request it was sent.
+//! A git host for tests: answers each path from a handler and records every request.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::{

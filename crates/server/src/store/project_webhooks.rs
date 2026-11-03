@@ -1,5 +1,4 @@
-//! The webhooks Beep made on the user's repositories for live project
-//! updates, kept until the node that made one says it is gone.
+//! Webhooks Beep made on user repositories for live updates, kept until their node reports them gone.
 
 use super::Store;
 use crate::user::UserKey;
@@ -22,10 +21,7 @@ fn hook_id(hook: u64) -> Result<i64> {
 }
 
 impl Store {
-    /// Notes a new watch of the repository, and gives the ids of the
-    /// webhooks Beep made on it before that are still there: the node
-    /// removes those, and only those. Rows of watches that never got a
-    /// webhook go.
+    /// Notes a new watch and returns earlier webhook ids still there for the node to remove; rows without a webhook go.
     pub(crate) async fn begin_webhook(
         &self,
         user: &UserKey,

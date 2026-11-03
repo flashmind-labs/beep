@@ -1,6 +1,4 @@
-//! The Coding agents page: the harnesses on each of the caller's machines,
-//! with what the node finds of each and the caller's settings for it, and
-//! installing or updating one there.
+//! The Coding agents page: harnesses on each machine, their settings, and installing them.
 
 use super::{Reply, own_nodes};
 use crate::{
@@ -152,9 +150,7 @@ struct Everywhere<'a> {
     include_program: bool,
 }
 
-/// What one machine keeps of its own when settings are saved to all of
-/// them: whether the harness is on there, and its binary path unless that
-/// is copied too or it is the machine the settings were edited on.
+/// What one machine keeps of its own when settings are saved to all of them.
 #[derive(Debug, PartialEq)]
 struct Kept {
     machine_id: String,
@@ -190,9 +186,7 @@ fn kept_per_machine(
         .collect()
 }
 
-/// Saves checked `settings` for the harness on every machine, each env
-/// var sealed for its own machine; a var with no value takes the one saved
-/// on the source machine. Gives the machines saved.
+/// Saves `settings` on every machine, sealing env vars per machine; gives the machines saved.
 async fn save_everywhere(
     user: &User,
     key: &CredentialKey,
@@ -350,8 +344,7 @@ fn harness_view(info: HarnessInfo, rows: &[HarnessRow], tokens: &[AgentTokenRow]
     }
 }
 
-/// A harness's saved settings as the apps see them, the env var names
-/// without their values; the defaults when none are saved.
+/// A harness's saved settings as the apps see them, env var names without values.
 fn settings_of(row: Option<&HarnessRow>) -> HarnessSettings {
     row.map_or_else(
         || HarnessSettings {
@@ -466,9 +459,7 @@ fn checked(settings: HarnessSettings) -> Reply<HarnessSettings> {
     })
 }
 
-/// The env vars to save for `agent` on `machine_id`. A var sent without a
-/// value keeps the saved one, so saved vars that do not open stop the save
-/// rather than being dropped.
+/// The env vars to save; saved vars that do not open stop the save rather than being dropped.
 async fn env_to_save(
     user: &User,
     key: &CredentialKey,
@@ -486,8 +477,7 @@ async fn env_to_save(
     Ok(merged_env(kept, wanted))
 }
 
-/// The env vars to save: each of `wanted` with its new value, or with the
-/// value `kept` had for that name; one with neither is dropped.
+/// Each of `wanted` with its new value, or `kept`'s for that name; one with neither is dropped.
 fn merged_env(kept: Vec<EnvSecret>, wanted: Vec<HarnessEnv>) -> Vec<EnvSecret> {
     wanted
         .into_iter()

@@ -1,5 +1,4 @@
-//! Terminals, of a project or of none: which background command or
-//! pseudo-terminal on which node.
+//! Terminals, of a project or none: which background command or pty on which node.
 
 use super::Store;
 use crate::user::UserKey;
@@ -18,8 +17,7 @@ pub(crate) struct TerminalRow {
     pub(crate) endpoint: String,
     /// The node's number for the task, or for the terminal when `pty`.
     pub(crate) task: u32,
-    /// An interactive terminal (`terminal/1`) rather than a background
-    /// task (`process/1`).
+    /// An interactive terminal (`terminal/1`) rather than a background task (`process/1`).
     pub(crate) pty: bool,
     pub(crate) name: String,
     pub(crate) command: String,

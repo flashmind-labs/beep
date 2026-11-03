@@ -34,9 +34,7 @@ pub struct Cx {
 }
 
 impl Cx {
-    /// Whether the client reads `feature`. Check it before sending a reply
-    /// shape or a streamed variant newer than the fixtures in
-    /// `crates/proto/tests/wire`.
+    /// Whether the client reads `feature`; check before sending a shape newer than `crates/proto/tests/wire`.
     pub fn supports(&self, feature: Feature) -> bool {
         self.client.supports(feature)
     }
@@ -74,8 +72,7 @@ impl Router {
         })
     }
 
-    /// Routes `R` to `handler`, which sends replies into a `Sink` and returns
-    /// when the stream is done.
+    /// Routes `R` to `handler`, which streams replies into a `Sink`.
     pub fn stream<R, F, Fut>(self, handler: F) -> Self
     where
         R: Stream,
@@ -95,8 +92,7 @@ impl Router {
         })
     }
 
-    /// Routes `R` to `handler`, which reads what the client sends after the
-    /// request from an `Uplink` and replies into a `Sink`.
+    /// Routes `R` to `handler`, which reads an `Uplink` and replies into a `Sink`.
     pub fn duplex<R, F, Fut>(self, handler: F) -> Self
     where
         R: Duplex,
@@ -153,8 +149,7 @@ impl Router {
         self.dispatch(cx, frame, tx, rx).await
     }
 
-    /// Runs the handler for a request already read. `rx` is the rest of the
-    /// client's side of the stream, which only a `Duplex` request reads.
+    /// Runs the handler for a request already read; only `Duplex` reads `rx`.
     pub async fn dispatch(&self, cx: Cx, frame: Frame, mut tx: Tx, rx: Rx) -> Result<()> {
         let handler = frame.op().and_then(|op| {
             self.routes
@@ -194,8 +189,7 @@ pub struct Uplink<T> {
 }
 
 impl<T: DeserializeOwned> Uplink<T> {
-    /// The next frame the client sent, `None` once it finished its side.
-    /// A frame that does not decode is the client's fault.
+    /// The client's next frame, `None` once it finished; a bad frame is the client's fault.
     pub async fn next(&mut self) -> Result<Option<T>, ApiError> {
         match self.rx.frame().await {
             Ok(Some(frame)) => frame.decode().map(Some),

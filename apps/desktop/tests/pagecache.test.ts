@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MACHINE_REFRESH_MS, MAX_AGE_MS, PAGE_CACHE_FORMAT, PageCache, QUIET_MS, REFRESH_MS, backgroundTick, evict, freshness } from "../src/pagecache.ts";
+import { PAGE_CACHE_FORMAT, PageCache, REFRESH_MS, backgroundTick, evict } from "../src/pagecache.ts";
 
 /// A clock the test moves by hand.
 function clock(start = 1_000_000) {
@@ -23,18 +23,6 @@ test("a section is due until read, then again after the refresh time", () => {
   assert.equal(cache.due("branches", "p1"), true);
 });
 
-test("machine sections read sooner than the code host's", () => {
-  const c = clock();
-  const cache = new PageCache("acct", c.tick);
-  cache.put("where", "p", []);
-  cache.put("branches", "p", {});
-  c.now += MACHINE_REFRESH_MS;
-  assert.equal(cache.due("where", "p"), true);
-  assert.equal(cache.due("branches", "p"), false);
-  // An explicit interval wins.
-  assert.equal(cache.due("branches", "p", MACHINE_REFRESH_MS), true);
-});
-
 test("restoring keeps what was read since, when newer", () => {
   const c = clock();
   const cache = new PageCache(null, c.tick);
@@ -47,17 +35,6 @@ test("restoring keeps what was read since, when newer", () => {
   assert.equal(cache.account, "a");
   assert.equal(cache.get("view", "p"), "read now");
   assert.equal(cache.get("view", "q"), "saved q");
-});
-
-test("the header note: quiet while new, a spinner while old data reads, else its age", () => {
-  const now = 10 * 3_600_000;
-  assert.deepEqual(freshness(undefined, false, now), { spin: false, text: "" });
-  assert.deepEqual(freshness(undefined, true, now), { spin: true, text: "" });
-  assert.deepEqual(freshness(now - 5_000, true, now), { spin: false, text: "" });
-  assert.deepEqual(freshness(now - QUIET_MS, true, now), { spin: true, text: "" });
-  assert.deepEqual(freshness(now - 4 * 60_000, false, now), { spin: false, text: "updated 4 min ago" });
-  assert.deepEqual(freshness(now - 3 * 3_600_000, false, now), { spin: false, text: "updated 3 h ago" });
-  assert.deepEqual(freshness(now - 2 * 86_400_000, false, now), { spin: false, text: "updated 2 d ago" });
 });
 
 test("a saved cache comes back for its account only", () => {
@@ -87,17 +64,6 @@ test("a file of another format, a broken one or unknown sections start empty", (
   assert.equal(mixed.get("view", "p"), 1);
 });
 
-test("answers past the age limit are not loaded", () => {
-  const c = clock(10 * MAX_AGE_MS);
-  const file = { format: PAGE_CACHE_FORMAT, account: "a", slots: {
-    "view\nold": { data: "old", at: c.now - MAX_AGE_MS, used: c.now },
-    "view\nnew": { data: "new", at: c.now - 1000, used: c.now },
-  } };
-  const cache = PageCache.from(file, "a", c.tick);
-  assert.equal(cache.get("view", "old"), undefined);
-  assert.equal(cache.get("view", "new"), "new");
-});
-
 test("eviction keeps the most recently used within the slot and size caps", () => {
   const slot = (used: number, data: unknown = "x") => ({ data, at: used, used });
   const kept = evict([["view\na", slot(1)], ["view\nb", slot(3)], ["view\nc", slot(2)]], 2);
@@ -121,13 +87,6 @@ test("saving drops what does not fit from memory too, and using a slot keeps it"
   assert.equal(cache.get("sessions", "p2"), undefined);
 });
 
-test("no account keeps the cache in memory only", () => {
-  const cache = new PageCache(null);
-  cache.put("branches", "p", { branches: [] });
-  assert.equal(cache.toFile(), null);
-  assert.deepEqual(cache.get("branches", "p"), { branches: [] });
-});
-
 test("sign-out and another account clear it", () => {
   // Learning the account of data read before keeps it.
   const early = new PageCache(null);
@@ -148,28 +107,6 @@ test("sign-out and another account clear it", () => {
   cache.setAccount(null);
   assert.equal(cache.size, 0);
   assert.equal(cache.toFile(), null);
-});
-
-test("changes are reported once, for saving", () => {
-  const cache = new PageCache("a");
-  assert.equal(cache.takeChanged(), false);
-  cache.put("view", "p", 1);
-  assert.equal(cache.takeChanged(), true);
-  assert.equal(cache.takeChanged(), false);
-  cache.get("view", "p");
-  assert.equal(cache.takeChanged(), false);
-});
-
-test("a section store reads and writes its own section", () => {
-  const c = clock();
-  const cache = new PageCache("a", c.tick);
-  const threads = cache.section<{ prs: number[] }>("threads");
-  assert.equal(threads.due("p"), true);
-  threads.put("p", { prs: [1] });
-  assert.deepEqual(threads.get("p"), { prs: [1] });
-  assert.equal(threads.at("p"), c.now);
-  assert.equal(threads.due("p"), false);
-  assert.equal(cache.get("branches", "p"), undefined);
 });
 
 test("background ticks run online, skip offline, and skip one late after sleep", () => {

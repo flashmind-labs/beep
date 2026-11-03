@@ -1,6 +1,4 @@
-//! When the project lifecycle wakes on its own: a project's check of its
-//! pull requests, and a worker's idle close. The schedule itself is pure;
-//! [`run`] sleeps until the next one is due and hands it to the projects.
+//! When the project lifecycle wakes: PR checks and idle closes. [`run`] sleeps until one is due.
 
 use super::model::{ProjectId, WorkerId};
 use crate::app::App;
@@ -63,8 +61,7 @@ impl Schedule {
     }
 }
 
-/// Sleeps until the next due time or until something is armed, then hands
-/// what is due to the projects' jobs. Holds the app weakly: the app owns it.
+/// Sleeps until something is due or armed, then runs it. Holds the app weakly: the app owns it.
 pub(crate) async fn run(app: Weak<App>, armed: Arc<Notify>) {
     loop {
         let notified = armed.notified();

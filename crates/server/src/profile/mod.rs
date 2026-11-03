@@ -1,18 +1,5 @@
-//! The profile pass: once per connected mailbox and calendar, Beep reads
-//! everything it can reach and builds a profile of the user from it.
-//!
-//! Mail is read a year at a time, newest first, back to the first empty
-//! years. Newsletters and promotions only feed counts. Jev drops the other
-//! received mail that is plainly not about the user. Threads the user wrote
-//! in, repeated senders (a few samples and every subject) and the remaining
-//! emails go to the cheap model in batches, which writes short dated notes.
-//! Calendars are read once, five years back and half a year ahead, with each
-//! repeating event shown once with its count. Notes are stored as each year
-//! finishes, so a pass cut short resumes at the year it was in.
-//!
-//! When no source of the user is still being read, the notes are condensed
-//! into dossiers and then into facts, saved as memories with the evidence
-//! behind each, and the user gets a notice. Content is never logged.
+//! The profile pass: reads each connected mailbox and calendar once and builds a profile of the user.
+//! Notes are stored per finished year, so a cut-short pass resumes; content is never logged.
 
 use crate::{
     app::{App, Reach, UserNotice},
@@ -175,9 +162,7 @@ impl Claim {
         inserted.then_some(Claim { user, source })
     }
 
-    /// Frees the source and says whether no other source of the user is
-    /// still being read, under one lock, so two reads ending together do not
-    /// both condense.
+    /// Frees the source and says, under one lock, whether no other source of the user is still read.
     fn release_last(mut self) -> bool {
         let user = mem::take(&mut self.user);
         let mut running = running();
@@ -209,8 +194,7 @@ fn sources(slugs: &[String]) -> Vec<Source> {
         .collect()
 }
 
-/// Reads, in the background, each source behind the connected apps `slugs`
-/// that has not been read yet.
+/// Reads, in the background, each unread source behind the connected apps `slugs`.
 pub fn spawn(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) {
     for source in sources(slugs) {
         let Some(claim) = Claim::take(user, source) else {
@@ -220,9 +204,7 @@ pub fn spawn(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) {
     }
 }
 
-/// Reads each source behind the connected apps `slugs` again from the
-/// start, dropping its earlier notes. Memories already made stay. Returns
-/// the sources started; one being read right now is left alone.
+/// Rereads each source behind `slugs` from the start, dropping its notes; returns the sources started.
 pub async fn reread(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) -> Result<Vec<Source>> {
     let mut started = Vec::new();
     for source in sources(slugs) {
@@ -348,8 +330,6 @@ fn rfc3339(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-// The model.
-
 #[derive(Deserialize)]
 struct Notes {
     #[serde(default)]
@@ -402,8 +382,7 @@ async fn extract(
     Ok(notes)
 }
 
-/// `texts` joined into pieces of about `chars`, each text whole unless it is
-/// longer than that alone.
+/// `texts` joined into pieces of about `chars`, splitting only texts longer than that.
 fn pack(texts: &[String], chars: usize) -> Vec<String> {
     let mut batches = Vec::new();
     let mut batch = String::new();
@@ -484,8 +463,7 @@ struct RawFact {
     evidence: Option<String>,
 }
 
-/// Condenses every source's notes into dossiers, then into memories tagged as
-/// one read of `source`, the read that just ended. Returns how many were saved.
+/// Condenses every source's notes into memories tagged with `source`; returns how many were saved.
 async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Result<usize> {
     let notes = user.profile_notes().await?;
     if notes.is_empty() {
@@ -567,8 +545,7 @@ fn read_reference(source: Source, finished: DateTime<Utc>) -> String {
     format!("{READ_PREFIX}{}:{}", source.key(), rfc3339(finished))
 }
 
-/// The reads that added or confirmed `rows`, newest first, each with its
-/// memories in the order of `rows`.
+/// The reads that added or confirmed `rows`, newest first.
 pub fn memory_reads(rows: &[MemoryRow]) -> Vec<MemoryRead> {
     let mut reads: Vec<MemoryRead> = Vec::new();
     for row in rows {

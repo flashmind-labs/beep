@@ -57,8 +57,7 @@ impl Action {
     }
 }
 
-/// `memory`: one tool for the user's memories. Without a writer it only
-/// recalls and reads history, for agents that must not change memories.
+/// `memory`: the user's memories tool; without a writer it only reads.
 struct MemoryTool {
     user: Arc<User>,
     writer: Option<MemoryWriter>,
@@ -74,8 +73,7 @@ pub fn register(registry: &mut ToolRegistry, user: &Arc<User>, session_id: &str)
     }));
 }
 
-/// `memory` that only recalls and reads history, for agents that only read
-/// memories.
+/// `memory` that only recalls and reads history.
 pub(crate) fn recall_tool(user: &Arc<User>) -> Arc<dyn Tool> {
     Arc::new(MemoryTool {
         user: user.clone(),
@@ -103,8 +101,7 @@ const SCOPE_HELP: &str = "What the fact is about: `user` (the default) for the u
     `machine:<name>` for one of their machines by its name in the machines list, `project:<name>` for a \
     project such as a repository, `account:<app>` for one of their accounts, such as `account:github`.";
 
-/// Scopes as the model writes them, `machine:build-box`. The store keeps a
-/// machine by its key, so a renamed machine keeps its memories.
+/// Scopes as the model writes them (`machine:build-box`); the store keys machines by id.
 struct ScopeNames(Vec<NodeRow>);
 
 impl ScopeNames {
@@ -329,8 +326,7 @@ impl MemoryTool {
             .user
             .search_memories(query, category, scope, limit)
             .await?;
-        // A model can guess a category the memory was not filed under, such
-        // as "place" for a hotel stay filed under "plan", so the rest follow.
+        // The model may guess the wrong category, so other categories follow.
         if category.is_some() && hits.len() < limit {
             for hit in self.user.search_memories(query, None, scope, limit).await? {
                 if hits.len() == limit {

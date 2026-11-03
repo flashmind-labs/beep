@@ -1,6 +1,4 @@
-//! The lead's tools: in the research chat, starting the team on the plan
-//! the user approved, sending it on a follow-up round and stopping it; in
-//! the team, adding scouts for the gaps a round left.
+//! The lead's tools for starting, continuing and stopping the team, and adding scouts.
 
 use super::{
     MAX_FOLLOW_UPS, MAX_GAP_SCOUTS, MAX_ROUNDS, MAX_SCOUTS, MAX_TEAM_SCOUTS, MIN_SCOUTS, Plan,
@@ -243,8 +241,7 @@ impl Tool for ResearchMoreTool {
     }
 }
 
-/// Questions the lead adds to the running round, for its gaps. The team
-/// runs them once the lead's turn ends.
+/// Adds scouts for gaps to the running round, run once the lead's turn ends.
 pub struct AddScoutsTool {
     pub app: Arc<App>,
     pub round: u32,

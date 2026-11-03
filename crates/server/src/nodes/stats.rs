@@ -1,5 +1,4 @@
-//! The live resources each node reports with `Up::Stats`, kept in memory
-//! for as long as its connection lasts; there is no history.
+//! Live resources each node reports with `Up::Stats`, kept for the connection only.
 
 use super::Online;
 use crate::protocol::node::StatsReport;
@@ -37,8 +36,7 @@ impl StatsSlot {
 }
 
 impl Online {
-    /// What the node last said it has free on this connection; `None`
-    /// until it says, and always from a node from before `Up::Stats`.
+    /// What the node last said it has free; `None` until it says.
     pub fn stats(&self) -> Option<Sampled> {
         self.stats.get()
     }
