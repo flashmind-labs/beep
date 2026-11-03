@@ -4,6 +4,7 @@ import { copy, renderChats } from "./chats.ts";
 import { $, $$, bar, changed, esc, G, GROUP_VIEWS, h, ICON, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
 import { fillPics, picRow } from "./media.ts";
+import { dayDiff } from "./memories.ts";
 
 // ---------- Groups ----------
 
@@ -130,11 +131,9 @@ function people(group: GroupSummary) {
   names.push("Beep");
   return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
 }
-/// The start of the day `x` falls on, in milliseconds.
-const dayStart = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
 function dayLabel(ms: number) {
   const d = new Date(ms);
-  const days = Math.round((dayStart(new Date()) - dayStart(d)) / 86400000);
+  const days = dayDiff(d, new Date());
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, days < 7 ? { weekday: "long" } : { day: "numeric", month: "short" });
@@ -373,7 +372,7 @@ function describeSchedule(schedule: string) {
   const clock = (h: number, m: number) => new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const at = new Date(schedule);
   if (/^\d{4}-\d\d-\d\dT/.test(schedule) && !isNaN(at.getTime())) {
-    const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5);
+    const days = dayDiff(new Date(), at);
     const day = days === 0 ? "Today" : days === 1 ? "Tomorrow" : days > 1 && days < 7
       ? at.toLocaleDateString(undefined, { weekday: "short" }) : at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     return `${day} ${clock(at.getHours(), at.getMinutes())}`;
