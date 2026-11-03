@@ -185,6 +185,16 @@ pub enum Steer {
         #[serde(default)]
         images: Vec<PastedImage>,
     },
+    /// A message for the running turn, delivered once the agent's current
+    /// tool call finishes.
+    #[serde(rename = "steer")]
+    InTurn {
+        text: String,
+        #[serde(default)]
+        images: Vec<PastedImage>,
+    },
+    /// Takes back the steers not yet delivered.
+    DropSteers,
     Cancel,
     Close,
     /// Switches the running session's model or thinking from its next turn.
@@ -212,23 +222,15 @@ impl TryFrom<Steer> for AgentSteer {
     fn try_from(steer: Steer) -> Result<Self> {
         Ok(match steer {
             Steer::Prompt { text, images } if images.is_empty() => Self::Prompt { text },
-            Steer::Prompt { text, images } => {
-                let images = images
-                    .into_iter()
-                    .map(|image| -> Result<Upload> {
-                        let data = STANDARD.decode(&image.data).map_err(|_| {
-                            DesktopError::BadRequest(format!("{} could not be read", image.name))
-                        })?;
-                        Ok(Upload {
-                            name: image.name,
-                            mime: image.mime,
-                            data,
-                        })
-                    })
-                    .collect::<Result<Vec<Upload>>>()?;
-                check_agent_images(&images)?;
-                Self::PromptImages { text, images }
-            }
+            Steer::Prompt { text, images } => Self::PromptImages {
+                text,
+                images: uploads(images)?,
+            },
+            Steer::InTurn { text, images } => Self::Steer {
+                text,
+                images: uploads(images)?,
+            },
+            Steer::DropSteers => Self::DropSteers {},
             Steer::Cancel => Self::Cancel {},
             Steer::Close => Self::Close {},
             Steer::Configure { model, effort } => Self::Configure {
@@ -237,6 +239,46 @@ impl TryFrom<Steer> for AgentSteer {
             },
         })
     }
+}
+
+/// The pasted images as uploads, checked against the limits.
+fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
+    let images = images
+        .into_iter()
+        .map(|image| -> Result<Upload> {
+            let data = STANDARD.decode(&image.data).map_err(|_| {
+                DesktopError::BadRequest(format!("{} could not be read", image.name))
+            })?;
+            Ok(Upload {
+                name: image.name,
+                mime: image.mime,
+                data,
+            })
+        })
+        .collect::<Result<Vec<Upload>>>()?;
+    check_agent_images(&images)?;
+    Ok(images)
+}
+
+/// The same message as a prompt for after the turn, for a server from
+/// before steering, which reads op 5 of `AgentSteer` as unknown.
+fn queued_instead(steer: &AgentSteer) -> Option<AgentSteer> {
+    let AgentSteer::Steer { text, images } = steer else {
+        return None;
+    };
+    Some(if images.is_empty() {
+        AgentSteer::Prompt { text: text.clone() }
+    } else {
+        AgentSteer::PromptImages {
+            text: text.clone(),
+            images: images.clone(),
+        }
+    })
+}
+
+/// True when the server did not know `Steer`, op 5 of `AgentSteer`.
+fn older_than_steer(error: &DesktopError) -> bool {
+    matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 5") || message.contains("unknown op 6"))
 }
 
 /// True when the server did not know `PromptImages`: one from before it
@@ -597,27 +639,35 @@ pub async fn agent_steer(
     let steer = AgentSteer::try_from(steer)?;
     // The keys of the images sent, which the session's log names them by.
     let keys: Vec<String> = match &steer {
-        AgentSteer::PromptImages { images, .. } => {
+        AgentSteer::PromptImages { images, .. } | AgentSteer::Steer { images, .. } => {
             images.iter().map(|image| image_key(&image.data)).collect()
         }
         _ => Vec::new(),
     };
     let images = !keys.is_empty();
     let configure = matches!(steer, AgentSteer::Configure { .. });
-    let sent = beep
-        .call(SteerAgentSession {
-            machine_id,
-            agent,
-            session,
-            steer,
-        })
-        .await;
+    let fallback = queued_instead(&steer);
+    let call = |steer: AgentSteer| SteerAgentSession {
+        machine_id: machine_id.clone(),
+        agent: agent.clone(),
+        session: session.clone(),
+        steer,
+    };
+    let sent = match (beep.call(call(steer)).await, fallback) {
+        // A server from before steering takes it as a message for after
+        // the turn, which is the nearest it can do.
+        (Err(e), Some(prompt)) if older_than_steer(&e) => beep.call(call(prompt)).await,
+        (sent, _) => sent,
+    };
     match sent {
         Err(e) if images && older_than_images(&e) => Err(DesktopError::BadRequest(
             "This Beep server does not take images yet. Send the message without them.".into(),
         )),
         Err(e) if configure && older_than_configure(&e) => Err(DesktopError::BadRequest(
             "This Beep server cannot switch a running session's model yet.".into(),
+        )),
+        Err(e) if older_than_steer(&e) => Err(DesktopError::BadRequest(
+            "This Beep server cannot take a message back yet.".into(),
         )),
         other => other.map(|()| keys),
     }
@@ -663,6 +713,26 @@ mod tests {
             images: (0..6).map(|_| pasted(&png)).collect(),
         };
         assert!(AgentSteer::try_from(six).is_err());
+    }
+
+    #[test]
+    fn a_steer_carries_its_images_and_falls_back_to_a_prompt() {
+        let png = b"\x89PNG\r\n\x1a\n".to_vec();
+        let steer = AgentSteer::try_from(Steer::InTurn {
+            text: "use the fixture".into(),
+            images: vec![pasted(&png)],
+        })
+        .unwrap();
+        let AgentSteer::Steer { images, .. } = &steer else {
+            panic!("a steer goes as Steer");
+        };
+        assert_eq!(images[0].data, png);
+        assert!(matches!(
+            queued_instead(&steer),
+            Some(AgentSteer::PromptImages { text, .. }) if text == "use the fixture"
+        ));
+        let old = DesktopError::Api(ApiError::bad_request("unknown op 5"));
+        assert!(older_than_steer(&old));
     }
 
     #[test]

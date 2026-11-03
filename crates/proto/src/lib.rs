@@ -3400,6 +3400,11 @@ wire_enum! {
     /// to `model` and thinking `effort` (either may be `None` to keep it),
     /// from its next turn; a server older than `Feature::AGENT_CONFIGURE`
     /// refuses it, and so does a node or agent that cannot switch.
+    /// `Steer` is `PromptImages` for the running turn: the node delivers it
+    /// once the agent's current tool call finishes rather than after the
+    /// whole turn, and like `Prompt` when no turn runs. A server older than
+    /// `Feature::AGENT_STEER` refuses it. `DropSteers` takes back the steers
+    /// not yet delivered.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentSteer {
@@ -3408,6 +3413,8 @@ wire_enum! {
         2 Close {}
         3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
         4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
+        5 Steer { text: String, images: Vec<Upload> } since AGENT_STEER
+        6 DropSteers {} since AGENT_STEER
     }
 }
 

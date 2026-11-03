@@ -2,7 +2,9 @@ import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, pollAgent, sendAgentMessage, switchSessionModel } from "../src/bar/agents.ts";
+import { AG, type AgentPage, type AgentRow, agentHints, agentKeys, interruptAgent, pollAgent, sendAgentMessage, switchSessionModel } from "../src/bar/agents.ts";
+import type { Waiting } from "../src/bar/agentqueue.ts";
+import { MN } from "../src/bar/workdrop.ts";
 
 (globalThis.document as { visibilityState?: string }).visibilityState = "visible";
 
@@ -18,10 +20,38 @@ function openSession(status: string, polls = false): AgentPage {
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   S.view = "agent";
-  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, barHidden: !polls });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, barHidden: !polls, stopping: null });
+  Object.assign(MN, { paths: [], uploads: [], ask: null });
   calls.length = 0;
   delete answers.agent_steer;
   return page;
+}
+
+/// A queued message of plain words.
+const words = (text: string): Waiting => ({ how: "queue", typed: text, text, paths: [], images: [], state: null, after: 0 });
+
+const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=" };
+
+/// Enter in the session's field, with Option when `alt`.
+function enter(input: unknown, alt = false) {
+  const e = { key: "Enter", altKey: alt, shiftKey: false, isComposing: false, target: Object.assign(input as object, { id: "agmsg" }), preventDefault() {} };
+  return agentKeys(e as unknown as KeyboardEvent, false);
+}
+
+/// Lets the sends a poll started run.
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+/// The `agent_steer` calls made, by what each sent.
+const steers = () => calls.filter(c => c.cmd === "agent_steer").map(c => (c.args as { steer: unknown }).steer);
+
+/// Reads the session once as `page` says, without following it after.
+async function read(page: AgentPage) {
+  answers.agent_view = page;
+  AG.barHidden = false;
+  await pollAgent();
+  AG.barHidden = true;
+  clearTimeout(AG.timer);
+  await settle();
 }
 
 /// `cmd` fails with `why`, as Tauri rejects, until the next `openSession`.
@@ -33,7 +63,7 @@ test("an ended session puts the queue back in the field before what is typed the
   const page = openSession("working", true);
   const input = field("and one more");
   show({ "#agmsg": input });
-  AG.queue = ["first", "second"];
+  AG.queue = [words("first"), words("second")];
   answers.agent_view = { ...page, session: { ...page.session, status: "ended" } };
   await pollAgent();
   assert.equal(input.value, "first\n\nsecond\n\nand one more");
@@ -43,10 +73,10 @@ test("an ended session puts the queue back in the field before what is typed the
 test("an ended session keeps the queue while no field shows", async () => {
   const page = openSession("working", true);
   show({});
-  AG.queue = ["first"];
+  AG.queue = [words("first")];
   answers.agent_view = { ...page, session: { ...page.session, status: "ended" } };
   await pollAgent();
-  assert.deepEqual(AG.queue, ["first"]);
+  assert.deepEqual(AG.queue.map(q => q.text), ["first"]);
 });
 
 test("a text message that fails to send goes back in the field under the error", async () => {
@@ -80,4 +110,83 @@ test("the model pill keeps the model that runs", async () => {
   await switchSessionModel(s, { model: "sonnet-y", effort: null }, "model");
   assert.match(pill.innerHTML, /opus-x/);
   assert.doesNotMatch(pill.innerHTML, /sonnet-y/);
+});
+
+test("a message queued while the turn runs keeps its file and image when it goes", async () => {
+  const page = openSession("working");
+  const input = field("look at this log");
+  show({ "#agmsg": input });
+  MN.paths = [".beep/uploads/whatever.log"];
+  AG.att = [png];
+  assert.equal(enter(input, true), true);
+  assert.equal(input.value, "");
+  assert.deepEqual(MN.paths, [], "the chip goes with the message");
+  assert.deepEqual(AG.att, []);
+  assert.deepEqual(steers(), [], "nothing goes while the turn runs");
+
+  await read({ ...page, session: { ...page.session, status: "idle" } });
+  const [sent] = steers() as { prompt: { text: string; images: { name: string }[] } }[];
+  assert.match(sent.prompt.text, /^look at this log/);
+  assert.match(sent.prompt.text, /@\.beep\/uploads\/whatever\.log/);
+  assert.deepEqual(sent.prompt.images.map(i => i.name), ["shot.png"]);
+});
+
+test("Enter while the turn runs steers it, with what is attached", async () => {
+  const page = openSession("working");
+  const input = field("use the fixture instead");
+  show({ "#agmsg": input });
+  MN.paths = ["tests/data/login.json"];
+  AG.att = [png];
+  // The key the node names the image by.
+  answers.agent_steer = ["0123456789abcdef"];
+  enter(input);
+  await settle();
+  const [sent] = steers() as { steer: { text: string; images: { name: string }[] } }[];
+  assert.match(sent.steer.text, /^use the fixture instead/);
+  assert.match(sent.steer.text, /@tests\/data\/login\.json/);
+  assert.equal(sent.steer.images.length, 1);
+  assert.equal(AG.queue[0].state, "sent");
+
+  // A read that the node still holds it in leaves it waiting.
+  await read({ ...page, queued: 1 });
+  assert.equal(AG.queue[0].state, "sent");
+  // Once the node no longer holds it, it was delivered.
+  await read({ ...page, queued: 0 });
+  assert.equal(AG.queue[0].state, "delivered");
+});
+
+test("an image attached after a steer goes with the next message, not the steer", async () => {
+  openSession("working");
+  const input = field("first");
+  show({ "#agmsg": input });
+  answers.agent_steer = [];
+  enter(input);
+  AG.att.push(png);
+  await settle();
+  assert.deepEqual(AG.queue[0].images, []);
+  assert.deepEqual(AG.att.map(a => a.name), ["shot.png"]);
+});
+
+test("the hints offer steer, queue and interrupt while the turn runs", () => {
+  openSession("working");
+  const shown = agentHints();
+  assert.ok(shown.indexOf("steer") >= 0 && shown.indexOf("steer") < shown.indexOf("queue"));
+  assert.ok(shown.indexOf("queue") < shown.indexOf("interrupt"));
+});
+
+test("Esc stops at once and sends steers not delivered with the queue", async () => {
+  const page = openSession("working");
+  show({ "#agmsg": field() });
+  AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }, words("then this")];
+  assert.equal(interruptAgent(), true);
+  assert.equal(AG.stopping, "s1");
+  assert.doesNotMatch(agentHints(), /interrupt/, "already stopping");
+  await settle();
+  assert.deepEqual(steers(), ["cancel"]);
+  assert.deepEqual(AG.queue.map(q => q.how), ["queue", "queue"]);
+
+  calls.length = 0;
+  await read({ ...page, session: { ...page.session, status: "idle" } });
+  assert.equal(AG.stopping, null);
+  assert.deepEqual(steers(), [{ prompt: { text: "steer me\n\nthen this" } }], "in the order typed");
 });

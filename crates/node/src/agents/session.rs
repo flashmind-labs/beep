@@ -24,7 +24,8 @@ use agent_client_protocol::{
     schema::v1::{
         CancelNotification, InitializeResponse, LoadSessionRequest, McpServer, PromptResponse,
         RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SessionConfigId,
-        SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest,
+        SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest, ToolCallId,
+        ToolCallStatus,
     },
 };
 use anyhow::{Context, Result};
@@ -33,15 +34,16 @@ use beep_proto::node::agent::{
     Status, StopReason,
 };
 use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
-use beep_proto::{AgentAccount, ModelId};
+use beep_proto::{AgentAccount, MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL, ModelId};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::Value;
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use tokio::{
     io::BufReader,
@@ -64,11 +66,22 @@ const ORDERS: usize = 16;
 const EVENTS: usize = 64;
 /// The longest text of a question the node asks.
 const MAX_ASKED: usize = 2000;
+/// How long an agent has to end its turn after Stop before the node stops
+/// the agent itself. Agents answer `session/cancel` within a second or two;
+/// one that has not after this is not going to.
+const STOP_WITHIN: Duration = Duration::from_secs(10);
+/// The most tool calls followed at once, to know when none runs.
+const MAX_RUNNING_TOOLS: usize = 256;
 
 /// What a stream asks of a session.
 #[derive(Debug)]
 pub(super) enum Command {
     Prompt(Prompt),
+    /// A message for the running turn: it goes once the agent's current
+    /// tool call finishes, ahead of the prompts waiting.
+    Steer(Prompt),
+    /// Takes back the steers not yet sent.
+    DropSteers,
     Answer {
         question: u32,
         reply: String,
@@ -151,6 +164,11 @@ pub(super) struct Start<'a> {
 
 impl Session {
     pub(super) fn start(start: Start<'_>) -> Result<Self> {
+        Self::start_within(start, STOP_WITHIN)
+    }
+
+    /// `start`, giving the agent `stop_within` to end a turn after Stop.
+    fn start_within(start: Start<'_>, stop_within: Duration) -> Result<Self> {
         let Start {
             id,
             kind,
@@ -232,6 +250,12 @@ impl Session {
             acp_session: None,
             takes_images: None,
             queued: prompt.map(Prompt::from).into_iter().collect(),
+            steers: VecDeque::new(),
+            sent: 0,
+            turn: None,
+            stopping: None,
+            stop_within,
+            running: HashSet::new(),
             brief,
             mcp_servers: mcp.into_iter().collect(),
             resume,
@@ -320,6 +344,10 @@ enum Reply {
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
     /// The answer to the `/compact` the node sent.
     Compacted(Result<PromptResponse, agent_client_protocol::Error>),
+    /// The agent was given `stop_within` to end turn `turn` after Stop.
+    StopDue {
+        turn: u64,
+    },
     /// The image files a finished turn named, read, for the agent message
     /// `entry`.
     FilesRead {
@@ -385,6 +413,18 @@ struct Actor {
     compactor: Compactor,
     /// Prompts waiting for the agent to be free, the first prompt among them.
     queued: VecDeque<Prompt>,
+    /// Messages for the running turn, sent once its tool call finishes.
+    steers: VecDeque<Prompt>,
+    /// The prompts sent so far, which numbers each turn.
+    sent: u64,
+    /// The turn running, by its number, while its prompt is unanswered.
+    turn: Option<u64>,
+    /// Why the running turn was asked to stop, once it was.
+    stopping: Option<Stopping>,
+    /// How long the agent has to end its turn after Stop.
+    stop_within: Duration,
+    /// The tool calls of the running turn that have not finished.
+    running: HashSet<ToolCallId>,
     /// Beep's word to the agent, until the first prompt carries it.
     brief: Option<String>,
     /// The MCP servers the agent's session gets.
@@ -404,6 +444,28 @@ enum End {
     Closed,
     Exited,
     Failed(String),
+    /// The agent did not end its turn within `stop_within` of Stop.
+    Unstoppable(Duration),
+}
+
+/// Why the node asked the agent to end its turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stopping {
+    /// The user stopped it.
+    User,
+    /// A tool call finished with a steer waiting: the turn ends there and
+    /// the steer goes as the next prompt.
+    Steer,
+}
+
+impl Stopping {
+    /// What the session says it does meanwhile.
+    fn summary(self) -> &'static str {
+        match self {
+            Self::User => "Stopping",
+            Self::Steer => "Taking your message",
+        }
+    }
 }
 
 /// The pipes the session reads besides ACP.
@@ -422,8 +484,14 @@ impl Actor {
         let held = child.hold_output();
         let end = self.serve(child.child_mut(), &mut orders).await;
         let closed = matches!(end, Ok(End::Closed));
+        // Stopped as the user asked, so not a failure to alert about.
+        let asked = closed || matches!(end, Ok(End::Unstoppable(_)));
         let reason = match end {
             Ok(End::Closed) => "closed".to_owned(),
+            Ok(End::Unstoppable(within)) => format!(
+                "the agent did not stop within {} s, so Beep stopped it; send a message to continue",
+                within.as_secs()
+            ),
             Ok(End::Exited) => match self.stderr.back() {
                 Some(line) => format!("the agent exited: {line}"),
                 None => "the agent exited".to_owned(),
@@ -438,7 +506,7 @@ impl Actor {
         self.asked.clear();
         child.stop(STOP_GRACE).await;
         drop(held);
-        if !closed {
+        if !asked {
             self.alert(AlertKind::Failed {
                 reason: reason.clone(),
             });
@@ -521,7 +589,7 @@ impl Actor {
             tokio::select! {
                 biased;
                 event = inputs.events.recv() => match event {
-                    Some(event) => self.event(event)?,
+                    Some(event) => self.event(cx, event)?,
                     None => return Ok(End::Exited),
                 },
                 Some(length) = inputs.oversized.recv() => self.oversized(length),
@@ -576,10 +644,17 @@ impl Actor {
             .push(async move { reply(answer.await) }.boxed());
     }
 
-    fn event(&mut self, event: Event) -> Result<()> {
+    fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
         match event {
             Event::Update(update) => {
+                let finished = self.tool_finished(&update);
                 self.live.send_if_modified(|live| live.apply(&update));
+                if let Some(stopping) = self.stopping {
+                    self.show_stopping(stopping);
+                }
+                if finished {
+                    self.steer_now(cx)?;
+                }
             }
             Event::Permission(request, responder) => {
                 if let Some(responder) = self.allow(&request, responder)? {
@@ -660,6 +735,9 @@ impl Actor {
                 return Ok(Some(End::Failed(format!("the agent did not start: {e}"))));
             }
             Reply::Prompt(result) => {
+                self.turn = None;
+                self.stopping = None;
+                self.running.clear();
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
                 self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
@@ -672,6 +750,12 @@ impl Actor {
                 self.turn_done(cx, stop, error);
             }
             Reply::Compacted(result) => self.compacted(cx, result),
+            Reply::StopDue { turn } => {
+                if self.turn == Some(turn) && self.stopping == Some(Stopping::User) {
+                    log::warn!("the agent ignored session/cancel; stopping it");
+                    return Ok(Some(End::Unstoppable(self.stop_within)));
+                }
+            }
             Reply::FilesRead { entry, pictures } => {
                 if !pictures.is_empty() {
                     self.live
@@ -833,7 +917,7 @@ impl Actor {
                 if let Err(refused) = self.can_take(&prompt) {
                     return Ok(Err(refused));
                 }
-                if let Err(full) = queue_room(&self.queued, &prompt) {
+                if let Err(full) = queue_room(self.queued.iter().chain(&self.steers), &prompt) {
                     return Ok(Err(full));
                 }
                 self.queued.push_back(prompt);
@@ -843,9 +927,29 @@ impl Actor {
                 }
                 Ok(Ok(()))
             }
+            Command::Steer(prompt) => {
+                if let Err(refused) = self.can_take(&prompt) {
+                    return Ok(Err(refused));
+                }
+                if let Err(full) = queue_room(self.queued.iter().chain(&self.steers), &prompt) {
+                    return Ok(Err(full));
+                }
+                self.steers.push_back(prompt);
+                self.show_queued();
+                if self.live.borrow().status() == Status::Idle {
+                    self.next_prompt(cx);
+                }
+                Ok(Ok(()))
+            }
             Command::Answer { question, reply } => self.answer(question, &reply),
+            Command::DropSteers => {
+                self.steers.clear();
+                self.show_queued();
+                Ok(Ok(()))
+            }
             Command::Cancel => {
                 self.queued.clear();
+                self.steers.clear();
                 self.show_queued();
                 while let Some(asked) = self.asked.pop_front() {
                     asked.waiting.cancel()?;
@@ -856,6 +960,7 @@ impl Actor {
                     cx.send_notification(CancelNotification::new(session.clone()))?;
                 }
                 self.show_question();
+                self.stop_due();
                 Ok(Ok(()))
             }
             Command::Close => Ok(Ok(())),
@@ -1096,8 +1201,86 @@ impl Actor {
         self.alerts.record(alert);
     }
 
+    /// Marks the running turn as stopping for the user, at once, and gives
+    /// the agent `stop_within` to end it before the node stops the agent.
+    fn stop_due(&mut self) {
+        let Some(turn) = self.turn else {
+            return;
+        };
+        if self.stopping == Some(Stopping::User) {
+            return;
+        }
+        self.stopping = Some(Stopping::User);
+        self.show_stopping(Stopping::User);
+        let within = self.stop_within;
+        self.replies.push(
+            async move {
+                tokio::time::sleep(within).await;
+                Reply::StopDue { turn }
+            }
+            .boxed(),
+        );
+    }
+
+    fn show_stopping(&mut self, stopping: Stopping) {
+        self.live.send_if_modified(|live| {
+            let summary = stopping.summary();
+            let changed = live.info.state.summary != summary;
+            if changed {
+                live.info.state.summary = summary.into();
+            }
+            changed
+        });
+    }
+
+    /// Follows the running turn's tool calls; true when `update` finished
+    /// one and none is left running, where a steer can go in.
+    fn tool_finished(&mut self, update: &SessionUpdate) -> bool {
+        let (id, status) = match update {
+            SessionUpdate::ToolCall(call) => (&call.tool_call_id, Some(call.status)),
+            SessionUpdate::ToolCallUpdate(update) => (&update.tool_call_id, update.fields.status),
+            _ => return false,
+        };
+        match status {
+            Some(ToolCallStatus::Completed | ToolCallStatus::Failed) => {
+                self.running.remove(id);
+                self.running.is_empty()
+            }
+            Some(_) if self.running.len() < MAX_RUNNING_TOOLS => {
+                self.running.insert(id.clone());
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// A tool call finished with a steer waiting: ends the turn there, and
+    /// the steer goes as the next prompt once the agent says it ended. Not
+    /// while a question waits, which the turn needs answered first.
+    fn steer_now(&mut self, cx: &ConnectionTo<Agent>) -> Result<()> {
+        if self.steers.is_empty()
+            || self.turn.is_none()
+            || self.stopping.is_some()
+            || !self.asked.is_empty()
+        {
+            return Ok(());
+        }
+        let Some(session) = self.acp_session.clone() else {
+            return Ok(());
+        };
+        cx.send_notification(CancelNotification::new(session))?;
+        self.stopping = Some(Stopping::Steer);
+        self.show_stopping(Stopping::Steer);
+        Ok(())
+    }
+
+    /// Prompts and steers waiting, as the state counts them.
+    fn waiting(&self) -> u32 {
+        u32::try_from(self.queued.len() + self.steers.len()).unwrap_or(u32::MAX)
+    }
+
     fn show_queued(&mut self) {
-        let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
+        let queued = self.waiting();
         self.live.send_if_modified(|live| {
             let changed = live.info.state.queued != queued;
             live.info.state.queued = queued;
@@ -1114,7 +1297,7 @@ impl Actor {
             }
         }
         // Prompts queued behind the turn run first: one alert for the lot.
-        if self.queued.is_empty() {
+        if self.queued.is_empty() && self.steers.is_empty() {
             let last_message = self.live.borrow().info.last_message.clone();
             self.alert(AlertKind::TurnEnded {
                 stop_reason: stop,
@@ -1215,14 +1398,15 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
-        if self.queued.is_empty() {
+        if self.queued.is_empty() && self.steers.is_empty() {
             return;
         }
         if self.compactor.start(!self.asked.is_empty()) {
             self.compact(cx, &session);
             return;
         }
-        let Some(prompt) = self.queued.pop_front() else {
+        // A steer goes ahead of the prompts queued for after the turn.
+        let Some(prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
             return;
         };
         let brief = self.brief.take();
@@ -1231,7 +1415,9 @@ impl Actor {
             acp::prompt(&session, &prompt, brief.as_deref()),
             Reply::Prompt,
         );
-        let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
+        self.sent += 1;
+        self.turn = Some(self.sent);
+        let queued = self.waiting();
         self.live.send_modify(|live| {
             for picture in prompt.pictures() {
                 live.keep(picture);
@@ -1271,15 +1457,47 @@ fn turn_tokens(done: &PromptResponse) -> TurnTokens {
     TurnTokens { total, models }
 }
 
+/// The steers waiting, as one prompt: their words in order and their
+/// images, as many as one prompt takes. The rest wait for the next.
+fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
+    let mut merged = steers.pop_front()?;
+    while let Some(next) = steers.front() {
+        let images = merged.images.len() + next.images.len();
+        let bytes = merged
+            .images
+            .iter()
+            .chain(&next.images)
+            .fold(0usize, |n, image| n.saturating_add(image.data.len()));
+        if images > MAX_AGENT_IMAGES || bytes > MAX_AGENT_IMAGES_TOTAL {
+            break;
+        }
+        let Some(next) = steers.pop_front() else {
+            break;
+        };
+        if merged.text.is_empty() {
+            merged.text = next.text;
+        } else if !next.text.is_empty() {
+            merged.text = format!("{}\n\n{}", merged.text, next.text);
+        }
+        merged.images.extend(next.images);
+    }
+    Some(merged)
+}
+
 /// Refuses a prompt the queue has no room for: too many waiting already,
 /// or too many bytes with this one.
-fn queue_room(queued: &VecDeque<Prompt>, prompt: &Prompt) -> Result<(), String> {
-    if queued.len() >= MAX_QUEUED {
+fn queue_room<'a>(
+    queued: impl IntoIterator<Item = &'a Prompt>,
+    prompt: &Prompt,
+) -> Result<(), String> {
+    let mut count = 0usize;
+    let waiting = queued.into_iter().fold(prompt.size(), |n, queued| {
+        count += 1;
+        n.saturating_add(queued.size())
+    });
+    if count >= MAX_QUEUED {
         return Err(format!("{MAX_QUEUED} prompts already wait for this turn"));
     }
-    let waiting = queued
-        .iter()
-        .fold(prompt.size(), |n, queued| n.saturating_add(queued.size()));
     if waiting > MAX_QUEUED_BYTES {
         return Err(format!(
             "Too much already waits for this turn (over {} MB); send this once it is done",
@@ -1879,26 +2097,34 @@ cat > /dev/null
     /// Starts the adapter `body` (after the handshake, with `$line` holding
     /// the first prompt) as a session that asks permission.
     fn started(dir: &Path, body: &str) -> Session {
+        started_within(dir, body, STOP_WITHIN)
+    }
+
+    /// `started`, giving the agent `within` to end a turn after Stop.
+    fn started_within(dir: &Path, body: &str, within: Duration) -> Session {
         let handshake = r#"
 read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
 read -r line; reply '{"sessionId":"s"}'
 read -r line
 "#;
-        Session::start(Start {
-            id: "d6a2f4".into(),
-            kind: &script("codex", &format!("{handshake}{body}"), &dir.join("log")),
-            cwd: dir,
-            prompt: Some("go".into()),
-            resume: None,
-            model: None,
-            effort: None,
-            note: None,
-            brief: None,
-            mcp: None,
-            images: Arc::default(),
-            usage: Arc::default(),
-            alerts: Arc::default(),
-        })
+        Session::start_within(
+            Start {
+                id: "d6a2f4".into(),
+                kind: &script("codex", &format!("{handshake}{body}"), &dir.join("log")),
+                cwd: dir,
+                prompt: Some("go".into()),
+                resume: None,
+                model: None,
+                effort: None,
+                note: None,
+                brief: None,
+                mcp: None,
+                images: Arc::default(),
+                usage: Arc::default(),
+                alerts: Arc::default(),
+            },
+            within,
+        )
         .unwrap()
     }
 
@@ -2672,6 +2898,159 @@ cat > /dev/null
         let own = ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "60");
         assert_eq!(threshold_seen(&dir, "claude", &[own, at]).await, "60");
         assert_eq!(threshold_seen(&dir, "codex", &[]).await, "unset");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter whose first turn runs one tool call, which finishes only
+    /// once the test writes to the fifo in `$2`. It answers the node's
+    /// `session/cancel` by ending the turn cancelled, and ends each later
+    /// turn at once. It logs every line it reads.
+    const STEERING_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{"image":true}}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
+read -r go < "$2"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt"
+while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
+        let dir = temp("steer");
+        let log = dir.join("sent.jsonl");
+        let fifo = dir.join("go");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let mut kind = script("codex", STEERING_ADAPTER, &log);
+        kind.args.push(fifo.display().to_string());
+        let session = Session::start(Start {
+            id: "f8c4b6".into(),
+            kind: &kind,
+            cwd: &dir,
+            prompt: Some("go".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+            mcp: None,
+            images: Arc::default(),
+            usage: Arc::default(),
+            alerts: Arc::default(),
+        })
+        .unwrap();
+        until(&session, |live| {
+            live.info.state.summary == "Running tests" || live.status() == Status::Ended
+        })
+        .await;
+        session
+            .order(Command::Prompt(Prompt::from("later".to_owned())))
+            .await
+            .unwrap();
+        let mut steer = shot();
+        steer.text = "Use the fixture @.beep/uploads/build.log".into();
+        session.order(Command::Steer(steer)).await.unwrap();
+        assert_eq!(session.info().state.queued, 2);
+        // Nothing goes while the tool call runs.
+        let methods = |log: &Path| -> Vec<String> {
+            sent(log)
+                .iter()
+                .map(|line| line["method"].as_str().unwrap_or("").to_owned())
+                .collect()
+        };
+        assert_eq!(
+            methods(&log),
+            ["initialize", "session/new", "session/prompt"]
+        );
+        // The tool call finishes.
+        tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n"))
+            .await
+            .unwrap()
+            .unwrap();
+        until(&session, |live| {
+            live.info.turns >= 3 || live.status() == Status::Ended
+        })
+        .await;
+        assert_eq!(
+            methods(&log),
+            [
+                "initialize",
+                "session/new",
+                "session/prompt",
+                "session/cancel",
+                "session/prompt",
+                "session/prompt"
+            ]
+        );
+        assert_eq!(
+            prompts(&log),
+            ["go", "Use the fixture @.beep/uploads/build.log", "later"]
+        );
+        let steered = &sent(&log)[4];
+        assert_eq!(steered["params"]["prompt"][1]["type"], "image");
+        let info = session.info();
+        assert_eq!(info.state.status, Status::Idle);
+        assert_eq!(info.state.queued, 0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn steers_waiting_together_go_as_one_prompt_within_the_image_limit() {
+        let mut steers: VecDeque<Prompt> = VecDeque::new();
+        assert_eq!(take_steers(&mut steers), None);
+        steers.push_back(Prompt::from("first".to_owned()));
+        steers.push_back(shot());
+        steers.push_back(Prompt::from("third".to_owned()));
+        let merged = take_steers(&mut steers).unwrap();
+        assert_eq!(merged.text, "first\n\nThe button overlaps\n\nthird");
+        assert_eq!(merged.images.len(), 1);
+        assert!(steers.is_empty());
+
+        // One more image than a prompt takes waits for the next prompt.
+        steers.extend((0..=MAX_AGENT_IMAGES).map(|_| shot()));
+        let merged = take_steers(&mut steers).unwrap();
+        assert_eq!(merged.images.len(), MAX_AGENT_IMAGES);
+        assert_eq!(steers.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stop_shows_at_once_and_an_agent_that_ignores_it_is_stopped() {
+        let dir = temp("ignores-cancel");
+        let body = format!(
+            r#"
+echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Building","status":"in_progress"}}}}}}'
+while read -r line; do log "$1"; done
+"#
+        );
+        let session = started_within(&dir, &body, Duration::from_millis(200));
+        until(&session, |live| {
+            live.info.state.summary == "Building" || live.status() == Status::Ended
+        })
+        .await;
+        session.order(Command::Cancel).await.unwrap();
+        // Before the agent says anything, the turn reads as stopping.
+        let info = session.info();
+        assert_eq!(info.state.summary, "Stopping");
+        assert_eq!(info.state.status, Status::Working);
+        until(&session, |live| live.status() == Status::Ended).await;
+        let error = session.info().state.error.unwrap_or_default();
+        assert!(error.contains("did not stop within"), "{error}");
+        let cancels = sent(&dir.join("log"))
+            .iter()
+            .filter(|line| line["method"] == "session/cancel")
+            .count();
+        assert_eq!(cancels, 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
