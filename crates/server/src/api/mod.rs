@@ -26,6 +26,7 @@ pub(crate) use agent_sessions::machine_sessions;
 mod branch_work;
 mod credentials;
 mod crons;
+mod custom_agents;
 mod devices;
 mod findings;
 mod git_items;
@@ -306,6 +307,7 @@ pub fn router() -> Router {
         .call(work_files::list_work_folder)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
+        .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
