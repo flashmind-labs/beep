@@ -13,9 +13,6 @@ const MARKS: Record<string, string> = {
   opencode: '<svg aria-hidden="true" viewBox="96 96 320 320"><path fill="#5A5858" d="M320 224v128H192V224z"/><path fill="#F1ECEC" fill-rule="evenodd" d="M384 416H128V96h256zM320 160H192v192h128z"/></svg>',
 };
 
-/// Initials for a harness without a mark.
-const INITIALS: Record<string, string> = { claude: "CC", codex: "CX", gemini: "GE", opencode: "OC", pi: "PI", flsh: "FL" };
-
 /// The mark of harness `agent`, or null when it has none.
 export function harnessMark(agent: string): string | null {
   return Object.hasOwn(MARKS, agent) ? MARKS[agent] : null;
@@ -25,7 +22,7 @@ export function harnessMark(agent: string): string | null {
 export function harnessInner(agent: string): string {
   const mark = harnessMark(agent);
   if (mark) return mark;
-  const ini = INITIALS[agent] || String(agent || "?").slice(0, 2).toUpperCase();
+  const ini = String(agent || "?").slice(0, 2).toUpperCase();
   return ini.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 }
 

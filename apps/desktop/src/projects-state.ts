@@ -141,9 +141,6 @@ export interface OverviewCard {
   latest: LatestTask | null;
 }
 
-/// The last folder of a path.
-function base(path: string | null | undefined) { return String(path || "").split(/[\\/]/).filter(Boolean).pop() || ""; }
-
 /// Whether `cwd` is `folder` or inside it.
 function within(cwd: string, folder: string) {
   const f = String(folder || "").replace(/[\\/]+$/, "");
