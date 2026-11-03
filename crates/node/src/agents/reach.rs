@@ -118,7 +118,7 @@ impl Agents {
                 .values()
                 .map(|session| PathBuf::from(session.info().cwd)),
         );
-        // Sessions Beep ran here, before the node restarted too.
+        // Sessions Beep ran here before the node restarted.
         work.extend(self.ledger.folders());
         work.extend(sighted);
         let logs = LogRoots::locate();
