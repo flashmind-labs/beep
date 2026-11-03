@@ -14,6 +14,7 @@ import type { BarTarget } from "./projectbar.ts";
 import { since } from "./components/format.ts";
 import { emptyPanel, fitRows, note, stateChip } from "./components/parts.ts";
 import type { TileData } from "./board.ts";
+import { PageCache, REFRESH_MS, type SectionStore } from "./pagecache.ts";
 
 /// The current step of a running job (StepRow).
 export interface StepNow {
@@ -279,6 +280,8 @@ export interface RunDeps {
   fix: (detail: RunDetail) => void;
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => HTMLElement | null;
+  /// Where the runs are kept between windows; in memory only without it.
+  kept?: SectionStore<RunsRow | null>;
 }
 
 /// One project's runs: undefined while they load, null from a server too
@@ -300,24 +303,39 @@ type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
 export function makeRuns(deps: RunDeps) {
   const { invoke, h, button, redraw, openUrl, fix } = deps;
+  const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
   const all = new Map<string, ProjectRuns>();
+  /// When each project's runs were last asked for, so a draw asks again
+  /// only once they are old.
+  const tried = new Map<string, number>();
 
+  /// A project's runs, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
     if (!s) {
-      s = { data: undefined, error: "", open: null, detail: null, detailError: "", loading: false };
+      s = { data: kept.get(id), error: "", open: null, detail: null, detailError: "", loading: false };
       all.set(id, s);
     }
     return s;
   };
 
+  /// Reads `id` when it is due: never read, or `every` passed since the
+  /// last ask (the refresh time by default). The read, when one starts.
+  function ensure(id: string, every = REFRESH_MS): Promise<void> | undefined {
+    const last = tried.get(id);
+    const due = last === undefined ? kept.due(id, every) : Date.now() - last >= every;
+    if (due && !of(id).loading) return load(id);
+  }
+
   async function load(id: string, refresh = false) {
     const s = of(id);
     if (s.loading) return;
     s.loading = true;
+    tried.set(id, Date.now());
     try {
       s.data = await invoke<RunsRow | null>("center_project_runs", { projectId: id, refresh });
       s.error = "";
+      kept.put(id, s.data);
     } catch (e) {
       s.error = reason(e);
       if (s.data === undefined) s.data = { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null };
@@ -448,7 +466,7 @@ export function makeRuns(deps: RunDeps) {
   function section(agent: Agent) {
     const id = agent.project_id;
     const s = of(id);
-    if (s.data === undefined && !s.loading) load(id);
+    ensure(id);
     const d = s.data;
     const box = h("div", "pj-actions");
     box.id = "sec-actions";
@@ -484,9 +502,12 @@ export function makeRuns(deps: RunDeps) {
     /// them the first time.
     tile: (id: string) => {
       const s = of(id);
-      if (s.data === undefined && !s.loading) load(id);
+      ensure(id);
       return runTile(s.data, s.error);
     },
+    ensure,
+    loading: (id: string) => of(id).loading,
+    at: (id: string) => kept.at(id),
     /// Each open pull request's checks, once the runs are read.
     checks: (id: string) => of(id).data?.checks ?? null,
     /// Opens run `run` of project `id` on `host`, as a PR row's checks

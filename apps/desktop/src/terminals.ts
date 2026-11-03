@@ -11,6 +11,7 @@ import type { invoke as Invoke, Channel as ChannelCtor } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { TileData } from "./board.ts";
+import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "./pagecache.ts";
 
 /// A terminal (TerminalRow).
 export interface TerminalRow {
@@ -101,6 +102,9 @@ export interface TerminalDeps {
   button: MakeButton;
   ago: Ago;
   redraw: () => void;
+  /// Where each project's list is kept between windows; in memory only
+  /// without it.
+  kept?: SectionStore<TerminalRow[] | null>;
 }
 
 /// The New terminal form as typed so far.
@@ -288,24 +292,40 @@ export function makeTerminals(deps: TerminalDeps) {
   /// The project whose terminals view shows.
   let shown: string | null = null;
 
+  const kept = deps.kept ?? new PageCache(null).section<TerminalRow[] | null>("terminals");
+  /// The lists being read: a load meanwhile is dropped.
+  const reading = new Set<string>();
+
+  /// A project's terminals, from the cache until they are read.
   const of = (name: string) => {
     let t = all.get(name);
-    if (!t) all.set(name, t = { list: undefined, open: null, output: null, form: null, error: "", busy: false });
+    if (!t) all.set(name, t = { list: name === ALL ? undefined : kept.get(name), open: null, output: null, form: null, error: "", busy: false });
     return t;
   };
 
   async function load(name: string) {
+    if (reading.has(name)) return;
+    reading.add(name);
     const t = of(name);
     try {
       t.list = name === ALL
         ? await invoke<TerminalRow[] | null>("terminals_all")
         : await invoke<TerminalRow[] | null>("terminals_list", { project: name });
       if (t.open && !t.list?.some(x => x.id === t.open)) t.open = null;
+      if (name !== ALL) kept.put(name, t.list);
     } catch (e) {
       t.list ??= [];
       t.error = reason(e);
+    } finally {
+      reading.delete(name);
     }
     redraw();
+  }
+
+  /// Reads project `name`'s list when the last read is `every` old or
+  /// there was none. The read, when one starts.
+  function ensure(name: string, every = MACHINE_REFRESH_MS): Promise<void> | undefined {
+    if (kept.due(name, every) && !reading.has(name)) return load(name);
   }
 
   async function readOutput(name: string) {
@@ -733,6 +753,7 @@ export function makeTerminals(deps: TerminalDeps) {
 
   return {
     load,
+    ensure,
     list: (name: string) => of(name).list,
     panel,
     machinesPanel,
