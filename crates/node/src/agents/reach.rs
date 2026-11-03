@@ -7,7 +7,7 @@
 //! (`SessionsRequest::Diff`) read only in the work folders.
 //! Every path is checked with its links and `..` resolved.
 
-use super::{Agents, media_file::resolve};
+use super::{Agents, SIGHTING_WAIT, media_file::resolve};
 use crate::{claude, found::LogRoots};
 use anyhow::{Context, Result, bail};
 use std::{
@@ -15,7 +15,7 @@ use std::{
     io::ErrorKind,
     path::{Component, Path, PathBuf},
 };
-use tokio::task::spawn_blocking;
+use tokio::{task::spawn_blocking, time::timeout};
 
 /// What a request does with what it names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +118,8 @@ impl Agents {
                 .values()
                 .map(|session| PathBuf::from(session.info().cwd)),
         );
+        // Sessions Beep ran here, before the node restarted too.
+        work.extend(self.ledger.folders());
         work.extend(sighted);
         let logs = LogRoots::locate();
         let read = [
@@ -158,14 +160,13 @@ impl Agents {
             return Ok(real);
         }
         // The folders of sessions started outside Beep cost a look in the
-        // harnesses' logs, so only when the others did not hold it.
-        let sighted = self
-            .sightings()
-            .await?
-            .into_iter()
-            .map(|seen| seen.cwd)
-            .collect();
-        let reach = self.reach(sighted);
+        // harnesses' logs, so only when the others did not hold it. The
+        // look is kept a while and bounded, so a request answers in time.
+        let sighted = timeout(SIGHTING_WAIT, self.sighted_folders())
+            .await
+            .map_err(|_| refused(asked, access))
+            .context("the agents' logs took too long to read")??;
+        let reach = self.reach(sighted.to_vec());
         let held = spawn_blocking(move || reach.holds(&real, access).then_some(real))
             .await
             .context("the path check stopped")?;
@@ -210,6 +211,7 @@ fn claude_temp_in(set: Option<&std::ffi::OsStr>, uid: u32) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     #[test]
@@ -400,6 +402,57 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(real, fs::canonicalize(&asked).unwrap());
+    }
+
+    /// The Files tab of a session Beep ran before the node restarted
+    /// answers from the ledger, without a look in the agents' logs, which
+    /// took longer than the server waits on a machine with gigabytes of
+    /// them.
+    #[tokio::test]
+    async fn a_folder_beep_ran_before_a_restart_is_reached_without_the_logs() {
+        let node = TempDir::new().unwrap();
+        let project = TempDir::new().unwrap();
+        fs::write(project.path().join("notes.md"), "notes").unwrap();
+        let before = Agents::new(Vec::new());
+        before.keep_ledger(node.path()).await;
+        before.ledger.record(super::super::Entry {
+            id: "da193d".into(),
+            agent_session: None,
+            agent: "codex".into(),
+            cwd: project.path().to_owned(),
+            started_at: 1,
+            ended: None,
+        });
+        before.ledger.save().await.unwrap();
+
+        let after = Agents::new(Vec::new());
+        after.keep_ledger(node.path()).await;
+        let asked = project.path().join("notes.md");
+        let real = after
+            .reachable(asked.to_str().unwrap(), Access::Read)
+            .await
+            .unwrap();
+        assert_eq!(real, fs::canonicalize(&asked).unwrap());
+        assert!(after.sighted.lock().await.is_none(), "the logs were read");
+    }
+
+    /// Requests close together share one look in the agents' logs.
+    #[tokio::test]
+    async fn the_folders_found_in_the_logs_are_kept_a_while() {
+        let project = TempDir::new().unwrap();
+        let agents = Agents::new(Vec::new());
+        let folders = Arc::new(vec![project.path().to_owned()]);
+        *agents.sighted.lock().await = Some(super::super::Sighted {
+            at: tokio::time::Instant::now(),
+            folders: folders.clone(),
+        });
+        let kept = agents.sighted_folders().await.unwrap();
+        assert!(Arc::ptr_eq(&kept, &folders));
+        let real = agents
+            .reachable(project.path().to_str().unwrap(), Access::Read)
+            .await
+            .unwrap();
+        assert_eq!(real, fs::canonicalize(project.path()).unwrap());
     }
 
     #[test]

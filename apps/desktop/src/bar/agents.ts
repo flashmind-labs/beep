@@ -2,7 +2,7 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, thoughtTail, toolKind, type ToolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "../agentturns.ts";
+import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, toolKind, type ToolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "../agentturns.ts";
 import { type Attached, batches, dropDelivered, markDelivered, steersToQueue, type Waiting } from "./agentqueue.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
@@ -16,6 +16,7 @@ import { collectArtifacts, toolArtifacts } from "../artifacts-state.ts";
 import { cap } from "./tools.ts";
 import { withMentions } from "../files-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "../logscroll.ts";
+import { attachKaraoke, endedHtml, karaokeHtml } from "./thoughtlive.ts";
 import { MN, mentionChips, resetMentions, takeMentions, wireMentionChips } from "./workdrop.ts";
 
 // ---------- Coding agents ----------
@@ -612,9 +613,13 @@ function agentClick(e: MouseEvent) {
   // A thought opens and folds in place, so only it animates.
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
   if (thought && AG.open) {
-    const opened = turnsOf(AG.open.session).thoughts, at = Number(thought.dataset.thought);
-    const open = !opened.delete(at);
-    if (open) opened.add(at);
+    const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
+    // A thought streams open; once the reader folds or opens it, it keeps
+    // their choice when it ends.
+    const open = !thought.parentElement?.classList.contains("open");
+    m.touched.add(at);
+    if (open) m.thoughts.add(at);
+    else m.thoughts.delete(at);
     thought.parentElement?.classList.toggle("open", open);
     thought.setAttribute("aria-expanded", String(open));
     return;
@@ -875,20 +880,26 @@ let liveAt: number | null = null;
 /// How long the "Thinking" sweep takes, as in the CSS.
 const SWEEP_MS = 1800;
 
-/// A thought as one line that opens to its text. The sweep keeps its
-/// phase across redraws, so a poll does not restart it, and an opened
-/// thought stays open, by its place in the session.
+/// A thought as one line that opens to its text. While it streams it is
+/// open, its newest words lit like karaoke; once it ends it folds to
+/// "Thought for 12s", unless the reader opened, folded or scrolled it.
+/// The sweep keeps its phase across redraws, so a poll does not restart
+/// it, and an opened thought stays open, by its place in the session.
 function thoughtRow(en: AgentEntry, at: number) {
-  const live = at === liveAt;
-  const open = !!AG.open && turnsOf(AG.open.session).thoughts.has(at);
+  const live = at === liveAt, session = AG.open?.session ?? "";
+  const m = AG.open ? turnsOf(AG.open.session) : null;
+  const touched = !!m?.touched.has(at), opened = !!m?.thoughts.has(at);
+  const folding = !live && !touched && m?.wasLive === at;
+  const open = live ? !touched || opened : opened || folding;
   const label = live ? "Thinking" : thoughtLabel(en.ms);
-  const tail = live ? thoughtTail(en.text) : "";
   const phase = live ? ` style="animation-delay:-${Date.now() % SWEEP_MS}ms"` : "";
-  const body = en.html ?? esc(en.text).replace(/\n/g, "<br>");
-  return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}">`
-    + `<button data-thought="${at}" aria-expanded="${open}"><span class="lb"${phase}>${label}</span>`
-    + (tail ? `<span class="ln">${esc(tail)}</span>` : "") + `<span class="cv">${ICON.chev}</span></button>`
-    + `<div class="bd"><div><div class="tx md">${body}</div></div></div></div>`;
+  const key = `${session}:${at}`;
+  const body = live ? `<div class="tx">${karaokeHtml(key, en.text)}</div>`
+    : folding ? `<div class="tx">${endedHtml(key, en.text)}</div>`
+    : `<div class="tx md">${en.html ?? esc(en.text).replace(/\n/g, "<br>")}</div>`;
+  return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}"${folding ? " data-folding" : ""}>`
+    + `<button data-thought="${at}" aria-expanded="${open}"><span class="lb"${phase}>${label}</span><span class="cv">${ICON.chev}</span></button>`
+    + `<div class="bd"><div>${body}</div></div></div>`;
 }
 
 export function entryRow(en: AgentEntry, at: number) {
@@ -927,6 +938,11 @@ interface TurnMemory {
   opened: Set<number>;
   /// The thoughts opened to their text.
   thoughts: Set<number>;
+  /// The thoughts the reader opened, folded or scrolled while they
+  /// streamed, which do not fold by themselves when they end.
+  touched: Set<number>;
+  /// The thought streaming at the last draw.
+  wasLive: number | null;
   /// The runs of calls opened, by their first call.
   runs: Set<number>;
 }
@@ -935,7 +951,7 @@ const turnMemory = new Map<string, TurnMemory>();
 
 function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), runs: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, runs: new Set() });
   return m;
 }
 
@@ -950,8 +966,6 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
   if (m.running != null && m.running !== running && !m.ends.has(m.running)) m.ends.set(m.running, now);
   m.running = running;
 }
-
-const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 
 /// The newest step of the running turn, which starts open when it failed.
 let newestStep: number | null = null;
@@ -1010,7 +1024,7 @@ function turnsHtml(p: AgentPage) {
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  return turns.map(t => {
+  const html = turns.map(t => {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
     const last = t === lastTurn, running = active && last;
@@ -1025,14 +1039,7 @@ function turnsHtml(p: AgentPage) {
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
     const opened = m.opened.has(t.key);
-    const stats = turnStats(p.entries, t, p.earlier);
-    const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`
-      + (stats ? `<span class="stats">· ${esc(stats)}</span>` : "");
-    const head = `<div class="dcoderturn">`
-      + (!t.steps.length ? `<span class="hd">${label}</span>`
-        : `<button class="hd${opened ? " open" : ""}" data-turn="${t.key}" aria-expanded="${opened}">${label}${ICON.chev}</button>`)
-      + (start != null ? `<span class="when">${clock(start)}</span>` : "") + "</div>";
-    let work: string;
+    let work: string, stats = turnStats(p.entries, t, p.earlier);
     // The newest step of a running turn, shown as it goes.
     const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
     if (newest != null) newestStep = newest;
@@ -1042,15 +1049,26 @@ function turnsHtml(p: AgentPage) {
       if (newest != null) kept.add(newest);
       // While it runs, the thoughts since the newest step stay in view.
       if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
+      // So do the thoughts just before it: one that ended folds to its
+      // line in place instead of going into the heading.
+      if (running && newest != null) {
+        for (let i = t.steps.indexOf(newest) - 1; i >= 0 && entry(t.steps[i]).kind === "thought"; i--) kept.add(t.steps[i]);
+      }
       keptThoughts(p.entries, t, kept, p.earlier);
       const folding = t.steps.filter(at => !kept.has(at));
       // Pictures the folded steps looked at show small under the line.
       const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
-      const fold = folding.some(at => entry(at).kind === "tool")
-        ? `<button class="dcoderfold" data-turn="${t.key}"><span class="mk">${FOLD_ICON}</span><span>${esc(summary(p.entries, t, p.earlier, folding))}</span><span class="go">${ICON.chev}</span></button>`
-          + (seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "") : "";
-      work = fold + rowsOf(p, t.steps.filter(at => kept.has(at)));
+      // The heading is the fold: what the folded steps did, on its line.
+      if (folding.some(at => entry(at).kind === "tool")) stats = summary(p.entries, t, p.earlier, folding);
+      const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
+      work = pics + rowsOf(p, t.steps.filter(at => kept.has(at)));
     }
+    const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`
+      + (stats ? `<span class="stats">· ${esc(stats)}</span>` : "");
+    const head = `<div class="dcoderturn">`
+      + (!t.steps.length ? `<span class="hd">${label}</span>`
+        : `<button class="hd${opened ? " open" : ""}" data-turn="${t.key}" aria-expanded="${opened}" title="${opened ? "Fold the steps" : "Show the steps"}">${label}${ICON.chev}</button>`)
+      + (start != null ? `<span class="when">${clock(start)}</span>` : "") + "</div>";
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
@@ -1063,6 +1081,8 @@ function turnsHtml(p: AgentPage) {
         : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
     return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
+  m.wasLive = liveAt;
+  return html;
 }
 
 let turnTick: ReturnType<typeof setInterval> | undefined;
@@ -1166,6 +1186,7 @@ export function drawAgentBody(keep?: string) {
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);
+  attachKaraoke(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
   drawQueue();
   tickTurns();

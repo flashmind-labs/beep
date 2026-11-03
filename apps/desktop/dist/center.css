@@ -79,8 +79,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-comp, .cc-pjc { margin-inline: max(16px, calc((100% - 760px) / 2)) }
 .cc-pjc .box { border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,30,.92); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: rgba(59,155,122,.6) }
-.cc-pjc input { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; min-width: 0; user-select: text }
-.cc-pjc input::placeholder { color: var(--dim) }
+.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
+.cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; min-width: 0; user-select: text }
+.cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
 .cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
 .cc-pjc .sp { flex: 1 }
 .cc-pjc .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; max-width: 100% }
@@ -336,6 +337,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .ca-row { cursor: pointer }
 .ca-row:hover, .ca-row:focus-visible { background: var(--elev); outline: none }
 .ca-row.bad { cursor: default; background: none }
+.ca-row .acts { grid-column: 2; grid-row: 1 / span 2; padding-left: 12px }
 .ca-row .t { display: flex; align-items: center; gap: 6px }
 .ca-row .t b { font-weight: 500; flex: none }
 .ca-ic.cc-ag { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; flex: none; display: inline-grid }
@@ -347,6 +349,16 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-issue .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; align-items: center }
 .pj-task + .pj-task { border-top: 1px solid var(--border) }
+/* Issue and PR rows: title and one line of facts, their buttons at the
+   right once the row is pointed at or focused. */
+.pj-task.pj-hv { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px 12px; padding: 12px 14px }
+.pj-task.pj-hv > .t { grid-column: 1; grid-row: 1; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pj-task.pj-hv > .m { grid-column: 1; grid-row: 2; flex-wrap: nowrap; white-space: nowrap; overflow: hidden }
+.pj-task.pj-hv > .pj-st { grid-column: 2; grid-row: 1 / span 2 }
+.pj-task.pj-hv > .acts { grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; opacity: 0; transition: opacity .12s }
+.pj-task.pj-hv:hover > .acts, .pj-task.pj-hv:focus-within > .acts, .pj-task.pj-hv > .acts:has(.cc-err, :disabled) { opacity: 1 }
+.pj-task.pj-hv:hover { background: rgba(255,255,255,.025) }
+@media (hover: none) { .pj-task.pj-hv > .acts { opacity: 1 } }
 .pj-task .t { font-size: 13px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .pj-task .m { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--muted); min-width: 0 }
 .pj-task .m:empty { display: none }
@@ -738,13 +750,16 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .us-pill .bar { width: 28px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; display: inline-block }
 .us-pill .bar i, .us-lim .bar i { display: block; height: 100%; background: #6FCF97 }
 .us-pill .bar i.warn, .us-lim .bar i.warn { background: #E9B949 }
-.us-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 360px; max-width: calc(100vw - 32px); border: 1px solid var(--border); border-radius: 12px; background: #0b100e; box-shadow: 0 18px 50px rgba(0,0,0,.5); padding: 12px 14px; display: grid; gap: 12px; font-size: 12.5px; color: var(--fg); cursor: default }
+.us-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 360px; max-width: calc(100vw - 16px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 12px; background: #0b100e; box-shadow: 0 18px 50px rgba(0,0,0,.5); padding: 12px 14px; display: grid; gap: 12px; font-size: 12.5px; color: var(--fg); cursor: default }
+.us-pop { grid-template-columns: minmax(0, 1fr) }
+.us-pop > * { min-width: 0 }
 .us-pop h5 { margin: 0 0 6px; font-size: 11.5px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; gap: 8px }
-.us-lim { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; align-items: center; padding: 3px 0 }
+.us-lim { display: grid; grid-template-columns: 76px minmax(30px, 1fr) auto; gap: 8px; align-items: center; padding: 3px 0 }
 .us-lim .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden }
 .us-lim small, .us-row small { color: var(--muted) }
 .us-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-variant-numeric: tabular-nums }
-.us-row > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.us-row > :first-child { flex: 1 1 0; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.us-row > .us-r { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right }
 .us-note { font-size: 11px; color: var(--muted); line-height: 15px }
 .us-seg { display: flex; gap: 2px; padding: 2px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px }
 .us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: 6px; cursor: pointer }
@@ -758,13 +773,32 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 /* A workflow run in two lines at half width: title and chip, then the meta on one line (the
    branch shortens most) beside Details and Open. Below 420px the meta and buttons take a line each. */
 .pj-runbox { container-type: inline-size }
-.pj-task.pj-runrow .m { grid-column: 1; flex-wrap: nowrap; white-space: nowrap; overflow: hidden }
-.pj-task.pj-runrow .m > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }
-.pj-task.pj-runrow .m > span:first-child { flex: 0 0 auto; max-width: 40% }
-.pj-task.pj-runrow > .pj-st { justify-self: end }
-.pj-task.pj-runrow > .acts { grid-column: 2; flex-wrap: nowrap; justify-content: flex-end }
-@container (max-width: 520px) { .pj-task.pj-runrow .m > .ev { display: none } }
-@container (max-width: 420px) { .pj-task.pj-runrow .m, .pj-task.pj-runrow > .acts { grid-column: 1 / -1 } }
+.pj-runrow { border-bottom: 1px solid var(--border) }
+.pj-runrow:last-child { border-bottom: 0 }
+.pj-runrow .rr-head { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto 14px; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; border-radius: 8px }
+.pj-runrow .rr-head:hover, .pj-runrow.open .rr-head { background: rgba(255,255,255,.03) }
+.pj-runrow .rr-head:focus-visible { outline: 1px solid var(--accent, #4fbf8a); outline-offset: -1px }
+.rr-st { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: rgba(255,255,255,.05) }
+.rr-st.done { color: #4fbf8a; background: rgba(79,191,138,.12) }
+.rr-st.blocked { color: #e5826f; background: rgba(229,130,111,.13) }
+.rr-st.running { color: #4fbf8a }
+.rr-st .dspin { width: 11px; height: 11px }
+.rr-body { min-width: 0; display: grid; gap: 4px }
+.rr-t { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 13.5px }
+.rr-t b { flex: none; font-weight: 600; color: #9fc3ff }
+.rr-t > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.rr-m { display: flex; gap: 10px; min-width: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden }
+.rr-m > * { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.rr-m code.br { flex: 0 1 auto; max-width: 45%; font-size: 11.5px }
+.rr-side { display: grid; justify-items: end; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap }
+.rr-side .rr-took { font-size: 11.5px; opacity: .75; font-variant-numeric: tabular-nums }
+.pj-runrow.blocked .rr-when { color: #e5826f }
+.rr-acts { opacity: 0; transition: opacity .12s }
+.pj-runrow .rr-head:hover .rr-acts, .pj-runrow .rr-head:focus-within .rr-acts { opacity: 1 }
+.rr-chev { width: 7px; height: 7px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform .15s }
+.rr-chev.on { transform: rotate(45deg) }
+.pj-runrow .pj-run { margin: 0 14px 12px 46px }
+@container (max-width: 520px) { .rr-m .ev { display: none } .rr-acts { display: none } }
 .pj-chk { color: var(--muted) }
 .pj-chk.run { color: var(--emerald); display: inline-flex; gap: 5px; align-items: center }
 .pj-chk.bad, .pj-task .m a.pj-chk.bad { color: #E9B949 }

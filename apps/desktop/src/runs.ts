@@ -12,7 +12,7 @@ import type { MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { since } from "./components/format.ts";
-import { emptyPanel, fitRows, note, stateChip } from "./components/parts.ts";
+import { emptyPanel, fitRows, note } from "./components/parts.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "./pagecache.ts";
 
@@ -301,6 +301,13 @@ const SHOWN = 5;
 
 type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
+/// The mark at the start of a finished run's row, by its state.
+const RUN_MARKS: Record<string, string> = {
+  passed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  failed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>',
+  cancelled: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 12h10"/></svg>',
+};
+
 export function makeRuns(deps: RunDeps) {
   const { invoke, h, button, redraw, openUrl, fix } = deps;
   const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
@@ -433,31 +440,44 @@ export function makeRuns(deps: RunDeps) {
   function row(id: string, s: ProjectRuns, r: RunRow) {
     const chip = runChip(r.state);
     const meta: (HTMLElement | string)[] = [];
-    if (r.branch) meta.push(h("span", "", h("code", "", r.branch)));
+    if (r.branch) meta.push(h("code", "br", r.branch));
     // The event and who started it give way first on a narrow list.
     if (r.event) meta.push(h("span", "ev", r.event));
     if (r.actor) meta.push(h("span", "ev", r.actor));
     if (going(r.state) && r.progress) {
       meta.push(h("span", "", progressText(r.progress)));
       if (r.progress.jobs > 1) meta.push(h("span", "", `${r.progress.jobs_done} of ${r.progress.jobs} jobs done`));
-    } else {
-      const took = runSpan(r);
-      if (took) meta.push(h("span", "", took));
-      if (r.finished_at) meta.push(h("span", "", since(r.finished_at)));
     }
     const opened = s.open === runKey(r);
-    const details = button(opened ? "Close" : "Details", r.state === "failed" && !opened ? "pri" : "", () => toggle(id, r));
     const hosts = s.data?.hosts ?? [];
     let badge: HTMLElement | null = null;
     if (r.host && hosts.length > 1) {
       badge = h("span", "pj-host", hostLabel(r.host, hosts));
       badge.title = `${hostLabel(r.host, hosts)} Actions on ${r.host}`;
     }
-    const el = h("div", `pj-task pj-issue pj-runrow${opened ? " ask" : ""}`,
-      h("span", "t", badge, link(`${r.workflow} #${r.number}`, r.url), ` ${r.title}`),
-      stateChip(chip.cls, chip.text, chip.spin),
-      h("span", "m", ...meta),
-      h("span", "acts", details, button("Open", "", () => openUrl(r.url))));
+    const mark = h("span", `rr-st ${chip.cls || "idle"}`);
+    if (chip.spin) mark.append(h("span", "dspin"));
+    else mark.innerHTML = RUN_MARKS[r.state] ?? "";
+    mark.title = chip.text;
+    const took = going(r.state) ? "" : runSpan(r);
+    const open = button("Open", "quiet small", e => { e.stopPropagation(); openUrl(r.url); });
+    open.title = `Open on ${hostLabel(r.host, hosts)}`;
+    const head = h("div", "rr-head",
+      mark,
+      h("div", "rr-body",
+        h("div", "rr-t", badge, h("b", "", `${r.workflow} #${r.number}`), h("span", "", r.title)),
+        h("div", "rr-m", ...meta)),
+      h("div", "rr-side",
+        h("span", "rr-when", r.finished_at ? since(r.finished_at) : chip.text),
+        h("span", "rr-took", took)),
+      h("span", "rr-acts", open),
+      h("span", `rr-chev${opened ? " on" : ""}`));
+    head.setAttribute("role", "button");
+    head.tabIndex = 0;
+    head.setAttribute("aria-expanded", String(opened));
+    head.addEventListener("click", () => toggle(id, r));
+    head.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(id, r); } });
+    const el = h("div", `pj-runrow ${chip.cls || "idle"}${opened ? " open" : ""}`, head);
     el.title = r.title;
     if (opened) el.append(detailEl(s));
     return el;
