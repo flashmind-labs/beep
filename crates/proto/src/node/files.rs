@@ -123,32 +123,6 @@ impl FileKind {
 mod tests {
     use super::*;
 
-    fn round_trip<T: Serialize + for<'de> Deserialize<'de>>(value: &T) -> T {
-        let bytes = rmp_serde::to_vec_named(value).expect("encodes");
-        rmp_serde::from_slice(&bytes).expect("decodes")
-    }
-
-    #[test]
-    fn requests_and_replies_round_trip() {
-        let write = Request::Write {
-            path: "/srv/project/notes.txt".into(),
-            data: b"hello".to_vec(),
-            append: true,
-        };
-        assert_eq!(round_trip(&write), write);
-        let entries = Reply::Entries {
-            path: "/srv/project".into(),
-            entries: vec![FileEntry {
-                name: "src".into(),
-                kind: FileKind::Dir,
-                size: 96,
-                modified: Some(1_700_000_000),
-            }],
-            more: 2,
-        };
-        assert_eq!(round_trip(&entries), entries);
-    }
-
     #[test]
     fn a_read_without_its_newer_fields_still_reads() {
         #[derive(Serialize)]

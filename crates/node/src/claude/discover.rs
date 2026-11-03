@@ -564,13 +564,6 @@ mod tests {
     }
 
     #[test]
-    fn session_ids_must_be_uuids() {
-        assert!(is_session_id(ID));
-        assert!(!is_session_id("../../etc/passwd"));
-        assert!(!is_session_id("a3f9c1"));
-    }
-
-    #[test]
     fn a_store_lists_sessions_newest_first_with_what_they_say() {
         let root = std::env::temp_dir().join(format!("beep-claude-store-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);

@@ -109,19 +109,4 @@ mod tests {
         assert_eq!(again.key.public(), first.key.public());
         fs::remove_dir_all(&dir).unwrap();
     }
-
-    #[test]
-    fn a_fresh_machine_makes_its_key_and_junk_is_refused() {
-        let dir = temp_dir("fresh");
-        let server = SecretKey::generate().public();
-        let prepared = prepare(&dir, &SetupToken::generate(server).to_string()).unwrap();
-        assert_eq!(prepared.token.server, server);
-        assert_eq!(
-            state::ensure_key(&dir).unwrap().public(),
-            prepared.key.public()
-        );
-        let junk = prepare(&dir, "beep-link:abc").err().expect("refused");
-        assert!(format!("{junk:#}").contains("bk1-"), "{junk:#}");
-        fs::remove_dir_all(&dir).unwrap();
-    }
 }

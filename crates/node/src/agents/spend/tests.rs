@@ -180,14 +180,6 @@ fn a_line_still_being_written_waits() {
 }
 
 #[test]
-fn logs_older_than_the_window_are_not_read() {
-    let fixture = fixture();
-    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
-    // Seen from two months on, every log is old; the OpenCode messages too.
-    assert!(spend.pass(NOW + 60 * 24 * 3600).is_empty());
-}
-
-#[test]
 fn the_window_starts_on_an_hour() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());

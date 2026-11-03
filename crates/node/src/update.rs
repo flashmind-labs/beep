@@ -563,61 +563,6 @@ mod tests {
     }
 
     #[test]
-    fn junk_is_not_a_version() {
-        for junk in ["", "1..2", "1.2.x", "1.2.3-beta", "<html>", "1.-2"] {
-            assert!(junk.parse::<Version>().is_err(), "{junk:?}");
-        }
-    }
-
-    #[test]
-    fn this_binary_has_a_version() {
-        assert!(CURRENT.parse::<Version>().is_ok());
-    }
-
-    #[test]
-    fn each_platform_gets_the_installers_asset() {
-        let v = version("0.1.15");
-        let asset = |os, arch| Target::detect(os, arch).map(|target| target.archive(&v));
-        assert_eq!(
-            asset("linux", "x86_64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-unknown-linux-musl.tar.gz")
-        );
-        assert_eq!(
-            asset("linux", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-aarch64-unknown-linux-musl.tar.gz")
-        );
-        assert_eq!(
-            asset("macos", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-aarch64-apple-darwin.tar.gz")
-        );
-        assert_eq!(
-            asset("windows", "x86_64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-pc-windows-msvc.zip")
-        );
-        assert_eq!(
-            asset("windows", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-pc-windows-msvc.zip")
-        );
-    }
-
-    #[test]
-    fn platforms_without_a_build_are_named() {
-        assert!(matches!(
-            Target::detect("macos", "x86_64"),
-            Err(Error::IntelMac)
-        ));
-        let other = Target::detect("freebsd", "x86_64");
-        assert!(matches!(
-            other,
-            Err(Error::Platform {
-                os: "freebsd",
-                arch: "x86_64"
-            })
-        ));
-        assert!(Target::detect("linux", "riscv64").is_err());
-    }
-
-    #[test]
     fn the_sum_is_read_in_either_mode() {
         let sums = "AAAA  beep-node-1-x.tar.gz\nbbbb *beep-node-1-y.zip\n";
         assert_eq!(

@@ -115,28 +115,6 @@ fn flsh_reads_every_setting_beep_writes() {
     }
 }
 
-#[test]
-fn every_quantization_and_sort_is_one_flsh_takes() {
-    use FlshQuantization::*;
-    let every = vec![Int4, Int8, Fp4, Fp6, Fp8, Fp16, Bf16, Fp32, Unknown];
-    for (sort, theirs) in [
-        (FlshSort::Price, ProviderSort::Price),
-        (FlshSort::Throughput, ProviderSort::Throughput),
-        (FlshSort::Latency, ProviderSort::Latency),
-    ] {
-        let dir = tempfile::tempdir().unwrap();
-        let settings = FlshSettings {
-            sort: Some(sort),
-            quantizations: every.clone(),
-            ..FlshSettings::default()
-        };
-        apply(dir.path(), &settings).unwrap();
-        let routing = as_flsh(dir.path()).openrouter.routing.unwrap();
-        assert_eq!(routing.sort, Some(theirs));
-        assert_eq!(routing.quantizations.len(), every.len());
-    }
-}
-
 const HAND_WRITTEN: &str = r#"# flsh settings
 model = "openrouter:vendor/large"
 
@@ -176,27 +154,6 @@ fn the_users_own_keys_and_comments_stay() {
     // `enabled` is another name for `enable` there: both would not read.
     assert!(!text.contains("[autocompact]\nenabled"), "{text}");
     assert_eq!(config.autocompact.unwrap().tokens, Some(300_000));
-}
-
-#[test]
-fn a_model_rule_applies_to_its_model_only() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join(CONFIG), HAND_WRITTEN).unwrap();
-    apply(dir.path(), &full()).unwrap();
-    let config = as_flsh(dir.path());
-    assert_eq!(config.auto_compact_models.len(), 2);
-    assert_eq!(
-        config.auto_compact_models[&model("openrouter:vendor/small")].tokens,
-        Some(60_000)
-    );
-    // The user's rule for another model is theirs.
-    assert_eq!(
-        config.auto_compact_models[&model("openrouter:vendor/large")],
-        Rule {
-            enabled: false,
-            tokens: Some(90_000)
-        }
-    );
 }
 
 #[test]

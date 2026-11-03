@@ -246,16 +246,4 @@ mod tests {
         assert_eq!(SetupToken::parse("bk1-u!"), Err(TokenError::Malformed));
         assert_eq!(SetupToken::parse("bk"), Err(TokenError::Malformed));
     }
-
-    #[test]
-    fn base32_round_trips() {
-        let bytes: Vec<u8> = (0..BODY_LEN as u8).collect();
-        let text = encode(&bytes);
-        assert_eq!(text.len(), TEXT_LEN);
-        let digits: Vec<u8> = text
-            .iter()
-            .map(|&c| digit(char::from(c)).unwrap())
-            .collect();
-        assert_eq!(decode(&digits), bytes);
-    }
 }

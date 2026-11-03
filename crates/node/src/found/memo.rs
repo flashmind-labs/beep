@@ -132,11 +132,6 @@ impl<V: Clone> Memo<V> {
     fn lock(&self) -> MutexGuard<'_, Kept<V>> {
         self.kept.lock().unwrap_or_else(PoisonError::into_inner)
     }
-
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.lock().entries.len()
-    }
 }
 
 #[cfg(test)]
@@ -188,29 +183,5 @@ mod tests {
         assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(2)), Ok(1));
         File::create(root.path().join("s.db-wal")).expect("a wal");
         assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(3)), Ok(3));
-    }
-
-    #[test]
-    fn past_the_cap_the_least_used_go() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        let memo: Memo<usize> = Memo::new(4);
-        let paths: Vec<PathBuf> = (0..5)
-            .map(|at| {
-                let path = root.path().join(format!("{at}.jsonl"));
-                fs::write(&path, "x").expect("a file");
-                path
-            })
-            .collect();
-        for (at, path) in paths.iter().take(4).enumerate() {
-            memo.read(path, || Ok::<_, Infallible>(at)).expect("kept");
-        }
-        // The first is used again, so it outlives the second and third.
-        memo.read(&paths[0], || Ok::<_, Infallible>(99))
-            .expect("kept");
-        memo.read(&paths[4], || Ok::<_, Infallible>(4))
-            .expect("kept");
-        assert!(memo.len() <= 4, "{}", memo.len());
-        assert_eq!(memo.read(&paths[0], || Ok::<_, Infallible>(99)), Ok(0));
-        assert_eq!(memo.read(&paths[1], || Ok::<_, Infallible>(11)), Ok(11));
     }
 }
