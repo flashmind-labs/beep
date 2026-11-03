@@ -6,8 +6,7 @@ import type { PaneTarget } from "./bar/pane.ts";
 import type { AgentRow } from "./bar/agents.ts";
 import { el, type Kid } from "./projects-state.ts";
 import { svgEl as svg } from "./components/parts.ts";
-
-const DEBOUNCE_MS = 120;
+import { PaletteSearch } from "./palette-search.ts";
 
 /// The groups of hits (HitKind).
 /// `project_chat` is a board project that is not imported (id: its chat),
@@ -64,8 +63,8 @@ const ACTION_VIEWS: Record<string, string> = { all_chats: "chats", memories: "me
 
 let deps: PaletteDeps | null = null;
 let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null, list: HTMLDivElement | null = null;
-let hits: Hit[] = [], sel = 0, query = "";
-let sent = 0, timer: ReturnType<typeof setTimeout> | undefined, ready: Promise<unknown> | null = null, back: HTMLElement | null = null;
+let hits: Hit[] = [], sel = 0;
+let searching: PaletteSearch<Hit> | null = null, back: HTMLElement | null = null;
 
 export function initPalette(window_: PaletteDeps) { deps = window_; }
 
@@ -81,7 +80,6 @@ export function openPalette() {
   if (!deps) return;
   if (root) return input!.focus();
   back = document.activeElement as HTMLElement | null;
-  query = "";
   hits = [];
   sel = 0;
   input = el("input");
@@ -106,23 +104,29 @@ export function openPalette() {
   scrim.addEventListener("mousedown", e => { if (e.target === scrim) { e.preventDefault(); close(); } });
   document.querySelector(".cwin")!.append(scrim);
   input.focus();
-  // The lists are fetched once, before the first search.
-  const opened = ready = invoke("center_palette").catch(e => console.warn("loading the palette:", e));
-  search("");
-  // Branches and agent sessions are read on the machines, so they come in later.
-  const later = (command: string, what: string) => opened.then(() => invoke(command))
-    .then(() => { if (ready === opened && query.trim()) search(query); })
+  // Hits come at once from what the app holds, the lists from the last
+  // time it opened included; each list read again searches again.
+  const search = searching = new PaletteSearch<Hit>(
+    (query, text) => invoke<Hit[]>("center_find", { query, text }),
+    (q, found) => { hits = found; sel = 0; draw(q.trim()); },
+  );
+  search.type("");
+  const read = (command: string, what: string) => invoke(command)
+    .then(() => { if (searching === search) search.refresh(); })
     .catch(e => console.warn(`${what} for the palette:`, e));
-  later("center_palette_branches", "reading branches");
-  later("center_palette_sessions", "listing coding agents");
+  // Branches are read for the projects this lists.
+  read("center_palette", "loading lists").then(() => read("center_palette_branches", "reading branches"));
+  // Pull requests come from the git hosts and sessions from every machine.
+  read("center_palette_prs", "reading pull requests");
+  read("center_palette_sessions", "listing coding agents");
 }
 
 function close() {
   if (!root) return;
-  clearTimeout(timer);
-  sent++;
+  searching?.stop();
+  searching = null;
   root.remove();
-  root = input = list = ready = null;
+  root = input = list = null;
   const to = back;
   back = null;
   // The sidebar is redrawn now and then, so its Search row may be a new element.
@@ -130,28 +134,7 @@ function close() {
 }
 
 function onType() {
-  query = input!.value;
-  // A reply to an earlier query must not draw while this one waits.
-  sent++;
-  clearTimeout(timer);
-  timer = setTimeout(() => search(query), DEBOUNCE_MS);
-}
-
-async function search(q: string) {
-  const mine = ++sent;
-  let found;
-  try {
-    await ready;
-    found = await invoke<Hit[]>("center_find", { query: q });
-  } catch (e) {
-    console.warn("searching:", e);
-    return;
-  }
-  // A newer query was sent meanwhile, or the palette closed.
-  if (mine !== sent || !root) return;
-  hits = found;
-  sel = 0;
-  draw(q.trim());
+  searching?.type(input!.value);
 }
 
 function draw(q: string) {

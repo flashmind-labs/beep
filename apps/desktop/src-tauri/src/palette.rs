@@ -705,39 +705,47 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
 }
 
 /// Fetches what the palette searches, when it opens. A list the server
-/// cannot give hides its group.
+/// cannot give hides its group. Pull requests, branches and sessions come
+/// from their own commands, so the git hosts and machines never hold up
+/// these lists.
 #[tauri::command]
 pub async fn center_palette(beep: Service<'_>, cache: State<'_, PaletteCache>) -> Result<()> {
-    let (memories, routines, machines, projects, boards, git) = join!(
+    let (memories, routines, machines, projects, boards) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListMachines {}),
         beep.call(ListImportedProjects {}),
         beep.call(ListProjects {}),
-        beep.call(ListGitItems {}),
     );
-    let lists = PaletteLists {
-        memories: section("memories", memories)
-            .map(|all| all.into_iter().map(MemoryView::from).collect()),
-        routines: section("routines", routines),
-        machines: section("machines", machines)
-            .map(|all| all.into_iter().map(MachineView::from).collect()),
-        projects: section("projects", projects),
-        boards: section("the projects board", boards),
-        sessions: None,
-        prs: section("pull requests", git).map(|git| {
-            git.items
-                .into_iter()
-                .filter(|item| item.kind == (GitItemKind::PullRequest {}))
-                .map(PrRow::from)
-                .collect()
-        }),
-        branches: None,
-    };
     let mut cached = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
-    // The last sessions stay found until `center_palette_sessions` answers.
-    let sessions = cached.sessions.take();
-    *cached = PaletteLists { sessions, ..lists };
+    // The last pull requests, branches and sessions stay found until their
+    // own commands answer.
+    cached.memories =
+        section("memories", memories).map(|all| all.into_iter().map(MemoryView::from).collect());
+    cached.routines = section("routines", routines);
+    cached.machines =
+        section("machines", machines).map(|all| all.into_iter().map(MachineView::from).collect());
+    cached.projects = section("projects", projects);
+    cached.boards = section("the projects board", boards);
+    Ok(())
+}
+
+/// Reads the user's open pull requests for the palette to find. Called
+/// after `center_palette`, without holding up the first search: the
+/// server may ask the git hosts.
+#[tauri::command]
+pub async fn center_palette_prs(beep: Service<'_>, cache: State<'_, PaletteCache>) -> Result<()> {
+    let git = beep.call(ListGitItems {}).await;
+    let Some(git) = section("pull requests", git) else {
+        return Ok(());
+    };
+    let prs = git
+        .items
+        .into_iter()
+        .filter(|item| item.kind == (GitItemKind::PullRequest {}))
+        .map(PrRow::from)
+        .collect();
+    cache.0.lock().unwrap_or_else(PoisonError::into_inner).prs = Some(prs);
     Ok(())
 }
 
@@ -833,26 +841,40 @@ pub async fn center_palette_branches(
     Ok(())
 }
 
+/// Ranks the hits for `query`. Without `text` it reads only what the app
+/// holds (the palette's lists and the local copy of the chats), so it
+/// answers at once on every keystroke. With `text` it also searches chat
+/// messages, and asks the server for what the copy does not hold yet.
 #[tauri::command]
 pub async fn center_find(
     beep: Service<'_>,
     cache: State<'_, PaletteCache>,
     query: String,
+    text: bool,
 ) -> Result<Vec<Hit>> {
-    let wants_text = query.trim().chars().count() >= MIN_TEXT_QUERY;
-    let (titles, text) = join!(beep.sessions(), async {
-        if wants_text {
-            Some(beep.search(query.trim().to_owned()).await)
-        } else {
-            None
+    let chats = if text {
+        let wants_text = query.trim().chars().count() >= MIN_TEXT_QUERY;
+        let (titles, text) = join!(beep.sessions(), async {
+            if wants_text {
+                Some(beep.search(query.trim().to_owned()).await)
+            } else {
+                None
+            }
+        });
+        ChatHits {
+            titles: section("chats", titles).unwrap_or_default(),
+            text: text
+                .and_then(|found| section("chat text", found))
+                .unwrap_or_default(),
         }
-    });
-    let titles = section("chats", titles).unwrap_or_default();
-    let text = text
-        .and_then(|found| section("chat text", found))
-        .unwrap_or_default();
+    } else {
+        ChatHits {
+            titles: beep.chats().sessions().unwrap_or_default(),
+            text: Vec::new(),
+        }
+    };
     let lists = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
-    Ok(rank(&query, &lists, &ChatHits { titles, text }))
+    Ok(rank(&query, &lists, &chats))
 }
 
 #[cfg(test)]
