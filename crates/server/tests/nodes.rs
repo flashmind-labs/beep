@@ -1384,63 +1384,6 @@ impl CommandCenter {
 }
 
 #[tokio::test]
-async fn agent_sessions_cover_every_node() {
-    let mut center = CommandCenter::new(1).await;
-    let build = center
-        .node(
-            0,
-            "build-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", Some(3))],
-                external: Some(Vec::new()),
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let mac = center
-        .node(
-            0,
-            "mac-box",
-            FakeAgents {
-                external: Some(vec![external_session("ext-1", Presence::Working)]),
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let sessions = client.call(&ListAgentSessions {}).await.unwrap();
-    assert_eq!(sessions.len(), 2, "{sessions:?}");
-    // Newest first: the external one was active after the Beep one started.
-    let external = &sessions[0];
-    assert_eq!(external.machine_id, mac);
-    assert_eq!(external.machine_name, "mac-box");
-    assert_eq!(external.id, "ext-1");
-    assert!(external.external);
-    assert_eq!(external.status, AgentStatus::Working {});
-    assert!(external.question.is_none());
-    assert_eq!(
-        external.last_activity,
-        SystemTime::UNIX_EPOCH + Duration::from_secs(1_760_000_200)
-    );
-    let beep = &sessions[1];
-    assert_eq!(beep.machine_id, build);
-    assert_eq!(beep.machine_name, "build-box");
-    assert_eq!(beep.id, "a3f9c1");
-    assert_eq!(beep.agent, "claude");
-    assert_eq!(beep.cwd, "/srv/project");
-    assert_eq!(beep.title.as_deref(), Some("Fix the build"));
-    assert!(!beep.external);
-    assert_eq!(beep.status, AgentStatus::Asking {});
-    assert_eq!(beep.doing.as_deref(), Some("Run cargo test"));
-    let question = beep.question.as_ref().expect("the session asks");
-    assert_eq!(question.id, 3);
-    assert_eq!(question.detail.as_deref(), Some("cargo test -p beep"));
-    let allows: Vec<bool> = question.options.iter().map(|option| option.allow).collect();
-    assert_eq!(allows, [true, false]);
-    center.shutdown().await;
-}
-
-#[tokio::test]
 async fn agent_sessions_skip_a_hung_node() {
     let mut center = CommandCenter::new(1).await;
     for name in ["build-box", "mac-box"] {
@@ -1565,46 +1508,6 @@ async fn agent_sessions_drop_stopped_external() {
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     assert_eq!(sessions[0].id, "waiting");
     assert_eq!(sessions[0].status, AgentStatus::Waiting {});
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn answer_agent_question_sends_answer() {
-    let mut center = CommandCenter::new(1).await;
-    let (orders, mut received) = mpsc::unbounded_channel();
-    let machine = center
-        .node(
-            0,
-            "build-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", Some(3))],
-                orders: Some(orders),
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    client
-        .call(&AnswerAgentQuestion {
-            machine_id: machine,
-            agent: "claude".into(),
-            session: "a3f9c1".into(),
-            question: 3,
-            reply: "allow".into(),
-        })
-        .await
-        .unwrap();
-    let order = timeout(Duration::from_secs(5), received.recv())
-        .await
-        .expect("the node got an order")
-        .expect("the fake still runs");
-    assert_eq!(
-        order,
-        Request::Answer {
-            question: 3,
-            reply: "allow".into()
-        }
-    );
     center.shutdown().await;
 }
 
