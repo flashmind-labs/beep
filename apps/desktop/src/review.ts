@@ -296,6 +296,8 @@ export interface ReviewDeps {
   openUrl: (url: string) => unknown;
   openTile: (key: string) => void;
   machines?: () => readonly (Place & { online: boolean })[];
+  /// Shows what changed on a branch of a project.
+  diff?: (project: string, branch: string) => void;
   /// Where the branches are kept between windows; in memory only without it.
   kept?: SectionStore<KeptBranches>;
 }
@@ -535,6 +537,7 @@ export function makeReviews(deps: ReviewDeps) {
         `${ago(b.committed_at)}: ${b.subject}`,
       ].filter(Boolean);
       const acts = h("span", "acts rv-acts");
+      if (!isDefault && (b.ahead > 0 || b.worktree) && deps.diff) acts.append(button("View diff", "", () => deps.diff!(name, b.name)));
       if (r) acts.append(button(`Open review · ${STATE_LABEL[reviewState(r)].toLowerCase()}`, "", () => openBranch(name, b.name)));
       if (!isDefault && b.ahead > 0) acts.append(button(r ? "Review again" : "Review", r ? "" : "pri", () => openBranch(name, b.name, !!r)));
       if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
@@ -610,6 +613,7 @@ export function makeReviews(deps: ReviewDeps) {
     const pill = h("span", `rv-pill ${stale ? "changes" : st}`, running ? h("span", "dspin") : null, stale ? "Stale" : STATE_LABEL[st]);
     const tools = h("span", "rv-tools");
     const pr = r.pr;
+    if (deps.diff) tools.append(button("View diff", "", () => deps.diff!(name, r.branch)));
     if (pr) tools.append(button(`PR #${pr.number}`, "", () => openUrl(pr.url)));
     if (!running) {
       const again = button("Run again", "", () => openBranch(name, r.branch, true));
