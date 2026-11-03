@@ -91,11 +91,20 @@ export function syncSummary(read: readonly { error: string | null; files: readon
   return { machines: withFiles.length, synced: withFiles.filter(m => m.files.every(f => f.synced)).length };
 }
 
-/// What a file's row says on the Sync tab.
-export function fileState(file: Pick<AgentFile, "synced"> & Partial<Pick<AgentFile, "text">>) {
-  if (file.synced) return { cls: "ok", text: "Synced" };
+/// What a file's row says on the Sync tab. `saved` is whether any version
+/// was saved: before the first there is nothing to write, so a file is
+/// never "Not synced", only empty or holding its own text.
+export function fileState(file: Pick<AgentFile, "synced"> & Partial<Pick<AgentFile, "text">>, saved = true) {
   if (file.text == null) return { cls: "", text: "Not written yet" };
+  if (!saved) return { cls: "", text: "Has its own text" };
+  if (file.synced) return { cls: "ok", text: "Synced" };
   return { cls: "warn", text: "Not synced" };
+}
+
+/// The machines whose files miss the newest version: the ones "Write to
+/// all machines" writes. Machines that could not be read are left out.
+export function behind(read: readonly MachineAgentFiles[] | null | undefined) {
+  return (read || []).filter(m => !m.error && m.files.some(f => !f.synced)).map(m => m.machine_id);
 }
 
 /// "Version 7 · Restored version 3", the line over the editor and on a
