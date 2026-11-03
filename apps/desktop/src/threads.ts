@@ -10,7 +10,7 @@ import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { ProjectAgent } from "./project.ts";
 import type { TileData } from "./board.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, stateChip } from "./components/parts.ts";
+import { emptyPanel, segmented, stateChip } from "./components/parts.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -314,15 +314,7 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   function seg<T>(label: string, options: { label: string; value: T }[], current: T, choose: (value: T) => void) {
-    const box = h("span", "pb-seg");
-    for (const o of options) {
-      const b = h("button", "", o.label);
-      b.type = "button";
-      b.addEventListener("click", () => choose(o.value));
-      b.setAttribute("aria-pressed", String(o.value === current));
-      box.append(b);
-    }
-    return [h("span", "lbl", label), box];
+    return [h("span", "lbl", label), segmented(options, current, choose)];
   }
 
   /// The agent and machine picker under the issue being started.
