@@ -234,6 +234,13 @@ sample_struct! {
     SyncProgress { files_done, files_total, bytes_done, bytes_total, rate, eta_secs }
     GitItems { items, hosts }
     GitHost { host, kind, account, error }
+    UsageView { limits, today, harnesses, week }
+    HarnessSpend { agent, cost_usd, tokens, models }
+    ModelSpend { model, tokens }
+    PlanLimits { agent, plan, machine_name, as_of, windows }
+    PlanWindow { minutes, used_percent, resets_at, scope }
+    ProjectSpend { project, cost_usd, unpriced }
+    AgentTokens { agent, tokens }
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }
 }
 

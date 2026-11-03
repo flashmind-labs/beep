@@ -400,6 +400,17 @@ pub enum SessionsRequest {
     /// that came while no stream was open wait, a bounded few. A node from
     /// before it closes the stream.
     FollowImages {},
+    /// Sends what each finished turn spent, as `TurnUsage` replies, and
+    /// how much of each agent's plan is left, as `PlanUsage` replies (all
+    /// of them first, then each time one changes), until the server closes
+    /// the stream. Turns that ended while no stream was open wait, a
+    /// bounded few. On this stream the server may later send
+    /// `RefreshPlanUsage`; anything else is its goodbye. A node from before
+    /// it closes the stream.
+    FollowUsage {},
+    /// Sent on a `FollowUsage` stream: reads the plans' usage again now,
+    /// rather than at the next check.
+    RefreshPlanUsage {},
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -449,6 +460,14 @@ pub enum SessionsReply {
         mime: String,
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
+    },
+    /// One finished turn on a `FollowUsage` stream.
+    TurnUsage {
+        usage: super::usage::TurnUsage,
+    },
+    /// One agent's plan usage on a `FollowUsage` stream.
+    PlanUsage {
+        usage: super::usage::PlanUsage,
     },
 }
 
