@@ -66,6 +66,8 @@ thiserror = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 toml = "1"
+# Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
+toml_edit = "0.25"
 uuid = { version = "1", features = ["v4"] }
 webpki-roots = { version = "1", optional = true }
 which = "5"
@@ -88,3 +90,5 @@ windows-sys = { version = "0.61", features = [
 
 [dev-dependencies]
 tempfile = "3"
+# Reads what Beep writes to flsh's config with flsh's own types.
+flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }

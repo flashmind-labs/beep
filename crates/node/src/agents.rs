@@ -43,6 +43,7 @@ mod alerts;
 mod checkout;
 mod compaction;
 mod custom_agents;
+mod flsh_config;
 mod harnesses;
 mod image_files;
 mod images;
@@ -633,6 +634,7 @@ impl Agents {
         if let Some(reason) = claude::refuse_takeover(&found) {
             anyhow::bail!("{reason}");
         }
+        self.prepare(kind).await?;
         self.start(
             kind,
             Some(&found.cwd),
@@ -748,6 +750,7 @@ impl Agents {
         checkout: Option<CheckoutPlan>,
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
+        self.prepare(kind).await?;
         if checkout.is_some() {
             // Refused starts must not leave a branch or worktree behind.
             self.settings.configured(kind)?;
@@ -758,6 +761,13 @@ impl Agents {
         begin.note = place.note;
         begin.brief = place.brief;
         self.start(kind, place.folder.as_deref(), begin)
+    }
+
+    /// Readies what `kind` reads before it starts: for flsh, the user's
+    /// flsh settings in its config.
+    async fn prepare(&self, kind: &AgentKind) -> Result<()> {
+        let configured = self.settings.configured(kind)?;
+        self.settings.prepare(&configured).await
     }
 
     fn start(&self, kind: &AgentKind, cwd: Option<&str>, begin: Begin) -> Result<Arc<Session>> {
@@ -1787,6 +1797,7 @@ while read -r line; do reply '{}'; done
                 enabled: false,
                 ..beep_proto::node::harness::HarnessConfig::new("codex")
             }],
+            ..AgentSettings::default()
         });
         let begin = Begin {
             prompt: Some("Fix the login bug".into()),

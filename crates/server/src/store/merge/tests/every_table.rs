@@ -124,6 +124,7 @@ const BOTH: &[&str] = &[
          now() + interval '1 day')",
     "INSERT INTO habits (id, user_id, name) VALUES ('habit-{t}', $1, 'Run')",
     "INSERT INTO habit_logs (id, habit_id, user_id) VALUES ('log-{t}', 'habit-{t}', $1)",
+    "INSERT INTO flsh_settings (user_id, settings) VALUES ($1, jsonb_build_object('tag', '{t}'))",
     "INSERT INTO harness_settings (user_id, machine_id, agent, program)
      VALUES ($1, 'm1', 'codex', '{t}-codex')",
     "INSERT INTO instructions_versions (user_id, version, text) VALUES ($1, 1, '{t}1')",
@@ -213,6 +214,7 @@ const DROPPED: &[(&str, i64)] = &[
     ("event_triggers", 1),
     ("grants", 1),
     ("habits", 1),
+    ("flsh_settings", 1),
     ("harness_settings", 1),
     ("locations", 1),
     ("mail_seen", 1),
