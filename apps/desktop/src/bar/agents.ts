@@ -119,7 +119,7 @@ export interface AgentForm {
   modelFor?: string;
   /// The thinking level picked; null for the agent's own.
   effort?: string | null;
-  /// The project the form was opened from, for its heading.
+  /// The project the form works on, picked or the one it was opened from.
   project?: string | null;
   /// In a checkout: Auto, the checkout, a new branch, a new worktree or an
   /// existing one.
@@ -129,9 +129,9 @@ export interface AgentForm {
   base?: string | null;
   /// Whether the Base button is a field to type a ref in.
   baseTyping?: boolean;
-  /// The open popover: the harness picker, or the Machine, Folder or Base
-  /// menu.
-  open?: "pick" | "host" | "folder" | "base" | null;
+  /// The open popover: the harness picker, or the Project, Machine,
+  /// Folder or Base menu.
+  open?: "pick" | "project" | "host" | "folder" | "base" | null;
   /// What the picker's search holds.
   query?: string;
   /// Whether the Folder button is a field to type a folder in.

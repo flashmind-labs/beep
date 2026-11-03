@@ -1,8 +1,10 @@
 // The start form's choices, as plain data: which harnesses the picked
 // machine offers, the models and thinking levels each takes, the pill's
-// text, the Machine menu's rows and the Folder menu's checkout rule.
+// text, the Machine menu's rows, the Project and Folder menus and where
+// the picker goes on screen.
 
 import type { AgentModels } from "./agentmodels.ts";
+import { folderOn } from "../projects-state.ts";
 
 /// The harnesses the picker's rail shows, in this order; others a machine
 /// offers (such as OpenCode) follow.
@@ -239,4 +241,139 @@ export function baseRows(list: BaseBranches | null | undefined, query = ""): str
 /// branch, else none (the checkout's HEAD).
 export function baseFor(picked: string | null | undefined, list: BaseBranches | null | undefined): string | null {
   return picked?.trim() || list?.default_branch || null;
+}
+
+// ----- Project and folder -----
+
+/// `path` as the form shows it: under `home` (the machine's home folder,
+/// when known) written `~/...`, else any `/home/<user>` or `/Users/<user>`
+/// folder the same way.
+export function tildePath(path: string, home: string | null | undefined): string {
+  const p = trimmed(path.trim());
+  if (!p) return "";
+  const h = home ? trimmed(home.trim()) : "";
+  if (h && p === h) return "~";
+  if (h && p.startsWith(`${h}/`)) return `~/${p.slice(h.length + 1)}`;
+  return folderOn(p, null, null);
+}
+
+/// A project as the form offers it: its name and its checkout on each
+/// machine.
+export interface FormProject {
+  name: string;
+  places: { machine: string; cwd: string }[];
+}
+
+/// The projects in `rows` (one row per project and machine, as Home's
+/// imported projects come), each with its checkouts, by name.
+export function formProjects(rows: readonly { name: string; machine_id: string; folder: string }[] | null | undefined): FormProject[] {
+  const by = new Map<string, FormProject>();
+  for (const r of rows ?? []) {
+    if (!r.folder) continue;
+    const p = by.get(r.name) ?? { name: r.name, places: [] };
+    if (!p.places.some(x => x.machine === r.machine_id)) p.places.push({ machine: r.machine_id, cwd: r.folder });
+    by.set(r.name, p);
+  }
+  return [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/// A project's folder in the Folder menu: the folder a pick sets, and how
+/// the row shows it.
+export interface ProjectFolder {
+  project: string;
+  cwd: string;
+  shown: string;
+}
+
+/// The projects checked out on `machine`, each at its folder there; on
+/// Auto (`machine` null) each at its first folder written under `~`, which
+/// each machine reads as its own home.
+export function projectFolders(projects: readonly FormProject[], machine: string | null, home: string | null | undefined): ProjectFolder[] {
+  return projects.flatMap(p => {
+    const at = machine ? p.places.find(x => x.machine === machine) : p.places[0];
+    if (!at) return [];
+    const cwd = machine ? at.cwd : folderOn(at.cwd, null, null);
+    return [{ project: p.name, cwd, shown: tildePath(cwd, machine ? home : null) }];
+  });
+}
+
+/// The project whose checkout `cwd` is on `machine` (any machine on
+/// Auto), if any.
+export function projectAt(projects: readonly FormProject[], machine: string | null, cwd: string): FormProject | null {
+  const at = trimmed(cwd.trim());
+  if (!at) return null;
+  const tilde = folderOn(at, null, null);
+  return projects.find(p => p.places.some(x => (!machine || x.machine === machine) && (trimmed(x.cwd) === at || folderOn(x.cwd, null, null) === tilde))) ?? null;
+}
+
+/// The heading: the project's short name in bold, when there is one.
+export function formTitle(project: string | null | undefined): { lead: string; name: string | null } {
+  const name = project?.split("/").filter(Boolean).pop() ?? null;
+  return name ? { lead: "What should we build in", name } : { lead: "What should we build?", name: null };
+}
+
+/// A row of the Folder menu outside a project.
+export type FolderRow =
+  | { kind: "workspace"; shown: string; on: boolean }
+  | { kind: "project"; project: string; cwd: string; shown: string; on: boolean }
+  | { kind: "type" }
+  | { kind: "rule" };
+
+/// The Folder menu outside a project: Workspace, the projects checked out
+/// on the machine, then a row to type any folder.
+export function folderRows(cwd: string, workspace: string | null | undefined, home: string | null | undefined, folders: readonly ProjectFolder[]): FolderRow[] {
+  const at = trimmed(cwd.trim());
+  const rule: FolderRow = { kind: "rule" };
+  return [
+    { kind: "workspace", shown: workspace?.trim() ? tildePath(workspace, home) : "~", on: !at },
+    ...(folders.length ? [rule] : []),
+    ...folders.map(f => ({ kind: "project" as const, project: f.project, cwd: f.cwd, shown: f.shown, on: trimmed(f.cwd) === at })),
+    rule,
+    { kind: "type" },
+  ];
+}
+
+/// What the Folder pill says outside a project: "Workspace" and its path,
+/// or the folder picked.
+export function folderPill(cwd: string, workspace: string | null | undefined, home: string | null | undefined): { label: string; path: string } {
+  if (cwd.trim()) return { label: "", path: tildePath(cwd, home) };
+  return { label: "Workspace", path: workspace?.trim() ? tildePath(workspace, home) : "~" };
+}
+
+// ----- Picker placement -----
+
+/// A box on screen, in CSS pixels.
+export interface Rect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+/// Where a popover goes, in viewport pixels; `maxHeight` is set when it
+/// does not fit whole on either side.
+export interface Placement {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number | null;
+}
+
+/// Places a popover of `size` by `anchor` inside a `view` of that size:
+/// above it with right edges lined up when it fits there, else below, else
+/// on the roomier side cut to fit. It stays `margin` inside the view.
+export function placePopover(anchor: Rect, size: { width: number; height: number }, view: { width: number; height: number }, margin = 8, gap = 6): Placement {
+  const width = Math.min(size.width, Math.max(0, view.width - 2 * margin));
+  const left = Math.max(margin, Math.min(anchor.left + anchor.width - width, view.width - margin - width));
+  const above = anchor.top - gap - margin;
+  const below = view.height - (anchor.top + anchor.height) - gap - margin;
+  const under = Math.min(view.height - margin, anchor.top + anchor.height + gap);
+  const over = (h: number) => Math.max(margin, anchor.top - gap - h);
+  if (size.height <= above) return { top: over(size.height), left, width, maxHeight: null };
+  if (size.height <= below) return { top: under, left, width, maxHeight: null };
+  if (above >= below) {
+    const h = Math.max(0, above);
+    return { top: over(h), left, width, maxHeight: h };
+  }
+  return { top: under, left, width, maxHeight: Math.max(0, below) };
 }
