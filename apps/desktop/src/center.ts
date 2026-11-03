@@ -407,7 +407,9 @@ const SLIDE_MS = 200;
 /// Nothing slides when the system asks for less motion.
 function slideRows(panel: HTMLElement) {
   requestAnimationFrame(() => {
-    if (!panel.isConnected) return;
+    // A hidden panel (Home behind a project page) measures every row at 0
+    // and would spoil the places the shown panel slides from.
+    if (!panel.isConnected || !panel.getClientRects().length) return;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const top = panel.getBoundingClientRect().top, seen = new Set<string>();
     for (const row of panel.querySelectorAll<HTMLElement>(":scope > [data-key]")) {
