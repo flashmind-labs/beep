@@ -136,7 +136,7 @@ fn memory(content: &str, scope: Scope) -> Fact<'_> {
 }
 
 async fn endpoint(key: SecretKey) -> Endpoint {
-    Endpoint::builder(presets::N0)
+    Endpoint::builder(presets::Minimal)
         .secret_key(key)
         .bind()
         .await
@@ -935,7 +935,7 @@ async fn any_app_of_the_account_removes_a_machine_online_or_not() {
     assert!(client.call(&ListMachines {}).await.unwrap().is_empty());
     let back = beep_node::link::connect(
         &endpoint(live).await,
-        server_id.into(),
+        router.endpoint().addr(),
         "build box",
         &Offers::default(),
     )

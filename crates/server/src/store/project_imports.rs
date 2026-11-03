@@ -241,8 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn imports_from_before_get_their_project() {
-        let db = TestDb::new().await.unwrap();
-        let pool = db.pool_at(74).await.unwrap();
+        let (db, pool) = TestDb::at(74).await.unwrap();
         for (user, project, endpoint) in [
             ("alice", "org/a", "node-1"),
             ("alice", "org/a", "node-2"),
