@@ -440,7 +440,7 @@ fn verify(archive: &str, packed: &[u8], sums: &str) -> Result<(), Error> {
     let expected = expected_sum(archive, sums).ok_or_else(|| Error::NotListed {
         archive: archive.to_owned(),
     })?;
-    let actual = format!("{:x}", Sha256::digest(packed));
+    let actual = hex::encode(Sha256::digest(packed));
     if actual != expected {
         return Err(Error::Checksum {
             archive: archive.to_owned(),
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn a_download_that_does_not_match_its_sum_is_refused() {
         let packed = b"archive";
-        let sum = format!("{:x}", Sha256::digest(packed));
+        let sum = hex::encode(Sha256::digest(packed));
         let sums = format!("{sum}  a.tar.gz\n");
         assert!(verify("a.tar.gz", packed, &sums).is_ok());
         assert!(matches!(

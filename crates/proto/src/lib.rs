@@ -14,6 +14,8 @@ pub mod client;
 pub mod flsh;
 pub mod groups;
 pub mod link;
+#[cfg(feature = "logging")]
+pub mod logging;
 pub mod names;
 pub mod node;
 pub mod seal;

@@ -49,9 +49,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
     for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do \
-        cargo zigbuild --release --locked --package beep-node --bin beep-node --target "$target" \
+        cargo zigbuild --profile dist --locked --package beep-node --bin beep-node --target "$target" \
         && mkdir -p "/dist/$target" \
-        && cp "target/$target/release/beep-node" "/dist/$target/" || exit 1; \
+        && cp "target/$target/dist/beep-node" "/dist/$target/" || exit 1; \
     done
 
 # The Windows build, cross-compiled with cargo-xwin against the MSVC CRT it
@@ -69,9 +69,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/root/.cache/cargo-xwin \
-    cargo xwin build --release --locked --package beep-node --bin beep-node --target x86_64-pc-windows-msvc \
+    cargo xwin build --profile dist --locked --package beep-node --bin beep-node --target x86_64-pc-windows-msvc \
     && mkdir -p /dist/x86_64-pc-windows-msvc \
-    && cp target/x86_64-pc-windows-msvc/release/beep-node.exe /dist/x86_64-pc-windows-msvc/
+    && cp target/x86_64-pc-windows-msvc/dist/beep-node.exe /dist/x86_64-pc-windows-msvc/
 
 FROM scratch AS node-dist
 COPY --from=node-dist-build /dist /

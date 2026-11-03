@@ -5,14 +5,9 @@ use beep_node::{
 };
 
 use anyhow::{Context, Result};
+use beep_proto::logging::{self, RollingFile};
 use clap::{Parser, Subcommand};
-use logforth::{
-    append::{Stderr, file::FileBuilder},
-    filter::rustlog::RustLogFilterBuilder,
-    layout::TextLayout,
-};
 use std::{
-    num::NonZeroUsize,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -213,45 +208,20 @@ fn stopped() -> Result<impl Future<Output = ()>> {
 
 /// The log filter unless `RUST_LOG` says otherwise: the node at info, the
 /// networking crates under it (iroh, its QUIC and port mapping) only when
-/// something goes wrong, since they log every packet path at info. The log
-/// bridge prints their spans as `tracing::span`, which is as noisy.
-const LOG_FILTER: &str = "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,\
-                          portmapper=warn,igd_next=warn,tracing::span=warn";
+/// something goes wrong, since they log every packet path at info.
+const LOG_FILTER: &str =
+    "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn";
 
-/// Logs to stderr, or to daily files next to `log_file` when given.
+/// Logs to stderr, or to `log_file` when given, a new one each day.
 fn start_logging(log_file: Option<&Path>) -> Result<()> {
-    let filter = || RustLogFilterBuilder::from_default_env_or(LOG_FILTER).build();
-    let Some(log_file) = log_file else {
-        let stderr = Stderr::default().with_layout(TextLayout::default());
-        logforth::starter_log::builder()
-            .dispatch(|d| d.filter(filter()).append(stderr))
-            .apply();
-        return Ok(());
-    };
-    let folder = log_file.parent().unwrap_or(Path::new("."));
-    // `beep-node.log` rolls over to `beep-node.<date>.log`.
-    let stem = log_file
-        .file_stem()
-        .context("--log-file names no file")?
-        .to_string_lossy();
-    let mut file = FileBuilder::new(folder, stem);
-    if let Some(extension) = log_file.extension() {
-        file = file.filename_suffix(extension.to_string_lossy());
-    }
-    let file = file
-        .layout(TextLayout::default().no_color())
-        .rollover_daily()
-        .max_log_files(LOG_FILES)
-        .build()
-        .with_context(|| format!("opening the log in {}", folder.display()))?;
-    logforth::starter_log::builder()
-        .dispatch(|d| d.filter(filter()).append(file))
-        .apply();
-    Ok(())
+    let file = log_file
+        .map(|path| RollingFile::new(path, LOG_FILES))
+        .transpose()?;
+    logging::start(LOG_FILTER, file.is_none(), file)
 }
 
 /// The daily log files kept.
-const LOG_FILES: NonZeroUsize = NonZeroUsize::new(7).expect("seven is not zero");
+const LOG_FILES: usize = 7;
 
 #[tokio::main]
 async fn main() -> Result<()> {

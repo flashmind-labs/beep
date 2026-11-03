@@ -1,6 +1,10 @@
 //! Research: the lead plans a topic with the user, then a team of scouts, a critic and a writer drafts a paper in the background.
 
 mod lead;
+#[cfg(feature = "pdf")]
+pub(crate) mod pdf;
+#[cfg(not(feature = "pdf"))]
+#[path = "pdf_off.rs"]
 pub(crate) mod pdf;
 mod tools;
 
