@@ -1026,14 +1026,26 @@ function drawModelPicker() {
     changed: what => {
       if (what === "models") return drawModelPill();
       if (what === "agent") return;
-      const model = what === "model" ? picked.model || null : null, effort = what === "effort" ? picked.effort : null;
-      sessionPicks.set(s.id, { model: picked.model, effort: picked.effort });
-      if (what === "model") AG.modelOpen = false;
-      drawModelPicker();
-      drawModelPill();
-      if (model || effort) steerAgent({ configure: { model, effort } });
+      if (what === "model") { AG.modelOpen = false; drawModelPicker(); }
+      switchSessionModel(s, { model: picked.model, effort: picked.effort }, what);
     },
   });
+}
+
+/// Switches session `s` to the model or thinking in `next`. The pill shows
+/// a pick only once the node took it: a refused switch, or Default, which
+/// a running session cannot go back to, leaves what runs on the pill.
+export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort") {
+  const was = sessionPicks.get(s.id) ?? { model: "", effort: null };
+  const model = what === "model" ? next.model || null : null, effort = what === "effort" ? next.effort : null;
+  if (model || effort) {
+    if (await steerAgent({ configure: { model, effort } })) sessionPicks.set(s.id, next);
+  } else if (what === "model" ? was.model : was.effort) {
+    AG.note = `A running session cannot go back to Default; pick ${what === "model" ? "a model" : "a level"} by name.`;
+    drawAgentBody();
+  }
+  drawModelPicker();
+  drawModelPill();
 }
 
 // ----- Messages typed while a turn runs -----
@@ -1070,17 +1082,19 @@ function queueMessage(input: HTMLTextAreaElement) {
 }
 
 /// Sends what was queued once the turn stopped or ended, as one message.
-/// An ended session takes it back into the field, to continue with.
+/// An ended session takes it back into the field, before what is typed
+/// there, to continue with; with no field on screen it stays queued.
 function flushQueue() {
   const o = AG.open, page = AG.page, s = page?.session;
   if (!AG.queue.length || !o || !page || !s || AG.flushing || AGENT_ACTIVE.has(s.status)) return;
-  const text = AG.queue.join("\n\n");
+  const text = AG.queue.join("\n\n"), ended = s.status === "ended" || s.external;
+  const input = $<HTMLTextAreaElement>("#agmsg");
+  if (ended && !input) return;
   AG.queue = [];
   drawQueue();
   redrawAgentHints();
-  if (s.status === "ended" || s.external) {
-    const input = $<HTMLTextAreaElement>("#agmsg");
-    if (input && !input.value) input.value = text;
+  if (ended) {
+    input!.value = input!.value ? `${text}\n\n${input!.value}` : text;
     return;
   }
   AG.flushing = true;
@@ -1155,27 +1169,25 @@ export async function sendAgentMessage() {
   const o = AG.open!, page = AG.page!;
   if (page.session.status === "ended") return continueAgent(input!, text, images);
   input!.value = "";
-  if (!images.length) {
-    page.entries.push({ kind: "user", text });
-    drawAgentBody();
-    return steerAgent({ prompt: { text } });
+  if (images.length) {
+    AG.att = [];
+    drawAgentAttached();
+    keepAgentPics(o, images);
   }
-  AG.att = [];
-  drawAgentAttached();
-  keepAgentPics(o, images);
   const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
   page.entries.push(mine);
   drawAgentBody();
-  const sent = await steerAgent({ prompt: { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } });
+  const sent = await steerAgent({ prompt: images.length ? { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } : { text } });
   if (sent || !isOpen(o)) return;
-  // Nothing went: the message and its images wait in the field again.
+  // Nothing went: the message and its images wait in the field again,
+  // before anything typed since, under the note that says why.
   if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
   // A poll may have drawn more since: take out this message, not the last.
   const at = page.entries.indexOf(mine);
   if (at >= 0) page.entries.splice(at, 1);
   const field = $<HTMLTextAreaElement>("#agmsg");
-  if (field && !field.value) field.value = text;
-  AG.att = images;
+  if (field && text) field.value = field.value ? `${text}\n${field.value}` : text;
+  if (images.length) AG.att = images;
   drawAgentBody();
   drawAgentAttached();
 }
