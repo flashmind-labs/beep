@@ -28,6 +28,7 @@ use tokio::task::spawn_blocking;
 
 mod acp;
 mod checkout;
+mod compaction;
 mod harnesses;
 mod images;
 mod live;

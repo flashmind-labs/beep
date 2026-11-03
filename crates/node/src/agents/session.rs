@@ -5,6 +5,7 @@
 use super::{
     AgentKind,
     acp::{self, Line, LineReader, Offered, Prompt, ResumeMethod},
+    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     images::Images,
     live::{Live, cut},
 };
@@ -118,6 +119,12 @@ impl Session {
             .zip(model.as_deref())
             .map(|(flag, model)| format!("{flag}={model}"));
         let model = model.filter(|_| flag.is_none());
+        let policy = Policy::from_env(&kind.env);
+        // Claude Code compacts mid-turn on its own trigger; it is set to
+        // the same threshold unless the user set it.
+        let agent_env = policy
+            .agent_env(&kind.name, &kind.env)
+            .map(|var| (var.name, var.value));
         let mut process = command(&kind.program);
         // The token Beep keeps for this agent, such as Claude Code's, when
         // there is one.
@@ -127,6 +134,7 @@ impl Session {
             .args(&kind.args)
             .args(flag)
             .envs(&kind.env)
+            .envs(agent_env)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -165,6 +173,7 @@ impl Session {
             effort,
             thinking: None,
             bypass_mode: acp::bypass_mode(&kind.name),
+            compactor: Compactor::new(&kind.name, policy),
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),
@@ -236,6 +245,8 @@ enum Reply {
     /// The answer to `session/set_mode` to the mode that asks no permission.
     Bypass(Result<(), agent_client_protocol::Error>),
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
+    /// The answer to the `/compact` the node sent.
+    Compacted(Result<PromptResponse, agent_client_protocol::Error>),
 }
 
 /// A permission question waiting for its answer.
@@ -266,6 +277,8 @@ struct Actor {
     /// agent runs without prompts, and a permission request that comes
     /// anyway is allowed rather than asked.
     bypass_mode: Option<&'static str>,
+    /// When the node compacts the conversation.
+    compactor: Compactor,
     /// Prompts waiting for the agent to be free, the first prompt among them.
     queued: VecDeque<Prompt>,
     /// Questions waiting, the first one shown.
@@ -537,6 +550,7 @@ impl Actor {
                 };
                 self.turn_done(cx, stop, error);
             }
+            Reply::Compacted(result) => self.compacted(cx, result),
         }
         Ok(None)
     }
@@ -859,6 +873,58 @@ impl Actor {
             state.summary.clear();
             state.error = error;
         });
+        let live = self.live.borrow();
+        self.compactor.turn_ended(TurnEnd {
+            usage: live.usage,
+            commands: &live.commands,
+        });
+        drop(live);
+        self.next_prompt(cx);
+    }
+
+    /// Sends `/compact` ahead of the waiting prompts.
+    fn compact(&mut self, cx: &ConnectionTo<Agent>, session: &SessionId) {
+        let prompt = Prompt::from(COMPACT_PROMPT.to_owned());
+        self.send(cx, acp::prompt(session, &prompt), Reply::Compacted);
+        self.live.send_modify(|live| {
+            // What it said before no longer holds once compacted.
+            live.usage = None;
+            live.take_compacted();
+            let state = &mut live.info.state;
+            state.status = Status::Working;
+            state.summary = "Compacting the conversation".into();
+            state.error = None;
+        });
+    }
+
+    /// The node's `/compact` ended: the transcript says so, unless the
+    /// agent's own update did, then the waiting prompt goes.
+    fn compacted(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        result: Result<PromptResponse, agent_client_protocol::Error>,
+    ) {
+        self.compactor.finished();
+        let line = match result {
+            Ok(done) => {
+                let stop = StopReason::from_acp(&acp::wire_name(&done.stop_reason));
+                (stop == StopReason::EndTurn).then_some(COMPACTED_ENTRY.to_owned())
+            }
+            Err(e) => {
+                log::warn!("the agent did not compact: {e}");
+                Some(format!("[compacting the conversation failed: {e}]"))
+            }
+        };
+        self.live.send_modify(|live| {
+            if let Some(line) = line
+                && !live.take_compacted()
+            {
+                live.push(EntryKind::Other, &line);
+            }
+            let state = &mut live.info.state;
+            state.status = Status::Idle;
+            state.summary.clear();
+        });
         self.next_prompt(cx);
     }
 
@@ -867,6 +933,13 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
+        if self.queued.is_empty() {
+            return;
+        }
+        if self.compactor.start(!self.asked.is_empty()) {
+            self.compact(cx, &session);
+            return;
+        }
         let Some(prompt) = self.queued.pop_front() else {
             return;
         };
@@ -1694,6 +1767,121 @@ cat > /dev/null
             "Started on a new branch beep/go from HEAD."
         );
         settle(&session).await;
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that ends its first turn with `/compact` advertised and
+    /// the window at 85%, reports a finished compaction for the second
+    /// prompt, then ends the third turn.
+    const COMPACTING_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+read -r line; log "$1"
+update '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"Compact"}]}'
+update '{"sessionUpdate":"usage_update","used":85000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"
+update '{"sessionUpdate":"compaction_update","compactionId":"c1","status":"in_progress"}'
+update '{"sessionUpdate":"compaction_update","compactionId":"c1","status":"completed"}'
+update '{"sessionUpdate":"usage_update","used":12000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"
+update '{"sessionUpdate":"usage_update","used":13000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+    /// The text of each prompt the adapter got.
+    fn prompts(log: &Path) -> Vec<String> {
+        sent(log)
+            .iter()
+            .filter(|line| line["method"] == "session/prompt")
+            .map(|line| {
+                line["params"]["prompt"][0]["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_full_window_is_compacted_before_the_next_prompt() {
+        let dir = temp("compact");
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", COMPACTING_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, &dir, None)).unwrap();
+        settle(&session).await;
+        assert_eq!(prompts(&log), ["go"], "nothing is compacted mid-turn");
+        session
+            .order(Command::Prompt(Prompt::from("next".to_owned())))
+            .await
+            .unwrap();
+        until(&session, |live| {
+            live.info.turns >= 2 || live.status() == Status::Ended
+        })
+        .await;
+        let info = session.info();
+        assert_eq!(info.turns, 2, "{:?}", info.state.error);
+        assert_eq!(prompts(&log), ["go", COMPACT_PROMPT, "next"]);
+        let initialize = &sent(&log)[0];
+        assert_eq!(
+            initialize["params"]["clientCapabilities"]["session"]["compaction"],
+            serde_json::json!({})
+        );
+        let (entries, _) = session.live.borrow().transcript(100);
+        let compacted: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.text == COMPACTED_ENTRY)
+            .collect();
+        assert_eq!(compacted.len(), 1, "{entries:?}");
+        assert_eq!(compacted[0].kind, EntryKind::Other);
+        assert!(
+            !entries.iter().any(|entry| entry.text == COMPACT_PROMPT),
+            "the node's /compact is not shown as the user's"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An adapter that writes Claude Code's threshold variable to `$1.env`
+    /// and refuses to start.
+    const ENV_ADAPTER: &str = r#"
+printf '%s\n' "${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE-unset}" > "$1.env"
+read -r line
+printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"no"}}\n' "$(id)"
+cat > /dev/null
+"#;
+
+    /// What Claude Code's threshold variable held when `agent` started
+    /// with `env` set, or `unset`.
+    async fn threshold_seen(dir: &Path, agent: &str, env: &[(&str, &str)]) -> String {
+        let log = dir.join("sent");
+        let mut kind = script(agent, ENV_ADAPTER, &log);
+        for (name, value) in env {
+            kind.env.insert((*name).into(), (*value).into());
+        }
+        let session = Session::start(start_on(&kind, dir, None)).unwrap();
+        until(&session, |live| live.status() == Status::Ended).await;
+        let seen = std::fs::read_to_string(log.with_extension("env")).unwrap();
+        seen.trim().to_owned()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn claude_starts_with_the_threshold_unless_the_user_set_its_own() {
+        let dir = temp("compact-env");
+        assert_eq!(threshold_seen(&dir, "claude", &[]).await, "80");
+        let at = ("BEEP_COMPACT_AT", "70");
+        assert_eq!(threshold_seen(&dir, "claude", &[at]).await, "70");
+        let off = ("BEEP_COMPACT_AT", "off");
+        assert_eq!(threshold_seen(&dir, "claude", &[off]).await, "unset");
+        let own = ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "60");
+        assert_eq!(threshold_seen(&dir, "claude", &[own, at]).await, "60");
+        assert_eq!(threshold_seen(&dir, "codex", &[]).await, "unset");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
