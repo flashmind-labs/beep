@@ -19,6 +19,7 @@ mod open_app;
 mod places;
 mod products;
 mod progress;
+pub(crate) mod projects;
 mod route;
 pub(crate) mod skills;
 pub(crate) mod stocks;
@@ -103,6 +104,10 @@ pub fn registry(
         }));
     }
     registry.register(Arc::new(progress::TaskProgressTool));
+    registry.register(Arc::new(projects::ProjectsTool {
+        app: app.clone(),
+        user: user.clone(),
+    }));
     if draws.charts {
         registry.register(Arc::new(charts::ShowChartTool));
         registry.register(Arc::new(charts::ShowStockChartTool));
