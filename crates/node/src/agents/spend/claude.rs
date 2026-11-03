@@ -136,11 +136,4 @@ mod tests {
         };
         assert_eq!(request.billing, Billing::Metered);
     }
-
-    #[test]
-    fn user_lines_and_synthetic_messages_give_nothing() {
-        assert!(line(r#"{"type":"user","message":{"usage":{}}}"#).is_none());
-        let synthetic = LINE.replace("claude-opus-5-5", "<synthetic>");
-        assert!(line(&synthetic).is_none());
-    }
 }

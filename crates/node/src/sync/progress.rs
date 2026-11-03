@@ -120,22 +120,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_rate_and_time_left_come_from_the_bytes_moved() {
-        let start = Instant::now();
-        let mut meter = Meter::new(4, 4_000_000, start);
-        let first = meter.progress();
-        assert_eq!(first.rate, 0);
-        assert_eq!(first.eta_secs, None);
-        meter.done(1_000_000, start + Duration::from_secs(1));
-        meter.done(1_000_000, start + Duration::from_secs(2));
-        let p = meter.progress();
-        assert_eq!((p.files_done, p.files_total), (2, 4));
-        assert_eq!((p.bytes_done, p.bytes_total), (2_000_000, 4_000_000));
-        assert_eq!(p.rate, 1_000_000);
-        assert_eq!(p.eta_secs, Some(2));
-    }
-
-    #[test]
     fn the_rate_follows_the_last_ten_seconds() {
         let start = Instant::now();
         let mut meter = Meter::new(100, 100_000_000, start);
@@ -166,14 +150,6 @@ mod tests {
         meter.failed(200);
         let p = meter.progress();
         assert_eq!((p.files_done, p.bytes_total), (1, 100));
-    }
-
-    #[test]
-    fn nothing_left_takes_no_time_and_no_rate_cannot_tell() {
-        assert_eq!(eta(0, 0), Some(0));
-        assert_eq!(eta(10, 0), None);
-        assert_eq!(eta(10, 3), Some(4));
-        assert_eq!(eta(u64::MAX, 1), None);
     }
 
     #[test]

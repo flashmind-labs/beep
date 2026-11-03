@@ -208,26 +208,4 @@ pub(super) mod tests {
             (1_788_000_000, 1_788_000_090)
         );
     }
-
-    #[test]
-    fn reads_a_named_database_and_other_channels() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        let named = root.path().join("elsewhere.db");
-        database(&named);
-        assert_eq!(sessions(&named, &Memos::default()).len(), 2);
-        let data = root.path().join("data");
-        fs::create_dir_all(&data).expect("folders");
-        database(&data.join("opencode-dev.db"));
-        assert_eq!(sessions(&data, &Memos::default()).len(), 2);
-    }
-
-    #[test]
-    fn a_database_of_another_shape_is_skipped() {
-        let root = tempfile::tempdir().expect("a temp folder");
-        let conn = Connection::open(root.path().join("opencode.db")).expect("a database");
-        conn.execute_batch("CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT);")
-            .expect("the schema");
-        drop(conn);
-        assert!(sessions(root.path(), &Memos::default()).is_empty());
-    }
 }

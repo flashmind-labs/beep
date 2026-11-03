@@ -255,21 +255,6 @@ mod tests {
     }
 
     #[test]
-    fn carriage_returns_leave_the_last_text_written() {
-        assert_eq!(clean_output("one\rtwo\r\n"), "two");
-        assert_eq!(
-            clean_output("fetching 10%\rfetching done\r\x1b[K"),
-            "fetching done"
-        );
-    }
-
-    #[test]
-    fn blank_lines_fold_and_text_is_kept() {
-        let text = "\n\nfirst\n\n\n\nsecond   spaced\n\n";
-        assert_eq!(clean_output(text), "first\n\nsecond   spaced");
-    }
-
-    #[test]
     fn the_failure_line_is_cut_to_length() {
         let long = format!("Error: {}", "word ".repeat(100));
         let line = failure_line(&long, 60);

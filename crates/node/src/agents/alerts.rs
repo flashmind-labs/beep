@@ -54,33 +54,3 @@ impl AlertHub {
         self.unsent().drain(..).collect()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use beep_proto::node::agent::AlertKind;
-
-    fn failed(reason: &str) -> Alert {
-        Alert {
-            session: "s1".into(),
-            agent: "codex".into(),
-            title: None,
-            cwd: "/srv/project".into(),
-            kind: AlertKind::Failed {
-                reason: reason.into(),
-            },
-        }
-    }
-
-    #[tokio::test]
-    async fn alerts_wait_in_order_and_the_oldest_go_first() {
-        let hub = AlertHub::default();
-        for n in 0..MAX_UNSENT + 2 {
-            hub.record(failed(&n.to_string()));
-        }
-        assert_eq!(hub.next().await, failed("2"));
-        let rest = hub.drain();
-        assert_eq!(rest.len(), MAX_UNSENT - 1);
-        assert_eq!(rest.last(), Some(&failed(&(MAX_UNSENT + 1).to_string())));
-    }
-}

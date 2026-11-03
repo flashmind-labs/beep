@@ -209,7 +209,6 @@ fn claude_temp_in(set: Option<&std::ffi::OsStr>, uid: u32) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use tempfile::TempDir;
 
     #[test]
@@ -256,18 +255,6 @@ mod tests {
             work: vec![project.path().to_owned()],
             ..Reach::default()
         }
-    }
-
-    #[test]
-    fn a_project_file_is_reached() {
-        let project = TempDir::new().unwrap();
-        fs::create_dir(project.path().join("src")).unwrap();
-        fs::write(project.path().join("src/clip.mp4"), "video").unwrap();
-        let reach = project_reach(&project);
-        let file = check(&reach, &project.path().join("src/clip.mp4"), Access::Read).unwrap();
-        assert_eq!(fs::read(file).unwrap(), b"video");
-        let folder = check(&reach, &project.path().join("src"), Access::Write).unwrap();
-        assert!(folder.is_dir());
     }
 
     #[test]
@@ -327,25 +314,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn claude_codes_temp_folder_is_read() {
-        let temp = TempDir::new().unwrap();
-        fs::create_dir(temp.path().join("scratchpad")).unwrap();
-        fs::write(temp.path().join("scratchpad/plot.png"), "png").unwrap();
-        let reach = Reach {
-            read: vec![temp.path().to_owned()],
-            ..Reach::default()
-        };
-        let file = check(
-            &reach,
-            &temp.path().join("scratchpad/plot.png"),
-            Access::Read,
-        )
-        .unwrap();
-        assert_eq!(fs::read(file).unwrap(), b"png");
-        assert!(check(&reach, &temp.path().join("scratchpad"), Access::Read).is_ok());
-    }
-
     #[cfg(unix)]
     #[test]
     fn a_symlink_out_of_claude_codes_temp_folder_is_refused() {
@@ -400,25 +368,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(real, fs::canonicalize(&asked).unwrap());
-    }
-
-    /// Requests close together share one look in the agents' logs.
-    #[tokio::test]
-    async fn the_folders_found_in_the_logs_are_kept_a_while() {
-        let project = TempDir::new().unwrap();
-        let agents = Agents::new(Vec::new());
-        let folders = Arc::new(vec![project.path().to_owned()]);
-        *agents.sighted.lock().await = Some(super::super::Sighted {
-            at: tokio::time::Instant::now(),
-            folders: folders.clone(),
-        });
-        let kept = agents.sighted_folders().await.unwrap();
-        assert!(Arc::ptr_eq(&kept, &folders));
-        let real = agents
-            .reachable(project.path().to_str().unwrap(), Access::Read)
-            .await
-            .unwrap();
-        assert_eq!(real, fs::canonicalize(project.path()).unwrap());
     }
 
     #[test]

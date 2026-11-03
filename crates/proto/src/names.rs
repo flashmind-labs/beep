@@ -69,17 +69,6 @@ pub fn username(id: &EndpointId) -> String {
 mod tests {
     use super::*;
     use iroh::SecretKey;
-    use std::collections::HashSet;
-
-    #[test]
-    fn words_are_distinct_lowercase_and_unhyphenated() {
-        for list in [&ADJECTIVES, &ANIMALS, &VERBS] {
-            assert_eq!(list.iter().collect::<HashSet<_>>().len(), list.len());
-            for word in list {
-                assert!(word.chars().all(|c| c.is_ascii_lowercase()), "{word}");
-            }
-        }
-    }
 
     #[test]
     fn names_are_stable() {

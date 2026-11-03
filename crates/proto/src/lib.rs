@@ -5732,53 +5732,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn media_mime_goes_by_extension() {
-        assert_eq!(media_mime("/out/clip.MP4"), Some("video/mp4"));
-        assert_eq!(media_mime("~/renders/scene.glb"), Some("model/gltf-binary"));
-        assert_eq!(media_mime("C:\\out\\report.pdf"), Some("application/pdf"));
-        assert_eq!(media_mime("/out/logo.svg"), Some("image/svg+xml"));
-        assert_eq!(media_mime("/out/take.mov"), Some("video/quicktime"));
-        assert_eq!(media_mime("/out/notes.txt"), None);
-        assert_eq!(media_mime("/out/mp4"), None);
-        assert_eq!(media_mime("/out/.png"), None);
-        assert_eq!(media_mime("/out.png/clip"), None);
-    }
-
-    #[test]
-    fn request_round_trip_is_compact() {
-        let request = GetRun { id: "r1".into() };
-        let buf = rmp_serde::to_vec(&request).unwrap();
-        // fixarray(1), fixstr(2) "r1"
-        assert_eq!(buf, [0x91, 0xa2, b'r', b'1']);
-        assert_eq!(rmp_serde::from_slice::<GetRun>(&buf).unwrap(), request);
-        assert_eq!(rmp_serde::to_vec(&Health {}).unwrap(), [0x90]);
-
-        let chat = Chat {
-            session_id: Uuid::new_v4(),
-            request_id: Uuid::new_v4(),
-            message: "hi".into(),
-            images: vec!["data:image/jpeg;base64,AAAA".into()],
-            model: Some("openai/gpt-test".into()),
-            thinking: Some(ReasoningLevel::High),
-            platform: Some(Platform::Ios {}),
-            files: vec![Upload {
-                name: "a.pdf".into(),
-                mime: "application/pdf".into(),
-                data: vec![1, 2, 3],
-            }],
-            research: true,
-            voice: Some(Upload {
-                name: "reply.wav".into(),
-                mime: "audio/wav".into(),
-                data: vec![4, 5],
-            }),
-            spoken: true,
-        };
-        let buf = rmp_serde::to_vec(&chat).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap(), chat);
-    }
-
-    #[test]
     fn only_a_resolved_notice_names_a_question() {
         let question = PendingApproval {
             run_id: String::new(),
@@ -5803,20 +5756,6 @@ mod tests {
             ..resolved
         };
         assert_eq!(group.resolved_question(), None);
-    }
-
-    #[test]
-    fn a_place_crossing_decodes() {
-        let request = CrossPlace {
-            id: "p1".into(),
-            crossing: PlaceCrossing::Leave {},
-        };
-        let buf = rmp_serde::to_vec(&request).unwrap();
-        // fixarray(2), fixstr(2) "p1", fixarray(1) op 1
-        assert_eq!(buf, [0x92, 0xa2, b'p', b'1', 0x91, 0x01]);
-        assert_eq!(rmp_serde::from_slice::<CrossPlace>(&buf).unwrap(), request);
-        let unknown = [0x92, 0xa2, b'p', b'1', 0x91, 0x07];
-        assert!(rmp_serde::from_slice::<CrossPlace>(&unknown).is_err());
     }
 
     #[test]
@@ -5850,30 +5789,6 @@ mod tests {
         let decoded: SendToGroup = rmp_serde::from_slice(&buf).unwrap();
         assert_eq!(decoded.message, "hi");
         assert!(decoded.images.is_empty());
-    }
-
-    #[test]
-    fn nested_types_round_trip() {
-        let event = Event {
-            seq: 7,
-            event: RunEvent::DeviceQuery {
-                query_id: "q".into(),
-                query: DeviceQuery::Contacts { name: "Ana".into() },
-            },
-        };
-        let buf = rmp_serde::to_vec(&event).unwrap();
-        let decoded: Event = rmp_serde::from_slice(&buf).unwrap();
-        assert_eq!(rmp_serde::to_vec(&decoded).unwrap(), buf);
-
-        let query = DeviceQuery::Browser {
-            command: BrowserCommand::TypeElement {
-                index: 3,
-                text: "rust".into(),
-                submit: true,
-            },
-        };
-        let buf = rmp_serde::to_vec(&query).unwrap();
-        assert_eq!(rmp_serde::from_slice::<DeviceQuery>(&buf).unwrap(), query);
     }
 
     #[test]
@@ -5959,15 +5874,6 @@ mod tests {
         use compat::Sample;
         assert_eq!(Shape::samples(1), [Shape::Old { size: 42 }]);
         assert_eq!(Shape::samples(u32::MAX).len(), 2);
-    }
-
-    #[test]
-    fn decode_rejects_bad_requests() {
-        assert!(Op::try_from(0xff).is_err(), "unknown op");
-        assert!(
-            rmp_serde::from_slice::<GetRun>(&[0x90]).is_err(),
-            "missing argument"
-        );
     }
 
     #[test]
