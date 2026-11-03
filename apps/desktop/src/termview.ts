@@ -32,11 +32,17 @@ export function makeScreen(): Screen {
   const fit = new FitAddon();
   term.loadAddon(fit);
   let opened = false;
+  // Asked for focus before it was opened: given once it is.
+  let wantFocus = false;
   // Opened and fitted once the element is on the page with a size; output
   // written before then waits in the terminal's buffer.
   const fitNow = () => {
     if (!el.isConnected || !el.clientWidth || !el.clientHeight) return;
-    if (!opened) { term.open(el); opened = true; }
+    if (!opened) {
+      term.open(el);
+      opened = true;
+      if (wantFocus) { wantFocus = false; term.focus(); }
+    }
     fit.fit();
   };
   const resized = new ResizeObserver(fitNow);
@@ -47,7 +53,8 @@ export function makeScreen(): Screen {
     note: text => term.write(`\r\n\x1b[2m${text}\x1b[0m\r\n`),
     size: () => ({ cols: term.cols, rows: term.rows }),
     fit: fitNow,
-    focus: () => term.focus(),
+    focus: () => { if (opened) term.focus(); else wantFocus = true; },
+    focused: () => el.contains(document.activeElement),
     onData: cb => { term.onData(cb); },
     onResize: cb => { term.onResize(cb); },
     setInput: on => {
