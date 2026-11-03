@@ -1,6 +1,6 @@
 // The bar under a project page, as plain data: it starts a coding agent in
-// the project's checkout on a machine, by default on a new branch in a new
-// worktree. center.ts draws it.
+// the project's checkout on a machine, by default in the checkout as it is.
+// center.ts draws it.
 
 import type { CheckoutPick } from "./bar/agentpick.ts";
 
@@ -42,14 +42,14 @@ export function barPrompt(name: string, ready: boolean) {
 /// The Folder pill: what the start works on, and what it starts from.
 export function barCheckout(pick: CheckoutPick, base: string | null): { label: string; sub: string } {
   const from = `from ${base || "HEAD"}`;
-  if (pick === "new" || pick === "auto") return { label: "New worktree", sub: from };
+  if (pick === "new") return { label: "New worktree", sub: from };
   if (pick === "branch") return { label: "New branch", sub: from };
   if (pick === "current") return { label: "Current checkout", sub: "as it is" };
   return { label: pick.worktree.split("/").pop() || pick.worktree, sub: "worktree" };
 }
 
 /// The line under the bar.
-export const BAR_NOTE = "The agent works on its own branch in a new worktree unless you pick the checkout. Its session opens here.";
+export const BAR_NOTE = "The agent starts in the checkout and makes its own branch and worktree before it changes files. Its session opens here.";
 
 /// What Work on it, Continue or Fix this put in the bar: a new worktree on
 /// `branch` (editable) from `base` for an issue, a pull request's own

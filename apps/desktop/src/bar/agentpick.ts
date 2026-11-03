@@ -146,37 +146,23 @@ export function machineRows(
   return [...able, ...rest];
 }
 
-/// Which checkout a session starts in: Auto, the checkout as it is, a new
-/// branch in the checkout, a new worktree on a new branch (both named from
-/// the prompt), or an existing worktree by folder.
-export type CheckoutPick = "auto" | "current" | "branch" | "new" | { worktree: string };
+/// Which checkout a session starts in: the checkout as it is, a new branch
+/// in the checkout, a new worktree on a new branch (both named from the
+/// prompt), or an existing worktree by folder.
+export type CheckoutPick = "current" | "branch" | "new" | { worktree: string };
 
-/// What Auto resolves to: the checkout, unless a session of ours already
-/// runs in it on that machine, then a new worktree. A pick other than
-/// Auto stands.
-export function checkoutFor(pick: CheckoutPick, busy: boolean): Exclude<CheckoutPick, "auto"> {
-  if (pick !== "auto") return pick;
-  return busy ? "new" : "current";
-}
+/// What a start picks when the user picks nothing: the checkout as it is.
+/// Beep makes no branch; the agent is told to make its own branch and
+/// worktree before it changes files.
+export const DEFAULT_CHECKOUT: CheckoutPick = "current";
 
-/// The session fields the checkout rule reads.
+/// The session fields the worktree list reads.
 export interface SessionAt {
   machine_id: string;
   cwd: string;
-  status: string;
-  external: boolean;
 }
 
-const RUNNING = new Set(["asking", "working", "running", "starting", "waiting", "idle"]);
 const trimmed = (p: string) => p.replace(/\/+$/, "");
-
-/// Whether one of our sessions (not one started outside Beep) is open in
-/// `cwd` on `machine`.
-export function folderBusy(sessions: readonly SessionAt[], machine: string | null, cwd: string): boolean {
-  if (!machine || !cwd.trim()) return false;
-  const at = trimmed(cwd.trim());
-  return sessions.some(s => s.machine_id === machine && !s.external && RUNNING.has(s.status) && trimmed(s.cwd) === at);
-}
 
 /// The checkout's worktrees on `machine` that sessions ran in, newest
 /// first: folders under `<checkout>/.worktrees/`.
@@ -192,10 +178,9 @@ export function knownWorktrees(sessions: readonly (SessionAt & { last_activity?:
 }
 
 /// What the checkout row of the Folder button says.
-export function checkoutLabel(pick: CheckoutPick, busy: boolean): string {
-  const on = checkoutFor(pick, busy);
-  const what = on === "current" ? "Current checkout" : on === "branch" ? "New branch" : on === "new" ? "New worktree" : `Worktree ${on.worktree.split("/").pop()}`;
-  return pick === "auto" ? `Auto: ${what}` : what;
+export function checkoutLabel(pick: CheckoutPick): string {
+  if (typeof pick === "object") return `Worktree ${pick.worktree.split("/").pop()}`;
+  return pick === "current" ? "Current checkout" : pick === "branch" ? "New branch" : "New worktree";
 }
 
 /// What `agent_start` sends as `checkout`: the node makes a `beep/<slug>`
@@ -204,20 +189,19 @@ export function checkoutLabel(pick: CheckoutPick, busy: boolean): string {
 export type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
 
 /// Whether the pick makes a new branch, so the form asks for its base.
-export function makesBranch(pick: CheckoutPick, busy: boolean): boolean {
-  const on = checkoutFor(pick, busy);
-  return on === "branch" || on === "new";
+export function makesBranch(pick: CheckoutPick): boolean {
+  return pick === "branch" || pick === "new";
 }
 
 /// The folder and checkout plan a start sends for `pick` in the checkout
 /// `cwd`: an existing worktree is a folder to start in, a new branch or
-/// worktree is a plan the node carries out in `cwd`.
-export function startPlace(pick: CheckoutPick, busy: boolean, cwd: string, base: string | null): { cwd: string; checkout: CheckoutPlan | null } {
-  const on = checkoutFor(pick, busy);
+/// worktree is a plan the node carries out in `cwd`, and the checkout
+/// sends no plan, so nothing is made.
+export function startPlace(pick: CheckoutPick, cwd: string, base: string | null): { cwd: string; checkout: CheckoutPlan | null } {
   const from = base?.trim() || null;
-  if (typeof on === "object") return { cwd: on.worktree, checkout: null };
-  if (on === "branch") return { cwd, checkout: { new_branch: { base: from } } };
-  if (on === "new") return { cwd, checkout: { new_worktree: { base: from } } };
+  if (typeof pick === "object") return { cwd: pick.worktree, checkout: null };
+  if (pick === "branch") return { cwd, checkout: { new_branch: { base: from } } };
+  if (pick === "new") return { cwd, checkout: { new_worktree: { base: from } } };
   return { cwd, checkout: null };
 }
 

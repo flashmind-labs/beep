@@ -99,6 +99,13 @@ test("a subagent's steps are read from its call", () => {
   assert.equal(subagent("plain output"), null);
 });
 
+test("a subagent's type or custom agent's name is read from its call", () => {
+  assert.deepEqual(subagent("[steps] 1\n[step completed] Read a.rs\n[agent] release-checker\nThe notes match"), {
+    count: 1, steps: [{ status: "completed", title: "Read a.rs" }], result: "The notes match", agent: "release-checker",
+  });
+  assert.deepEqual(subagent("[steps] 0\n[agent] Explore"), { count: 0, steps: [], result: "", agent: "Explore" });
+});
+
 test("Codex's echo of answered questions reads as questions and answers", () => {
   const text = '<send_user_message_question_reply>[{"answer":"Use the web app text","question":"Which error text?","questionItemId":"[q1]"},{"answer":"Yes","question":"Run tests?","questionItemId":"[q2]"}]</send_user_message_question_reply>';
   assert.deepEqual(answeredQuestions(text), [{ question: "Which error text?", answer: "Use the web app text" }, { question: "Run tests?", answer: "Yes" }]);

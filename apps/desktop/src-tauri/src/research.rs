@@ -130,12 +130,12 @@ fn open_windows<R: Runtime>(app: &AppHandle<R>, closing: Option<&str>) -> usize 
         .count()
 }
 
-/// Whether a command center window, the main one or a project's, is open,
-/// leaving out `closing`.
+/// Whether a command center window, the main one or a project's, is on
+/// screen, leaving out `closing`. The main window hides when closed.
 fn center_open<R: Runtime>(app: &AppHandle<R>, closing: &str) -> bool {
-    app.webview_windows()
-        .keys()
-        .any(|label| label != closing && center::is_center(label))
+    app.webview_windows().iter().any(|(label, window)| {
+        label != closing && center::is_center(label) && window.is_visible().unwrap_or(true)
+    })
 }
 
 /// Research windows and the command center windows are ordinary windows:

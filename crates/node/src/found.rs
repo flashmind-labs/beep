@@ -15,6 +15,7 @@ use beep_proto::{
     AgentSlug,
     node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
 };
+use rusqlite::{Connection, OpenFlags};
 use std::{
     cmp::Reverse,
     collections::HashMap,
@@ -27,6 +28,7 @@ use std::{
 };
 
 mod codex;
+mod codex_run;
 mod flsh;
 mod git;
 mod memo;
@@ -189,6 +191,24 @@ impl Stores {
         describe(seen, now)
     }
 
+    /// What the first of `threads` with a rollout here did, for a Codex
+    /// subagent's entry; `None` when Codex has no folder or no rollout of
+    /// them.
+    pub(crate) fn codex_run(&self, threads: &[String]) -> Option<crate::agents::SubagentRun> {
+        let root = self.codex.as_deref()?;
+        let path = threads
+            .iter()
+            .find_map(|thread| codex_run::rollout(root, thread))?;
+        codex_run::read(&path)
+            .inspect_err(|e| {
+                log::debug!(
+                    "subagent rollout not read; path={} error={e}",
+                    path.display()
+                )
+            })
+            .ok()
+    }
+
     /// The file of session `id`, of `agent` when given; `None` for one not
     /// found or kept in a database.
     pub(crate) fn file(&self, agent: Option<Agent>, id: &str) -> Option<PathBuf> {
@@ -248,6 +268,17 @@ impl LogRoots {
 }
 
 /// OpenCode's databases at `root`: the file itself, or those in the folder.
+/// Opens the agent's database `path` to read, waiting a little while it is
+/// locked.
+pub(crate) fn open_database(path: &Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.busy_timeout(Duration::from_millis(200))?;
+    Ok(conn)
+}
+
 pub(crate) fn opencode_databases(root: &Path) -> Vec<PathBuf> {
     opencode::databases_at(root)
 }

@@ -40,6 +40,10 @@ pub enum View {
     /// The machines' agent sessions as the server listed them, which Home
     /// uses while the machines are slow to answer.
     AgentSessions,
+    /// What each project's page last read, section by section, as the page
+    /// saves it (`pagecache.ts`), with the account it belongs to and its
+    /// size capped there.
+    Pages,
 }
 
 #[derive(Serialize, Deserialize)]

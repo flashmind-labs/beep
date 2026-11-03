@@ -13,6 +13,8 @@ export interface CachedViews {
   sync?: SyncRow[];
   agents?: ProjectAgent[] | null;
   overview?: OverviewCard[] | null;
+  /// What the project pages last read, as `pagecache.ts` saved it.
+  pages?: unknown;
 }
 
 /// The parts of the window's state the kept views fill.

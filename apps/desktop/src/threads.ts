@@ -13,10 +13,11 @@ import type { ProjectAgent, TaskRow } from "./project.ts";
 import type { TileData } from "./board.ts";
 import { STATE_LABEL, reviewState } from "./review.ts";
 import type { ReviewState, ReviewView } from "./review.ts";
-import { plural, since } from "./components/format.ts";
+import { plural } from "./components/format.ts";
+import { emptyPanel, freshNote, stateChip } from "./components/parts.ts";
+import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
 import { checksText, going } from "./runs.ts";
 import type { ChecksRow } from "./runs.ts";
-import { emptyPanel, stateChip } from "./components/parts.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -86,6 +87,10 @@ export type PrReview = Pick<ReviewView, "branch"> & Parameters<typeof reviewStat
 
 /// The rows a section shows before Show all.
 export const SHOWN = 10;
+
+/// How long after a try the lists may be read again unasked: the page
+/// cache's time for the code host's lists.
+const REFRESH_GAP = REFRESH_MS;
 
 /// "#52", "PR #41".
 export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
@@ -292,9 +297,25 @@ export function issueCount(lines: readonly Pick<IssueLine, "task">[]) {
 
 /// The rows a section shows: all of them once Show all was clicked, else
 /// the first `SHOWN`; `hidden` counts the rest.
-export function firstRows<T>(rows: readonly T[], all: boolean): { rows: T[]; hidden: number } {
-  if (all || rows.length <= SHOWN) return { rows: [...rows], hidden: 0 };
-  return { rows: rows.slice(0, SHOWN), hidden: rows.length - SHOWN };
+export function firstRows<T>(rows: readonly T[], all: boolean, limit = SHOWN): { rows: T[]; hidden: number } {
+  if (all || rows.length <= limit) return { rows: [...rows], hidden: 0 };
+  return { rows: rows.slice(0, limit), hidden: rows.length - limit };
+}
+
+/// The issues the Issues section shows before Show all.
+export const ISSUES_SHOWN = 3;
+
+/// Every label on the open issues, with how many carry it, most used first.
+export function issueLabels(lines: readonly Pick<IssueLine, "issue">[]) {
+  const counts = new Map<string, number>();
+  for (const l of lines) for (const label of l.issue?.labels || []) counts.set(label, (counts.get(label) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count }));
+}
+
+/// The lines whose issue carries any of `picked`; all of them when none is.
+export function withLabels<T extends Pick<IssueLine, "issue">>(lines: readonly T[], picked: ReadonlySet<string>): T[] {
+  if (!picked.size) return [...lines];
+  return lines.filter(l => (l.issue?.labels || []).some(label => picked.has(label)));
 }
 
 /// The longest slug of a title an issue's branch takes.
@@ -357,6 +378,16 @@ export interface ThreadDeps {
   openUrl: (url: string) => unknown;
   openChat: (chat: string) => void;
   changed: () => unknown;
+  /// Where the lists are kept between windows; in memory only without it.
+  kept?: SectionStore<KeptThreads>;
+}
+
+/// A project's lists as the page cache keeps them.
+export interface KeptThreads {
+  issues: IssueRow[] | null;
+  threads: ThreadRow[] | null;
+  prs: PullRequestRow[] | null;
+  chats: ThreadChatRow[] | null;
 }
 
 /// One project's lists: undefined while they load, null from a server too
@@ -374,6 +405,8 @@ interface ProjectThreads {
   busy: Set<string>;
   failed: Map<string, string>;
   all: Set<string>;
+  /// The labels the Issues section is filtered to; none shows every issue.
+  labels: Set<string>;
   /// When the server last read the lists from the host; null when unknown.
   syncedAt: number | null;
 }
@@ -383,31 +416,54 @@ type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
 export function makeThreads(deps: ThreadDeps) {
   const { invoke, h, button, ago, redraw, openUrl, openChat, changed } = deps;
+  const kept = deps.kept ?? new PageCache(null).section<KeptThreads>("threads");
   const all = new Map<string, ProjectThreads>();
 
+  /// A project's lists, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
     if (!s) {
-      s = { issues: undefined, threads: undefined, prs: undefined, chats: undefined, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set(), syncedAt: null };
+      const k = kept.get(id);
+      s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set(), labels: new Set(), syncedAt: null };
       all.set(id, s);
     }
     return s;
   };
 
-  /// Projects whose first read is on its way; a draw asking again waits.
-  const first = new Set<string>();
+  /// Projects whose read is on its way (a load meanwhile is dropped), and
+  /// when each was last tried, so a failing host is not asked on
+  /// every draw.
+  const reading = new Set<string>();
+  const tried = new Map<string, number>();
+
+  /// Reads `id` when it is due: never read, or the refresh time passed
+  /// since the last try. Every draw may ask; Refresh reads anyway.
+  function ensure(id: string) {
+    const last = tried.get(id);
+    const due = last === undefined ? kept.due(id) : Date.now() - last >= REFRESH_GAP;
+    if (due && !reading.has(id)) load(id);
+  }
+
+  /// The section header's note: a spinner while kept lists read again,
+  /// else how old they are: when the server synced them from the host, or
+  /// on a server too old to say, when this page read them.
+  const fresh = (id: string) => {
+    const synced = of(id).syncedAt;
+    const f = freshness(synced ?? kept.at(id), reading.has(id), Date.now());
+    return freshNote(synced ? { ...f, text: f.text.replace(/^updated/, "synced") } : f);
+  };
 
   /// The open issues and pull requests: from the server's copy, or read
   /// from the host each time on a server too old to keep one. `refresh`
   /// asks the server to read the host now.
   async function lists(id: string, refresh: boolean): Promise<[PromiseSettledResult<IssueRow[] | null>, PromiseSettledResult<PullRequestRow[] | null>]> {
     const s = of(id);
-    const kept = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh });
-    if (kept) {
-      s.syncedAt = kept.synced_at;
+    const copy = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh });
+    if (copy) {
+      s.syncedAt = copy.synced_at;
       return [
-        kept.issues_error ? { status: "rejected", reason: kept.issues_error } : { status: "fulfilled", value: kept.issues },
-        kept.prs_error ? { status: "rejected", reason: kept.prs_error } : { status: "fulfilled", value: kept.prs },
+        copy.issues_error ? { status: "rejected", reason: copy.issues_error } : { status: "fulfilled", value: copy.issues },
+        copy.prs_error ? { status: "rejected", reason: copy.prs_error } : { status: "fulfilled", value: copy.prs },
       ];
     }
     s.syncedAt = null;
@@ -419,14 +475,17 @@ export function makeThreads(deps: ThreadDeps) {
 
   async function load(id: string, refresh = false) {
     const s = of(id);
-    if (s.issues === undefined && first.has(id)) return;
-    first.add(id);
+    if (reading.has(id)) return;
+    reading.add(id);
+    tried.set(id, Date.now());
+    // Kept lists stay up meanwhile, with a spinner in their header.
+    if (s.issues !== undefined) queueMicrotask(redraw);
     const [both, threads, chats] = await Promise.allSettled([
       lists(id, refresh),
       invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
       invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
     ]);
-    first.delete(id);
+    reading.delete(id);
     const [issues, prs] = both.status === "fulfilled" ? both.value : [both, both] as const;
     s.error = "";
     /// What a list becomes: what came back, else what it had or none.
@@ -444,6 +503,10 @@ export function makeThreads(deps: ThreadDeps) {
     s.prsError = prs.status === "rejected" ? reason(prs.reason) : "";
     // Without the list the tile shows the user's own threads as before.
     s.prs = prs.status === "fulfilled" ? prs.value : s.prs ?? null;
+    // Kept once the host answered; a failed read keeps the last good lists.
+    if (issues.status === "fulfilled" && prs.status === "fulfilled" && !s.error) {
+      kept.put(id, { issues: s.issues ?? null, threads: s.threads ?? null, prs: s.prs ?? null, chats: s.chats ?? null });
+    }
     redraw();
   }
 
@@ -496,10 +559,7 @@ export function makeThreads(deps: ThreadDeps) {
   function section(agent: Agent, id: string, title: string, count: string, body: HTMLElement[], note?: HTMLElement) {
     const box = h("div");
     box.id = id;
-    const synced = of(agent.project_id).syncedAt;
-    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null,
-      synced ? h("small", "sw-age", `synced ${since(synced)}`) : null,
-      button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
+    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
     if (note) box.append(note);
     return box;
   }
@@ -511,14 +571,14 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// The rows, the first `SHOWN` until Show all.
-  function rowsPanel<T>(agent: Agent, key: string, lines: readonly T[], draw: (line: T) => HTMLElement) {
+  function rowsPanel<T>(agent: Agent, key: string, lines: readonly T[], draw: (line: T) => HTMLElement, limit = SHOWN, head?: HTMLElement) {
     const s = of(agent.project_id);
-    const { rows, hidden } = firstRows(lines, s.all.has(key));
-    const out = rows.map(draw);
+    const { rows, hidden } = firstRows(lines, s.all.has(key), limit);
+    const out = head ? [head, ...rows.map(draw)] : rows.map(draw);
     if (hidden) {
       out.push(h("div", "pj-task pj-more", h("span", "t dmuted", `${hidden} more`),
         h("span", "acts", button(`Show all ${lines.length}`, "quiet small", () => { s.all.add(key); redraw(); }))));
-    } else if (s.all.has(key) && lines.length > SHOWN) {
+    } else if (s.all.has(key) && lines.length > limit) {
       out.push(h("div", "pj-task pj-more", h("span", "t"), h("span", "acts", button("Show fewer", "quiet small", () => { s.all.delete(key); redraw(); }))));
     }
     return h("div", "cc-panel", ...out);
@@ -548,7 +608,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// wrote after the user, Continue, Review and Open.
   function prsSection(agent: Agent, ctx: RepoActs) {
     const s = of(agent.project_id);
-    if (s.prs === undefined) load(agent.project_id);
+    ensure(agent.project_id);
     const list = s.prs;
     const title = "Pull requests";
     if (s.prsError && !list?.length) return section(agent, "sec-prs", title, "", [emptyNote(s.prsError, true)]);
@@ -592,7 +652,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// it, Plan and Discuss, a task's with its task.
   function issuesSection(agent: Agent, ctx: RepoActs) {
     const s = of(agent.project_id);
-    if (s.issues === undefined) load(agent.project_id);
+    ensure(agent.project_id);
     const list = s.issues;
     const title = "Issues";
     if (s.issuesError && !list?.length) return section(agent, "sec-issues", title, "", [emptyNote(s.issuesError, true)]);
@@ -618,11 +678,31 @@ export function makeThreads(deps: ThreadDeps) {
       ];
       for (const b of buttons) b.disabled = busy;
       buttons[0].title = "Start a coding agent on a new branch for this issue";
-      return h("div", "pj-task pj-issue", h("span", "t", code, ` ${i.title}`), h("span", "m", issueMeta(i, ago)), actsEl(s, [`i${n}`, `d${n}`], buttons));
+      const meta = h("span", "m", issueMeta({ ...i, labels: [] }, ago), ...(i.labels || []).map(labelChip));
+      return h("div", "pj-task pj-issue", h("span", "t", code, ` ${i.title}`), meta, actsEl(s, [`i${n}`, `d${n}`], buttons));
     };
+    // A label on a row or in the bar narrows the list to it; again widens.
+    const toggle = (label: string) => {
+      if (!s.labels.delete(label)) s.labels.add(label);
+      redraw();
+    };
+    const labelChip = (label: string) => {
+      const b = h("button", `pj-label${s.labels.has(label) ? " on" : ""}`, label);
+      b.title = s.labels.has(label) ? "Show every issue again" : `Show only issues labeled ${label}`;
+      b.addEventListener("click", () => toggle(label));
+      return b;
+    };
+    const labels = issueLabels(lines);
+    for (const picked of [...s.labels]) if (!labels.some(l => l.name === picked)) s.labels.delete(picked);
+    const bar = labels.length
+      ? h("div", "pj-labels", h("span", "lbl", "Labels"),
+        ...labels.flatMap(l => [labelChip(l.name), h("small", "", String(l.count))]),
+        s.labels.size ? button("Clear", "quiet small", () => { s.labels.clear(); redraw(); }) : null)
+      : undefined;
+    const shown = withLabels(lines, s.labels);
     const body: HTMLElement[] = [];
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
-    body.push(rowsPanel(agent, "issues", lines, draw));
+    body.push(rowsPanel(agent, "issues", shown, draw, ISSUES_SHOWN, bar));
     return section(agent, "sec-issues", title, issueCount(lines), body,
       h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
   }
@@ -630,7 +710,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// The user's pull requests and issues, with replies and chats.
   function threadsPanel(agent: Agent) {
     const s = of(agent.project_id);
-    if (s.threads === undefined) load(agent.project_id);
+    ensure(agent.project_id);
     const list = s.threads;
     const out: HTMLElement[] = [];
     if (list === undefined) return [emptyPanel(h("span", "", "Reading your pull requests and issues…"))];
@@ -638,7 +718,7 @@ export function makeThreads(deps: ThreadDeps) {
     if (s.error) out.push(h("div", "cc-err", s.error));
     const waiting = list.filter(t => t.needs_reply).length;
     out.push(h("div", "cc-sec", h("h4", "", "Your pull requests and issues", h("small", "", waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "")),
-      button("Refresh", "quiet small", () => load(agent.project_id))));
+      fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id))));
     if (!list.length) {
       out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
     } else {
@@ -671,6 +751,9 @@ export function makeThreads(deps: ThreadDeps) {
 
   return {
     load,
+    ensure,
+    loading: (id: string) => reading.has(id),
+    at: (id: string) => kept.at(id),
     issues: (id: string) => of(id).issues,
     issuesError: (id: string) => of(id).issuesError,
     threads: (id: string) => of(id).threads,

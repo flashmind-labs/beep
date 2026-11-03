@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN, makeThreads, type ThreadDeps } from "../src/threads.ts";
+import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueLabels, withLabels, ISSUES_SHOWN, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN, makeThreads, type ThreadDeps } from "../src/threads.ts";
+import type { KeptThreads } from "../src/threads.ts";
+import { PageCache } from "../src/pagecache.ts";
 
 const ago = () => "2 h ago";
 
@@ -192,4 +194,46 @@ test("the lists come from the server's copy, with when it was read and why a lis
   assert.equal(thr.prs("p1")?.length, 1);
   assert.equal(thr.issuesError("p1"), kept.issues_error);
   assert.equal(thr.syncedAt("p1"), kept.synced_at);
+});
+
+test("kept lists show at once, a fresh cache is not read again, and a read is kept", async () => {
+  const asked: string[] = [];
+  const invoke = (async (cmd: string) => { asked.push(cmd); return cmd === "center_project_lists" ? null : cmd === "center_project_issues" ? [{ number: 9 }] : []; }) as unknown as ThreadDeps["invoke"];
+  const cache = new PageCache("acct");
+  cache.put("threads", "p1", { issues: [{ number: 1 }], threads: [], prs: [], chats: [] });
+  const kept = cache.section<KeptThreads>("threads");
+  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {}, kept });
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1]);
+  thr.ensure("p1");
+  assert.equal(asked.length, 0, "a fresh cache is not read again");
+  // A project never read is.
+  thr.ensure("p2");
+  assert.ok(asked.includes("center_project_lists"));
+  await thr.load("p1");
+  assert.deepEqual(kept.get("p1")?.issues?.map(i => i.number), [9]);
+});
+
+test("a failed read keeps the last good lists in the cache", async () => {
+  const invoke = (async (cmd: string) => { if (cmd === "center_project_issues") throw new Error("host down"); return cmd === "center_project_lists" ? null : []; }) as unknown as ThreadDeps["invoke"];
+  const cache = new PageCache("acct");
+  cache.put("threads", "p1", { issues: [{ number: 1 }], threads: [], prs: [], chats: [] });
+  const kept = cache.section<KeptThreads>("threads");
+  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {}, kept });
+  await thr.load("p1");
+  assert.deepEqual(kept.get("p1")?.issues?.map(i => i.number), [1]);
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1]);
+});
+
+test("the Issues section shows the first three until Show all", () => {
+  const rows = [1, 2, 3, 4, 5];
+  assert.deepEqual(firstRows(rows, false, ISSUES_SHOWN), { rows: [1, 2, 3], hidden: 2 });
+  assert.equal(firstRows(rows, true, ISSUES_SHOWN).hidden, 0);
+});
+
+test("labels are counted across issues and filter the list to any picked one", () => {
+  const line = (n: number, labels: string[]) => ({ issue: { labels } as never as import("../src/threads.ts").IssueRow, n });
+  const lines = [line(1, ["bug", "ios"]), line(2, ["bug"]), line(3, ["enhancement"]), { issue: null, n: 4 }];
+  assert.deepEqual(issueLabels(lines), [{ name: "bug", count: 2 }, { name: "enhancement", count: 1 }, { name: "ios", count: 1 }]);
+  assert.deepEqual(withLabels(lines, new Set()).map(l => l.n), [1, 2, 3, 4]);
+  assert.deepEqual(withLabels(lines, new Set(["ios", "enhancement"])).map(l => l.n), [1, 3]);
 });
