@@ -8,7 +8,8 @@ use agent_client_protocol::{
     schema::{
         ProtocolVersion,
         v1::{
-            AGENT_METHOD_NAMES, ContentBlock, ImageContent, Implementation, InitializeRequest,
+            AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
+            CompactionCapabilities, ContentBlock, ImageContent, Implementation, InitializeRequest,
             InitializeResponse, NewSessionRequest, NewSessionResponse, PermissionOptionId,
             PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
             SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
@@ -37,9 +38,11 @@ pub(super) const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 
 /// What `initialize` sends: this client reads and writes no files and runs
 /// no terminals for the agent (the crate's defaults), so it does that work
-/// itself.
+/// itself. It takes `compaction_update`s, which the transcript shows.
 pub(super) fn initialize() -> InitializeRequest {
+    let session = ClientSessionCapabilities::new().compaction(CompactionCapabilities::new());
     InitializeRequest::new(ProtocolVersion::V1)
+        .client_capabilities(ClientCapabilities::new().session(session))
         .client_info(Implementation::new("beep-node", env!("CARGO_PKG_VERSION")))
 }
 
