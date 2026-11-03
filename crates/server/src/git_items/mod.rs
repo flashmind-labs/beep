@@ -1,5 +1,4 @@
-//! The user's open pull requests and issues on their git hosts, for the
-//! command center's Home (`ListGitItems`).
+//! The user's open pull requests and issues on their git hosts (`ListGitItems`).
 
 mod board;
 mod forgejo;

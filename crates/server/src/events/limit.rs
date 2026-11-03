@@ -1,5 +1,4 @@
-//! Per-user limits on how many events are taken in, how often they are
-//! triaged and how often they wake the agent. Times are passed in, so tests need no clock.
+//! Per-user limits on events taken in, triage runs and agent wakes. Times are passed in for tests.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -12,14 +11,11 @@ const SPAN: Duration = Duration::from_secs(60 * 60);
 /// How many of something fit in an hour.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
-    /// Events a user's accounts may store; past it they are dropped, so a
-    /// flood of mail or a noisy repository cannot run up the database.
+    /// Events a user's accounts may store per hour; the rest are dropped.
     pub events_per_hour: usize,
-    /// Times the agent may be woken; past it events wait and go out
-    /// together in the next wake.
+    /// Agent wakes per hour; past it events wait for the next wake.
     pub wakes_per_hour: usize,
-    /// Triage runs a user's events may start; past it events wait and go
-    /// out together in the next run.
+    /// Triage runs per hour; past it events wait for the next run.
     pub triages_per_hour: usize,
 }
 
@@ -78,8 +74,7 @@ impl RateLimiter {
             .take(now, max)
     }
 
-    /// Uncounts an event taken for `user` that was not stored, such as a
-    /// duplicate.
+    /// Uncounts an event that was not stored, such as a duplicate.
     pub fn give_back_event(&mut self, user: &str) {
         if let Some(window) = self.events.get_mut(user) {
             window.give_back();

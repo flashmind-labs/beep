@@ -1,5 +1,4 @@
-//! Asking a node about its coding agent harnesses (`SessionsRequest::
-//! Harnesses` and `UpdateHarness` on `agents/1`).
+//! Asking a node about its coding agent harnesses.
 
 use super::Online;
 use crate::protocol::node::{
@@ -10,22 +9,19 @@ use anyhow::{Context, Result, bail};
 use std::time::Duration;
 use tokio::time::timeout;
 
-/// How long a node may take to report: it runs each harness's version and
-/// sign-in commands, and looks the newest versions up with npm.
+/// How long a node may take to report: it runs each harness and asks npm for versions.
 const REPORT_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long an install or update may take on the node, and a little more.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 
 impl Online {
-    /// What the node finds of each harness; `None` from a node too old to
-    /// say.
+    /// What the node finds of each harness; `None` from a node too old to say.
     pub(crate) async fn harnesses(&self, refresh: bool) -> Result<Option<HarnessReport>> {
         self.ask_harnesses(SessionsRequest::Harnesses { refresh }, REPORT_TIMEOUT)
             .await
     }
 
-    /// Installs or updates `agent` on the node, and gives the harnesses
-    /// after; `None` from a node too old to.
+    /// Installs or updates `agent` on the node; `None` from a node too old to.
     pub(crate) async fn update_harness(&self, agent: &str) -> Result<Option<HarnessReport>> {
         let request = SessionsRequest::UpdateHarness {
             agent: agent.to_owned(),

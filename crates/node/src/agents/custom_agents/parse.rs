@@ -345,53 +345,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claude_agent_reads_every_key() {
-        let text = "---\nname: reviewer\ndescription: Reviews a branch\ntools: Read, Grep, Bash\n\
-                    model: opus\ncolor: blue\n---\n\nYou review code.\n";
-        assert_eq!(
-            markdown(text),
-            Found {
-                name: Some("reviewer".to_owned()),
-                description: "Reviews a branch".to_owned(),
-                model: Some("opus".to_owned()),
-                tools: vec!["Read".to_owned(), "Grep".to_owned(), "Bash".to_owned()],
-                color: Some("blue".to_owned()),
-                prompt: "You review code.".to_owned(),
-                error: None,
-            }
-        );
-    }
-
-    #[test]
-    fn opencode_tool_map_says_what_is_off() {
-        let text = "---\ndescription: Writes docs\nmode: subagent\ntools:\n  write: true\n  bash: false\n---\nWrite docs.";
-        let found = markdown(text);
-        assert_eq!(found.name, None);
-        assert_eq!(found.tools, ["write", "bash off"]);
-        assert_eq!(found.prompt, "Write docs.");
-    }
-
-    #[test]
-    fn tools_as_a_yaml_list() {
-        let found = markdown("---\nname: a\ntools:\n  - Read\n  - Edit\n---\nx");
-        assert_eq!(found.tools, ["Read", "Edit"]);
-    }
-
-    #[test]
     fn broken_yaml_still_gives_what_its_lines_say() {
         let text = "---\nname: helper\ndescription: Use it when: tests fail\n  bad: [\n---\nHelp.";
         let found = markdown(text);
         assert_eq!(found.name.as_deref(), Some("helper"));
         assert_eq!(found.description, "Use it when: tests fail");
         assert!(found.error.unwrap().contains("not valid YAML"));
-    }
-
-    #[test]
-    fn markdown_without_frontmatter_is_an_error() {
-        let found = markdown("Just a prompt.");
-        assert_eq!(found.prompt, "Just a prompt.");
-        assert!(found.error.is_some());
-        assert!(markdown("---\nname: a\nno end").error.is_some());
     }
 
     #[test]

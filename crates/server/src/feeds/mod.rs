@@ -1,7 +1,4 @@
-//! The daily sync of each connected mailbox and Slack, which Jev scores and
-//! the memory learner reads. Each user's hourly sweep (see `User::start`) syncs whatever is due, and the
-//! apps screen asks for a sync so a new connection is read right away. The
-//! evening digest syncs the mailboxes once more before it reads them.
+//! The daily sync of each connected mailbox and Slack, read by Jev and the memory learner.
 
 pub mod mail;
 pub mod slack;
@@ -25,8 +22,7 @@ pub(crate) async fn sync_user(app: &App, user: &User, feeds: &[Feed]) {
     sync_feeds(app, user, feeds, SYNC_EVERY).await;
 }
 
-/// Syncs each of `feeds` now, however recently it last synced. One already
-/// syncing is left to finish on its own.
+/// Syncs each of `feeds` now; one already syncing is left to finish.
 pub(crate) async fn sync_now(app: &App, user: &User, feeds: &[Feed]) {
     sync_feeds(app, user, feeds, Duration::ZERO).await;
 }

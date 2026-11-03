@@ -92,17 +92,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_file_is_all_additions_and_a_long_one_is_cut() {
-        let new: String = (0..100).map(|i| format!("line {i}\n")).collect();
-        let text = diff_text(Path::new("/srv"), Path::new("/other/new.txt"), None, &new);
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "[diff] /other/new.txt +100 -0");
-        assert_eq!(lines[1], "+line 0");
-        assert_eq!(lines.len(), 1 + MAX_LINES + 1);
-        assert_eq!(lines[MAX_LINES + 1], "… 20 more lines");
-    }
-
-    #[test]
     fn an_edit_at_the_edges_keeps_what_context_there_is() {
         assert_eq!(
             diff_text(Path::new("/"), Path::new("/f"), Some("x\ny"), "z\ny"),

@@ -1,6 +1,4 @@
-//! Names each session: from its first message as soon as it is sent, then
-//! again from the whole chat once it has been quiet for a couple of minutes.
-//! A title the user typed is never replaced.
+//! Names each session from its first message, then from the whole chat once quiet. Typed titles are kept.
 
 use crate::{
     app::App,
@@ -57,8 +55,7 @@ pub async fn name_first(
     }
 }
 
-/// Retitles every session that changed and then went quiet, and returns
-/// the ones that got a new title.
+/// Retitles every session that changed and went quiet; returns the retitled ones.
 pub async fn retitle_idle(
     store: &Store,
     provider: &dyn LlmProvider,

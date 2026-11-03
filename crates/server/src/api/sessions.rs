@@ -155,9 +155,7 @@ pub(super) async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<F
         .ok_or(ApiError::NotFound {})
 }
 
-/// The text of the user and assistant messages in `entries`, as a
-/// conversation a share can keep. Tool results, reasoning, routine prompts
-/// and the context around each turn stay private.
+/// Only the user and assistant message text of `entries`, as a share keeps it.
 fn shared_conversation(entries: &[HistoryEntry]) -> Conversation {
     let at = |millis| DateTime::from_timestamp_millis(millis).unwrap_or_default();
     let mut conversation = Conversation::new();
@@ -210,8 +208,7 @@ fn share_history(conversation: &Conversation) -> Vec<HistoryEntry> {
         .collect()
 }
 
-/// Sessions the database may hand over for a search. Matches only in tool
-/// calls or prompts are dropped after, so a search can show fewer.
+/// Sessions the database may hand over for a search, before tool-only matches are dropped.
 const SEARCH_CANDIDATES: i64 = 100;
 /// Sessions a search returns.
 const SEARCH_RESULTS: usize = 30;

@@ -1,9 +1,5 @@
-//! Each project's open pull requests, issues and workflow runs, kept so the
-//! project page reads its host seldom: from a copy per user and project,
-//! read again in the background every few minutes while someone looks at
-//! it, and on Refresh at most twice a minute. A running run's jobs are read
-//! every 10 seconds only while the page is open (`GetProjectLists`,
-//! `ListProjectRuns`, `GetProjectRun`).
+//! Each project's open PRs, issues and workflow runs, cached per user and project, refreshed in
+//! the background while viewed and on Refresh at most twice a minute; running jobs every 10 s.
 
 mod actions;
 mod forward;

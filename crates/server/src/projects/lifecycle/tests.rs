@@ -100,8 +100,7 @@ impl Harness {
         task
     }
 
-    /// A task in `state`, with issue #12, its PR when in review, and a
-    /// worker that finished a turn at `last_turn`.
+    /// A task in `state` with issue #12 (and its PR in review), worker's last turn at `last_turn`.
     async fn working(&self, state: TaskState, last_turn: DateTime<Utc>) -> (TaskRow, WorkerRow) {
         let user = &self.user;
         let task = user

@@ -35,8 +35,7 @@ struct Place {
     /// Directions only: driving, walking, transit or bicycling.
     #[serde(skip_serializing_if = "Option::is_none")]
     travel_mode: Option<String>,
-    /// Search only: where to look, the given point or else the user's last
-    /// location, so "italian restaurant" finds ones nearby.
+    /// Search only: where to look, the given point or else the user's last location.
     #[serde(skip_serializing_if = "Option::is_none")]
     near: Option<Point>,
 }
@@ -168,8 +167,7 @@ impl Tool for OpenMapsTool {
                     ));
                 };
                 if let Some(origin) = origin {
-                    // google.navigation always starts from the phone, so a route from
-                    // somewhere else goes through the Maps URL.
+                    // google.navigation always starts from the phone, so use the Maps URL.
                     format!(
                         "https://www.google.com/maps/dir/?api=1&origin={}&destination={dest}&travelmode={travel_mode}",
                         origin.replace(' ', "+")

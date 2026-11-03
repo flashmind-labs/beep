@@ -14,8 +14,7 @@ use tokio::time::sleep;
 
 /// How long a join code works.
 const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
-/// How long the joining keys keep their connections, so the reply that
-/// they joined gets there first.
+/// How long joining keys keep their connections, so the reply gets there first.
 const REJOIN_AFTER: Duration = Duration::from_secs(1);
 
 pub(super) async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
@@ -38,8 +37,7 @@ pub(super) async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()
     found(cx.user.unregister_device(&req.device_id).await?)
 }
 
-/// Links a computer whose offer the caller scanned. Any key of the account
-/// may link others.
+/// Links a computer whose offer the caller scanned.
 pub(super) async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Reply<LinkedDevice> {
     let server = cx.pusher.server_id();
     offer
@@ -88,10 +86,7 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
     unlink(&cx, key).await
 }
 
-/// Revokes one of the account's keys and lets go of it: its push tokens,
-/// its connection if it has one, and the machines that synced projects
-/// with it. `NotFound` when the account has no such key, or it is the
-/// primary one.
+/// Revokes one of the account's keys and what hangs off it; `NotFound` for the primary key.
 pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
     found(cx.user.revoke_key(&key.to_string()).await?)?;
     cx.user.changed("");
@@ -104,8 +99,7 @@ pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
     Ok(())
 }
 
-/// A code another device joins the caller's account with. Any key of the
-/// account may show one, as it already sees everything a joiner would.
+/// A code another device joins the caller's account with.
 pub(super) async fn invite_device(
     cx: Cx,
     InviteDevice { name }: InviteDevice,
@@ -152,16 +146,14 @@ async fn inviter(cx: &Cx, code: &str) -> Result<Inviter, ApiError> {
     Ok(inviter)
 }
 
-/// Moves the caller's account into the one that made `code`, then closes
-/// the connections of its keys so they sign in as the account joined.
+/// Moves the caller's account into the one that made `code`, then reconnects its keys.
 pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> Reply<()> {
     if !cx.primary {
         return Err(ApiError::Unauthorized {});
     }
     let inviter = inviter(&cx, &code).await?;
     let target = cx.app.user_for(&inviter.account);
-    // The apps connected under the joining account stay connected when the
-    // account joined has none of its own.
+    // The joiner's apps stay connected when the target has none of its own.
     let (mine, theirs) = tokio::join!(cx.user.composio_connected(), target.composio_connected());
     let into = MergeInto {
         code: &link::join_code(&code).unwrap_or_default(),

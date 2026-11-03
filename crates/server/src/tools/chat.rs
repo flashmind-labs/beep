@@ -1,6 +1,4 @@
-//! Reads the current chat as saved. The model's context may have dropped
-//! old tool output or summarized older turns; the saved chat keeps every
-//! message.
+//! Reads the current chat as saved, with every message the context may have dropped.
 
 use super::memory::{arg, reply};
 use crate::{
@@ -55,8 +53,7 @@ fn line(message: &StoredMessage) -> Option<Line<'_>> {
     Some(Line { from, text })
 }
 
-/// The chat's messages, oldest first, or a failure when it is not the
-/// user's.
+/// The chat's messages, oldest first; fails when it is not the user's.
 async fn messages(
     user: &User,
     chat: Uuid,
@@ -71,8 +68,7 @@ async fn messages(
     })
 }
 
-/// About `SNIPPET_CHARS` of `text` around the match at byte `at` of
-/// `lower`, its lowercase form.
+/// About `SNIPPET_CHARS` of `text` around the match at byte `at` of its lowercase `lower`.
 fn snippet(text: &str, lower: &str, at: usize) -> String {
     let start = lower[..at]
         .chars()

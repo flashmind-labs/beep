@@ -1,5 +1,4 @@
-//! The media tools against recorded service answers, served from a local
-//! socket: no call leaves the machine.
+//! The media tools against recorded answers served from a local socket.
 
 use super::{
     call::{Call, ImageSource, approval_fields},
@@ -59,8 +58,7 @@ struct Seen {
     body: Value,
 }
 
-/// Serves `replies` in order, one per connection, and gives back what was
-/// asked. The URL is the server's root.
+/// Serves `replies` in order, one per connection, and gives back what was asked.
 async fn serve(replies: Vec<Reply>) -> (Url, JoinHandle<Vec<Seen>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let root = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();

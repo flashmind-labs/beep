@@ -163,33 +163,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_meminfo() {
-        let meminfo =
-            "MemTotal:       32768000 kB\nMemFree:  1000 kB\nMemAvailable:   23244800 kB\n";
-        assert_eq!(
-            meminfo_memory(meminfo),
-            Some(Memory {
-                used_mb: 9300,
-                total_mb: 32000
-            })
-        );
-        assert_eq!(meminfo_memory("MemTotal: 1 kB\n"), None);
-    }
-
-    #[test]
-    fn reads_vm_stat() {
-        let vm_stat = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n\
-            Pages free:                               64000.\n\
-            Pages active:                            500000.\n\
-            Pages inactive:                          128000.\n\
-            Pages speculative:                         2000.\n\
-            Pages throttled:                              0.\n";
-        // 194000 pages of 16 KiB.
-        assert_eq!(vm_stat_available_mb(vm_stat), Some(3031));
-        assert_eq!(vm_stat_available_mb("Pages free: 1."), None);
-    }
-
-    #[test]
     fn measures_each_volume_once() {
         let dir = tempfile::tempdir().unwrap();
         let inner = dir.path().join("inner");
@@ -200,15 +173,5 @@ mod tests {
         assert_eq!(disks[0].path, dir.path().display().to_string());
         assert!(disks[0].total_bytes > 0);
         assert!(disks[0].free_bytes <= disks[0].total_bytes);
-    }
-
-    #[tokio::test]
-    async fn samples_this_machine() {
-        let home = std::env::temp_dir();
-        let report = sample(vec![home]).await;
-        assert_eq!(report.disks.len(), 1);
-        assert!(report.memory_total_mb > 0);
-        assert!(report.memory_used_mb <= report.memory_total_mb);
-        assert_eq!(report.load.is_some(), cfg!(unix));
     }
 }

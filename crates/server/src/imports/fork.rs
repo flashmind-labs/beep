@@ -1,6 +1,4 @@
-//! The user's fork of a repository they import: found with their token on
-//! the repository's host, so the import clones the fork, where their pull
-//! request branches are, rather than the repository itself.
+//! The user's fork of an imported repository, so the import clones the fork with their PR branches.
 
 use super::repo::{Host, RepoRef};
 use crate::{
@@ -34,9 +32,7 @@ struct Target<'a> {
     login: Option<&'a str>,
 }
 
-/// The API and token for `repo`'s host; `None` without a token there, or
-/// for a Forgejo server on the user's own network, which the server
-/// cannot reach.
+/// The API and token for `repo`'s host; `None` without a token or for an unreachable local Forgejo.
 async fn target<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<Target<'a>> {
     let opened = repo.credential(credentials)?;
     Some(match &repo.host {
@@ -60,10 +56,7 @@ async fn target<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<Target<
     })
 }
 
-/// The user's fork of `repo`, read with their token for its host. `None`
-/// when they have none, no token there, or the host could not be read: a
-/// failure here is logged and the import clones the repository itself, as
-/// it did before forks were looked for.
+/// The user's fork of `repo`; `None` when absent or unreadable, which is logged and clones the repo.
 pub(crate) async fn find(app: &App, credentials: &[Opened], repo: &RepoRef) -> Option<UsedFork> {
     let Target {
         opened,

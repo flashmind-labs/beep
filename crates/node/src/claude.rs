@@ -5,7 +5,10 @@
 
 use crate::found::Seen as Sighting;
 use anyhow::{Context, Result};
-use beep_proto::node::{LinkRx, LinkTx, agent::ExternalSession};
+use beep_proto::node::{
+    LinkRx, LinkTx,
+    agent::{ExternalSession, Presence},
+};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -177,10 +180,14 @@ pub(crate) fn refuse_takeover(found: &ExternalSession) -> Option<String> {
             .pid
             .map(|pid| format!(" (process {pid})"))
             .unwrap_or_default();
+        let how = match found.presence {
+            Presence::Recent => "was active a moment ago".to_owned(),
+            presence => format!("is {presence}"),
+        };
         return Some(format!(
-            "session {} is {} in a terminal or IDE{process}, so Beep can only follow it. \
+            "session {} {how} in a terminal or IDE{process}, so Beep can only follow it. \
              Once the user exits it there, it can be taken over.",
-            found.id, found.presence
+            found.id
         ));
     }
     if found.cwd.is_empty() || !Path::new(&found.cwd).is_dir() {
@@ -195,7 +202,6 @@ pub(crate) fn refuse_takeover(found: &ExternalSession) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::node::agent::Presence;
 
     #[test]
     fn only_a_stopped_session_in_a_folder_that_exists_is_taken_over() {
@@ -210,7 +216,9 @@ mod tests {
         assert!(refused.contains("can only follow it"), "{refused}");
         assert!(refused.contains("process 41"), "{refused}");
         found.presence = Presence::Recent;
-        assert!(refuse_takeover(&found).is_some());
+        found.pid = None;
+        let refused = refuse_takeover(&found).unwrap();
+        assert!(refused.contains("was active a moment ago"), "{refused}");
         found.presence = Presence::Stopped;
         assert_eq!(refuse_takeover(&found), None);
         found.cwd = "/no/such/folder/here".into();

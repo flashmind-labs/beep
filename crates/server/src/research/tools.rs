@@ -1,5 +1,4 @@
-//! The tools a research team works with: the room they talk in, the notes,
-//! the sources and the draft. Web tools come from the run as usual.
+//! The research team's tools: the room, notes, sources and draft.
 
 use super::{Entry, Member};
 use crate::store::{NewSource, Store};
@@ -26,8 +25,7 @@ pub(crate) struct Seat {
     pub member: Member,
 }
 
-/// The names of the tools a seat adds to the run, so the runner can tell
-/// them from tools whose calls it logs as steps.
+/// The tools a seat adds, so the runner does not log their calls as steps.
 pub(crate) const TEAM_TOOLS: &[&str] = &[
     "post_message",
     "read_room",

@@ -1,8 +1,4 @@
-//! Runs the watchers: a sweep every minute finds the chats that are ready
-//! for each, a task that ended asks for its chat at once, and every review
-//! runs as a task of its own, a few at a time. A review that fails or runs
-//! out of time leaves the others alone and keeps its watcher's place, so
-//! the same messages are tried again later.
+//! Runs the watchers: a minute sweep plus wakes from ended tasks, a few reviews at a time.
 
 use super::{
     WatcherKind, WatchersConfig,
@@ -35,8 +31,7 @@ use tokio::{
 use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
-/// Tasks that ended and wait for their chat to be read; more are dropped,
-/// and their chats are read once quiet instead.
+/// How many ended tasks may wait for a read; more are read once quiet.
 const WAKES: usize = 64;
 /// Chats asked for by tasks that wait for a free watcher at most.
 const WOKEN_MAX: usize = 256;
@@ -48,8 +43,7 @@ const MAX_MESSAGES: i64 = 400;
 pub(crate) trait Watcher: Send + Sync {
     fn kind(&self) -> WatcherKind;
 
-    /// Whether the new `messages` are worth a review. When not, they are
-    /// marked read without calling the model.
+    /// Whether the new `messages` are worth a review; if not they are marked read.
     fn worth_reading(&self, _messages: &[StoredMessage]) -> bool {
         true
     }
@@ -74,8 +68,7 @@ pub struct Settings {
     pub timing: TimingSettings,
     /// How often ready chats are looked for.
     pub sweep_every: Duration,
-    /// Chats that changed longer ago are left alone, and so are messages
-    /// older than this, so the first sweep does not read every old chat.
+    /// Older chats and messages are left alone, so the first sweep skips history.
     pub lookback: Duration,
     /// Reviews running at once across the server.
     pub concurrency: usize,
@@ -153,8 +146,7 @@ pub struct Hub {
 }
 
 impl Hub {
-    /// Asks for `user`'s `chat` to be read now that a task in it ended.
-    /// Does nothing before `start`.
+    /// Asks for `chat` to be read now that a task in it ended. No-op before `start`.
     pub fn task_ended(&self, user: &str, chat: Uuid) {
         let Some(wakes) = lock(&self.wakes).clone() else {
             return;
@@ -173,8 +165,7 @@ impl Hub {
         lock(&self.kinds).contains(&kind)
     }
 
-    /// Stops the watchers; reviews under way are dropped and run again
-    /// after the next start.
+    /// Stops the watchers; running reviews run again after the next start.
     pub fn stop(&self) {
         lock(&self.wakes).take();
         lock(&self.task).take();
@@ -251,8 +242,7 @@ pub(crate) struct Runner {
     pub(crate) running: JoinSet<()>,
 }
 
-/// Keeps a chat's watcher marked busy while its review runs, even when
-/// the review panics.
+/// Keeps a watcher busy while its review runs, even on panic.
 struct Busy {
     set: Arc<Mutex<HashSet<(Uuid, WatcherKind)>>>,
     key: (Uuid, WatcherKind),
@@ -287,8 +277,7 @@ impl Runner {
         }
     }
 
-    /// Starts every review that is ready at `now`, as far as the limit
-    /// allows. The rest wait for the next tick.
+    /// Starts every review ready at `now`, up to the limit.
     pub(crate) async fn tick(&mut self, now: DateTime<Utc>) {
         let Some(app) = self.app.upgrade() else {
             return;
@@ -333,8 +322,7 @@ impl Runner {
         self.woken.retain(|chat, _| waiting.contains(chat));
     }
 
-    /// The reviews ready at `now`: the quiet chats of every user, and the
-    /// chats tasks ended in.
+    /// The reviews ready at `now`: quiet chats and chats whose tasks ended.
     async fn plan(&self, app: &Arc<App>, now: DateTime<Utc>) -> Result<Vec<Job>> {
         let since = now - delta(self.settings.lookback);
         let mut chats = app.store.watched_chats(since).await?;
@@ -384,10 +372,7 @@ impl Runner {
     }
 }
 
-/// Runs one review and keeps its watcher's place: moved past what it read
-/// when it worked, kept with one more failure when not, and moved on
-/// anyway once it failed `MAX_FAILURES` times in a row. Times are `now`,
-/// the time the review was planned at.
+/// Runs one review and moves its watcher's place, or counts a failure (moving on after `MAX_FAILURES`).
 async fn review(
     app: &Arc<App>,
     watcher: &dyn Watcher,
@@ -441,8 +426,7 @@ async fn review(
     }
 }
 
-/// Reads what `job` covers and hands it to `watcher`. Returns the last
-/// message read.
+/// Hands what `job` covers to `watcher` and returns the last message read.
 async fn attempt(
     app: &Arc<App>,
     watcher: &dyn Watcher,

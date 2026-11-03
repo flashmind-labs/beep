@@ -1,5 +1,4 @@
-//! The projects a user imported onto their machines (see
-//! `crate::imports`).
+//! Projects a user imported onto their machines (see `crate::imports`).
 
 use super::Store;
 use crate::{projects::model::RepoName, user::UserKey};
@@ -33,9 +32,7 @@ pub struct NewImport<'a> {
 }
 
 impl Store {
-    /// Records an import, or moves an earlier one of the same project on
-    /// the same machine to `folder`, and makes the project if it is new.
-    /// Gives the row as stored.
+    /// Records an import (or moves it to `folder`), making the project if new; returns the stored row.
     pub(crate) async fn save_import(
         &self,
         user: &UserKey,
@@ -74,8 +71,7 @@ impl Store {
         rows.iter().map(import_row).collect()
     }
 
-    /// Notes the user's fork the import of `project` on `endpoint` cloned
-    /// or linked, or that it is the repository itself (`None`).
+    /// Notes the fork the import of `project` on `endpoint` uses, or `None` for the repository itself.
     pub(crate) async fn set_import_fork(
         &self,
         user: &UserKey,
@@ -96,9 +92,7 @@ impl Store {
         Ok(())
     }
 
-    /// Records a checkout found on a machine as the project's folder there,
-    /// unless the project already has one on that machine. Says whether it
-    /// was recorded. Makes the project if it is new.
+    /// Records a found checkout as the project's folder on that machine unless it has one; makes the project if new.
     pub(crate) async fn link_import(&self, user: &UserKey, import: NewImport<'_>) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let done = sqlx::query(
@@ -118,8 +112,7 @@ impl Store {
         Ok(done.rows_affected() == 1)
     }
 
-    /// Notes that the user's machine `endpoint` was looked through for
-    /// checkouts at `at`.
+    /// Notes that `endpoint` was scanned for checkouts at `at`.
     pub(crate) async fn save_checkout_check(
         &self,
         user: &UserKey,
@@ -154,9 +147,7 @@ impl Store {
     }
 }
 
-/// Makes the project an import names, unless the user has one of that
-/// name in any case, so its agent and board exist without its chat being
-/// opened first. A name that is not `owner/repo` gets no project.
+/// Makes the project an import names unless one exists (any case); non-`owner/repo` names get none.
 async fn ensure_imported_project(
     conn: &mut PgConnection,
     user: &UserKey,

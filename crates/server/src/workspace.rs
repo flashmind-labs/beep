@@ -1,10 +1,4 @@
-//! The user's environment: a linked node started with `--workspace`, such
-//! as the Ubuntu container deploy/onprem bundles. `exec` runs there unless
-//! told otherwise, and files apps and the user hand over are saved to its
-//! workspace folder (`/home/user` in the bundle) over its `files/1`.
-//!
-//! Paths the model sees and gives are relative to the workspace, or
-//! absolute under it, the same as for commands, which start there.
+//! The user's environment: a node started with `--workspace`, where `exec` runs and handed files are saved.
 
 use crate::{
     app::App,
@@ -20,8 +14,7 @@ use std::{
     sync::Arc,
 };
 
-/// The user's environment, looked up again on each use so a node that
-/// reconnects mid-turn is still found.
+/// The user's environment, looked up on each use so a reconnected node is found.
 pub struct Workspace {
     app: Arc<App>,
     user: String,
@@ -79,8 +72,7 @@ impl Workspace {
         self.write(&name, &fetched.data, fetched.content_type).await
     }
 
-    /// Saves `data` as `name` in the workspace, for a file an app or the user
-    /// hands over itself rather than as a link.
+    /// Saves `data` as `name` in the workspace.
     pub(crate) async fn save(&self, name: &str, data: &[u8]) -> Result<Saved> {
         self.write(&fetch::clean_file_name(name), data, None).await
     }
@@ -163,9 +155,7 @@ impl Workspace {
     }
 }
 
-/// `path` as an absolute path under `root`: given relative to it, as
-/// `~/...`, or absolute under it. Anything that could lead out is refused;
-/// the node checks links as well.
+/// `path` as an absolute path under `root`; anything that could lead out is refused.
 fn in_workspace(root: &str, path: &str) -> Result<String> {
     let path = path.trim();
     let outside = || format!("the path must be inside {root}");

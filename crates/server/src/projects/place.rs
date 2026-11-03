@@ -1,6 +1,5 @@
-//! Which machine a project worker runs on. A worker needs a machine that is
-//! online, offers the agent and has a shared checkout of the project with
-//! room for another worker.
+//! Which machine a project worker runs on: online, offering the agent, with a shared checkout
+//! that has room.
 
 use super::model::{MAX_MACHINE_WORKERS, MachinePath};
 use crate::protocol::node::Capability;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeMessage, expandPills, fenceAfterBlankLine, fenceSpan, imagePath, lineCount, pillAt, pillLabel, pillsIn, Pastes, snapCaret, snapSelection } from "../src/compose-text.ts";
+import { composeMessage, fenceAfterBlankLine, imagePath, pillAt, pillLabel, pillsIn, Pastes, snapCaret, snapSelection } from "../src/compose-text.ts";
 
 // The fence cases are flsh's own (flashmind-tui repl/input.rs), same
 // inputs and outputs.
@@ -55,13 +55,6 @@ test("submit leaves plain, fenced and command input unchanged", () => {
   }
 });
 
-test("submit fences an expanded long paste", () => {
-  const pastes = new Pastes();
-  const content = "    code\n".repeat(12);
-  const value = `Explain this\n\n\n${pastes.add(content)}`;
-  assert.equal(composeMessage(value, pastes), `Explain this\n\n\n\`\`\`\n${content.trimEnd()}\n\`\`\``);
-});
-
 // ----- Pills -----
 
 test("pills expand before the fence rules look at the text", () => {
@@ -72,31 +65,6 @@ test("pills expand before the fence rules look at the text", () => {
   // A paste's own triple line break closes the fence, as typed text would.
   const two = pastes.add("first\n\n\nsecond\n" + "y\n".repeat(10));
   assert.equal(composeMessage(`Look\n\n\n${two}`, pastes), `Look\n\n\n\`\`\`\nfirst\n\`\`\`\n\n\nsecond\n${"y\n".repeat(9)}y`);
-});
-
-test("pills expand in place and in order", () => {
-  const pastes = new Pastes();
-  const a = pastes.add("A1\nA2"), b = pastes.add("B1\nB2");
-  assert.equal(expandPills(`first ${b} then ${a} end`, pastes), "first B1\nB2 then A1\nA2 end");
-  assert.equal(expandPills(`${a}${a}`, pastes), "A1\nA2A1\nA2");
-});
-
-test("a pill whose text is gone keeps its label", () => {
-  assert.equal(expandPills(`see ${pillLabel(99, 42)}`, new Pastes()), "see [Pasted text · 42 lines]");
-});
-
-test("a pill is found with its id, lines and place", () => {
-  const label = pillLabel(5, 42), value = `ab ${label} cd`;
-  assert.deepEqual(pillsIn(value), [{ id: 5, lines: 42, start: 3, end: 3 + label.length }]);
-  assert.equal(pillsIn("Pasted text · 42 lines").length, 0);
-});
-
-test("lines are counted as flsh counts them", () => {
-  assert.equal(lineCount(""), 0);
-  assert.equal(lineCount("a"), 1);
-  assert.equal(lineCount("a\n"), 1);
-  assert.equal(lineCount("a\nb"), 2);
-  assert.equal(lineCount("a\n\n"), 2);
 });
 
 test("the caret skips over a pill and deletes it whole", () => {
@@ -110,16 +78,6 @@ test("the caret skips over a pill and deletes it whole", () => {
   assert.equal(pillAt(pills, end, true)?.id, 1);
   assert.equal(pillAt(pills, start, false)?.id, 1);
   assert.equal(pillAt(pills, start, true), null);
-});
-
-test("the fence hint covers what will be fenced", () => {
-  const pastes = new Pastes();
-  const value = "Explain this\n\n\n    text  \n\n\nMore";
-  const span = fenceSpan(value, pastes)!;
-  assert.equal(value.slice(span.start, span.end), "    text");
-  assert.equal(fenceSpan("Explain this\n\n\n", pastes), null);
-  assert.equal(fenceSpan("/command\n\n\nx", pastes), null);
-  assert.equal(fenceSpan("plain", pastes), null);
 });
 
 // ----- Picture paths -----

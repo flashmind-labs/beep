@@ -1,5 +1,4 @@
-//! The owner of a single-user instance (see `crate::instance`), kept in
-//! `server_settings` so the first claim wins for good.
+//! The owner of a single-user instance, kept in `server_settings` so the first claim wins.
 
 use super::{
     Store,
@@ -25,8 +24,7 @@ impl Store {
         Ok(value.and_then(|value| value.as_str().map(str::to_owned)))
     }
 
-    /// Makes account `user` the owner, claimed by its key `by`. False when
-    /// another account claimed it first.
+    /// Makes `user` the owner, claimed by key `by`; false when already claimed.
     pub async fn claim_instance(&self, user: &str, by: &EndpointId) -> Result<bool> {
         let claimed = sqlx::query(
             "INSERT INTO server_settings (key, value, updated_by) VALUES ($1, $2, $3)
@@ -41,9 +39,7 @@ impl Store {
         Ok(claimed > 0)
     }
 
-    /// Makes a new account for `endpoint` and makes it the owner, both or
-    /// neither. `None` when the instance already has an owner or the key
-    /// already signs into an account.
+    /// Makes a new account for `endpoint` and the owner, atomically; `None` if owned or the key already has an account.
     pub async fn claim_instance_new(&self, endpoint: &EndpointId) -> Result<Option<SignIn>> {
         let user = Uuid::new_v4().simple().to_string();
         let mut tx = self.pool.begin().await?;

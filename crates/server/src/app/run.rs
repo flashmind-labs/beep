@@ -71,17 +71,14 @@ use uuid::Uuid;
 /// The system prompt of every chat turn.
 const ASSISTANT_PROMPT: &str = include_str!("../../prompts/assistant.md");
 
-/// The longest any run may take. A model stuck repeating itself is stopped
-/// sooner by the repeat guards.
+/// The longest any run may take; the repeat guards stop a looping model sooner.
 const MAX_RUN: Duration = Duration::from_secs(15 * 60);
-/// How many times a reply that stopped partway through the user's task is
-/// sent back to keep going.
+/// How many times a reply that stopped partway through the task is sent back to continue.
 const MAX_CONTINUES: usize = 6;
 
 /// How long a run may go without a single event from the model or a tool.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
-/// The same while a tool runs: crawls and extractions poll quietly for up to
-/// two minutes. The run's overall deadline still applies.
+/// The idle limit while a tool runs: crawls poll quietly for up to two minutes.
 const TOOL_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
 /// A slow embedding must not hold up the conversation indefinitely.
 const MEMORY_RECALL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -123,9 +120,7 @@ impl App {
             .await?
             .map_or_else(Conversation::new, |context| context.conversation);
         drop_follow_ups(&mut conversation);
-        // A routine runs on its own turn alone, not on the chat's history.
-        // Its turn is added to the chat's context once it ends, so a reply
-        // in the chat knows what it said.
+        // A routine runs without the chat's history; its turn joins the context once it ends.
         let chat_context = (is_cron && answer.is_none())
             .then(|| mem::replace(&mut conversation, Conversation::new()));
         // A routine's chat that holds nothing yet was made for this run.
@@ -146,9 +141,7 @@ impl App {
             if research.is_some() || project.is_some() {
                 return None;
             }
-            // A one-off model or thinking wins over Auto; a resumed
-            // turn keeps the pick it started with. Auto picks for chats only:
-            // a routine runs on the user's selected model.
+            // A one-off pick wins over Auto, a resumed turn keeps its pick, and routines skip Auto.
             match (one_off, answer) {
                 (true, _) => None,
                 (false, Some(_)) => self.resumed_pick(user, chat).await,
@@ -162,9 +155,7 @@ impl App {
         if research.is_some() {
             metering::research_turn();
         }
-        // Always set the server-owned prompt, including when loading an older
-        // conversation. It stays the same per user so the provider can cache
-        // it: only the user's languages are added.
+        // Always set the server-owned prompt; it stays stable per user (plus languages) for caching.
         let prompt = system_prompt(research.is_some(), project.is_some());
         conversation.set_system(match user.spoken_languages().await {
             Ok(Some(languages)) => format!("{prompt}\n\n{}", languages_line(&languages)),
@@ -266,10 +257,7 @@ impl App {
             .woken
             .as_ref()
             .is_some_and(|woken| woken.rule.untrusted());
-        // The user's machines: exec, process, desktop and code_agent, and
-        // their environment, where commands start and files are kept.
-        // Nor does it set up or change routines: a routine's run is trusted,
-        // so one made here would act on what the text asked for.
+        // Nor does it change routines: a routine's run is trusted, so one made here would act on the text.
         if untrusted {
             cron::remove_changing_tools(&mut registry);
         }
@@ -296,8 +284,7 @@ impl App {
                 user: user.clone(),
             }));
         }
-        // Sending to a machine acts, so it goes under the rules with the
-        // app tools below.
+        // Sending to a machine acts, so it goes under the rules with the app tools below.
         // In a project chat a copy to a machine lands only in a checkout.
         let copy_into = match &project {
             Some(project) => Some(
@@ -491,9 +478,7 @@ impl App {
         // The web pages the reply used, shown under it.
         let mut sources = ReplySources::default();
 
-        // Close the open calls before the model goes on. An answer runs them
-        // in order, as if they had just been made; a new message leaves them
-        // undone.
+        // Close the open calls first: an answer runs them in order, a new message leaves them undone.
         for call in open {
             let result = match answer {
                 None => ToolResult::success(&call.id, permissions::SKIPPED),
@@ -583,9 +568,8 @@ impl App {
             .build()
             .await;
 
-        // Every image is described alongside the run. A model that sees images
-        // gets them now and the descriptions replace them once the turn is
-        // saved; a model that does not waits for the descriptions instead.
+        // Images are described alongside the run. A model that sees images gets them now, with
+        // descriptions replacing them once saved; one that does not waits for the descriptions.
         let attached: Vec<ContentPart> = message
             .images
             .iter()
@@ -697,9 +681,8 @@ impl App {
             tokio::pin!(hard_stop);
 
             let mut input = input;
-            // A finished reply is checked once. A reply that stopped partway
-            // through the task is checked again after each pass, up to
-            // `MAX_CONTINUES` times.
+            // A finished reply is checked once; one that stopped partway is rechecked after each
+            // pass, up to `MAX_CONTINUES` times.
             let mut checks_left = 1;
             let mut continues = 0;
             // Where the reply stood at the last check, so the next one reads
@@ -711,6 +694,10 @@ impl App {
             loop {
                 // Flashmind removes memory entries after each agent pass.
                 memory_context::restore(&mut conversation, &recalled, false);
+                // What the model said and thought since its last tool calls,
+                // which a stopped run would otherwise lose.
+                let mut said = String::new();
+                let mut thought = String::new();
                 let status = {
                     let stream = agent.start(
                         &mut conversation,
@@ -752,6 +739,7 @@ impl App {
                                 if quiet_since.is_some() {
                                     continue;
                                 }
+                                said.push_str(&delta);
                                 timer.output(Output::Text);
                                 let delta = if mem::take(&mut after_tool)
                                     && !reply.is_empty()
@@ -770,6 +758,7 @@ impl App {
                                     break RunStatus::Looped;
                                 }
                                 timer.output(Output::Reasoning);
+                                thought.push_str(&delta);
                                 RunEvent::ReasoningDelta { delta }
                             }
                             Some(AgentEvent::ToolStart {
@@ -778,6 +767,8 @@ impl App {
                                 humanized,
                             }) => {
                                 timer.output(Output::Tool);
+                                said.clear();
+                                thought.clear();
                                 tools_running += 1;
                                 after_tool = true;
                                 RunEvent::ToolStarted {
@@ -875,6 +866,9 @@ impl App {
                         }
                     }
                 };
+                if matches!(status, RunStatus::Cancelled | RunStatus::Interrupted) {
+                    failed_tools.extend(keep_stopped(&mut conversation, said, thought));
+                }
                 // A failed check gets the agent one more pass to fix it.
                 if let Some(since) = quiet_since {
                     drop_text_since(&mut conversation, since);
@@ -929,9 +923,8 @@ impl App {
         // A routine that told the user something shows only what it told
         // them, which is also the notice: not a sign-off written after it.
         let notice_only = is_cron && status == RunStatus::Completed;
-        // The pages go out before the run finishes, so the app that streamed
-        // it shows them under the reply at once. A routine shows only its
-        // notice, so it has none.
+        // Pages go out before the run finishes so the streaming app shows them at once; a routine
+        // shows only its notice, so it has none.
         let sources = (!notice_only && !sources.is_empty()).then(|| sources.to_wire());
         if let Some(sources) = &sources {
             live.push(RunEvent::Sources {
@@ -972,13 +965,10 @@ impl App {
             user.forget_starters().await;
         }
 
-        // Learn from the turn while the run is still open, so what was saved shows
-        // as memory tool chips under the reply. Scheduled prompts are written by
-        // the user once, not said in conversation.
-        // Jev's memory score for the turn, kept with it.
+        // Learn while the run is still open, so saved memories show as chips under the reply.
+        // Scheduled prompts are written once, not said in conversation.
         let mut memory_score = None;
-        // Whether the user corrected how the last turn went about its task,
-        // which is worth a skill review now.
+        // Whether the user corrected the last turn's approach, worth a skill review now.
         let mut corrected = false;
         if status == RunStatus::Completed && !background {
             let generator = self.generator(user.id());
@@ -1108,10 +1098,8 @@ impl App {
         {
             turns.insert(asked.timestamp.timestamp_millis(), record);
         }
-        // A routine that found nothing to say shows nothing. One that told
-        // the user something shows only what it told them, as a message of
-        // its own, with the pictures and files it sent: no routine turn, and
-        // nothing of how it checked.
+        // A silent routine shows nothing; one that told the user something shows only that message,
+        // with the pictures and files it sent, not how it checked.
         let mut saved = if quiet {
             steps::Steps::default()
         } else if notice_only {
@@ -1150,9 +1138,8 @@ impl App {
         // A routine's turn joins the chat's context, unless it stayed silent.
         let mut stored = chat_context.map(|mut chat_context| {
             if !silent {
-                // Showing the turn drops the chat's waiting card, so the
-                // call it asked about is answered as not done rather than
-                // left open, which the model would never hear of.
+                // Showing the turn drops the chat's waiting card, so its call is answered as not done
+                // rather than left open.
                 permissions::close_open_calls(&mut chat_context, permissions::SUPERSEDED);
                 conversation
                     .entries()
@@ -1285,9 +1272,8 @@ impl App {
             status: status.as_str().to_owned(),
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
-        // A chat made for a routine's run that found nothing is not kept,
-        // so the user never sees an empty one. Another run may have started
-        // in it since this one was saved, so it goes only while still empty.
+        // A chat made for a silent routine run is deleted, but only while still empty: another
+        // run may have started in it since.
         if silent
             && fresh_chat
             && let Err(error) = user.delete_empty_session(chat).await
@@ -1314,8 +1300,7 @@ impl App {
         Ok(())
     }
 
-    /// Ends a run stopped before the model started. Nothing of the turn is
-    /// saved, as when it is stopped before the model said anything.
+    /// Ends a run stopped before the model started, saving nothing of the turn.
     async fn stopped_early(&self, user: &User, run: &Run, live: &LiveRun) -> Result<()> {
         let status = self.stopped();
         user.finish(run, None, status).await?;
@@ -1326,8 +1311,7 @@ impl App {
         Ok(())
     }
 
-    /// The media tools `user`'s API keys make, none when they have no key
-    /// for one or the keys cannot be read.
+    /// The media tools `user`'s API keys enable; none when keys are missing or unreadable.
     async fn media_tools(
         &self,
         user: &Arc<User>,
@@ -1357,8 +1341,7 @@ impl App {
         })
     }
 
-    /// The tasks `user` has scheduled, other than the routine running now,
-    /// one line each.
+    /// The tasks `user` has scheduled other than `running`, one line each.
     async fn scheduled_tasks(&self, user: &User, running: Option<&str>) -> Vec<String> {
         let jobs = match self.store.cron_jobs(Some(user.id())).await {
             Ok(jobs) => jobs,
@@ -1386,8 +1369,40 @@ impl App {
     }
 }
 
-/// Firecrawl's page tools. Each run gets its own cache, so `web_search_read`
-/// only reaches pages this run crawled.
+/// What the user saw of a run they stopped, kept in `conversation` so the
+/// chat shows it and the model reads it next turn: each call still running
+/// answered as stopped, then the text and reasoning streamed since the last
+/// tool calls, ending in a note that the user stopped it. Returns the
+/// stopped calls.
+pub(super) fn keep_stopped(
+    conversation: &mut Conversation,
+    said: String,
+    thought: String,
+) -> Vec<String> {
+    let open: Vec<String> = permissions::open_calls(conversation)
+        .into_iter()
+        .map(|call| call.id)
+        .collect();
+    permissions::close_open_calls(conversation, STOPPED_CALL);
+    let said = said.trim_end();
+    let content = if said.is_empty() {
+        STOPPED.to_owned()
+    } else {
+        format!("{said}\n\n{STOPPED}")
+    };
+    let thought = Some(thought).filter(|thought| !thought.trim().is_empty());
+    conversation.add(ConversationEntry::assistant_with_reasoning(
+        content, thought,
+    ));
+    open
+}
+
+/// A call's result when the user stopped the run while it ran.
+const STOPPED_CALL: &str = "Stopped by the user before it finished.";
+/// The note a stopped turn ends with.
+pub(super) const STOPPED: &str = "_Stopped_";
+
+/// Firecrawl's page tools, with a per-run cache so `web_search_read` only reaches this run's pages.
 pub(super) fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
     for tool in web_tools(key) {
         registry.register(tool);
@@ -1406,10 +1421,7 @@ pub(super) fn web_tools(key: &str) -> Vec<Arc<dyn Tool>> {
     ]
 }
 
-/// Which languages the user speaks, from their memory, and which of them a
-/// reply is in.
-/// The server-owned system prompt: a research chat's lead, a project chat's
-/// agent, or the assistant.
+/// The server-owned system prompt: a research lead's, a project agent's, or the assistant's.
 fn system_prompt(research: bool, project: bool) -> &'static str {
     match (research, project) {
         (true, _) => research::LEAD_PROMPT,

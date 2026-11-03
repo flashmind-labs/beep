@@ -23,17 +23,13 @@ pub enum CreateRun {
 pub struct FinishedTurn<'a> {
     /// What the model sees next turn.
     pub context: &'a Conversation,
-    /// Prompt size of the run's last model call; `None` keeps the count the
-    /// chat had, for a routine that ran on its own turn alone.
+    /// Prompt size of the run's last model call; `None` keeps the chat's count.
     pub prompt_tokens: Option<u32>,
-    /// What the apps show of the turn, in order. Steps before the first that
-    /// opens a turn carry on the latest one, as when an approval resumes it.
+    /// The turn's steps as apps show them; steps before the first opener carry on the latest turn.
     pub steps: &'a [Step],
-    /// Whether steps that open no turn stand on their own instead, as a
-    /// routine's notice does, rather than carry on the latest turn.
+    /// Whether non-opening steps stand alone (a routine notice) instead of carrying on the latest turn.
     pub stands_alone: bool,
-    /// Added to the turn the steps carry on: its reasoning, and the memory
-    /// score of a resumed turn.
+    /// Added to the carried-on turn: its reasoning and a resumed turn's memory score.
     pub carried: TurnRecord,
 }
 
@@ -44,8 +40,7 @@ pub struct SavedTurn {
     pub updated_at: DateTime<Utc>,
     /// The message the saved steps opened their turn with, if they did.
     pub opened: Option<i64>,
-    /// The message that opened the turn the steps belong to: `opened`, or
-    /// the turn they carried on, as a resumed one does.
+    /// The message that opened the steps' turn: `opened`, or the carried-on turn.
     pub turn: Option<i64>,
 }
 
@@ -102,8 +97,7 @@ impl Store {
         self.interrupt_researches().await
     }
 
-    /// Saves the prompt of `run`, just started, so every device shows it
-    /// while the run goes on. The finished turn takes its place.
+    /// Saves the prompt of just-started `run` so every device shows it until the turn replaces it.
     pub(crate) async fn save_prompt(&self, user: &UserKey, run: &Run, prompt: &str) -> Result<()> {
         let chat = Uuid::parse_str(&run.session_id)?;
         let mut tx = self.pool.begin().await?;
@@ -164,8 +158,7 @@ impl Store {
         rows.iter().map(run).collect()
     }
 
-    /// Starts a run in session `chat`, making the session on its first run.
-    /// A conflict when the session is someone else's or busy.
+    /// Starts a run in session `chat`, creating it on first run; conflict if not the user's or busy.
     pub(crate) async fn create_run(
         &self,
         user: &UserKey,
@@ -240,10 +233,7 @@ impl Store {
             .unwrap_or(CreateRun::Conflict))
     }
 
-    /// The run already made for `request`: the same one again, or a
-    /// conflict when the request id was used for something else. `None`
-    /// for `message` only checks the chat, for a spoken message whose text
-    /// is not known yet.
+    /// The run already made for `request`, or a conflict if the id was reused; `message: None` checks only the chat.
     pub(crate) async fn run_for_request(
         &self,
         user: &str,
@@ -280,8 +270,7 @@ impl Store {
         row.as_ref().map(run).transpose()
     }
 
-    /// Ends `run` with `status`, saving `turn` when there is one. `None`
-    /// when no turn was saved.
+    /// Ends `run` with `status`, saving `turn` if any; `None` when nothing was saved.
     pub(crate) async fn finish(
         &self,
         user: &UserKey,

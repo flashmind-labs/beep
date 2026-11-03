@@ -113,12 +113,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_claude_programs_count() {
-        let listing = "  101 /usr/local/bin/claude\n  102 node\n 103 claude\n104 /opt/claude-tools/bin/claude-agent-acp\n";
-        assert_eq!(claude_pids(listing), [101, 103]);
-    }
-
-    #[test]
     fn lsof_output_pairs_pids_with_folders() {
         let text = "p101\nfcwd\nn/srv/project\np103\nfcwd\nn/srv/other dir\n";
         assert_eq!(

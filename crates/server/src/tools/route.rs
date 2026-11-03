@@ -1,8 +1,5 @@
-//! Public transport and walking routes from Transitous, a free router over
-//! open timetable data (https://transitous.org). The legs come back as
-//! short text, so the agent answers about lines and stations from real data.
-//! The same routes are saved as a card under the call's id, with each leg's
-//! shape, for the apps to draw; the model never sees the coordinates.
+//! Public transport and walking routes from Transitous (https://transitous.org).
+//! The model gets the legs as text; the apps get a card with each leg's shape.
 
 use crate::{
     protocol::{RouteCard, RouteLeg, RouteOption, RoutePoint, RouteStop},
@@ -36,8 +33,7 @@ const IN_FLIGHT: usize = 4;
 const ROUTES: usize = 3;
 /// The most points a leg's shape keeps for the card's sketch.
 const SHAPE_POINTS: usize = 96;
-/// A wait between legs past which a route is dropped when another has none,
-/// like sitting at a station overnight for the first train.
+/// A wait between legs past which a route is dropped when another has none.
 const LONG_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// The client every run's `get_route` shares, with its cache.
@@ -384,9 +380,7 @@ impl GetRouteTool {
     }
 }
 
-/// The language Transitous names stops and lines in: the one asked for when
-/// it looks like a language code, else English. Without one, some feeds
-/// answer in upper case or with internal line numbers.
+/// The language for stop and line names: the one asked for if it looks like a code, else English.
 fn language(asked: Option<&str>) -> &str {
     asked
         .filter(|code| {
@@ -396,8 +390,7 @@ fn language(asked: Option<&str>) -> &str {
         .unwrap_or("en")
 }
 
-/// `time` in UTC for Transitous: as given when it has an offset, else as a
-/// local time in `tz`.
+/// `time` in UTC: as given when it has an offset, else as a local time in `tz`.
 fn utc(time: &str, tz: Option<Tz>) -> Result<String> {
     let at = match DateTime::parse_from_rfc3339(time) {
         Ok(at) => at.with_timezone(&Utc),
@@ -494,9 +487,7 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
     }
 }
 
-/// The routes worth showing: none that another leaves no earlier for and
-/// arrives no later by, and none with a long wait while a route without
-/// one exists.
+/// The routes worth showing: no dominated ones, and no long waits while a route without one exists.
 fn useful(routes: &[Itinerary]) -> Vec<&Itinerary> {
     let beaten = |a: &Itinerary| {
         routes.iter().any(|b| {
@@ -619,8 +610,7 @@ fn count(n: i64) -> u32 {
     u32::try_from(n.max(0)).unwrap_or(u32::MAX)
 }
 
-/// The leg's shape for the sketch: its polyline, simplified, or else a
-/// straight line between its stops.
+/// The leg's shape: its simplified polyline, or a straight line between its stops.
 fn shape(leg: &Leg) -> Vec<RoutePoint> {
     let line = leg
         .leg_geometry
@@ -677,8 +667,7 @@ fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
     Some(points)
 }
 
-/// At most `most` of `points`, keeping the corners: Douglas-Peucker, with a
-/// tolerance raised until few enough remain.
+/// At most `most` of `points` by Douglas-Peucker, raising the tolerance until few enough remain.
 fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     if points.len() <= most {
         return points.to_vec();
@@ -710,8 +699,7 @@ fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     }
 }
 
-/// Marks the point between `start` and `end` farthest from their line, and
-/// recurses, while it is farther than `tolerance`.
+/// Marks the point farthest from the `start`-`end` line while beyond `tolerance`, recursing.
 fn mark(points: &[RoutePoint], start: usize, end: usize, tolerance: f64, keep: &mut [bool]) {
     if end <= start + 1 {
         return;
@@ -749,8 +737,7 @@ fn route_name(leg: &Leg) -> Option<String> {
     }
 }
 
-/// Whether a line name means something to a rider, rather than being empty
-/// or a feed's internal number.
+/// Whether a line name means something to a rider, not empty or an internal number.
 fn readable(name: &str) -> bool {
     !name.is_empty() && !(name.len() > 5 && name.chars().all(|c| c.is_ascii_digit()))
 }

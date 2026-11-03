@@ -1,7 +1,4 @@
-//! One node forwarding one repository's webhook: the `webhook/1` session,
-//! from the watch the server asks for to the node's last reply. Each
-//! delivery reads the project's copies again; dropping the session has the
-//! node stop the forward and delete its webhook.
+//! One node forwarding one repository's webhook over a `webhook/1` session; dropping it removes the webhook.
 
 use super::{LiveState, Refresh, Slot};
 use crate::{

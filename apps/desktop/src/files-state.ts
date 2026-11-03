@@ -49,6 +49,15 @@ export interface Listing {
   error: string;
 }
 
+/// A folder's listing after `agent_tree` failed with `text`. A folder the
+/// machine no longer has, such as a temporary one, reads as empty: no error.
+export function failedListing(text: string, had?: Listing): Listing {
+  const msg = text.replace(/^bad request: /, "");
+  if (/: the folder .* is not there/.test(msg)) return { entries: [], more: 0, error: "" };
+  const error = /unknown op|not serve|update/i.test(msg) ? "Update Beep's server and beep-node on that machine to browse its files." : msg;
+  return { entries: had?.entries ?? null, more: 0, error };
+}
+
 /// A row of the tree on screen.
 export interface TreeRow {
   path: string;

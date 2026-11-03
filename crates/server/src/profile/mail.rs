@@ -162,9 +162,7 @@ async fn read_year(
     })
 }
 
-/// Keeps mail the user wrote, the threads they wrote in, and received mail
-/// Jev finds worth reading. Mailboxes without a bulk flag, like Fastmail,
-/// rely on this to drop newsletters. Mail Jev fails on is kept.
+/// Keeps mail the user wrote or replied in, and received mail Jev finds worth reading (or fails on).
 async fn screen(decision: &DecisionTool, emails: Vec<Email>) -> Vec<Email> {
     let written: HashSet<String> = emails
         .iter()
@@ -278,8 +276,7 @@ fn body_chars(email: &Email) -> usize {
     }
 }
 
-/// Threads the user wrote in first, then repeated senders, then the rest,
-/// cut to what one year may send to the model.
+/// Threads the user wrote in, then repeated senders, then the rest, cut to one year's budget.
 fn group_mail(emails: Vec<Email>) -> Vec<Group> {
     let mut threads: HashMap<String, Vec<Email>> = HashMap::new();
     let mut loose = Vec::new();
@@ -365,8 +362,7 @@ async fn fill_bodies(source: &MailSource<'_>, groups: &mut [Group]) {
         .await;
 }
 
-/// A year's totals: who the user writes to, who writes to them, and what
-/// they are subscribed to.
+/// A year's totals of correspondents and subscriptions.
 fn counts_note(year: NaiveDate, emails: &[Email]) -> ProfileNote {
     let mut to: HashMap<String, usize> = HashMap::new();
     let mut from: HashMap<String, usize> = HashMap::new();

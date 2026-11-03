@@ -1,7 +1,4 @@
-//! Nodes: machines running `beep-node` that Beep runs work on (see
-//! `beep_proto::node`). Each keeps one connection open on `NODE_ALPN`; the
-//! server notes what it reports and keeps the connection so sessions can be
-//! opened on it. Every user may link their own.
+//! Nodes: machines running `beep-node`, each holding one connection open on `NODE_ALPN`.
 
 use crate::{
     app::App,
@@ -33,9 +30,13 @@ use std::{
     collections::HashMap,
     fmt,
     sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
-use tokio::{sync::Notify, task::JoinSet, time::timeout};
+use tokio::{
+    sync::Notify,
+    task::JoinSet,
+    time::{Instant, timeout, timeout_at},
+};
 use tokio_util::task::AbortOnDropHandle;
 
 mod agent;
@@ -68,8 +69,7 @@ pub use shell::{Exited, Ran};
 pub use stats::Sampled;
 pub use sync::{Refusal, SyncState, push_sync};
 
-/// The line the machines section starts with, also how a chat finds the
-/// one it last got.
+/// The machines section's first line, also how a chat finds the last one it got.
 pub(crate) const MACHINES_HEADER: &str = "The user's machines (exec, process, desktop and \
     code_agent run on the one `in` names; send_file copies files between them). Pick the \
     machine whose OS and `can` list fit the task: iOS, iPadOS and macOS builds, Xcode and the \
@@ -84,15 +84,11 @@ pub struct Online {
     pub user: String,
     pub name: String,
     pub offers: Vec<String>,
-    /// The folder the user's files and code live in, when this node is
-    /// their environment (`beep-node --workspace`).
+    /// The user's files and code folder, when this node is their environment.
     pub workspace: Option<String>,
-    /// It makes the branch or worktree a session's start asks for; a node
-    /// from before that ignores the ask.
+    /// It makes the branch or worktree a session's start asks for.
     pub checkouts: bool,
-    /// It also makes the named and existing-branch worktrees
-    /// (`agent::CheckoutPlan::NamedWorktree`, `BranchWorktree`); a node
-    /// from before them cannot read a start that asks for one.
+    /// It also makes named and existing-branch worktrees; older nodes cannot read such a start.
     pub branch_checkouts: bool,
     pub connection: Connection,
     /// Held weakly: the app owns the nodes.
@@ -101,11 +97,9 @@ pub struct Online {
     agents: Arc<agent::AgentLinks>,
     desktop: Arc<desktop::DesktopSlot>,
     stats: Arc<stats::StatsSlot>,
-    /// Woken when the user's credentials change, for a node that takes
-    /// them.
+    /// Woken when the user's credentials change, for a node that takes them.
     credentials: Option<Arc<Notify>>,
-    /// Woken when the user's settings for this machine's harnesses
-    /// change, for a node that takes them.
+    /// Woken when this machine's harness settings change, for a node that takes them.
     agent_settings: Option<Arc<Notify>>,
     /// Woken to have the node read its agents' plans again.
     usage_refresh: Arc<Notify>,
@@ -115,8 +109,7 @@ pub struct Online {
 #[derive(Default)]
 pub struct Nodes {
     online: Mutex<HashMap<EndpointId, Online>>,
-    /// The server's own key, which link offers are signed for. Set when the
-    /// node handler is made.
+    /// The server's own key, which link offers are signed for.
     server: OnceLock<EndpointId>,
     /// Sessions started outside Beep that chats follow.
     pub follows: Follows,
@@ -124,7 +117,21 @@ pub struct Nodes {
     pub deliveries: Deliveries,
     /// What project sync keeps between pushes.
     pub sync: SyncState,
+    /// When each node that is offline now last dropped its connection.
+    left: Mutex<HashMap<EndpointId, Instant>>,
+    /// Woken when a node connects or drops, for calls waiting on one.
+    changed: Notify,
 }
+
+/// How long after a node drops a call still waits for it to come back:
+/// long enough for a restart, such as after `beep-node update`.
+const LEFT_LATELY: Duration = Duration::from_secs(60);
+/// How long a call waits in all for a node to come back.
+pub(crate) const RECONNECT_WAIT: Duration = Duration::from_secs(20);
+/// The first and longest pause between looks at a node coming back, on top
+/// of the wake-up a new connection gives.
+const FIRST_LOOK: Duration = Duration::from_millis(250);
+const LAST_LOOK: Duration = Duration::from_secs(4);
 
 impl Nodes {
     fn lock(&self) -> MutexGuard<'_, HashMap<EndpointId, Online>> {
@@ -136,8 +143,7 @@ impl Nodes {
         self.server.get().copied()
     }
 
-    /// The user's environment: a node of theirs online now that keeps a
-    /// workspace and offers the shell and files it needs.
+    /// The user's online node that keeps a workspace and offers shell and files.
     pub fn workspace(&self, user: &str) -> Option<Online> {
         self.lock()
             .values()
@@ -174,8 +180,7 @@ impl Nodes {
         }
     }
 
-    /// Tells the user's node `machine_id`, when it is online and takes
-    /// them, to fetch its harness settings again.
+    /// Tells the user's node `machine_id` to fetch its harness settings again.
     pub fn agent_settings_changed(&self, user: &str, machine_id: &str) {
         let Ok(id) = machine_id.parse::<EndpointId>() else {
             return;
@@ -187,9 +192,7 @@ impl Nodes {
         }
     }
 
-    /// Tells every node of the user that is online and takes them to
-    /// fetch its harness settings again, as when settings shared by all
-    /// machines change.
+    /// Tells every online node of the user to fetch its harness settings again.
     pub fn agent_settings_changed_everywhere(&self, user: &str) {
         for online in self.lock().values().filter(|online| online.user == user) {
             if let Some(changed) = &online.agent_settings {
@@ -200,31 +203,103 @@ impl Nodes {
 
     fn insert(&self, node: EndpointId, online: Online) {
         // A node that reconnects replaces its old connection.
-        if let Some(old) = self.lock().insert(node, online) {
+        let old = self.lock().insert(node, online);
+        if let Some(old) = old {
             old.connection.close(VarInt::from_u32(0), b"replaced");
+        }
+        self.left().remove(&node);
+        self.changed.notify_waiters();
+    }
+
+    fn left(&self) -> MutexGuard<'_, HashMap<EndpointId, Instant>> {
+        self.left.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `node` is offline now but dropped its connection within
+    /// `LEFT_LATELY`, as a node that restarts does.
+    fn left_lately(&self, node: &EndpointId) -> bool {
+        self.left()
+            .get(node)
+            .is_some_and(|at| at.elapsed() < LEFT_LATELY)
+    }
+
+    /// The node `node` (its key as the store keeps it) once it is back
+    /// online, when it dropped its connection lately; waits up to
+    /// `RECONNECT_WAIT`. `None` for a node that has been offline for a
+    /// while, or did not come back in time.
+    pub(crate) async fn back_online(&self, node: &str) -> Option<Online> {
+        let id: EndpointId = node.parse().ok()?;
+        if let Some(online) = self.online(node) {
+            return Some(online);
+        }
+        if !self.left_lately(&id) {
+            return None;
+        }
+        self.reconnected(&id, None, Instant::now() + RECONNECT_WAIT)
+            .await
+    }
+
+    /// `node`'s open connection other than `than` (a `stable_id`), waiting
+    /// for one until `until`. Woken when a node connects or drops, and
+    /// looks again after a pause that grows from `FIRST_LOOK` to
+    /// `LAST_LOOK`, since a connection can close without either.
+    pub(crate) async fn reconnected(
+        &self,
+        node: &EndpointId,
+        than: Option<usize>,
+        until: Instant,
+    ) -> Option<Online> {
+        let mut pause = FIRST_LOOK;
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            // Registered before the look, so a connection that comes in
+            // between still wakes it.
+            changed.as_mut().enable();
+            let current = self.lock().get(node).cloned();
+            if let Some(online) = current.filter(|online| {
+                online.connection.close_reason().is_none()
+                    && than != Some(online.connection.stable_id())
+            }) {
+                return Some(online);
+            }
+            let now = Instant::now();
+            if now >= until {
+                return None;
+            }
+            let look = until.min(now + pause);
+            // Either wake-up leads to another look.
+            let _ = timeout_at(look, changed).await;
+            pause = (pause * 2).min(LAST_LOOK);
         }
     }
 
-    /// Drops `node`'s connection, as when its key is removed (`reason` is
-    /// `CLOSE_REVOKED`) or its account merged into another and it must sign
-    /// in again (`0`).
+    /// Drops `node`'s connection with close code `reason`.
     pub fn forget(&self, node: &EndpointId, reason: u32) {
-        if let Some(online) = self.lock().remove(node) {
+        let removed = self.lock().remove(node);
+        if let Some(online) = removed {
             online
                 .connection
                 .close(VarInt::from_u32(reason), b"signed out");
         }
+        self.changed.notify_waiters();
     }
 
     /// Forgets `node` if `connection` is still the one it holds.
     fn remove(&self, node: &EndpointId, connection: &Connection) {
-        let mut nodes = self.lock();
-        if nodes
-            .get(node)
-            .is_some_and(|online| online.connection.stable_id() == connection.stable_id())
-        {
-            nodes.remove(node);
+        let removed = {
+            let mut nodes = self.lock();
+            let current = nodes
+                .get(node)
+                .is_some_and(|online| online.connection.stable_id() == connection.stable_id());
+            current && nodes.remove(node).is_some()
+        };
+        if removed {
+            let mut left = self.left();
+            left.retain(|_, at| at.elapsed() < LEFT_LATELY);
+            left.insert(*node, Instant::now());
         }
+        self.changed.notify_waiters();
     }
 }
 
@@ -252,10 +327,7 @@ impl NodeHandler {
 impl ProtocolHandler for NodeHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let endpoint = connection.remote_id();
-        // The hello comes first: it may carry a setup token that links this
-        // key before it signs in.
-        // A key nobody linked gets only a small hello read, so a stranger
-        // cannot make the server buffer megabytes before it is refused.
+        // An unlinked key gets only a small hello read, so a stranger cannot make us buffer megabytes.
         let linked = match self.app.store.linked_sign_in(&endpoint).await {
             Ok(sign_in) => sign_in.is_some(),
             Err(e) => {
@@ -290,8 +362,6 @@ impl ProtocolHandler for NodeHandler {
                 }
             }
         }
-        // Otherwise a node joins an account with a link code or setup token
-        // first; an unknown key gets no account of its own here.
         let user = match self.app.sign_in_linked(&endpoint).await {
             Ok(Some(signed_in)) => signed_in.user,
             Ok(None) => {
@@ -327,8 +397,7 @@ struct Control {
     claimed: Option<ClaimedNode>,
 }
 
-/// The longest hello read from a key nobody linked: a name, a version, a
-/// few offers and a setup token fit in far less.
+/// The longest hello read from a key nobody linked.
 const MAX_UNLINKED_HELLO: usize = 16 * 1024;
 
 async fn read_hello(connection: &Connection, linked: bool) -> Result<(LinkTx, LinkRx, NodeHello)> {
@@ -360,8 +429,7 @@ impl From<anyhow::Error> for Refused {
     }
 }
 
-/// Claims the hello's setup token for the node's key `endpoint`, whose
-/// hello calls it `fallback`.
+/// Claims the hello's setup token for `endpoint`, named `fallback` if it gives no name.
 async fn claim(
     app: &Arc<App>,
     endpoint: &EndpointId,
@@ -430,8 +498,6 @@ async fn serve(
     })
     .await?;
     if let Some(claimed) = claimed {
-        // Tells the user's devices their list of devices changed, as a
-        // link offer does.
         user.changed("");
         tx.send(&Down::Linked {
             account: claimed.account_name,
@@ -448,8 +514,7 @@ async fn serve(
         hello.offers,
         hello.workspace
     );
-    // Only a node that said it takes credentials gets them; the first
-    // set goes at once.
+    // Only a node that takes credentials gets them; the first set goes at once.
     let credentials = hello.credentials.then(|| Arc::new(Notify::new()));
     if let Some(changed) = &credentials {
         changed.notify_one();
@@ -478,8 +543,6 @@ async fn serve(
         usage_refresh: Arc::default(),
     };
     app.nodes.insert(endpoint, online.clone());
-    // Keeps what its agent sessions spend and its agents' plan usage.
-    // Ends with the connection.
     let _usage = online.offers(SESSIONS_PROTOCOL).then(|| {
         let (user, online) = (user.clone(), online.clone());
         AbortOnDropHandle::new(tokio::spawn(async move {
@@ -488,8 +551,6 @@ async fn serve(
             }
         }))
     });
-    // Tells the user what its agent sessions ask and finish. Ends with the
-    // connection.
     let _alerts = online.offers(SESSIONS_PROTOCOL).then(|| {
         let (user, online) = (user.clone(), online.clone());
         AbortOnDropHandle::new(tokio::spawn(async move {
@@ -498,7 +559,6 @@ async fn serve(
             }
         }))
     });
-    // Keeps the pictures its agent sessions show. Ends with the connection.
     let _images = online.offers(SESSIONS_PROTOCOL).then(|| {
         let user = user.clone();
         AbortOnDropHandle::new(tokio::spawn(async move {
@@ -512,8 +572,7 @@ async fn serve(
     app.projects.reconnected(app, &user, endpoint);
     // Checkouts of the user's projects it holds become their folders there.
     app.checkouts.check(app, &user, &endpoint.to_string());
-    // Sends the node its synced projects, and its peers how it is reached
-    // now. Ends with the connection.
+    // Sends the node its synced projects, and its peers how it is reached now.
     let _push = {
         let (app, user) = (app.clone(), user.clone());
         AbortOnDropHandle::new(tokio::spawn(async move {
@@ -522,8 +581,7 @@ async fn serve(
             }
         }))
     };
-    // The calls its agents make through the Beep MCP server, each on a
-    // stream the node opens. They end with the connection.
+    // Agent calls through the Beep MCP server, each on a stream the node opens.
     let mut calls = JoinSet::new();
     loop {
         tokio::select! {
@@ -592,9 +650,7 @@ async fn changed(notify: Option<&Notify>) {
     }
 }
 
-/// Links the machine whose `beep-node link` printed `text` (its
-/// `beep-link:` link) to `user`, checked as `LinkDevice` checks an offer the
-/// phone scanned. Gives the machine's name.
+/// Links the machine whose `beep-node link` printed `text` to `user`, giving its name.
 pub async fn link_machine(nodes: &Nodes, user: &User, text: &str) -> Result<String> {
     let text = text.trim();
     let offer = match LinkOffer::parse(text) {
@@ -622,7 +678,6 @@ pub async fn link_machine(nodes: &Nodes, user: &User, text: &str) -> Result<Stri
     };
     match user.link_key(key).await? {
         LinkKey::Linked(_) => {
-            // Tells the user's devices their list of devices changed.
             user.changed("");
             Ok(name.to_owned())
         }
@@ -647,8 +702,7 @@ pub enum TokenRefusal {
     Failed(#[from] anyhow::Error),
 }
 
-/// A one-time token that links the machine running `beep-node setup
-/// <token>` to `user`, for `TOKEN_TTL`. `name` is what to call it.
+/// A one-time token, valid for `TOKEN_TTL`, that links a `beep-node setup` machine to `user`.
 pub async fn create_token(
     app: &App,
     user: &User,
@@ -672,9 +726,7 @@ fn is_check_code(text: &str) -> bool {
     code.len() == 6 && code.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
-/// The machines section of a turn's context: each machine on a line with
-/// whether it is online, its OS, what it can do and which coding agents are
-/// signed in.
+/// The machines section of a turn's context, one line per machine.
 pub(crate) fn machines(nodes: &[NodeRow], online: &Nodes) -> Option<String> {
     if nodes.is_empty() {
         return None;

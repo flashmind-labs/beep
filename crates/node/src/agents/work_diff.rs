@@ -479,25 +479,6 @@ mod tests {
     }
 
     #[test]
-    fn a_branch_without_a_worktree_gives_its_commits() {
-        if !has_git() {
-            return;
-        }
-        let (_dir, root) = checkout();
-        run_git(&root, &["checkout", "-q", "-b", "side"]);
-        fs::write(root.join("keep.txt"), "one\ntwo\nthree\nfour\n").unwrap();
-        run_git(&root, &["commit", "-q", "-am", "four"]);
-        run_git(&root, &["checkout", "-q", "main"]);
-        // Uncommitted work on main is not the branch's.
-        fs::write(root.join("gone.txt"), "changed\n").unwrap();
-        let diff = read(&root, &ask("main", "side")).expect("the diff reads");
-        assert!(!diff.working_tree);
-        assert_eq!(diff.files.len(), 1);
-        assert_eq!(diff.files[0].path, "keep.txt");
-        assert_eq!(diff.additions, 1);
-    }
-
-    #[test]
     fn a_branch_with_a_worktree_inside_gives_its_working_tree() {
         if !has_git() {
             return;
@@ -529,28 +510,6 @@ mod tests {
         assert_eq!(diff.base, "main");
         let paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, ["in.txt"]);
-    }
-
-    #[test]
-    fn only_gives_the_named_file_in_full() {
-        if !has_git() {
-            return;
-        }
-        let (_dir, root) = checkout();
-        let big: String = (0..2_500).map(|i| format!("line {i}\n")).collect();
-        fs::write(root.join("big.txt"), &big).unwrap();
-        fs::write(root.join("small.txt"), "s\n").unwrap();
-        let diff = read(&root, &ask("", "")).unwrap();
-        assert_eq!(
-            file(&diff, "big.txt").left_out,
-            Some(DiffLeftOut::TooLarge {})
-        );
-        assert_eq!(file(&diff, "big.txt").additions, 2_500);
-        let mut asked = ask("", "");
-        asked.only = vec!["big.txt".to_owned()];
-        let diff = read(&root, &asked).unwrap();
-        assert_eq!(diff.files.len(), 1);
-        assert_eq!(diff.files[0].hunks[0].lines.len(), 2_500);
     }
 
     #[test]

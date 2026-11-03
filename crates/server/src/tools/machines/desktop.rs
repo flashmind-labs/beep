@@ -1,5 +1,4 @@
-//! `desktop`: see and use the screen of a machine that offers `desktop/1`,
-//! a Mac the user lets Beep use.
+//! `desktop`: see and use the screen of a machine that offers `desktop/1`.
 
 use super::{Machines, Need, in_parameter};
 use crate::protocol::node::desktop::{KeyPress, MouseButton, Permission, Reply, Request, Target};
@@ -286,7 +285,6 @@ impl From<String> for Said {
 }
 
 /// A desktop reply for the model; `Err` when the node could not do it.
-/// `sees` is whether the model sees images.
 fn read_reply(node: &str, reply: Reply, sees: bool) -> Result<Said, String> {
     let text = match reply {
         Reply::Screenshot(shot) => {

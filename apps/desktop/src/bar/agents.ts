@@ -16,7 +16,7 @@ import { collectArtifacts, toolArtifacts } from "../artifacts-state.ts";
 import { cap } from "./tools.ts";
 import { withMentions } from "../files-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "../logscroll.ts";
-import { attachKaraoke, endedHtml, karaokeHtml } from "./thoughtlive.ts";
+import { attachLive, endedHtml, liveHtml } from "./thoughtlive.ts";
 import { MN, mentionChips, resetMentions, takeMentions, wireMentionChips } from "./workdrop.ts";
 
 // ---------- Coding agents ----------
@@ -146,7 +146,7 @@ type SentImage = { name: string; mime: string; data: string };
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
 type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
-  | { cancel: null } | { close: null } | { configure: { model: string | null; effort: string | null } };
+  | { cancel: null } | { configure: { model: string | null; effort: string | null } };
 
 interface AgentState {
   readError: string;
@@ -227,6 +227,8 @@ export const agentImages = new Map<string, Promise<string | null> | string | nul
 let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 export const AGENT_POLL_MS = 1500;
+/// How often while a thought streams, so its letters arrive nearly live.
+export const AGENT_THINK_POLL_MS = 300;
 /// How often while a stopped turn has not ended yet.
 export const AGENT_STOP_POLL_MS = 400;
 /// A quiet session (idle, or started outside Beep) unchanged this long is
@@ -316,6 +318,7 @@ export const agentOnScreen = () => document.visibilityState === "visible" && !AG
 export function agentDelay() {
   const s = AG.page?.session;
   if (!s || s.status === "ended") return null;
+  if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
   // Once stopped, the turn ending shows as soon as it does.
   if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
   const still = Date.now() - AG.changed;
@@ -552,7 +555,7 @@ export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${STOP_MARK}Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
+    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${STOP_MARK}Stop</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
@@ -672,7 +675,6 @@ function agentClick(e: MouseEvent) {
   if (target.closest("#agparent2")) return closeChild();
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return void interruptAgent();
-  if (target.closest("#agclose")) return steerAgent({ close: null });
 }
 
 /// A user entry's text and the images it carried: the node writes each
@@ -873,32 +875,36 @@ function withCopy(html: string) {
   return html.replace(/<pre(\s[^>]*)?>/g, (m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
 }
 
-/// The thought still arriving, by its place, which shows "Thinking" with
-/// its newest line; set by each draw of the turns.
+/// The thought still arriving, by its place, which shows "Thinking"; set
+/// by each draw of the turns.
 let liveAt: number | null = null;
+/// The running turn thinks: a thought streams or is about to.
+let thinking = false;
 
-/// How long the "Thinking" sweep takes, as in the CSS.
-const SWEEP_MS = 1800;
+/// How long one pass of the "Thinking" letters takes, as in the CSS.
+const SWEEP_MS = 1500;
+
+/// "Thinking", its letters lit one after another in a loop that keeps
+/// its phase across redraws, so a poll does not restart it.
+const thinkingLabel = () => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[..."Thinking"].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
 /// A thought as one line that opens to its text. While it streams it is
-/// open, its newest words lit like karaoke; once it ends it folds to
-/// "Thought for 12s", unless the reader opened, folded or scrolled it.
-/// The sweep keeps its phase across redraws, so a poll does not restart
-/// it, and an opened thought stays open, by its place in the session.
+/// open, following its newest line; once it ends it folds to "Thought
+/// for 12s", unless the reader opened, folded or scrolled it. An opened
+/// thought stays open, by its place in the session.
 function thoughtRow(en: AgentEntry, at: number) {
   const live = at === liveAt, session = AG.open?.session ?? "";
   const m = AG.open ? turnsOf(AG.open.session) : null;
   const touched = !!m?.touched.has(at), opened = !!m?.thoughts.has(at);
   const folding = !live && !touched && m?.wasLive === at;
   const open = live ? !touched || opened : opened || folding;
-  const label = live ? "Thinking" : thoughtLabel(en.ms);
-  const phase = live ? ` style="animation-delay:-${Date.now() % SWEEP_MS}ms"` : "";
+  const label = live ? thinkingLabel() : `<span class="lb">${thoughtLabel(en.ms)}</span>`;
   const key = `${session}:${at}`;
-  const body = live ? `<div class="tx">${karaokeHtml(key, en.text)}</div>`
+  const body = live ? `<div class="tx">${liveHtml(key, en.text)}</div>`
     : folding ? `<div class="tx">${endedHtml(key, en.text)}</div>`
     : `<div class="tx md">${en.html ?? esc(en.text).replace(/\n/g, "<br>")}</div>`;
   return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}"${folding ? " data-folding" : ""}>`
-    + `<button data-thought="${at}" aria-expanded="${open}"><span class="lb"${phase}>${label}</span><span class="cv">${ICON.chev}</span></button>`
+    + `<button data-thought="${at}" aria-expanded="${open}">${label}<span class="cv">${ICON.chev}</span></button>`
     + `<div class="bd"><div>${body}</div></div></div>`;
 }
 
@@ -1017,6 +1023,7 @@ function runRow(p: AgentPage, ats: number[]) {
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   newestStep = null;
+  thinking = false;
   turnStarts.clear();
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
@@ -1072,12 +1079,13 @@ function turnsHtml(p: AgentPage) {
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
+    if (running) thinking = liveAt != null || doing === "Thinking";
     const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
     const thought = running && state === "working" && doing && doing !== shownTitle && liveAt == null
       // A thought without text yet (or one the agent keeps to itself) sweeps
       // like one that has it, with nothing to open.
       ? doing === "Thinking"
-        ? `<div class="dthink live"><span class="lb" style="animation-delay:-${Date.now() % SWEEP_MS}ms">Thinking</span></div>`
+        ? `<div class="dthink live">${thinkingLabel()}</div>`
         : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
     return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
@@ -1186,7 +1194,7 @@ export function drawAgentBody(keep?: string) {
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);
-  attachKaraoke(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
+  attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
   drawQueue();
   tickTurns();
@@ -1194,8 +1202,6 @@ export function drawAgentBody(keep?: string) {
   // An ended session goes on from the field: the next message resumes it.
   const msg = $<HTMLTextAreaElement>("#agmsg"), k = agentKind(s.agent);
   if (msg) msg.placeholder = s.status === "ended" ? `Message ${k.name} to continue` : `Message ${k.name}`;
-  const close = $("#agclose");
-  if (close) close.style.display = s.status === "ended" ? "none" : "";
   // Only a turn that runs can be stopped.
   const stop = $<HTMLButtonElement>("#agstop");
   if (stop) {

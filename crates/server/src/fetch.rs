@@ -1,6 +1,4 @@
-//! Fetching files from public http(s) URLs for the agent, with every
-//! address checked to be on the public internet, so a URL cannot reach the
-//! server's own network.
+//! Fetches files from public http(s) URLs only, so a URL cannot reach the server's network.
 
 use anyhow::{Context, Result, bail, ensure};
 use futures::StreamExt;
@@ -38,8 +36,7 @@ pub(crate) async fn follow(url: &str) -> Result<Followed> {
     Ok(followed)
 }
 
-/// Fetches `url`, following up to `MAX_REDIRECTS` redirects through public
-/// addresses only. The body is left unread.
+/// Fetches `url`, following up to `MAX_REDIRECTS` public redirects; the body is left unread.
 pub(crate) async fn follow_public(url: &str) -> Result<Followed> {
     let mut url = Url::parse(url).context("not a valid URL")?;
     let mut response = None;
@@ -77,8 +74,7 @@ pub(crate) struct Fetched {
     pub(crate) data: Vec<u8>,
 }
 
-/// Fetches a file of at most `MAX_DOWNLOAD` from a public http(s) URL, with
-/// redirects followed only to public addresses.
+/// Fetches at most `MAX_DOWNLOAD` from a public URL.
 pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
     let Followed { response, url } = follow(url).await?;
     let content_type = content_type(&response);
@@ -100,9 +96,7 @@ pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
     })
 }
 
-/// One request to `url`, without following redirects, after checking that
-/// every address the host resolves to is public. The connection is pinned to
-/// the checked address so a second lookup cannot swap in another.
+/// One request to `url` without redirects, pinned to its checked public address.
 async fn fetch(url: &Url) -> Result<Response> {
     let Resolved { domain, addrs } = public_addresses(url).await?;
     let mut client = Client::builder().redirect(Policy::none());
@@ -117,8 +111,7 @@ async fn fetch(url: &Url) -> Result<Response> {
     Ok(client.get(url.clone()).send().await?)
 }
 
-/// Where a URL points: its domain name, if it has one rather than an
-/// address, and the addresses to connect to. `addrs` is never empty.
+/// A URL's domain, if any, and the addresses to connect to (never empty).
 #[derive(Debug)]
 struct Resolved<'a> {
     domain: Option<&'a str>,
@@ -183,8 +176,7 @@ fn is_public_v4(ip: Ipv4Addr) -> bool {
         || (a == 198 && (18..20).contains(&b)))
 }
 
-/// Global unicast only (2000::/3), which also keeps out mesh overlays that
-/// live in 200::/7, unique-local and link-local addresses.
+/// Global unicast only (2000::/3), which keeps out mesh overlays in 200::/7.
 fn is_public_v6(ip: Ipv6Addr) -> bool {
     let first = ip.segments()[0];
     first & 0xe000 == 0x2000 && first != 0x2001 || {
@@ -206,8 +198,7 @@ pub(crate) fn file_name(name: Option<&str>, url: &Url) -> String {
     clean_file_name(&raw)
 }
 
-/// `raw`'s last path segment with anything but letters, digits, `.`, `-`
-/// and `_` replaced, so it stays a plain name in the folder.
+/// `raw`'s last path segment with anything but letters, digits, `.`, `-` and `_` replaced.
 pub(crate) fn clean_file_name(raw: &str) -> String {
     let cleaned: String = raw
         .rsplit('/')

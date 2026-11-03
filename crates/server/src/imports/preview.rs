@@ -1,7 +1,4 @@
-//! What importing a repository would find before it runs: its checkouts on
-//! the user's online machines, by any remote, and its branches with work.
-//! Also finds the checkout on one machine for a worktree an import asks
-//! for.
+//! What importing a repository would find: its checkouts on online machines and branches with work.
 
 use super::{
     ImportError,
@@ -38,8 +35,7 @@ pub(crate) struct FolderRemotes {
     pub(crate) remotes: Vec<(String, String)>,
 }
 
-/// Prints `@@dir <folder>` then each remote's `remote.<name>.url <url>`,
-/// for each folder; one that is not a checkout prints no remotes.
+/// Prints `@@dir <folder>` then `remote.<name>.url <url>` lines for each folder.
 pub(crate) fn remotes_script(folders: &[String]) -> String {
     let quoted: Vec<String> = folders.iter().map(|folder| quote(folder)).collect();
     format!(
@@ -68,9 +64,7 @@ pub(crate) fn parse_remotes(out: &str) -> Vec<FolderRemotes> {
     found
 }
 
-/// The remote of `folder` that is `repo`, `origin` first; `None` when
-/// none is, as for an unrelated checkout or a fork with no remote for the
-/// repository itself.
+/// The remote of `folder` that is `repo`, `origin` first; `None` when none is.
 pub(crate) fn repo_remote(folder: &FolderRemotes, repo: &RepoRef) -> Option<String> {
     let mut remotes: Vec<&(String, String)> = folder.remotes.iter().collect();
     remotes.sort_by_key(|(name, _)| name != "origin");
@@ -114,10 +108,7 @@ async fn machines(app: &App, user: &User) -> Result<Vec<Machine>, ImportError> {
         .collect())
 }
 
-/// The folders on one machine that may be checkouts of `repo` (or of
-/// `fork`): the folders the project was imported to there, the default
-/// projects folder, and the checkouts its agents worked in whose origin or
-/// folder has the repository's (or the fork's) name. Each with its remotes.
+/// Folders on one machine that may be checkouts of `repo` or `fork`, each with its remotes.
 async fn candidates_on(
     row: &NodeRow,
     node: &Online,
@@ -187,9 +178,7 @@ async fn checkouts_on(
         .collect()
 }
 
-/// A checkout on the machine `row` of `repo` or of the user's `fork` of
-/// it, for an import to link rather than clone again: one whose `origin`
-/// is either first. `None` when there is none.
+/// A checkout of `repo` or `fork` on machine `row` to link rather than clone, `origin` matches first.
 pub(super) async fn existing_checkout(
     row: &NodeRow,
     node: &Online,
@@ -200,8 +189,7 @@ pub(super) async fn existing_checkout(
     pick_existing(found, repo, fork)
 }
 
-/// The first of `found` that is `repo` or `fork` by any remote, one whose
-/// `origin` is either first.
+/// The first of `found` that is `repo` or `fork` by any remote, `origin` matches first.
 fn pick_existing(
     found: Vec<FolderRemotes>,
     repo: &RepoRef,
@@ -221,8 +209,7 @@ fn pick_existing(
     matching.into_iter().next().map(|(_, folder)| folder)
 }
 
-/// Where `repo` is checked out on the user's online machines, and its
-/// branches with work in the first checkout.
+/// Where `repo` is checked out on online machines, and its branches with work in the first one.
 pub(crate) async fn preview(
     app: &App,
     user: &User,
@@ -300,9 +287,7 @@ pub(crate) async fn preview(
     })
 }
 
-/// The checkout of `input` on the user's machine `endpoint`, recorded as
-/// the project's folder there when it was not yet. `None` when the machine
-/// is offline or has none.
+/// The checkout of `input` on `endpoint`, recorded as the project's folder; `None` when offline or absent.
 pub(crate) async fn checkout_for_worktree(
     app: &App,
     user: &User,

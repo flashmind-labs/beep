@@ -1,8 +1,4 @@
-//! The memory watcher: reads a whole finished conversation and stores,
-//! updates or forgets memories, filing each under what it is about: the
-//! user, a project, a machine or an account. It checks what is already
-//! known first, the same way the per-turn learner does, which still runs
-//! for quick facts. Memory text is never logged.
+//! The memory watcher: stores, updates or forgets memories from a finished conversation. Memory text is never logged.
 
 use super::{
     WatcherKind,
@@ -18,8 +14,7 @@ use async_trait::async_trait;
 use iroh::EndpointId;
 use std::fmt::Write;
 
-/// How much of what the user said, and of what Beep said, the searches
-/// for known memories read.
+/// How much of each side of the conversation the memory searches read.
 const QUERY_CHARS: usize = 2_000;
 /// Known memories each search brings.
 const KNOWN_PER_SEARCH: usize = 20;
@@ -89,8 +84,7 @@ impl Watcher for MemoryWatcher {
     }
 }
 
-/// The memories the conversation may touch: those close to what the user
-/// said and to what Beep said, and who the user is and knows.
+/// Memories close to what the user and Beep said, plus who the user is and knows.
 async fn known(review: &Review<'_>) -> Result<Vec<Hit>> {
     let user = review.user;
     let text = &review.transcript.text;
@@ -151,8 +145,7 @@ fn scope_name(scope: &Scope, machines: &[NodeRow]) -> String {
     }
 }
 
-/// The scope the model named. A machine is named by its name; one the user
-/// has no machine by is not a scope.
+/// The scope the model named; a machine is named by its name.
 fn parse_scope(text: &str, machines: &[NodeRow]) -> Option<Scope> {
     let text = text.trim();
     if text.eq_ignore_ascii_case("user") {
