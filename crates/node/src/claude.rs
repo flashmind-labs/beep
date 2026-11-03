@@ -18,6 +18,7 @@ mod discover;
 pub mod hooks;
 mod procs;
 mod socket;
+mod subagents;
 mod transcript;
 mod watch;
 

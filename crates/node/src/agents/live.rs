@@ -7,6 +7,7 @@ use super::{
     compaction::{COMPACTED_ENTRY, Usage},
     image_files,
     images::{Images, Picture, data_url},
+    subagent::{Activity, Run, Subagent},
     usage::{UsageHub, claude_rate_limit},
 };
 use agent_client_protocol::schema::{
@@ -89,6 +90,8 @@ pub(crate) struct Live {
     dropped: u64,
     /// The tool calls seen, by ACP id.
     tools: HashMap<ToolCallId, ToolCall>,
+    /// The call that started each Codex subagent, by its thread.
+    codex_threads: HashMap<String, ToolCallId>,
     /// The last agent message is still arriving in chunks.
     in_message: bool,
     /// Where the pictures its transcript shows are kept, shared by the
@@ -152,6 +155,17 @@ struct ToolCall {
     parent: Option<ToolCallId>,
     /// The calls a subagent this tool started ran, in order.
     steps: Vec<ToolCallId>,
+    /// The subagent it started, when the call says it starts one.
+    subagent: Option<Subagent>,
+}
+
+/// A Codex subagent among a session's entries, whose steps are read from
+/// its rollout.
+#[derive(Debug, Clone)]
+pub(crate) struct CodexChild {
+    /// The call that started it.
+    pub(crate) call: ToolCallId,
+    pub(crate) threads: Vec<String>,
 }
 
 impl Live {
@@ -224,6 +238,28 @@ impl Live {
 
     pub(crate) fn status(&self) -> Status {
         self.info.state.status
+    }
+
+    /// The Codex subagents shown at entry `from` or later.
+    pub(crate) fn codex_children(&self, from: u64) -> Vec<CodexChild> {
+        self.tools
+            .iter()
+            .filter(|(_, tool)| tool.entry >= from && tool.parent.is_none())
+            .filter_map(|(id, tool)| {
+                let subagent = tool.subagent.as_ref().filter(|sub| sub.codex)?;
+                (!subagent.threads.is_empty()).then(|| CodexChild {
+                    call: id.clone(),
+                    threads: subagent.threads.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// The entry of call `id` with its subagent's `run` read from disk,
+    /// and where that entry is.
+    pub(crate) fn with_run(&self, id: &ToolCallId, run: &Run) -> Option<(u64, String)> {
+        let tool = self.tools.get(id)?;
+        Some((tool.entry, tool.entry_with(&self.steps_of(tool), Some(run))))
     }
 
     /// The last `last` entries and how many came before them.
@@ -617,9 +653,18 @@ impl Live {
 
     fn tool_call(&mut self, call: &AcpToolCall) {
         self.in_message = false;
+        // Codex saying a subagent it started began or ended goes on the
+        // call that started it.
+        if let Some(activity) = call.raw_input.as_ref().and_then(Activity::of)
+            && let Some(owner) = self.codex_threads.get(&activity.thread).cloned()
+        {
+            self.codex_activity(&owner, activity);
+            return;
+        }
         // A subagent's own call goes on the entry of the call that started
         // it, not in the transcript.
         let parent = parent_tool(call.meta.as_ref()).filter(|id| self.tools.contains_key(id));
+        let mut subagent = Subagent::of_call(&call.title, call.raw_input.as_ref());
         let mut tool = ToolCall {
             entry: 0,
             title: call.title.clone(),
@@ -630,7 +675,18 @@ impl Live {
             pictures: Vec::new(),
             parent: parent.clone(),
             steps: Vec::new(),
+            subagent: None,
         };
+        if let Some(subagent) = &mut subagent {
+            if let Some(title) = subagent.title.take() {
+                tool.title = title;
+            }
+            for thread in &subagent.threads {
+                self.codex_threads
+                    .insert(thread.clone(), call.tool_call_id.clone());
+            }
+        }
+        tool.subagent = subagent;
         let pictures = self.tool_output(&mut tool, &call.content);
         self.info.state.summary = cut(&tool.title, MAX_LINE);
         self.finish_tool(&tool);
@@ -651,22 +707,37 @@ impl Live {
         self.tool_images(&pictures);
     }
 
-    /// Writes tool `id`'s entry again: its own text, and the steps of the
-    /// subagent it started.
-    fn write_tool(&mut self, id: &ToolCallId) {
-        let Some(tool) = self.tools.get(id) else {
-            return;
-        };
-        let steps: Vec<Step<'_>> = tool
-            .steps
+    /// Codex's report that the subagent `owner` started began or ended:
+    /// its task names it.
+    fn codex_activity(&mut self, owner: &ToolCallId, activity: Activity) {
+        if let Some(tool) = self.tools.get_mut(owner) {
+            tool.title = activity.task;
+            if let Some(subagent) = &mut tool.subagent {
+                subagent.ended |= activity.ended;
+            }
+        }
+        self.write_tool(owner);
+    }
+
+    /// The calls the subagent `tool` started ran, as its entry names them.
+    fn steps_of<'a>(&'a self, tool: &'a ToolCall) -> Vec<Step<'a>> {
+        tool.steps
             .iter()
             .filter_map(|step| self.tools.get(step))
             .map(|step| Step {
                 status: step.status,
                 title: &step.title,
             })
-            .collect();
-        let text = tool.entry_with(&steps);
+            .collect()
+    }
+
+    /// Writes tool `id`'s entry again: its own text, and the steps of the
+    /// subagent it started.
+    fn write_tool(&mut self, id: &ToolCallId) {
+        let Some(tool) = self.tools.get(id) else {
+            return;
+        };
+        let text = tool.entry_with(&self.steps_of(tool), None);
         let entry = tool.entry;
         if let Some(entry) = self.entry_mut(entry) {
             entry.text = text;
@@ -678,9 +749,20 @@ impl Live {
             return;
         };
         let fields = &update.fields;
+        let codex = call.subagent.as_ref().is_some_and(|sub| sub.codex);
         if let Some(title) = &fields.title {
-            call.title.clone_from(title);
+            // A Codex subagent keeps the title its task or prompt gave it.
+            if !codex {
+                call.title.clone_from(title);
+            }
             self.info.state.summary = cut(title, MAX_LINE);
+        }
+        if let Some(subagent) = call.subagent.as_mut().filter(|sub| sub.codex) {
+            subagent.update(fields.raw_input.as_ref());
+            for thread in &subagent.threads {
+                self.codex_threads
+                    .insert(thread.clone(), update.tool_call_id.clone());
+            }
         }
         if let Some(kind) = fields.kind {
             call.kind = kind;
@@ -752,21 +834,64 @@ struct Step<'a> {
 impl ToolCall {
     /// Its title and status, what it showed, then its image lines whole.
     fn entry_text(&self) -> String {
-        self.entry_with(&[])
+        self.entry_with(&[], None)
+    }
+
+    /// How the call stands as its entry shows it: a Codex subagent works
+    /// until it says it ended, or its rollout says it finished.
+    fn shown_status(&self, run: Option<&Run>) -> ToolCallStatus {
+        let codex = self.subagent.as_ref().filter(|sub| sub.codex);
+        if self.status == ToolCallStatus::Failed || codex.is_none() {
+            return self.status;
+        }
+        let working = match run {
+            Some(run) => run.working,
+            None => codex.is_some_and(|sub| !sub.ended),
+        };
+        if working {
+            ToolCallStatus::InProgress
+        } else {
+            ToolCallStatus::Completed
+        }
     }
 
     /// Its entry with the steps of the subagent it started: a line
     /// `[steps] N`, then `[step <status>] <title>` for each of the last
-    /// `MAX_STEPS`, before what it showed.
-    fn entry_with(&self, steps: &[Step<'_>]) -> String {
+    /// `MAX_STEPS`, then `[agent] <name>` when it has one, before what it
+    /// showed. A Codex subagent's steps and answer are `run`'s, read from
+    /// its rollout.
+    fn entry_with(&self, steps: &[Step<'_>], run: Option<&Run>) -> String {
         let mut lines = String::new();
         for line in &self.pictures {
             lines.push('\n');
             lines.push_str(line);
         }
-        let mut text = format!("{} [{}]", self.title, wire_name(&self.status));
-        if !steps.is_empty() {
-            text.push_str(&format!("\n[steps] {}", steps.len()));
+        let status = self.shown_status(run);
+        let title = run
+            .and_then(|run| run.task.as_deref())
+            .unwrap_or(&self.title);
+        let mut text = format!("{title} [{}]", wire_name(&status));
+        let run_steps: Vec<Step<'_>> = run
+            .map(|run| {
+                run.steps
+                    .iter()
+                    .map(|step| Step {
+                        status: if step.done || status != ToolCallStatus::InProgress {
+                            ToolCallStatus::Completed
+                        } else {
+                            ToolCallStatus::InProgress
+                        },
+                        title: &step.title,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (steps, count) = match run {
+            Some(run) => (run_steps.as_slice(), run.count),
+            None => (steps, steps.len()),
+        };
+        if !steps.is_empty() || self.subagent.is_some() {
+            text.push_str(&format!("\n[steps] {count}"));
             for step in &steps[steps.len().saturating_sub(MAX_STEPS)..] {
                 let title = step.title.lines().next().unwrap_or_default();
                 text.push_str(&format!(
@@ -775,10 +900,19 @@ impl ToolCall {
                     cut(title, MAX_LINE)
                 ));
             }
+            let name = run
+                .and_then(|run| run.name.as_deref())
+                .or(self.subagent.as_ref().and_then(|sub| sub.name.as_deref()));
+            if let Some(name) = name {
+                text.push_str(&format!("\n[agent] {name}"));
+            }
         }
-        if !self.output.is_empty() {
+        let output = run
+            .and_then(|run| run.result.as_deref())
+            .unwrap_or(&self.output);
+        if !output.is_empty() {
             text.push('\n');
-            text.push_str(&self.output);
+            text.push_str(output);
         }
         let mut text = cut(&text, MAX_ENTRY.saturating_sub(lines.len()));
         text.push_str(&lines);
@@ -994,6 +1128,7 @@ fn thought_line(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::subagent::RunStep;
     use beep_proto::image_key;
     use futures::FutureExt;
     use serde_json::json;
@@ -1541,5 +1676,80 @@ mod tests {
             "_meta": {"claudeCode": {"parentToolUseId": "gone"}}
         })));
         assert_eq!(live.transcript(10).0[1].text, "Read a.rs [completed]");
+    }
+
+    #[test]
+    fn a_claude_subagent_names_its_type_before_it_runs_a_step() {
+        let mut live = live();
+        live.prompted("check the release");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "task", "title": "Check the notes",
+            "status": "in_progress",
+            "rawInput": {"description": "Check the notes", "subagent_type": "release-checker",
+                "prompt": "Compare the notes with the diff"}
+        })));
+        assert_eq!(
+            live.transcript(10).0[1].text,
+            "Check the notes [in_progress]\n[steps] 0\n[agent] release-checker"
+        );
+    }
+
+    #[test]
+    fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
+        let mut live = live();
+        live.prompted("spawn a subagent that sleeps");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "spawn", "title": "spawnAgent",
+            "kind": "other", "status": "in_progress",
+            "rawInput": {"prompt": "Sleep for 60 seconds", "senderThreadId": "root",
+                "receiverThreadIds": [], "agentsStates": {}}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update", "toolCallId": "spawn", "title": "spawnAgent",
+            "status": "completed",
+            "rawInput": {"prompt": "Sleep for 60 seconds", "senderThreadId": "root",
+                "receiverThreadIds": ["t1"], "agentsStates": {"t1": {"status": "running"}}}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "act1", "title": "Start subagent sleep_test",
+            "kind": "other", "status": "in_progress",
+            "rawInput": {"agentThreadId": "t1", "agentPath": "/root/sleep_test",
+                "activityKind": "started"}
+        })));
+        let (entries, _) = live.transcript(10);
+        assert_eq!(entries.len(), 2, "the activity is not an entry of its own");
+        assert_eq!(entries[1].text, "sleep_test [in_progress]\n[steps] 0");
+        let children = live.codex_children(0);
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].threads, ["t1"]);
+
+        let run = Run {
+            steps: vec![RunStep {
+                title: "sleep".into(),
+                done: true,
+            }],
+            count: 1,
+            result: Some("Slept for a minute.".into()),
+            working: false,
+            name: Some("Kepler".into()),
+            task: Some("sleep_test".into()),
+        };
+        let (at, text) = live.with_run(&children[0].call, &run).expect("its entry");
+        assert_eq!(at, 1);
+        assert_eq!(
+            text,
+            "sleep_test [completed]\n[steps] 1\n[step completed] sleep\n[agent] Kepler\nSlept for a minute."
+        );
+
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "act2", "title": "Complete subagent sleep_test",
+            "kind": "other", "status": "completed",
+            "rawInput": {"agentThreadId": "t1", "agentPath": "/root/sleep_test",
+                "activityKind": "completed"}
+        })));
+        assert_eq!(
+            live.transcript(10).0[1].text,
+            "sleep_test [completed]\n[steps] 0"
+        );
     }
 }
