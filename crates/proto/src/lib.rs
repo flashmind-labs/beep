@@ -1087,6 +1087,12 @@ requests! {
     /// the project has no GitHub or Forgejo host; `BadRequest` saying why
     /// when no machine of the project can read it or the host refuses.
     262 ListProjectPullRequests { project_id: Uuid } => Call<Vec<ProjectPullRequest>>
+    /// The branch the open pull request `number` of `project_id` is made
+    /// from, read from its host now, for Continue. `NotFound` when the
+    /// caller has no such project; `BadRequest` saying why when no machine
+    /// of the project can read it, the host refuses, or there is no such
+    /// pull request.
+    299 GetPullRequestHead { project_id: Uuid, number: u64 } => Call<PullRequestHead>
     /// The runs going on in any of the caller's sessions, started from any
     /// of their devices, so a chat list can mark the chats still
     /// answering. Empty when none runs.
@@ -1542,12 +1548,20 @@ wire_enum! {
     /// What a coding agent starts on, as `StartAgentSession::checkout`
     /// asks: a new `beep/<slug>` branch in the checkout itself, or one in a
     /// new worktree at `.worktrees/beep-<slug>`, made from `base` (the
-    /// checkout's `HEAD` when `None`). See `node::agent::CheckoutPlan`.
+    /// checkout's `HEAD` when `None`). `NamedWorktree` is `NewWorktree` on
+    /// a branch named `branch` rather than from the prompt.
+    /// `BranchWorktree` starts on the existing branch `branch`: in the
+    /// worktree that has it checked out, else in a new one at
+    /// `.worktrees/<branch>` after fetching it from `origin`. A server
+    /// older than `Feature::BRANCH_WORKTREES` refuses both, and so does a
+    /// node from before them. See `node::agent::CheckoutPlan`.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentCheckoutPlan {
         0 NewBranch { base: Option<String> }
         1 NewWorktree { base: Option<String> }
+        2 NamedWorktree { base: Option<String>, branch: String } since BRANCH_WORKTREES
+        3 BranchWorktree { branch: String } since BRANCH_WORKTREES
     }
 }
 
@@ -2447,6 +2461,18 @@ pub struct ProjectPullRequest {
     pub mine: bool,
     pub created_at: SystemTime,
     pub updated_at: SystemTime,
+}
+
+/// The branch a pull request is made from, as `GetPullRequestHead` gives
+/// it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PullRequestHead {
+    pub number: u64,
+    /// Its name, without `origin/`.
+    pub branch: String,
+    /// The branch is in another repository, a fork, so `origin` lacks it.
+    pub fork: bool,
 }
 
 /// An open pull request or issue of the caller's, as

@@ -598,15 +598,51 @@ pub enum CheckoutPlan {
     /// Adds a worktree on the branch in the checkout, where
     /// `worktree_path` puts it, and starts there.
     NewWorktree { base: Option<String> },
+    /// `NewWorktree` on a branch named `branch` (with `-2`, `-3` added
+    /// while that is taken) rather than from the prompt. A node from before
+    /// it does not read the start; one that makes it says so with
+    /// `NodeHello::branch_checkouts`.
+    NamedWorktree {
+        base: Option<String>,
+        branch: String,
+    },
+    /// Starts on the existing branch `branch`: in the worktree that has it
+    /// checked out, else in a new one where `worktree_path` puts it, made
+    /// after fetching `branch` from `origin`. Like `NamedWorktree`, only
+    /// for a node with `NodeHello::branch_checkouts`.
+    BranchWorktree { branch: String },
 }
 
 impl CheckoutPlan {
     /// The ref the branch is made from, when one is named.
     pub fn base(&self) -> Option<&str> {
         match self {
-            Self::NewBranch { base } | Self::NewWorktree { base } => base.as_deref(),
+            Self::NewBranch { base }
+            | Self::NewWorktree { base }
+            | Self::NamedWorktree { base, .. } => base.as_deref(),
+            Self::BranchWorktree { .. } => None,
         }
     }
+
+    /// The branch it names, for the plans that name one.
+    pub fn branch(&self) -> Option<&str> {
+        match self {
+            Self::NamedWorktree { branch, .. } | Self::BranchWorktree { branch } => Some(branch),
+            Self::NewBranch { .. } | Self::NewWorktree { .. } => None,
+        }
+    }
+}
+
+/// Whether `branch` may name a branch a plan makes or starts on: a
+/// `valid_ref` that is not `HEAD`, has no `~` or `^`, and no part that is
+/// empty, starts with `.` or ends in `.lock`. The node checks it again.
+pub fn valid_branch(branch: &str) -> bool {
+    valid_ref(branch)
+        && branch != "HEAD"
+        && !branch.contains(['~', '^'])
+        && branch
+            .split('/')
+            .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 
 impl From<AgentCheckoutPlan> for CheckoutPlan {
@@ -614,6 +650,10 @@ impl From<AgentCheckoutPlan> for CheckoutPlan {
         match plan {
             AgentCheckoutPlan::NewBranch { base } => Self::NewBranch { base },
             AgentCheckoutPlan::NewWorktree { base } => Self::NewWorktree { base },
+            AgentCheckoutPlan::NamedWorktree { base, branch } => {
+                Self::NamedWorktree { base, branch }
+            }
+            AgentCheckoutPlan::BranchWorktree { branch } => Self::BranchWorktree { branch },
         }
     }
 }
@@ -623,6 +663,8 @@ impl From<CheckoutPlan> for AgentCheckoutPlan {
         match plan {
             CheckoutPlan::NewBranch { base } => Self::NewBranch { base },
             CheckoutPlan::NewWorktree { base } => Self::NewWorktree { base },
+            CheckoutPlan::NamedWorktree { base, branch } => Self::NamedWorktree { base, branch },
+            CheckoutPlan::BranchWorktree { branch } => Self::BranchWorktree { branch },
         }
     }
 }
