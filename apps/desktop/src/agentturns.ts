@@ -78,12 +78,17 @@ function target(text: string) {
 
 
 /// A turn's steps as one line, naming at most two kinds, commands and
-/// edits first, and counting the rest: "Ran 3 commands, edited 2 files,
-/// performed 4 other actions". `steps` limits it to some of the turn's.
+/// edits first, and counting the rest: "Ran 3 commands (1 failed), edited
+/// 2 files, performed 4 other actions". Failures count with their kind.
+/// `steps` limits it to some of the turn's.
 export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.steps) {
   const tools = steps.map(at => entries[at - offset]).filter(en => en.kind === "tool");
   const of = (k: ToolKind) => tools.filter(en => toolKind(en.text) === k);
   const files = (k: ToolKind) => new Set(of(k).map(en => target(en.text))).size;
+  const withFailed = (text: string, list: LogEntry[]) => {
+    const n = list.filter(en => parseTool(imageLines(en.text).text).status === "failed").length;
+    return n ? `${text} (${n} failed)` : text;
+  };
   const kinds: { kind: ToolKind; text: string | 0 }[] = [
     { kind: "command", text: of("command").length && `ran ${plural(of("command").length, "command", "commands")}` },
     { kind: "edit", text: files("edit") && `edited ${plural(files("edit"), "file", "files")}` },
@@ -93,21 +98,23 @@ export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.step
     { kind: "other", text: of("other").length && `used ${plural(of("other").length, "other tool", "other tools")}` },
   ];
   const named = kinds.filter(k => k.text).slice(0, 2);
-  const rest = tools.filter(en => !named.some(k => k.kind === toolKind(en.text))).length;
+  const rest = tools.filter(en => !named.some(k => k.kind === toolKind(en.text)));
   // Pictures the agent looked at fold away with the steps, counted.
   const images = tools.reduce((n, en) => n + imageLines(en.text).names.length, 0);
-  const parts = [...named.map(k => k.text), images && `viewed ${plural(images, "image", "images")}`,
-    rest && `performed ${plural(rest, "other action", "other actions")}`].filter(Boolean).join(", ");
+  const parts = [...named.map(k => withFailed(String(k.text), of(k.kind))), images && `viewed ${plural(images, "image", "images")}`,
+    rest.length && withFailed(`performed ${plural(rest.length, "other action", "other actions")}`, rest)].filter(Boolean).join(", ");
   const line = parts || plural(steps.length, "step", "steps");
   return line[0].toUpperCase() + line.slice(1);
 }
 
 /// A step as one short line: "Ran cargo test", "Read src/x.rs",
-/// "Running cargo test" while it runs.
-export function stepLabel(text: string, running = false) {
+/// "Running cargo test" while it runs. A title of several lines shows its
+/// first and "…", unless `whole` asks for all of it.
+export function stepLabel(text: string, running = false, whole = false) {
   const { title } = parseTool(text);
-  const line = title.trim().split("\n")[0];
-  const named = /^([A-Za-z]+): (.*)$/.exec(line);
+  const lines = title.trim().split("\n");
+  const line = whole ? title.trim() : lines.length > 1 ? `${lines[0]} …` : lines[0];
+  const named = /^([A-Za-z]+): ([\s\S]*)$/.exec(line);
   const kind = toolKind(text), what = named ? named[2] : line;
   const verb: Partial<Record<ToolKind, [string, string]>> = {
     command: ["Ran", "Running"], edit: ["Edited", "Editing"], read: ["Read", "Reading"], search: ["Searched", "Searching"], web: ["Fetched", "Fetching"],
@@ -120,16 +127,40 @@ export function stepLabel(text: string, running = false) {
   return `${v[running ? 1 : 0]} ${what}`;
 }
 
+/// A tool's title without the harness's name for the tool (`exec: `,
+/// `Bash: `).
+export function commandOf(title: string) {
+  return title.trim().replace(/^[A-Za-z]+: /, "");
+}
+
+const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/// What an opened step shows of its title under its label: the command
+/// without the tool's name, or "" when the label already says it, so a
+/// command never prints twice.
+export function commandDetail(title: string, label: string) {
+  const cmd = squash(commandOf(title)), shown = squash(label);
+  if (!cmd || shown === cmd || shown.endsWith(` ${cmd}`)) return "";
+  return commandOf(title);
+}
+
+/// Whether a step's row starts open: a failed step only while it is the
+/// newest of a running turn, so earlier failures stay one line. `toggled`
+/// says the user clicked it.
+export function stepOpen(failed: boolean, newest: boolean, toggled: boolean) {
+  return toggled !== (failed && newest);
+}
+
 /// The steps of a turn that stay in view when it folds: notes (a model
-/// switch, a compaction), failed steps, subagents and the agent's own
-/// words that showed pictures. Pictures a tool showed fold with it.
+/// switch, a compaction), subagents and the agent's own words that showed
+/// pictures. Failed steps fold with the rest and the summary counts them.
+/// Pictures a tool showed fold with it.
 export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
   return t.steps.filter(at => {
     const en = entries[at - offset];
     if (en.kind === "other") return true;
     if (en.kind !== "tool") return imageLines(en.text).names.length > 0;
-    const { status, output } = parseTool(imageLines(en.text).text);
-    return status === "failed" || subagent(output) != null;
+    return subagent(parseTool(imageLines(en.text).text).output) != null;
   });
 }
 

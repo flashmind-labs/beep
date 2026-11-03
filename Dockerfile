@@ -54,8 +54,30 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
         && cp "target/$target/release/beep-node" "/dist/$target/" || exit 1; \
     done
 
+# The Windows build, cross-compiled with cargo-xwin against the MSVC CRT it
+# downloads. `--target node-dist-windows` writes
+# <dir>/x86_64-pc-windows-msvc/beep-node.exe.
+FROM rust:1-slim-trixie AS node-dist-windows-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang lld llvm python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --break-system-packages cargo-xwin==0.23.1 \
+    && rustup target add x86_64-pc-windows-msvc
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/root/.cache/cargo-xwin \
+    cargo xwin build --release --locked --package beep-node --bin beep-node --target x86_64-pc-windows-msvc \
+    && mkdir -p /dist/x86_64-pc-windows-msvc \
+    && cp target/x86_64-pc-windows-msvc/release/beep-node.exe /dist/x86_64-pc-windows-msvc/
+
 FROM scratch AS node-dist
 COPY --from=node-dist-build /dist /
+
+FROM scratch AS node-dist-windows
+COPY --from=node-dist-windows-build /dist /
 
 # The user's environment: beep-node in Ubuntu, bundled with a single-user
 # server (deploy/onprem) or run on any other machine, linked over iroh. The

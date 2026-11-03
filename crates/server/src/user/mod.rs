@@ -1077,6 +1077,19 @@ impl User {
         self.store.save_import(&self.key, import).await
     }
 
+    /// Notes the fork the import of `project` on `endpoint` cloned, or
+    /// none.
+    pub(crate) async fn set_import_fork(
+        &self,
+        project: &str,
+        endpoint: &str,
+        fork: Option<&crate::projects::model::RepoName>,
+    ) -> Result<()> {
+        self.store
+            .set_import_fork(&self.key, project, endpoint, fork)
+            .await
+    }
+
     /// The projects the user imported, by project, then machine.
     pub async fn imports(&self) -> Result<Vec<crate::store::ImportRow>> {
         self.store.imports(&self.key).await

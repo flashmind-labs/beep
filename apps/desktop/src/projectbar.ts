@@ -50,3 +50,47 @@ export function barCheckout(pick: CheckoutPick, base: string | null): { label: s
 
 /// The line under the bar.
 export const BAR_NOTE = "The agent works on its own branch in a new worktree unless you pick the checkout. Its session opens here.";
+
+/// What Work on it or Continue put in the bar: a new worktree on `branch`
+/// (editable) from `base` for an issue, or a pull request's own branch.
+export type BarTarget =
+  | { kind: "issue"; number: number; branch: string; base: string | null }
+  | { kind: "pr"; number: number; branch: string };
+
+/// What `agent_start` sends as `checkout` for a target.
+export function targetPlan(t: BarTarget) {
+  if (t.kind === "issue") return { named_worktree: { base: t.base?.trim() || null, branch: t.branch.trim() } };
+  return { branch_worktree: { branch: t.branch } };
+}
+
+/// The Folder pill for a target.
+export function targetCheckout(t: BarTarget): { label: string; sub: string } {
+  if (t.kind === "issue") return { label: "New worktree", sub: `from ${t.base || "HEAD"}` };
+  return { label: `Worktree ${t.branch}`, sub: `PR #${t.number}` };
+}
+
+/// Where a target's worktree is on a machine whose checkout is `cwd`: where
+/// the node puts it (`.worktrees/` and the branch with each `/` as `-`),
+/// and `known`, where the branch list found it.
+export function targetFolders(t: Pick<BarTarget, "branch">, cwd: string, known?: string | null) {
+  const trim = (p: string) => p.replace(/\/+$/, "");
+  const out = [`${trim(cwd)}/.worktrees/${t.branch.trim().replace(/\//g, "-")}`];
+  if (known && !out.includes(trim(known))) out.push(trim(known));
+  return out;
+}
+
+/// The session fields `sessionIn` reads.
+export interface BarSession {
+  machine_id: string;
+  cwd: string;
+  external: boolean;
+  last_activity: number;
+}
+
+/// The newest of our sessions (not one started outside Beep) on `machine`
+/// in one of `folders` or below it, or null.
+export function sessionIn<T extends BarSession>(sessions: readonly T[], machine: string, folders: readonly string[]): T | null {
+  const inside = (cwd: string) => folders.some(f => cwd === f || cwd.startsWith(f + "/"));
+  const found = sessions.filter(s => s.machine_id === machine && !s.external && inside(s.cwd.replace(/\/+$/, "")));
+  return [...found].sort((a, b) => b.last_activity - a.last_activity)[0] ?? null;
+}

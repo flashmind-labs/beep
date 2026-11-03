@@ -294,6 +294,10 @@ pub(crate) enum HostCommand<'a> {
     ViewIssue {
         number: u64,
     },
+    /// The branch one pull request is made from, and whether it is a fork's.
+    ViewPrHead {
+        number: u64,
+    },
     /// One comment on an issue.
     CommentIssue {
         number: u64,
@@ -525,6 +529,11 @@ impl HostCommand<'_> {
                 number,
                 &["--json", "number,title,body,url,state,author"],
             ),
+            Self::ViewPrHead { number } => number_command(
+                &["pr", "view"],
+                number,
+                &["--json", "number,headRefName,isCrossRepository"],
+            ),
             Self::CommentIssue { number, body } => {
                 number_command(&["issue", "comment"], number, &["--body", body])
             }
@@ -698,6 +707,7 @@ impl HostCommand<'_> {
                 &["-s", "open", "--per-page", &TEA_OPEN_LIMIT.to_string()],
             ),
             Self::ViewIssue { number } => tea(&["issue", "get"], &[&number.to_string()], &[]),
+            Self::ViewPrHead { number } => tea(&["pr", "get"], &[&number.to_string()], &[]),
             Self::CommentIssue { number, body } => tea(
                 &["issue", "comment", "create"],
                 &[&number.to_string()],
@@ -1024,6 +1034,55 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
         .collect()
 }
 
+/// The branch of a pull request, as [`HostCommand::ViewPrHead`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PrHead {
+    pub(crate) number: u64,
+    pub(crate) branch: String,
+    /// Made from another repository's branch.
+    pub(crate) fork: bool,
+}
+
+/// The pull request head [`HostCommand::ViewPrHead`] printed: gh gives
+/// `headRefName` and `isCrossRepository`, Forgejo `head.ref` and the
+/// repositories of `head` and `base` (a deleted fork's is null).
+pub(crate) fn parse_pr_head(out: &str) -> Result<PrHead> {
+    let item = json(out)?;
+    let number = item
+        .get("number")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("the pull request has no number"))?;
+    let (branch, fork) = match item.get("head") {
+        Some(head) => {
+            let repo = |side: Option<&Value>| {
+                side.and_then(|side| side.get("repo"))
+                    .map(|repo| text(repo, "full_name"))
+                    .filter(|name| !name.is_empty())
+            };
+            let from = repo(Some(head));
+            let into = repo(item.get("base"));
+            let fork = match (from, into) {
+                (Some(from), Some(into)) => !from.eq_ignore_ascii_case(&into),
+                (None, _) => true,
+                (Some(_), None) => false,
+            };
+            (text(head, "ref"), fork)
+        }
+        None => (
+            text(&item, "headRefName"),
+            item.get("isCrossRepository").and_then(Value::as_bool) == Some(true),
+        ),
+    };
+    if branch.is_empty() {
+        bail!("#{number} names no branch");
+    }
+    Ok(PrHead {
+        number,
+        branch,
+        fork,
+    })
+}
+
 /// The issue [`HostCommand::ViewIssue`] printed. A pull request is refused.
 pub(crate) fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
     let item = json(out)?;
@@ -1347,6 +1406,47 @@ mod tests {
             "teacli pr list acme/widget --host git.example.com -s open --per-page 25 \
              --format json"
         );
+    }
+
+    #[test]
+    fn pr_heads_render_and_parse_from_gh_and_teacli() {
+        assert_eq!(
+            HostCommand::ViewPrHead { number: 41 }.render(&forgejo(), &repo()),
+            "teacli pr get acme/widget 41 --host git.example.com --format json"
+        );
+        let gh = HostCommand::ViewPrHead { number: 41 }.render(&github(), &repo());
+        assert!(
+            gh.ends_with(
+                "gh pr view 41 -R acme/widget --json 'number,headRefName,isCrossRepository'"
+            ),
+            "{gh}"
+        );
+        let head = |number, branch: &str, fork| PrHead {
+            number,
+            branch: branch.into(),
+            fork,
+        };
+        let gh = r#"{"number":41,"headRefName":"login-copy","isCrossRepository":false}"#;
+        assert_eq!(
+            parse_pr_head(gh).expect("a head"),
+            head(41, "login-copy", false)
+        );
+        let gh = r#"{"number":43,"headRefName":"main","isCrossRepository":true}"#;
+        assert_eq!(parse_pr_head(gh).expect("a head"), head(43, "main", true));
+        let tea = r#"{"number":5,"head":{"ref":"faster-start","repo":{"full_name":"acme/widget"}},
+            "base":{"ref":"main","repo":{"full_name":"acme/widget"}}}"#;
+        assert_eq!(
+            parse_pr_head(tea).expect("a head"),
+            head(5, "faster-start", false)
+        );
+        let tea = r#"{"number":6,"head":{"ref":"fix","repo":{"full_name":"kim/widget"}},
+            "base":{"ref":"main","repo":{"full_name":"acme/widget"}}}"#;
+        assert_eq!(parse_pr_head(tea).expect("a head"), head(6, "fix", true));
+        let gone = r#"{"number":7,"head":{"ref":"fix","repo":null},
+            "base":{"ref":"main","repo":{"full_name":"acme/widget"}}}"#;
+        assert!(parse_pr_head(gone).expect("a head").fork);
+        assert!(parse_pr_head(r#"{"number":8}"#).is_err());
+        assert!(parse_pr_head("gh: not found").is_err());
     }
 
     #[test]

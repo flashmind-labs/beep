@@ -78,6 +78,7 @@ private let toolLabels: [String: String] = [
     "event_topics": "Checking which updates you get",
     "hold_events": "Holding updates for later",
     "recent_events": "Checking recent updates",
+    "projects": "Checking your projects",
     "open_maps": "Looking up a place",
     "place_save": "Saving a place",
     "place_list": "Checking your places",

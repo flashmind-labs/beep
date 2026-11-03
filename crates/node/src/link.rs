@@ -327,6 +327,7 @@ async fn open_as(
         credentials: offers.provision.is_some(),
         checkouts: true,
         agent_settings: true,
+        branch_checkouts: true,
     })
     .await?;
     let mut claimed = None;

@@ -36,6 +36,7 @@ mod notify;
 mod orb;
 mod overview;
 mod palette;
+mod pasted_image;
 mod presence;
 mod products;
 mod project_groups;
@@ -145,6 +146,9 @@ fn main() {
             agents::agent_models,
             agents::agent_view,
             agents::agent_image,
+            agents::agent_file,
+            agents::agent_file_open,
+            agents::agent_file_save,
             agents::agent_steer,
             center::open_center,
             center::center_home,
@@ -157,10 +161,12 @@ fn main() {
             center::center_window_project,
             palette::center_palette,
             palette::center_palette_branches,
+            palette::center_palette_sessions,
             palette::center_find,
             commands::status,
             commands::link_offer,
             commands::send_prompt,
+            pasted_image::read_pasted_image,
             commands::rerun_prompt,
             commands::answer_approval,
             commands::active_run,
@@ -260,12 +266,14 @@ fn main() {
             threads::center_dismiss_issue,
             threads::center_project_threads,
             threads::center_project_pull_requests,
+            threads::center_pull_request_head,
             threads::center_reply_thread,
             threads::center_open_thread_chat,
             threads::center_thread_chats,
             threads::center_thread_view,
             reviews::project_branches,
             branches::preview_import,
+            branches::find_import_fork,
             branches::add_branch_worktree,
             reviews::reviews_list,
             reviews::review_start,

@@ -54,6 +54,7 @@ private val toolLabels = mapOf(
     "node" to "Using your machines",
     "hold_events" to "Holding updates for later",
     "recent_events" to "Checking recent updates",
+    "projects" to "Checking your projects",
     "event_topics" to "Checking what to watch for",
     "start_research" to "Starting a research",
     "research_more" to "Researching further",
