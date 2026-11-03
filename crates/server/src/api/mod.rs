@@ -314,6 +314,7 @@ pub fn router() -> Router {
         .call(work_files::write_work_file)
         .call(work_diff::get_work_diff)
         .call(work_diff::get_branch_diff)
+        .call(credentials::check_credential)
         .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
@@ -677,7 +678,9 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
             received = rx.recv() => match received {
                 Ok(event) if event.user == cx.user.id()
                     && (resolves || event.notice.resolved_question().is_none()) => {
-                    let notice = event.for_device(&cx.device);
+                    let Some(notice) = event.for_device(&cx.connection.remote_id(), &cx.device) else {
+                        continue;
+                    };
                     match timeout(SEND_TIMEOUT, sink.send(notice)).await {
                         Ok(sent) => sent?,
                         Err(_) => return Ok(()),
