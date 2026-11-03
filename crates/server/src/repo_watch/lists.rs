@@ -1,7 +1,10 @@
 //! The copy of a project's open pull requests and issues, read on a
 //! machine of the project with its host's CLI.
 
-use super::watch::{Entry, OpenHead, RepoWatch};
+use super::{
+    timing::AskRead,
+    watch::{Entry, OpenHead, RepoWatch},
+};
 use crate::{
     app::App,
     projects::{
@@ -29,8 +32,10 @@ pub(crate) struct ListsCopy {
 }
 
 impl RepoWatch {
-    /// `project`'s lists from the copy, read first when there is none or it
-    /// is a few minutes old, or when `refresh` may read now.
+    /// `project`'s lists from the copy, read first when there is none or
+    /// when `refresh` may read now. A copy a few minutes old is given as it
+    /// is and read again in the background, which tells the pages
+    /// following the project.
     pub(crate) async fn lists(
         &self,
         app: &Arc<App>,
@@ -41,8 +46,10 @@ impl RepoWatch {
         let entry = self.entry(user.id(), project.id);
         let ask = entry.lists.ask(Instant::now(), refresh);
         let mut copy = entry.lists.copy.lock().await;
-        if ask.forced || entry.lists.stale() {
-            read(app, user, project, &entry, &mut copy).await;
+        match entry.lists.ask_read(ask.forced, copy.synced_at.is_some()) {
+            AskRead::Host => read(app, user, project, &entry, &mut copy).await,
+            AskRead::CopyThenSync => self.sync_soon(),
+            AskRead::Copy => {}
         }
         copy.clone()
     }
