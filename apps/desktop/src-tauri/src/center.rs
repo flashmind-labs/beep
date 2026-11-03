@@ -8,6 +8,7 @@ use crate::{
     error::{DesktopError, Result},
     home_sessions::AgentSessions,
     projects::ProjectRow,
+    research,
     state::LinkState,
     view_cache::{View, ViewCache},
 };
@@ -27,7 +28,7 @@ use std::{
 };
 use tauri::{
     ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, State,
-    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
 };
 use tokio::join;
 use uuid::Uuid;
@@ -104,13 +105,61 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     Ok(())
 }
 
-/// Shows the window, opening it if needed.
+/// Shows the window, opening it if needed. A window that was closed is
+/// only hidden, so it comes back with what it showed.
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     bar::hide(app);
     match app.get_webview_window(LABEL) {
-        Some(window) => bring_up(&window),
+        Some(window) => {
+            if !window.is_visible()? {
+                if let Err(e) = app.set_activation_policy(ActivationPolicy::Regular) {
+                    log::warn!("joining the Dock: {e}");
+                }
+                bring_up(&window)?;
+                // WKWebView may still report a hidden window as visible, so
+                // the page hears it from here.
+                if let Err(e) = app.emit_to(LABEL, SHOWN_EVENT, ()) {
+                    log::warn!("telling the window it shows: {e}");
+                }
+                return Ok(());
+            }
+            bring_up(&window)
+        }
         None => build(app, LABEL, "Beep", 0.0),
     }
+}
+
+/// Told to the main window's page when it hides and shows again, which
+/// sets how often it reads in the background.
+const HIDDEN_EVENT: &str = "center-hidden";
+const SHOWN_EVENT: &str = "center-shown";
+
+/// Closing the main window hides it instead, so it keeps its page, data
+/// and scroll and reopens at once; its data keeps syncing slowly while
+/// hidden. False for any other window, which closes as before.
+pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
+    if window.label() != LABEL {
+        return false;
+    }
+    let app = window.app_handle();
+    if let Err(e) = window.hide() {
+        log::warn!("hiding the window: {e}");
+        return false;
+    }
+    // Its chat stays in `Shown`: only the focused window holds notices back,
+    // and it comes back on the same chat.
+    if let Err(e) = app.emit_to(LABEL, HIDDEN_EVENT, ()) {
+        log::warn!("telling the window it hid: {e}");
+    }
+    research::closed(app, LABEL);
+    true
+}
+
+/// Cmd-W: closes the window it came from, which for the main window hides
+/// it (`hide_on_close`).
+#[tauri::command]
+pub fn center_close_window(window: Window) -> Result<()> {
+    Ok(window.close()?)
 }
 
 #[tauri::command]
@@ -563,6 +612,34 @@ pub fn center_cached(
     // Home's own head start, not the page's.
     views.remove(&View::AgentSessions);
     Some(views)
+}
+
+/// The most a project page cache may take, in bytes of JSON. The page caps
+/// it lower; this only stops a runaway one filling the disk.
+const MAX_PAGES: usize = 4 * 1024 * 1024;
+
+/// Keeps what the project pages last read, so the next window, even after
+/// a restart, draws them at once. Only while linked: the file goes with
+/// the account on Start over.
+#[tauri::command]
+pub fn center_keep_pages(
+    beep: Service<'_>,
+    cache: State<'_, Arc<ViewCache>>,
+    pages: Value,
+) -> Result<()> {
+    if beep.link_state() != LinkState::Linked {
+        return Err(DesktopError::Unlinked);
+    }
+    let size = serde_json::to_vec(&pages)
+        .map_err(anyhow::Error::from)?
+        .len();
+    if size > MAX_PAGES {
+        return Err(DesktopError::BadRequest(format!(
+            "the page cache is {size} bytes, over the {MAX_PAGES} kept"
+        )));
+    }
+    cache_view(&cache, View::Pages, &pages);
+    Ok(())
 }
 
 /// `result`, kept as the latest `view` when it is an answer.

@@ -15,6 +15,7 @@ use beep_proto::{
     AgentSlug,
     node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
 };
+use rusqlite::{Connection, OpenFlags};
 use std::{
     cmp::Reverse,
     collections::HashMap,
@@ -267,6 +268,17 @@ impl LogRoots {
 }
 
 /// OpenCode's databases at `root`: the file itself, or those in the folder.
+/// Opens the agent's database `path` to read, waiting a little while it is
+/// locked.
+pub(crate) fn open_database(path: &Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.busy_timeout(Duration::from_millis(200))?;
+    Ok(conn)
+}
+
 pub(crate) fn opencode_databases(root: &Path) -> Vec<PathBuf> {
     opencode::databases_at(root)
 }

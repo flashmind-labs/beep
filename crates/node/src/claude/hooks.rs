@@ -12,7 +12,7 @@ use beep_proto::node::agent::{Activity, ActivityKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::{
-    env, fs,
+    fs,
     io::Read,
     path::{Path, PathBuf},
     time::Duration,
@@ -38,12 +38,7 @@ pub fn socket_path(dir: &Path) -> PathBuf {
 
 /// Claude Code's user settings file.
 pub fn user_settings() -> Result<PathBuf> {
-    let root = match env::var_os("CLAUDE_CONFIG_DIR") {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => dirs::home_dir()
-            .context("this machine has no home folder")?
-            .join(".claude"),
-    };
+    let root = super::config_dir().context("this machine has no home folder")?;
     Ok(root.join("settings.json"))
 }
 

@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  BOTTOM_MIN, CONV_MIN_WIDTH, DEFAULT_LAYOUT, RIGHT_MIN, SIDE_BY_SIDE_MIN, ZOOM_MAX,
-  actualView, baseName, effectiveDock, fitView, mediaKind, paneSize, readLayout, resolvePath, zoomAt,
+  BOTTOM_MIN, CONV_MIN_WIDTH, DEFAULT_LAYOUT, KEPT_TABS, RIGHT_MIN, SIDE_BY_SIDE_MIN, ZOOM_MAX,
+  actualView, baseName, dropDock, effectiveDock, fitView, mediaKind, moveTab, paneSize, readLayout, resolvePath,
+  splitTabs, tabDock, zoomAt,
 } from "../src/media-state.ts";
 
 test("files are shown by their extension, in any case", () => {
@@ -33,9 +34,60 @@ test("a stored layout that does not read is the default", () => {
   assert.deepEqual(readLayout(null), DEFAULT_LAYOUT);
   assert.deepEqual(readLayout("not json"), DEFAULT_LAYOUT);
   assert.deepEqual(readLayout("[1]"), { ...DEFAULT_LAYOUT });
+  // One from before tabs had docks: folded is both docks folded.
   assert.deepEqual(readLayout('{"dock":"bottom","right":412.4,"bottom":-3,"hidden":true}'),
-    { dock: "bottom", right: 412, bottom: null, hidden: true });
+    { dock: "bottom", right: 412, bottom: null, hidden: { right: true, bottom: true }, tabs: {} });
   assert.deepEqual(readLayout('{"dock":"left","right":"wide"}'), DEFAULT_LAYOUT);
+  assert.deepEqual(readLayout('{"hidden":{"bottom":true},"tabs":{"files":"right","term:a":"bottom","x":"left","data:image/png;base64,AA":"bottom"}}'),
+    { ...DEFAULT_LAYOUT, hidden: { right: false, bottom: true }, tabs: { files: "right", "term:a": "bottom" } });
+  // What reads back is its own: changing it leaves the default alone.
+  readLayout(null).hidden.right = true;
+  assert.equal(DEFAULT_LAYOUT.hidden.right, false);
+});
+
+test("a tab dragged to a dock stays there", () => {
+  const moved = moveTab({ ...DEFAULT_LAYOUT, hidden: { right: false, bottom: true } }, "term:fix-login", "bottom");
+  assert.equal(tabDock(moved, "term:fix-login"), "bottom");
+  assert.equal(tabDock(moved, "files"), "right");
+  // The dock it went to unfolds.
+  assert.equal(moved.hidden.bottom, false);
+  assert.deepEqual(readLayout(JSON.stringify(moved)), moved);
+  // Both docks show their tabs; a window too narrow for the right dock
+  // shows them all at the bottom.
+  const ids = ["files", "term:fix-login", "/srv/a.png"];
+  assert.deepEqual(splitTabs(moved, ids, 1200), { right: ["files", "/srv/a.png"], bottom: ["term:fix-login"] });
+  assert.deepEqual(splitTabs(moved, ids, SIDE_BY_SIDE_MIN - 1), { right: [], bottom: ids });
+  // Back to the right: the bottom dock has no tabs, so it goes.
+  const back = moveTab(moved, "term:fix-login", "right");
+  assert.deepEqual(splitTabs(back, ids, 1200), { right: ids, bottom: [] });
+});
+
+test("only the newest tab moves are kept, and none of a picture by its data", () => {
+  let l = DEFAULT_LAYOUT;
+  for (let i = 0; i < KEPT_TABS + 5; i++) l = moveTab(l, `term:t${i}`, "bottom");
+  assert.equal(Object.keys(l.tabs).length, KEPT_TABS);
+  assert.equal(tabDock(l, "term:t0"), "right");
+  assert.equal(tabDock(l, `term:t${KEPT_TABS + 4}`), "bottom");
+  assert.deepEqual(moveTab(DEFAULT_LAYOUT, "data:image/png;base64,AA", "bottom").tabs, {});
+  // A move the window does not keep still counts while it is open.
+  const m = new Map([["data:image/png;base64,AA", "bottom" as const]]);
+  assert.deepEqual(splitTabs(DEFAULT_LAYOUT, ["files", "data:image/png;base64,AA"], 1200, m),
+    { right: ["files"], bottom: ["data:image/png;base64,AA"] });
+});
+
+test("a tab dropped by the right or bottom edge docks there", () => {
+  const shell = { left: 100, top: 50, width: 1000, height: 600 };
+  assert.equal(dropDock(shell, 1050, 200, true), "right");
+  assert.equal(dropDock(shell, 500, 600, true), "bottom");
+  assert.equal(dropDock(shell, 500, 300, true), null);
+  // Outside the session.
+  assert.equal(dropDock(shell, 1150, 200, true), null);
+  // In the corner, the nearer edge.
+  assert.equal(dropDock(shell, 1095, 560, true), "right");
+  assert.equal(dropDock(shell, 960, 645, true), "bottom");
+  // No right dock fits: the right edge takes nothing.
+  assert.equal(dropDock(shell, 1050, 200, false), null);
+  assert.equal(dropDock(shell, 1050, 600, false), "bottom");
 });
 
 test("a narrow window puts the pane at the bottom", () => {

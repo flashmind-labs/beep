@@ -6,6 +6,7 @@
 //! The threshold is set per harness with `BEEP_COMPACT_AT` in its env
 //! settings: a percent of the window (`70`), or `off`.
 
+use super::Known;
 use std::collections::BTreeMap;
 
 /// The variable in a harness's env settings that sets its threshold.
@@ -111,14 +112,6 @@ pub(super) enum Route {
 }
 
 impl Route {
-    pub(super) fn of(agent: &str) -> Self {
-        match agent {
-            "gemini" | "flsh" => Self::OwnTrigger,
-            "opencode" => Self::Always,
-            _ => Self::Advertised,
-        }
-    }
-
     /// Whether `/compact` works, given the commands the agent advertised.
     pub(super) fn takes_compact(self, commands: &[String]) -> bool {
         match self {
@@ -151,10 +144,12 @@ pub(super) struct TurnEnd<'a> {
 }
 
 impl Compactor {
-    pub(super) fn new(agent: &str, policy: Policy) -> Self {
+    /// For the agent `known`; one the node does not know takes `/compact`
+    /// when it advertises it.
+    pub(super) fn new(known: Option<&Known>, policy: Policy) -> Self {
         Self {
             policy,
-            route: Route::of(agent),
+            route: known.map_or(Route::Advertised, |known| known.compact),
             due: false,
             running: false,
         }
@@ -185,6 +180,7 @@ impl Compactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::known;
 
     fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs
@@ -207,7 +203,7 @@ mod tests {
 
     #[test]
     fn below_the_threshold_nothing_is_compacted() {
-        let mut compactor = Compactor::new("codex", Policy::default());
+        let mut compactor = Compactor::new(known("codex"), Policy::default());
         ended(
             &mut compactor,
             usage(79_999, 100_000),
@@ -220,7 +216,7 @@ mod tests {
 
     #[test]
     fn at_the_threshold_it_compacts_once_before_the_next_prompt() {
-        let mut compactor = Compactor::new("codex", Policy::default());
+        let mut compactor = Compactor::new(known("codex"), Policy::default());
         ended(
             &mut compactor,
             usage(80_000, 100_000),
@@ -237,7 +233,7 @@ mod tests {
 
     #[test]
     fn not_while_a_question_waits() {
-        let mut compactor = Compactor::new("pi", Policy::default());
+        let mut compactor = Compactor::new(known("pi"), Policy::default());
         ended(&mut compactor, usage(95, 100), &commands(&["/compact"]));
         assert!(!compactor.start(true));
         assert!(compactor.start(false), "still due once answered");
@@ -246,21 +242,21 @@ mod tests {
     #[test]
     fn a_harness_without_the_command_never_gets_it() {
         for agent in ["gemini", "flsh"] {
-            let mut compactor = Compactor::new(agent, Policy::default());
+            let mut compactor = Compactor::new(known(agent), Policy::default());
             ended(&mut compactor, usage(99, 100), &commands(&["compact"]));
             assert!(!compactor.start(false), "{agent} compacts on its own");
         }
-        let mut compactor = Compactor::new("codex", Policy::default());
+        let mut compactor = Compactor::new(known("codex"), Policy::default());
         ended(&mut compactor, usage(99, 100), &commands(&["review"]));
         assert!(!compactor.start(false), "not advertised");
-        let mut compactor = Compactor::new("opencode", Policy::default());
+        let mut compactor = Compactor::new(known("opencode"), Policy::default());
         ended(&mut compactor, usage(99, 100), &[]);
         assert!(compactor.start(false), "OpenCode takes it unadvertised");
     }
 
     #[test]
     fn a_turn_back_under_the_threshold_clears_it() {
-        let mut compactor = Compactor::new("codex", Policy::default());
+        let mut compactor = Compactor::new(known("codex"), Policy::default());
         ended(&mut compactor, usage(90, 100), &commands(&["compact"]));
         ended(&mut compactor, usage(10, 100), &commands(&["compact"]));
         assert!(!compactor.start(false));
@@ -285,7 +281,7 @@ mod tests {
             Policy::from_env(&env(&[(COMPACT_AT_VAR, "150")])),
             Policy::At(80)
         );
-        let mut off = Compactor::new("codex", Policy::Off);
+        let mut off = Compactor::new(known("codex"), Policy::Off);
         ended(&mut off, usage(100, 100), &commands(&["compact"]));
         assert!(!off.start(false));
         assert!(Policy::At(70).due(usage(70, 100)));
