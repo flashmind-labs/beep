@@ -124,6 +124,7 @@ sample_struct! {
     AgentImageData { key, mime, data }
     AgentFileChunk { size, mime, data }
     WorkFolder { path, entries, more, git }
+    CustomAgent { name, harness, scope, description, model, tools, color, path, prompt, prompt_cut, error }
     WorkEntry { name, folder, size, ignored, change }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
@@ -248,7 +249,21 @@ sample_struct! {
     PlanWindow { minutes, used_percent, resets_at, scope }
     ProjectSpend { project, cost_usd, unpriced }
     AgentTokens { agent, tokens }
+    SpendReport { limits, today, week, month }
+    SpendPeriod { cost_usd, metered_tokens, subscription_tokens, projects, harnesses }
+    ProjectBill { project, cost_usd, metered_tokens, subscription }
+    HarnessBill { agent, subscription, cost_usd, tokens, models }
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }
+    ProjectLists { pull_requests, prs_error, issues, issues_error, synced_at }
+    ProjectRuns { runs, checks, synced_at, error, rate_limited_until }
+    WorkflowRun { id, number, workflow, title, branch, event, actor, state, url, started_at, finished_at, progress, pull_requests }
+    RunProgress { job, job_started_at, jobs_done, jobs, step }
+    StepProgress { number, of, name, started_at }
+    PrChecks { number, state, run_id, progress }
+    ProjectRunDetail { run, jobs, log, error, rate_limited_until }
+    RunJob { id, name, state, started_at, finished_at, steps, url }
+    RunStep { number, name, state, started_at, finished_at }
+    RunLog { job, step, text, truncated }
 }
 
 macro_rules! sample_values {

@@ -42,7 +42,8 @@ pub fn start_pruning(store: Store) {
 }
 
 /// What happened to a message or chat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr, strum::EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum UpdateOp {
     Message,
     Deleted,
@@ -52,22 +53,12 @@ pub enum UpdateOp {
 
 impl UpdateOp {
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Message => "message",
-            Self::Deleted => "deleted",
-            Self::Chat => "chat",
-            Self::ChatDeleted => "chat_deleted",
-        }
+        self.into()
     }
 
     pub(super) fn parse(op: &str) -> Result<Self> {
-        Ok(match op {
-            "message" => Self::Message,
-            "deleted" => Self::Deleted,
-            "chat" => Self::Chat,
-            "chat_deleted" => Self::ChatDeleted,
-            _ => anyhow::bail!("unknown update op {op}"),
-        })
+        op.parse()
+            .map_err(|_| anyhow::anyhow!("unknown update op {op}"))
     }
 }
 

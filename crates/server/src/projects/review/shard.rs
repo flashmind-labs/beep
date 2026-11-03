@@ -5,7 +5,7 @@
 //! marks `linguist-generated` are not reviewed.
 
 use super::git::Changed;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Below this many reviewed lines, one reviewer reads it all.
 pub(crate) const SINGLE_LINES: u32 = 800;
@@ -127,8 +127,14 @@ fn shard_of(units: &[Unit<'_>]) -> Shard {
         .flat_map(|unit| unit.files.iter().map(|file| file.path.clone()))
         .collect();
     paths.sort();
-    let mut areas: Vec<&str> = units.iter().map(|unit| unit.area.as_str()).collect();
-    areas.dedup();
+    // Each area once, in the order its units came; a split area's units
+    // need not sit next to each other.
+    let mut seen = BTreeSet::new();
+    let areas: Vec<&str> = units
+        .iter()
+        .map(|unit| unit.area.as_str())
+        .filter(|area| seen.insert(*area))
+        .collect();
     let area = match areas.as_slice() {
         [one] if *one != "." => (*one).to_owned(),
         _ => {
@@ -307,6 +313,20 @@ mod tests {
             .iter()
             .find(|shard| shard.paths.iter().any(|p| p == path))
             .expect("the path is in a shard")
+    }
+
+    #[test]
+    fn a_shard_names_each_area_once() {
+        let files = [
+            changed("src/a.rs", 1),
+            changed("docs/b.md", 1),
+            changed("src/c.rs", 1),
+        ];
+        let units: Vec<Unit<'_>> = files
+            .iter()
+            .map(|file| Unit::of(&area_key(&file.path), vec![file]))
+            .collect();
+        assert_eq!(shard_of(&units).area, "src, docs");
     }
 
     #[test]

@@ -484,7 +484,7 @@ impl Store {
     }
 }
 
-fn event_row(row: &PgRow) -> Result<EventRow> {
+pub(super) fn event_row(row: &PgRow) -> Result<EventRow> {
     let app: String = row.try_get("app")?;
     let kind: String = row.try_get("kind")?;
     let state: String = row.try_get("state")?;
@@ -512,7 +512,7 @@ fn update_row(row: &PgRow) -> Result<UpdateRow> {
     })
 }
 
-fn triage_row(row: &PgRow) -> Result<TriageRow> {
+pub(super) fn triage_row(row: &PgRow) -> Result<TriageRow> {
     triage_fields(row, row.try_get("id")?, "summary")
 }
 

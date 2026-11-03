@@ -1,6 +1,6 @@
 //! Coding-agent sessions on the user's machines, for the command center.
 
-use super::Reply;
+use super::{Reply, own_nodes::linked_keys};
 use crate::{
     app::App,
     nodes::Online,
@@ -121,16 +121,6 @@ pub(super) async fn answer_agent_question(cx: Cx, answer: AnswerAgentQuestion) -
     }))
     .await?;
     Ok(())
-}
-
-pub(super) async fn linked_keys(cx: &Cx) -> Result<HashSet<String>, ApiError> {
-    Ok(cx
-        .user
-        .account_keys()
-        .await?
-        .into_iter()
-        .map(|key| key.endpoint_id)
-        .collect())
 }
 
 /// `call`, given up after `NODE_LIMIT`.

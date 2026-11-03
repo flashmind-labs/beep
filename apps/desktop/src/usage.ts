@@ -29,10 +29,16 @@ export interface Spend {
   project: string;
   cost_usd: number;
   unpriced: NamedTokens[];
+  /// Tokens of metered use; 0 from a server that prices everything.
+  metered_tokens?: number;
+  /// Tokens a subscription covered, by agent.
+  subscription?: NamedTokens[];
 }
 
 export interface HarnessSpend {
   agent: string;
+  /// A subscription covered it: tokens only, no dollars.
+  subscription?: boolean;
   cost_usd: number | null;
   tokens: number;
   models: NamedTokens[];
@@ -52,6 +58,9 @@ export interface UsageView {
   week: Period;
   /// Null from a server from before the monthly report.
   month: Period | null;
+  /// The dollars are metered API spend only; false from an older server,
+  /// whose dollars price every token at API prices.
+  metered?: boolean;
 }
 
 export type PeriodKey = "today" | "week" | "month";
@@ -147,10 +156,28 @@ export function unpricedLine(unpriced: NamedTokens[]) {
   return unpriced.filter(t => t.tokens > 0).map(t => `${tokenCount(t.tokens)} ${shortName(t.name)} tokens`).join(", ");
 }
 
-/// One harness's line in a period: its cost when it reports one, then tokens.
+/// "Claude Code" for metered use, "Claude Code, subscription" for use a
+/// plan covered.
+export function harnessName(spend: Pick<HarnessSpend, "agent" | "subscription">) {
+  return spend.subscription ? `${agentLabel(spend.agent)}, subscription` : agentLabel(spend.agent);
+}
+
+/// What a project row adds after its dollars: metered and subscription
+/// tokens, or on an older server the tokens no price covered.
+export function projectExtra(spend: Spend, metered: boolean) {
+  if (!metered) return unpricedLine(spend.unpriced);
+  const covered = (spend.subscription ?? []).reduce((sum, t) => sum + t.tokens, 0);
+  return [
+    spend.metered_tokens ? `${tokenCount(spend.metered_tokens)} API tokens` : "",
+    covered > 0 ? `${tokenCount(covered)} subscription tokens` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+/// One harness's line in a period: its cost when it reports one, then
+/// tokens; tokens only for use a subscription covered.
 export function harnessLine(spend: HarnessSpend) {
   const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)} tokens` : "";
-  if (spend.cost_usd == null) return tokens;
+  if (spend.cost_usd == null || spend.subscription) return tokens;
   return tokens ? `${money(spend.cost_usd)} · ${tokens}` : money(spend.cost_usd);
 }
 
@@ -203,6 +230,7 @@ function spendRow(name: Node | string, cost: string, extra: string, strong = fal
 
 function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void) {
   const period = view[key] ?? view.today;
+  const metered = !!view.metered;
   const seg = h("div", "us-seg", ...periods(view).map(p => {
     const b = h("button", p.key === key ? "on" : "", p.label);
     b.type = "button";
@@ -212,20 +240,22 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
   }));
   const block = h("div", "", seg);
   if (period.projects.length) {
-    block.append(h("h5", "", h("span", "", "By project"), h("span", "", "at API prices")));
-    for (const s of period.projects) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", unpricedLine(s.unpriced)));
+    block.append(h("h5", "", h("span", "", "By project"), h("span", "", metered ? "API spend" : "at API prices")));
+    for (const s of period.projects) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", projectExtra(s, metered)));
   } else if (key === "today") {
     block.append(h("div", "us-row", h("small", "", "Nothing yet today")));
   }
   if (period.harnesses.length) {
     block.append(h("h5", period.projects.length ? "us-sub" : "", h("span", "", "By harness")));
     for (const spend of period.harnesses) {
-      const row = spendRow(h("small", "", agentLabel(spend.agent)), "", harnessLine(spend));
+      const row = spendRow(h("small", "", harnessName(spend)), "", harnessLine(spend));
       if (spend.models.length) row.title = spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n");
       block.append(row);
     }
   }
-  const tokens = period.tokens ? `${tokenCount(period.tokens)} tokens` : unpricedLine(period.total.unpriced);
+  const meteredTokens = period.total.metered_tokens ?? 0;
+  const tokens = metered ? (meteredTokens ? `${tokenCount(meteredTokens)} API tokens` : "")
+    : period.tokens ? `${tokenCount(period.tokens)} tokens` : unpricedLine(period.total.unpriced);
   block.append(spendRow("Total", money(period.total.cost_usd), tokens, true));
   return block;
 }
@@ -234,7 +264,9 @@ function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void
   const blocks: Node[] = view.limits.filter(p => p.windows.length).map(p => limitBlock(p, now));
   blocks.push(
     periodBlock(view, key, pick),
-    h("div", "us-note", "Plans are flat rate: the dollars are what the same work would cost at API prices. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."),
+    h("div", "us-note", view.metered
+      ? "Dollars are API spend: API keys, OpenRouter, Bedrock and the like. Use a Claude, ChatGPT or Copilot plan covers shows as tokens. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."
+      : "Plans are flat rate: the dollars are what the same work would cost at API prices. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."),
   );
   const pop = h("div", "us-pop", ...blocks);
   pop.setAttribute("role", "dialog");

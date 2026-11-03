@@ -11,7 +11,8 @@ use super::{
     gate::{self, Asks, Gate, GatedExec, GatedProcess, ProjectGate},
     issues::{self, HOST_LIMIT, run_host},
     model::{
-        IssueHost, MachinePath, ProjectId, StartRequest, TaskId, TaskState, Visibility, WorkerAgent,
+        IssueHost, MachinePath, ProjectId, StartRequest, TaskId, TaskState, Visibility,
+        WorkerAgent, pr_number,
     },
 };
 use crate::{
@@ -136,10 +137,7 @@ pub(crate) fn register(
     gate: Arc<ProjectGate>,
 ) {
     let tools = Arc::new(ProjectTools {
-        fleet: Arc::new(NodeFleet {
-            app: app.clone(),
-            user: user.clone(),
-        }),
+        fleet: Arc::new(NodeFleet::new(app, user)),
         user: user.clone(),
         project: project.id,
         chat,
@@ -198,13 +196,6 @@ fn machine_list(machines: &[Machine]) -> String {
         .map(|machine| command_name(&machine.name))
         .collect();
     format!("Machines: {}.", names.join(", "))
-}
-
-fn host_label(host: &IssueHost) -> String {
-    match host {
-        IssueHost::Github => "GitHub".to_owned(),
-        IssueHost::Forgejo(host) => format!("Forgejo at {}", host.as_str()),
-    }
 }
 
 fn field(label: impl Into<String>, value: impl Into<String>) -> ApprovalField {
@@ -331,7 +322,8 @@ impl SetupTool {
         let project = tools.project().await?;
         let machines = tools.fleet.machines().await?;
         let mut text = format!("{}\n", project.name);
-        let role = |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), host_label);
+        let role =
+            |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), IssueHost::to_string);
         let _ = writeln!(text, "Issues: {}", role(project.roles.issues.as_ref()));
         let _ = writeln!(text, "Pull requests: {}", role(project.roles.prs.as_ref()));
         let visibility: &'static str = project.visibility.into();
@@ -451,7 +443,7 @@ impl SetupTool {
             return Ok(Err(format!(
                 "Could not make the beep labels on {}: {error:#}. Check that the CLI is \
                  signed in there.",
-                host_label(host)
+                host
             )));
         }
         let checkouts = tools.user.checkouts(project.id).await?;
@@ -474,7 +466,8 @@ impl SetupTool {
             .user
             .set_project_setup(project.id, &setup.roles, visibility, &setup.default_branch)
             .await?;
-        let role = |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), host_label);
+        let role =
+            |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), IssueHost::to_string);
         let visibility: &'static str = visibility.into();
         Ok(Ok(format!(
             "Added {path} on {name}{}. Issues: {}. Pull requests: {}. Default branch: {}. The \
@@ -691,14 +684,8 @@ impl PlanTool {
             match fleet::home_shell(tools.fleet.as_ref(), &tools.user, &project).await {
                 Ok(home) => {
                     for task in &made {
-                        match issues::file_issue(
-                            &tools.user,
-                            home.shell.as_ref(),
-                            host,
-                            &project,
-                            task,
-                        )
-                        .await
+                        match issues::file_issue(&tools.user, home.as_ref(), host, &project, task)
+                            .await
                         {
                             Ok(issue) => filed.push(format!("{} (#{})", task.slug, issue.number)),
                             Err(error) => failed.push(format!("{} ({error:#})", task.slug)),
@@ -977,11 +964,6 @@ fn waits_on(tasks: &[TaskRow], task: &TaskRow, target: TaskId) -> bool {
             .and_then(|next| tasks.iter().find(|other| other.id == next));
     }
     false
-}
-
-/// The number at the end of a pull request's URL.
-fn pr_number(url: &str) -> Option<u64> {
-    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
 }
 
 impl TasksTool {
@@ -1286,7 +1268,7 @@ async fn on_home(
         Ok(home) => home,
         Err(why) => return Ok(Err(why)),
     };
-    Ok(run_host(home.shell.as_ref(), host, project, command)
+    Ok(run_host(home.as_ref(), host, project, command)
         .await
         .map_err(|error| format!("{error:#}.")))
 }
@@ -1295,16 +1277,18 @@ async fn on_home(
 /// planned. Says what happened.
 pub(crate) async fn drop_task(
     fleet: &dyn Fleet,
-    user: &User,
+    user: &Arc<User>,
     project: &ProjectRow,
     task: &TaskRow,
 ) -> Result<String> {
     user.set_task_state(task.id, TaskState::Dropped).await?;
     for worker in user.live_workers().await? {
         if worker.task == task.id {
-            super::worker::stop_worker_on(fleet, user, &worker).await?;
+            super::worker::end_worker(fleet, user, &worker).await?;
         }
     }
+    // The slot its worker held may start a queued task.
+    super::lifecycle::refill(fleet, user).await;
     let mut text = format!("Dropped {}.", task.slug);
     if let Some(issue) = task.issue.as_ref().filter(|_| task.issue_foreign) {
         let _ = write!(

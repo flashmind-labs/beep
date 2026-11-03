@@ -2,7 +2,11 @@
 //! Forgejo or Gitea server they saved a token for.
 
 use super::ImportError;
-use crate::{credentials::ForgejoUrl, projects::model::RepoName};
+use crate::{
+    credentials::{ForgejoUrl, Opened, Slot, github_for},
+    projects::model::{RepoName, is_github, remote_parts},
+};
+use secrecy::ExposeSecret;
 use url::Url;
 
 const GITHUB: &str = "github.com";
@@ -43,7 +47,9 @@ impl RepoRef {
                 return Err(ImportError::Malformed);
             }
             let host = url.host_str().ok_or(ImportError::Malformed)?;
-            return Self::on_host(host, url.port(), url.path(), forgejo);
+            // An ssh URL's port is its own, never the web server's.
+            let web_port = url.port().filter(|_| url.scheme().starts_with("http"));
+            return Self::on_host(host, web_port, url.path(), forgejo);
         }
         let parts: Vec<&str> = input.trim_matches('/').split('/').collect();
         match parts[..] {
@@ -59,39 +65,57 @@ impl RepoRef {
         }
     }
 
+    /// The repository at `path` on `host`, given with `web_port` when an
+    /// http URL named one.
     fn on_host(
         host: &str,
-        port: Option<u16>,
+        web_port: Option<u16>,
         path: &str,
         forgejo: &[ForgejoUrl],
     ) -> Result<Self, ImportError> {
         let host = host.to_ascii_lowercase();
-        if host == GITHUB || host == "www.github.com" {
+        if is_github(&host) {
             let (org, name) = org_and_name(path)?;
             return Self::new(Host::GitHub, org, name);
         }
         let server = forgejo.iter().find_map(|server| {
             let base = Url::parse(server.as_str()).ok()?;
             let same_host = base.host_str()? == host;
-            // An ssh URL has its own port; an https one must match.
-            let same_port = port.is_none() || base.port() == port;
+            let same_port = web_port.is_none() || base.port() == web_port;
             let prefix = base.path().trim_end_matches('/');
             let rest = path.strip_prefix(prefix)?;
             (same_host && same_port && (prefix.is_empty() || rest.starts_with('/')))
                 .then(|| (server.clone(), rest.to_owned()))
         });
-        // An ssh path has no sub-path: try it from the root too.
+        // An ssh path has no sub-path: try it from the root too. A web
+        // URL on another port is another server.
         let server = server.or_else(|| {
-            forgejo.iter().find_map(|server| {
-                let base = Url::parse(server.as_str()).ok()?;
-                (base.host_str()? == host).then(|| (server.clone(), path.to_owned()))
-            })
+            forgejo
+                .iter()
+                .filter(|_| web_port.is_none())
+                .find_map(|server| {
+                    let base = Url::parse(server.as_str()).ok()?;
+                    (base.host_str()? == host).then(|| (server.clone(), path.to_owned()))
+                })
         });
         let Some((server, rest)) = server else {
             return Err(ImportError::UnknownHost(host));
         };
         let (org, name) = org_and_name(&rest)?;
         Self::new(Host::Forgejo(server), org, name)
+    }
+
+    /// The user's saved token for this repository's host: their GitHub
+    /// account for its owner, or the one saved for its Forgejo server.
+    /// `None` when there is none or it is empty.
+    pub(crate) fn credential<'a>(&self, credentials: &'a [Opened]) -> Option<&'a Opened> {
+        match &self.host {
+            Host::GitHub => github_for(credentials, &self.org),
+            Host::Forgejo(url) => credentials
+                .iter()
+                .find(|opened| matches!(&opened.slot, Slot::Forgejo(saved) if saved == url)),
+        }
+        .filter(|opened| !opened.secret.expose_secret().is_empty())
     }
 
     fn new(host: Host, org: &str, name: &str) -> Result<Self, ImportError> {
@@ -197,18 +221,6 @@ pub(crate) fn same_repo(url: &str, origin: &str, servers: &[ForgejoUrl]) -> bool
         || RepoRef::parse(url, servers).is_ok_and(|repo| repo.matches_remote(origin))
 }
 
-/// A remote URL's host, without port or user, and its path.
-fn remote_parts(remote: &str) -> Option<(String, String)> {
-    if remote.contains("://") {
-        let url = Url::parse(remote).ok()?;
-        return Some((url.host_str()?.to_owned(), url.path().to_owned()));
-    }
-    // scp-like: [user@]host:path
-    let (host, path) = remote.split_once(':')?;
-    let host = host.rsplit('@').next()?;
-    Some((host.to_owned(), path.to_owned()))
-}
-
 /// The first two segments of `path`: the rest, such as `/tree/main`, is a
 /// page of the repository.
 fn org_and_name(path: &str) -> Result<(&str, &str), ImportError> {
@@ -293,6 +305,12 @@ mod tests {
             parse("https://gitlab.com/team/app"),
             Err(ImportError::UnknownHost("gitlab.com".into()))
         );
+        // Another port on a saved server's host is another server.
+        assert_eq!(
+            parse("https://git.example.com:8443/team/app"),
+            Err(ImportError::UnknownHost("git.example.com".into()))
+        );
+        assert!(parse("ssh://git@git.example.com:2222/team/app.git").is_ok());
         for bad in [
             "",
             "iroh",

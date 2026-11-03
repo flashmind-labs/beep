@@ -6,7 +6,7 @@
 //! [`HostCommand::leaks`] first.
 
 use super::model::{
-    ForgejoHost, IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility,
+    IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility, remote_parts,
 };
 use crate::{credentials::github_owner_var, leak::PublicText, nodes::Online};
 use anyhow::{Context, Result, anyhow, bail};
@@ -188,24 +188,16 @@ pub(crate) fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupErro
     })
 }
 
-/// The host of `url` when it is a remote of `name`: `owner/repo` with an
-/// optional `.git`, ignoring case.
+/// The host of `url` when it is a remote of `name`: a path ending in
+/// `owner/repo`, with an optional `.git`, ignoring case. A Forgejo server
+/// under a sub-path puts its own segments before them.
 fn remote_host(url: &str, name: &RepoName) -> Option<String> {
-    let (host, path) = match url.split_once("://") {
-        Some((_, rest)) => {
-            let (authority, path) = rest.split_once('/')?;
-            let host = authority.rsplit('@').next()?;
-            (host.split(':').next()?, path)
-        }
-        None => {
-            let (authority, path) = url.split_once(':')?;
-            (authority.rsplit('@').next()?, path)
-        }
-    };
+    let (host, path) = remote_parts(url)?;
     let path = path.trim_matches('/');
     let path = path.strip_suffix(".git").unwrap_or(path);
-    path.eq_ignore_ascii_case(&name.to_string())
-        .then(|| host.to_ascii_lowercase())
+    let path = format!("/{path}").to_ascii_lowercase();
+    let tail = format!("/{name}").to_ascii_lowercase();
+    path.ends_with(&tail).then(|| host.to_ascii_lowercase())
 }
 
 /// What goes before a `gh` command for `repo` (`owner/repo`) so it runs as
@@ -223,11 +215,8 @@ pub(crate) fn gh_account(repo: &str) -> String {
 /// One role: what config says, else what the remote's host is.
 fn role(configured: &str, remote_host: &str) -> Result<Option<IssueHost>, SetupError> {
     let from_host = || {
-        if remote_host == "github.com" {
-            return Ok(Some(IssueHost::Github));
-        }
-        ForgejoHost::parse(remote_host)
-            .map(|host| Some(IssueHost::Forgejo(host)))
+        IssueHost::of_hostname(remote_host)
+            .map(Some)
             .ok_or_else(|| SetupError::BadHost(remote_host.to_owned()))
     };
     match configured {
@@ -508,7 +497,7 @@ impl HostCommand<'_> {
             }
             Self::ListOpenPrs => {
                 let jq = "[.[] | {number, title, url, author: .author.login, \
-                          isDraft, createdAt, updatedAt}]";
+                          isDraft, createdAt, updatedAt, headRefName}]";
                 let limit = GH_OPEN_LIMIT.to_string();
                 gh(
                     &["pr", "list"],
@@ -518,7 +507,7 @@ impl HostCommand<'_> {
                         "--limit",
                         &limit,
                         "--json",
-                        "number,title,url,author,isDraft,createdAt,updatedAt",
+                        "number,title,url,author,isDraft,createdAt,updatedAt,headRefName",
                         "--jq",
                         jq,
                     ],
@@ -985,6 +974,8 @@ pub(crate) struct OpenPr {
     pub(crate) draft: bool,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    /// The branch it is made from; empty when the host's CLI does not say.
+    pub(crate) head: String,
 }
 
 /// The time in the first of `keys` that holds one; `what` names it in
@@ -1021,6 +1012,11 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
             let draft = ["isDraft", "draft"]
                 .iter()
                 .any(|key| item.get(key).and_then(Value::as_bool) == Some(true));
+            let head = match item.get("head") {
+                Some(Value::String(branch)) => branch.clone(),
+                Some(head) => text(head, "ref"),
+                None => text(item, "headRefName"),
+            };
             Ok(OpenPr {
                 number,
                 title: text(item, "title"),
@@ -1029,6 +1025,7 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
                 draft,
                 created_at,
                 updated_at,
+                head,
             })
         })
         .collect()
@@ -1273,7 +1270,9 @@ mod tests {
     }
 
     fn forgejo() -> IssueHost {
-        IssueHost::Forgejo(ForgejoHost::parse("git.example.com").expect("a host"))
+        IssueHost::Forgejo(
+            crate::projects::model::ForgejoHost::parse("git.example.com").expect("a host"),
+        )
     }
 
     #[test]
@@ -1353,6 +1352,20 @@ mod tests {
     }
 
     #[test]
+    fn setup_reads_a_forgejo_remote_under_a_sub_path() {
+        let out = setup_out("https://git.example.com/forge/acme/widget.git", "", "", "");
+        let setup = parse_setup(&out, &repo()).expect("a setup");
+        assert_eq!(setup.roles.issues, Some(forgejo()));
+    }
+
+    #[test]
+    fn setup_reads_www_github_as_github() {
+        let out = setup_out("https://www.github.com/acme/widget", "", "", "");
+        let setup = parse_setup(&out, &repo()).expect("a setup");
+        assert_eq!(setup.roles.issues, Some(github()));
+    }
+
+    #[test]
     fn setup_refuses_another_repo() {
         let out = setup_out("git@github.com:acme/other.git", "", "", "origin/main");
         assert_eq!(
@@ -1397,7 +1410,7 @@ mod tests {
         assert!(
             list.starts_with(
                 "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr list -R acme/widget --state open --limit 100 \
-                 --json 'number,title,url,author,isDraft,createdAt,updatedAt' --jq"
+                 --json 'number,title,url,author,isDraft,createdAt,updatedAt,headRefName' --jq"
             ),
             "{list}"
         );
@@ -1458,7 +1471,7 @@ mod tests {
         };
         let gh = r#"[{"number":7,"title":"Bump serde","url":"https://github.com/acme/widget/pull/7",
             "author":"dependabot[bot]","isDraft":false,"createdAt":"2026-10-30T08:00:00Z",
-            "updatedAt":"2026-10-31T09:00:00Z"}]"#;
+            "updatedAt":"2026-10-31T09:00:00Z","headRefName":"bump-serde"}]"#;
         assert_eq!(
             parse_open_prs(gh).expect("prs"),
             [OpenPr {
@@ -1469,13 +1482,15 @@ mod tests {
                 draft: false,
                 created_at: at("2026-10-30T08:00:00Z"),
                 updated_at: at("2026-10-31T09:00:00Z"),
+                head: "bump-serde".into(),
             }]
         );
         let tea = r#"[
             {"number":5,"title":"Faster start","user":{"login":"kim"},"draft":true,
              "created_at":"2026-10-29T10:00:00+02:00","updated_at":"2026-10-29T12:00:00+02:00",
              "url":"https://git.example.com/api/v1/repos/acme/widget/pulls/5",
-             "html_url":"https://git.example.com/acme/widget/pulls/5","body":"Long text"},
+             "html_url":"https://git.example.com/acme/widget/pulls/5","body":"Long text",
+             "head":{"ref":"faster-start","repo":{"full_name":"acme/widget"}}},
             {"number":6,"title":"No draft field","user":{"login":"sam"},
              "created_at":"2026-10-28T10:00:00Z",
              "html_url":"https://git.example.com/acme/widget/pulls/6"}
@@ -1484,6 +1499,8 @@ mod tests {
         assert_eq!(prs.len(), 2, "{prs:?}");
         assert_eq!(prs[0].author, "kim");
         assert!(prs[0].draft);
+        assert_eq!(prs[0].head, "faster-start");
+        assert_eq!(prs[1].head, "");
         assert_eq!(prs[0].url, "https://git.example.com/acme/widget/pulls/5");
         assert_eq!(prs[0].updated_at, at("2026-10-29T10:00:00Z"));
         assert!(!prs[1].draft);

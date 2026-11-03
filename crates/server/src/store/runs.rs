@@ -50,7 +50,8 @@ pub struct SavedTurn {
 }
 
 /// How an agent run ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum RunStatus {
     Completed,
     Cancelled,
@@ -67,16 +68,7 @@ pub enum RunStatus {
 impl RunStatus {
     /// The name stored in the database and sent to clients.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Completed => "completed",
-            Self::Cancelled => "cancelled",
-            Self::Interrupted => "interrupted",
-            Self::TimedOut => "timed_out",
-            Self::Stalled => "stalled",
-            Self::Looped => "looped",
-            Self::Failed => "failed",
-            Self::Waiting => "waiting",
-        }
+        self.into()
     }
 }
 
