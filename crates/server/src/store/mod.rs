@@ -569,6 +569,14 @@ fn migrator(last: i64) -> Migrator {
     }
 }
 
+/// Brings the schema on `pool` up to date.
+async fn migrate(pool: &PgPool) -> Result<()> {
+    migrator(BEFORE_BACKFILL).run(pool).await?;
+    backfill::run(pool).await?;
+    migrator(i64::MAX).run(pool).await?;
+    Ok(())
+}
+
 /// Most connections one server process opens.
 const MAX_CONNECTIONS: u32 = 10;
 
@@ -677,9 +685,7 @@ impl Store {
 
     /// Runs the migrations on `pool` and opens the store on it.
     pub async fn with_pool(pool: PgPool, embedder: Arc<dyn EmbeddingProvider>) -> Result<Self> {
-        migrator(BEFORE_BACKFILL).run(&pool).await?;
-        backfill::run(&pool).await?;
-        migrator(i64::MAX).run(&pool).await?;
+        migrate(&pool).await?;
         let memories = MemoryStore::connect_postgres(pool.clone(), embedder).await?;
         Ok(Self {
             blobs: Arc::new(PgBlobs::new(pool.clone())),

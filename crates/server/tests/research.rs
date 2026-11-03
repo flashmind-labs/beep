@@ -189,7 +189,7 @@ impl Harness {
             ServerTools::default(),
             ModelChoices::only(model).with_research(Some(research)),
         );
-        let endpoint = iroh::Endpoint::builder(presets::N0)
+        let endpoint = iroh::Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
             .bind()
             .await

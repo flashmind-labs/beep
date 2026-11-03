@@ -43,7 +43,7 @@ impl LlmProvider for NoModel {
 }
 
 async fn endpoint(key: SecretKey) -> Endpoint {
-    Endpoint::builder(presets::N0)
+    Endpoint::builder(presets::Minimal)
         .secret_key(key)
         .bind()
         .await
