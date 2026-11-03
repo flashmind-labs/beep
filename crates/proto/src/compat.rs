@@ -264,6 +264,10 @@ sample_struct! {
     RunJob { id, name, state, started_at, finished_at, steps, url }
     RunStep { number, name, state, started_at, finished_at }
     RunLog { job, step, text, truncated }
+    HostedRuns { runs, checks, hosts, error }
+    HostedRun { host, run }
+    HostedChecks { host, checks }
+    RunsHost { host, kind, repo, primary, synced_at, error, rate_limited_until }
 }
 
 macro_rules! sample_values {

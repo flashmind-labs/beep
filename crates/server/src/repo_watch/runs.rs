@@ -3,23 +3,22 @@
 //! for that host.
 
 use super::{
-    actions::{HostRun, JobsReply, LOG_LINES, RunsReply, failing_part},
+    actions::{HostRun, JobsReply, LOG_LINES, ListedRun, RunsReply, failing_part},
     http::{HostCalls, TailLimits, Who},
 };
 use crate::{
     app::App,
-    credentials::{Slot, github_for},
+    credentials::{Opened, Slot, github_for},
     git_items::{Caller, HostError, forks::Api, github},
-    projects::{
-        issues::issue_host,
-        model::{IssueHost, RepoName},
-    },
+    projects::model::{IssueHost, RepoName},
     protocol::{RunJob, RunLog, WorkflowRun},
-    store::ProjectRow,
+    repo_watch::hosts::RepoOnHost,
     user::User,
 };
 use reqwest::{Client, StatusCode};
 use secrecy::SecretString;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 const GITHUB_API: &str = "https://api.github.com";
 /// Runs one list reads.
@@ -56,37 +55,32 @@ impl Target {
         format!("{}/repos/{}", self.base.trim_end_matches('/'), self.repo)
     }
 
-    /// A caller for this target's host.
-    pub(crate) fn caller<'a>(&'a self, app: &'a App, client: &'a Client) -> Caller<'a> {
+    /// A caller for this target's host, its calls bounded by `calls`.
+    pub(crate) fn caller<'a>(
+        &'a self,
+        calls: &'a Arc<Semaphore>,
+        client: &'a Client,
+    ) -> Caller<'a> {
         Caller {
             client,
-            calls: app.git_items.calls(),
+            calls,
             host: &self.host,
             token: &self.token,
         }
     }
 }
 
-/// Where `project`'s runs are read, or why they cannot be, for the user.
-pub(crate) async fn target(app: &App, user: &User, project: &ProjectRow) -> Result<Target, String> {
-    let host = issue_host(user, project).await.map_err(|e| {
-        log::warn!("runs: the project's host is unknown: {e:#}");
-        "Beep could not read where this project lives.".to_owned()
-    })?;
-    let Some(host) = host else {
-        return Err("This project has no GitHub or Forgejo host to read runs from.".to_owned());
-    };
-    let opened = user
-        .git_credentials(&app.credential_key)
-        .await
-        .map_err(|e| {
-            log::warn!("runs: the git credentials did not open: {e:#}");
-            "Beep could not open your git tokens.".to_owned()
-        })?;
-    let who = |host: &str, account: &str| Who(format!("{} {host} {account}", user.id()));
-    match host {
+/// Where the runs of `place` are read, or why they cannot be, for the
+/// user `user_id` with the git credentials `opened`.
+pub(crate) async fn target(
+    user_id: &str,
+    opened: &[Opened],
+    place: &RepoOnHost,
+) -> Result<Target, String> {
+    let who = |host: &str, account: &str| Who(format!("{user_id} {host} {account}"));
+    match &place.host {
         IssueHost::Github => {
-            let opened = github_for(&opened, project.name.owner()).ok_or_else(|| {
+            let opened = github_for(opened, place.repo.owner()).ok_or_else(|| {
                 "Add a GitHub token in Settings to see this project's runs.".to_owned()
             })?;
             let account = opened
@@ -97,7 +91,7 @@ pub(crate) async fn target(app: &App, user: &User, project: &ProjectRow) -> Resu
             Ok(Target {
                 api: Api::GitHub,
                 base: GITHUB_API.to_owned(),
-                repo: project.name.clone(),
+                repo: place.repo.clone(),
                 host: github::HOST.to_owned(),
                 token: opened.secret.clone(),
                 who: who(github::HOST, account),
@@ -124,7 +118,7 @@ pub(crate) async fn target(app: &App, user: &User, project: &ProjectRow) -> Resu
             Ok(Target {
                 api: Api::Forgejo,
                 base: format!("{}/api/v1", url.as_str()),
-                repo: project.name.clone(),
+                repo: place.repo.clone(),
                 host: url.host(),
                 token: opened.secret.clone(),
                 who: who(&url.host(), ""),
@@ -133,12 +127,22 @@ pub(crate) async fn target(app: &App, user: &User, project: &ProjectRow) -> Resu
     }
 }
 
+/// The user's git credentials, opened, or why they did not open.
+pub(crate) async fn credentials(app: &App, user: &User) -> Result<Vec<Opened>, String> {
+    user.git_credentials(&app.credential_key)
+        .await
+        .map_err(|e| {
+            log::warn!("runs: the git credentials did not open: {e:#}");
+            "Beep could not open your git tokens.".to_owned()
+        })
+}
+
 /// The newest runs, newest first.
 pub(crate) async fn list(
     calls: &HostCalls,
     caller: &Caller<'_>,
     target: &Target,
-) -> Result<Vec<WorkflowRun>, HostError> {
+) -> Result<Vec<ListedRun>, HostError> {
     let url = format!(
         "{}/actions/runs?{}",
         target.repo_url(),
@@ -270,7 +274,7 @@ mod tests {
         let first = list(&calls, &caller, &target).await.expect("the runs");
         let again = list(&calls, &caller, &target).await.expect("the runs");
         assert_eq!(first, again);
-        assert_eq!(first[0].state, RunState::Running {});
+        assert_eq!(first[0].run.state, RunState::Running {});
         let jobs = jobs(&calls, &caller, &target, 77)
             .await
             .expect("the jobs")

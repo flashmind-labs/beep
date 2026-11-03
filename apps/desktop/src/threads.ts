@@ -16,7 +16,7 @@ import type { ReviewState, ReviewView } from "./review.ts";
 import { plural } from "./components/format.ts";
 import { emptyPanel, fitRows, freshNote, stateChip } from "./components/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
-import { checksText, going } from "./runs.ts";
+import { checksText, going, hostLabel } from "./runs.ts";
 import type { ChecksRow } from "./runs.ts";
 
 /// An open issue no task tracks (IssueRow).
@@ -361,7 +361,7 @@ export interface RepoActs {
   tasks: readonly TaskLink[];
   reviews: readonly PrReview[] | null | undefined;
   checks?: readonly ChecksRow[] | null;
-  showRun?: (run: number) => void;
+  showRun?: (run: number, host?: string | null) => void;
   review?: (branch: string) => void;
   workOn: (issue: IssueRow) => void;
   continuePr: (pr: PullRequestRow) => Promise<void>;
@@ -586,15 +586,18 @@ export function makeThreads(deps: ThreadDeps) {
 
   /// A pull request's checks from its newest workflow runs; a failing one
   /// opens its run in the Actions section.
-  function checksEl(c: ChecksRow, ctx: RepoActs) {
+  /// `named` puts the host before it, for a pull request whose head ran
+  /// on more than one host.
+  function checksEl(c: ChecksRow, ctx: RepoActs, named = false) {
     const cls = c.state === "failed" ? "bad" : c.state === "passed" ? "ok" : going(c.state) ? "run" : "";
+    const text = named ? `${hostLabel(c.host)}: ${checksText(c)}` : checksText(c);
     if (c.state === "failed" && ctx.showRun) {
-      const a = h("a", `pj-chk ${cls}`, checksText(c));
+      const a = h("a", `pj-chk ${cls}`, text);
       a.href = "#";
-      a.addEventListener("click", e => { e.preventDefault(); ctx.showRun!(c.run_id); });
+      a.addEventListener("click", e => { e.preventDefault(); ctx.showRun!(c.run_id, c.host); });
       return a;
     }
-    return h("span", `pj-chk ${cls}`, going(c.state) ? h("span", "dspin") : null, checksText(c));
+    return h("span", `pj-chk ${cls}`, going(c.state) ? h("span", "dspin") : null, text);
   }
 
   /// A row's actions and why its last one failed.
@@ -621,9 +624,10 @@ export function makeThreads(deps: ThreadDeps) {
     const draw = (l: PrLine) => {
       const n = l.pr.number;
       const chip = prChip(l);
-      const runs = ctx.checks?.find(c => c.number === n);
-      const meta = h("span", "m", ...prMeta(runs ? { ...l, checks: null } : l, ago).map(t => h("span", "", t)));
-      if (runs) meta.append(checksEl(runs, ctx));
+      const runs = ctx.checks?.filter(c => c.number === n) ?? [];
+      const meta = h("span", "m", ...prMeta(runs.length ? { ...l, checks: null } : l, ago).map(t => h("span", "", t)));
+      // The first is the pull request's own host; a mirror's checks name it.
+      runs.forEach((c, i) => meta.append(checksEl(c, ctx, i > 0)));
       const buttons: HTMLButtonElement[] = [];
       if (l.needs_reply) {
         buttons.push(button(s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${n}`, async () => {

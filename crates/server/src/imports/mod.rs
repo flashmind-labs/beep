@@ -21,7 +21,7 @@ mod tool;
 
 pub use checks::Checkouts;
 pub(crate) use found::MachineFound;
-pub(crate) use preview::{checkout_for_worktree, preview};
+pub(crate) use preview::{checkout_for_worktree, parse_remotes, preview, remotes_script};
 pub(crate) use remove::remove_project;
 pub(crate) use service::{
     Import, browse, find_fork, found_projects, import, imported, project_machines,

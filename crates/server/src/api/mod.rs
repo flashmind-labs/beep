@@ -328,6 +328,8 @@ pub fn router() -> Router {
         .call(project_watch::get_project_lists)
         .call(project_watch::list_project_runs)
         .call(project_watch::get_project_run)
+        .call(project_watch::list_project_runs_all)
+        .call(project_watch::get_project_run_on)
 }
 
 type Reply<T> = Result<T, ApiError>;

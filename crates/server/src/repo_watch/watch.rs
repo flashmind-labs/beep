@@ -2,6 +2,7 @@
 //! background sync that keeps the ones someone looks at fresh.
 
 use super::{
+    hosts::RemotesRead,
     http::HostCalls,
     lists::{self, ListsCopy},
     live::{self, RunsCopy},
@@ -83,6 +84,9 @@ pub(super) struct Entry {
     /// list read, which the checks match runs with. Apart from `lists` so
     /// reading runs never waits on a list read.
     heads: Mutex<Vec<OpenHead>>,
+    /// The remotes last read from one of the project's checkouts, which
+    /// name the other hosts its runs are on.
+    remotes: Mutex<Option<RemotesRead>>,
 }
 
 impl Entry {
@@ -95,6 +99,17 @@ impl Entry {
 
     pub(super) fn set_heads(&self, heads: Vec<OpenHead>) {
         *self.heads.lock().unwrap_or_else(PoisonError::into_inner) = heads;
+    }
+
+    pub(super) fn remotes(&self) -> Option<RemotesRead> {
+        self.remotes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(super) fn set_remotes(&self, remotes: RemotesRead) {
+        *self.remotes.lock().unwrap_or_else(PoisonError::into_inner) = Some(remotes);
     }
 }
 
