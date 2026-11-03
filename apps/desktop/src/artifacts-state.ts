@@ -2,7 +2,10 @@
 // the agent made, read from its log. Claude Code publishes one with its
 // Artifact tool (`Artifact /srv/project/report.html`, its result giving
 // the claude.ai link); any agent writes .html, .md, .svg or image files
-// (`Write: …`, `Edit …`, or Codex's `(changed …)` lines). The tab renders
+// (`Write: …`, `Edit …`, or Codex's `(changed …)` lines). A file it only
+// wrote counts when it is outside the session's folder: one inside, such
+// as a README.md it edited, is a change to the repo and shows in Files and
+// Changes instead. The tab renders
 // the file the agent wrote; the claude.ai link only opens in the browser,
 // as it needs the user's own claude.ai login.
 
@@ -109,7 +112,8 @@ export interface LogEntry {
 
 /// Every artifact among `entries`, the newest first; `earlier` is the
 /// place of the first entry in the session. A file written again is one
-/// artifact, as its newest call left it.
+/// artifact, as its newest call left it. A file never published that sits
+/// inside the session's folder is a repo file, not an artifact.
 export function collectArtifacts(entries: LogEntry[], earlier: number, cwd: string): Artifact[] {
   const byPath = new Map<string, Artifact>();
   let turn = earlier, turnNo = 0;
@@ -134,7 +138,9 @@ export function collectArtifacts(entries: LogEntry[], earlier: number, cwd: stri
       });
     }
   });
-  return [...byPath.values()].sort((a, b) => b.at - a.at);
+  return [...byPath.values()]
+    .filter(a => a.published || !readPlace(cwd, a.path).inside)
+    .sort((a, b) => b.at - a.at);
 }
 
 /// What changes when the agent writes the artifact again, so the tab
