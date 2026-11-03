@@ -226,14 +226,15 @@ test("the heading names the project's short name", () => {
   assert.deepEqual(formTitle(null), { lead: "What should we build?", name: null });
 });
 
-test("the picker opens above its pill, else below, else cut to the roomier side, always inside the view", () => {
+test("the picker opens below the box, else above, else cut to the roomier side, always inside the view", () => {
   const view = { width: 1000, height: 800 };
   const size = { width: 600, height: 340 };
-  const pill = (top: number) => ({ top, left: 700, width: 200, height: 30 });
-  assert.deepEqual(placePopover(pill(500), size, view), { top: 154, left: 300, width: 600, maxHeight: null }, "above, right edges lined up");
-  assert.deepEqual(placePopover(pill(100), size, view), { top: 136, left: 300, width: 600, maxHeight: null }, "no room above: below");
-  const cut = placePopover(pill(300), { width: 600, height: 700 }, view);
-  assert.deepEqual(cut, { top: 336, left: 300, width: 600, maxHeight: 456 }, "neither fits: the roomier side, cut");
+  const box = (top: number) => ({ top, left: 700, width: 200, height: 120 });
+  assert.deepEqual(placePopover(box(100), size, view), { top: 226, left: 300, width: 600, maxHeight: null }, "below, right edges lined up");
+  assert.deepEqual(placePopover(box(500), size, view), { top: 154, left: 300, width: 600, maxHeight: null }, "no room below: above");
+  const cut = placePopover(box(300), size, { width: 1000, height: 600 });
+  assert.deepEqual(cut, { top: 8, left: 300, width: 600, maxHeight: 286 }, "neither fits: the roomier side, cut");
+  assert.deepEqual(placePopover(box(200), size, { width: 1000, height: 600 }).maxHeight, 266, "below when it has more room");
   const narrow = placePopover({ top: 300, left: 10, width: 100, height: 30 }, size, { width: 400, height: 800 });
   assert.equal(narrow.width, 384, "never wider than the view");
   assert.equal(narrow.left, 8, "kept inside on the left");
