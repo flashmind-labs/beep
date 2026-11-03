@@ -97,6 +97,9 @@ pub(crate) struct Live {
     cost_seen: f64,
     /// What the session cost since the last turn was counted.
     unbilled: Option<f64>,
+    /// The image lines of the pictures tool calls showed this turn, each
+    /// also shown as an agent image: at most `image_files::MAX_PER_TURN`.
+    turn_images: Vec<String>,
 }
 
 /// The tokens one turn used, as its prompt response says.
@@ -235,6 +238,7 @@ impl Live {
         self.in_message = false;
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
+        self.turn_images.clear();
         let state = &mut self.info.state;
         state.status = Status::Working;
         state.summary = "Thinking".into();
@@ -418,6 +422,8 @@ impl Live {
         } else {
             self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
             self.in_message = true;
+            // A replayed prompt starts a turn.
+            self.turn_images.clear();
         }
     }
 
@@ -451,6 +457,25 @@ impl Live {
         }
     }
 
+    /// Pictures a tool call showed, each also on an agent line of its own
+    /// so the transcript shows it with the tools folded: once a turn, at
+    /// most `image_files::MAX_PER_TURN`, and none too large to send.
+    fn tool_images(&mut self, pictures: &[Picture]) {
+        for picture in pictures {
+            if self.turn_images.len() >= image_files::MAX_PER_TURN {
+                return;
+            }
+            let line = picture.line();
+            if picture.data.len() > image_files::MAX_FILE || self.turn_images.contains(&line) {
+                continue;
+            }
+            // `tool_output` kept it already.
+            self.push_entry(EntryKind::Agent, format!("{line}\n"));
+            self.in_message = false;
+            self.turn_images.push(line);
+        }
+    }
+
     /// A file the agent links to: an image one shows when the turn ends.
     fn link(&mut self, uri: &str) {
         if self.turn_links.len() < image_files::MAX_PER_TURN {
@@ -460,8 +485,10 @@ impl Live {
     }
 
     /// The image files the turn that just ended named: in the agent's
-    /// messages, its links, and the files its finished edits wrote.
-    /// `None` when there are none.
+    /// messages, its links, the files its finished edits wrote, and the
+    /// ones its finished reads looked at without showing them. Files a
+    /// read showed as pictures are left out, and so is the room those
+    /// pictures took. `None` when there are none.
     pub(crate) fn turn_files(&mut self) -> Option<TurnFiles> {
         let cwd = PathBuf::from(&self.info.cwd);
         let start = self.turn_start;
@@ -474,23 +501,35 @@ impl Live {
             }
         }
         named.append(&mut self.turn_links);
-        let mut edits: Vec<&ToolCall> = self
+        let mut done: Vec<&ToolCall> = self
             .tools
             .values()
             .filter(|tool| tool.entry > start && tool.status == ToolCallStatus::Completed)
-            .filter(|tool| EDIT_KINDS.contains(&tool.kind))
             .collect();
-        edits.sort_by_key(|tool| tool.entry);
-        named.extend(edits.iter().flat_map(|tool| tool.paths.iter().cloned()));
+        done.sort_by_key(|tool| tool.entry);
+        let mut shown: Vec<PathBuf> = Vec::new();
+        for tool in done {
+            let read = tool.kind == ToolKind::Read;
+            if read && !tool.pictures.is_empty() {
+                shown.extend(
+                    tool.paths
+                        .iter()
+                        .filter_map(|name| image_files::resolve(&cwd, name)),
+                );
+            } else if read || EDIT_KINDS.contains(&tool.kind) {
+                named.extend(tool.paths.iter().cloned());
+            }
+        }
+        let room = image_files::MAX_PER_TURN.saturating_sub(self.turn_images.len());
         let mut paths: Vec<PathBuf> = Vec::new();
         for path in named
             .iter()
             .filter_map(|name| image_files::resolve(&cwd, name))
         {
-            if paths.len() >= image_files::MAX_PER_TURN {
+            if paths.len() >= room {
                 break;
             }
-            if !paths.contains(&path) {
+            if !paths.contains(&path) && !shown.contains(&path) {
                 paths.push(path);
             }
         }
@@ -504,9 +543,10 @@ impl Live {
         for picture in pictures {
             let line = picture.line();
             self.keep(picture);
-            let shown = entry
-                .and_then(|at| self.entry_mut(at))
-                .is_some_and(|item| item.text.contains(&line));
+            let shown = self.turn_images.contains(&line)
+                || entry
+                    .and_then(|at| self.entry_mut(at))
+                    .is_some_and(|item| item.text.contains(&line));
             if !shown && !lines.contains(&line) {
                 lines.push('\n');
                 lines.push_str(&line);
@@ -550,8 +590,9 @@ impl Live {
             output: String::new(),
             pictures: Vec::new(),
         };
-        self.tool_output(&mut tool, &call.content);
+        let pictures = self.tool_output(&mut tool, &call.content);
         tool.entry = self.push_entry(EntryKind::Tool, tool.entry_text());
+        self.tool_images(&pictures);
         self.info.state.summary = cut(&tool.title, MAX_LINE);
         self.finish_tool(&tool);
         self.tools.insert(call.tool_call_id.clone(), tool);
@@ -579,29 +620,32 @@ impl Live {
         if !more.is_empty() {
             call.paths = more;
         }
-        if let Some(content) = &fields.content {
-            self.tool_output(&mut call, content);
-        }
+        let pictures = match &fields.content {
+            Some(content) => self.tool_output(&mut call, content),
+            None => Vec::new(),
+        };
         let text = call.entry_text();
         if let Some(entry) = self.entry_mut(call.entry) {
             entry.text = text;
         }
+        self.tool_images(&pictures);
         self.finish_tool(&call);
         self.tools.insert(update.tool_call_id.clone(), call);
     }
 
     /// Sets what `tool` showed: its text, and a line for each picture,
-    /// kept for the server.
-    fn tool_output(&mut self, tool: &mut ToolCall, content: &[ToolCallContent]) {
+    /// kept for the server. Returns the pictures, for `tool_images`.
+    fn tool_output(&mut self, tool: &mut ToolCall, content: &[ToolCallContent]) -> Vec<Picture> {
         let shown = output(content);
         tool.output = shown.text;
         tool.pictures = shown.pictures.iter().map(Picture::line).collect();
-        for picture in shown.pictures {
-            self.keep(picture);
+        for picture in &shown.pictures {
+            self.keep(picture.clone());
         }
         for link in &shown.links {
             self.link(link);
         }
+        shown.pictures
     }
 
     /// Notes the files a finished edit changed.
@@ -921,10 +965,16 @@ mod tests {
             ]
         })));
         let line = format!("[image: image-{}]", image_key(&png));
-        let (entries, _) = live.transcript(1);
+        let (entries, _) = live.transcript(2);
         assert_eq!(
             entries[0].text,
             format!("Screenshot [completed]\ntaken\n{line}")
+        );
+        assert_eq!(entries[1].kind, EntryKind::Agent);
+        assert_eq!(
+            entries[1].text,
+            format!("{line}\n"),
+            "shown with the tools folded"
         );
         assert!(live.picture(&image_key(&png)).is_some());
         let sent = live.images.next_unsent().now_or_never().expect("one waits");
@@ -995,6 +1045,129 @@ mod tests {
         );
         live.prompted("nothing");
         assert_eq!(live.turn_files(), None);
+    }
+
+    /// A Read tool call of `path`, as Claude Code's ACP adapter sends it.
+    fn read_call(id: &str, path: &str) -> SessionUpdate {
+        update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": id,
+            "title": format!("Read {path}"),
+            "kind": "read",
+            "status": "pending",
+            "locations": [{"path": path, "line": 1}],
+            "rawInput": {"file_path": path}
+        }))
+    }
+
+    /// Its result: `png` as an image block, or plain text without one.
+    fn read_done(id: &str, png: Option<&[u8]>) -> SessionUpdate {
+        let content = match png {
+            Some(png) => json!({"type": "image", "mimeType": "image/png",
+                "data": STANDARD.encode(png)}),
+            None => json!({"type": "text", "text": "(binary)"}),
+        };
+        update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": id,
+            "status": "completed",
+            "content": [{"type": "content", "content": content}]
+        }))
+    }
+
+    fn agent_lines(live: &Live) -> Vec<String> {
+        live.transcript(MAX_ENTRIES)
+            .0
+            .into_iter()
+            .filter(|entry| entry.kind == EntryKind::Agent)
+            .map(|entry| entry.text)
+            .collect()
+    }
+
+    #[test]
+    fn an_image_a_read_shows_is_an_agent_image() {
+        let mut live = live();
+        live.prompted("draw the parts");
+        let png = b"\x89PNG\r\n\x1a\nparts".to_vec();
+        live.apply(&read_call("r1", "/srv/project/sketches/parts.png"));
+        live.apply(&read_done("r1", Some(&png)));
+        let line = format!("[image: image-{}]", image_key(&png));
+        assert_eq!(agent_lines(&live), [format!("{line}\n")]);
+        let (entries, _) = live.transcript(2);
+        assert_eq!(entries[0].kind, EntryKind::Tool);
+        assert!(live.picture(&image_key(&png)).is_some());
+        // The file it read is not read again from the disk, even named.
+        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "Drew sketches/parts.png."}})));
+        assert_eq!(live.turn_files(), None);
+    }
+
+    #[test]
+    fn an_image_file_a_read_named_shows_when_inside_the_folder() {
+        let root = std::env::temp_dir().join(format!("beep-live-reads-{}", std::process::id()));
+        let cwd = root.join("project");
+        std::fs::create_dir_all(cwd.join("sketches")).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nlineup".to_vec();
+        std::fs::write(cwd.join("sketches/lineup.png"), &png).unwrap();
+        std::fs::write(root.join("outside.png"), b"\x89PNG\r\n\x1a\nout").unwrap();
+        let mut live = Live::new(
+            SessionInfo {
+                id: "b7e2d0".into(),
+                cwd: cwd.display().to_string(),
+                ..SessionInfo::default()
+            },
+            Arc::default(),
+            Arc::default(),
+        );
+        live.prompted("look at them");
+        let inside = cwd.join("sketches/lineup.png").display().to_string();
+        let outside = root.join("outside.png").display().to_string();
+        live.apply(&read_call("r1", &inside));
+        live.apply(&read_done("r1", None));
+        live.apply(&read_call("r2", &outside));
+        live.apply(&read_done("r2", None));
+        // Still running: its file is not read.
+        live.apply(&read_call("r3", "notes.png"));
+        live.apply(&update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "Looked."}})));
+        let files = live.turn_files().expect("files named");
+        let pictures = image_files::read(&files.cwd, &files.paths);
+        assert_eq!(pictures.len(), 1, "only the one inside the folder");
+        assert_eq!(pictures[0].data, png);
+        live.show_files(files.entry, pictures);
+        let line = format!("[image: image-{}]", image_key(&png));
+        assert_eq!(agent_lines(&live), [format!("Looked.\n{line}")]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_turn_shows_each_tool_image_once_and_a_bounded_few() {
+        let mut live = live();
+        live.prompted("look twice");
+        let png = b"\x89PNG\r\n\x1a\nsame".to_vec();
+        live.apply(&read_call("r1", "/srv/project/a.png"));
+        live.apply(&read_done("r1", Some(&png)));
+        live.apply(&read_call("r2", "/srv/project/b.png"));
+        live.apply(&read_done("r2", Some(&png)));
+        let line = format!("[image: image-{}]", image_key(&png));
+        assert_eq!(agent_lines(&live), [format!("{line}\n")]);
+        // Nor again once the turn's files are read.
+        let picture = Picture {
+            mime: "image/png".into(),
+            data: png.clone(),
+        };
+        live.show_files(None, vec![picture]);
+        assert_eq!(agent_lines(&live).len(), 1);
+        // The next turn may show as many as the cap.
+        live.prompted("look at many");
+        for n in 0..image_files::MAX_PER_TURN + 2 {
+            let mut png = png.clone();
+            png.push(u8::try_from(n).expect("a few"));
+            let id = format!("m{n}");
+            live.apply(&read_call(&id, &format!("/srv/project/{n}.png")));
+            live.apply(&read_done(&id, Some(&png)));
+        }
+        assert_eq!(agent_lines(&live).len(), 1 + image_files::MAX_PER_TURN);
     }
 
     #[test]
