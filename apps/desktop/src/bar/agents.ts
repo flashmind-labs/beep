@@ -10,7 +10,8 @@ import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, P
 import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { GONE, openViewer } from "./media.ts";
-import { drawPane, openPath, openPicture, paneFrame, startPane } from "./mediapane.ts";
+import { drawPane, openPath, openPicture, paneFrame, showArtifact, startPane } from "./mediapane.ts";
+import { collectArtifacts, toolArtifacts } from "../artifacts-state.ts";
 import { cap } from "./tools.ts";
 import { withMentions } from "../files-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "../logscroll.ts";
@@ -598,6 +599,9 @@ function agentClick(e: MouseEvent) {
     const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
     return openViewer(shown, all.indexOf(pic));
   }
+  // An Artifact call opens what it published in the Artifacts tab.
+  const art = target.closest<HTMLElement>("#agbody [data-artifact]");
+  if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
   if (tool && !getSelection()!.toString()) {
     const at = Number(tool.dataset.at);
@@ -665,7 +669,9 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const opens = !!output || long;
-  return `<div class="dcoderen tool${failed ? " failed" : ""}${open ? " open" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}>`
+  const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
+  const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
+  return `<div class="dcoderen tool${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
     + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(commandOf(title))}">${esc(label)}</code>`
     + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "")
     + mediaButtons(title) + body + pics + "</div>";
@@ -818,6 +824,10 @@ const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 /// The newest step of the running turn, which starts open when it failed.
 let newestStep: number | null = null;
 
+/// When each turn shown started, by its message's place, as the last draw
+/// worked it out; for the Artifacts tab.
+const turnStarts = new Map<number, number>();
+
 /// Rows for `ats` in order, subagents started one after another as one card.
 function rowsOf(p: AgentPage, ats: number[]) {
   const out: string[] = [];
@@ -844,6 +854,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   newestStep = null;
+  turnStarts.clear();
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
@@ -860,6 +871,7 @@ function turnsHtml(p: AgentPage) {
       seenStart: m.starts.get(t.key), seenEnd: m.ends.get(t.key),
       sessionStart: s.started_at, lastActivity: s.last_activity,
     });
+    if (start != null) turnStarts.set(t.key, start);
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
     const opened = m.opened.has(t.key);
@@ -989,7 +1001,8 @@ export function drawAgentBody(keep?: string) {
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? subagentsShown(p) : [];
   b.innerHTML = `<div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>`;
-  drawPane({ html: subs.map(subRow).join(""), count: subs.length });
+  const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
+  drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);
   drawModelPill();
   drawQueue();
