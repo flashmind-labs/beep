@@ -28,7 +28,7 @@ use std::{
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     task::{JoinHandle, spawn_blocking},
@@ -133,6 +133,13 @@ struct Known {
     model_flag: bool,
     /// How it is asked to compact.
     compact: Route,
+}
+
+/// Now, in Unix seconds.
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
 }
 
 /// What the node knows of the agent `name`, when it is a known one.
@@ -1236,7 +1243,7 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
             }
             _ = every_scan.tick(), if history && scanning.is_none() => {
                 let spend = agents.spend.clone();
-                scanning = Some(spawn_blocking(move || spend.pass(live::unix_now())));
+                scanning = Some(spawn_blocking(move || spend.pass(unix_now())));
             }
             Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
                 scanning = None;
