@@ -3,8 +3,8 @@
 
 use super::User;
 use crate::{
-    protocol::node::usage::{PlanUsage, TurnUsage},
-    store::{ModelRow, PlanRow, SpendRow},
+    protocol::node::usage::{PlanUsage, SessionSpend, TurnUsage},
+    store::{DayModelRow, DaySpendRow, ModelRow, Periods, PlanRow, SpendRow},
 };
 use anyhow::Result;
 
@@ -33,5 +33,32 @@ impl User {
     /// Each agent's plan usage.
     pub(crate) async fn plan_usages(&self) -> Result<Vec<PlanRow>> {
         self.store.plan_usages(&self.key).await
+    }
+
+    /// Keeps what a session on the machine `endpoint` spent, as its log
+    /// says, in place of what was kept of it.
+    pub(crate) async fn save_session_spend(
+        &self,
+        endpoint: &str,
+        spend: &SessionSpend,
+    ) -> Result<()> {
+        self.store
+            .save_session_spend(&self.key, endpoint, spend)
+            .await
+    }
+
+    /// Today, Monday and the first of the month, in the user's timezone.
+    pub(crate) async fn usage_periods(&self) -> Result<Periods> {
+        self.store.usage_periods(&self.key).await
+    }
+
+    /// Each day's spending of `periods` by machine, folder and agent.
+    pub(crate) async fn day_spend(&self, periods: &Periods) -> Result<Vec<DaySpendRow>> {
+        self.store.day_spend(&self.key, periods).await
+    }
+
+    /// Each day's tokens of `periods` by agent and model.
+    pub(crate) async fn day_models(&self, periods: &Periods) -> Result<Vec<DayModelRow>> {
+        self.store.day_models(&self.key, periods).await
     }
 }
