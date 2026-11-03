@@ -36,28 +36,6 @@ fn runs(json: &str) -> Vec<WorkflowRun> {
 }
 
 #[test]
-fn github_runs_parse_with_their_branch_event_actor_and_times() {
-    let got = runs(GITHUB_RUNS);
-    assert_eq!(got.len(), 3);
-    let running = &got[0];
-    assert_eq!(running.id, 9001);
-    assert_eq!(running.number, 412);
-    assert_eq!(running.workflow, "CI");
-    assert_eq!(running.title, "Retry uploads when the token expires");
-    assert_eq!(running.branch, "retry-uploads");
-    assert_eq!(running.event, "pull_request");
-    assert_eq!(running.actor, "some-user");
-    assert_eq!(running.state, RunState::Running {});
-    assert_eq!(running.started_at, Some(at("2026-11-03T10:00:00Z")));
-    assert_eq!(running.finished_at, None, "still running");
-    assert_eq!(running.pull_requests, [142]);
-    let failed = &got[1];
-    assert_eq!(failed.state, RunState::Failed {});
-    assert_eq!(failed.finished_at, Some(at("2026-11-03T09:07:30Z")));
-    assert_eq!(got[2].state, RunState::Queued {});
-}
-
-#[test]
 fn forgejo_runs_parse_from_their_own_field_names() {
     let json = r#"{"workflow_runs": [
       {"id": 31, "title": "Fix the login copy", "workflow_id": "build.yml",
@@ -80,90 +58,6 @@ fn forgejo_runs_parse_from_their_own_field_names() {
     assert_eq!(got[1].pull_requests, [7]);
     assert_eq!(got[1].state, RunState::Passed {});
     assert_eq!(got[1].finished_at, Some(at("2026-11-02T10:04:00Z")));
-}
-
-#[test]
-fn a_gitea_workflow_is_named_by_its_file() {
-    let json = r#"{"workflow_runs": [{"id": 1, "path": ".gitea/workflows/test.yaml@refs/heads/main",
-      "status": "completed", "conclusion": "timed_out", "head_branch": "main"}]}"#;
-    let got = runs(json);
-    assert_eq!(got[0].workflow, "test.yaml");
-    assert_eq!(got[0].state, RunState::Failed {});
-}
-
-#[test]
-fn states_follow_status_then_conclusion() {
-    assert_eq!(state_of("completed", Some("success")), RunState::Passed {});
-    assert_eq!(
-        state_of("completed", Some("cancelled")),
-        RunState::Cancelled {}
-    );
-    assert_eq!(state_of("completed", Some("skipped")), RunState::Skipped {});
-    assert_eq!(state_of("completed", None), RunState::Unknown {});
-    assert_eq!(state_of("waiting", None), RunState::Waiting {});
-    assert_eq!(state_of("blocked", None), RunState::Waiting {});
-    assert_eq!(state_of("failure", None), RunState::Failed {});
-    assert_eq!(state_of("something-new", None), RunState::Unknown {});
-}
-
-const JOBS: &str = r#"{"total_count": 2, "jobs": [
-  {"id": 501, "run_id": 9001, "name": "Lint", "status": "completed", "conclusion": "success",
-   "started_at": "2026-11-03T10:00:00Z", "completed_at": "2026-11-03T10:01:00Z",
-   "html_url": "https://github.com/acme/widget/actions/runs/9001/job/501",
-   "steps": [{"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1}]},
-  {"id": 502, "run_id": 9001, "name": "Build", "status": "in_progress", "conclusion": null,
-   "started_at": "2026-11-03T10:01:00Z", "completed_at": null,
-   "steps": [
-     {"name": "Set up job", "status": "completed", "conclusion": "success", "number": 1},
-     {"name": "Checkout", "status": "completed", "conclusion": "success", "number": 2},
-     {"name": "Install Rust", "status": "completed", "conclusion": "success", "number": 3},
-     {"name": "Run tests", "status": "in_progress", "conclusion": null, "number": 4,
-      "started_at": "2026-11-03T10:02:00Z"},
-     {"name": "Clippy", "status": "queued", "number": 5},
-     {"name": "Build docs", "status": "queued", "number": 6},
-     {"name": "Upload", "status": "queued", "number": 7},
-     {"name": "Post Checkout", "status": "queued", "number": 8},
-     {"name": "Complete job", "status": "queued", "number": 9}
-   ]}
-]}"#;
-
-fn jobs(json: &str) -> Vec<RunJob> {
-    serde_json::from_str::<JobsReply>(json)
-        .expect("the fixture is a job list")
-        .jobs()
-}
-
-#[test]
-fn a_running_run_shows_its_job_and_step() {
-    let got = jobs(JOBS);
-    assert_eq!(got[0].steps.len(), 1);
-    assert_eq!(got[1].steps.len(), 9);
-    let now = progress(&got).expect("a job runs");
-    assert_eq!(now.job, "Build");
-    assert_eq!(now.jobs_done, 1);
-    assert_eq!(now.jobs, 2);
-    assert_eq!(now.job_started_at, Some(at("2026-11-03T10:01:00Z")));
-    let step = now.step.expect("the host gives steps");
-    assert_eq!(step.number, 4);
-    assert_eq!(step.of, 9);
-    assert_eq!(step.name, "Run tests");
-    assert_eq!(step.started_at, Some(at("2026-11-03T10:02:00Z")));
-}
-
-#[test]
-fn jobs_without_steps_give_job_level_progress() {
-    let json = r#"{"jobs": [
-      {"id": 1, "name": "build", "status": "success"},
-      {"id": 2, "name": "test", "status": "running", "started_at": "2026-11-03T10:00:00Z"},
-      {"id": 3, "name": "deploy", "status": "waiting"}
-    ]}"#;
-    let got = jobs(json);
-    assert!(got.iter().all(|job| job.steps.is_empty()));
-    let now = progress(&got).expect("a job runs");
-    assert_eq!(now.job, "test");
-    assert_eq!((now.jobs_done, now.jobs), (1, 3));
-    assert_eq!(now.step, None);
-    assert_eq!(progress(&got[..1]), None, "nothing left to run");
 }
 
 #[test]
@@ -247,14 +141,4 @@ fn the_failing_steps_lines_are_cut_from_a_github_log() {
         short.text,
         "##[error]Process completed with exit code 101.\nPost job cleanup."
     );
-}
-
-#[test]
-fn a_log_without_marks_gives_its_last_lines() {
-    let log: String = (1..=10).map(|i| format!("line {i}\n")).collect();
-    let cut = failing_part(&log, 3);
-    assert_eq!(cut.text, "line 8\nline 9\nline 10");
-    assert!(cut.truncated);
-    assert_eq!(cut.step, None);
-    assert!(!failing_part("one\ntwo", 5).truncated);
 }

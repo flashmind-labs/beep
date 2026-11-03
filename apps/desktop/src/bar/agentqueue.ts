@@ -1,7 +1,4 @@
-// Messages typed while a coding agent's turn runs. A steer goes to the node
-// at once, which delivers it once the agent's current tool call finishes; a
-// queued message stays here and goes once the turn stops or ends. Each
-// carries what was attached to it: images, and the paths it mentions.
+// Messages typed while a coding agent's turn runs.
 
 /// An image waiting to go with a message.
 export interface Attached {
@@ -63,10 +60,6 @@ export function batches(items: Waiting[], maxImages: number, maxBytes: number): 
 }
 
 /// Marks the steers the node no longer holds as delivered, oldest first.
-/// `waiting` is what the node said waits (its steers and prompts) in read
-/// number `read`; only steers it had before that read are judged, so a
-/// read that left before a steer arrived never counts it delivered. True
-/// when one changed.
 export function markDelivered(items: Waiting[], waiting: number, read: number, now = Date.now()) {
   const held = items.filter(q => q.how === "steer" && q.state === "sent" && q.after < read);
   const gone = Math.max(0, held.length - waiting);

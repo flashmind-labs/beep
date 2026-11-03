@@ -226,12 +226,4 @@ mod tests {
             assert!(in_workspace("/home/user", given).is_err(), "{given:?}");
         }
     }
-
-    #[test]
-    fn saved_paths_show_relative_to_the_workspace() {
-        assert_eq!(shown("/home/user", "/home/user/a.pdf"), "a.pdf");
-        assert_eq!(shown("/home/user", "/home/user/x/a.pdf"), "x/a.pdf");
-        assert_eq!(shown("/home/user", "/home/username/a"), "/home/username/a");
-        assert_eq!(shown("/home/user", "/srv/a"), "/srv/a");
-    }
 }

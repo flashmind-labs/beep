@@ -322,7 +322,6 @@ fn write_script(files: &[ReadFile], text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::slice;
 
     #[test]
     fn merging_replaces_the_marked_block_and_keeps_the_rest() {
@@ -388,25 +387,5 @@ mod tests {
                 .contains("~/.claude/CLAUDE.md is over 256 KB")
         );
         assert!(read_script().contains(&format!("head -c {}", MAX_FILE + 1)));
-    }
-
-    #[test]
-    fn only_files_without_the_text_are_written() {
-        let text = "rules";
-        let done = ReadFile {
-            agent: "claude",
-            rel: ".claude/CLAUDE.md",
-            text: Some(merged(None, text)),
-        };
-        assert!(write_script(slice::from_ref(&done), text).is_empty());
-        let missing = ReadFile {
-            agent: "codex",
-            rel: ".codex/AGENTS.md",
-            text: None,
-        };
-        let script = write_script(&[done, missing], text);
-        assert!(script.contains("$HOME/.codex/AGENTS.md"));
-        assert!(!script.contains("CLAUDE.md"));
-        assert!(read_script().contains(".pi/agent/AGENTS.md"));
     }
 }

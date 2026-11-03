@@ -4,8 +4,8 @@ use super::{Reply, agent_control::live_host_back};
 use crate::{
     nodes::{NodeFile, NodeWork, WorkRead, WorkWrite},
     protocol::{
-        AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkFolder, MAX_WORK_UPLOAD, ReadWorkFile,
-        WorkFolder, WriteWorkFile,
+        AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
+        ReadWorkFile, WorkFolder, WorkTree, WriteWorkFile,
     },
     router::Cx,
 };
@@ -31,6 +31,20 @@ pub(super) async fn list_work_folder(cx: Cx, list: ListWorkFolder) -> Reply<Work
         .map_err(|e| unreachable_node(machine, &e))?
     {
         NodeWork::Done(folder) => Ok(folder),
+        NodeWork::Refused(message) => Err(refused(machine, &message)),
+    }
+}
+
+pub(super) async fn list_work_tree(cx: Cx, list: ListWorkTree) -> Reply<WorkTree> {
+    let live = live_host_back(&cx, &list.machine_id).await?;
+    let machine = &live.host.machine_name;
+    match live
+        .online
+        .work_tree(&list)
+        .await
+        .map_err(|e| unreachable_node(machine, &e))?
+    {
+        NodeWork::Done(tree) => Ok(tree),
         NodeWork::Refused(message) => Err(refused(machine, &message)),
     }
 }

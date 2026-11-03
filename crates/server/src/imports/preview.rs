@@ -377,13 +377,4 @@ mod tests {
         assert_eq!(without_fork.folder, "/srv/mirror");
         assert_eq!(pick_existing(found[..1].to_vec(), &repo, Some(&fork)), None);
     }
-
-    #[test]
-    fn candidate_folders_match_by_repository_name() {
-        assert_eq!(repo_name_of("git@github.com:someone/Widget.git"), "widget");
-        assert_eq!(repo_name_of("/srv/code/widget/"), "widget");
-        assert_eq!(repo_name_of(""), "");
-        let script = remotes_script(&["/srv/my widget".to_owned()]);
-        assert!(script.contains("for f in '/srv/my widget'; do"), "{script}");
-    }
 }

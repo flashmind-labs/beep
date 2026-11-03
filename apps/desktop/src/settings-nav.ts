@@ -1,6 +1,5 @@
-// Where the window's Settings sheet stands: the page picked in its left
-// pane and the subpage open under it, such as Apps then Gmail. Pure, so
-// the tests can drive it; bar/settings.ts draws it.
+// Where the window's Settings sheet stands: the page picked in its left pane
+// and the subpage open under it, such as Apps then Gmail.
 
 /// The pages of Settings, in the order the left pane lists them.
 export const SETTINGS_PAGES = [
@@ -72,9 +71,8 @@ export function samePath(a: SettingsPath, b: SettingsPath) {
   return a.page === b.page && a.sub?.kind === b.sub?.kind && a.sub?.id === b.sub?.id;
 }
 
-/// `path`, or its page when the subpage is gone, or the first page shown
-/// when its page is not (such as Models on a server that offers none).
-/// `subExists` says whether a subpage still has something to show.
+/// `path`, or its page when the subpage is gone, or the first page shown when
+/// its page is not (such as Models on a server that offers none).
 export function fitPath(path: SettingsPath, shown: readonly SettingsPage[], subExists: (sub: SettingsSub) => boolean = () => true): SettingsPath {
   if (!shown.includes(path.page)) return { page: shown[0] ?? "general", sub: null };
   if (path.sub && !subExists(path.sub)) return { page: path.page, sub: null };

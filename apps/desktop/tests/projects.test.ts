@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, importRoot, folderUnder, next, looksLikeRepo, mergeProjects, progressText, doneText, cleanError, runningIn, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn } from "../src/projects-state.ts";
+import { START, importRoot, folderUnder, next, looksLikeRepo, mergeProjects, progressText, doneText, cleanError, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -82,17 +82,15 @@ test("choosing a checkout fills the field; another machine drops the choice", ()
   assert.equal(next(s, { type: "oops", message: "bad request: box cannot open /root." }).error, "box cannot open /root.");
 });
 
-test("running agents in a project's folders show under Agents, not Sessions", () => {
-  const project = { machines: [{ id: "m1", folder: "/home/user/proj" }] };
-  const running = [agent("m1", "/home/user/proj/sub", 5), agent("m1", "/home/user/other", 5), agent("m2", "/home/user/proj", 5)];
+test("past sessions leave out the running ones, newest first", () => {
+  const running = [agent("m1", "/home/user/proj/sub", 5)];
   running[0].id = "s1";
-  assert.deepEqual(runningIn(project, running).map(r => r.cwd), ["/home/user/proj/sub"]);
   const sessions = [
     { machine_id: "m1", id: "s0", last_activity: 1 },
     { machine_id: "m1", id: "s1", last_activity: 9 },
     { machine_id: "m1", id: "s2", last_activity: 4 },
   ];
-  assert.deepEqual(pastSessions(sessions, runningIn(project, running)).map(s => s.id), ["s2", "s0"]);
+  assert.deepEqual(pastSessions(sessions, [running[0]]).map(s => s.id), ["s2", "s0"]);
 });
 
 test("a project's sessions redraw only when a read brings a different list", () => {

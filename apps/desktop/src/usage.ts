@@ -1,7 +1,5 @@
-// The pill at the right end of every command center header: how much of
-// each coding agent's plan is used and what the agents cost today. A click
-// opens the details: the plans, then today, this week or this month by
-// project and harness. A server too old to keep usage hides it.
+// The pill at the right end of every command center header: how much of each
+// coding agent's plan is used and what the agents cost today.
 
 import { agentLabel, el as h } from "./projects-state.ts";
 
@@ -162,9 +160,8 @@ export function harnessName(spend: Pick<HarnessSpend, "agent" | "subscription">)
   return spend.subscription ? `${agentLabel(spend.agent)}, subscription` : agentLabel(spend.agent);
 }
 
-/// What a project row adds after its dollars: its API tokens, or on an
-/// older server the tokens no price covered. Tokens a plan covered are
-/// left out: the plan's bars above say how far it is used.
+/// What a project row adds after its dollars: its API tokens, or on an older
+/// server the tokens no price covered.
 export function projectExtra(spend: Spend, metered: boolean) {
   if (!metered) return unpricedLine(spend.unpriced);
   return spend.metered_tokens ? `${tokenCount(spend.metered_tokens)}` : "";
@@ -272,8 +269,8 @@ function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void
   blocks.push(
     periodBlock(view, key, pick),
     h("div", "us-note", view.metered
-      ? "Dollars are API spend: API keys, OpenRouter, Bedrock and the like. Use a Claude, ChatGPT or Copilot plan covers shows as tokens. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."
-      : "Plans are flat rate: the dollars are what the same work would cost at API prices. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."),
+      ? "Dollars are API spend. Plan use shows as tokens."
+      : "Dollars are what the same work would cost at API prices."),
   );
   const pop = h("div", "us-pop", ...blocks);
   pop.setAttribute("role", "dialog");
@@ -281,9 +278,7 @@ function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void
   return pop;
 }
 
-/// Draws the pill into `host` and keeps it current. `read(refresh)` gets
-/// the usage, or null from a server too old to keep it; `refresh` has the
-/// machines read their plans again.
+/// Draws the pill into `host` and keeps it current.
 export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promise<UsageView | null>) {
   let view: UsageView | null = null;
   let open = false;

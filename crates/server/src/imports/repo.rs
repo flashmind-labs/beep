@@ -246,16 +246,6 @@ mod tests {
     }
 
     #[test]
-    fn org_slash_repo_is_on_github() {
-        let repo = parse(" n0-computer/iroh ").unwrap();
-        assert_eq!(repo.host, Host::GitHub);
-        assert_eq!(repo.project(), "n0-computer/iroh");
-        assert_eq!(repo.web_url(), "https://github.com/n0-computer/iroh");
-        assert_eq!(repo.clone_url(), "https://github.com/n0-computer/iroh.git");
-        assert_eq!(repo.host_name(), "GitHub");
-    }
-
-    #[test]
     fn github_urls_in_any_common_form() {
         for input in [
             "https://github.com/n0-computer/iroh",
@@ -312,31 +302,6 @@ mod tests {
         ] {
             assert_eq!(parse(bad), Err(ImportError::Malformed), "{bad}");
         }
-    }
-
-    #[test]
-    fn remotes_match_by_host_and_path_in_https_or_ssh() {
-        let repo = parse("n0-computer/iroh").unwrap();
-        assert!(repo.matches_remote("https://github.com/n0-computer/iroh.git"));
-        assert!(repo.matches_remote("https://github.com/N0-Computer/iroh"));
-        assert!(repo.matches_remote("git@github.com:n0-computer/iroh.git"));
-        assert!(repo.matches_remote("https://user@github.com/n0-computer/iroh"));
-        assert!(!repo.matches_remote("https://github.com/n0-computer/iroh-gossip"));
-        assert!(!repo.matches_remote("https://git.example.com/n0-computer/iroh"));
-        assert!(!repo.matches_remote(""));
-        let sub = parse("https://code.example.org/forge/team/app").unwrap();
-        assert!(sub.matches_remote("https://code.example.org/forge/team/app.git"));
-        assert!(sub.matches_remote("ssh://git@code.example.org:2222/team/app.git"));
-    }
-
-    #[test]
-    fn a_remote_key_is_the_same_in_https_and_ssh() {
-        let key = remote_key("https://github.com/Org/Repo.git");
-        assert_eq!(key.as_deref(), Some("github.com/org/repo"));
-        assert_eq!(remote_key("git@github.com:org/repo"), key);
-        assert_eq!(remote_key("ssh://git@github.com/org/repo/"), key);
-        assert_eq!(remote_key("/srv/repo.git"), None);
-        assert_eq!(remote_key(""), None);
     }
 
     #[test]

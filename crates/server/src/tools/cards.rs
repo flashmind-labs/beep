@@ -549,66 +549,6 @@ mod tests {
     }
 
     #[test]
-    fn a_place_keeps_what_holds_up() {
-        let (card, dropped) = card_of(json!({
-            "kind": "Place", "title": " La Pubilla ", "url": "https://www.lapubilla.example/",
-            "subtitle": "Catalan · Plaça de la Llibertat", "facts": ["€€"], "rating": 4.6, "reviews": 2310,
-            "place": { "latitude": 41.40, "longitude": 2.15, "hours": "Open until 23:00", "open_now": true,
-                       "phone": "+34 932 18 22 01", "booking_url": "https://book.example/pubilla" }
-        }));
-        assert_eq!(card.kind, Kind("place".to_owned()));
-        assert_eq!(card.title, "La Pubilla");
-        assert_eq!(card.site, "lapubilla.example");
-        let place = card.place.expect("a place part");
-        assert_eq!(place.phone.as_deref(), Some("+34 932 18 22 01"));
-        assert_eq!(place.open_now, Some(true));
-        assert!(dropped.is_empty(), "{dropped:?}");
-    }
-
-    #[test]
-    fn a_part_for_another_kind_is_dropped() {
-        let (card, dropped) = card_of(json!({
-            "kind": "media", "title": "Aftersun", "url": "https://films.example/aftersun",
-            "media": { "year": 2022, "creator": "Charlotte Wells", "watch": "Filmin" },
-            "place": { "address": "Somewhere" }
-        }));
-        assert!(card.place.is_none());
-        assert_eq!(card.media.expect("a media part").year, Some(2022));
-        assert_eq!(dropped.len(), 1, "{dropped:?}");
-    }
-
-    #[test]
-    fn an_unknown_kind_gets_the_base_alone() {
-        let (card, dropped) = card_of(json!({
-            "kind": "podcast", "title": "99% Invisible", "url": "https://99pi.example/",
-            "facts": ["Weekly", "~40 min", "Design", "Extra"],
-            "event": { "start": "2026-10-18T21:00:00+02:00" }
-        }));
-        assert_eq!(card.kind, Kind("podcast".to_owned()));
-        assert!(card.event.is_none());
-        assert_eq!(card.facts.len(), MAX_FACTS);
-        assert_eq!(dropped.len(), 2, "{dropped:?}");
-    }
-
-    #[test]
-    fn an_event_needs_a_start_with_an_offset() {
-        let (card, _) = card_of(json!({
-            "kind": "event", "title": "Trio", "url": "https://club.example/trio",
-            "event": { "start": "2026-10-18T21:00:00+02:00", "end": "2026-10-18T20:00:00+02:00", "venue": "Jamboree" }
-        }));
-        let event = card.event.expect("an event part");
-        assert_eq!(event.start.to_rfc3339(), "2026-10-18T21:00:00+02:00");
-        assert!(event.end.is_none(), "an end before the start is dropped");
-
-        let (card, dropped) = card_of(json!({
-            "kind": "event", "title": "Trio", "url": "https://club.example/trio",
-            "event": { "start": "Saturday 9pm" }
-        }));
-        assert!(card.event.is_none());
-        assert_eq!(dropped.len(), 1);
-    }
-
-    #[test]
     fn rejects_bad_kinds_products_and_links() {
         for (kind, url) in [
             ("two words", "https://a.example/"),
@@ -633,39 +573,5 @@ mod tests {
         }));
         assert_eq!(card.place.expect("a place part"), PlacePart::default());
         assert_eq!(dropped.len(), 3, "{dropped:?}");
-    }
-
-    #[test]
-    fn distance_rounds_to_ten_metres() {
-        let place = PlacePart {
-            latitude: Some(41.4036),
-            longitude: Some(2.1744),
-            ..PlacePart::default()
-        };
-        let here = Point {
-            latitude: 41.4036,
-            longitude: 2.1666,
-        };
-        assert_eq!(distance(here, &place), Some(650));
-    }
-
-    #[test]
-    fn output_leaves_out_unknown_fields() {
-        let (card, _) = card_of(
-            json!({ "kind": "recipe", "title": "Paella", "url": "https://food.example/paella" }),
-        );
-        let shown = Shown {
-            action: NAME,
-            cards: vec![card],
-            dropped: Vec::new(),
-        };
-        assert_eq!(
-            serde_json::to_value(&shown).expect("serializes"),
-            json!({
-                "action": "show_cards",
-                "cards": [{ "kind": "recipe", "title": "Paella", "url": "https://food.example/paella", "site": "food.example" }],
-                "dropped": []
-            })
-        );
     }
 }

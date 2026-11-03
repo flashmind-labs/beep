@@ -125,6 +125,7 @@ sample_struct! {
     AgentImageData { key, mime, data }
     AgentFileChunk { size, mime, data }
     WorkFolder { path, entries, more, git }
+    WorkTree { folders, truncated }
     WorkDiff { root, base, merge_base, working_tree, files, additions, deletions, more }
     DiffFile { path, old_path, status, additions, deletions, hunks, left_out }
     DiffHunk { old_start, old_lines, new_start, new_lines, section, lines }
@@ -278,6 +279,8 @@ sample_struct! {
     HostedRun { host, run }
     HostedChecks { host, checks }
     RunsHost { host, kind, repo, primary, synced_at, error, rate_limited_until }
+    MachineUpdate { from, to, restarting, note }
+    UpdatableMachine { id, agent_sessions }
 }
 
 macro_rules! sample_values {

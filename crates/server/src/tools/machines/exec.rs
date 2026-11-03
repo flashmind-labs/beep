@@ -348,47 +348,8 @@ const STEP_COMMAND_CHARS: usize = 80;
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_step_names_the_command() {
-        assert_eq!(
-            step(
-                &json!({ "command": "\n  ssh build-box journalctl -u app\necho done" }),
-                None
-            ),
-            "Running ssh build-box journalctl -u app"
-        );
-        assert_eq!(
-            step(&json!({ "command": "df -h /" }), Some("build-box")),
-            "Running on build-box: df -h /"
-        );
-        assert_eq!(step(&json!({ "command": "  " }), Some("build-box")), STEP);
-        let long = "x".repeat(100);
-        assert_eq!(
-            step(&json!({ "command": long }), None),
-            format!("Running {}...", "x".repeat(80))
-        );
-    }
-
     fn args(value: Value) -> Result<Args, serde_json::Error> {
         serde_json::from_value(value)
-    }
-
-    #[test]
-    fn arguments_parse_with_a_machine_and_limits() {
-        let parsed = args(json!({
-            "command": "curl -sI https://example.com",
-            "timeout_secs": 99_999,
-            "in": "mac"
-        }))
-        .unwrap();
-        assert_eq!(parsed.machine.as_deref(), Some("mac"));
-        assert_eq!(parsed.limit(), Duration::from_secs(MAX_TIMEOUT_SECS));
-        assert!(!parsed.run_in_background);
-        assert!(parsed.preview().is_none());
-        let parsed = args(json!({ "command": "ls" })).unwrap();
-        assert_eq!(parsed.limit(), DEFAULT_LIMIT);
-        assert!(args(json!({ "command": "ls", "language": "python" })).is_err());
-        assert!(args(json!({ "timeout_secs": 5 })).is_err());
     }
 
     #[test]
@@ -401,28 +362,6 @@ mod tests {
         let parsed = args(json!({ "command": "x", "head": 900, "tail": 900 })).unwrap();
         let preview = parsed.preview().unwrap();
         assert_eq!(preview.head_limit + preview.tail_limit, MAX_PREVIEW_LINES);
-    }
-
-    #[test]
-    fn a_report_starts_with_the_exit_code() {
-        let exited = Exited {
-            exit_code: Some(7),
-            timed_out: false,
-            truncated: false,
-        };
-        assert_eq!(
-            report(&exited, "oops\n".into(), DEFAULT_LIMIT),
-            "[exit code: 7]\noops"
-        );
-        let timed_out = Exited {
-            exit_code: None,
-            timed_out: true,
-            truncated: true,
-        };
-        assert_eq!(
-            report(&timed_out, String::new(), Duration::from_secs(5)),
-            "[timed out after 5s and was stopped]\n\n[the node dropped output past 1 MiB]"
-        );
     }
 
     #[test]

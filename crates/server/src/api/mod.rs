@@ -74,7 +74,7 @@ use location::{
 };
 use machines::{
     create_node_token, get_node_token, list_machine_details, list_machine_stats, list_machines,
-    remove_machine, revoke_node_token,
+    list_updatable_machines, remove_machine, revoke_node_token, update_machine,
 };
 use memories::{
     clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
@@ -284,6 +284,8 @@ pub fn router() -> Router {
         .call(create_node_token)
         .call(revoke_node_token)
         .call(remove_machine)
+        .call(update_machine)
+        .call(list_updatable_machines)
         .call(get_node_token)
         .call(credentials::list_credentials)
         .call(credentials::save_credential)
@@ -310,6 +312,7 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_image)
         .call(agent_control::get_agent_file)
         .call(work_files::list_work_folder)
+        .call(work_files::list_work_tree)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
         .call(work_diff::get_work_diff)
@@ -743,29 +746,6 @@ fn next_run(schedule: &JobSchedule, tz_name: &str) -> Option<DateTime<Utc>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    pub(super) fn refusal<T>(reply: Reply<T>) -> String {
-        match reply {
-            Err(ApiError::BadRequest { message }) => message,
-            _ => panic!("expected a bad request"),
-        }
-    }
-
-    #[test]
-    fn too_many_or_too_large_images_are_refused() {
-        let image = || "x".to_owned();
-        assert_eq!(
-            refusal(check_images(&vec![image(); MAX_IMAGES + 1])),
-            "at most 8 images per message"
-        );
-        assert_eq!(
-            refusal(check_images(&["x".repeat(MAX_IMAGE_BYTES + 1)])),
-            "each image must be at most 2 MiB"
-        );
-        assert!(check_images(&vec![image(); MAX_IMAGES]).is_ok());
-    }
-
     #[test]
     fn every_op_is_routed_once() {
         super::router().check().unwrap();

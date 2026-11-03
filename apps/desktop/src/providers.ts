@@ -1,7 +1,6 @@
-// The Coding agents page: per machine, each harness (Claude Code, Codex,
-// pi, ...) with its version, sign-in and an on/off switch, and the picked
-// one's runtime settings. center.ts registers it; providers-state.ts holds
-// the words and sums.
+// The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
+// ...) with its version, sign-in and an on/off switch, and the picked one's
+// runtime settings.
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
@@ -26,9 +25,7 @@ export interface ProvidersDeps {
   redrawTop: () => void;
 }
 
-/// The page's state. `views` holds each machine's harnesses once read
-/// (null when that failed, false from a server too old); `drafts` the
-/// runtime fields being edited, by machine and agent.
+/// The page's state.
 interface ProvidersState {
   machines: MachineRow[] | null | undefined;
   machine: string | null;
@@ -241,8 +238,6 @@ export function registerProviders(deps: ProvidersDeps) {
   }
 
   /// A setting: its label and help on the left, `control` on the right.
-  /// `names` are the other machines where it is not the same, noted
-  /// beside the label.
   function field(label: string, help: string, control: HTMLElement, names: readonly string[] = []) {
     const note = names.length ? h("span", "hv-diff", differsLabel(names)) : null;
     note?.setAttribute("title", `Not the same on ${names.join(", ")}`);
@@ -287,7 +282,7 @@ export function registerProviders(deps: ProvidersDeps) {
         });
         out.push(acts(install, copy));
       } else {
-        out.push(h("div", "hv-note", "Beep knows no way to install it here. Install it on the machine, then check again."));
+        out.push(h("div", "hv-note", "Install it on the machine, then check again."));
       }
       return nodes(out);
     }
@@ -309,7 +304,7 @@ export function registerProviders(deps: ProvidersDeps) {
       const why = `${name} does not say whether it is signed in. Run it on ${m} to sign in.`;
       out.push(inSettings ? h("div", "hv-note", why) : row(why));
     }
-    if (!hv.runnable) out.push(h("div", "hv-note", "Beep cannot start it yet: beep-node finds the agent and its ACP adapter when it starts. Restart beep-node after installing."));
+    if (!hv.runnable) out.push(h("div", "hv-note", "Restart beep-node to use it."));
     if (hasUpdate(hv)) {
       const up = button(busy ? "Updating…" : `Update to v${hv.latest}`, "", () => update([hv.agent]));
       up.disabled = busy || !hv.install;
@@ -371,7 +366,7 @@ export function registerProviders(deps: ProvidersDeps) {
       envBox.replaceChildren(...rows);
     };
     drawEnv();
-    box.append(field("Environment", "Values are kept encrypted and never shown again. Keys belong in Credentials; Beep hands them to the agent itself.", envBox, differs("env")));
+    box.append(field("Environment", "Encrypted, never shown again. Put keys in Credentials.", envBox, differs("env")));
 
     const problem = h("span", "derr", "");
     const saveBtn = button(st.saving ? "Saving…" : "Save", "pri", () => {

@@ -1,7 +1,8 @@
 // The Files tab of a coding agent session: the working folder's tree as
-// the node lists it a folder at a time, what of it shows for a filter,
+// the node lists it a few levels at a time, what of it shows for a filter,
 // paths mentioned in a message, files dropped to upload, and the simple
 // highlighting of the text view. No page here, so the tests load it.
+import { esc } from "./components/format.ts";
 
 /// How git sees an entry changed (WorkEntry.change).
 export type GitChange = "untracked" | "added" | "modified" | "conflicted";
@@ -21,6 +22,25 @@ export interface TreeFolder {
   entries: TreeEntry[];
   more: number;
   git: boolean;
+}
+
+/// A read of the tree as `agent_tree` gives it (Tree): the folder asked
+/// first, then those under it the node read.
+export interface Tree {
+  folders: TreeFolder[];
+  truncated: boolean;
+}
+
+/// Puts what `tree` read into `listings`, over what they held.
+export function mergeTree(listings: Map<string, Listing>, tree: Tree) {
+  for (const f of tree.folders) listings.set(f.path, { entries: f.entries, more: f.more, error: "" });
+}
+
+/// `dir` is not read, or a folder in it is not: opening it reads on. The
+/// node does not read into what git ignores, so that does not count.
+export function atEdge(listings: ReadonlyMap<string, Listing>, dir: string) {
+  const entries = listings.get(dir)?.entries;
+  return !entries || entries.some(e => e.folder && !e.ignored && !listings.get(joinPath(dir, e.name))?.entries);
 }
 
 /// A folder's listing as the tab holds it: loading, read, or why not.
@@ -69,9 +89,7 @@ export function parentPath(path: string) {
   return at < 0 ? "" : path.slice(0, at);
 }
 
-/// The rows the tree shows: open folders' entries under them, depth
-/// first. With a `filter`, only names holding it (any case) and the
-/// folders on the way to them, among what has been read.
+/// The rows the tree shows: open folders' entries under them, depth first.
 export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlySet<string>, filter = ""): TreeRow[] {
   const want = filter.trim().toLowerCase();
   const out: TreeRow[] = [];
@@ -169,26 +187,24 @@ const KEYWORDS = new Set(("as async await break case catch class const continue 
   + "private pub raise return self Self static struct super switch this throw trait true True False try type typeof use var where while with yield").split(" "));
 const HASH_COMMENT = new Set(["Python", "Shell", "Ruby", "TOML", "YAML"]);
 
-const escHtml = (s: string) => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-/// One line as HTML, its strings, comments, numbers and keywords in
-/// spans (`s`, `c`, `n`, `k`). A comment or string over several lines is
-/// only marked on its first: this is a glance, not an editor.
+/// One line as HTML, its strings, comments, numbers and keywords in spans (`s`,
+/// `c`, `n`, `k`).
 export function highlight(line: string, lang: string) {
-  if (!lang || lang === "Text" || lang === "Markdown") return escHtml(line);
+  if (!lang || lang === "Text" || lang === "Markdown") return esc(line);
   const hash = HASH_COMMENT.has(lang);
   const re = hash
     ? /(#.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_.xXa-fA-F]*\b)|([A-Za-z_][A-Za-z0-9_]*)/g
     : /(\/\/.*$|\/\*.*?(?:\*\/|$))|("(?:[^"\\]|\\.)*"?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_.xXa-fA-F]*\b)|([A-Za-z_][A-Za-z0-9_]*)/g;
   let out = "", last = 0;
   for (const m of line.matchAll(re)) {
-    out += escHtml(line.slice(last, m.index));
+    out += esc(line.slice(last, m.index));
     const [all, comment, str, num, word] = m;
     const cls = comment ? "c" : str ? "s" : num ? "n" : word && KEYWORDS.has(word) ? "k" : "";
-    out += cls ? `<span class="${cls}">${escHtml(all)}</span>` : escHtml(all);
+    out += cls ? `<span class="${cls}">${esc(all)}</span>` : esc(all);
     last = m.index! + all.length;
   }
-  return out + escHtml(line.slice(last));
+  return out + esc(line.slice(last));
 }
 
 // ----- Terminals in the pane -----

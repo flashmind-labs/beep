@@ -1,9 +1,6 @@
-// The media pane of a coding agent session: pictures, videos, 3D models
-// and PDFs the agent made or looked at, its files, artifacts, terminals
-// and subagents, each a tab. A tab sits in one of two docks, right of the
-// conversation or under it, and drags by its tab to the other edge; each
-// dock resizes by its divider and folds to a strip. Where each tab sits
-// is kept per window.
+// The media pane of a coding agent session: pictures, videos, 3D models and
+// PDFs the agent made or looked at, its files, artifacts, terminals and
+// subagents, each a tab.
 
 import {
   actualView, baseName, type Box, clipTime, type Dock, DOCKS, dropDock, fitView, type ImageView, type MediaKind,
@@ -409,9 +406,7 @@ export interface PaneArtifacts {
   turnStart: (turn: number) => number | undefined;
 }
 
-/// Draws the pane again: its tabs and the one on screen. `subs` are the
-/// subagents' rows and `count` how many, and `arts` the artifacts, as the
-/// log has them now.
+/// Draws the pane again: its tabs and the one on screen.
 export function drawPane(subs?: { html: string; count: number }, arts?: PaneArtifacts) {
   if (subs) { P.subs = subs.html; P.subCount = subs.count; }
   if (arts) setArtifacts(arts.list, arts.turnStart);
@@ -565,22 +560,13 @@ export function showArtifact(path?: string) {
   return true;
 }
 
-/// Shows the subagents' tab, unfolding its dock.
-export function showSubagents() {
-  const d = dockOf(SUBS);
-  P.on[d] = SUBS;
-  P.layout.hidden[d] = false;
-  draw();
-}
-
 /// Opens a picture the log already shows (a data URL) in its own tab.
 export function openPicture(url: string, name: string) {
   open({ id: url, kind: "image", name: baseName(name), path: null, url });
 }
 
-/// Opens the file at `path` (relative to the session's folder, absolute,
-/// or under `~/`) on the session's machine, when it is one the pane shows.
-/// False for a file it does not.
+/// Opens the file at `path` (relative to the session's folder, absolute, or
+/// under `~/`) on the session's machine, when it is one the pane shows.
 export function openPath(path: string) {
   const kind = mediaKind(path);
   if (!kind || !P.session) return false;
@@ -679,10 +665,10 @@ async function readFile(machine: string, path: string, progress: (done: number, 
 }
 
 /// What an error from reading a file says to the user.
-function readError(e: unknown) {
-  const text = e instanceof Error ? e.message : String(e);
-  if (/no longer|not found|gone/i.test(text)) return "This file is not on the machine any more, or the machine is offline.";
-  if (/unknown op|unknown request|not serve|too old/i.test(text)) return "Beep cannot read this file yet: update Beep and beep-node on that machine.";
+export function readError(e: unknown) {
+  const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
+  if (/no longer|not found|gone/i.test(text)) return "File gone, or the machine is offline.";
+  if (/unknown op|unknown request|not serve|too old|closes the stream/i.test(text)) return "beep-node there is too old. Update it.";
   return text;
 }
 

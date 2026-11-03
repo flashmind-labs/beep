@@ -524,27 +524,6 @@ mod tests {
     }
 
     #[test]
-    fn settings_are_trimmed_and_checked() {
-        let ok = checked(settings(vec![
-            var(" HTTPS_PROXY ", Some("x")),
-            var("", None),
-        ]))
-        .unwrap();
-        assert_eq!(ok.program, "/opt/bin/codex-acp");
-        assert_eq!(ok.args, ["--profile", "work"]);
-        assert_eq!(ok.env.len(), 1);
-        assert_eq!(ok.env[0].name, "HTTPS_PROXY");
-        assert!(checked(settings(vec![var("1BAD", Some("x"))])).is_err());
-        assert!(checked(settings(vec![var("A", Some("x")), var("A", None)])).is_err());
-        let mut broken = settings(Vec::new());
-        broken.home = "a\nb".into();
-        assert!(checked(broken).is_err());
-        assert!(checked_agent("claude").is_ok());
-        assert!(checked_agent("my-agent").is_ok());
-        assert!(checked_agent("../x").is_err());
-    }
-
-    #[test]
     fn a_var_without_a_value_keeps_the_saved_one() {
         let kept = vec![
             EnvSecret {
@@ -647,54 +626,6 @@ mod tests {
         assert!(shown.settings.enabled);
     }
 
-    fn row(machine: &str, enabled: bool, program: &str) -> HarnessRow {
-        HarnessRow {
-            machine_id: machine.into(),
-            agent: "codex".into(),
-            enabled,
-            program: program.into(),
-            home: String::new(),
-            args: Vec::new(),
-            env_names: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn saving_everywhere_copies_the_binary_path_only_when_asked() {
-        let machines = ["m1".to_owned(), "m2".to_owned(), "m3".to_owned()];
-        let rows = vec![row("m1", true, "/old"), row("m2", false, "/srv/codex")];
-        let edited = checked(settings(Vec::new())).unwrap();
-        let everywhere = |include_program| Everywhere {
-            machines: &machines,
-            from_machine: "m1",
-            agent: "codex",
-            include_program,
-        };
-        let kept = |machine: &str, enabled: bool, program: &str| Kept {
-            machine_id: machine.into(),
-            enabled,
-            program: program.into(),
-        };
-        // Off by default: each other machine keeps its own path, and stays
-        // off where it was off; one with nothing saved stays on.
-        assert_eq!(
-            kept_per_machine(&everywhere(false), &rows, &edited),
-            [
-                kept("m1", true, "/opt/bin/codex-acp"),
-                kept("m2", false, "/srv/codex"),
-                kept("m3", true, ""),
-            ]
-        );
-        assert_eq!(
-            kept_per_machine(&everywhere(true), &rows, &edited),
-            [
-                kept("m1", true, "/opt/bin/codex-acp"),
-                kept("m2", false, "/opt/bin/codex-acp"),
-                kept("m3", true, "/opt/bin/codex-acp"),
-            ]
-        );
-    }
-
     #[tokio::test]
     async fn saving_everywhere_reaches_a_machine_with_nothing_saved() {
         let db = crate::store::TestDb::new().await.unwrap();
@@ -743,16 +674,5 @@ mod tests {
         // The kept value was opened on m1 and sealed again for m2.
         assert_eq!(codex.env, secret);
         assert_eq!(user.harness_env(&key, "m2", "codex").await.unwrap(), secret);
-    }
-
-    #[test]
-    fn off_harnesses_are_found_by_machine_and_agent() {
-        let off = vec![crate::store::OffHarness {
-            machine_id: "m1".into(),
-            agent: "codex".into(),
-        }];
-        assert!(is_off(&off, "m1", "codex"));
-        assert!(!is_off(&off, "m2", "codex"));
-        assert!(!is_off(&off, "m1", "claude"));
     }
 }

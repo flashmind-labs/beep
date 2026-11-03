@@ -1,9 +1,5 @@
-// The Artifacts tab of a coding agent session's pane: the pages and
-// documents the agent published or wrote, newest first, and the picked one
-// rendered. An HTML page shows in a sandboxed frame served from its own
-// scheme, Markdown as the bar's cleaned HTML, SVG and pictures as images.
-// The file comes from the session's machine through the Files tab's read
-// path; the claude.ai link only opens in the browser.
+// The Artifacts tab of a coding agent session's pane: the pages and documents
+// the agent published or wrote, newest first, and the picked one rendered.
 
 import { type Artifact, artifactVersion, frameHtml, KIND_NAMES, readPlace, relativeTo } from "../artifacts-state.ts";
 import { clock } from "../agentturns.ts";

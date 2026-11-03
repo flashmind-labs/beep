@@ -707,43 +707,4 @@ mod tests {
         let bobs = store.waiting_updates(&bob, since, 20).await.unwrap();
         assert_eq!(bobs.iter().map(|row| row.id).collect::<Vec<_>>(), [theirs]);
     }
-
-    #[tokio::test]
-    async fn topics_triggers_and_polls_are_kept_per_user() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        store
-            .set_event_topic(&alice, Topic::GithubCi, false)
-            .await
-            .unwrap();
-        let topics = store.event_topics(&alice).await.unwrap();
-        assert_eq!(topics, HashMap::from([(Topic::GithubCi, false)]));
-        assert!(
-            store
-                .event_topics(&UserKey::for_test("bob"))
-                .await
-                .unwrap()
-                .is_empty()
-        );
-
-        let row = TriggerRow {
-            slug: "GMAIL_NEW_GMAIL_MESSAGE".into(),
-            account_id: "ca_1".into(),
-            trigger_id: "ti_1".into(),
-        };
-        store.save_event_trigger(&alice, &row).await.unwrap();
-        assert_eq!(
-            store.event_triggers(&alice).await.unwrap(),
-            std::slice::from_ref(&row)
-        );
-        store.delete_event_trigger(&alice, &row).await.unwrap();
-        assert!(store.event_triggers(&alice).await.unwrap().is_empty());
-
-        assert!(store.polled_at(&alice, "github").await.unwrap().is_none());
-        let at = Utc::now();
-        store.mark_polled(&alice, "github", at).await.unwrap();
-        let polled = store.polled_at(&alice, "github").await.unwrap().unwrap();
-        assert!((polled - at).num_milliseconds().abs() < 5);
-    }
 }

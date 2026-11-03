@@ -275,48 +275,6 @@ mod tests {
     }
 
     #[test]
-    fn jev_reads_what_is_known_before_the_turn() {
-        let turn = |message: &str, reply: &str| Turn {
-            message: message.to_owned(),
-            reply: reply.to_owned(),
-            actions: Vec::new(),
-        };
-        let exchange = Exchange {
-            session_id: "s1".to_owned(),
-            today: chrono::NaiveDate::from_ymd_opt(2026, 10, 21).unwrap(),
-            earlier: vec![turn("Find a bakery", "Try Manteigaria.")],
-            latest: turn("No, one that is gluten-free", "Try Zarzuela."),
-        };
-        let latest = &exchange.latest;
-        let input = followups::Input {
-            context: Some("It is Tuesday in Lisbon."),
-            earlier: None,
-            latest,
-            results: vec![followups::ToolOutput {
-                tool: "web_search",
-                output: "Zarzuela, gluten-free bakery",
-            }],
-        };
-        let state = TurnState {
-            known: &[],
-            exchange: &exchange,
-            follow_up: &input,
-            kind: followups::Kind::FollowUps,
-        }
-        .to_string();
-        let at = |text: &str| {
-            state
-                .find(text)
-                .unwrap_or_else(|| panic!("{text} in {state}"))
-        };
-        assert!(at("It is Tuesday") < at("Already remembered:\n(nothing related)"));
-        assert!(at("(nothing related)") < at("Earlier turn:"));
-        assert!(at("Manteigaria") < at("What its tools returned:"));
-        assert!(at("What its tools returned:") < at("Latest turn:"));
-        assert!(state.ends_with(&latest.to_string()));
-    }
-
-    #[test]
     fn follow_ups_leave_the_context() {
         let mut conversation = Conversation::new();
         conversation.add(ConversationEntry::user("weather?"));

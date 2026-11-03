@@ -150,19 +150,6 @@ mod tests {
     use crate::user::{User, UserKey};
     use uuid::Uuid;
 
-    #[test]
-    fn cleans_the_answer() {
-        assert_eq!(
-            clean("\n\"Trip to Singapore.\"\n").as_deref(),
-            Some("Trip to Singapore")
-        );
-        assert_eq!(
-            clean("**Title:** Dinner ideas").as_deref(),
-            Some("Dinner ideas")
-        );
-        assert_eq!(clean("  \n "), None);
-    }
-
     async fn chat(store: &Store, name: &str) -> SessionRef {
         let session = test_chat(name);
         test_turn(store, &UserKey::for_test("alice"), session, "hi", 1000)

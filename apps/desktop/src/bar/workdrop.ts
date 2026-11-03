@@ -1,8 +1,6 @@
-// Paths mentioned in a coding agent session's next message, and files
-// dropped or pasted on the session: pictures attach as before, other
-// files upload into the session's folder on its machine and are
-// mentioned. A drop on a folder of the Files tab asks first, in one line
-// above the field, whether they go there.
+// Paths mentioned in a coding agent session's next message, and files dropped
+// or pasted on the session: pictures attach as before, other files upload into
+// the session's folder on its machine and are mentioned.
 
 import { MAX_UPLOAD, UPLOAD_FOLDER, joinPath, mentionText, shortSize, uploadParts, uploadRefusal } from "../files-state.ts";
 import { fileBase64 } from "./attach.ts";

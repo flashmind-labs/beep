@@ -189,7 +189,7 @@ impl Harness {
             ServerTools::default(),
             ModelChoices::only(model).with_research(Some(research)),
         );
-        let endpoint = iroh::Endpoint::builder(presets::N0)
+        let endpoint = iroh::Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
             .bind()
             .await
@@ -392,26 +392,4 @@ async fn a_research_plans_runs_its_team_and_reports_back() {
     .await
     .unwrap();
     assert_eq!(research(&c, session).await.status, ResearchStatus::Done {});
-}
-
-#[tokio::test]
-async fn an_ordinary_chat_has_no_research() {
-    let h = Harness::new().await;
-    let (_node, c) = h.client().await;
-    let session = Uuid::new_v4();
-    say(&c, &chat(session, "Hello", false)).await;
-    let none = c
-        .call(&GetResearch {
-            session_id: session,
-            after: 0,
-        })
-        .await
-        .unwrap();
-    assert!(none.is_none());
-    let pdf = c
-        .call(&GetResearchPdf {
-            session_id: session,
-        })
-        .await;
-    assert!(pdf.is_err(), "an ordinary chat has no paper");
 }

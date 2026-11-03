@@ -263,6 +263,8 @@ fn main() {
             grants::revoke_grant,
             machines::list_machines,
             machines::remove_machine,
+            machines::updatable_machines,
+            machines::update_machine,
             credentials::credential_providers,
             credentials::list_credentials,
             credentials::save_credential,

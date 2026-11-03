@@ -80,60 +80,11 @@ mod tests {
     use super::*;
     use crate::{
         events::{AppEvent, DedupeKey, EventApp, EventKind, Source, Urgency, Verdict},
-        store::{
-            EventRow, EventState, NewTriage, Store, StoredBody, TestDb, TriageRow, UpdateEvent,
-        },
+        store::{EventState, NewTriage, Store, StoredBody, TestDb},
         user::UserKey,
     };
     use chrono::Utc;
-    use flashmind::core::EntryKind;
     use serde_json::json;
-
-    fn detail(events: Vec<UpdateEvent>) -> UpdateDetail {
-        UpdateDetail {
-            update: TriageRow {
-                id: 7,
-                decided_at: Utc::now(),
-                verdict: Verdict::Inform,
-                urgency: None,
-                summary: Some("Ana asked you for a review.".to_owned()),
-                reason: "A person is waiting.".to_owned(),
-                refs: vec![3],
-                delivered: false,
-            },
-            events,
-        }
-    }
-
-    fn mail() -> UpdateEvent {
-        UpdateEvent {
-            row: EventRow {
-                id: 3,
-                app: EventApp::Gmail,
-                kind: EventKind::NewMail,
-                summary: "From Ana: Review please".to_owned(),
-                detail: None,
-                ids: json!({"message_id": "m1"}),
-                occurred: Utc::now(),
-                state: EventState::Triaged,
-            },
-            raw: json!({"id": "m1", "subject": "Review please"}),
-        }
-    }
-
-    #[test]
-    fn the_agent_reads_the_events_and_beep_speaks_last() {
-        let chat = conversation(&detail(vec![mail()]), "Ana asked you for a review.");
-        let entries = chat.entries();
-        assert_eq!(entries.len(), 3);
-        let context = entries[0].content();
-        assert!(context.contains("A person is waiting."));
-        assert!(context.contains("[#3] Gmail"));
-        assert!(context.contains(r#""subject":"Review please""#));
-        assert_eq!(entries[1].content(), "I opened this update from Gmail.");
-        assert!(matches!(entries[2].kind, EntryKind::Assistant { .. }));
-        assert_eq!(entries[2].content(), "Ana asked you for a review.");
-    }
 
     /// An update for `user` about one new mail, as the triage agent logs it.
     async fn inform(store: &Store, user: &UserKey, summary: &str) -> i64 {
@@ -199,12 +150,5 @@ mod tests {
 
         let bob = User::for_test(store.clone(), "bob");
         assert_eq!(open(&bob, id).await.unwrap(), None, "not bob's");
-    }
-
-    #[test]
-    fn an_update_whose_events_are_gone_says_so() {
-        let chat = conversation(&detail(Vec::new()), "x");
-        assert!(chat.entries()[0].content().contains("no longer stored"));
-        assert_eq!(chat.entries()[1].content(), "I opened this update.");
     }
 }

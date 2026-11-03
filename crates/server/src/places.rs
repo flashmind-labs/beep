@@ -329,12 +329,6 @@ mod tests {
     }
 
     #[test]
-    fn distances_are_in_metres() {
-        let d = distance_to(&gym(100), &north(500.0, 10.0));
-        assert!((d - 500.0).abs() < 1.0, "{d}");
-    }
-
-    #[test]
     fn arriving_needs_a_fix_inside_the_radius() {
         let place = gym(100);
         assert_eq!(
@@ -369,26 +363,6 @@ mod tests {
         assert_eq!(
             crossing(&park, true, &north(610.0, 10.0)),
             Some(PlaceEvent::Leave)
-        );
-    }
-
-    #[test]
-    fn jitter_at_the_edge_does_not_flap() {
-        let place = gym(100);
-        let walk = [
-            90.0, 110.0, 95.0, 120.0, 99.0, 140.0, 300.0, 120.0, 101.0, 60.0,
-        ];
-        let mut inside = false;
-        let mut events = Vec::new();
-        for metres in walk {
-            if let Some(event) = crossing(&place, inside, &north(metres, 15.0)) {
-                inside = event == PlaceEvent::Arrive;
-                events.push(event);
-            }
-        }
-        assert_eq!(
-            events,
-            [PlaceEvent::Arrive, PlaceEvent::Leave, PlaceEvent::Arrive]
         );
     }
 

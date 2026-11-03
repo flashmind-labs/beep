@@ -45,7 +45,10 @@ use std::{
     time::Duration,
 };
 use tempfile::TempDir;
-use tokio::{task::JoinHandle, time::timeout};
+use tokio::{
+    task::JoinHandle,
+    time::{sleep, timeout},
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -137,7 +140,7 @@ struct World {
 impl World {
     async fn new() -> Self {
         let harness = Harness::new(Scripted::default()).await;
-        let endpoint = Endpoint::builder(presets::N0)
+        let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
             .bind()
             .await
@@ -171,7 +174,7 @@ impl World {
             provision: None,
             tools: Default::default(),
         };
-        let node = Endpoint::builder(presets::N0)
+        let node = Endpoint::builder(presets::Minimal)
             .secret_key(key.clone())
             .bind()
             .await
@@ -218,7 +221,7 @@ impl World {
     async fn reconnect(&self, node: &mut TestNode, offers: Offers) {
         node.task.abort();
         let old = node.online.connection.stable_id();
-        let endpoint = Endpoint::builder(presets::N0)
+        let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(node.key.clone())
             .bind()
             .await
@@ -507,15 +510,23 @@ async fn stop_closes_and_blocks() {
     assert_eq!(stopped.state, WorkerState::Ended);
     assert_eq!(world.task(&tasks[0]).await.state, TaskState::Blocked);
     assert_eq!(app.projects.worker_of(&node.id, &session), None);
-    let sessions = node.online.agent_sessions().await.expect("the sessions");
-    // The node keeps an ended session's record, closed.
-    assert!(
-        sessions
-            .iter()
-            .filter(|info| info.id == session)
-            .all(|info| info.state.status == crate::protocol::node::agent::Status::Ended),
-        "{sessions:?}"
-    );
+    // The node keeps an ended session's record, closed. Stopping sends the
+    // close without waiting for the node to act on it.
+    timeout(LIMIT, async {
+        loop {
+            let sessions = node.online.agent_sessions().await.expect("the sessions");
+            if sessions
+                .iter()
+                .filter(|info| info.id == session)
+                .all(|info| info.state.status == crate::protocol::node::agent::Status::Ended)
+            {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node ended the session");
     // Stopping again changes nothing.
     stop_worker(app, alice, &worker)
         .await

@@ -1,8 +1,6 @@
-// Terminals in a coding agent session's pane: a shell on the session's
-// machine in its folder, kept running by the node like any terminal (Home
-// lists it under the machine). Each is a tab, attached live while the
-// session view shows; its screen is xterm.js, loaded on first use. When
-// its shell exits the tab goes.
+// Terminals in a coding agent session's pane: a shell on the session's machine
+// in its folder, kept running by the node like any terminal (Home lists it
+// under the machine).
 
 import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals.ts";
 import { Channel, invoke } from "./core.ts";
@@ -49,7 +47,7 @@ export async function openTerm(place: TermPlace, hooks: Pick<PaneTerm, "onEnd" |
   const row = await invoke<TerminalRow | null>("terminal_open", {
     terminal: { project: "", machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
-  if (!row) throw new Error("Beep's server needs an update before it opens a terminal here.");
+  if (!row) throw new Error("The server is too old for terminals here.");
   const t = paneTerm(row, makeScreen(), hooks);
   attach(t);
   return t;

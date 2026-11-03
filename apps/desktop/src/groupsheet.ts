@@ -1,7 +1,4 @@
-// The group sheet: the folders of a project group. New group opens it
-// empty, Folders… on a group with that group's. A folder typed as
-// ~/Projects/work on one machine matches ~/work on
-// another; the sheet shows each folder as groups compare it.
+// The group sheet: the folders of a project group.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { addGroupFolder, button, el, groupPath, present, reason } from "./projects-state.ts";
@@ -86,7 +83,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
       el("div", "am-head", el("b", "", group ? group.name : "New group"), el("kbd", "", "esc")),
       el("div", "am-label", "Folder"),
       el("div", "am-line", field, button("Add", "dbtn", () => { add(); field.focus(); })),
-      el("div", "am-sub", "Repos in this folder on any machine go in the group. The home folder and a leading Projects/ are left out, so ~/Projects/work on a Mac and ~/work on Linux are one folder."),
+      el("div", "am-sub", "Repos in this folder on any machine go in the group. ~/Projects/work and ~/work count as one folder."),
       ...rows,
       error ? el("div", "am-msg bad", error) : null,
       el("div", "am-sub", sum),

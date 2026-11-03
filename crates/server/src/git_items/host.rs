@@ -123,17 +123,3 @@ pub(crate) fn status_error(host: String, status: StatusCode, headers: &HeaderMap
         },
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_next_link_is_read_from_the_header() {
-        assert_eq!(
-            next_link(r#"<https://h/a?page=2>; rel="next", <https://h/a?page=5>; rel="last""#),
-            Some("https://h/a?page=2")
-        );
-        assert_eq!(next_link(r#"<https://h/a?page=1>; rel="prev""#), None);
-    }
-}

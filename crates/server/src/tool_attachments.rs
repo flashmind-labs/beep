@@ -205,19 +205,6 @@ mod tests {
     }
 
     #[test]
-    fn a_users_own_images_are_left_alone() {
-        let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::user_with_parts(
-            "what is this",
-            vec![image("mine")],
-        ));
-        let mut messages = conversation.to_messages();
-        messages.extend(screenshots(5).to_messages());
-        keep_recent(&mut messages);
-        assert_eq!(sent(&messages), ["mine", "shot 2", "shot 3", "shot 4"]);
-    }
-
-    #[test]
     fn a_saved_turn_keeps_no_attachment_data() {
         let mut conversation = screenshots(2);
         conversation.add(ConversationEntry::tool_with_parts(

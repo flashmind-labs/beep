@@ -1,9 +1,4 @@
-// A project's issues and pull requests, and the user's threads there, for
-// the project page's list: every open PR with Let the agent reply, Continue
-// and Review; every open issue, an untracked one with Work on it, Plan and
-// Discuss, a tracked one with its task; a thread of the user's gets Let the
-// agent reply when someone wrote after them, and Discuss. center.ts draws
-// the page; this file keeps the state.
+// A project's issues and pull requests, and the user's threads there.
 import type { invoke as Invoke } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
@@ -89,9 +84,6 @@ const REFRESH_GAP = REFRESH_MS;
 export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
   return t.kind === "pr" ? `PR #${t.number}` : `#${t.number}`;
 }
-
-/// An open PR as `threadTile` reads it.
-type OpenPr = Pick<PullRequestRow, "number" | "title" | "url" | "author" | "draft" | "mine" | "created_at">;
 
 /// The line under an issue: who opened it, when, its labels and comments.
 export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "labels" | "comments">>, ago: Ago) {
@@ -252,9 +244,8 @@ export interface ListsRow {
 }
 
 /// What the project page hands the Pull requests and Issues sections: the
-/// project's tasks and branch reviews, each PR's checks from its workflow
-/// runs, and what Review, Work on it, Continue and a checks link do.
-/// `continuePr` may fail, saying why, in the row.
+/// project's tasks and branch reviews, each PR's checks from its workflow runs,
+/// and what Review, Work on it, Continue and a checks link do.
 export interface RepoActs {
   tasks: readonly TaskLink[];
   reviews: readonly PrReview[] | null | undefined;
@@ -290,10 +281,8 @@ export interface KeptThreads {
   chats: ThreadChatRow[] | null;
 }
 
-/// One project's lists: undefined while they load, null from a server too
-/// old to give them. `issuesError` and `prsError` say why the host could
-/// not be read; `failed` is why a row's last action failed, by row key;
-/// `all` the sections shown in full.
+/// One project's lists: undefined while they load, null from a server too old
+/// to give them.
 interface ProjectThreads {
   issues: IssueRow[] | null | undefined;
   threads: ThreadRow[] | null | undefined;
@@ -330,16 +319,13 @@ export function makeThreads(deps: ThreadDeps) {
     return s;
   };
 
-  /// Projects whose read is on its way (a load meanwhile is dropped), and
-  /// when each was last tried, so a failing host is not asked on
-  /// every draw.
+  /// Projects whose read is on its way (a load meanwhile is dropped), and when
+  /// each was last tried, so a failing host is not asked on every draw.
   const reading = new Set<string>();
   const tried = new Map<string, number>();
 
-  /// Reads `id` when it is due: never read, or `every` passed since the
-  /// last try (the refresh time by default; opening the project asks
-  /// sooner). Every draw may ask; Refresh reads anyway. The read, when
-  /// one starts.
+  /// Reads `id` when it is due: never read, or `every` passed since the last
+  /// try (the refresh time by default; opening the project asks sooner).
   function ensure(id: string, every = REFRESH_GAP): Promise<void> | undefined {
     const last = tried.get(id);
     const due = last === undefined ? kept.due(id, every) : Date.now() - last >= every;
@@ -355,9 +341,8 @@ export function makeThreads(deps: ThreadDeps) {
     return freshNote(synced ? { ...f, text: f.text.replace(/^updated/, "synced") } : f);
   };
 
-  /// The open issues and pull requests: from the server's copy, or read
-  /// from the host each time on a server too old to keep one. `refresh`
-  /// asks the server to read the host now.
+  /// The open issues and pull requests: from the server's copy, or read from
+  /// the host each time on a server too old to keep one.
   async function lists(id: string, refresh: boolean): Promise<[PromiseSettledResult<IssueRow[] | null>, PromiseSettledResult<PullRequestRow[] | null>]> {
     const s = of(id);
     const copy = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh });
@@ -448,7 +433,6 @@ export function makeThreads(deps: ThreadDeps) {
     });
   }
 
-
   function link(text: string, url: string) {
     const a = h("a", "", text);
     a.href = "#";
@@ -525,7 +509,6 @@ export function makeThreads(deps: ThreadDeps) {
         row.append(acts);
         return row;
       })));
-      out.push(h("small", "dmuted", "The agent drafts the reply and nothing posts until you approve its card."));
     }
     if (s.chats?.length) {
       out.push(h("div", "cc-sec", h("h4", "", "Chats about one thread")),

@@ -1,6 +1,5 @@
-// What Home's rows say and how its sections are laid out, apart from the
-// DOM so it can be tested. The types are Home's view as `center_home` and
-// `mac_control` give it.
+// What Home's rows say and how its sections are laid out, apart from the DOM
+// so it can be tested.
 import type { ApprovalField } from "./bar/chat.ts";
 import type { ProjectRow } from "./projects-state.ts";
 
@@ -296,10 +295,8 @@ export const runningKey = (r: Pick<RunningAgent, "kind" | "machine_id" | "id"> |
 /// An imported project's folder on one machine.
 type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder"> & { url?: ProjectRow["url"] };
 
-/// The repo's path on its host from a remote, groups and all, without
-/// `.git`: `org/repo`, or `group/sub/repo` on GitLab. Takes
-/// `https://host/org/repo.git`, `ssh://git@host:22/org/repo` and
-/// `git@host:org/repo.git`. Null when `url` is none of those.
+/// The repo's path on its host from a remote, groups and all, without `.git`:
+/// `org/repo`, or `group/sub/repo` on GitLab.
 export function remotePath(url: string | null | undefined) {
   const u = String(url || "").trim();
   const m = /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/(.+)$/i.exec(u) ?? /^[^/\s:@]+@[^/\s:]+:(.+)$/.exec(u);
@@ -341,9 +338,7 @@ export interface MacRow {
 }
 
 /// Home's "This Mac" row while this Mac is not one of `machines`: its state
-/// and, while it is off, the button that turns it on. `mac` is the app's
-/// mac_control view. Null once the server lists this Mac, or when there is
-/// nothing to say (no list, or the app is not linked to an account).
+/// and, while it is off, the button that turns it on.
 export function thisMacRow(mac: Pick<MacControl, "id" | "name" | "enabled" | "status" | "error"> | null | undefined, machines: readonly { id: string }[] | null | undefined): MacRow | null {
   if (!mac || !Array.isArray(machines) || mac.status === "unlinked") return null;
   if (machines.some(m => m.id === mac.id)) return null;

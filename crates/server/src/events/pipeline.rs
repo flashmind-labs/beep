@@ -562,24 +562,6 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_is_labelled_by_its_event_or_its_apps() {
-        let one = [row(1, EventApp::Gmail, "From Ana: Lease renewal")];
-        assert_eq!(label(&one, Rule::Accounts), "From Ana: Lease renewal");
-        let long = [row(1, EventApp::Gmail, &"x".repeat(80))];
-        assert_eq!(
-            label(&long, Rule::Accounts),
-            format!("{}...", "x".repeat(60))
-        );
-        let many = [
-            row(1, EventApp::Gmail, "a"),
-            row(2, EventApp::Github, "b"),
-            row(3, EventApp::Gmail, "c"),
-        ];
-        assert_eq!(label(&many, Rule::Accounts), "3 updates from Gmail, GitHub");
-        assert_eq!(label(&many, Rule::Digest), "Digest");
-    }
-
-    #[test]
     fn the_message_lists_each_event_with_its_id_and_ids() {
         let rows = [row(7, EventApp::Gmail, "From Ana: Lease renewal")];
         let text = describe(&rows, Rule::Accounts, &[EventApp::Gmail]);

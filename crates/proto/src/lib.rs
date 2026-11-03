@@ -14,6 +14,8 @@ pub mod client;
 pub mod flsh;
 pub mod groups;
 pub mod link;
+#[cfg(feature = "logging")]
+pub mod logging;
 pub mod names;
 pub mod node;
 pub mod seal;
@@ -1355,12 +1357,55 @@ requests! {
     /// kept as the credential's `account`. `NotFound` when the caller has
     /// no such Forgejo credential.
     382 CheckCredential { id: String } => Call<CredentialCheck>
+    /// `path` inside the working folder `root` and the folders under it,
+    /// `depth` levels down in all (1 is `path` alone, at most
+    /// [`MAX_TREE_DEPTH`]), as `ListWorkFolder` lists each, in one ask.
+    /// Folders git ignores are listed but not read into, and the walk stops
+    /// past [`MAX_TREE_ENTRIES`] entries. A node from before it gives
+    /// `path` alone. Errors as for `ListWorkFolder`.
+    383 ListWorkTree { machine_id: String, root: String, path: String, ignored: bool, depth: u32 } => Call<WorkTree>
+    /// Has one of the caller's online machines install the newest
+    /// beep-node over itself and restart, as `beep-node update` does
+    /// there. The restart stops the agent sessions the node runs, so
+    /// while any run it is refused unless `stop_sessions`. The reply
+    /// comes once it is installed, before the restart. `NotFound` when
+    /// the machine is not the caller's; `BadRequest` saying why when it is
+    /// offline, too old to be updated this way, runs agent sessions, or
+    /// the update failed.
+    390 UpdateMachine { machine_id: String, stop_sessions: bool } => Call<MachineUpdate>
+    /// The caller's online machines that `UpdateMachine` can update. A
+    /// machine missing here is updated on the machine.
+    391 ListUpdatableMachines {} => Call<Vec<UpdatableMachine>>
     /// Pull request or issue `number` of `project_id` read from its GitHub
     /// or Forgejo host now, for the project page: its state, labels, opening
     /// post and comments, and for a pull request its reviews and checks.
     /// `NotFound` when the caller has no such project; `BadRequest` saying
     /// why when the project has no host or the host cannot be read.
-    383 GetThreadDetail { project_id: Uuid, number: u64 } => Call<ThreadDetail>
+    392 GetThreadDetail { project_id: Uuid, number: u64 } => Call<ThreadDetail>
+}
+
+/// A machine `UpdateMachine` can update (`ListUpdatableMachines`).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatableMachine {
+    /// Its `Machine::id`.
+    pub id: String,
+    /// The agent sessions running on it, which an update stops.
+    pub agent_sessions: u32,
+}
+
+/// What `UpdateMachine` did.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineUpdate {
+    /// The beep-node version it ran.
+    pub from: String,
+    /// The version installed, or `from` when that is already the newest.
+    pub to: String,
+    /// It restarts on `to`: it goes offline and connects again shortly.
+    pub restarting: bool,
+    /// Why it does not restart, in words for the user; empty otherwise.
+    pub note: String,
 }
 
 /// One machine's settings for a harness (`ListHarnessSettings`).
@@ -3174,6 +3219,24 @@ pub const MAX_WORK_UPLOAD: u64 = 64 * 1024 * 1024;
 
 /// The most entries one `ListWorkFolder` gives.
 pub const MAX_WORK_ENTRIES: usize = 2000;
+
+/// The most levels one `ListWorkTree` reads.
+pub const MAX_TREE_DEPTH: u32 = 6;
+
+/// About the most entries one `ListWorkTree` gives: it stops reading
+/// folders past it.
+pub const MAX_TREE_ENTRIES: usize = 5000;
+
+/// Folders of a session's working folder, as `ListWorkTree` reads them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkTree {
+    /// The folder asked first, then those under it, each in full. A folder
+    /// not here is not read yet.
+    pub folders: Vec<WorkFolder>,
+    /// It stopped at [`MAX_TREE_ENTRIES`] before `depth`.
+    pub truncated: bool,
+}
 
 /// One folder of a session's working folder, as `ListWorkFolder` reads it.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

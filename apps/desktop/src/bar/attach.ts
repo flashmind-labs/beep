@@ -189,7 +189,7 @@ bar.addEventListener("dragover", e => {
   }
   if ((S.view !== "chat" && !agent) || !types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send them to the agent, other files to upload them to its folder" : "Drop images or files to ask about them"}</div>`));
+  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them"}</div>`));
 });
 bar.addEventListener("dragleave", e => {
   if (!bar.contains(e.relatedTarget as Node | null)) $("#ddrop")?.remove();

@@ -1,9 +1,9 @@
-// A research window: the lead's chat on the left, the team's workspace in
-// the middle and its agents on the right. Rust does the networking; this
-// polls the research and draws it.
+// A research window: the lead's chat on the left, the team's workspace in the
+// middle and its agents on the right.
 import { followSkin } from "./skin.ts";
 followSkin();
 import { invoke, Channel } from "./tauri.ts";
+import { esc } from "./components/format.ts";
 
 type Status = "planning" | "researching" | "reviewing" | "writing" | "done" | "failed" | "stopped" | "interrupted";
 
@@ -85,8 +85,6 @@ const ICON = {
   ret: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4"/></svg>',
 };
 
-const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESC[c]);
 const $ = <T extends Element = HTMLElement>(sel: string) => document.querySelector<T>(sel);
 /// An element the page surely has.
 const $$ = <T extends Element = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;

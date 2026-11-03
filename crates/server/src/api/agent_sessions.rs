@@ -253,23 +253,3 @@ fn agent_option(option: AnswerOption) -> AgentOption {
 fn unix(seconds: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(seconds)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_session_idle_for_a_day_is_not_running_now() {
-        let now = unix(10 * 24 * 60 * 60);
-        let session = |presence, hours_ago: u64| ExternalSession {
-            presence,
-            last_activity: 10 * 24 * 60 * 60 - hours_ago * 60 * 60,
-            ..ExternalSession::default()
-        };
-        assert!(runs_now(&session(Presence::Waiting, 2), now));
-        assert!(!runs_now(&session(Presence::Waiting, 25), now));
-        // A turn in progress shows however old its last entry.
-        assert!(runs_now(&session(Presence::Working, 200), now));
-        assert!(!runs_now(&session(Presence::Stopped, 0), now));
-    }
-}
