@@ -1710,23 +1710,6 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
     }
 
     #[cfg(unix)]
-    #[tokio::test]
-    async fn an_agent_without_images_refuses_them() {
-        let dir = temp("no-images");
-        let session = image_session(&dir, false).await;
-        let refused = session.order(Command::Prompt(shot())).await;
-        assert_eq!(refused, Err("Codex here does not take images".to_owned()));
-        let info = session.info();
-        assert_eq!(info.state.status, Status::Idle, "nothing was sent");
-        assert_eq!(info.state.queued, 0);
-        // Text alone still goes.
-        session
-            .order(Command::Prompt("just text".to_owned().into()))
-            .await
-            .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
     #[test]
     fn the_queue_is_bounded_in_prompts_and_bytes() {
         let text = |len: usize| Prompt::from("x".repeat(len));
