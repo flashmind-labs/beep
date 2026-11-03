@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use beep_proto::logging::{self, RollingFile};
 use beep_server::{
     apns::Apns,
     app::{App, ServerTools, admin},
@@ -25,12 +26,8 @@ use flashmind::{
     types::{AgentLlmConfig, LlmProvider, Model},
 };
 use iroh::{Endpoint, endpoint::presets, protocol::Router};
-use logforth::{
-    append::{Stderr, file::FileBuilder},
-    filter::rustlog::RustLogFilterBuilder,
-};
 use secrecy::SecretString;
-use std::{env, fs, num::NonZeroUsize, path::Path, sync::Arc, time::SystemTime};
+use std::{env, fs, path::Path, sync::Arc, time::SystemTime};
 
 /// `beep-server [config]` serves; `beep-server link [config]` prints the
 /// code the apps scan to connect to this server.
@@ -240,20 +237,16 @@ const LOG_FILES_KEPT: usize = 14;
 
 /// Logs to stderr and to a file under `log_dir` that rolls over daily.
 /// Debug by default, except html5ever, which logs every token of each HTML
-/// email html2text reads. `RUST_LOG` overrides it.
+/// email html2text reads, and the networking crates (iroh, its QUIC and port
+/// mapping), which log every packet path. `RUST_LOG` overrides it.
 fn start_logging(config: &Config) -> Result<()> {
     let dir = config.log_dir();
-    let file = FileBuilder::new(&dir, "beep")
-        .filename_suffix("log")
-        .rollover_daily()
-        .max_log_files(NonZeroUsize::new(LOG_FILES_KEPT).expect("the count is not zero"))
-        .build()
-        .with_context(|| format!("opening the log directory {}", dir.display()))?;
-    let filter = || RustLogFilterBuilder::from_default_env_or("debug,html5ever=info").build();
-    logforth::starter_log::builder()
-        .dispatch(|d| d.filter(filter()).append(Stderr::default()))
-        .dispatch(|d| d.filter(filter()).append(file))
-        .apply();
+    let file = RollingFile::new(&dir.join("beep.log"), LOG_FILES_KEPT)?;
+    logging::start(
+        "debug,html5ever=info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn",
+        true,
+        Some(file),
+    )?;
     log::info!("logging to {}", dir.display());
     Ok(())
 }

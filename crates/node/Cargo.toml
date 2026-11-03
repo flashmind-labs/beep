@@ -11,7 +11,7 @@ default = ["cli"]
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
     "dep:clap",
-    "dep:logforth",
+    "beep-proto/logging",
     "dep:reqwest",
     "dep:rustls",
     "dep:webpki-roots",
@@ -43,7 +43,6 @@ ignore = "0.4"
 iroh = "1.3"
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"] }
 log = "0.4"
-logforth = { version = "0.30", features = ["starter-log"], optional = true }
 notify = "8"
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = "0.9"

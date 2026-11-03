@@ -9,7 +9,7 @@ publish = false
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
-beep-proto = { path = "../proto" }
+beep-proto = { path = "../proto", features = ["logging"] }
 blake3 = "1"
 bytes = "1"
 chacha20poly1305 = "0.10"
@@ -42,7 +42,6 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 toml = "1"
 shlex = "1"
 log = "0.4"
-logforth = { version = "0.30", features = ["starter-log"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 html2text = "0.17"
 imagesize = "0.14"
