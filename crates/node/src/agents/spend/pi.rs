@@ -1,0 +1,110 @@
+//! pi's logs: the first line, `{"type":"session","id","cwd"}`, names the
+//! session; each assistant `message` carries `usage` (`input` read fresh,
+//! `output`, `cacheRead`, `cacheWrite`, and `cost.total` in US dollars when
+//! the provider priced it), `model` and a `timestamp`.
+
+use super::{Line, Request};
+use crate::{agents::prices::Tokens, claude::unix_seconds};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Entry {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    id: Option<String>,
+    cwd: Option<String>,
+    timestamp: Option<String>,
+    message: Option<Message>,
+}
+
+#[derive(Deserialize)]
+struct Message {
+    role: Option<String>,
+    model: Option<String>,
+    usage: Option<Usage>,
+    /// Unix milliseconds.
+    timestamp: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct Usage {
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_write: u64,
+    cost: Option<Cost>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Cost {
+    total: f64,
+}
+
+/// Whether `line` may matter, before parsing it.
+pub(super) fn wanted(line: &str) -> bool {
+    line.contains("\"usage\"") || line.contains("\"session\"")
+}
+
+/// What one line of a pi log says, if anything that counts.
+pub(super) fn line(text: &str) -> Option<Line> {
+    let entry: Entry = serde_json::from_str(text).ok()?;
+    match entry.kind.as_deref()? {
+        "session" => Some(Line::Session {
+            id: entry.id?,
+            cwd: entry.cwd.unwrap_or_default(),
+        }),
+        "message" => {
+            let message = entry.message?;
+            if message.role.as_deref() != Some("assistant") {
+                return None;
+            }
+            let usage = message.usage?;
+            let tokens = Tokens {
+                input: usage.input,
+                output: usage.output,
+                cache_read: usage.cache_read,
+                cache_write: usage.cache_write,
+                cache_write_long: 0,
+            };
+            if tokens.total() == 0 {
+                return None;
+            }
+            let at = entry
+                .timestamp
+                .as_deref()
+                .and_then(unix_seconds)
+                .or_else(|| message.timestamp.map(|ms| ms / 1000))?;
+            Some(Line::Request(Request {
+                at,
+                model: message.model,
+                tokens,
+                cost_usd: usage.cost.map(|cost| cost.total),
+                ..Request::default()
+            }))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_log_gives_its_session_and_priced_requests() {
+        let head = r#"{"type":"session","version":3,"id":"p1","timestamp":"2026-11-02T10:00:00.000Z","cwd":"/srv/project"}"#;
+        assert!(matches!(line(head), Some(Line::Session { id, .. }) if id == "p1"));
+        let reply = r#"{"type":"message","timestamp":"2026-11-02T10:15:00.000Z","message":{"role":"assistant","provider":"openrouter","model":"example/model-m3","usage":{"input":23743,"output":442,"cacheRead":1664,"cacheWrite":0,"totalTokens":25849,"cost":{"total":0.0078}}}}"#;
+        assert!(wanted(reply));
+        let Some(Line::Request(request)) = line(reply) else {
+            panic!("a request");
+        };
+        assert_eq!(request.tokens.total(), 25849);
+        assert_eq!(request.cost_usd, Some(0.0078));
+        assert_eq!(request.at, 1_793_614_500);
+        let user = r#"{"type":"message","message":{"role":"user","content":"hi"}}"#;
+        assert!(line(user).is_none());
+    }
+}
