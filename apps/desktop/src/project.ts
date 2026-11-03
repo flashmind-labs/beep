@@ -5,7 +5,7 @@
 import { harnessEl } from "./harnessicon.ts";
 import type { ChatApproval } from "./home.ts";
 import { agentLabel, el } from "./projects-state.ts";
-import { dbtn, emptyPanel, svgEl } from "./components/parts.ts";
+import { dbtn, emptyPanel, stateChip, svgEl } from "./components/parts.ts";
 import type { Kid } from "./projects-state.ts";
 
 /// A project agent with its chat (ProjectAgent).
@@ -234,10 +234,6 @@ function section(id: string, title: string, sub: string, body: Node) {
   return box;
 }
 
-function chip(state: string) {
-  return el("span", `pj-st ${state}`, state === "running" ? el("span", "dspin") : null, state);
-}
-
 function link(text: string, url: string, open: (url: string) => unknown) {
   const a = el("a", "", text);
   a.href = url;
@@ -269,7 +265,7 @@ export function tasksSection(view: ProjectView, act: RowActs) {
     const err = act.error(t.id);
     const title = el("span", "t", t.title);
     title.title = t.title;
-    const row = el("div", "pj-task", title, chip(t.state), meta, acts(b, err));
+    const row = el("div", "pj-task", title, stateChip(t.state, t.state, t.state === "running"), meta, acts(b, err));
     row.dataset.task = t.id;
     const review = reviewActs(t, act);
     if (review.length) row.querySelector(".acts")!.prepend(...review);
@@ -365,7 +361,7 @@ export function prsSection(view: ProjectView, act: RowActs) {
     const title = el("span", "t", link(prLabel(t.pr_url), t.pr_url, act.openUrl), " ", t.title);
     title.title = t.title;
     const review = t.branch && act.review && t.state !== "done" ? el("span", "acts", dbtn("Review", t.state === "review" ? "pri" : "", () => act.review!(t.branch!))) : null;
-    return el("div", "pj-task", title, chip(t.state), el("span", "m", t.branch ? el("code", "", t.branch) : null), review);
+    return el("div", "pj-task", title, stateChip(t.state, t.state, t.state === "running"), el("span", "m", t.branch ? el("code", "", t.branch) : null), review);
   });
   const open = tasks.filter(t => t.state !== "done").length;
   return section("sec-prs", "Pull requests", open ? `${open} open` : "", el("div", "cc-panel", ...rows));

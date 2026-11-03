@@ -11,7 +11,7 @@ import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, errorNote, note } from "./components/parts.ts";
+import { emptyPanel, errorNote, note, stateChip } from "./components/parts.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
 export interface BranchRow {
@@ -508,7 +508,7 @@ export function makeReviews(deps: ReviewDeps) {
       if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
       const title = h("span", "t", h("code", "", b.name));
       title.title = b.subject;
-      return h("div", "pj-task", title, h("span", "pj-st", isDefault ? "default" : b.local ? "local" : "origin"),
+      return h("div", "pj-task", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
     });
     out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null),
@@ -616,7 +616,7 @@ export function makeReviews(deps: ReviewDeps) {
       h("div", "cc-sec", h("h4", "", "Shards"), h("small", "", "read-only reviewers")),
       h("div", "cc-panel", ...r.shards.map(s => {
         const c = shardChip(s);
-        const chipEl = h("span", `pj-st ${c.cls}`, c.spin ? h("span", "dspin") : null, c.text);
+        const chipEl = stateChip(c.cls, c.text, c.spin);
         chipEl.title = s.note || c.text;
         return h("div", "rv-shard", harnessEl(s.agent),
           h("span", "t", h("b", "", s.area), h("span", "", shardLine(s, r.machine_name))), chipEl);

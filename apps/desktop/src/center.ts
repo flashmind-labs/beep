@@ -2,7 +2,7 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, note, stateChip, svgEl as icon } from "./components/parts.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -2787,7 +2787,7 @@ function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
 function threadHead(t: ThreadChatEntry, c: ChatItem | undefined): ViewHead {
   const view = threadCards.get(t.chat_id)?.view;
   const scope = h("span", "th-scope", scopeTag(t.chat_id));
-  if (view?.needs_reply) scope.append(h("span", "pj-st blocked", "needs reply"));
+  if (view?.needs_reply) scope.append(stateChip("blocked", "needs reply"));
   const tools: Node[] = [];
   if (view?.url) tools.push(button(openLabel(view.url), "", () => agentActs.openUrl(view.url)));
   if (c) tools.push(pinButton(c));
