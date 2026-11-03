@@ -1,19 +1,20 @@
 //! A coding agent session's working folder, for the apps' Files tab: its
-//! folders listed with what git ignores and sees changed, any file in it
-//! read a part at a time, and files dropped on the session written into it
-//! (`SessionsRequest::Folder`, `ReadFile` and `WriteFile`). Nothing outside
+//! folders listed, one or a tree of them, with what git ignores and sees
+//! changed, any file in it read a part at a time, and files dropped on the
+//! session written into it (`SessionsRequest::Folder`, `ReadFile` and
+//! `WriteFile`). Nothing outside
 //! the folder is read or written: every path is checked once its symlinks
 //! resolve.
 
 use super::media_file::Chunk;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
-    AGENT_FILE_CHUNK, GitChange, MAX_WORK_ENTRIES, MAX_WORK_UPLOAD, WorkEntry, WorkFolder,
-    media_mime,
+    AGENT_FILE_CHUNK, GitChange, MAX_TREE_DEPTH, MAX_TREE_ENTRIES, MAX_WORK_ENTRIES,
+    MAX_WORK_UPLOAD, WorkEntry, WorkFolder, WorkTree, media_mime,
 };
 use ignore::WalkBuilder;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fs::{self, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
@@ -124,17 +125,95 @@ fn names(rel: &str) -> Result<PathBuf> {
 /// The folder `path` inside `root`: what git ignores left out unless
 /// `ignored`, `.git` always. Blocks on the file system and git.
 pub(super) fn list(root: &WorkRoot, path: &str, ignored: bool) -> Result<WorkFolder> {
-    let rel = names(path)?;
+    let dir = open_folder(root, path)?;
+    let status = git_status(&dir);
+    let changes = status.as_ref().map(|s| changes_in(&s.out, &s.prefix));
+    read_folder(&dir, root.relative(&dir), ignored, changes.as_ref())
+}
+
+/// The folder `path` inside `root` and those under it, `depth` levels in
+/// all, each as `list` gives it. Folders git ignores and symlinks are not
+/// read into, and it stops past `MAX_TREE_ENTRIES` entries. Blocks on the
+/// file system and git.
+pub(super) fn tree(root: &WorkRoot, path: &str, ignored: bool, depth: u32) -> Result<WorkTree> {
+    let top = open_folder(root, path)?;
+    let status = git_status(&top);
+    let depth = depth.clamp(1, MAX_TREE_DEPTH);
+    let top_rel = root.relative(&top);
+    // Each folder by its path under `top`, and how many levels down it is.
+    let mut queue = VecDeque::from([(String::new(), 1)]);
+    let mut folders: Vec<WorkFolder> = Vec::new();
+    let mut entries = 0;
+    let mut truncated = false;
+    while let Some((sub, level)) = queue.pop_front() {
+        let dir = top.join(&sub);
+        let changes = status
+            .as_ref()
+            .map(|s| changes_in(&s.out, &format!("{}{}", s.prefix, slashed(&sub))));
+        let folder = match read_folder(&dir, joined(&top_rel, &sub), ignored, changes.as_ref()) {
+            Ok(folder) => folder,
+            // A folder under the top that cannot be read is left unread;
+            // opening it says why.
+            Err(_) if !sub.is_empty() => continue,
+            Err(e) => return Err(e),
+        };
+        entries += folder.entries.len();
+        if entries > MAX_TREE_ENTRIES && !folders.is_empty() {
+            truncated = true;
+            break;
+        }
+        if level < depth {
+            for entry in folder.entries.iter().filter(|e| e.folder && !e.ignored) {
+                let next = joined(&sub, &entry.name);
+                if fs::symlink_metadata(top.join(&next)).is_ok_and(|meta| meta.is_dir()) {
+                    queue.push_back((next, level + 1));
+                }
+            }
+        }
+        folders.push(folder);
+    }
+    Ok(WorkTree { folders, truncated })
+}
+
+/// `a/b`, or either alone when the other is empty.
+fn joined(a: &str, b: &str) -> String {
+    match (a.is_empty(), b.is_empty()) {
+        (true, _) => b.to_owned(),
+        (_, true) => a.to_owned(),
+        _ => format!("{a}/{b}"),
+    }
+}
+
+/// `sub/`, or empty for the top.
+fn slashed(sub: &str) -> String {
+    if sub.is_empty() {
+        String::new()
+    } else {
+        format!("{sub}/")
+    }
+}
+
+/// The folder `path` inside `root`, its symlinks resolved.
+fn open_folder(root: &WorkRoot, path: &str) -> Result<PathBuf> {
     let dir = root
-        .find(&rel)?
+        .find(&names(path)?)?
         .with_context(|| format!("{path} is not there"))?;
     if !dir.is_dir() {
         bail!("{path} is not a folder");
     }
-    let kept = not_ignored(&dir);
-    let changes = git_changes(&dir);
+    Ok(dir)
+}
+
+/// The folder `dir`, called `path`, with what git sees changed in it.
+fn read_folder(
+    dir: &Path,
+    path: String,
+    ignored: bool,
+    changes: Option<&HashMap<String, GitChange>>,
+) -> Result<WorkFolder> {
+    let kept = not_ignored(dir);
     let mut entries = Vec::new();
-    let items = fs::read_dir(&dir).with_context(|| format!("could not list {path}"))?;
+    let items = fs::read_dir(dir).with_context(|| format!("could not list {path}"))?;
     for item in items {
         let item = item.with_context(|| format!("could not list {path}"))?;
         let name = item.file_name();
@@ -160,7 +239,7 @@ pub(super) fn list(root: &WorkRoot, path: &str, ignored: bool) -> Result<WorkFol
             folder,
             size: if folder { 0 } else { meta.len() },
             ignored: is_ignored,
-            change: changes.as_ref().and_then(|c| c.get(name).copied()),
+            change: changes.and_then(|c| c.get(name).copied()),
         });
     }
     entries.sort_by(|a, b| {
@@ -172,7 +251,7 @@ pub(super) fn list(root: &WorkRoot, path: &str, ignored: bool) -> Result<WorkFol
     let more = entries.len().saturating_sub(MAX_WORK_ENTRIES);
     entries.truncate(MAX_WORK_ENTRIES);
     Ok(WorkFolder {
-        path: root.relative(&dir),
+        path,
         entries,
         more: u32::try_from(more).unwrap_or(u32::MAX),
         git: changes.is_some(),
@@ -200,12 +279,18 @@ fn not_ignored(dir: &Path) -> HashSet<String> {
         .collect()
 }
 
-/// What git sees changed under `dir`, by the name in `dir` it is under;
+/// What git sees changed under `dir`: `git status` output and `dir`'s
+/// path from the checkout's top, as `changes_in` reads them.
+struct GitStatus {
+    out: String,
+    prefix: String,
+}
+
 /// `None` outside a checkout or without git, where there is nothing to
 /// mark.
-fn git_changes(dir: &Path) -> Option<HashMap<String, GitChange>> {
+fn git_status(dir: &Path) -> Option<GitStatus> {
     let prefix = git(dir, &["rev-parse", "--show-prefix"])?;
-    let status = git(
+    let out = git(
         dir,
         &[
             "status",
@@ -217,7 +302,10 @@ fn git_changes(dir: &Path) -> Option<HashMap<String, GitChange>> {
             ".",
         ],
     )?;
-    Some(changes_in(&status, prefix.trim_end_matches('\n')))
+    Some(GitStatus {
+        out,
+        prefix: prefix.trim_end_matches('\n').to_owned(),
+    })
 }
 
 /// What `git <args>` printed in `dir`, when it succeeded. Takes no locks,
@@ -530,6 +618,81 @@ mod tests {
         assert_eq!(change(&top, "README.md"), None);
         let src = list(&root, "src", false).unwrap();
         assert_eq!(change(&src, "deep"), Some(GitChange::Modified {}));
+    }
+
+    fn paths_of(tree: &WorkTree) -> Vec<&str> {
+        tree.folders.iter().map(|f| f.path.as_str()).collect()
+    }
+
+    #[test]
+    fn a_tree_reads_levels_down_to_its_depth() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
+        fs::create_dir_all(dir.path().join("src/deep/deeper")).unwrap();
+        fs::create_dir_all(dir.path().join("target/debug")).unwrap();
+        fs::write(dir.path().join("src/deep/lib.rs"), "").unwrap();
+        let root = root_in(&dir);
+        let two = tree(&root, "", false, 2).unwrap();
+        assert_eq!(paths_of(&two), ["", "src"]);
+        assert!(!two.truncated);
+        let three = tree(&root, "", false, 3).unwrap();
+        assert_eq!(paths_of(&three), ["", "src", "src/deep"]);
+        assert_eq!(names_of(&three.folders[2]), ["deeper", "lib.rs"]);
+        // From a folder inside, paths stay relative to the root.
+        assert_eq!(
+            paths_of(&tree(&root, "src", false, 2).unwrap()),
+            ["src", "src/deep"]
+        );
+        // What git ignores is listed when asked, but not read into.
+        let all = tree(&root, "", true, 3).unwrap();
+        assert_eq!(names_of(&all.folders[0]), ["src", "target", ".gitignore"]);
+        assert_eq!(paths_of(&all), ["", "src", "src/deep"]);
+    }
+
+    #[test]
+    fn a_tree_stops_past_its_entries() {
+        let dir = TempDir::new().unwrap();
+        for folder in ["a", "b", "c"] {
+            let at = dir.path().join(folder);
+            fs::create_dir_all(&at).unwrap();
+            for n in 0..MAX_WORK_ENTRIES {
+                fs::write(at.join(n.to_string()), "").unwrap();
+            }
+        }
+        let got = tree(&root_in(&dir), "", false, 3).unwrap();
+        assert_eq!(paths_of(&got), ["", "a", "b"]);
+        assert!(got.truncated);
+    }
+
+    #[test]
+    fn a_tree_marks_changes_in_each_folder() {
+        if !has_git() {
+            eprintln!("skipped: no git");
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let at = dir.path();
+        run_git(at, &["init", "-q"]);
+        fs::create_dir_all(at.join("src/deep")).unwrap();
+        fs::write(at.join("src/deep/lib.rs"), "one").unwrap();
+        fs::write(at.join("src/main.rs"), "one").unwrap();
+        run_git(at, &["add", "."]);
+        run_git(at, &["commit", "-qm", "first"]);
+        fs::write(at.join("src/deep/lib.rs"), "two").unwrap();
+        let got = tree(&root_in(&dir), "src", false, 2).unwrap();
+        let change =
+            |f: &WorkFolder, name: &str| f.entries.iter().find(|e| e.name == name).unwrap().change;
+        assert_eq!(
+            change(&got.folders[0], "deep"),
+            Some(GitChange::Modified {})
+        );
+        assert_eq!(change(&got.folders[0], "main.rs"), None);
+        assert_eq!(
+            change(&got.folders[1], "lib.rs"),
+            Some(GitChange::Modified {})
+        );
+        assert!(got.folders[1].git);
     }
 
     #[test]

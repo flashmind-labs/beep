@@ -1,5 +1,5 @@
 // The Files tab of a coding agent session: the working folder's tree as
-// the node lists it a folder at a time, what of it shows for a filter,
+// the node lists it a few levels at a time, what of it shows for a filter,
 // paths mentioned in a message, files dropped to upload, and the simple
 // highlighting of the text view. No page here, so the tests load it.
 
@@ -21,6 +21,25 @@ export interface TreeFolder {
   entries: TreeEntry[];
   more: number;
   git: boolean;
+}
+
+/// A read of the tree as `agent_tree` gives it (Tree): the folder asked
+/// first, then those under it the node read.
+export interface Tree {
+  folders: TreeFolder[];
+  truncated: boolean;
+}
+
+/// Puts what `tree` read into `listings`, over what they held.
+export function mergeTree(listings: Map<string, Listing>, tree: Tree) {
+  for (const f of tree.folders) listings.set(f.path, { entries: f.entries, more: f.more, error: "" });
+}
+
+/// `dir` is not read, or a folder in it is not: opening it reads on. The
+/// node does not read into what git ignores, so that does not count.
+export function atEdge(listings: ReadonlyMap<string, Listing>, dir: string) {
+  const entries = listings.get(dir)?.entries;
+  return !entries || entries.some(e => e.folder && !e.ignored && !listings.get(joinPath(dir, e.name))?.entries);
 }
 
 /// A folder's listing as the tab holds it: loading, read, or why not.
