@@ -335,6 +335,11 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pb-h:hover, .pb-h:focus-visible { color: var(--emerald) }
 .pb-h svg { opacity: .8; flex: none }
 .pb-h .c { margin-left: auto; font-weight: 500; color: var(--muted); font-size: 12px; white-space: nowrap }
+.pb-h .sw-age { font-weight: 400 }
+/* How fresh a section's kept data is: its age, or a spinner while it reads again. */
+.sw-age { font-size: 11px; color: var(--muted); white-space: nowrap }
+.dspin.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none; vertical-align: middle }
+.cc-sec h4 .sw-spin, .cc-sec h4 .sw-age { margin-left: 8px; letter-spacing: 0; text-transform: none; font-weight: 400 }
 .pb-rows { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column }
 .pb-r { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; line-height: 16px; min-width: 0; border-top: 1px solid var(--border) }
 .pb-r .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }

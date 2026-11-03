@@ -13,7 +13,7 @@ use beep_proto::node::{
     files::{FileEntry, FileKind, MAX_CHUNK, PROTOCOL, Reply, Request},
 };
 use std::{
-    fs::{self, File, Metadata, OpenOptions},
+    fs::{self, Metadata, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -125,11 +125,16 @@ impl Folders {
 
     fn read(&self, path: &str, offset: u64, limit: u32) -> Result<Reply> {
         let path = self.resolve(path)?;
-        let mut file = File::open(&path).with_context(|| format!("opening {}", path.display()))?;
-        let size = file.metadata()?.len();
-        if file.metadata()?.is_dir() {
+        let mut file =
+            fsat::open_read(&path).with_context(|| format!("opening {}", path.display()))?;
+        let metadata = file.metadata()?;
+        if metadata.is_dir() {
             bail!("{} is a folder", path.display());
         }
+        if !metadata.is_file() {
+            bail!("{} is not a file", path.display());
+        }
+        let size = metadata.len();
         let limit = if limit == 0 {
             MAX_CHUNK
         } else {
@@ -159,6 +164,9 @@ impl Folders {
         }
         let mut file = fsat::open_no_follow(&mut options, &path)
             .with_context(|| format!("opening {}", path.display()))?;
+        if !file.metadata()?.is_file() {
+            bail!("{} is not a file", path.display());
+        }
         file.write_all(data)?;
         Ok(Reply::Written {
             path: shown(&path),
@@ -401,6 +409,38 @@ mod tests {
             "nope"
         );
         assert!(!f.outside.join("new.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_is_refused_rather_than_waited_on() {
+        let f = fixture("pipe");
+        let pipe = f.shared.join("out.png");
+        let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+        assert!(made.is_ok_and(|status| status.success()), "mkfifo");
+        let folders = f.folders.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let read = folders.answer(Request::Read {
+                path: "out.png".into(),
+                offset: 0,
+                limit: 0,
+            });
+            let written = folders.answer(Request::Write {
+                path: "out.png".into(),
+                data: b"x".to_vec(),
+                append: false,
+            });
+            // The test may have given up waiting.
+            let _ = tx.send([read, written]);
+        });
+        // Only bounds a hang: the replies come back at once.
+        let replies = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("opening the pipe waited for its other end");
+        for reply in replies {
+            error(reply);
+        }
     }
 
     #[test]

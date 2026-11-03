@@ -1,6 +1,6 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutLabel, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "./core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../projects-state.ts";
@@ -97,7 +97,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+  AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   AG.error = "";
   AG.busy = false;
   drawFrame();
@@ -241,16 +241,15 @@ addEventListener("scroll", () => { if (S.view === "agentnew") placeMenu(); }, { 
 function drawUnder() {
   const f = AG.form, el = $$("#agunder"), host = formHost();
   const checkout = checkoutHere();
-  const busy = checkout ? folderBusy(AG.sessions, formModelMachine(), f.cwd) : false;
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
   const folderText = shown.label ? `${esc(shown.label)} <small class="mono">${esc(shown.path)}</small>` : `<span class="mono">${esc(shown.path)}</span>`;
-  const sub = checkout ? `<small>${esc(checkoutLabel(f.checkout ?? "auto", busy))}</small>` : "";
+  const sub = checkout ? `<small>${esc(checkoutLabel(f.checkout ?? DEFAULT_CHECKOUT))}</small>` : "";
   const folder = f.typing
     ? `<span class="agc-type"><input id="agcwd" spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="${esc(f.cwd)}"><span id="agcwdmenu"></span></span>`
     : `<button class="agc-pill" id="agfoldb" aria-expanded="${f.open === "folder"}" title="${esc(f.cwd.trim() || host?.workspace || "The machine's workspace")}">${FOLDER}${folderText}${sub}${CARET}</button>`;
-  const base = checkout && makesBranch(f.checkout ?? "auto", busy) ? `<span class="bar"></span>${baseButton()}` : "";
+  const base = checkout && makesBranch(f.checkout ?? DEFAULT_CHECKOUT) ? `<span class="bar"></span>${baseButton()}` : "";
   const project = `<button class="agc-pill" id="agprojb" aria-expanded="${f.open === "project"}" title="${f.project ? "The project this agent works on" : "Pick a project, or run in a folder"}">${PROJECT}${esc(f.project || "No project")}${CARET}</button>`;
-  el.innerHTML = `${project}<span class="bar"></span><button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Pick a machine")}${CARET}</button><span class="bar"></span>${folder}${base}${projectMenu()}${hostMenu()}${folderMenu(checkout, busy)}${baseMenu()}`;
+  el.innerHTML = `${project}<span class="bar"></span><button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Pick a machine")}${CARET}</button><span class="bar"></span>${folder}${base}${projectMenu()}${hostMenu()}${folderMenu(checkout)}${baseMenu()}`;
   placeMenu();
   if (f.typing) bindFolderField();
   if (f.baseTyping) bindBaseField();
@@ -295,7 +294,7 @@ function projectMenu() {
 /// project for the workspace.
 function setProject(name: string | null) {
   const f = AG.form, p = name ? PROJECTS?.find(x => x.name === name) : null;
-  f.checkout = "auto";
+  f.checkout = DEFAULT_CHECKOUT;
   f.base = null;
   if (!p) {
     f.project = null;
@@ -377,7 +376,7 @@ function checkoutHere() {
   return f.places.some(p => (!machine || p.machine === machine) && (p.cwd === cwd || folderOn(p.cwd, null, null) === cwd));
 }
 
-function folderMenu(checkout: boolean, busy: boolean) {
+function folderMenu(checkout: boolean) {
   const f = AG.form;
   if (f.open !== "folder") return "";
   const machine = f.machine || null, host = formHost();
@@ -393,15 +392,13 @@ function folderMenu(checkout: boolean, busy: boolean) {
     return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
   }
   const places = [...new Set((f.places ?? []).filter(p => !machine || p.machine === machine).map(p => machine ? p.cwd : folderOn(p.cwd, null, null)))];
-  const pick = f.checkout ?? "auto";
+  const pick = f.checkout ?? DEFAULT_CHECKOUT;
   const same = (p: CheckoutPick) => JSON.stringify(p) === JSON.stringify(pick);
   const trees = checkout ? knownWorktrees(AG.sessions, formModelMachine(), f.cwd) : [];
-  const resolved = checkoutFor("auto", busy) === "new" ? "new worktree: the checkout is busy" : "the checkout";
   const workspace = host?.workspace ? tildePath(host.workspace, host.home) : "~";
   const rows = [
     ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(tildePath(p, host?.home))}</span><small>checkout</small></button>`),
     ...(checkout ? ["<hr>",
-      `<button data-agk="auto" class="${same("auto") ? "on" : ""}"><span></span>Auto<small>${esc(resolved)}</small></button>`,
       `<button data-agk="current" class="${same("current") ? "on" : ""}"><span></span>Current checkout<small>as it is</small></button>`,
       `<button data-agk="branch" class="${same("branch") ? "on" : ""}"><span></span>New branch<small>in the checkout, named from the prompt</small></button>`,
       `<button data-agk="new" class="${same("new") ? "on" : ""}"><span></span>New worktree<small>new branch in .worktrees/</small></button>`,
@@ -452,7 +449,7 @@ function onClick(e: MouseEvent) {
     return drawParts();
   }
   const folder = at("[data-agf]");
-  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = "auto"; f.open = null; projectForFolder(); return drawParts(); }
+  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = DEFAULT_CHECKOUT; f.open = null; projectForFolder(); return drawParts(); }
   const checkout = at("[data-agk]");
   if (checkout) { f.checkout = checkout.dataset.agk as CheckoutPick; f.open = null; return drawParts(); }
   const tree = at("[data-agw]");
@@ -515,7 +512,7 @@ const listed = new Map<string, string[]>();
 /// folders under what is typed, Enter or a click elsewhere keeps it.
 function bindFolderField() {
   const f = AG.form, input = $$<HTMLInputElement>("#agcwd");
-  input.addEventListener("input", () => { f.cwd = input.value; f.checkout = "auto"; lookFolders(input); });
+  input.addEventListener("input", () => { f.cwd = input.value; f.checkout = DEFAULT_CHECKOUT; lookFolders(input); });
   input.addEventListener("keydown", e => {
     const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
     if (act.type === "none") {
@@ -614,10 +611,10 @@ export async function startAgent() {
     const machine = f.machine;
     keepMachine(f.project, machine);
     // In a project's checkout, an existing worktree is a folder to start
-    // in, and the node makes a new branch or worktree before it starts.
-    const busy = folderBusy(AG.sessions, formModelMachine(), f.cwd);
+    // in, and the node makes a new branch or worktree before it starts
+    // only when one is picked.
     const { cwd, checkout } = checkoutHere()
-      ? startPlace(f.checkout ?? "auto", busy, f.cwd.trim(), baseFor(f.base, formBranches()))
+      ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
     const started = await invoke<Started>("agent_start", {
       machineId: machine,

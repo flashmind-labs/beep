@@ -11,7 +11,8 @@ import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, errorNote, note, stateChip } from "./components/parts.ts";
+import { emptyPanel, errorNote, freshNote, note, stateChip } from "./components/parts.ts";
+import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
 export interface BranchRow {
@@ -295,6 +296,14 @@ export interface ReviewDeps {
   openUrl: (url: string) => unknown;
   openTile: (key: string) => void;
   machines?: () => readonly (Place & { online: boolean })[];
+  /// Where the branches are kept between windows; in memory only without it.
+  kept?: SectionStore<KeptBranches>;
+}
+
+/// A project's branches and reviews as the page cache keeps them.
+export interface KeptBranches {
+  branches: BranchesView | null;
+  reviews: ReviewView[] | null;
 }
 
 /// One project's branches and reviews. `now` is where the open review's
@@ -317,30 +326,52 @@ interface ProjectReviews {
 export function makeReviews(deps: ReviewDeps) {
   const { invoke, h, button, ago, redraw, openUrl, openTile } = deps;
   const machines = deps.machines || (() => []);
+  const kept = deps.kept ?? new PageCache(null).section<KeptBranches>("branches");
   const all = new Map<string, ProjectReviews>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let polling: string | null = null;
 
+  /// A project's branches and reviews, from the cache until they are read.
   const of = (name: string) => {
     let t = all.get(name);
-    if (!t) all.set(name, t = { branches: undefined, reviews: undefined, open: null, review: null, starting: null, error: "", note: "", busy: "" });
+    if (!t) {
+      const k = kept.get(name);
+      all.set(name, t = { branches: k?.branches, reviews: k?.reviews, open: null, review: null, starting: null, error: "", note: "", busy: "" });
+    }
     return t;
   };
 
-  /// Projects whose first read is on its way; a draw asking again waits.
-  const first = new Set<string>();
+  /// Projects whose read is on its way (a load meanwhile is dropped), and
+  /// when each was last tried, so a failing machine is not asked on
+  /// every draw.
+  const reading = new Set<string>();
+  const tried = new Map<string, number>();
+
+  /// Reads `name` when it is due: never read, or the refresh time passed
+  /// since the last try. Every draw may ask; an action reads anyway.
+  function ensure(name: string) {
+    const last = tried.get(name);
+    const due = last === undefined ? kept.due(name) : Date.now() - last >= REFRESH_MS;
+    if (due && !reading.has(name)) load(name);
+  }
 
   async function load(name: string) {
     const t = of(name);
-    if (t.branches === undefined && first.has(name)) return;
-    first.add(name);
+    if (reading.has(name)) return;
+    reading.add(name);
+    tried.set(name, Date.now());
+    // Kept lists stay up meanwhile, with a spinner in their header.
+    if (t.branches !== undefined) queueMicrotask(redraw);
+    let failed = false;
     const [branches, reviews] = await Promise.all([
-      invoke<BranchesView | null>("project_branches", { project: name }).catch((e): Branches | null => { t.error = reason(e); return t.branches ?? { default_branch: "", branches: [] }; }),
-      invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { console.warn("reviews:", e); return t.reviews ?? []; }),
+      invoke<BranchesView | null>("project_branches", { project: name }).catch((e): Branches | null => { failed = true; t.error = reason(e); return t.branches ?? { default_branch: "", branches: [] }; }),
+      invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { failed = true; console.warn("reviews:", e); return t.reviews ?? []; }),
     ]);
-    first.delete(name);
+    reading.delete(name);
     t.branches = branches;
     t.reviews = reviews;
+    // Kept once both answered; a failed read keeps the last good lists.
+    if (!failed) kept.put(name, { branches: branches as BranchesView | null, reviews });
     redraw();
   }
 
@@ -479,7 +510,7 @@ export function makeReviews(deps: ReviewDeps) {
 
   function branchesPanel(name: string) {
     const t = of(name);
-    if (t.branches === undefined) load(name);
+    ensure(name);
     const out: HTMLElement[] = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
     if (t.note && t.note.startsWith("Added ")) out.push(note("", t.note));
@@ -511,7 +542,8 @@ export function makeReviews(deps: ReviewDeps) {
       return h("div", "pj-task", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
     });
-    out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null),
+    out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null,
+      freshNote(freshness(kept.at(name), reading.has(name), Date.now())), button("Refresh", "quiet small", () => load(name))),
       rows.length ? h("div", "cc-panel", ...rows) : emptyPanel(h("span", "", "No branches"))));
     return out;
   }
@@ -642,6 +674,9 @@ export function makeReviews(deps: ReviewDeps) {
 
   return {
     load,
+    ensure,
+    loading: (name: string) => reading.has(name),
+    at: (name: string) => kept.at(name),
     branches: (name: string) => of(name).branches,
     reviews: (name: string) => of(name).reviews,
     openBranch,
