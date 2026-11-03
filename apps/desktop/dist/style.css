@@ -846,3 +846,16 @@ button.dachip:hover { border-color: #3A4A41 }
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }
 .agc-menuopen > .dhints { visibility: hidden }
+/* Composers (bar/compose.ts): a long paste is a pill, the part sent as code
+   has a dim outline. Both are drawn on a layer behind the field's own text. */
+.cx-field { position: relative; z-index: 1 }
+.cx-layer { position: absolute; z-index: 0; box-sizing: border-box; margin: 0; border: 0; overflow: hidden; pointer-events: none; color: transparent; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal }
+.cx-pill { border-radius: 5px; background: rgba(59,155,122,.16); box-shadow: 0 0 0 2px rgba(59,155,122,.16), 0 0 0 3px rgba(59,155,122,.28) }
+.cx-code { position: absolute; left: 2px; right: 2px; border: 1px dashed rgba(228,238,232,.16); border-radius: 6px }
+.cx-code::after { content: "sends as code"; position: absolute; right: 8px; top: -8px; padding: 0 4px; background: var(--surface); color: var(--dim); font-size: 10.5px; line-height: 14px }
+.cx-pop { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20; width: min(480px, 100%); border: 1px solid var(--border); border-radius: 10px; background: var(--elev); box-shadow: 0 10px 30px rgba(0,0,0,.35); font-size: 12.5px; line-height: 18px; color: var(--muted) }
+.cx-pop.down { bottom: auto; top: calc(100% + 6px) }
+.cx-pop .h { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border) }
+.cx-pop .h b { color: var(--fg); font-weight: 500 }
+.cx-pop .h .sp { flex: 1 }
+.cx-pop pre { margin: 0; padding: 8px 12px; max-height: 220px; overflow: auto; font: 11.5px/17px var(--mono); color: var(--muted); white-space: pre }
