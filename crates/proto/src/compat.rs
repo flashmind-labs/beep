@@ -100,6 +100,7 @@ sample_struct! {
     BranchPlace { branch, machine_id }
     ImportPreview { project, checkouts, default_branch, branches, note }
     ImportCheckout { machine_id, machine_name, folder, remote }
+    ImportFork { project, fork, branches }
     WorkBranch { name, pr, pr_title, ahead, worktree, in_checkout, committed_at }
     ProjectBranch { name, worktree, ahead, behind, head, subject, committed_at, local, pushed }
     BranchReview { id, project, branch, base, head, head_at, started_at, machine_name, changed_lines, files, merge, pr, shards, findings }

@@ -223,6 +223,7 @@ mod tests {
             folder: folder.into(),
             url: String::new(),
             imported_at: DateTime::<Utc>::UNIX_EPOCH,
+            fork: None,
         }
     }
 
