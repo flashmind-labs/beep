@@ -93,6 +93,11 @@ impl RepoName {
         })
     }
 
+    /// The owner part.
+    pub(crate) fn owner(&self) -> &str {
+        &self.name[..self.slash]
+    }
+
     /// The repository part, without its owner.
     pub(crate) fn repo(&self) -> &str {
         &self.name[self.slash + 1..]

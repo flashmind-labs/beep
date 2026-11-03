@@ -3,6 +3,8 @@
 // session Beep follows from Claude Code's transcript writes `Name: detail`,
 // with ` (failed)` after one that failed.
 
+import { MEDIA_EXTENSIONS } from "./media-state.ts";
+
 const STATUSES = ["pending", "in_progress", "completed", "failed"];
 const LIVE = new RegExp(`^([\\s\\S]*?) \\[(${STATUSES.join("|")})\\](?:\\n([\\s\\S]*))?$`);
 
@@ -170,12 +172,17 @@ export function answeredQuestions(text: string): Answered[] | null {
   }
 }
 
-const IMAGE_PATH = /(^|[\s(])((?:~|\.{1,2})?\/?[\w@%+-][\w@%+.\/-]*\.(?:png|jpe?g|gif|webp))(?=$|[\s).,;:!?])/gi;
+/// Pictures the node shows as a reply's own, numbered in the order named.
+const PICTURE = /\.(?:png|jpe?g|gif|webp)$/i;
+const MEDIA_PATH = new RegExp(`(^|[\\s(])((?:~|\\.{1,2})?\\/?[\\w@%+-][\\w@%+.\\/-]*\\.(?:${MEDIA_EXTENSIONS.join("|")}))(?=$|[\\s).,;:!?])`, "gi");
 
-/// The agent's reply as HTML with each image file it names (relative to
-/// its folder or absolute) as a link, numbered in the order first named:
-/// the node shows those files as the reply's pictures in that order.
-/// Text inside links and code blocks is left alone.
+const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+/// The agent's reply as HTML with each media file it names (relative to
+/// its folder or absolute) as a link. Pictures are numbered in the order
+/// first named, as the node shows those files as the reply's pictures in
+/// that order; every link carries its path, for the media pane. Text
+/// inside links and code blocks is left alone.
 export function linkImagePaths(html: string) {
   const paths: string[] = [];
   let skip = 0;
@@ -186,11 +193,23 @@ export function linkImagePaths(html: string) {
       return part;
     }
     if (skip) return part;
-    return part.replace(IMAGE_PATH, (_, lead: string, path: string) => {
-      let i = paths.indexOf(path);
-      if (i < 0) { i = paths.length; paths.push(path); }
-      return `${lead}<a class="imgl" data-img="${i}" title="${path}">${path}</a>`;
+    return part.replace(MEDIA_PATH, (_, lead: string, path: string) => {
+      let img = "";
+      if (PICTURE.test(path)) {
+        let i = paths.indexOf(path);
+        if (i < 0) { i = paths.length; paths.push(path); }
+        img = ` data-img="${i}"`;
+      }
+      return `${lead}<a class="imgl"${img} data-path="${attr(path)}" title="${attr(path)}">${path}</a>`;
     });
   });
   return { html: out.join(""), paths };
+}
+
+/// The media files a line of text names, each once, in order: for the
+/// buttons on a tool's row.
+export function mediaPaths(text: string) {
+  const found: string[] = [];
+  for (const m of text.matchAll(MEDIA_PATH)) if (!found.includes(m[2])) found.push(m[2]);
+  return found;
 }

@@ -609,14 +609,66 @@ button.dachip:hover { border-color: #3A4A41 }
 .dcoder .q { margin: 10px 12px 0; padding: 10px; border-radius: 8px; background: var(--surface); display: grid; gap: 6px; font-size: 13px; line-height: 19px }
 /* The session's log reads in one column, as wide as the chat's. */
 #agbody { container-type: inline-size }
-.dbar[data-mode="window"] > #agbody:has(> .dagsplit.has) { padding-inline: 16px 20px }
+/* The session fills its space: the conversation, and the media pane beside
+   it or under it (dAgentSession in the mock). The log keeps a readable
+   column in the middle of the conversation. */
+.agshell { flex: 1 1 auto; min-height: 0; display: flex; position: relative }
+.agshell.dock-bottom { flex-direction: column }
+.agshell.resizing { user-select: none; cursor: col-resize } .agshell.dock-bottom.resizing { cursor: row-resize }
+.agshell.resizing .agpviews { pointer-events: none }
+.agconv { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column }
+#agbody { padding: 12px 20px 12px }
+.agdiv { flex: none; width: 7px; margin: 0 -3px; cursor: col-resize; position: relative; z-index: 2; outline: 0 }
+.agdiv::after { content: ""; position: absolute; inset: 0 3px; background: var(--border); transition: background .15s }
+.agdiv:hover::after, .agdiv:focus-visible::after, .resizing > .agdiv::after { background: var(--emerald) }
+.dock-bottom > .agdiv { width: auto; height: 7px; margin: -3px 0; cursor: row-resize }
+.dock-bottom > .agdiv::after { inset: 3px 0 }
+.agdiv[hidden], .agpane[hidden], .agpstrip[hidden] { display: none }
+.agpane { flex: 0 0 42%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: rgba(10, 14, 12, .35) }
+.agphead { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--border) }
+.agtabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none }
+.agtabs::-webkit-scrollbar { display: none }
+.agtab { all: unset; cursor: pointer; flex: 0 1 auto; min-width: 54px; max-width: 200px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; border-radius: 6px; font-size: 12px; color: var(--muted) }
+.agtab svg { flex: none }
+.agtab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono) }
+.agtab small { color: var(--dim) }
+.agtab em { display: grid; opacity: 0; padding: 2px; border-radius: 4px } .agtab em svg { width: 10px; height: 10px }
+.agtab:hover em, .agtab.on em { opacity: .7 } .agtab em:hover { opacity: 1; background: rgba(228, 238, 232, .08) }
+.agtab:hover { color: var(--fg) } .agtab.on { background: rgba(228, 238, 232, .08); color: var(--fg) }
+.agpbtn { all: unset; cursor: pointer; flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; color: var(--muted) }
+.agpbtn:hover { background: rgba(228, 238, 232, .06); color: var(--fg) }
+.agshell.narrow #agdock { display: none }
+.agpviews { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.agpview { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.agpview[hidden] { display: none !important }
+.agpview.subs { overflow: auto; padding: 6px; gap: 2px; display: grid; align-content: start }
+.agpstage { flex: 1; min-height: 0; position: relative; overflow: hidden; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #16201b, #0b100e) }
+.agpstage.img { display: block; cursor: grab; touch-action: none } .agpstage.img.drag { cursor: grabbing }
+.agpstage.img img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; image-rendering: auto; user-select: none; -webkit-user-drag: none }
+.agpstage video { max-width: 100%; max-height: 100%; outline: 0 }
+.agpstage.pdf { display: flex } .agpstage.pdf iframe { flex: 1; border: 0; background: #fff }
+.agpstage.model canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none }
+.agpmsg { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 20px; font-size: 13px; color: var(--muted); text-align: center }
+.agpmsg.derr { color: var(--coral) }
+.agpload { flex-basis: 100%; height: 3px; max-width: 220px; border-radius: 2px; background: var(--border); overflow: hidden }
+.agpload i { display: block; width: 0; height: 100%; background: var(--emerald); transition: width .2s }
+.agpacts { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted) }
+.agpacts .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px } .agpacts .dbtn.on { border-color: var(--emerald) }
+.agpacts .sp { flex: 1 } .agpacts .hint { color: var(--dim) } .agpacts .zoom { font-family: var(--mono); min-width: 4ch }
+@container (max-width: 520px) { .agpacts .hint { display: none } }
+.agpane { container-type: inline-size }
+.agpstrip { all: unset; cursor: pointer; flex: none; width: 30px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0; border-left: 1px solid var(--border); color: var(--muted); font-size: 11.5px }
+.agpstrip span { writing-mode: vertical-rl } .agpstrip small { color: var(--dim) } .agpstrip:hover { color: var(--fg) }
+.dock-bottom > .agpstrip { width: auto; flex-direction: row; justify-content: center; padding: 6px 0; border-left: 0; border-top: 1px solid var(--border) }
+.dock-bottom > .agpstrip span { writing-mode: initial }
+/* A step's media files, as buttons that open them in the pane. */
+.dcoderen.tool .dmedia { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px }
+.dcoderen.tool .dmedia button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--border); font: 11.5px var(--mono); color: var(--muted) }
+.dcoderen.tool .dmedia button:hover { color: var(--fg); border-color: #3A4A41 } .dcoderen.tool .dmedia svg { width: 12px; height: 12px }
 .dagmain { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
-.dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 760px; margin-inline: auto }
-.dagsplit.has { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start }
-.dsubs { position: sticky; top: 0; display: grid; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: 10px }
-.dsubs > .h, .dsubgrp > .h { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.5px; color: var(--muted) }
-.dsubs > .h b, .dsubgrp > .h b { color: var(--fg); font-weight: 600 }
-@container (max-width: 820px) { .dagsplit.has { display: block } .dsubs { display: none } }
+.dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 800px; margin-inline: auto }
+.dsubgrp > .h { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.5px; color: var(--muted) }
+.dsubgrp > .h b { color: var(--fg); font-weight: 600 }
 .dsubgrp { display: grid; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; white-space: normal }
 .dsubrow { all: unset; cursor: pointer; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; padding: 6px 8px; border-radius: 7px }
 .dsubrow:hover { background: rgba(228, 238, 232, .05) }
@@ -639,16 +691,6 @@ button.dachip:hover { border-color: #3A4A41 }
 .ag-queue button svg { width: 12px; height: 12px }
 #agmodel { flex: none; display: flex } #agmodel .agc-pill.agm { font-size: 12px; max-width: 260px; overflow: hidden; white-space: nowrap }
 #agmodel .agc-pill.agm[disabled] { opacity: .55; cursor: default }
-.dsubs > .tabs { display: flex; align-items: center; gap: 4px; padding: 2px 2px 4px }
-.dsubs > .tabs button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--muted) }
-.dsubs > .tabs button.on { background: rgba(228, 238, 232, .08); color: var(--fg) }
-.dsubs > .tabs button small { color: var(--dim) } .dsubs > .tabs .sp { flex: 1 } .dsubs > .tabs svg { width: 12px; height: 12px }
-.dsubs > .nm { padding: 0 6px; font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.dimgbox { max-height: 60vh; overflow: auto; border-radius: 8px; margin: 4px }
-.dimgbox img { display: block; max-width: 100%; height: auto; border-radius: 8px }
-.dimgbox.actual img { max-width: none }
-.dsubs > .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px }
-.dsubs > .acts .dbtn.on { border-color: var(--emerald) }
 .dcoderen.agent > .pics { flex-wrap: nowrap; overflow-x: auto; gap: 8px; margin-top: 8px }
 .dcoderen.agent > .pics .pic { height: 160px; max-height: 160px; width: auto; max-width: none; border-radius: 8px; flex: none }
 .dcoderen.agent > .pics img.pic:not([src]) { width: 240px }
@@ -804,3 +846,16 @@ button.dachip:hover { border-color: #3A4A41 }
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }
 .agc-menuopen > .dhints { visibility: hidden }
+/* Composers (bar/compose.ts): a long paste is a pill, the part sent as code
+   has a dim outline. Both are drawn on a layer behind the field's own text. */
+.cx-field { position: relative; z-index: 1 }
+.cx-layer { position: absolute; z-index: 0; box-sizing: border-box; margin: 0; border: 0; overflow: hidden; pointer-events: none; color: transparent; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal }
+.cx-pill { border-radius: 5px; background: rgba(59,155,122,.16); box-shadow: 0 0 0 2px rgba(59,155,122,.16), 0 0 0 3px rgba(59,155,122,.28) }
+.cx-code { position: absolute; left: 2px; right: 2px; border: 1px dashed rgba(228,238,232,.16); border-radius: 6px }
+.cx-code::after { content: "sends as code"; position: absolute; right: 8px; top: -8px; padding: 0 4px; background: var(--surface); color: var(--dim); font-size: 10.5px; line-height: 14px }
+.cx-pop { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20; width: min(480px, 100%); border: 1px solid var(--border); border-radius: 10px; background: var(--elev); box-shadow: 0 10px 30px rgba(0,0,0,.35); font-size: 12.5px; line-height: 18px; color: var(--muted) }
+.cx-pop.down { bottom: auto; top: calc(100% + 6px) }
+.cx-pop .h { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border) }
+.cx-pop .h b { color: var(--fg); font-weight: 500 }
+.cx-pop .h .sp { flex: 1 }
+.cx-pop pre { margin: 0; padding: 8px 12px; max-height: 220px; overflow: auto; font: 11.5px/17px var(--mono); color: var(--muted); white-space: pre }

@@ -13,6 +13,7 @@ g.window = globalThis;
 g.addEventListener = () => {};
 g.ResizeObserver = class { observe() {} unobserve() {} };
 g.MutationObserver = class { observe() {} };
+g.HTMLTextAreaElement = class { get value() { return ""; } set value(_v: string) {} };
 g.__TAURI__ = {
   core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answers[cmd] ?? null; }, Channel: class {} },
   event: { listen: async () => () => {} },

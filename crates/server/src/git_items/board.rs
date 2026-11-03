@@ -57,6 +57,12 @@ impl GitBoard {
         }
     }
 
+    /// The server-wide limit on calls to git hosts in flight, for other
+    /// reads of a host's API.
+    pub(crate) fn calls(&self) -> &Arc<Semaphore> {
+        &self.calls
+    }
+
     /// `user`'s open items with `logins`, from the cache while it is fresh.
     pub async fn list(&self, user: &str, logins: Vec<GitLogin>) -> anyhow::Result<GitItems> {
         if logins.is_empty() {

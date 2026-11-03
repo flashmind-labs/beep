@@ -100,6 +100,7 @@ sample_struct! {
     BranchPlace { branch, machine_id }
     ImportPreview { project, checkouts, default_branch, branches, note }
     ImportCheckout { machine_id, machine_name, folder, remote }
+    ImportFork { project, fork, branches }
     WorkBranch { name, pr, pr_title, ahead, worktree, in_checkout, committed_at }
     ProjectBranch { name, worktree, ahead, behind, head, subject, committed_at, local, pushed }
     BranchReview { id, project, branch, base, head, head_at, started_at, machine_name, changed_lines, files, merge, pr, shards, findings }
@@ -114,12 +115,14 @@ sample_struct! {
     IssueStart { agent, node_id }
     ProjectThread { kind, repo, number, title, url, last_other, needs_reply, updated_at }
     ProjectPullRequest { number, title, url, author, draft, mine, created_at, updated_at }
+    PullRequestHead { number, branch, fork }
     ThreadChat { chat_id, kind, repo, number, title }
     ThreadView { kind, number, title, url, author, body, needs_reply, comments, earlier }
     ThreadPost { author, at, body }
     AgentImage { name, file_id, mime, key }
     ProjectGroup { id, name, paths }
     AgentImageData { key, mime, data }
+    AgentFileChunk { size, mime, data }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }
@@ -264,6 +267,8 @@ sample_values! {
     i64 => [1_760_000_000_000]
     f64 => [1.5]
     String => ["text".to_owned()]
+    AgentSlug => [AgentSlug::from("text")]
+    ModelId => [ModelId::from("text")]
     Uuid => [Uuid::from_u128(0x0123_4567_89ab_cdef_0123_4567_89ab_cdef)]
     SystemTime => [UNIX_EPOCH + Duration::from_millis(1_760_000_000_123)]
     ReasoningLevel => [

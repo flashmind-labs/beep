@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, checkoutNote } from "../src/branchwork.ts";
+import { worktreeMachines, worktreeName, defaultPlaces, placeChoices, worktreesToAsk, previewLine, outsideThreads, checkoutNote, forkNote } from "../src/branchwork.ts";
 
 const preview = {
   project: "tools-org/uploader",
@@ -66,4 +66,16 @@ test("outside_threads_skip_registered_repos", () => {
     ["big-org/parser", [2210]],
   ]);
   assert.deepEqual(outsideThreads(null, null), []);
+});
+
+test("the fork line names the fork and the PR branches made local", () => {
+  assert.equal(forkNote(null), null);
+  assert.equal(forkNote(undefined), null);
+  assert.equal(forkNote({ project: "acme/widget", fork: null, branches: [] }), null);
+  assert.equal(forkNote({ project: "acme/widget", fork: "octo/widget", branches: [] }),
+    "Your fork octo/widget will be cloned, upstream added.");
+  assert.equal(forkNote({ project: "acme/widget", fork: "octo/widget", branches: ["fix-retry"] }),
+    "Your fork octo/widget will be cloned, upstream added. Your PR branch fix-retry is made local.");
+  assert.equal(forkNote({ project: "acme/widget", fork: "octo/widget", branches: ["a", "b"] }),
+    "Your fork octo/widget will be cloned, upstream added. Your 2 PR branches are made local.");
 });

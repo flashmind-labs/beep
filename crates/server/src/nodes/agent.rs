@@ -54,6 +54,19 @@ pub(crate) struct NodeImage {
     pub(crate) data: Vec<u8>,
 }
 
+/// What a node answered when asked for part of a media file.
+pub(crate) enum NodeFile {
+    Chunk {
+        size: u64,
+        mime: String,
+        data: Vec<u8>,
+    },
+    /// There is no file at that path.
+    Missing,
+    /// The node would not read it, saying why.
+    Refused(String),
+}
+
 /// What a session starts on besides its folder and prompt; the agent's
 /// own for each left `None`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -464,6 +477,21 @@ impl Online {
                 log::debug!("node has no image; session={session} key={key} reason={message}");
                 Ok(None)
             }
+            other => bail!("the node answered {other:?}"),
+        }
+    }
+
+    /// Part of the media file `path` on the node, from `offset`. An error
+    /// when the node could not be asked, as one from before `File` cannot.
+    pub(crate) async fn agent_file(&self, path: &str, offset: u64) -> Result<NodeFile> {
+        let request = SessionsRequest::File {
+            path: path.to_owned(),
+            offset,
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::File { size, mime, data } => Ok(NodeFile::Chunk { size, mime, data }),
+            SessionsReply::NoFile {} => Ok(NodeFile::Missing),
+            SessionsReply::Error { message } => Ok(NodeFile::Refused(message)),
             other => bail!("the node answered {other:?}"),
         }
     }

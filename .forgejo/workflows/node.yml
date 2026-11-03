@@ -2,7 +2,8 @@
 # `just node-release <version>`). The tag must match crates/node/Cargo.toml.
 #
 # The host runner cross-builds the static Linux binaries (x86_64 and aarch64
-# musl) in Docker with zig, the Mac runner builds aarch64-apple-darwin, and a
+# musl) in Docker with zig and x86_64-pc-windows-msvc with cargo-xwin, the Mac
+# runner builds aarch64-apple-darwin, and a
 # last job attaches the archives and SHA256SUMS to the tag's Forgejo release
 # and uploads them to the R2 bucket under beep/node/<version>/, served at
 # https://releases.flashmind.com/beep/node/. latest.txt there names the newest
@@ -57,6 +58,40 @@ jobs:
           name: node-linux
           path: dist/*.tar.gz
 
+  windows:
+    runs-on: host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' crates/node/Cargo.toml | head -1)
+          if [[ "node-v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "The tag $GITHUB_REF_NAME does not match beep-node's version $version." >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: docker build --target node-dist-windows --output "type=local,dest=$RUNNER_TEMP/node-win" .
+
+      # install.ps1 and `beep-node update` look for beep-node.exe at the
+      # top of the zip.
+      - name: Package
+        run: |
+          set -euo pipefail
+          target=x86_64-pc-windows-msvc
+          mkdir -p dist
+          python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED); z.write(sys.argv[2], "beep-node.exe"); z.close()' \
+            "dist/beep-node-$VERSION-$target.zip" "$RUNNER_TEMP/node-win/$target/beep-node.exe"
+          rm -rf "$RUNNER_TEMP/node-win"
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: node-windows
+          path: dist/*.zip
+
   macos:
     runs-on: macos
     steps:
@@ -94,7 +129,7 @@ jobs:
           path: dist/*.tar.gz
 
   publish:
-    needs: [linux, macos]
+    needs: [linux, macos, windows]
     runs-on: host
     steps:
       - uses: actions/checkout@v4
@@ -119,11 +154,16 @@ jobs:
           name: node-macos
           path: dist
 
+      - uses: actions/download-artifact@v3
+        with:
+          name: node-windows
+          path: dist
+
       - name: Write SHA256SUMS
         working-directory: dist
         run: |
           set -euo pipefail
-          sha256sum beep-node-*.tar.gz > SHA256SUMS
+          sha256sum beep-node-*.tar.gz beep-node-*.zip > SHA256SUMS
           cat SHA256SUMS
 
       - name: Publish the release
@@ -137,7 +177,7 @@ jobs:
                 -H "Content-Type: application/json" --data @- "$API/releases" \
             | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
           [[ -n "$release" ]] || { echo "No release id in the reply" >&2; exit 1; }
-          for file in dist/*.tar.gz dist/SHA256SUMS; do
+          for file in dist/*.tar.gz dist/*.zip dist/SHA256SUMS; do
             name=${file##*/}
             curl -sSf -X POST -H "Authorization: token $TOKEN" \
               -F "attachment=@$file" "$API/releases/$release/assets?name=$name" > /dev/null
@@ -157,8 +197,9 @@ jobs:
           pointer="$RUNNER_TEMP/r2-node-pointer"
           rm -rf "$files" "$pointer"
           mkdir -p "$files" "$pointer"
-          cp dist/*.tar.gz dist/SHA256SUMS "$files/"
+          cp dist/*.tar.gz dist/*.zip dist/SHA256SUMS "$files/"
           cp crates/node/install.sh "$pointer/install.sh"
+          cp crates/node/install.ps1 "$pointer/install.ps1"
           printf '%s\n' "$VERSION" > "$pointer/latest.txt"
           echo "files=$files" >> "$GITHUB_OUTPUT"
           echo "pointer=$pointer" >> "$GITHUB_OUTPUT"
@@ -188,7 +229,7 @@ jobs:
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
         run: |
           set -euo pipefail
-          for name in install.sh latest.txt; do
+          for name in install.sh install.ps1 latest.txt; do
             file="$POINTER/$name"
             curl -sSf --retry 3 --aws-sigv4 "aws:amz:auto:s3" \
               --user "$CF_ACCESS_KEY_ID:$CF_SECRET_ACCESS_KEY" \
