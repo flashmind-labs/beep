@@ -23,14 +23,16 @@ RATE="${E2E_RESUME_RATE:-80mbit}"
 # Expanded on the VM, also inside quotes there.
 P="\$HOME/ws/$PROJECT"
 
-# cap / uncap : limit node-a's egress on its default interface.
+# The interfaces holding node-a's IPv4 and IPv6 default routes: iroh may
+# send over either, or through a relay over either.
+UPLINKS="{ ip -4 route show default; ip -6 route show default; } | awk '{for(i=1;i<NF;i++) if(\$i==\"dev\") print \$(i+1)}' | sort -u"
+
+# cap / uncap : limit node-a's egress on every uplink.
 cap(){
-  on node-a "dev=\$(ip -4 route show default | awk '{for(i=1;i<NF;i++) if(\$i==\"dev\"){print \$(i+1); exit}}')
-sudo tc qdisc replace dev \$dev root tbf rate $RATE burst 256kb latency 400ms"
+  on node-a "for dev in \$($UPLINKS); do sudo tc qdisc replace dev \$dev root tbf rate $RATE burst 256kb latency 400ms || exit 1; done"
 }
 uncap(){
-  on node-a "dev=\$(ip -4 route show default | awk '{for(i=1;i<NF;i++) if(\$i==\"dev\"){print \$(i+1); exit}}')
-sudo tc qdisc del dev \$dev root 2> /dev/null; true"
+  on node-a "for dev in \$($UPLINKS); do sudo tc qdisc del dev \$dev root 2> /dev/null; done; true"
 }
 
 # fetching_mb : MB of the blob node-b received last. A fetch lands in the
