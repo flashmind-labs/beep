@@ -237,3 +237,4 @@ test("labels are counted across issues and filter the list to any picked one", (
   assert.deepEqual(withLabels(lines, new Set()).map(l => l.n), [1, 2, 3, 4]);
   assert.deepEqual(withLabels(lines, new Set(["ios", "enhancement"])).map(l => l.n), [1, 3]);
 });
+

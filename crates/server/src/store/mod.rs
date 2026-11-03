@@ -51,6 +51,8 @@ mod project_groups;
 mod project_imports;
 mod project_removal;
 mod project_sync;
+mod project_webhooks;
+pub(crate) use project_webhooks::NewWebhook;
 mod projects;
 mod research;
 mod reviews;
@@ -519,6 +521,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         86,
         "agent spend billing",
         include_str!("../../migrations/0086_agent_spend_billing.sql"),
+    ),
+    (
+        92,
+        "project webhooks",
+        include_str!("../../migrations/0092_project_webhooks.sql"),
     ),
 ];
 

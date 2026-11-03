@@ -6,6 +6,7 @@ use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    net::SocketAddr,
     path::{Path, PathBuf},
 };
 
@@ -26,6 +27,12 @@ struct Settings {
     /// `files = ["/srv/project"]`. None by default.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     files: Vec<PathBuf>,
+    /// Where Forgejo and Gitea servers on the private network deliver
+    /// webhooks for live project updates: this machine's address on that
+    /// network and a port, such as `webhook_listen = "[fd00::12]:7480"`.
+    /// Unset, only GitHub repositories get live updates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    webhook_listen: Option<SocketAddr>,
 }
 
 pub struct State {
@@ -37,6 +44,9 @@ pub struct State {
     pub agents: Vec<AgentKind>,
     /// The folders shared through `files/1`.
     pub files: Vec<PathBuf>,
+    /// Where webhooks for live project updates come to from Forgejo and
+    /// Gitea servers (`webhook_listen` in `node.toml`).
+    pub webhook_listen: Option<SocketAddr>,
 }
 
 pub fn default_dir() -> Result<PathBuf> {
@@ -58,9 +68,9 @@ impl State {
     pub fn save(dir: &Path, key: SecretKey, server: EndpointId, name: &str) -> Result<Self> {
         // Linking again keeps the agents and folders set by hand, and
         // refuses rather than drop settings it cannot read.
-        let (agents, files) = if dir.join(SETTINGS_FILE).exists() {
+        let (agents, files, webhook_listen) = if dir.join(SETTINGS_FILE).exists() {
             let old = read_settings(dir)?;
-            (old.agents, old.files)
+            (old.agents, old.files, old.webhook_listen)
         } else {
             Default::default()
         };
@@ -69,6 +79,7 @@ impl State {
             name: name.trim().to_owned(),
             agents,
             files,
+            webhook_listen,
         };
         fs::write(dir.join(SETTINGS_FILE), toml::to_string(&settings)?)?;
         Ok(Self {
@@ -78,6 +89,7 @@ impl State {
             name: settings.name,
             agents: settings.agents,
             files: settings.files,
+            webhook_listen: settings.webhook_listen,
         })
     }
 
@@ -99,6 +111,7 @@ impl State {
             name: settings.name,
             agents: settings.agents,
             files: settings.files,
+            webhook_listen: settings.webhook_listen,
         })
     }
 }
