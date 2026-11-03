@@ -364,19 +364,15 @@ async fn read_any<'s, T>(
     )))
 }
 
-/// Hides the open issue `number` from `project`'s list, for its current
-/// issues host only.
-pub(crate) async fn dismiss(
-    user: &User,
-    project: &ProjectRow,
-    number: u64,
-) -> Result<(), IssueError> {
-    let Some(host) = issue_host(user, project).await? else {
+/// What older apps' Not now asks: nothing changes, since the issue list
+/// follows the host and hides no open issue. Still refused for a project
+/// without an issues host, as before.
+pub(crate) async fn dismiss(user: &User, project: &ProjectRow) -> Result<(), IssueError> {
+    if issue_host(user, project).await?.is_none() {
         return Err(IssueError::Refused(
             "This project has no GitHub or Forgejo issues host.".to_owned(),
         ));
-    };
-    user.dismiss_issue(project.id, &host, number).await?;
+    }
     Ok(())
 }
 
@@ -405,16 +401,11 @@ async fn author_of(source: &IssueSource, project: &ProjectRow, issue: &ViewedIss
     }
 }
 
-/// The issues of `open` that no task tracks and the user did not dismiss,
-/// newest first.
-pub(crate) fn untracked(
-    open: Vec<OpenIssue>,
-    tracked: &[u64],
-    dismissed: &[u64],
-) -> Vec<OpenIssue> {
+/// The issues of `open` that no task tracks, newest first.
+pub(crate) fn untracked(open: Vec<OpenIssue>, tracked: &[u64]) -> Vec<OpenIssue> {
     let mut left: Vec<OpenIssue> = open
         .into_iter()
-        .filter(|issue| !tracked.contains(&issue.number) && !dismissed.contains(&issue.number))
+        .filter(|issue| !tracked.contains(&issue.number))
         .collect();
     left.sort_by(|a, b| {
         b.opened_at
@@ -449,8 +440,7 @@ pub(crate) async fn list_open(
         .filter(|task| task.issue_host.as_ref() == Some(&source.host))
         .filter_map(|task| task.issue.map(|issue| issue.number))
         .collect();
-    let dismissed = user.dismissed_issues(project.id, &source.host).await?;
-    Ok(untracked(open, &tracked, &dismissed))
+    Ok(untracked(open, &tracked))
 }
 
 /// The open pull requests on a project's host, and whether each is the
@@ -771,16 +761,16 @@ mod tests {
     }
 
     #[test]
-    fn untracked_skips_tracked_and_dismissed() {
+    fn untracked_skips_tracked_only() {
         let open = vec![
             open_issue(1, 1),
             open_issue(2, 5),
             open_issue(3, 3),
             open_issue(4, 4),
         ];
-        let left = untracked(open, &[2], &[4]);
+        let left = untracked(open, &[2]);
         let numbers: Vec<u64> = left.iter().map(|issue| issue.number).collect();
-        assert_eq!(numbers, [3, 1]);
+        assert_eq!(numbers, [4, 3, 1]);
     }
 
     #[tokio::test]
@@ -859,7 +849,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dismiss_hides_issue() {
+    async fn dismiss_hides_nothing() {
         let db = TestDb::new().await.unwrap();
         let user = User::for_test(db.store().await.unwrap(), "alice");
         let mut fleet = FakeFleet::default();
@@ -871,39 +861,13 @@ mod tests {
         let numbers: Vec<u64> = all.iter().map(|issue| issue.number).collect();
         assert_eq!(numbers, [12, 11, 10]);
         track(&fleet, &user, &project, 12, None).await.unwrap();
-        dismiss(&user, &project, 10).await.unwrap();
-        dismiss(&user, &project, 10).await.unwrap();
+        // Older apps' Not now: the issue stays listed, as on the host.
+        dismiss(&user, &project).await.unwrap();
         let left = list_open(&fleet, &user, &project).await.unwrap();
         let numbers: Vec<u64> = left.iter().map(|issue| issue.number).collect();
-        assert_eq!(numbers, [11]);
+        assert_eq!(numbers, [11, 10]);
         let list = shell.ran_with("issue list");
         assert!(list[0].contains("--state open"), "{}", list[0]);
-    }
-
-    #[tokio::test]
-    async fn dismissals_are_kept_per_host() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (project, _, shell) = github_project(&user, &mut fleet).await;
-        shell.answer("issue list", 0, &listed(&[open_issue(10, 1)]));
-        dismiss(&user, &project, 10).await.unwrap();
-        assert!(list_open(&fleet, &user, &project).await.unwrap().is_empty());
-        // The project moves to Forgejo: its #10 is another issue.
-        let forgejo = IssueHost::Forgejo(ForgejoHost::parse("git.example.com").unwrap());
-        let roles = Roles {
-            issues: Some(forgejo.clone()),
-            prs: Some(forgejo),
-        };
-        user.set_project_setup(project.id, &roles, Visibility::Public, "main")
-            .await
-            .unwrap();
-        let project = user.project(project.id).await.unwrap().unwrap();
-        let shown = list_open(&fleet, &user, &project).await.unwrap();
-        let numbers: Vec<u64> = shown.iter().map(|issue| issue.number).collect();
-        assert_eq!(numbers, [10]);
-        dismiss(&user, &project, 10).await.unwrap();
-        assert!(list_open(&fleet, &user, &project).await.unwrap().is_empty());
     }
 
     #[tokio::test]
