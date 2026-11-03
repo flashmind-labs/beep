@@ -8,6 +8,7 @@ import { connectProblem } from "./connect.ts";
 import { pane, type PaneTarget } from "./bar/pane.ts";
 import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
+import { seed, type CachedViews } from "./cached.ts";
 import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
 import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
@@ -143,6 +144,9 @@ const state = {
 };
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
+/// The server answered for Home in this window; until then Home may be
+/// the one the app kept from before.
+let fresh = false;
 
 // ---------- Formatting ----------
 
@@ -870,8 +874,11 @@ let threadsLoading: Promise<void> | null = null;
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
   if (chatFetch) return chatFetch;
-  const mine: Promise<ChatItem[]> = Promise.all([pane.chatRows(), pane.activeRuns()]).then(([rows, runs]) => {
-    if (chatFetch === mine) { chatList = rows; serverRunning = runs; }
+  // The rows come from this Mac's copy; which run elsewhere is the
+  // server's to say, so the rows never wait for it.
+  pane.activeRuns().then(runs => { serverRunning = runs; drawSide(); });
+  const mine: Promise<ChatItem[]> = pane.chatRows().then(rows => {
+    if (chatFetch === mine) chatList = rows;
     return rows;
   }).finally(() => { if (chatFetch === mine) chatFetch = null; });
   return chatFetch = mine;
@@ -1400,7 +1407,7 @@ function page(home: HomeView, wide: boolean) {
 function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
 
 /// Before Home first loads, a failure waiting will not fix, or null.
-function problem() { return state.home ? null : connectProblem(state.error); }
+function problem() { return fresh ? null : connectProblem(state.error); }
 
 const logButton = () => button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
 
@@ -1464,7 +1471,7 @@ function drawConnecting(view: HTMLElement) {
 function draw() {
   const home = state.home, view = $("#view");
   drawSide();
-  if (!home) return drawConnecting(view);
+  if (!home || problem()) return drawConnecting(view);
   const top = view.scrollTop;
   drawnWide = isWide(view);
   view.replaceChildren(...page(home, drawnWide));
@@ -2679,6 +2686,7 @@ async function refresh() {
     state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     state.home = home;
+    fresh = true;
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);
@@ -2707,7 +2715,7 @@ async function refresh() {
   if (again) { again = false; refresh(); }
   // Until Home first loads, a failed try is made again soon, seen or not,
   // unless waiting will not fix it.
-  else if (!state.home && !problem()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
+  else if (!fresh && !problem()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
 }
 
 // "Still connecting" takes over once the wait passes its limit.
@@ -2720,7 +2728,7 @@ setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10
 // on Home is plenty.
 window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
 setInterval(() => { if (document.visibilityState === "visible" && shown === "home") refreshGit(); }, 60000);
-for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected"]) {
+for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) {
   listen(name, () => refresh());
 }
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
@@ -2762,6 +2770,22 @@ async function start() {
   go(first.view, first.arg);
 }
 
+/// Shows what the app kept from the server's last answers, so the window
+/// opens on Home, its projects and sidebar before the server answers.
+async function showCached() {
+  const [cached, mac] = await Promise.all([
+    invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
+    invoke<MacControl>("mac_control").catch(() => null),
+  ]);
+  const home = seed(state, cached, dismissedUpdates);
+  state.mac ??= mac;
+  if (!home) return;
+  draw();
+  reloadGroup("projects");
+  reloadGroup("pinned");
+  reloadGroup("machines");
+}
+
 // A reload starts with no chat open, as the window just opened does.
-invoke("new_chat").catch(() => {}).then(start);
+Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(start);
 loadAgents();
