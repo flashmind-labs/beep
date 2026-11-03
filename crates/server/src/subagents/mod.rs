@@ -19,7 +19,7 @@ pub use approvals::Approvals;
 pub use decision::Decision;
 pub use run::{Ended, Failure, Watch};
 
-use crate::{app::UserNotice, research::RoleModel};
+use crate::{app::UserNotice, lock, research::RoleModel};
 use flashmind::{
     core::CancellationToken,
     types::{AgentLlmConfig, LlmProvider, ProviderPreferences, ToolGate, tool::Tool},
@@ -27,7 +27,7 @@ use flashmind::{
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -157,10 +157,6 @@ impl Drop for Slot {
     fn drop(&mut self) {
         lock(&self.slots).give_back(self.pool, &self.user);
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Every background task on the server, kept on `App`.
