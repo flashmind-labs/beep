@@ -105,6 +105,9 @@ pub(super) struct Start<'a> {
     pub(super) effort: Option<Effort>,
     /// A first line for its transcript, such as the branch it started on.
     pub(super) note: Option<String>,
+    /// Beep's word to the agent, sent ahead of the first prompt and kept
+    /// out of the transcript.
+    pub(super) brief: Option<&'static str>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -122,6 +125,7 @@ impl Session {
             model,
             effort,
             note,
+            brief,
             images,
             usage,
         } = start;
@@ -184,6 +188,7 @@ impl Session {
             acp_session: None,
             takes_images: None,
             queued: prompt.map(Prompt::from).into_iter().collect(),
+            brief,
             resume,
             model,
             effort,
@@ -313,6 +318,8 @@ struct Actor {
     compactor: Compactor,
     /// Prompts waiting for the agent to be free, the first prompt among them.
     queued: VecDeque<Prompt>,
+    /// Beep's word to the agent, until the first prompt carries it.
+    brief: Option<&'static str>,
     /// Questions waiting, the first one shown.
     asked: VecDeque<Asked>,
     next_question: u32,
@@ -999,7 +1006,7 @@ impl Actor {
     /// Sends `/compact` ahead of the waiting prompts.
     fn compact(&mut self, cx: &ConnectionTo<Agent>, session: &SessionId) {
         let prompt = Prompt::from(COMPACT_PROMPT.to_owned());
-        self.send(cx, acp::prompt(session, &prompt), Reply::Compacted);
+        self.send(cx, acp::prompt(session, &prompt, None), Reply::Compacted);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
             live.context = None;
@@ -1059,7 +1066,8 @@ impl Actor {
         let Some(prompt) = self.queued.pop_front() else {
             return;
         };
-        self.send(cx, acp::prompt(&session, &prompt), Reply::Prompt);
+        let brief = self.brief.take();
+        self.send(cx, acp::prompt(&session, &prompt, brief), Reply::Prompt);
         let queued = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
         self.live.send_modify(|live| {
             for picture in prompt.pictures() {
@@ -1298,6 +1306,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1366,6 +1375,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1410,6 +1420,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1456,6 +1467,7 @@ cat > /dev/null
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1492,6 +1504,7 @@ read -r line
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1636,6 +1649,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         })
@@ -1793,6 +1807,7 @@ cat > /dev/null
             model: model.map(str::to_owned),
             effort: None,
             note: None,
+            brief: None,
             images: Arc::default(),
             usage: Arc::default(),
         }
@@ -2035,6 +2050,34 @@ cat > /dev/null
             "Started on a new branch beep/go from HEAD."
         );
         settle(&session).await;
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_brief_goes_ahead_of_the_first_prompt_only() {
+        let dir = temp("brief");
+        let log = dir.join("sent.jsonl");
+        let kind = script("pi", ALLOWING_ADAPTER, &log);
+        let start = Start {
+            brief: Some("Make a worktree first."),
+            ..start_on(&kind, &dir, None)
+        };
+        let session = Session::start(start).unwrap();
+        settle(&session).await;
+        let sent = sent(&log);
+        let prompt = sent
+            .iter()
+            .find(|line| line["method"] == "session/prompt")
+            .expect("a prompt");
+        let blocks = prompt["params"]["prompt"].as_array().unwrap();
+        assert_eq!(blocks[0]["text"], "Make a worktree first.");
+        assert_eq!(blocks[1]["text"], "go");
+        let (entries, _) = session.live.borrow().transcript(100);
+        assert!(
+            entries.iter().all(|entry| !entry.text.contains("worktree")),
+            "the transcript shows only what the user sent"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

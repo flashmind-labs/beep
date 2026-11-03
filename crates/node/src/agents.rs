@@ -501,6 +501,7 @@ impl Agents {
                 model: None,
                 effort: None,
                 note: None,
+                brief: None,
             },
         )
     }
@@ -644,6 +645,7 @@ impl Agents {
             model: begin.model,
             effort: begin.effort,
             note: begin.note,
+            brief: begin.brief,
             images: self.images.clone(),
             usage: self.usage.clone(),
         })?);
@@ -664,6 +666,8 @@ struct Begin {
     effort: Option<agent::Effort>,
     /// A first line for the transcript, such as the branch it started on.
     note: Option<String>,
+    /// Beep's word to the agent ahead of the first prompt.
+    brief: Option<&'static str>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or
@@ -751,35 +755,23 @@ pub async fn serve_session(
             checkout,
         } => {
             // The branch or worktree comes first; the agent starts in it.
-            let made = match checkout {
-                Some(plan) => checkout::make_checkout(cwd.as_deref(), plan, &prompt)
-                    .await
-                    .map(Some),
-                None => Ok(None),
-            };
-            made.and_then(|made| {
-                let folder = match &made {
-                    Some(made) => Some(
-                        made.folder
-                            .to_str()
-                            .context("the new folder is not UTF-8")?
-                            .to_owned(),
-                    ),
-                    None => cwd,
-                };
-                agents.start(
-                    &kind,
-                    folder.as_deref(),
-                    Begin {
-                        prompt: Some(prompt),
-                        resume: None,
-                        model,
-                        effort,
-                        note: made.as_ref().map(checkout::Made::note),
-                    },
-                )
-            })
-            .map_err(|e| format!("{e:#}"))
+            checkout::place(cwd, checkout, &prompt)
+                .await
+                .and_then(|place| {
+                    agents.start(
+                        &kind,
+                        place.folder.as_deref(),
+                        Begin {
+                            prompt: Some(prompt),
+                            resume: None,
+                            model,
+                            effort,
+                            note: place.note,
+                            brief: place.brief,
+                        },
+                    )
+                })
+                .map_err(|e| format!("{e:#}"))
         }
         Request::Resume { session, prompt } => agents
             .resume(&kind, &session, prompt)
@@ -1284,6 +1276,7 @@ while read -r line; do reply '{}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
         };
         let session = agents
             .start(&kind, Some(dir.to_str().unwrap()), begin)
@@ -1521,6 +1514,7 @@ while read -r line; do reply '{}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
         };
         let first = agents.start(&kind, Some("/"), begin()).unwrap();
         let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
@@ -1550,6 +1544,7 @@ while read -r line; do reply '{}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
         };
         let first = agents.start(&kind, Some("/"), begin).unwrap();
         first.close().await;

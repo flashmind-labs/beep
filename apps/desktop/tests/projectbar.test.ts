@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "../src/projectbar.ts";
+import { DEFAULT_CHECKOUT } from "../src/bar/agentpick.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -30,6 +31,7 @@ test("the Folder pill says what the agent works on", () => {
   assert.deepEqual(barCheckout("branch", null), { label: "New branch", sub: "from HEAD" });
   assert.deepEqual(barCheckout("current", "main"), { label: "Current checkout", sub: "as it is" });
   assert.deepEqual(barCheckout({ worktree: "/srv/acme/widget/.worktrees/fix-login" }, "main"), { label: "fix-login", sub: "worktree" });
+  assert.deepEqual(barCheckout(DEFAULT_CHECKOUT, "main"), { label: "Current checkout", sub: "as it is" }, "a plain start makes no branch");
 });
 
 test("a target starts on its named or existing branch", () => {
