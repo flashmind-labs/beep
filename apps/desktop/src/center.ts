@@ -1853,7 +1853,7 @@ try { layout = localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "board"; }
 
 function setLayout(to: string) {
   layout = to;
-  pa.tile = null;
+  openTile(null, false);
   try { localStorage.setItem(LAYOUT_KEY, to); } catch {}
   redrawProjects();
   drawTop();
@@ -1864,14 +1864,17 @@ function boardOn(p: Project) {
   return layout === "board" && p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
 }
 
-/// Opens tile `key` in place of the board, or goes back with null.
-function openTile(key: string | null) {
+/// Opens tile `key` in place of the board, or goes back with null, and
+/// stops the polling of every other tile. With `draw` false the caller
+/// draws.
+function openTile(key: string | null, draw = true) {
   pa.tile = key;
   if (key !== "terminals") terms.stop();
   if (key !== "sync") fsync.stop();
   if (key !== "review") revs.stop();
+  if (!draw) return;
   redrawProjects();
-  document.querySelector("#main .cc-view")?.scrollTo({ top: 0 });
+  projectsEl().querySelector(":scope > .cc-view")?.scrollTo({ top: 0 });
 }
 
 /// Opens the Tasks list and brings task `id`'s row into view.
@@ -2385,7 +2388,7 @@ async function startFromBar(fresh = false) {
     keepMachine(p.name, place.machine_id);
     go("pane", { agent: started.session });
   } catch (e) {
-    c.err.textContent = failure(e).replace(/^bad request: /, "");
+    c.err.textContent = refusal(e);
   } finally {
     pc.starting = false;
     redrawProjects();
@@ -2699,14 +2702,13 @@ registerView("projects", {
   mount(el, arg) {
     state.picked = (arg as ProjectsArg | undefined)?.project || null;
     if (state.picked) { sessionsDue.add(state.picked); state.where.delete(state.picked); }
-    pa.tile = null;
+    openTile(null, false);
     drawProjects(el);
     if (!state.picked) { loadFound(); loadOverview(); }
     refresh();
   },
   unmount() {
-    terms.stop();
-    revs.stop();
+    openTile(null, false);
   },
 });
 
@@ -3210,7 +3212,7 @@ $<HTMLFormElement>("#home-comp").addEventListener("submit", async e => {
     // Back on Home with the prompt as typed, where the error shows.
     input.value = prompt;
     go("home");
-    note.textContent = failure(err);
+    note.textContent = refusal(err);
   }
   reloadChats();
 });
