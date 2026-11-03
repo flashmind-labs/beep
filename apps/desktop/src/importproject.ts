@@ -10,8 +10,8 @@ import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
 import type { ImportEvent, MachineFolder, ProjectRow } from "./projects-state.ts";
-import { checkoutNote, defaultPlaces, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
-import type { BranchPicks, PreviewView } from "./branchwork.ts";
+import { checkoutNote, defaultPlaces, forkNote, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
+import type { BranchPicks, ImportFork, PreviewView } from "./branchwork.ts";
 import type { MachineCard } from "./home.ts";
 import { NO_MENU, completed, isOpen, menuKey, menuOf, splitTyped, suggest } from "./foldercomplete.ts";
 import type { FolderMenu } from "./foldercomplete.ts";
@@ -69,6 +69,9 @@ let macId: string | null = null, back: Element | null = null, onDone: ((project:
 /// where the project lands, or absent to skip.
 let preview: PreviewView | null | undefined = undefined, previewFor = "", previewError = "", picks: BranchPicks = {};
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
+/// The user's fork the import would clone, for the repo text `previewFor`:
+/// undefined while it is read, null for none or a server too old to say.
+let fork: ImportFork | null | undefined = undefined;
 /// The folder each machine starts in (workspace, else home), by id, once read.
 const bases = new Map<string, string>();
 /// A folder is being read, so the folder buttons wait.
@@ -104,6 +107,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   preview = undefined;
+  fork = undefined;
   previewFor = "";
   previewError = "";
   picks = {};
@@ -126,7 +130,13 @@ function schedulePreview() {
     preview = undefined;
     previewError = "";
     picks = {};
+    fork = undefined;
     if (root) draw();
+    invoke<ImportFork | null>("find_import_fork", { repo }).then(got => got, () => null).then(got => {
+      if (previewFor !== repo) return;
+      fork = got;
+      if (root && state.step === "form") draw();
+    });
     try {
       const got = await invoke<PreviewView | null>("preview_import", { repo });
       if (previewFor !== repo) return;
@@ -335,11 +345,20 @@ function form() {
     el("div", "am-label", "Folder"),
     state.browsing ? browser(state.browsing) : folderLine(),
     state.chosen && !state.browsing ? el("div", "ip-found", state.chosen.origin != null && el("span", "ddot"), folderNote(state.chosen, state.repo)) : null,
+    forkLine(),
     el("div", "am-sub", folderHelp(state, machines)),
     ...branchesBlock(),
     state.error ? el("div", "am-msg bad", state.error) : null,
     el("div", "am-line", go, button("Cancel", "dbtn quiet", closeImportProject)),
   ];
+}
+
+/// "Your fork login/repo will be cloned, upstream added", once read for
+/// the repository typed and when no checkout was picked.
+function forkLine() {
+  if (previewFor !== state.repo.trim() || state.chosen?.origin != null) return null;
+  const note = forkNote(fork);
+  return note ? el("div", "ip-found ip-fork", el("span", "ddot"), note) : null;
 }
 
 /// The checkouts found and the branches with work, each with where its
@@ -532,7 +551,7 @@ function injectStyle() {
     + " .ip-browse .dirs .none { padding: 5px 12px; font-size: 12.5px; color: var(--muted) }"
     + " .ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }"
     + " .ip-browse .foot .note { flex: 1; min-width: 0 }"
-    + " .ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px }"
+    + " .ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px } .ip-fork { font-size: 12px; color: var(--muted) }"
     + " .ip-branches { display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow: auto }"
     + " .ip-branch { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--border) }"
     + " .ip-branch:last-child { border-bottom: 0 }"

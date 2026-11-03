@@ -2,7 +2,7 @@
 //! Forgejo or Gitea server they saved a token for.
 
 use super::ImportError;
-use crate::credentials::ForgejoUrl;
+use crate::{credentials::ForgejoUrl, projects::model::RepoName};
 use url::Url;
 
 const GITHUB: &str = "github.com";
@@ -104,6 +104,11 @@ impl RepoRef {
             org: org.to_owned(),
             name: name.to_owned(),
         })
+    }
+
+    /// The repository `name` on the same host, such as the user's fork.
+    pub(crate) fn sibling(&self, name: &RepoName) -> Result<Self, ImportError> {
+        Self::new(self.host.clone(), name.owner(), name.repo())
     }
 
     /// `org/repo`, the project's name.

@@ -180,6 +180,7 @@ mod tests {
             folder: folder.into(),
             url: format!("https://github.com/{project}"),
             imported_at: Utc::now(),
+            fork: None,
         }
     }
 

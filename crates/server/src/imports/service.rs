@@ -3,10 +3,13 @@
 use super::{
     ImportError,
     checks::{self, Machine, Page},
-    clone::{self, Failure, Job, Outcome},
+    clone::{self, Failure, ForkSetup, Job, Outcome},
     folder::{self, FolderPath, Seen},
+    fork::{self, UsedFork},
     found::{self, MachineFound},
+    link::link_fork,
     place::{self, Candidate, Folders},
+    preview::existing_checkout,
     repo::{Host, RepoRef},
 };
 use crate::{
@@ -14,7 +17,7 @@ use crate::{
     credentials::{ForgejoUrl, Opened, Slot, github_for},
     nodes::{Online, SHELL},
     protocol::{
-        FoundProject, ImportedProject, MachineFolder, ProjectMachine,
+        FoundProject, ImportFork, ImportedProject, MachineFolder, ProjectMachine,
         node::agent::SESSIONS_PROTOCOL,
     },
     store::{ImportRow, NewImport, NodeRow},
@@ -91,43 +94,87 @@ async fn choose_machine(
     Ok(Chosen { row, node })
 }
 
+/// The Forgejo servers among the user's credentials.
+fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {
+    credentials
+        .iter()
+        .filter_map(|opened| match &opened.slot {
+            Slot::Forgejo(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether importing `input` would clone the user's fork of it.
+pub(crate) async fn find_fork(
+    app: &App,
+    user: &User,
+    input: &str,
+) -> Result<ImportFork, ImportError> {
+    let credentials = user.git_credentials(&app.credential_key).await?;
+    let repo = RepoRef::parse(input, &forgejo_of(&credentials))?;
+    let found = fork::find(app, &credentials, &repo).await;
+    Ok(ImportFork {
+        project: repo.project(),
+        fork: found.as_ref().map(|fork| fork.repo.project()),
+        branches: found.map(|fork| fork.found.branches).unwrap_or_default(),
+    })
+}
+
 /// Imports `job.repo` onto its machine: clones it there, or finds it
-/// already there, and records it. The user's other machines are then
-/// looked through for checkouts of it, in the background.
+/// already there, and records it. When the user has a fork of it, the fork
+/// is cloned as `origin` with the repository as `upstream`, and their pull
+/// request branches made local; the project is still the repository. With
+/// no folder given, or one not there yet, a checkout of the repository or
+/// the fork already on the machine is linked instead of cloning again.
+/// The user's other machines are then looked through for checkouts of it,
+/// in the background.
 pub(crate) async fn import(
     app: &Arc<App>,
     user: &Arc<User>,
     job: Import<'_>,
 ) -> Result<ImportedProject, ImportError> {
     let credentials = user.git_credentials(&app.credential_key).await?;
-    let servers: Vec<ForgejoUrl> = credentials
-        .iter()
-        .filter_map(|opened| match &opened.slot {
-            Slot::Forgejo(url) => Some(url.clone()),
-            _ => None,
-        })
-        .collect();
-    let repo = RepoRef::parse(job.repo, &servers)?;
+    let repo = RepoRef::parse(job.repo, &forgejo_of(&credentials))?;
     let picked = match job.folder {
         Some(folder) => FolderPath::parse(folder)?,
         None => None,
     };
     let Chosen { row, node } = choose_machine(app, user, job.machine_id).await?;
-    let folder = match picked {
-        Some(picked) => folder::destination(&look(&node, &row, &picked).await?, repo.name()),
-        None => {
-            let env = row.env.as_ref();
-            let folders = Folders {
-                os: env.map(|env| env.os.as_str()),
-                home: env.map(|env| env.home.as_str()),
-                workspace: node.workspace.as_deref(),
-            };
-            place::checkout_folder(folders, &repo)
-                .ok_or_else(|| ImportError::NoHome(row.name.clone()))?
-        }
+    let fork = fork::find(app, &credentials, &repo).await;
+    let seen = match &picked {
+        Some(picked) => Some(look(&node, &row, picked).await?),
+        None => None,
+    };
+    let existing = if seen.as_ref().is_none_or(|seen| !seen.exists) {
+        existing_checkout(&row, &node, &repo, fork.as_ref().map(|fork| &fork.repo)).await
+    } else {
+        None
     };
     let token = token_for(&credentials, &repo);
-    let cloned = run_clone(&node, &row, &repo, &folder, token).await?;
+    let (folder, cloned) = match existing {
+        Some(found) => (found.folder, false),
+        None => {
+            let folder = match &seen {
+                Some(seen) => folder::destination(seen, repo.name()),
+                None => {
+                    let env = row.env.as_ref();
+                    let folders = Folders {
+                        os: env.map(|env| env.os.as_str()),
+                        home: env.map(|env| env.home.as_str()),
+                        workspace: node.workspace.as_deref(),
+                    };
+                    place::checkout_folder(folders, &repo)
+                        .ok_or_else(|| ImportError::NoHome(row.name.clone()))?
+                }
+            };
+            let cloned = run_clone(&node, &row, &repo, fork.as_ref(), &folder, token).await?;
+            (folder, cloned)
+        }
+    };
+    if !cloned && let Some(fork) = &fork {
+        link_fork(&node, &row, &repo, fork, &folder, token).await;
+    }
     let saved = user
         .save_import(NewImport {
             project: &repo.project(),
@@ -136,10 +183,14 @@ pub(crate) async fn import(
             url: &repo.web_url(),
         })
         .await?;
+    let fork_name = fork.as_ref().map(|fork| &fork.found.name);
+    user.set_import_fork(&saved.project, &row.endpoint, fork_name)
+        .await?;
     log::info!(
-        "project imported; project={} node={} cloned={cloned}",
+        "project imported; project={} node={} cloned={cloned} fork={}",
         saved.project,
-        row.endpoint
+        row.endpoint,
+        fork.is_some()
     );
     let others: Vec<String> = user
         .nodes()
@@ -222,21 +273,30 @@ fn token_for<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<&'a Secret
     .filter(|secret| !secret.expose_secret().is_empty())
 }
 
-/// Clones on `node`; `true` when it cloned, `false` when the checkout was
-/// there already.
+/// Clones on `node`, the user's `fork` when they have one; `true` when it
+/// cloned, `false` when a checkout of the repository or the fork was there
+/// already.
 async fn run_clone(
     node: &Online,
     row: &NodeRow,
     repo: &RepoRef,
+    fork: Option<&UsedFork>,
     folder: &str,
     token: Option<&SecretString>,
 ) -> Result<bool, ImportError> {
-    let url = repo.clone_url();
+    let cloning = fork.map_or(repo, |fork| &fork.repo);
+    let url = cloning.clone_url();
+    let upstream_url = repo.clone_url();
     let script = clone::script(&Job {
         url: &url,
         folder,
         token,
         github: repo.host == Host::GitHub,
+        fork: fork.map(|fork| ForkSetup {
+            upstream_url: &upstream_url,
+            default_branch: &fork.found.default_branch,
+            branches: &fork.found.branches,
+        }),
     });
     let mut output = String::new();
     let mut on_output = |text: &str| {
@@ -254,7 +314,12 @@ async fn run_clone(
         })?;
     match clone::outcome(&output, exited.exit_code, exited.timed_out) {
         Outcome::Cloned => Ok(true),
-        Outcome::Existing(remote) if repo.matches_remote(&remote) => Ok(false),
+        Outcome::Existing(remote)
+            if repo.matches_remote(&remote)
+                || fork.is_some_and(|fork| fork.repo.matches_remote(&remote)) =>
+        {
+            Ok(false)
+        }
         Outcome::Existing(remote) => Err(ImportError::OtherRepo {
             folder: folder.to_owned(),
             machine: row.name.clone(),
@@ -269,10 +334,10 @@ async fn run_clone(
             machine: row.name.clone(),
         }),
         Outcome::NoGit => Err(ImportError::NoGit(row.name.clone())),
-        Outcome::TimedOut => Err(ImportError::TimedOut(repo.project())),
+        Outcome::TimedOut => Err(ImportError::TimedOut(cloning.project())),
         Outcome::Failed(said) => Err(clone::explain(Failure {
             output: &said,
-            project: repo.project(),
+            project: cloning.project(),
             host: repo.host_name(),
             machine: &row.name,
             had_token: token.is_some(),

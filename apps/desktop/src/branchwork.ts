@@ -152,3 +152,19 @@ export function checkoutNote(preview: { checkouts?: readonly Omit<CheckoutRow, "
   const more = found.length > 1 ? ` and ${found.length - 1} more` : "";
   return `Found a checkout on ${one(found[0])}${more}.`;
 }
+
+/// What `find_import_fork` gives.
+export interface ImportFork {
+  project: string;
+  /// `login/repo`, or null when the repository itself is cloned.
+  fork: string | null;
+  branches: string[];
+}
+
+/// The line saying the fork is cloned rather than the repository, or null.
+export function forkNote(found: ImportFork | null | undefined): string | null {
+  if (!found?.fork) return null;
+  const n = found.branches.length;
+  const branches = n === 0 ? "" : n === 1 ? ` Your PR branch ${found.branches[0]} is made local.` : ` Your ${n} PR branches are made local.`;
+  return `Your fork ${found.fork} will be cloned, upstream added.${branches}`;
+}
