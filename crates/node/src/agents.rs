@@ -56,6 +56,7 @@ mod reach;
 mod session;
 mod spend;
 mod subagent;
+mod tool_diff;
 mod usage;
 mod work_folder;
 
@@ -1104,7 +1105,11 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         SessionsRequest::List {} => SessionsReply::Sessions {
             sessions: agents.list(),
         },
-        SessionsRequest::Transcript { session, last } => {
+        SessionsRequest::Transcript {
+            session,
+            last,
+            thoughts,
+        } => {
             let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
             let read = match agents.get(&session) {
                 Some(found) => Ok(Some(agents.live_transcript(&found, last).await)),
@@ -1121,8 +1126,14 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 },
             };
             match read {
-                Ok(Some((entries, earlier))) => SessionsReply::Transcript {
-                    entries,
+                Ok(Some((mut entries, earlier))) => SessionsReply::Transcript {
+                    // A server that did not ask would show them as unknown.
+                    entries: {
+                        if !thoughts {
+                            entries.retain(|entry| entry.kind != agent::EntryKind::Thought);
+                        }
+                        entries
+                    },
                     earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
                 },
                 Ok(None) => SessionsReply::Error {

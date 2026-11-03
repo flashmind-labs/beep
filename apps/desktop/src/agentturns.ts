@@ -9,6 +9,8 @@ import { plural } from "./components/format.ts";
 export interface LogEntry {
   kind: string;
   text: string;
+  /// How long a thought took, once it ended.
+  ms?: number | null;
 }
 
 /// One turn, by the entries' places in the session.
@@ -50,7 +52,7 @@ export function folded(t: Turn, running: boolean, opened: boolean) {
   return !running && !opened && t.steps.length > 0;
 }
 
-export type ToolKind = "command" | "edit" | "read" | "search" | "web" | "beep" | "other";
+export type ToolKind = "command" | "edit" | "read" | "search" | "web" | "beep" | "mcp" | "other";
 
 /// A call to the session's own Beep tools, read from the title the node
 /// words it in (`Beep: Run on build-box: cargo test`): what it did, done
@@ -117,10 +119,152 @@ const NAMED: Record<string, ToolKind> = {
 /// verb (`Read src/main.rs`) or is the command itself (`cargo test`).
 export function toolKind(text: string): ToolKind {
   const title = parseTool(text).title.trim();
+  if (MCP.test(title)) return "mcp";
   const named = /^([A-Za-z]+): /.exec(title);
   if (named) return NAMED[named[1].toLowerCase()] ?? "other";
   if (/^web search\b/i.test(title)) return "web";
   return NAMED[title.split(/\s/)[0].toLowerCase()] ?? "command";
+}
+
+/// An MCP server's tool as Claude Code names it: `mcp__linear__get_issue`.
+const MCP = /^mcp__([A-Za-z0-9_-]+?)__([A-Za-z0-9_-]+)(.*)$/s;
+
+/// A tool row's parts: its kind, the verb that leads it, what it acts on
+/// and what the right side says (an edit's +2 -1, a read's line range,
+/// a failure's exit code). `bad` marks the detail of a failure.
+export interface RowParts {
+  kind: ToolKind;
+  verb: string;
+  target: string;
+  detail: string;
+  bad: boolean;
+}
+
+/// Verbs a live title may start with, done and while it runs.
+const VERBS: Record<string, [string, string]> = {
+  run: ["Ran", "Running"], ran: ["Ran", "Running"], running: ["Ran", "Running"],
+  read: ["Read", "Reading"], reading: ["Read", "Reading"],
+  edit: ["Edited", "Editing"], edited: ["Edited", "Editing"], editing: ["Edited", "Editing"],
+  write: ["Wrote", "Writing"], wrote: ["Wrote", "Writing"],
+  search: ["Searched", "Searching"], searched: ["Searched", "Searching"], searching: ["Searched", "Searching"],
+  fetch: ["Fetched", "Fetching"], fetched: ["Fetched", "Fetching"], fetching: ["Fetched", "Fetching"],
+  list: ["Listed", "Listing"], find: ["Found", "Finding"], create: ["Created", "Creating"],
+  delete: ["Deleted", "Deleting"], move: ["Moved", "Moving"],
+};
+
+const RANGE = /\s*(?:\((\d+)\s*-\s*(\d+)\)|:(\d+)(?:-(\d+))?)$/;
+
+/// A tool entry as the parts of its row. `output` is what it showed.
+export function rowParts(text: string, running = false): RowParts {
+  const { title, status, output } = parseTool(imageLines(text).text);
+  const kind = toolKind(text), failed = status === "failed";
+  const exit = failed ? /(?:exit(?:ed with)?(?: code)?|status) (\d+)/i.exec(output)?.[1] : undefined;
+  const bad = failed;
+  let detail = failed ? (exit ? `exit ${exit}` : "failed") : "";
+  const mcp = MCP.exec(title.trim());
+  if (mcp) return { kind, verb: mcp[1], target: (mcp[2] + mcp[3]).trim(), detail: detail || "MCP", bad };
+  const label = stepLabel(text, running).replace(/ …$/, "");
+  const first = /^(\S+)\s+([\s\S]*)$/.exec(label);
+  const known = first ? VERBS[first[1].toLowerCase()] : undefined;
+  let verb = known ? known[running ? 1 : 0] : kind === "command" ? (running ? "Running" : "Ran") : "Used";
+  let target = known ? first![2] : label;
+  if (!known && kind === "other") {
+    const named = /^([A-Za-z]+): ([\s\S]*)$/.exec(label);
+    verb = named ? named[1] : label;
+    target = named ? named[2] : "";
+  }
+  if (kind === "edit" && !failed) {
+    const d = diffBlocks(output);
+    if (d.length) detail = `+${d.reduce((n, b) => n + b.added, 0)} -${d.reduce((n, b) => n + b.removed, 0)}`;
+  }
+  if (kind === "read") {
+    const r = RANGE.exec(target);
+    if (r) { detail = detail || `L${r[1] ?? r[3]}${(r[2] ?? r[4]) ? `-${r[2] ?? r[4]}` : ""}`; target = target.slice(0, r.index); }
+  }
+  return { kind, verb, target: target.trim(), detail, bad };
+}
+
+/// One file's change as the node words it under an edit: `[diff] path +2
+/// -1`, then lines marked " ", "-" or "+", and `… N more lines` when cut.
+export interface DiffBlock {
+  path: string;
+  added: number;
+  removed: number;
+  lines: { mark: " " | "-" | "+"; text: string }[];
+  more: number;
+}
+
+/// The diffs in a tool's output; none when it shows none.
+export function diffBlocks(output: string): DiffBlock[] {
+  const out: DiffBlock[] = [];
+  for (const line of output.split("\n")) {
+    const head = /^\[diff\] (.+) \+(\d+) -(\d+)$/.exec(line);
+    if (head) { out.push({ path: head[1], added: Number(head[2]), removed: Number(head[3]), lines: [], more: 0 }); continue; }
+    const cur = out.at(-1);
+    if (!cur) continue;
+    const more = /^… (\d+) more lines$/.exec(line);
+    if (more) cur.more = Number(more[1]);
+    else if (line[0] === "+" || line[0] === "-" || line[0] === " ") cur.lines.push({ mark: line[0], text: line.slice(1) });
+  }
+  return out;
+}
+
+/// What an output shows besides its diffs.
+export function withoutDiffs(output: string) {
+  const keep: string[] = [];
+  let inDiff = false;
+  for (const line of output.split("\n")) {
+    if (/^\[diff\] /.test(line)) { inDiff = true; continue; }
+    if (inDiff && (/^[ +-]/.test(line) || /^… \d+ more lines$/.test(line))) continue;
+    inDiff = false;
+    keep.push(line);
+  }
+  return keep.join("\n").trim();
+}
+
+/// Steps in order, a run of two or more finished calls of one kind as one
+/// group. A failed or running call, a subagent, a Beep call and one that
+/// showed pictures stand alone, and so does everything that is not a call.
+export function toolRuns(entries: LogEntry[], ats: number[], offset = 0): number[][] {
+  const out: number[][] = [];
+  const kindOf = (at: number): ToolKind | null => {
+    const en = entries[at - offset];
+    if (en.kind !== "tool") return null;
+    const { text, names } = imageLines(en.text);
+    const { status, output } = parseTool(text);
+    if (status !== "completed" || names.length || subagent(output)) return null;
+    const k = toolKind(en.text);
+    return k === "beep" ? null : k;
+  };
+  let run: number[] = [], runKind: ToolKind | null = null;
+  const flush = () => { if (run.length) out.push(...(run.length > 1 ? [run] : [[run[0]]])); run = []; runKind = null; };
+  for (const at of ats) {
+    const k = kindOf(at);
+    if (k && k === runKind) { run.push(at); continue; }
+    flush();
+    if (k) { run = [at]; runKind = k; } else out.push([at]);
+  }
+  flush();
+  return out;
+}
+
+/// A run's line: "Read 6 files", "Ran 3 commands".
+export function runLabel(kind: ToolKind, n: number) {
+  switch (kind) {
+    case "read": return `Read ${plural(n, "file", "files")}`;
+    case "edit": return `Edited ${plural(n, "file", "files")}`;
+    case "search": return `Searched ${n} times`;
+    case "command": return `Ran ${plural(n, "command", "commands")}`;
+    case "web": return `Fetched ${plural(n, "page", "pages")}`;
+    default: return `Used ${plural(n, "tool", "tools")}`;
+  }
+}
+
+/// What a turn did, for its heading: "12 tool calls · 3 files changed".
+export function turnStats(entries: LogEntry[], t: Turn, offset = 0) {
+  const tools = t.steps.map(at => entries[at - offset]).filter(en => en.kind === "tool");
+  const files = new Set(tools.filter(en => toolKind(en.text) === "edit" && parseTool(en.text).status !== "failed").map(en => target(en.text))).size;
+  return [tools.length && plural(tools.length, "tool call", "tool calls"), files && `${plural(files, "file", "files")} changed`].filter(Boolean).join(" · ");
 }
 
 /// What the tool acts on, so editing one file twice counts it once.
@@ -222,6 +366,14 @@ export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
   });
 }
 
+/// `kept` with the turn's thoughts added when no tool is left to fold:
+/// thoughts fold with tools, and with none there is no line to open.
+export function keptThoughts(entries: LogEntry[], t: Turn, kept: Set<number>, offset = 0) {
+  const folds = t.steps.some(at => !kept.has(at) && entries[at - offset].kind === "tool");
+  if (!folds) for (const at of t.steps) if (entries[at - offset].kind === "thought") kept.add(at);
+  return kept;
+}
+
 /// Whether a turn with no message of its own is only notes, which show as
 /// they are, without a heading.
 export function onlyNotes(entries: LogEntry[], t: Turn, offset = 0) {
@@ -234,6 +386,29 @@ export function duration(ms: number) {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`;
+}
+
+/// A thought's line once it ended: "Thought for 12s", or "Thought" when
+/// its length is not known (a replayed session, an older node).
+export function thoughtLabel(ms?: number | null) {
+  return ms == null ? "Thought" : `Thought for ${duration(Math.max(ms, 1000))}`;
+}
+
+/// The newest line of a thought, plain, for the faded preview beside
+/// "Thinking": its last line with text, without Markdown marks.
+export function thoughtTail(text: string) {
+  const lines = text.split("\n").map(l => l.replace(/^\s*(?:#+|[-*+]|\d+\.)\s+/, "").replace(/[*_`]/g, "").trim()).filter(Boolean);
+  return lines.at(-1) ?? "";
+}
+
+/// The place of the thought still arriving: the running turn's last entry,
+/// a thought without a length. Null when there is none.
+export function liveThought(entries: LogEntry[], t: Turn, running: boolean, offset = 0) {
+  if (!running || t.answer.length) return null;
+  const at = t.steps.at(-1);
+  if (at == null) return null;
+  const en = entries[at - offset];
+  return en.kind === "thought" && en.ms == null ? at : null;
 }
 
 /// A time of day as HH:MM, in local time.

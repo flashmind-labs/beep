@@ -43,7 +43,7 @@ use std::{
     process::Stdio,
     str::FromStr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::BufReader,
@@ -1307,6 +1307,7 @@ impl Actor {
         }
         let mut files = None;
         self.live.send_modify(|live| {
+            live.end_thought(Instant::now());
             live.info.turns += 1;
             live.last_stop = Some(stop);
             live.info.question = None;

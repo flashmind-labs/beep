@@ -9,7 +9,8 @@ use crate::{
 };
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn, ListAgentHarnesses,
-    SaveHarnessSettings, SecretText, UpdateAgentHarness,
+    ListHarnessSettings, MachineHarnessSettings, SaveHarnessSettings, SaveHarnessSettingsAll,
+    SecretText, UpdateAgentHarness,
 };
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
@@ -85,6 +86,55 @@ pub struct EnvInput {
     value: Option<String>,
 }
 
+/// One machine's settings for a harness, to say which fields differ.
+#[derive(Debug, Serialize)]
+pub struct MachineSettingsView {
+    machine_id: String,
+    machine_name: String,
+    settings: SettingsView,
+}
+
+impl From<HarnessSettings> for SettingsView {
+    fn from(settings: HarnessSettings) -> Self {
+        Self {
+            enabled: settings.enabled,
+            program: settings.program,
+            home: settings.home,
+            args: settings.args,
+            env: settings.env.into_iter().map(|var| var.name).collect(),
+        }
+    }
+}
+
+impl From<MachineHarnessSettings> for MachineSettingsView {
+    fn from(machine: MachineHarnessSettings) -> Self {
+        Self {
+            machine_id: machine.machine_id,
+            machine_name: machine.machine_name,
+            settings: machine.settings.into(),
+        }
+    }
+}
+
+impl From<SettingsInput> for HarnessSettings {
+    fn from(settings: SettingsInput) -> Self {
+        Self {
+            enabled: settings.enabled,
+            program: settings.program,
+            home: settings.home,
+            args: settings.args,
+            env: settings
+                .env
+                .into_iter()
+                .map(|var| HarnessEnv {
+                    name: var.name,
+                    value: var.value.map(SecretText::new),
+                })
+                .collect(),
+        }
+    }
+}
+
 impl From<HarnessSignIn> for SignInView {
     fn from(sign_in: HarnessSignIn) -> Self {
         let none = |state| Self {
@@ -111,7 +161,6 @@ impl From<HarnessSignIn> for SignInView {
 
 impl From<AgentHarness> for HarnessView {
     fn from(harness: AgentHarness) -> Self {
-        let settings = harness.settings;
         Self {
             agent: harness.agent,
             installed: harness.installed,
@@ -123,13 +172,7 @@ impl From<AgentHarness> for HarnessView {
             home_default: harness.home_default,
             sign_in: harness.sign_in.into(),
             install: harness.install,
-            settings: SettingsView {
-                enabled: settings.enabled,
-                program: settings.program,
-                home: settings.home,
-                args: settings.args,
-                env: settings.env.into_iter().map(|var| var.name).collect(),
-            },
+            settings: harness.settings.into(),
         }
     }
 }
@@ -172,24 +215,10 @@ pub async fn harness_settings_save(
     agent: String,
     settings: SettingsInput,
 ) -> Result<()> {
-    let settings = HarnessSettings {
-        enabled: settings.enabled,
-        program: settings.program,
-        home: settings.home,
-        args: settings.args,
-        env: settings
-            .env
-            .into_iter()
-            .map(|var| HarnessEnv {
-                name: var.name,
-                value: var.value.map(SecretText::new),
-            })
-            .collect(),
-    };
     beep.call(SaveHarnessSettings {
         machine_id,
         agent,
-        settings,
+        settings: settings.into(),
     })
     .await
     .map_err(plain)
@@ -208,4 +237,39 @@ pub async fn agent_harness_update(
         .await
         .map_err(plain)?;
     Ok(updated.into())
+}
+
+/// The settings of `agent` on each of the user's machines; `None` from a
+/// server too old to say.
+#[tauri::command]
+pub async fn harness_settings_all(
+    beep: Service<'_>,
+    agent: String,
+) -> Result<Option<Vec<MachineSettingsView>>> {
+    match beep.call(ListHarnessSettings { agent }).await {
+        Ok(all) => Ok(Some(all.into_iter().map(Into::into).collect())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(plain(e)),
+    }
+}
+
+/// Saves the settings of `agent`, as edited on `from_machine`, on every
+/// machine of the user's; the binary path only with `include_program`.
+/// Gives how many machines were saved.
+#[tauri::command]
+pub async fn harness_settings_save_all(
+    beep: Service<'_>,
+    from_machine: String,
+    agent: String,
+    settings: SettingsInput,
+    include_program: bool,
+) -> Result<u32> {
+    beep.call(SaveHarnessSettingsAll {
+        from_machine,
+        agent,
+        settings: settings.into(),
+        include_program,
+    })
+    .await
+    .map_err(plain)
 }

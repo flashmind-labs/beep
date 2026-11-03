@@ -4,7 +4,7 @@
 // registers it; instructions-state.ts holds the words and sums.
 import type { invoke as Invoke } from "./tauri.ts";
 import type { Ago, Kid, MakeButton, MakeEl } from "./projects-state.ts";
-import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.ts";
+import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
 import { plural } from "./components/format.ts";
 import { emptyPanel, note } from "./components/parts.ts";
@@ -250,24 +250,43 @@ export function registerInstructions(deps: InstructionsDeps) {
     ];
   }
 
+  /// The Sync tab's note before the first save: why nothing can be
+  /// written yet, as a button to the Editor.
+  function nothingSaved() {
+    const b = h("button", "cc-note in-go", h("span", "ddot off"),
+      h("span", "", h("b", "", "Nothing saved yet."), " Save your rules in Editor, then write them here."),
+      h("span", "go", "Open Editor"));
+    b.addEventListener("click", () => setTab("editor"));
+    return b;
+  }
+
   function syncTab() {
     const early = notRead();
     if (early) return early;
+    const saved = !!st.newest;
     const ver = st.newest ? `version ${st.newest.version}` : "nothing saved yet";
     const machines = st.files!.map(m => {
       const busy = st.writing.has(m.machine_id);
-      const write = button(busy ? "Writing…" : "Write to agent files", "small", () => writeFiles(m.machine_id));
-      write.disabled = busy || !st.newest || !!m.error || !m.files.length || m.files.every(f => f.synced);
+      // Before the first save there is nothing to write: no button at all.
+      const write = saved ? button(busy ? "Writing…" : "Write to agent files", "small", () => writeFiles(m.machine_id)) : null;
+      if (write) write.disabled = busy || !!m.error || !m.files.length || m.files.every(f => f.synced);
       const rows = m.error ? [missRow(m.error)]
-        : m.files.length ? m.files.map(f => { const s = fileState(f); return fileRow(f, [h("span", s.cls ? `in-${s.cls}` : "", s.text)]); })
+        : m.files.length ? m.files.map(f => { const s = fileState(f, saved); return fileRow(f, [h("span", s.cls ? `in-${s.cls}` : "", s.text)]); })
           : [missRow("No coding agent here")];
       return machineBlock(m, write, rows);
     });
-    return [
-      note("", "Beep writes your rules between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file, so sessions started outside Beep follow them too. Text outside the markers is never touched."),
-      sec("Machines", ver, machinesPanel(machines)),
-      h("div", "in-acts", button("Read again", "", readFiles)),
-    ];
+    const lead = saved
+      ? note("", "Beep writes your rules between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file, so sessions started outside Beep follow them too. Text outside the markers is never touched.")
+      : nothingSaved();
+    const acts = h("div", "in-acts", button("Read again", "", readFiles));
+    const todo = saved ? behind(st.files) : [];
+    if (todo.length) {
+      const busy = todo.some(id => st.writing.has(id));
+      const all = button(busy ? "Writing…" : "Write to all machines", "", () => { for (const id of todo) if (!st.writing.has(id)) writeFiles(id); });
+      all.disabled = busy;
+      acts.prepend(all);
+    }
+    return [lead, sec("Machines", ver, machinesPanel(machines)), acts];
   }
 
   function historyTab() {

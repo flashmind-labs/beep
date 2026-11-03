@@ -141,7 +141,7 @@ pub(crate) async fn doing(node: &Online, shards: &[ShardRow]) -> HashMap<u32, St
 /// What the agent said in a session's last entries, oldest first, else
 /// its last message.
 async fn reply_text(node: &Online, info: &SessionInfo) -> String {
-    match timeout(NODE_LIMIT, node.transcript(&info.id, REPLY_ENTRIES)).await {
+    match timeout(NODE_LIMIT, node.transcript(&info.id, REPLY_ENTRIES, false)).await {
         Ok(Ok((entries, _))) => {
             let said: Vec<String> = entries
                 .into_iter()
