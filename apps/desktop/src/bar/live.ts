@@ -1,7 +1,7 @@
 import { body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, reply, scrollDown, settle } from "./chat.ts";
 import { touch } from "./chats.ts";
 import { $, $$, bar, entry, esc, h, here, ICON, invoke, listen, live, PANE, S, type Turn } from "./core.ts";
-import { hints, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
+import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { notice } from "./media.ts";
 import { forgetHeight } from "./size.ts";
@@ -81,7 +81,7 @@ export const LIVE_KEYS = [["tap ⌥", "leave"], ["hold ⌥", "talk, let go to se
 export const LIVE_PTT_KEYS = [["hold ⌥", "reply"], ["tap ⌥", "leave"], ["esc", "leave live"], ["⌘/", "what to say"]];
 /// The sheet of what to say, over the chat and the dock.
 export const liveSheet = () => `<div class="dover lsheet" role="dialog" aria-label="What to say"><div class="vt"><span class="tt"><b>What to say</b></span></div>
-  <div class="dkeys">${([["Say", LIVE_SAY], ["Keys", LIVE_TALK]] as [string, string[][]][]).map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>
+  ${keyGroups([["Say", LIVE_SAY], ["Keys", LIVE_TALK]])}
   ${hints([["esc", "close"], ["⌘/", "close"]])}</div>`;
 /// What the dock and the keys row say for view `v`.
 export function liveParts(v: LiveView) {
