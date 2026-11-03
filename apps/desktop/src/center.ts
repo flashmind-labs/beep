@@ -16,8 +16,8 @@ import { pane, type PaneTarget } from "./bar/pane.ts";
 import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow } from "./home.ts";
-import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
+import { base, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow } from "./home.ts";
+import type { HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
 import { keepLastImport, lastImport, openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
@@ -220,8 +220,6 @@ function pageFresh(section: PageSection, id: string, loading: boolean) {
   return freshness(pages.at(section, id), loading, Date.now());
 }
 
-/// Whether Home was last drawn in two columns.
-let drawnWide = false;
 /// The server answered for Home in this window; until then Home may be
 /// the one the app kept from before.
 let fresh = false;
@@ -454,41 +452,11 @@ function runningRow(r: RunningRow) {
   return row;
 }
 
-/// Where each Running now row sat in its panel when last drawn, by key.
-const runningTops = new Map<string, number>();
-/// How long a row takes to slide to its new place.
-const SLIDE_MS = 200;
-
-/// Slides each row of a just drawn panel from where it sat last time to
-/// where it sits now, so a session that moves to the top is seen moving.
-/// Nothing slides when the system asks for less motion.
-function slideRows(panel: HTMLElement) {
-  requestAnimationFrame(() => {
-    // A hidden panel (Home behind a project page) measures every row at 0
-    // and would spoil the places the shown panel slides from.
-    if (!panel.isConnected || !panel.getClientRects().length) return;
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const top = panel.getBoundingClientRect().top, seen = new Set<string>();
-    for (const row of panel.querySelectorAll<HTMLElement>(":scope > [data-key]")) {
-      const key = row.dataset.key!, now = row.getBoundingClientRect().top - top, was = runningTops.get(key);
-      seen.add(key);
-      runningTops.set(key, now);
-      if (still || was === undefined || was === now) continue;
-      row.animate([{ transform: `translateY(${was - now}px)` }, { transform: "none" }], { duration: SLIDE_MS, easing: "ease-out" });
-    }
-    for (const key of runningTops.keys()) if (!seen.has(key)) runningTops.delete(key);
-  });
-}
-
-/// A panel of Running now rows, the one that moved last first.
-function runningPanel(running: RunningRow[]) {
-  const panel = h("div", "cc-panel", ...byRecent(running).map(runningRow));
-  slideRows(panel);
-  return panel;
-}
-
-function runningSection(running: RunningRow[]) {
-  return section("sec-running", "Running now", running.length, null, runningPanel(running));
+/// Running now, the one that moved last first, at most `max` of them with
+/// a way to the rest.
+function runningSection(running: RunningRow[], max = Infinity) {
+  const more = running.length > max ? button(`All ${running.length}`, "quiet small", () => openHomeTab("running")) : null;
+  return section("sec-running", "Running now", running.length, more, h("div", "cc-panel", ...byRecent(running).slice(0, max).map(runningRow)));
 }
 
 // ---------- Terminals ----------
@@ -1042,6 +1010,11 @@ let scrollTarget: string | null = null;
 
 function jump(id?: string) {
   if (!go("home")) return;
+  const tab = !id ? "overview" : id.startsWith("m-") ? "machines" : TAB_OF[id];
+  if (tab && tab !== homeTab) {
+    homeTab = tab;
+    if (state.home) draw();
+  }
   const view = $("#view");
   if (!id) return view.scrollTo({ top: 0 });
   scrollTarget = id;
@@ -1638,42 +1611,96 @@ function thisMacItem(mac: MacRow) {
 
 // ---------- Home ----------
 
-/// Machines across the top, then Running now beside Needs you and Updates
-/// beside Coming up. On a wide window, two columns instead: Needs you,
-/// Running now and Updates, beside Machines and Coming up. A section with
-/// nothing in it is left out; Machines stays to offer Add a machine.
-function page(home: HomeView, wide: boolean) {
-  const { machines, running, coming_up: coming, needs_you: needs } = home;
+type HomeTab = "overview" | "running" | "git" | "terminals" | "updates" | "coming" | "projects" | "machines";
+/// The Home tab on screen.
+let homeTab: HomeTab = "overview";
+/// The tab each section Home can jump to sits on.
+const TAB_OF: Record<string, HomeTab> = {
+  "sec-needs": "overview", "sec-running": "running", "sec-git": "git", "sec-terminals": "terminals",
+  "sec-updates": "updates", "sec-coming": "coming", "sec-projects-home": "projects", "sec-machines": "machines",
+};
+/// Running now rows the Overview shows before "All".
+const OVERVIEW_RUNNING = 5;
+
+function openHomeTab(tab: HomeTab) {
+  homeTab = tab;
+  draw();
+  $("#view").scrollTop = 0;
+}
+
+/// Every machine across the top of Home: what it is doing and its free
+/// disk, opening its row in Machines.
+function machineStrip(machines: MachineCard[]) {
+  const cells: HTMLElement[] = machines.map(m => {
+    const disk = machineDisk(m).text;
+    const now = m.online ? (m.agents ? plural(m.agents, "agent", "agents") : "idle") : "offline";
+    const cell = h("button", `m${m.online ? "" : " off"}`, dot(m), h("b", "", m.name), h("span", "", disk === "–" ? now : `${now} · ${disk}`));
+    cell.type = "button";
+    cell.addEventListener("click", () => jump(`m-${m.id}`));
+    machineMenu(m, cell);
+    return cell;
+  });
+  const mac = thisMacRow(state.mac, machines);
+  if (mac) {
+    const cell = h("div", "m off", h("span", "ddot off"), h("b", "", mac.name), h("span", `${mac.bad ? "bad" : ""}`, mac.state));
+    if (mac.action) cell.append(rowButton(mac.action, "quiet small", useThisMac));
+    cell.title = `This Mac: ${mac.title}`;
+    cells.push(cell);
+  }
+  return h("div", "cc-mstrip", ...cells, addMachineButton("quiet small"));
+}
+
+/// Home: the machines strip, then one tab at a time. A tab with nothing in
+/// it is left out; Overview and Machines stay.
+function page(home: HomeView) {
+  const { machines, running, coming_up: coming, needs_you: needs, updates } = home;
+  const terms = allTerms.list(ALL), projects = projectRows() || [], git = state.git;
+  const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
+    { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
+    { key: "running", label: "Running", count: running?.length ?? 0, on: !!running?.length, make: () => [runningSection(running!)] },
+    { key: "git", label: "Pull requests", count: git?.hosts?.length ? projectsWithOpen(git, projects).reduce((n, p) => n + p.items.length, 0) : 0, on: !!git?.hosts?.length, make: () => [gitSection(git!)] },
+    { key: "terminals", label: "Terminals", count: terms?.length ?? 0, on: !!terms && !!machines?.length, make: () => [terminalsSection(terms!)] },
+    { key: "updates", label: "Updates", count: updates?.length ?? 0, on: !!updates?.length, make: () => [updatesSection(updates!)] },
+    { key: "coming", label: "Coming up", count: coming?.length ?? 0, on: !!coming?.length, make: () => [comingSection(coming!)] },
+    { key: "projects", label: "Projects", count: projects.length, on: projects.length > 0, make: () => [projectsSection(projects)] },
+    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => [machinesSection(machines!)] },
+  ];
+  const shownTabs = tabs.filter(t => t.on);
+  const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
+  const bar = h("div", "cc-tabs");
+  bar.setAttribute("role", "tablist");
+  for (const t of shownTabs) {
+    const b = h("button", "", t.label, t.count ? h("span", "n", String(t.count)) : null);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(t === tab));
+    b.addEventListener("click", () => openHomeTab(t.key));
+    bar.append(b);
+  }
   const out: HTMLElement[] = [];
+  if (machines) out.push(machineStrip(machines));
+  out.push(bar);
   if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
   if (!machines && !running) {
     out.push(note("off", "Machines and running sessions aren't available for this account or server."));
   } else if (machines) {
-    const note = offlineNote(machines);
-    if (note) out.push(note);
+    const off = offlineNote(machines);
+    if (off) out.push(off);
   }
-  // Each is made only when its list is there to show.
-  const make: Record<HomeSection, () => HTMLElement> = {
-    machines: () => machinesSection(machines!),
-    running: () => runningSection(running!),
-    needs: () => needsSection(needs),
-    updates: () => updatesSection(home.updates!),
-    coming: () => comingSection(coming!),
-    projects: () => projectsSection(projectRows() || []),
-    git: () => gitSection(state.git!),
-    terminals: () => terminalsSection(allTerms.list(ALL) || []),
-  };
-  const laid = { ...home, git: state.git, terminals: allTerms.list(ALL) };
-  const cols = wide && homeColumns(laid);
-  if (cols) {
-    const col = (keys: HomeSection[]) => h("div", "", ...keys.map(k => make[k]()));
-    out.push(h("div", "cc-wide", col(cols.left), col(cols.right)));
-    return out;
-  }
-  if (machines) out.push(make.machines());
-  for (const row of homeRows(laid)) {
-    out.push(row.length === 2 ? h("div", "cc-cols", ...row.map(k => make[k]())) : make[row[0]]());
-  }
+  out.push(...tab.make());
+  return out;
+}
+
+/// What needs you, then Running now beside Coming up.
+function overview(home: HomeView) {
+  const { running, coming_up: coming, needs_you: needs } = home;
+  const out: HTMLElement[] = [];
+  if (needs.length) out.push(needsSection(needs));
+  const cols: HTMLElement[] = [];
+  if (running?.length) cols.push(runningSection(running, OVERVIEW_RUNNING));
+  if (coming?.length) cols.push(comingSection(coming));
+  if (cols.length) out.push(cols.length === 2 ? h("div", "cc-cols", ...cols) : cols[0]);
+  if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
   return out;
 }
 
@@ -1749,8 +1776,7 @@ function draw() {
   drawSide();
   if (!home || problem()) return drawConnecting(view);
   const top = view.scrollTop;
-  drawnWide = isWide(view);
-  view.replaceChildren(...page(home, drawnWide));
+  view.replaceChildren(...page(home));
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
@@ -1758,13 +1784,6 @@ function draw() {
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
 
-/// Whether Home has room for two columns.
-function isWide(view: HTMLElement) { return view.clientWidth >= WIDE_HOME_PX; }
-// Redraws Home when the window crosses the width for two columns, including
-// when Home is shown again after a pane (it measures 0 while hidden).
-new ResizeObserver(() => {
-  if (state.home && isWide($("#view")) !== drawnWide) draw();
-}).observe($("#view"));
 
 registerView("home", {
   el: $("#home-box"),
@@ -2154,7 +2173,7 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
 /// The coding agents running in the project's folders now.
 function agentsSection(running: RunningAgent[]) {
   const list = running.length
-    ? runningPanel(running)
+    ? h("div", "cc-panel", ...byRecent(running).map(runningRow))
     : emptyPanel(h("span", "", "No agent is working in this project right now."));
   return section("sec-project-agents", "Agents", running.length || "", null, list);
 }
