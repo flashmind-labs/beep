@@ -4,7 +4,7 @@
 
 use super::{
     AgentKind,
-    acp::{self, Line, LineReader, ModelSwitch, Offered, Prompt, ResumeMethod},
+    acp::{self, Line, LineReader, ModelSwitch, Offered, Prompt},
     alerts::AlertHub,
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
     image_files,
@@ -22,10 +22,9 @@ use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
     on_receive_request,
     schema::v1::{
-        CancelNotification, InitializeResponse, LoadSessionRequest, McpServer, PromptResponse,
-        RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SessionConfigId,
-        SessionId, SessionNotification, SessionUpdate, SetSessionModeRequest, ToolCallId,
-        ToolCallStatus,
+        CancelNotification, InitializeResponse, McpServer, PromptResponse,
+        RequestPermissionRequest, RequestPermissionResponse, SessionConfigId, SessionId,
+        SessionNotification, SessionUpdate, SetSessionModeRequest, ToolCallId, ToolCallStatus,
     },
 };
 use anyhow::{Context, Result};
@@ -42,7 +41,10 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     str::FromStr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -69,6 +71,8 @@ const MAX_ASKED: usize = 2000;
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
+/// Why a session ended with the node.
+pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
@@ -160,6 +164,9 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// Set once the node is stopping: an agent that ends then ended with
+    /// the node, whatever its exit says.
+    pub(super) stopping: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -183,6 +190,7 @@ impl Session {
             images,
             usage,
             alerts,
+            stopping,
         } = start;
         let brief = match (brief, &mcp) {
             (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::mcp::BRIEF)),
@@ -244,6 +252,7 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
+            node_stopping: stopping,
             session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
@@ -337,8 +346,12 @@ enum Reply {
         effort: Effort,
         result: Result<(), agent_client_protocol::Error>,
     },
-    /// The answer to `session/resume` or `session/load` of this session.
-    Resumed(SessionId, Result<(), agent_client_protocol::Error>),
+    /// The answer to `session/resume` or `session/load` of this session,
+    /// untyped to keep the models it offers.
+    Resumed(
+        SessionId,
+        Result<serde_json::Value, agent_client_protocol::Error>,
+    ),
     /// The answer to `session/set_mode` to the mode that asks no permission.
     Bypass(Result<(), agent_client_protocol::Error>),
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
@@ -384,6 +397,8 @@ impl Waiting {
 struct Actor {
     live: watch::Sender<Live>,
     alerts: Arc<AlertHub>,
+    /// Set once the node is stopping.
+    node_stopping: Arc<AtomicBool>,
     /// The session's id on the node.
     session: String,
     /// The agent, such as `claude`.
@@ -446,6 +461,8 @@ enum End {
     Failed(String),
     /// The agent did not end its turn within `stop_within` of Stop.
     Unstoppable(Duration),
+    /// The node stopped or restarted.
+    NodeStopped,
 }
 
 /// Why the node asked the agent to end its turn.
@@ -483,10 +500,20 @@ impl Actor {
         let mut child = GroupLeader::new(child);
         let held = child.hold_output();
         let end = self.serve(child.child_mut(), &mut orders).await;
+        // The node stopping ends its sessions, whether it closed them or the
+        // service manager stopped the agents first.
+        let end = match end {
+            Ok(End::Closed | End::Exited) if self.node_stopping.load(Ordering::Relaxed) => {
+                Ok(End::NodeStopped)
+            }
+            end => end,
+        };
         let closed = matches!(end, Ok(End::Closed));
-        // Stopped as the user asked, so not a failure to alert about.
-        let asked = closed || matches!(end, Ok(End::Unstoppable(_)));
+        // Stopped as the user asked, or with the node, so not a failure to
+        // alert about.
+        let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
         let reason = match end {
+            Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),
             Ok(End::Closed) => "closed".to_owned(),
             Ok(End::Unstoppable(within)) => format!(
                 "the agent did not stop within {} s, so Beep stopped it; send a message to continue",
@@ -693,8 +720,8 @@ impl Actor {
                     ))));
                 }
             },
-            Reply::Resumed(session, Ok(())) => {
-                return Ok(self.ready(cx, session, Offered::default()));
+            Reply::Resumed(session, Ok(answer)) => {
+                return Ok(self.ready(cx, session, acp::offers(&answer)));
             }
             Reply::ModelSet { result: Ok(()), .. } => self.think(cx),
             Reply::Reconfigured { what, result } => match result {
@@ -781,24 +808,16 @@ impl Actor {
             return None;
         };
         let session = SessionId::from(session);
-        let cwd = self.cwd.clone();
-        let id = session.clone();
-        match acp::resume_method(initialized) {
-            Some(ResumeMethod::Resume) => {
-                let request =
-                    ResumeSessionRequest::new(id, cwd).mcp_servers(self.mcp_servers.clone());
-                self.send(cx, request, |result| {
-                    Reply::Resumed(session, result.map(drop))
-                });
+        let Some(method) = acp::resume_method(initialized) else {
+            return Some(End::Failed("the agent cannot resume a session".into()));
+        };
+        match acp::resume_session(method, session.clone(), &self.cwd, self.mcp_servers.clone()) {
+            Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),
+            Err(e) => {
+                return Some(End::Failed(format!(
+                    "the agent could not resume the session: {e}"
+                )));
             }
-            Some(ResumeMethod::Load) => {
-                let request =
-                    LoadSessionRequest::new(id, cwd).mcp_servers(self.mcp_servers.clone());
-                self.send(cx, request, |result| {
-                    Reply::Resumed(session, result.map(drop))
-                });
-            }
-            None => return Some(End::Failed("the agent cannot resume a session".into())),
         }
         None
     }
@@ -815,8 +834,12 @@ impl Actor {
         self.acp_session = Some(session.clone());
         self.thinking = offered.thinking;
         self.switch = offered.switch.clone();
-        self.live
-            .send_modify(|live| live.agent_session = Some(session.to_string()));
+        // From now on the session goes by the agent's own id, which
+        // still finds it once the node restarts.
+        self.live.send_modify(|live| {
+            live.agent_session = Some(session.to_string());
+            live.info.id = session.to_string();
+        });
         let Some(model) = self.model.take() else {
             self.think(cx);
             return None;
@@ -1687,6 +1710,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1752,6 +1776,7 @@ cat > /dev/null
                 images: Arc::default(),
                 usage: Arc::default(),
                 alerts: Arc::default(),
+                stopping: Arc::default(),
             })
             .unwrap()
         };
@@ -1811,6 +1836,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1895,6 +1921,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1942,6 +1969,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1974,6 +2002,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -2024,6 +2053,7 @@ read -r line; log "$1"
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -2078,6 +2108,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -2123,6 +2154,7 @@ read -r line
                 images: Arc::default(),
                 usage: Arc::default(),
                 alerts: Arc::default(),
+                stopping: Arc::default(),
             },
             within,
         )
@@ -2272,6 +2304,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -2415,6 +2448,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         }
     }
 
@@ -2537,6 +2571,54 @@ cat > /dev/null
         let sent = sent(&log);
         assert_eq!(sent[3]["method"], "session/set_model");
         assert_eq!(sent[3]["params"]["modelId"], "deep");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Codex resuming a session: its `session/load` answer offers the model
+    /// selector among its other config options, as `session/new` does.
+    const RESUMED_CODEX_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{}}}}'
+read -r line; log "$1"
+reply '{"models":{"availableModels":[{"modelId":"fast[low]"}],"currentModelId":"fast[low]"},"configOptions":[{"id":"collaboration_mode","name":"Collaboration mode","category":"collaboration_mode","type":"select","currentValue":"default","options":[{"value":"default","name":"Default"}]},{"id":"model","name":"Model","category":"model","type":"select","currentValue":"fast","options":[{"value":"fast","name":"Fast"},{"value":"deep","name":"Deep"}]},{"id":"fast-mode","name":"Fast mode","category":"model_config","type":"select","currentValue":"off","options":[{"value":"off","name":"Off"}]}]}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+read -r line; log "$1"
+reply '{}'
+cat > /dev/null
+"#;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_resumed_session_switches_its_model_with_what_load_offers() {
+        let dir = temp("model-resumed");
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
+        let start = Start {
+            resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()),
+            ..start_on(&kind, &dir, None)
+        };
+        let session = Session::start(start).unwrap();
+        settle(&session).await;
+        session
+            .order(Command::Configure {
+                model: Some("deep".into()),
+                effort: None,
+            })
+            .await
+            .unwrap();
+        until(&session, |live| {
+            live.transcript(10)
+                .0
+                .iter()
+                .any(|entry| entry.text.contains("Switched to deep"))
+        })
+        .await;
+        let sent = sent(&log);
+        assert_eq!(sent[1]["method"], "session/load");
+        assert_eq!(sent[3]["method"], "session/set_config_option");
+        assert_eq!(sent[3]["params"]["configId"], "model");
+        assert_eq!(sent[3]["params"]["value"], "deep");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2815,6 +2897,7 @@ cat > /dev/null
         let alerts = Arc::new(AlertHub::default());
         let session = Session::start(Start {
             alerts: alerts.clone(),
+            stopping: Arc::default(),
             ..start_on(&kind, &dir, None)
         })
         .unwrap();
@@ -2874,6 +2957,7 @@ cat > /dev/null
         let alerts = Arc::new(AlertHub::default());
         let session = Session::start(Start {
             alerts: alerts.clone(),
+            stopping: Arc::default(),
             ..start_on(&kind, &dir, None)
         })
         .unwrap();
@@ -2948,6 +3032,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
