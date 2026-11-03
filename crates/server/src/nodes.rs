@@ -82,6 +82,10 @@ pub struct Online {
     /// It makes the branch or worktree a session's start asks for; a node
     /// from before that ignores the ask.
     pub checkouts: bool,
+    /// It also makes the named and existing-branch worktrees
+    /// (`agent::CheckoutPlan::NamedWorktree`, `BranchWorktree`); a node
+    /// from before them cannot read a start that asks for one.
+    pub branch_checkouts: bool,
     pub connection: Connection,
     /// Held weakly: the app owns the nodes.
     app: Weak<App>,
@@ -443,6 +447,7 @@ async fn serve(
         offers: hello.offers,
         workspace: hello.workspace,
         checkouts: hello.checkouts,
+        branch_checkouts: hello.branch_checkouts,
         connection: connection.clone(),
         app: Arc::downgrade(app),
         shell: Arc::default(),

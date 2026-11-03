@@ -22,8 +22,9 @@ import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
-import { agentFor, tasksSection, workersSection, cardsSection, prsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
-import { BAR_NOTE, barCheckout, barPlace, barPrompt } from "./projectbar.ts";
+import { agentFor, tasksSection, workersSection, cardsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
+import { BAR_NOTE, type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { keepMachine, lastMachine } from "./bar/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, folderBusy, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner, preloadModels } from "./bar/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "./bar/agents.ts";
@@ -37,8 +38,8 @@ import { makeReviews, branchTile, mergeBlock } from "./review.ts";
 import type { ReviewHead } from "./review.ts";
 import { tile, backRow, taskTile, prTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { makeFileSync, fileSyncTile } from "./filesync.ts";
-import { makeThreads, issueTile, threadTile } from "./threads.ts";
-import type { ThreadChatRow } from "./threads.ts";
+import { makeThreads, issueTile, threadTile, issueBranch, issuePrompt, prPrompt } from "./threads.ts";
+import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow } from "./threads.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
 import type { ProjectAgent, ProjectView, TaskRow, WorkerRow } from "./project.ts";
@@ -1839,7 +1840,7 @@ function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
+  return [...agentTop(p), ...repoSections(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -1914,8 +1915,8 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   const out = agentNotes(p, view);
   const full: Record<string, () => Node[]> = {
     tasks: () => [taskColumns(view)],
-    prs: () => [...thr.threadsPanel(agent), prsSection(view, agentActs)],
-    issues: () => thr.issuesPanel(agent, rows),
+    prs: () => [thr.prsSection(agent, repoActs(p)), ...thr.threadsPanel(agent)],
+    issues: () => [thr.issuesSection(agent, repoActs(p))],
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
@@ -1941,7 +1942,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
       tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile)),
     tileGroup("Pull requests and issues",
       tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl }),
-      tile("issues", "Issues", issueTile(thr.issues(agent.project_id)), openTile, { openUrl })),
+      tile("issues", "Issues", issueTile(thr.issues(agent.project_id), thr.issuesError(agent.project_id)), openTile, { openUrl })),
     tileGroup("Machines",
       tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
         menu: (r, e) => {
@@ -2084,6 +2085,29 @@ async function act(id: string, call: () => Promise<unknown>) {
   loadProjectAgent();
 }
 
+/// What the Pull requests and Issues sections do on project `p`'s page:
+/// Review opens a branch's review, Work on it and Continue fill the bar.
+function repoActs(p: Project): RepoActs {
+  const view = state.pview.get(p.name)?.view;
+  if (revs.reviews(p.name) === undefined) revs.load(p.name);
+  return {
+    tasks: view?.tasks ?? [],
+    reviews: revs.reviews(p.name),
+    review: agentActs.review,
+    workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
+    continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
+  };
+}
+
+/// The repository's open pull requests and issues, under the tasks of a
+/// project with an agent.
+function repoSections(p: Project): Node[] {
+  const agent = p.imported ? agentFor(state.agents, p.name) : null;
+  if (!agent) return [];
+  const acts = repoActs(p);
+  return [thr.prsSection(agent, acts), thr.issuesSection(agent, acts)];
+}
+
 /// The cards the project chat waits on, then Tasks beside Workers, above
 /// the folders, once the project has an agent.
 function agentTop(p: Project) {
@@ -2121,6 +2145,9 @@ const pc = {
   modelFor: "",
   /// Whether the picker shows.
   open: false,
+  /// What Work on it or Continue put in the bar, until it starts or is
+  /// cleared.
+  target: null as BarTarget | null,
 };
 
 const projectComp = (() => {
@@ -2141,9 +2168,26 @@ const projectComp = (() => {
   const pick = h("div", "pick");
   const send = h("button", "dbtn pri", "Start", h("kbd", "", "⏎"));
   send.type = "submit";
+  // Work on it's branch, editable, and Clear for what Work on it or
+  // Continue put in the bar.
+  const branch = h("input", "branch");
+  branch.type = "text";
+  branch.spellcheck = false;
+  branch.autocomplete = "off";
+  branch.setAttribute("aria-label", "Branch name");
+  branch.title = "The new branch, in a new worktree";
+  branch.addEventListener("input", () => { if (pc.target?.kind === "issue") pc.target.branch = branch.value; });
+  const clear = h("button", "dbtn quiet small", "Clear");
+  clear.type = "button";
+  clear.title = "Back to a plain start";
+  clear.addEventListener("click", () => { pc.target = null; input.value = ""; redrawProjects(); });
+  // With a session already in the target's worktree, Resume goes first.
+  const fresh = h("button", "dbtn", "Start new");
+  fresh.type = "button";
+  fresh.addEventListener("click", () => startFromBar(true));
   const err = h("span", "cc-err");
   err.setAttribute("role", "status");
-  const row = h("div", "row", machine, folder, h("span", "sp"), harness, send);
+  const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, fresh, send);
   const form = h("form", "cc-pjc", h("div", "box", input, row, pick), h("span", "note", BAR_NOTE), err);
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   machine.addEventListener("click", e => {
@@ -2152,14 +2196,14 @@ const projectComp = (() => {
     const able = (pc.hosts ?? []).filter(m => m.agents.length && p.places.some(x => x.machine === m.machine_id));
     openMenu(e, "Machine", [
       { label: "Auto", on: () => { pc.machine = "auto"; redrawProjects(); } },
-      ...able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; redrawProjects(); } })),
+      ...able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })),
     ]);
   });
   folder.addEventListener("click", e => {
     const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
     if (!place) return;
     const trees = knownWorktrees(pc.sessions, place.machine_id, place.cwd);
-    const pick = (to: CheckoutPick) => () => { pc.checkout = to; redrawProjects(); };
+    const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
     openMenu(e, "Folder", [
       { label: "New worktree", on: pick("new") },
       { label: "New branch in the checkout", on: pick("branch") },
@@ -2185,7 +2229,7 @@ const projectComp = (() => {
   addEventListener("mousedown", e => {
     if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
   }, true);
-  return { form, input, machine, folder, harness, send, err, pick };
+  return { form, input, machine, folder, branch, clear, fresh, harness, send, err, pick };
 })();
 
 function closeBarPicker() {
@@ -2230,18 +2274,26 @@ function drawProjectComp(name: string) {
   const c = projectComp;
   if (pc.project !== name) {
     pc.project = name;
-    pc.machine = "auto";
+    pc.machine = lastMachine(name) || "auto";
     pc.checkout = "new";
+    pc.target = null;
     c.err.textContent = "";
     loadProjectBar(name);
   }
-  const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  const p = barProject();
+  // The machine last picked, while it still has a checkout and an agent.
+  let place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  if (p && !place && pc.machine !== "auto" && pc.hosts) place = barPlace(p.places, pc.hosts, "auto");
   const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
   c.input.placeholder = barPrompt(name, !!place || pc.hosts === null);
   c.machine.replaceChildren(place ? place.machine_name : pc.machine === "auto" ? "Auto" : "No checkout", ...(place?.auto ? [" ", h("small", "", "Auto")] : []));
-  const co = barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
+  const t = pc.target;
+  const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.folder.replaceChildren(co.label, " ", h("small", "", co.sub));
   c.folder.disabled = !place;
+  c.branch.hidden = t?.kind !== "issue";
+  if (t?.kind === "issue" && document.activeElement !== c.branch) c.branch.value = t.branch;
+  c.clear.hidden = !t;
   const { offered, agent } = barHarness(place);
   if (agent && host) {
     modelsOn(host.machine_id, agent, () => { if (shown === "projects" && state.picked === name) redrawProjects(); });
@@ -2254,7 +2306,59 @@ function drawProjectComp(name: string) {
   c.harness.setAttribute("aria-expanded", String(pc.open));
   drawBarPicker(host, offered);
   c.send.disabled = pc.starting || !place;
-  c.send.firstChild!.textContent = pc.starting ? "Starting" : "Start";
+  const was = place && barExisting(name, place);
+  c.fresh.hidden = !was;
+  c.fresh.disabled = pc.starting;
+  c.send.firstChild!.textContent = pc.starting ? "Starting" : was ? resumeLabel(was) : "Start";
+}
+
+/// "Resume Fix the crash (Claude Code, 2 h)": the bar's button for a
+/// session already in the target's worktree.
+function resumeLabel(s: AgentSession) {
+  const title = s.title || "the session";
+  return `Resume ${title.length > 40 ? title.slice(0, 40) + "..." : title} (${agentLabel(s.agent)}, ${ago(s.last_activity)})`;
+}
+
+/// The newest session of ours in the bar target's worktree on the bar's
+/// machine, or null; none without a target.
+function barExisting(name: string, place: { machine_id: string; cwd: string }) {
+  const t = pc.target;
+  if (!t || !t.branch.trim()) return null;
+  // Where the branch list (read on one machine) found its worktree.
+  const listed = pc.branches.get(name) as unknown as { machine_id?: string; branches: readonly { name: string; worktree?: string | null }[] } | null | undefined;
+  const known = listed?.machine_id === place.machine_id ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
+  return sessionIn(pc.sessions, place.machine_id, targetFolders(t, place.cwd, known));
+}
+
+/// Fills the bar for project `name` with `text` and `target`, on the
+/// machine last picked, and brings it into view.
+function fillBar(name: string, text: string, target: BarTarget) {
+  if (pc.project !== name) drawProjectComp(name);
+  pc.target = target;
+  projectComp.input.value = text;
+  projectComp.err.textContent = "";
+  // Read again: a session may have started in the worktree since.
+  invoke<AgentSession[]>("agent_sessions").then(list => { pc.sessions = list; redrawProjects(); }).catch(e => console.warn("agent sessions:", e));
+  redrawProjects();
+  projectComp.form.scrollIntoView({ block: "nearest" });
+  projectComp.input.focus();
+}
+
+/// Work on it: the bar on a new worktree for the issue, from the default
+/// branch, with the issue's prompt.
+function workOnIssue(name: string, issue: IssueRow) {
+  const base = baseFor(null, pc.branches.get(name));
+  fillBar(name, issuePrompt(issue), { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base });
+}
+
+/// Continue: reads the pull request's branch, then fills the bar to start
+/// on it. A fork's branch is not on `origin`, so it is refused.
+async function continuePr(name: string, pr: PullRequestRow) {
+  const agent = agentFor(state.agents, name);
+  if (!agent) return;
+  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
+  if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
+  fillBar(name, prPrompt(pr), { kind: "pr", number: pr.number, branch: head.branch });
 }
 
 /// The picker above the bar, when open.
@@ -2282,15 +2386,25 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 }
 
 /// Starts a coding agent on the bar's task in the project's checkout, then
-/// opens its session; Esc there comes back to the project.
-async function startFromBar() {
+/// opens its session; Esc there comes back to the project. With a target
+/// whose worktree already has a session, that session goes on with the
+/// task instead, unless `fresh` (Start new) starts another one there.
+async function startFromBar(fresh = false) {
   const c = projectComp, p = barProject(), text = c.input.value.trim();
-  const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  let place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  if (p && !place && pc.machine !== "auto") place = barPlace(p.places, pc.hosts ?? [], "auto");
   if (!p || !place || !text || pc.starting) return;
+  const t = pc.target;
+  if (t?.kind === "issue" && !t.branch.trim()) { c.err.textContent = "Name the branch first."; return; }
+  const was = barExisting(p.name, place);
+  if (was && !fresh) return resumeFromBar(was, text);
   const { agent } = barHarness(place);
   const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
   const busy = folderBusy(pc.sessions, place.machine_id, place.cwd);
-  const { cwd, checkout } = startPlace(pc.checkout, busy, place.cwd, baseFor(null, pc.branches.get(p.name)));
+  // Start new beside a session goes in that session's worktree.
+  const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
+    : t ? { cwd: place.cwd, checkout: targetPlan(t) }
+    : startPlace(pc.checkout, busy, place.cwd, baseFor(null, pc.branches.get(p.name)));
   c.err.textContent = "";
   pc.starting = true;
   pc.open = false;
@@ -2298,9 +2412,36 @@ async function startFromBar() {
   try {
     const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt: text, chat: null, model, effort, checkout });
     c.input.value = "";
+    pc.target = null;
+    keepMachine(p.name, place.machine_id);
     go("pane", { agent: started.session });
   } catch (e) {
     c.err.textContent = failure(e).replace(/^bad request: /, "");
+  } finally {
+    pc.starting = false;
+    redrawProjects();
+  }
+}
+
+/// Sends the bar's task to session `s` as its next message: resumes it
+/// when it ended, else prompts it where it runs. Then opens it.
+async function resumeFromBar(s: AgentSession, text: string) {
+  const c = projectComp;
+  c.err.textContent = "";
+  pc.starting = true;
+  redrawProjects();
+  try {
+    if (s.status === "ended") {
+      const started = await invoke<Started>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: text });
+      go("pane", { agent: started.session });
+    } else {
+      await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: { prompt: { text } } });
+      go("pane", { agent: { kind: "agent", ...s } });
+    }
+    c.input.value = "";
+    pc.target = null;
+  } catch (e) {
+    c.err.textContent = refusal(e);
   } finally {
     pc.starting = false;
     redrawProjects();

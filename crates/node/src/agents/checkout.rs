@@ -5,7 +5,9 @@
 use super::folder;
 use crate::found;
 use anyhow::{Context, Result, bail, ensure};
-use beep_proto::node::agent::{CheckoutPlan, prompt_branch, valid_ref, worktree_path};
+use beep_proto::node::agent::{
+    CheckoutPlan, prompt_branch, valid_branch, valid_ref, worktree_path,
+};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -17,41 +19,54 @@ use tokio::task::spawn_blocking;
 /// The most branch names tried, `beep/<slug>` then `-2` and on.
 const MAX_NAMES: u32 = 100;
 
+/// Where a checkout plan put the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Start {
+    /// A new branch in the checkout itself.
+    NewBranch,
+    /// A new branch in a new worktree.
+    NewWorktree,
+    /// An existing branch, in the worktree that already had it.
+    OwnWorktree,
+    /// An existing branch, in a worktree made for it now.
+    AddedWorktree,
+}
+
 /// What a checkout plan made.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Made {
     /// The folder the session starts in: the one asked for, or its place
-    /// in the new worktree.
+    /// in the worktree.
     pub(super) folder: PathBuf,
-    /// The new branch.
+    /// The branch it is on.
     pub(super) branch: String,
-    /// What the branch was made from, as asked (`HEAD` when nothing was).
+    /// What a new branch was made from, as asked (`HEAD` when nothing
+    /// was); the branch itself for an existing one.
     pub(super) base: String,
-    /// Whether it is in a new worktree rather than the checkout itself.
-    pub(super) worktree: bool,
+    pub(super) start: Start,
 }
 
 impl Made {
     /// The first line of the session's transcript, saying where it runs.
     pub(super) fn note(&self) -> String {
-        if self.worktree {
-            format!(
-                "Started on a new branch {} from {}, in the worktree {}.",
-                self.branch,
-                self.base,
-                self.folder.display()
-            )
-        } else {
-            format!(
-                "Started on a new branch {} from {}.",
-                self.branch, self.base
-            )
+        let (branch, base, folder) = (&self.branch, &self.base, self.folder.display());
+        match self.start {
+            Start::NewBranch => format!("Started on a new branch {branch} from {base}."),
+            Start::NewWorktree => {
+                format!("Started on a new branch {branch} from {base}, in the worktree {folder}.")
+            }
+            Start::OwnWorktree => {
+                format!("Started on the branch {branch}, in its worktree {folder}.")
+            }
+            Start::AddedWorktree => {
+                format!("Started on the branch {branch}, in a new worktree {folder}.")
+            }
         }
     }
 }
 
 /// Carries out `plan` in the git checkout of `cwd` (as `folder` reads it),
-/// naming the branch from `prompt`.
+/// naming a new branch from `prompt` when the plan names none.
 pub(super) async fn make_checkout(
     cwd: Option<&str>,
     plan: CheckoutPlan,
@@ -64,63 +79,168 @@ pub(super) async fn make_checkout(
         .context("the checkout task stopped")?
 }
 
+/// The checkout a plan is carried out in.
+struct Checkout {
+    /// The top of the worktree `dir` is in.
+    top: PathBuf,
+    /// `dir` below `top`, empty at the top.
+    prefix: String,
+    /// The main checkout, where worktrees go.
+    root: PathBuf,
+}
+
+impl Checkout {
+    fn of(dir: &Path) -> Result<Self> {
+        let said = git(dir, &["rev-parse", "--show-toplevel", "--show-prefix"])
+            .with_context(|| format!("{} is not in a git checkout", dir.display()))?;
+        let mut lines = said.lines();
+        let top = PathBuf::from(lines.next().unwrap_or_default().trim());
+        let prefix = lines
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_end_matches('/')
+            .to_owned();
+        // Worktrees go in the main checkout, also when asked from another
+        // worktree of it.
+        let root = found::checkout(&top).map_or_else(|| top.clone(), |checkout| checkout.root);
+        Ok(Self { top, prefix, root })
+    }
+
+    /// The same subfolder in the worktree `tree`, when it has one.
+    fn inside(&self, tree: PathBuf) -> PathBuf {
+        let inner = tree.join(&self.prefix);
+        if self.prefix.is_empty() || !inner.is_dir() {
+            tree
+        } else {
+            inner
+        }
+    }
+}
+
 /// Carries out `plan` in the git checkout `dir` is in.
 pub(super) fn make(dir: &Path, plan: &CheckoutPlan, prompt: &str) -> Result<Made> {
     let base = plan.base().unwrap_or("HEAD");
     ensure!(valid_ref(base), "{base:?} is not a branch or commit name");
-    let said = git(dir, &["rev-parse", "--show-toplevel", "--show-prefix"])
-        .with_context(|| format!("{} is not in a git checkout", dir.display()))?;
-    let mut lines = said.lines();
-    let top = PathBuf::from(lines.next().unwrap_or_default().trim());
-    let prefix = lines.next().unwrap_or_default().trim().to_owned();
-    // Worktrees go in the main checkout, also when asked from another
-    // worktree of it.
-    let root = found::checkout(&top).map_or_else(|| top.clone(), |checkout| checkout.root);
-    let start = start_point(&top, base)?;
+    if let Some(branch) = plan.branch() {
+        ensure!(valid_branch(branch), "{branch:?} is not a branch name");
+    }
+    let at = Checkout::of(dir)?;
     match plan {
         CheckoutPlan::NewBranch { .. } => {
-            let changed = git(&top, &["status", "--porcelain", "--untracked-files=no"])?;
+            let start = start_point(&at.top, base)?;
+            let changed = git(&at.top, &["status", "--porcelain", "--untracked-files=no"])?;
             ensure!(
                 changed.trim().is_empty(),
                 "the checkout at {} has uncommitted changes; commit or stash them, or start in a new worktree",
-                top.display()
+                at.top.display()
             );
-            let branch = free_branch(&top, None, prompt)?;
-            git(&top, &["switch", "--quiet", "-c", &branch, &start])?;
+            let branch = free_branch(&at.top, None, &prompt_branch(prompt))?;
+            git(&at.top, &["switch", "--quiet", "-c", &branch, &start])?;
             Ok(Made {
                 folder: dir.to_owned(),
                 branch,
                 base: base.to_owned(),
-                worktree: false,
+                start: Start::NewBranch,
             })
         }
-        CheckoutPlan::NewWorktree { .. } => {
-            let branch = free_branch(&top, Some(&root), prompt)?;
-            let tree = root.join(worktree_path(&branch));
-            let path = tree
-                .to_str()
-                .context("the checkout's folder is not UTF-8")?;
-            git(
-                &top,
-                &["worktree", "add", "--quiet", "-b", &branch, path, &start],
-            )?;
-            exclude_worktrees(&root)?;
-            // The same subfolder in the worktree, when it has one.
-            let inner = tree.join(&prefix);
-            let folder = if prefix.is_empty() || !inner.is_dir() {
-                tree
-            } else {
-                inner
-            };
-            Ok(Made {
-                folder,
-                branch,
-                base: base.to_owned(),
-                worktree: true,
-            })
-        }
+        CheckoutPlan::NewWorktree { .. } => new_worktree(&at, base, &prompt_branch(prompt)),
+        CheckoutPlan::NamedWorktree { branch, .. } => new_worktree(&at, base, branch),
+        CheckoutPlan::BranchWorktree { branch } => branch_worktree(&at, branch),
         _ => bail!("this beep-node cannot make that checkout"),
     }
+}
+
+/// A new branch named `first` (or the first free name after it) from
+/// `base`, in a new worktree.
+fn new_worktree(at: &Checkout, base: &str, first: &str) -> Result<Made> {
+    let start = start_point(&at.top, base)?;
+    let branch = free_branch(&at.top, Some(&at.root), first)?;
+    let tree = at.root.join(worktree_path(&branch));
+    let path = tree
+        .to_str()
+        .context("the checkout's folder is not UTF-8")?;
+    git(
+        &at.top,
+        &["worktree", "add", "--quiet", "-b", &branch, path, &start],
+    )?;
+    exclude_worktrees(&at.root)?;
+    Ok(Made {
+        folder: at.inside(tree),
+        branch,
+        base: base.to_owned(),
+        start: Start::NewWorktree,
+    })
+}
+
+/// The existing `branch`: in the worktree that has it checked out, else in
+/// a new worktree on it, fetched from `origin` first.
+fn branch_worktree(at: &Checkout, branch: &str) -> Result<Made> {
+    let made = |folder, start| Made {
+        folder,
+        branch: branch.to_owned(),
+        base: branch.to_owned(),
+        start,
+    };
+    if let Some(tree) = worktree_of(&at.top, branch)? {
+        return Ok(made(at.inside(tree), Start::OwnWorktree));
+    }
+    // A branch only in this checkout is fine without a remote.
+    let fetched = git(&at.top, &["fetch", "--quiet", "origin", branch]);
+    let tree = at.root.join(worktree_path(branch));
+    ensure!(
+        !tree.exists(),
+        "{} is there already, but not as a worktree of {branch}",
+        tree.display()
+    );
+    let path = tree
+        .to_str()
+        .context("the checkout's folder is not UTF-8")?;
+    let local = format!("refs/heads/{branch}");
+    let remote = format!("refs/remotes/origin/{branch}");
+    if git(&at.top, &["show-ref", "--verify", "--quiet", &local]).is_ok() {
+        git(&at.top, &["worktree", "add", "--quiet", path, branch])?;
+    } else if git(&at.top, &["show-ref", "--verify", "--quiet", &remote]).is_ok() {
+        let tracked = format!("origin/{branch}");
+        git(
+            &at.top,
+            &[
+                "worktree", "add", "--quiet", "--track", "-b", branch, path, &tracked,
+            ],
+        )?;
+    } else {
+        let why = fetched
+            .err()
+            .map(|e| format!(" ({e:#})"))
+            .unwrap_or_default();
+        bail!(
+            "there is no branch {branch} in the checkout at {} or on origin{why}",
+            at.top.display()
+        );
+    }
+    exclude_worktrees(&at.root)?;
+    Ok(made(at.inside(tree), Start::AddedWorktree))
+}
+
+/// The folder of the worktree of the checkout at `top` that has `branch`
+/// checked out, if one does.
+fn worktree_of(top: &Path, branch: &str) -> Result<Option<PathBuf>> {
+    let listed = git(top, &["worktree", "list", "--porcelain"])?;
+    let want = format!("branch refs/heads/{branch}");
+    for block in listed.split(
+        "
+
+",
+    ) {
+        let mut lines = block.lines();
+        let Some(path) = lines.next().and_then(|line| line.strip_prefix("worktree ")) else {
+            continue;
+        };
+        if lines.any(|line| line == want) {
+            return Ok(Some(PathBuf::from(path)));
+        }
+    }
+    Ok(None)
 }
 
 /// The commit `base` names in the checkout at `top`, else on `origin`.
@@ -141,13 +261,12 @@ fn start_point(top: &Path, base: &str) -> Result<String> {
     bail!("there is no {base} in the checkout at {}", top.display())
 }
 
-/// The first of `beep/<slug>`, `beep/<slug>-2` and on that is no branch
-/// in the checkout at `top` and, for a worktree, no folder in `root`.
-fn free_branch(top: &Path, root: Option<&Path>, prompt: &str) -> Result<String> {
-    let first = prompt_branch(prompt);
+/// The first of `first`, `first-2` and on that is no branch in the
+/// checkout at `top` and, for a worktree, no folder in `root`.
+fn free_branch(top: &Path, root: Option<&Path>, first: &str) -> Result<String> {
     for n in 1..=MAX_NAMES {
         let name = if n == 1 {
-            first.clone()
+            first.to_owned()
         } else {
             format!("{first}-{n}")
         };
@@ -259,7 +378,7 @@ mod tests {
         let made = make(&work, &plan, "Fix the login bug!").expect("the branch");
         assert_eq!(made.branch, "beep/fix-the-login-bug");
         assert_eq!(made.folder, work);
-        assert!(!made.worktree);
+        assert_eq!(made.start, Start::NewBranch);
         assert_eq!(current(&work), "beep/fix-the-login-bug");
         assert_eq!(
             made.note(),
@@ -299,7 +418,7 @@ mod tests {
         let tree = work.join(".worktrees/beep-add-dark-mode");
         assert_eq!(made.branch, "beep/add-dark-mode");
         assert_eq!(made.folder, tree.join("src"), "the same subfolder");
-        assert!(made.worktree);
+        assert_eq!(made.start, Start::NewWorktree);
         assert_eq!(current(&tree), "beep/add-dark-mode");
         assert_eq!(current(&work), "main", "the checkout keeps its branch");
         assert_eq!(
@@ -379,6 +498,77 @@ mod tests {
             base: Some("--orphan".into()),
         };
         assert!(make(&clone, &bad, "ship").is_err());
+    }
+
+    #[test]
+    fn a_named_worktree_takes_its_name_and_the_next_number() {
+        let (_dir, work) = repo("named");
+        let plan = CheckoutPlan::NamedWorktree {
+            base: Some("main".into()),
+            branch: "issue-52-crash-on-rotate".into(),
+        };
+        let made = make(&work, &plan, "Work on issue #52").expect("the worktree");
+        assert_eq!(made.branch, "issue-52-crash-on-rotate");
+        assert_eq!(
+            made.folder,
+            work.join(".worktrees/issue-52-crash-on-rotate")
+        );
+        assert_eq!(made.start, Start::NewWorktree);
+        assert_eq!(current(&made.folder), "issue-52-crash-on-rotate");
+        let again = make(&work, &plan, "Work on issue #52").expect("a second worktree");
+        assert_eq!(again.branch, "issue-52-crash-on-rotate-2");
+        let bad = CheckoutPlan::NamedWorktree {
+            base: None,
+            branch: "-x".into(),
+        };
+        assert!(make(&work, &bad, "go").is_err());
+    }
+
+    #[test]
+    fn a_branch_worktree_is_reused_or_added_from_origin() {
+        let (dir, work) = repo("continue");
+        run(&work, &["branch", "login-copy"]);
+        let clone = dir.path().join("clone");
+        let from = work.to_str().expect("a UTF-8 path");
+        let to = clone.to_str().expect("a UTF-8 path");
+        run(dir.path(), &["clone", "--quiet", from, to]);
+        // Pushed after the clone: only a fetch finds it.
+        run(&work, &["branch", "late"]);
+        let plan = |branch: &str| CheckoutPlan::BranchWorktree {
+            branch: branch.into(),
+        };
+        let made = make(&clone.join("src"), &plan("late"), "go").expect("from origin");
+        let tree = clone.join(".worktrees/late");
+        assert_eq!(made.start, Start::AddedWorktree);
+        assert_eq!(made.folder, tree.join("src"));
+        assert_eq!(current(&tree), "late");
+        assert_eq!(
+            run(&tree, &["rev-parse", "--abbrev-ref", "late@{upstream}"]),
+            "origin/late",
+            "it tracks origin"
+        );
+        assert_eq!(
+            made.note(),
+            format!(
+                "Started on the branch late, in a new worktree {}.",
+                tree.join("src").display()
+            )
+        );
+        let reused = make(&clone, &plan("late"), "go").expect("its worktree");
+        assert_eq!(reused.start, Start::OwnWorktree);
+        assert_eq!(reused.folder, tree);
+        // A worktree made by hand elsewhere is found too.
+        let other = dir.path().join("elsewhere");
+        let path = other.to_str().expect("a UTF-8 path");
+        run(&clone, &["worktree", "add", "--quiet", path, "login-copy"]);
+        let found = make(&clone, &plan("login-copy"), "go").expect("the hand-made worktree");
+        assert_eq!(found.start, Start::OwnWorktree);
+        assert_eq!(
+            fs::canonicalize(&found.folder).expect("a folder"),
+            fs::canonicalize(&other).expect("a folder")
+        );
+        let error = make(&clone, &plan("nope"), "go").expect_err("no such branch");
+        assert!(format!("{error:#}").contains("no branch nope"), "{error:#}");
     }
 
     #[test]
