@@ -725,3 +725,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-rsteps i.done { background: rgba(111,211,168,.7) }
 .cc-rsteps i.now { background: var(--emerald) }
 .cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }
+
+/* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
+   height once the rows are drawn; this is the fallback. */
+.pj-scroll { max-height: 250px; overflow-y: auto; overscroll-behavior: contain }

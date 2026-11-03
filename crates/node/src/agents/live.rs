@@ -11,6 +11,7 @@ use super::{
     unix_now,
     usage::{UsageHub, claude_rate_limit},
 };
+use crate::mcp::calls::Tool as BeepTool;
 use agent_client_protocol::schema::{
     MaybeUndefined,
     v1::{
@@ -160,6 +161,15 @@ struct ToolCall {
     steps: Vec<ToolCallId>,
     /// The subagent it started, when the call says it starts one.
     subagent: Option<Subagent>,
+    /// A call to the node's own `beep` server, titled from its arguments.
+    beep: Option<BeepCall>,
+}
+
+/// A `beep` server call and its arguments as far as they have come.
+#[derive(Debug)]
+struct BeepCall {
+    tool: BeepTool,
+    input: Option<Value>,
 }
 
 /// A Codex subagent among a session's entries, whose steps are read from
@@ -310,12 +320,26 @@ impl Live {
     pub(crate) fn question(&self, id: u32, request: &RequestPermissionRequest) -> Question {
         let call = &request.tool_call;
         let known = self.tools.get(&call.tool_call_id);
-        let text = call
+        let title = call
             .fields
             .title
             .clone()
             .or_else(|| known.map(|tool| tool.title.clone()))
             .unwrap_or_else(|| "Use a tool".into());
+        // A call to Beep's own tools asks in its words, not by the tool's name.
+        let beep = BeepTool::of_call(&title, call.meta.as_ref(), call.fields.raw_input.as_ref())
+            .or_else(|| known.and_then(|tool| tool.beep.as_ref().map(|beep| beep.tool)));
+        let text = match beep {
+            Some(tool) => {
+                let input = call
+                    .fields
+                    .raw_input
+                    .as_ref()
+                    .or_else(|| known.and_then(|tool| tool.beep.as_ref()?.input.as_ref()));
+                tool.title(input)
+            }
+            None => title,
+        };
         let options = request
             .options
             .iter()
@@ -682,6 +706,12 @@ impl Live {
             parent: parent.clone(),
             steps: Vec::new(),
             subagent: None,
+            beep: BeepTool::of_call(&call.title, call.meta.as_ref(), call.raw_input.as_ref()).map(
+                |tool| BeepCall {
+                    tool,
+                    input: call.raw_input.clone(),
+                },
+            ),
         };
         if let Some(subagent) = &mut subagent {
             if let Some(title) = subagent.title.take() {
@@ -694,7 +724,7 @@ impl Live {
         }
         tool.subagent = subagent;
         let pictures = self.tool_output(&mut tool, &call.content);
-        self.info.state.summary = cut(&tool.title, MAX_LINE);
+        self.info.state.summary = cut(&tool.own_title(), MAX_LINE);
         self.finish_tool(&tool);
         match parent {
             Some(parent) => {
@@ -762,6 +792,18 @@ impl Live {
                 call.title.clone_from(title);
             }
             self.info.state.summary = cut(title, MAX_LINE);
+        }
+        // Claude Code sends a call's arguments once they have all come.
+        if call.beep.is_none() {
+            call.beep =
+                BeepTool::of_call(&call.title, update.meta.as_ref(), fields.raw_input.as_ref())
+                    .map(|tool| BeepCall { tool, input: None });
+        }
+        if let Some(beep) = &mut call.beep {
+            if let Some(input) = &fields.raw_input {
+                beep.input = Some(input.clone());
+            }
+            self.info.state.summary = cut(&call.own_title(), MAX_LINE);
         }
         if let Some(subagent) = call.subagent.as_mut().filter(|sub| sub.codex) {
             subagent.update(fields.raw_input.as_ref());
@@ -865,6 +907,9 @@ impl ToolCall {
     /// titled by the tool's name alone, so the page it publishes is added
     /// for the apps' Artifacts tab: `Artifact /srv/project/report.html`.
     fn own_title(&self) -> Cow<'_, str> {
+        if let Some(beep) = &self.beep {
+            return Cow::Owned(beep.tool.title(beep.input.as_ref()));
+        }
         match self.paths.first() {
             Some(path) if self.title == ARTIFACT_TOOL => {
                 Cow::Owned(format!("{} {path}", self.title))
@@ -1385,6 +1430,44 @@ mod tests {
         assert_eq!(
             entries[0].text,
             "Artifact /srv/project/report.html [completed]\nPublished https://claude.ai/code/artifact/0000-placeholder"
+        );
+    }
+
+    #[test]
+    fn a_beep_call_is_titled_from_its_arguments() {
+        let mut live = live();
+        // Claude Code names the tool, then sends the arguments once complete.
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "b1",
+            "title": "mcp__beep__run_on",
+            "kind": "other",
+            "status": "pending",
+            "rawInput": {},
+            "_meta": {"claudeCode": {"toolName": "mcp__beep__run_on"}}
+        })));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(entries[0].text, "Beep: Run on a machine [pending]");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "b1",
+            "title": "mcp__beep__run_on",
+            "rawInput": {"machine": "build-box", "command": "cargo test"}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "b1",
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "exit 0"}}]
+        })));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(
+            entries[0].text,
+            "Beep: Run on build-box: cargo test [completed]\nexit 0"
+        );
+        assert_eq!(
+            live.info.state.summary,
+            "Beep: Run on build-box: cargo test"
         );
     }
 

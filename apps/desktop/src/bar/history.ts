@@ -1,5 +1,5 @@
 import { askFiles } from "./attach.ts";
-import { answeredTurns, approvalCard, body, drawLatest, drawSteps, failed, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
+import { answeredTurns, approvalCard, body, drawLatest, drawSteps, failed, makeTurn, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
 import { $$, changed, esc, h, invoke, live, queued, S, windowHooks } from "./core.ts";
 import type { ChatBody, Step, Turn } from "./core.ts";
@@ -82,19 +82,25 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   const asking = new Set(answeredTurns.keep(id, turns.flatMap(t => t.role === "approval" ? [t.query_id] : []), q => q));
   turns = turns.filter(t => t.role !== "approval" || asking.has(t.query_id));
   const b = body()!;
-  b.innerHTML = "";
+  // Built apart, then merged into what the chat already shows.
+  const drawn: Turn[] = [];
+  const drawTurn = (question: string, images?: ImageRef[]) => {
+    const turn = makeTurn(question, images);
+    drawn.push(turn);
+    return turn;
+  };
   let turn: Turn | null = null, last: { turn: Turn; replies: string[] } | null = null;
   for (const t of turns) {
     if (t.role === "user") {
-      turn = newTurn(t.text, t.images);
+      turn = drawTurn(t.text, t.images);
       turn.user = true;
       turn.dataset.at = String(t.at);
       ranOn(turn, t.model, t.thinking);
     } else if (t.role === "scheduled") {
-      turn = newTurn(t.label || "Routine");
+      turn = drawTurn(t.label || "Routine");
       turn.user = false;
     } else if (t.role === "assistant") {
-      turn ??= newTurn("");
+      turn ??= drawTurn("");
       turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map((x): Step => ({ id: "", label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) reply(turn).innerHTML += t.html;
       for (const x of t.tools) toolOutput(turn, x, x.route);
@@ -108,19 +114,129 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
       drawSteps(turn, true);
       replyActs(turn);
     } else if (t.role === "approval") {
-      turn ??= newTurn("");
+      turn ??= drawTurn("");
       approvalCard(id, turn, t);
       last = null;
     }
   }
   // Only the latest reply's follow-ups still make sense.
   if (last) suggestions(last.turn, last.replies);
+  const kept = mergeTurns(b, drawn);
+  // An approval card drawn here belongs to the turn the chat keeps.
+  const e = live.get(id);
+  if (e) {
+    if (e.approval) e.approval.turn = kept.get(e.approval.turn) ?? e.approval.turn;
+    e.body ??= b;
+  }
   drawChatTop();
   scrollDown();
   loadAskFiles(id, b);
   loadAgents(id, b);
   loadSources(id, b);
   keepWaitingQuestions(id);
+}
+
+/// Puts `drawn`, the chat's turns as the server lists them, into body `b`
+/// without drawing again what it shows: a turn already there stays the same
+/// element and takes the server's copy in place. A turn drawn live that the
+/// server's copy does not list yet stays at the end. Returns the kept turn
+/// each drawn one stands for.
+function mergeTurns(b: ChatBody, drawn: Turn[]) {
+  const shown = [...b.children].filter(el => el.classList.contains("turn")) as Turn[];
+  const kept = new Map<Turn, Turn>(), order: Turn[] = [];
+  let next = 0;
+  for (const fresh of drawn) {
+    const old = shown[next];
+    if (old && sameTurn(old, fresh)) {
+      mergeTurn(old, fresh);
+      kept.set(fresh, old);
+      order.push(old);
+      next++;
+    } else {
+      order.push(fresh);
+    }
+  }
+  // A turn the server's copy no longer lists goes, unless it was drawn live
+  // and the copy has not caught up with it.
+  for (const t of shown.slice(next)) {
+    if (t.dataset.at) t.remove();
+    else order.push(t);
+  }
+  let prev: Element | null = null;
+  for (const t of order) {
+    if (t.parentElement !== b) {
+      const first = b.querySelector(":scope > .turn");
+      if (prev) prev.after(t);
+      else if (first) first.before(t);
+      else b.append(t);
+    }
+    prev = t;
+  }
+  return kept;
+}
+
+/// Whether `old`, on screen, is the turn the server lists as `fresh`. One
+/// drawn live has no `at` yet, so its prompt says.
+function sameTurn(old: Turn, fresh: Turn) {
+  if (old.dataset.at && fresh.dataset.at) return old.dataset.at === fresh.dataset.at;
+  const ask = (t: Turn) => t.querySelector(":scope > .ask")?.textContent ?? "";
+  return ask(old) === ask(fresh);
+}
+
+/// Parts of a turn that stay the element they are: the prompt with its
+/// pictures and files. The reply stays too, its text updated when it differs.
+const STABLE = new Set(["ask", "dpics", "dachips"]);
+/// Parts drawn again into the kept turn, so their buttons act on it.
+const REDRAWN = new Set(["tools dsteps", "dreplyacts"]);
+/// Parts that are only what the server lists now.
+const LISTED = new Set(["dreplies", "dcard"]);
+
+/// Takes the server's copy of a turn, `fresh`, into `old` on screen.
+function mergeTurn(old: Turn, fresh: Turn) {
+  if (fresh.dataset.at) old.dataset.at = fresh.dataset.at;
+  // The server's copy may not have the reply yet: what shows stays.
+  if (!fresh.done && !fresh.querySelector(":scope > .dcard")) return;
+  const seen = new Map<string, number>();
+  const keyOf = (el: Element) => {
+    const n = seen.get(el.className) ?? 0;
+    seen.set(el.className, n + 1);
+    return `${el.className}#${n}`;
+  };
+  const before = new Map([...old.children].map(el => [keyOf(el), el]));
+  seen.clear();
+  const matched = new Set<Element>();
+  let prev: Element | null = null;
+  for (const el of [...fresh.children]) {
+    const was = before.get(keyOf(el));
+    if (was) matched.add(was);
+    if (REDRAWN.has(el.className)) {
+      if (was) prev = was;
+      continue;
+    }
+    let now: Element = el;
+    if (!was) {
+      if (prev) prev.after(el);
+      else old.prepend(el);
+    } else if (STABLE.has(el.className)) {
+      now = was;
+    } else if (el.className === "reply") {
+      if (was.innerHTML !== el.innerHTML) was.innerHTML = el.innerHTML;
+      now = was;
+    } else if (!LISTED.has(el.className) && was.outerHTML === el.outerHTML) {
+      now = was;
+    } else {
+      was.replaceWith(el);
+    }
+    prev = now;
+  }
+  for (const el of before.values()) if (!matched.has(el) && LISTED.has(el.className)) el.remove();
+  if (fresh.user !== undefined) old.user = fresh.user;
+  if (fresh.model) old.model = fresh.model;
+  if (!fresh.done) return;
+  old.done = true;
+  old.steps = fresh.steps;
+  drawSteps(old, true);
+  replyActs(old);
 }
 
 /// Puts what the window shows atop the open chat first in its body, such
