@@ -24,6 +24,7 @@ pub(crate) mod realtime;
 pub(crate) mod tools;
 pub(crate) mod triage;
 pub(crate) mod triggers;
+pub(crate) mod update_chat;
 
 pub use limit::Limits;
 pub use model::{AppEvent, DedupeKey, EventApp, EventKind, Source, Topic};

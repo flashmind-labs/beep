@@ -167,6 +167,7 @@ fn main() {
             center::center_close_window,
             center::center_answer_agent,
             center::center_dismiss_updates,
+            center::center_open_update_chat,
             center::center_open,
             center::center_pending,
             center::center_open_project_window,

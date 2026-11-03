@@ -64,6 +64,9 @@ mod terminals;
 mod thread_chats;
 pub(crate) use thread_chats::{NewThreadChat, ThreadChatRow};
 mod test_db;
+mod update_chats;
+pub(crate) use update_chats::{UpdateChat, UpdateChatSeed};
+pub use update_chats::{UpdateDetail, UpdateEvent};
 mod updates;
 mod usage;
 mod user_keys;
@@ -506,6 +509,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         82,
         "agent session usage",
         include_str!("../../migrations/0082_agent_session_usage.sql"),
+    ),
+    (
+        83,
+        "update chats",
+        include_str!("../../migrations/0083_update_chats.sql"),
     ),
 ];
 
