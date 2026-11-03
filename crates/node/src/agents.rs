@@ -3,6 +3,7 @@
 //! streams the server follows them on (`beep_proto::node::agent`).
 
 use crate::{
+    AsyncMutex,
     claude::{self, External},
     found::{self, Agent, Stores},
     mcp::Launch,
@@ -33,8 +34,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::oneshot,
-    task::{JoinHandle, spawn_blocking},
+    sync::{oneshot, watch},
+    task::{JoinHandle, JoinSet, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval},
 };
 
@@ -47,6 +48,7 @@ mod flsh_config;
 mod harnesses;
 mod image_files;
 mod images;
+mod ledger;
 mod live;
 mod media_file;
 mod models;
@@ -71,6 +73,7 @@ use acp::Prompt;
 use alerts::AlertHub;
 use compaction::Route;
 use images::Images;
+use ledger::{Entry, Ledger};
 use models::ModelCache;
 use session::{Command, Session, Start};
 use spend::Spend;
@@ -100,6 +103,10 @@ const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
 /// How often the agents' logs are read for what sessions spent, while the
 /// server follows it.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
+/// How long the folders found in the agents' logs are kept.
+const SIGHTED_FOR: Duration = Duration::from_secs(60);
+/// How long a file request may wait for a look in the agents' logs.
+const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -343,6 +350,20 @@ pub struct Agents {
     folders: OnceLock<Vec<PathBuf>>,
     /// How sessions start the Beep MCP server, once the node serves it.
     mcp: OnceLock<Arc<Launch>>,
+    /// The sessions Beep started here, kept across restarts.
+    ledger: Arc<Ledger>,
+    /// The tasks writing each session's agent id and end to the ledger;
+    /// one per session, ending with it.
+    noting: Mutex<JoinSet<()>>,
+    /// The folders sessions started outside Beep worked in, from the
+    /// agents' logs, with when they were read; one read at a time.
+    sighted: AsyncMutex<Option<Sighted>>,
+}
+
+/// The folders found in the agents' logs, and when.
+struct Sighted {
+    at: Instant,
+    folders: Arc<Vec<PathBuf>>,
 }
 
 impl Agents {
@@ -361,7 +382,51 @@ impl Agents {
             latest: harnesses::Latest::default(),
             folders: OnceLock::new(),
             mcp: OnceLock::new(),
+            ledger: Arc::default(),
+            noting: Mutex::default(),
+            sighted: AsyncMutex::default(),
         }
+    }
+
+    /// Keeps the sessions Beep starts in `dir`, the node's folder, and
+    /// reads the ones started before the node last stopped. Only the first
+    /// call counts.
+    pub async fn keep_ledger(&self, dir: &Path) {
+        if let Err(e) = self.ledger.open(dir).await {
+            log::warn!("the sessions Beep started are not kept: {e:#}");
+        }
+    }
+
+    /// Reads the agents' logs once ahead of the first file request, which
+    /// then finds them read.
+    pub async fn warm(&self) {
+        if let Err(e) = self.sighted_folders().await {
+            log::debug!("the agents' logs were not read ahead: {e:#}");
+        }
+    }
+
+    /// The folders sessions started outside Beep worked in, read from the
+    /// agents' logs at most `SIGHTED_FOR` ago. Requests that come during a
+    /// read wait for it rather than read again.
+    async fn sighted_folders(&self) -> Result<Arc<Vec<PathBuf>>> {
+        let mut sighted = self.sighted.lock().await;
+        if let Some(fresh) = sighted.as_ref().filter(|s| s.at.elapsed() < SIGHTED_FOR) {
+            return Ok(fresh.folders.clone());
+        }
+        let mut folders: Vec<PathBuf> = self
+            .sightings()
+            .await?
+            .into_iter()
+            .map(|seen| seen.cwd)
+            .collect();
+        folders.sort();
+        folders.dedup();
+        let folders = Arc::new(folders);
+        *sighted = Some(Sighted {
+            at: Instant::now(),
+            folders: folders.clone(),
+        });
+        Ok(folders)
     }
 
     /// Gives the sessions started from now on the Beep MCP server, as
@@ -722,6 +787,18 @@ impl Agents {
             .cloned()
             .collect();
         futures::future::join_all(running.iter().map(|session| session.close())).await;
+        // Each session's end goes to the ledger before the node stops.
+        let mut noting =
+            std::mem::take(&mut *self.noting.lock().unwrap_or_else(PoisonError::into_inner));
+        let drained = tokio::time::timeout(Duration::from_secs(2), async {
+            while noting.join_next().await.is_some() {}
+        });
+        if drained.await.is_err() {
+            log::warn!("the sessions' ends were not all noted");
+        }
+        if let Err(e) = self.ledger.save().await {
+            log::warn!("the sessions Beep started were not saved: {e:#}");
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
@@ -820,6 +897,7 @@ impl Agents {
             }
         };
         let resumed = begin.resume.is_some();
+        let info_resume = begin.resume.clone();
         let session = Arc::new(Session::start(Start {
             id: id.clone(),
             kind,
@@ -837,8 +915,58 @@ impl Agents {
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
+        let info = session.info();
+        self.ledger.record(Entry {
+            id: id.clone(),
+            agent_session: info_resume,
+            agent: kind.name.clone(),
+            cwd: cwd.clone(),
+            started_at: info.started_at,
+            ended: None,
+        });
+        let mut noting = self.noting.lock().unwrap_or_else(PoisonError::into_inner);
+        while noting.try_join_next().is_some() {}
+        noting.spawn(note(self.ledger.clone(), id.clone(), session.live.clone()));
+        drop(noting);
         sessions.insert(id, session.clone());
         Ok(session)
+    }
+}
+
+/// Writes the agent's id of session `id` and its end to `ledger` as they
+/// come, until it ends or goes.
+async fn note(ledger: Arc<Ledger>, id: String, mut live: watch::Receiver<live::Live>) {
+    let mut named: Option<String> = None;
+    loop {
+        let (agent_session, ended) = {
+            let live = live.borrow_and_update();
+            let ended = (live.status() == Status::Ended).then(|| {
+                live.info
+                    .state
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "closed".to_owned())
+            });
+            (live.agent_session.clone(), ended)
+        };
+        let mut changed = false;
+        if agent_session != named {
+            if let Some(agent_session) = &agent_session {
+                ledger.named_by_agent(&id, agent_session);
+                changed = true;
+            }
+            named = agent_session;
+        }
+        if let Some(reason) = &ended {
+            ledger.ended(&id, reason);
+            changed = true;
+        }
+        if changed && let Err(e) = ledger.save().await {
+            log::warn!("session {id} was not noted: {e:#}");
+        }
+        if ended.is_some() || live.changed().await.is_err() {
+            return;
+        }
     }
 }
 
