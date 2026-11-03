@@ -8,6 +8,7 @@ use crate::{
     protocol::{AppIntegration, DeviceKind},
     skills::{self, INDEX_HEADER},
     store::Location,
+    tools::projects,
     user::User,
     wake,
 };
@@ -121,6 +122,20 @@ impl App {
             }
             Ok(_) => {}
             Err(error) => log::warn!("unable to list machines: {error:#}; user={user}"),
+        }
+
+        // Names only, so "my projects" resolves without a call. Ends in a
+        // blank line, which is where `last_block` stops reading.
+        match user.projects().await {
+            Ok(rows) => {
+                let names: Vec<_> = rows.into_iter().map(|row| row.name).collect();
+                if let Some(block) = projects::context_block(&names)
+                    && last_block(chat, projects::HEADER) != Some(block.as_str())
+                {
+                    let _ = writeln!(ctx, "{block}\n");
+                }
+            }
+            Err(error) => log::warn!("unable to list projects: {error:#}; user={user}"),
         }
 
         // Last, so the profile a chat got runs to the end of its message.

@@ -69,6 +69,7 @@ export const TOOL_LABELS: Record<string, string> = {
   event_topics: "Checking which updates you get",
   hold_events: "Holding updates for later",
   recent_events: "Checking recent updates",
+  projects: "Checking your projects",
   execute_code: "Running code",
   download_file: "Downloading a file",
   web_scrape: "Reading a page",
