@@ -508,7 +508,7 @@ impl HostCommand<'_> {
             }
             Self::ListOpenPrs => {
                 let jq = "[.[] | {number, title, url, author: .author.login, \
-                          isDraft, createdAt, updatedAt}]";
+                          isDraft, createdAt, updatedAt, headRefName}]";
                 let limit = GH_OPEN_LIMIT.to_string();
                 gh(
                     &["pr", "list"],
@@ -518,7 +518,7 @@ impl HostCommand<'_> {
                         "--limit",
                         &limit,
                         "--json",
-                        "number,title,url,author,isDraft,createdAt,updatedAt",
+                        "number,title,url,author,isDraft,createdAt,updatedAt,headRefName",
                         "--jq",
                         jq,
                     ],
@@ -985,6 +985,8 @@ pub(crate) struct OpenPr {
     pub(crate) draft: bool,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
+    /// The branch it is made from; empty when the host's CLI does not say.
+    pub(crate) head: String,
 }
 
 /// The time in the first of `keys` that holds one; `what` names it in
@@ -1021,6 +1023,11 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
             let draft = ["isDraft", "draft"]
                 .iter()
                 .any(|key| item.get(key).and_then(Value::as_bool) == Some(true));
+            let head = match item.get("head") {
+                Some(Value::String(branch)) => branch.clone(),
+                Some(head) => text(head, "ref"),
+                None => text(item, "headRefName"),
+            };
             Ok(OpenPr {
                 number,
                 title: text(item, "title"),
@@ -1029,6 +1036,7 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
                 draft,
                 created_at,
                 updated_at,
+                head,
             })
         })
         .collect()
@@ -1397,7 +1405,7 @@ mod tests {
         assert!(
             list.starts_with(
                 "GH_TOKEN=\"${BEEP_GH_TOKEN_ACME:-$GH_TOKEN}\" gh pr list -R acme/widget --state open --limit 100 \
-                 --json 'number,title,url,author,isDraft,createdAt,updatedAt' --jq"
+                 --json 'number,title,url,author,isDraft,createdAt,updatedAt,headRefName' --jq"
             ),
             "{list}"
         );
@@ -1458,7 +1466,7 @@ mod tests {
         };
         let gh = r#"[{"number":7,"title":"Bump serde","url":"https://github.com/acme/widget/pull/7",
             "author":"dependabot[bot]","isDraft":false,"createdAt":"2026-10-30T08:00:00Z",
-            "updatedAt":"2026-10-31T09:00:00Z"}]"#;
+            "updatedAt":"2026-10-31T09:00:00Z","headRefName":"bump-serde"}]"#;
         assert_eq!(
             parse_open_prs(gh).expect("prs"),
             [OpenPr {
@@ -1469,13 +1477,15 @@ mod tests {
                 draft: false,
                 created_at: at("2026-10-30T08:00:00Z"),
                 updated_at: at("2026-10-31T09:00:00Z"),
+                head: "bump-serde".into(),
             }]
         );
         let tea = r#"[
             {"number":5,"title":"Faster start","user":{"login":"kim"},"draft":true,
              "created_at":"2026-10-29T10:00:00+02:00","updated_at":"2026-10-29T12:00:00+02:00",
              "url":"https://git.example.com/api/v1/repos/acme/widget/pulls/5",
-             "html_url":"https://git.example.com/acme/widget/pulls/5","body":"Long text"},
+             "html_url":"https://git.example.com/acme/widget/pulls/5","body":"Long text",
+             "head":{"ref":"faster-start","repo":{"full_name":"acme/widget"}}},
             {"number":6,"title":"No draft field","user":{"login":"sam"},
              "created_at":"2026-10-28T10:00:00Z",
              "html_url":"https://git.example.com/acme/widget/pulls/6"}
@@ -1484,6 +1494,8 @@ mod tests {
         assert_eq!(prs.len(), 2, "{prs:?}");
         assert_eq!(prs[0].author, "kim");
         assert!(prs[0].draft);
+        assert_eq!(prs[0].head, "faster-start");
+        assert_eq!(prs[1].head, "");
         assert_eq!(prs[0].url, "https://git.example.com/acme/widget/pulls/5");
         assert_eq!(prs[0].updated_at, at("2026-10-29T10:00:00Z"));
         assert!(!prs[1].draft);
