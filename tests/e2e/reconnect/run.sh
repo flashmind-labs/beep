@@ -5,8 +5,8 @@
 # synced on both nodes.
 #
 # node-a's outgoing traffic is capped with tc so a large file takes a while
-# to cross. While node-b is fetching it (its partial folder holds part of
-# the file), node-b's process is stopped:
+# to cross. While node-b is fetching it (its blob store holds part of the
+# file), node-b's process is stopped:
 #   1. with SIGTERM, then started again
 #   2. with SIGKILL, then started again
 # Each time the file must arrive whole on node-b (same sha256), with no
@@ -33,9 +33,11 @@ uncap(){
 sudo tc qdisc del dev \$dev root 2> /dev/null; true"
 }
 
-# fetching_mb : MB node-b holds in its partial folders so far.
+# fetching_mb : MB of the blob node-b received last. A fetch lands in the
+# node's blob store first and is copied into the folder once whole.
 fetching_mb(){
-  on node-b "du -sm $P/.beep-*.partial 2> /dev/null | awk '{s += \$1} END {print s + 0}'"
+  on node-b "f=\$(ls -t ~/beep/state/blobs/data/*.data 2> /dev/null | head -1)
+if [ -n \"\$f\" ]; then du -m \"\$f\" | cut -f1; else echo 0; fi"
 }
 
 # halfway : node-b has fetched between a tenth and most of the file.
