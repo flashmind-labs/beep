@@ -16,6 +16,10 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
+/// What a session Beep made no branch or worktree for is told ahead of its
+/// first prompt, so the agent makes its own when it changes files.
+const WORKTREE_BRIEF: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
+
 /// The most branch names tried, `beep/<slug>` then `-2` and on.
 const MAX_NAMES: u32 = 100;
 
@@ -65,13 +69,48 @@ impl Made {
     }
 }
 
+/// Where a new session starts, and what it opens with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Place {
+    /// The folder it starts in; the node's own default when `None`.
+    pub(super) folder: Option<String>,
+    /// The first line of its transcript, when a plan made a checkout.
+    pub(super) note: Option<String>,
+    /// Beep's word to the agent ahead of its first prompt.
+    pub(super) brief: Option<&'static str>,
+}
+
+/// Where a session asked to start in `cwd` runs: what `plan` makes, or,
+/// with no plan, `cwd` as it is, with the agent told to make its own
+/// branch and worktree before it changes files.
+pub(super) async fn place(
+    cwd: Option<String>,
+    plan: Option<CheckoutPlan>,
+    prompt: &str,
+) -> Result<Place> {
+    let Some(plan) = plan else {
+        return Ok(Place {
+            folder: cwd,
+            note: None,
+            brief: Some(WORKTREE_BRIEF),
+        });
+    };
+    let made = make_checkout(cwd.as_deref(), plan, prompt).await?;
+    let folder = made
+        .folder
+        .to_str()
+        .context("the new folder is not UTF-8")?
+        .to_owned();
+    Ok(Place {
+        folder: Some(folder),
+        note: Some(made.note()),
+        brief: None,
+    })
+}
+
 /// Carries out `plan` in the git checkout of `cwd` (as `folder` reads it),
 /// naming a new branch from `prompt` when the plan names none.
-pub(super) async fn make_checkout(
-    cwd: Option<&str>,
-    plan: CheckoutPlan,
-    prompt: &str,
-) -> Result<Made> {
+async fn make_checkout(cwd: Option<&str>, plan: CheckoutPlan, prompt: &str) -> Result<Made> {
     let dir = folder(cwd)?;
     let prompt = prompt.to_owned();
     spawn_blocking(move || make(&dir, &plan, &prompt))
@@ -369,6 +408,41 @@ mod tests {
 
     fn current(dir: &Path) -> String {
         run(dir, &["branch", "--show-current"])
+    }
+
+    #[tokio::test]
+    async fn a_plain_start_makes_no_branch() {
+        let (_dir, work) = repo("plain");
+        let cwd = work.to_str().expect("a UTF-8 folder").to_owned();
+        let prompt = "do we need to update any methods? check the api";
+        let place = place(Some(cwd.clone()), None, prompt)
+            .await
+            .expect("a place");
+        assert_eq!(place.folder.as_deref(), Some(cwd.as_str()));
+        assert_eq!(place.note, None, "no branch line");
+        assert_eq!(place.brief, Some(WORKTREE_BRIEF));
+        assert_eq!(current(&work), "main");
+        assert_eq!(run(&work, &["branch", "--format=%(refname:short)"]), "main");
+        assert!(!work.join(".worktrees").exists(), "no worktree");
+    }
+
+    #[tokio::test]
+    async fn a_plan_starts_in_what_it_made_without_the_brief() {
+        let (_dir, work) = repo("planned");
+        let cwd = work.to_str().expect("a UTF-8 folder").to_owned();
+        let plan = CheckoutPlan::NewWorktree { base: None };
+        let place = place(Some(cwd), Some(plan), "Fix it")
+            .await
+            .expect("a place");
+        assert_eq!(place.brief, None);
+        let folder = place.folder.expect("the worktree");
+        assert!(folder.ends_with(".worktrees/beep-fix-it"), "{folder}");
+        assert!(
+            place
+                .note
+                .expect("a note")
+                .starts_with("Started on a new branch beep/fix-it")
+        );
     }
 
     #[test]

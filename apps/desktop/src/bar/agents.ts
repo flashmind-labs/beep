@@ -127,7 +127,7 @@ export interface AgentForm {
   effort?: string | null;
   /// The project the form works on, picked or the one it was opened from.
   project?: string | null;
-  /// In a checkout: Auto, the checkout, a new branch, a new worktree or an
+  /// In a checkout: the checkout, a new branch, a new worktree or an
   /// existing one.
   checkout?: CheckoutPick;
   /// The ref a new branch or worktree starts from; null for the project's
