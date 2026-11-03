@@ -90,7 +90,10 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         .resizable(true)
         .maximizable(true)
         .title_bar_style(TitleBarStyle::Overlay)
-        .hidden_title(true);
+        .hidden_title(true)
+        // Files dragged in from Finder reach the page as HTML drops, as in
+        // the bar: a coding agent session uploads them to its machine.
+        .disable_drag_drop_handler();
     builder = match frame(app) {
         Some((position, size)) => builder
             .position(position.x + offset, position.y + offset)

@@ -51,6 +51,7 @@ mod transcribe;
 mod updates;
 mod usage;
 mod work;
+mod work_files;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
 use devices::{
@@ -300,6 +301,9 @@ pub fn router() -> Router {
         .call(agent_control::list_agent_images)
         .call(agent_control::get_agent_image)
         .call(agent_control::get_agent_file)
+        .call(work_files::list_work_folder)
+        .call(work_files::read_work_file)
+        .call(work_files::write_work_file)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)

@@ -660,6 +660,46 @@ button.dachip:hover { border-color: #3A4A41 }
 .agpstrip { all: unset; cursor: pointer; flex: none; width: 30px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0; border-left: 1px solid var(--border); color: var(--muted); font-size: 11.5px }
 .agpstrip span { writing-mode: vertical-rl } .agpstrip small { color: var(--dim) } .agpstrip:hover { color: var(--fg) }
 .dock-bottom > .agpstrip { width: auto; flex-direction: row; justify-content: center; padding: 6px 0; border-left: 0; border-top: 1px solid var(--border) }
+/* The Files tab: filter, tree with git marks, drop targets, right-click menu. */
+.agaddterm { width: auto; padding: 0 8px; font-size: 11.5px; white-space: nowrap }
+.agtab[data-mtab="files"] { flex: none }
+.agpview.files { position: relative }
+.agfbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border) }
+.agffind { flex: 1; min-width: 0; background: rgba(228, 238, 232, .05); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-size: 12px; outline: 0 }
+.agffind:focus { border-color: var(--emerald) }
+.agfign { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer }
+.agtree { flex: 1; min-height: 0; overflow: auto; padding: 4px; outline: 0 }
+.agtree.dropping { outline: 1px dashed var(--emerald); outline-offset: -4px }
+.agtr { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px calc(8px + var(--d) * 16px); border-radius: 5px; font: 12px var(--mono); color: var(--fg); cursor: pointer; user-select: none }
+.agtr:hover { background: rgba(228, 238, 232, .05) } .agtr.on { background: rgba(228, 238, 232, .09) }
+.agtr.drop { background: rgba(52, 211, 153, .14); box-shadow: inset 0 0 0 1px var(--emerald) }
+.agtr.ign { opacity: .5 } .agtr svg { flex: none; color: var(--muted) }
+.agtr.note { cursor: default; color: var(--dim); font-family: inherit; font-size: 11.5px } .agtr.note:hover { background: none } .agtr.note.derr { color: var(--coral) }
+.agtr .tw { width: 10px; display: grid; place-items: center } .agtr .tw.open svg { transform: rotate(90deg) }
+.agtr .tw .dspin { width: 8px; height: 8px }
+.agtr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agtr .gm { font-size: 10.5px; font-weight: 600 }
+.gm.modified { color: #E5B567 } .gm.added { color: var(--emerald) } .gm.untracked { color: #6FA8DC } .gm.conflicted { color: var(--coral) }
+.agctx { position: absolute; z-index: 5; min-width: 180px; padding: 4px; border-radius: 8px; background: var(--elev, #18201c); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0, 0, 0, .4) }
+.agctx button { all: unset; display: block; box-sizing: border-box; width: 100%; cursor: pointer; padding: 5px 10px; border-radius: 5px; font-size: 12px; color: var(--fg) }
+.agctx button:hover, .agctx button:focus { background: rgba(228, 238, 232, .08) }
+.agctx hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px }
+/* A file of the Files tab as text, and a terminal tab. */
+.agcode { flex: 1; min-height: 0; overflow: auto }
+.agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--fg); white-space: pre; tab-size: 4 }
+.agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); user-select: none }
+.agcode .k { color: #C792EA } .agcode .s { color: #A5D6A7 } .agcode .c { color: var(--dim); font-style: italic } .agcode .n { color: #F2B482 }
+.agpview.term .tm-xterm { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: #0B0F0D }
+.agpview.term .tm-xterm .xterm { height: 100% }
+.agpview.term .tm-xterm .xterm-viewport { background: #0B0F0D !important }
+/* Paths mentioned in the next message, uploads on their way, and where a drop goes. */
+.agment { display: inline-flex; align-items: center; gap: 5px; max-width: 280px; padding: 3px 4px 3px 8px; border-radius: 6px; background: rgba(111, 168, 220, .12); border: 1px solid rgba(111, 168, 220, .3); font: 11.5px var(--mono); color: var(--fg) }
+.agment .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left }
+.agment small { color: var(--muted) } .agment .dspin { width: 9px; height: 9px }
+.agment button { border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid; cursor: pointer } .agment button:hover { color: var(--fg) }
+.agupask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted) }
+.agupask .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
+#agfield.dropping { box-shadow: 0 0 0 1px var(--emerald) }
 .dock-bottom > .agpstrip span { writing-mode: initial }
 /* A step's media files, as buttons that open them in the pane. */
 .dcoderen.tool .dmedia { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px }
