@@ -8,6 +8,7 @@ use super::{
     image_files,
     images::{Images, Picture, data_url},
     subagent::{Activity, Run, Subagent},
+    tool_diff::diff_text,
     unix_now,
     usage::{UsageHub, claude_rate_limit},
 };
@@ -916,7 +917,7 @@ impl Live {
     /// Sets what `tool` showed: its text, and a line for each picture,
     /// kept for the server. Returns the pictures, for `tool_images`.
     fn tool_output(&mut self, tool: &mut ToolCall, content: &[ToolCallContent]) -> Vec<Picture> {
-        let shown = output(content);
+        let shown = output(content, Path::new(&self.info.cwd));
         tool.output = shown.text;
         tool.pictures = shown.pictures.iter().map(Picture::line).collect();
         for picture in &shown.pictures {
@@ -1066,8 +1067,9 @@ struct Output {
     links: Vec<String>,
 }
 
-/// What a tool call's `content` shows: its text, images and links.
-fn output(content: &[ToolCallContent]) -> Output {
+/// What a tool call's `content` shows: its text, images and links. An
+/// edit's diff shows its changed lines, its path relative to `cwd`.
+fn output(content: &[ToolCallContent], cwd: &Path) -> Output {
     let mut pictures = Vec::new();
     let mut links = Vec::new();
     let text = content
@@ -1093,7 +1095,12 @@ fn output(content: &[ToolCallContent]) -> Output {
                 }
                 _ => None,
             },
-            ToolCallContent::Diff(diff) => Some(format!("(changed {})", diff.path.display())),
+            ToolCallContent::Diff(diff) => Some(diff_text(
+                cwd,
+                &diff.path,
+                diff.old_text.as_deref(),
+                &diff.new_text,
+            )),
             ToolCallContent::Terminal(_) => Some("(ran in a terminal)".into()),
             _ => None,
         })
@@ -1454,6 +1461,26 @@ mod tests {
             live.tools.len() <= MAX_ENTRIES / 2 + 1,
             "{}",
             live.tools.len()
+        );
+    }
+
+    #[test]
+    fn an_edit_shows_its_diff() {
+        let mut live = live();
+        live.prompted("fix it");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "e1",
+            "title": "Edit `src/login.rs`",
+            "kind": "edit",
+            "status": "completed",
+            "content": [{"type": "diff", "path": "/srv/project/src/login.rs",
+                "oldText": "fn a() {\n    old();\n}", "newText": "fn a() {\n    new();\n}"}]
+        })));
+        let (entries, _) = live.transcript(1);
+        assert_eq!(
+            entries[0].text,
+            "Edit `src/login.rs` [completed]\n[diff] src/login.rs +1 -1\n fn a() {\n-    old();\n+    new();\n }"
         );
     }
 

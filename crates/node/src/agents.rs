@@ -56,6 +56,7 @@ mod reach;
 mod session;
 mod spend;
 mod subagent;
+mod tool_diff;
 mod usage;
 mod work_folder;
 
