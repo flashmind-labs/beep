@@ -4,8 +4,9 @@
 use super::{account, key};
 use crate::{
     credentials::CredentialKey,
+    projects::model::RepoName,
     store::{
-        Store, TestDb,
+        NewImport, Store, TestDb,
         merge::{Merge, MergeInto, handled, projects, summed},
         test_chat, test_turn,
     },
@@ -188,8 +189,9 @@ const SOURCE_ONLY: &[&str] = &[
 
 /// Rows only the target has.
 const TARGET_ONLY: &[&str] = &[
-    // `acme/app (2)` is taken, without case, so the moved one is `(3)`.
-    "INSERT INTO projects (id, user_id, name) VALUES (gen_random_uuid(), $1, 'Acme/App (2)')",
+    // `acme/app-copy` is taken, without case, so the moved one is
+    // `acme/app-copy-2`.
+    "INSERT INTO projects (id, user_id, name) VALUES (gen_random_uuid(), $1, 'Acme/App-Copy')",
     "INSERT INTO instructions_versions (user_id, version, text) VALUES ($1, 2, 't2')",
 ];
 
@@ -343,12 +345,12 @@ async fn a_merge_keeps_the_rows_of_every_table() {
     .await;
     assert_eq!(
         names,
-        ["Acme/App (2)", "acme/app", "acme/app (3)", "solo/tool"]
+        ["Acme/App-Copy", "acme/app", "acme/app-copy-2", "solo/tool"]
     );
     for (table, column) in projects::NAMED.iter().filter(|(t, _)| *t != "projects") {
         let sql = format!("SELECT {column} FROM {table} WHERE user_id=$1 ORDER BY 1");
         let named = texts(pool, &sql, &target).await;
-        assert_eq!(named, ["acme/app", "acme/app (3)"], "{table}");
+        assert_eq!(named, ["acme/app", "acme/app-copy-2"], "{table}");
     }
     let worker_project = texts(
         pool,
@@ -357,7 +359,7 @@ async fn a_merge_keeps_the_rows_of_every_table() {
         &target,
     )
     .await;
-    assert_eq!(worker_project, ["acme/app (3)"]);
+    assert_eq!(worker_project, ["acme/app-copy-2"]);
 
     // Counts of one key add up; the target's other columns stay.
     let tokens: i64 = sqlx::query_scalar("SELECT tokens FROM agent_model_usage WHERE user_id=$1")
@@ -414,4 +416,71 @@ async fn a_merge_keeps_the_rows_of_every_table() {
     )
     .await;
     assert_eq!(grants, ["cron-s call-s", "cron-t call-t"]);
+}
+
+#[tokio::test]
+async fn an_import_step_works_on_a_renamed_project() {
+    let db = TestDb::new().await.expect("test database");
+    let store = db.store().await.expect("test store");
+    let (_, target) = merged(&store).await;
+    let user = UserKey::for_test(&target);
+    let renamed = "acme/app-copy-2";
+    RepoName::parse(renamed).expect("the copy is still owner/repo");
+
+    // Moving the import to another folder finds the moved row and the
+    // moved project, and makes no other.
+    let saved = store
+        .save_import(
+            &user,
+            NewImport {
+                project: renamed,
+                endpoint: "e",
+                folder: "/w-moved",
+                url: "u",
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.folder, "/w-moved");
+    let fork = RepoName::parse("octo/app").unwrap();
+    store
+        .set_import_fork(&user, renamed, "e", Some(&fork))
+        .await
+        .unwrap();
+    // A checkout found on another machine links to the same project.
+    let linked = store
+        .link_import(
+            &user,
+            NewImport {
+                project: renamed,
+                endpoint: "e2",
+                folder: "/w2",
+                url: "u",
+            },
+        )
+        .await
+        .unwrap();
+    assert!(linked);
+    let imports: Vec<_> = store
+        .imports(&user)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|row| row.project == renamed)
+        .map(|row| (row.endpoint, row.folder, row.fork))
+        .collect();
+    assert_eq!(
+        imports,
+        [
+            ("e".to_owned(), "/w-moved".to_owned(), Some(fork)),
+            ("e2".to_owned(), "/w2".to_owned(), None),
+        ]
+    );
+    let copies = texts(
+        &store.pool,
+        "SELECT name FROM projects WHERE user_id=$1 AND lower(name)='acme/app-copy-2'",
+        &target,
+    )
+    .await;
+    assert_eq!(copies, [renamed]);
 }

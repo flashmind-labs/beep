@@ -12,10 +12,10 @@ mod fork;
 mod found;
 mod gone;
 mod link;
-mod place;
+pub(crate) mod place;
 mod preview;
 mod remove;
-mod repo;
+pub(crate) mod repo;
 mod service;
 mod tool;
 
