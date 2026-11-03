@@ -120,8 +120,10 @@ function avColor(name: string) {
   for (const c of name) n = (n * 31 + c.codePointAt(0)!) >>> 0;
   return AV_COLORS[n % AV_COLORS.length];
 }
+/// Beep's avatar is the chat mark the rest of the app uses, never a letter.
+const BEEP_MARK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>';
 function av(name: string, label = name) {
-  return `<span class="dav" style="background:${avColor(name)}">${esc(name === "Beep" ? "b" : [...label][0]?.toUpperCase() ?? "?")}</span>`;
+  return `<span class="dav" style="background:${avColor(name)}">${name === "Beep" ? BEEP_MARK : esc([...label][0]?.toUpperCase() ?? "?")}</span>`;
 }
 /// The members with the caller first.
 const youFirst = (members: GroupMember[]) => [...members].sort((a, b) => Number(b.you) - Number(a.you));
