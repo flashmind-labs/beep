@@ -48,6 +48,7 @@ mod terminals;
 mod threads;
 mod transcribe;
 mod updates;
+mod usage;
 mod work;
 
 use crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
@@ -239,6 +240,7 @@ pub fn router() -> Router {
         .call(terminals::close_terminal)
         .call(terminals::open_terminal)
         .call(terminals::list_all_terminals)
+        .call(usage::get_usage)
         .duplex(terminals::attach::attach_terminal)
         .call(reviews::list_project_branches)
         .call(reviews::start_branch_review)
