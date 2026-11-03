@@ -3,6 +3,7 @@ import { when } from "./chats.ts";
 import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints, refreshHints } from "./hints.ts";
 import { notice } from "./media.ts";
+import { emptyPage, errLine } from "./memories.ts";
 
 // ---------- Research ----------
 
@@ -92,13 +93,11 @@ export function drawResearches() {
     : [running && `${running} running`, waiting && `${waiting} waiting`].filter(Boolean).join(", ") || `${RL.list.length} researched`;
   const head = `<div class="dhead"><span class="tt"><b>Research</b><small>${esc(sum)}</small></span></div>`;
   const field = `<div class="dinput"><input id="rtopic" placeholder="What should the team research?" autocomplete="off" spellcheck="false"><kbd>⌘R</kbd></div>`;
-  const err = RL.error ? `<div class="derr" style="padding:8px 18px 0">${esc(RL.error)}</div>` : "";
   const empty = RL.loaded && !RL.list.length;
   let list, keys;
   if (empty) {
     // A paper's icon, as a research shows in the window's sidebar.
-    list = `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${ICON.doc}</span>
-      <b style="font-size:14px">No research yet.</b><span class="dmuted" style="display:block">A team of agents digs into a question and writes it up as a paper.</span></div>`;
+    list = emptyPage(ICON.doc, "No research yet.", "A team of agents digs into a question and writes it up as a paper.");
     keys = [[ICON.ret, "research"], ["esc", "back"]];
   } else {
     const rows = RL.list.map((r, i) => {
@@ -117,7 +116,7 @@ export function drawResearches() {
       : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
       : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];
   }
-  bar.innerHTML = field + head + err + list + hints(keys);
+  bar.innerHTML = field + head + errLine(RL.error) + list + hints(keys);
   if (!empty) bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   const input = $$<HTMLInputElement>("#rtopic");
   input.value = typed;

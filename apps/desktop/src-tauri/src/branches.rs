@@ -6,7 +6,10 @@ use crate::{
     projects::unknown_op,
     reviews::BranchRow,
 };
-use beep_proto::{AddBranchWorktree, ImportCheckout, ImportPreview, PreviewImport, WorkBranch};
+use beep_proto::{
+    AddBranchWorktree, FindImportFork, ImportCheckout, ImportFork, ImportPreview, PreviewImport,
+    WorkBranch,
+};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tauri::State;
@@ -92,6 +95,20 @@ pub async fn preview_import(beep: Service<'_>, repo: String) -> Result<Option<Pr
         .await
     {
         Ok(preview) => Ok(Some(preview.into())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The user's fork that importing `repo` would clone; `None` from a server
+/// too old to say.
+#[tauri::command]
+pub async fn find_import_fork(beep: Service<'_>, repo: String) -> Result<Option<ImportFork>> {
+    match beep
+        .call_within(FindImportFork { repo }, PREVIEW_TIMEOUT)
+        .await
+    {
+        Ok(found) => Ok(Some(found)),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
     }

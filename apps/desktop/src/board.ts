@@ -8,6 +8,7 @@ import type { TaskRow, WorkerRow } from "./project.ts";
 import { machineSync } from "./home.ts";
 import type { RunningAgent, SyncRow } from "./home.ts";
 import { el } from "./projects-state.ts";
+import { svgEl as icon } from "./components/parts.ts";
 import type { SessionRow, WhereRow } from "./projects-state.ts";
 
 /// A chip on a tile row: its class and text.
@@ -166,12 +167,6 @@ const ICONS: Record<string, string> = {
   terminals: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2-3 2M13 14h4"/></svg>',
 };
 
-function icon(svg: string) {
-  const s = el("span");
-  s.style.display = "inline-flex";
-  s.innerHTML = svg; // fixed markup from this file, no server text
-  return s.firstChild;
-}
 
 /// One row of a tile: an optional dot, its text, a chip or a muted note.
 function row(r: TileRow, { openUrl, menu, open }: TileOptions) {

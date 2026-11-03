@@ -10,6 +10,8 @@ import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "./board.ts";
+import { plural } from "./components/format.ts";
+import { emptyPanel, errorNote, note, stateChip } from "./components/parts.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
 export interface BranchRow {
@@ -167,7 +169,6 @@ export function reviewState(r: Pick<ReviewView, "merge" | "pr" | "shards" | "fin
 /// The pill's words for each state.
 export const STATE_LABEL: Record<ReviewState, string> = { running: "Reviewing", blocked: "Blocked", changes: "Needs changes", ready: "Ready" };
 
-function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 
 /// What to say when the branch moved since the review, from what
 /// `CheckBranchReview` gave; "" when it did not, or is not known yet.
@@ -261,17 +262,17 @@ export function branchTile(
   if (data === null) return { count: "", rows: [], empty: "The server lists no branches" };
   const byBranch = new Map((reviews || []).map(r => [r.branch, r]));
   const rows: (TileRow & { work: boolean })[] = data.branches.map(b => {
-    const r = byBranch.get(b.name);
+    const r = byBranch.get(b.name), state = r && reviewState(r);
     const isDefault = b.name === data.default_branch;
     let note;
     if (isDefault) note = b.behind ? `default · ${b.behind} behind` : "default";
-    else if (r) note = STATE_LABEL[reviewState(r)].toLowerCase();
+    else if (state) note = STATE_LABEL[state].toLowerCase();
     else if (b.ahead) note = `+${b.ahead}${b.worktree ? " · worktree" : ""}${b.pushed ? "" : " · not pushed"}`;
     else note = `merged · ${ago(b.committed_at)}`;
     return {
       code: b.name,
       note,
-      chip: r && reviewState(r) !== "ready" && !isDefault ? { cls: reviewState(r) === "running" ? "run" : reviewState(r) === "blocked" ? "bad" : "wait", text: STATE_LABEL[reviewState(r)].toLowerCase() } : null,
+      chip: state && state !== "ready" && !isDefault ? { cls: state === "running" ? "run" : state === "blocked" ? "bad" : "wait", text: STATE_LABEL[state].toLowerCase() } : null,
       title: `${b.name}: ${b.subject}`,
       work: !isDefault && b.ahead > 0,
     };
@@ -326,12 +327,18 @@ export function makeReviews(deps: ReviewDeps) {
     return t;
   };
 
+  /// Projects whose first read is on its way; a draw asking again waits.
+  const first = new Set<string>();
+
   async function load(name: string) {
     const t = of(name);
+    if (t.branches === undefined && first.has(name)) return;
+    first.add(name);
     const [branches, reviews] = await Promise.all([
       invoke<BranchesView | null>("project_branches", { project: name }).catch((e): Branches | null => { t.error = reason(e); return t.branches ?? { default_branch: "", branches: [] }; }),
       invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { console.warn("reviews:", e); return t.reviews ?? []; }),
     ]);
+    first.delete(name);
     t.branches = branches;
     t.reviews = reviews;
     redraw();
@@ -475,14 +482,14 @@ export function makeReviews(deps: ReviewDeps) {
     if (t.branches === undefined) load(name);
     const out: HTMLElement[] = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
-    if (t.note && t.note.startsWith("Added ")) out.push(h("div", "cc-note", h("span", "ddot"), h("span", "", t.note)));
+    if (t.note && t.note.startsWith("Added ")) out.push(note("", t.note));
     const data = t.branches;
     if (data === null) {
-      out.push(h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it lists branches.")));
+      out.push(emptyPanel(h("b", "", "The server needs an update before it lists branches.")));
       return out;
     }
     if (!data) {
-      out.push(h("div", "cc-panel cc-empty", h("span", "dspin"), h("span", "", "Reading the branches…")));
+      out.push(emptyPanel(h("span", "dspin"), h("span", "", "Reading the branches…")));
       return out;
     }
     const byBranch = new Map((t.reviews || []).map(r => [r.branch, r]));
@@ -501,11 +508,11 @@ export function makeReviews(deps: ReviewDeps) {
       if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
       const title = h("span", "t", h("code", "", b.name));
       title.title = b.subject;
-      return h("div", "pj-task", title, h("span", "pj-st", isDefault ? "default" : b.local ? "local" : "origin"),
+      return h("div", "pj-task", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
     });
     out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null),
-      rows.length ? h("div", "cc-panel", ...rows) : h("div", "cc-panel cc-empty", h("span", "", "No branches"))));
+      rows.length ? h("div", "cc-panel", ...rows) : emptyPanel(h("span", "", "No branches"))));
     return out;
   }
 
@@ -550,15 +557,15 @@ export function makeReviews(deps: ReviewDeps) {
     const t = of(name);
     const out: HTMLElement[] = [];
     if (t.starting) {
-      out.push(h("div", "cc-panel cc-empty", h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`),
+      out.push(emptyPanel(h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`),
         h("span", "", "Fetching, reading the diff and starting a read-only reviewer per shard.")));
       watch(null);
       return out;
     }
     const r = t.review;
     if (!r) {
-      if (t.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", t.error)));
-      out.push(h("div", "cc-panel cc-empty", h("b", "", "No review open"), button("Branches", "", () => openTile("branches"))));
+      if (t.error) out.push(errorNote(t.error));
+      out.push(emptyPanel(h("b", "", "No review open"), button("Branches", "", () => openTile("branches"))));
       watch(null);
       return out;
     }
@@ -578,8 +585,8 @@ export function makeReviews(deps: ReviewDeps) {
     }
     out.push(h("div", "rv-head", h("h3", "", `Review ${r.branch} into ${r.base}`), pill));
     out.push(h("div", "rv-facts", ...reviewFacts(r, ago).map(fact), tools));
-    if (t.error) out.push(h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", t.error)));
-    if (t.note) out.push(h("div", "cc-note", h("span", "ddot"), h("span", "", t.note)));
+    if (t.error) out.push(errorNote(t.error));
+    if (t.note) out.push(note("", t.note));
     if (stale) {
       out.push(h("div", "cc-note", h("span", "ddot warn"),
         h("span", "", h("b", "", stale), ` The findings are for ${r.head.slice(0, 7)}; Merge is off until the new head is reviewed.`),
@@ -599,9 +606,9 @@ export function makeReviews(deps: ReviewDeps) {
       body = h("div", "cc-panel", ...findings.map(f => findingRow(name, r, f)));
       if (running) body.append(h("div", "cc-empty rv-more", "More findings show as the reviewers finish."));
     } else if (running) {
-      body = h("div", "cc-panel cc-empty", h("span", "dspin"), h("span", "", "Findings show as the reviewers finish."));
+      body = emptyPanel(h("span", "dspin"), h("span", "", "Findings show as the reviewers finish."));
     } else {
-      body = h("div", "cc-panel cc-empty", h("b", "", "No findings"), h("span", "rv-sum", readySummary(r)));
+      body = emptyPanel(h("b", "", "No findings"), h("span", "rv-sum", readySummary(r)));
     }
     if (!running && findings.length && !openFindings(r).length) body.append(h("div", "rv-sum-row", readySummary(r)));
     const findSec = h("div", "", h("div", "cc-sec", h("h4", "", "Findings"), h("small", "", findingsSub(r))), body);
@@ -609,7 +616,7 @@ export function makeReviews(deps: ReviewDeps) {
       h("div", "cc-sec", h("h4", "", "Shards"), h("small", "", "read-only reviewers")),
       h("div", "cc-panel", ...r.shards.map(s => {
         const c = shardChip(s);
-        const chipEl = h("span", `pj-st ${c.cls}`, c.spin ? h("span", "dspin") : null, c.text);
+        const chipEl = stateChip(c.cls, c.text, c.spin);
         chipEl.title = s.note || c.text;
         return h("div", "rv-shard", harnessEl(s.agent),
           h("span", "t", h("b", "", s.area), h("span", "", shardLine(s, r.machine_name))), chipEl);

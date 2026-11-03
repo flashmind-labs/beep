@@ -6,6 +6,8 @@ import type { invoke as Invoke } from "./tauri.ts";
 import type { Ago, Kid, MakeButton, MakeEl } from "./projects-state.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
+import { plural } from "./components/format.ts";
+import { emptyPanel, note } from "./components/parts.ts";
 
 /// The view's tabs.
 export type InstructionsTab = "editor" | "import" | "sync" | "history";
@@ -173,7 +175,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     const err = st.error ? h("div", "cc-err", st.error) : null;
     const summary = st.files ? syncSummary(st.files) : null;
     const files = h("div", "cc-panel cc-row in-side",
-      h("span", "t", h("b", "", summary ? `Synced to ${summary.synced} of ${summary.machines} ${summary.machines === 1 ? "machine" : "machines"}` : "Agent files"),
+      h("span", "t", h("b", "", summary ? `Synced to ${summary.synced} of ${plural(summary.machines, "machine", "machines")}` : "Agent files"),
         h("span", "", summary ? "Machines with Claude Code, Codex, Gemini CLI or pi" : "Write your rules into each agent's own file")),
       button("Sync", "", () => setTab("sync")));
     return h("div", "in-cols",
@@ -205,7 +207,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   }
 
   function loading(what: string) {
-    return h("div", "cc-panel cc-empty", h("b", "", what));
+    return emptyPanel(h("b", "", what));
   }
 
   /// A machine's line when it has no file rows: why it could not be read,
@@ -242,7 +244,7 @@ export function registerInstructions(deps: InstructionsDeps) {
       }).concat(m.files.filter(f => st.shown === `${m.machine_id}${f.path}`).map(f => h("pre", "in-pre", withoutBeepBlock(f.text))))
         : [missRow("No coding agent here")]));
     return [
-      h("div", "cc-note", h("span", "ddot"), h("span", "", "Nothing on the machines changes. Add a file's rules to yours, then save them as a new version.")),
+      note("", "Nothing on the machines changes. Add a file's rules to yours, then save them as a new version."),
       sec("Found on your machines", st.reading ? "reading…" : "read just now", machinesPanel(machines)),
       h("div", "in-acts", button("Read again", "", readFiles)),
     ];
@@ -262,7 +264,7 @@ export function registerInstructions(deps: InstructionsDeps) {
       return machineBlock(m, write, rows);
     });
     return [
-      h("div", "cc-note", h("span", "ddot"), h("span", "", "Beep writes your rules between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file, so sessions started outside Beep follow them too. Text outside the markers is never touched.")),
+      note("", "Beep writes your rules between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file, so sessions started outside Beep follow them too. Text outside the markers is never touched."),
       sec("Machines", ver, machinesPanel(machines)),
       h("div", "in-acts", button("Read again", "", readFiles)),
     ];
@@ -271,7 +273,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   function historyTab() {
     if (st.versions === undefined) return [loading("Loading the versions…")];
     if (st.versions === null) return [h("div", "cc-err", st.error || "Could not load the versions.")];
-    if (!st.versions.length) return [h("div", "cc-panel cc-empty", h("b", "", "No versions yet"), h("span", "", "Each save makes one."))];
+    if (!st.versions.length) return [emptyPanel(h("b", "", "No versions yet"), h("span", "", "Each save makes one."))];
     const rows = st.versions.map(v => {
       const open = st.shown === `v${v.version}`;
       const acts = [button(open ? "Hide" : "Show", "small", () => { st.shown = open ? null : `v${v.version}`; draw(); })];

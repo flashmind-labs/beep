@@ -82,6 +82,10 @@ export const SHORTCUTS: [string, Hint[]][] = [
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 
+/// The sections of a key sheet: each title, then its keys and what they do.
+export const keyGroups = (sections: [string, Hint[]][]) =>
+  `<div class="dkeys">${sections.map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>`;
+
 /// Opens or closes the sheet of every key, over whatever the bar shows.
 export function toggleKeys() {
   const open = $("#keys");
@@ -89,7 +93,7 @@ export function toggleKeys() {
   $("#viewer")?.remove();
   bar.append(h(`<div class="dover" id="keys" role="dialog" aria-label="Keyboard shortcuts">
     <div class="vt"><span class="tt"><b>Keyboard shortcuts</b></span></div>
-    <div class="dkeys">${SHORTCUTS.map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>
+    ${keyGroups(SHORTCUTS)}
     ${hints([["esc", "close"]])}</div>`));
 }
 

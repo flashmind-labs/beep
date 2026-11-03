@@ -1,6 +1,8 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
+import { ago, plural, since } from "./components/format.ts";
+import { dbtn as button, emptyPanel, errorNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -82,12 +84,6 @@ type SideChat = ChatItem | ProjectPin;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-function icon(svg: string) {
-  const s = h("span");
-  s.style.display = "inline-flex";
-  s.innerHTML = svg; // fixed markup from this file, no server text
-  return s.firstChild;
-}
 
 const IC = {
   home: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>',
@@ -159,14 +155,6 @@ let fresh = false;
 
 // ---------- Formatting ----------
 
-function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
-function ago(ms: number) {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return "now";
-  if (s < 3600) return `${Math.round(s / 60)} min`;
-  if (s < 86400) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} d`;
-}
 function whenOf(iso: string) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return { time: "", day: "" };
@@ -196,7 +184,7 @@ function refusal(e: unknown) { return String(e).replace(/^(bad request|error):\s
 /// Green online, yellow with agents running there, grey offline.
 function dot(m: MachineCard) {
   const el = h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`);
-  el.title = !m.online ? "Offline" : m.agents ? `Online · ${m.agents === 1 ? "1 agent" : `${m.agents} agents`} running` : "Online";
+  el.title = !m.online ? "Offline" : m.agents ? `Online · ${plural(m.agents, "agent", "agents")} running` : "Online";
   return el;
 }
 
@@ -222,12 +210,6 @@ function section(id: string, title: string, count: number | string, action: Kid,
 function avatar(cls: string, ini: Kid) { return h("span", `cc-ag ${cls}`, ini); }
 function tag(cls: string, ...kids: Kid[]) { return h("span", `cc-tag${cls ? " " + cls : ""}`, ...kids); }
 
-function button(label: string | Node, cls: string, on: (e: MouseEvent) => void) {
-  const b = h("button", `dbtn${cls ? " " + cls : ""}`, label);
-  b.type = "button";
-  b.addEventListener("click", on);
-  return b;
-}
 
 /// A button with a + before `label`.
 function plusLabel(label: string, cls: string, on: () => void) {
@@ -239,11 +221,6 @@ function plusLabel(label: string, cls: string, on: () => void) {
 /// A button inside a row that does its own thing, not the row's.
 function rowButton(label: string | Node, cls: string, on: () => void) {
   return button(label, cls, e => { e.stopPropagation(); on(); });
-}
-
-/// A note in red above a list: what failed.
-function errorNote(text: string) {
-  return h("div", "cc-note", h("span", "ddot bad"), h("span", "cc-err", text));
 }
 
 /// Placeholder rows of these widths, in percent, while a list loads.
@@ -287,7 +264,7 @@ function machineTable(machines: MachineCard[]) {
     if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
     const sync = m.online ? machineSync(m.id, state.sync) : null;
     const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
-    if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
+    if (!m.online) now.title = `Seen ${since(m.seen_at)}`;
     const d = machineDisk(m), mem = machineMemory(m);
     const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
     if (d.title) disk.title = d.title;
@@ -377,7 +354,7 @@ function removeMachine(m: Removable) {
 function machinesSection(machines: MachineCard[]) {
   if (!machines.length && !thisMacRow(state.mac, machines)) {
     return section("sec-machines", "Machines", "", addMachineButton("small"),
-      h("div", "cc-panel cc-empty", h("b", "", "No machines linked yet"), addMachineButton("pri")));
+      emptyPanel(h("b", "", "No machines linked yet"), addMachineButton("pri")));
   }
   const online = machines.filter(m => m.online).length;
   const count = machines.length ? `${online} of ${machines.length} online` : "";
@@ -388,7 +365,7 @@ function offlineNote(machines: MachineCard[]) {
   const gone = machines.filter(m => !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
   if (!gone.length) return null;
   const names = gone.map(m => m.name).join(", ");
-  return h("div", "cc-note", h("span", "ddot bad"), h("span", "", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again."));
+  return note("bad", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again.");
 }
 
 // ---------- Running now ----------
@@ -414,7 +391,9 @@ const SLIDE_MS = 200;
 /// Nothing slides when the system asks for less motion.
 function slideRows(panel: HTMLElement) {
   requestAnimationFrame(() => {
-    if (!panel.isConnected) return;
+    // A hidden panel (Home behind a project page) measures every row at 0
+    // and would spoil the places the shown panel slides from.
+    if (!panel.isConnected || !panel.getClientRects().length) return;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const top = panel.getBoundingClientRect().top, seen = new Set<string>();
     for (const row of panel.querySelectorAll<HTMLElement>(":scope > [data-key]")) {
@@ -785,7 +764,7 @@ function importWithSettings(p: OpenRepo) {
 function gitSection(view: GitItemsView) {
   const projects = projectsWithOpen(view, projectRows() || []);
   const notes = view.hosts.filter(x => x.error).map(x =>
-    h("div", "cc-note", h("span", "ddot bad"), h("span", "", x.error)));
+    note("bad", x.error));
   const body = projects.length
     ? projects.flatMap(openProjectRows)
     : [h("div", "cc-empty", h("span", "", notes.length ? "Nothing to show from the hosts that answered." : "No open pull requests or issues."))];
@@ -1555,7 +1534,7 @@ function page(home: HomeView, wide: boolean) {
   const out: HTMLElement[] = [];
   if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
   if (!machines && !running) {
-    out.push(h("div", "cc-note", h("span", "ddot off"), h("span", "", "Machines and running sessions aren't available for this account or server.")));
+    out.push(note("off", "Machines and running sessions aren't available for this account or server."));
   } else if (machines) {
     const note = offlineNote(machines);
     if (note) out.push(note);
@@ -1730,10 +1709,9 @@ function projectTable(rows: Project[]) {
 /// workers, what changed last and where it lives.
 function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
-  const repos = (n: number) => `${n} ${n === 1 ? "repo" : "repos"}`;
   const out = groups.map(g => g.group ? groupSection(g.group, g)
     : h("section", "pj-org",
-      h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", repos(g.cards.length))),
+      h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", plural(g.cards.length, "repo", "repos"))),
       h("div", "pj-grid", ...g.cards.map(projectCard))));
   const add = h("div", "cc-panel cc-row pj-add",
     h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder your agents worked in, any folder, or a repository to clone.")),
@@ -1773,7 +1751,7 @@ function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewC
   } else {
     const paths = h("span", "gp-paths", g.paths.map(p => (p.startsWith("/") ? p : `~/${p}`)).join(", "));
     paths.title = "Matched on every machine";
-    head.append(g.name, h("small", "", `${n} ${n === 1 ? "repo" : "repos"}`), paths,
+    head.append(g.name, h("small", "", plural(n, "repo", "repos")), paths,
       h("span", "gp-acts",
         button("Rename", "quiet", () => startRename(g)),
         button("Folders…", "quiet", () => editGroup(g)),
@@ -1840,7 +1818,7 @@ function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), ...repoSections(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
+  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), agentsSection(running)), whereSection(p, rows, !!machines)];
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -1862,7 +1840,7 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
 function agentsSection(running: RunningAgent[]) {
   const list = running.length
     ? runningPanel(running)
-    : h("div", "cc-panel cc-empty", h("span", "", "No agent is working in this project right now."));
+    : emptyPanel(h("span", "", "No agent is working in this project right now."));
   return section("sec-project-agents", "Agents", running.length || "", null, list);
 }
 
@@ -1929,7 +1907,6 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     return out;
   }
   const past = sessions ? pastSessions(sessions, running) : [];
-  const openUrl = agentActs.openUrl;
   if (terms.list(p.name) === undefined) terms.load(p.name);
   if (revs.branches(p.name) === undefined) revs.load(p.name);
   if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
@@ -1979,15 +1956,7 @@ function taskColumns(view: ProjectView) {
 
 /// The Board and List switch in the header of a project with an agent.
 function layoutSwitch() {
-  const seg = h("span", "pb-seg");
-  for (const [key, label] of [["board", "Board"], ["list", "List"]]) {
-    const b = h("button", "", label);
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(layout === key));
-    b.addEventListener("click", () => { if (layout !== key) setLayout(key); });
-    seg.append(b);
-  }
-  return seg;
+  return segmented([{ label: "Board", value: "board" }, { label: "List", value: "list" }], layout, key => { if (layout !== key) setLayout(key); });
 }
 
 // ---------- Project agent ----------
@@ -2009,7 +1978,7 @@ const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects() }
 const revs = makeReviews({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
-  openUrl: (url: string) => agentActs.openUrl(url),
+  openUrl,
   openTile: (key: string) => openTile(key),
   machines: () => state.home?.machines || [],
 });
@@ -2019,7 +1988,7 @@ const revs = makeReviews({
 const thr = makeThreads({
   invoke, h, button, ago,
   redraw: () => redrawProjects(),
-  openUrl: (url: string) => agentActs.openUrl(url),
+  openUrl,
   openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
 });
@@ -2040,7 +2009,7 @@ const agentActs = {
   busy: (id: string) => pa.busy.has(id),
   error: (id: string) => pa.errors.get(id),
   outcome: (id: string) => pa.outcomes.get(id),
-  openUrl: (url: string) => invoke("open_url", { url }).catch(e => console.warn("open url:", e)),
+  openUrl,
   review: (branch: string) => { if (state.picked) revs.openBranch(state.picked, branch); },
   /// Merge… on a task in review asks the project agent to merge once the
   /// branch's newest review allows it and the branch has not moved since;
@@ -2105,7 +2074,7 @@ function repoSections(p: Project): Node[] {
   const agent = p.imported ? agentFor(state.agents, p.name) : null;
   if (!agent) return [];
   const acts = repoActs(p);
-  return [thr.prsSection(agent, acts), thr.issuesSection(agent, acts)];
+  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts))];
 }
 
 /// The cards the project chat waits on, then Tasks beside Workers, above
@@ -2507,7 +2476,7 @@ function whereRow(p: Project, m: WhereRow) {
     return [name, folder, h("span", "acts", finder, copy, start)];
   }
   const said = h("span", "os", m.text);
-  if (m.kind === "none" && m.checked_at) said.title = `Checked ${ago(m.checked_at)} ago`;
+  if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
   const what = h("span", "nm", said);
   const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(false, repoFromRemote(p.url), m.id)) : null;
   return [name, what, h("span", "acts", clone)];
@@ -2555,13 +2524,13 @@ function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
-  if (!p.imported) body = h("div", "cc-panel cc-empty", h("span", "", "Import this project to see the sessions your agents ran in it."));
-  else if (sessions === undefined) body = h("div", "cc-panel cc-empty", h("span", "", "Reading sessions…"));
+  if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see the sessions your agents ran in it."));
+  else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
     const past = pastSessions(sessions, running);
     body = past.length
       ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
-      : h("div", "cc-panel cc-empty", h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
+      : emptyPanel(h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
   return section("sec-sessions", "Sessions", sessions?.length || "", null, body,
     h("small", "", "from your coding agents in its folders on every machine, newest first"),
@@ -2660,7 +2629,7 @@ function drawProjects(el: HTMLElement) {
   const view = h("div", "cc-view");
   let one: Project | null = null;
   if (!state.home) {
-    view.append(h("div", "cc-panel cc-empty", h("b", "", "Loading projects…")));
+    view.append(emptyPanel(h("b", "", "Loading projects…")));
   } else if (!rows || !rows.length) {
     view.append(h("div", "cc-panel cc-empty",
       h("b", "", "No projects yet"),
@@ -2716,8 +2685,8 @@ registerView("projects", {
     const tools = [];
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
     if (p?.url) {
-      const label = openOnLabel(p.url);
-      if (label) tools.push(button(label, "small", () => invoke("open_url", { url: p.url }).catch(() => {})));
+      const url = p.url, label = openOnLabel(url);
+      if (label) tools.push(button(label, "small", () => openUrl(url)));
     }
     if (p) {
       const on = state.top.includes(p.name);
@@ -2929,7 +2898,7 @@ function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
   const where = openLabel(v.url) === "Open on GitHub" ? "On GitHub" : "On its host";
   const head = h("span", "who", `${where} · ${plural(total, "comment", "comments")}${v.needs_reply ? " · waits on your reply" : ""}`);
   const post = (author: string, at: number | null, body: string) => {
-    const c = h("div", "c", h("b", "", author), " ", h("span", "who", at ? `${ago(at)} ago` : "opened it"));
+    const c = h("div", "c", h("b", "", author), " ", h("span", "who", at ? since(at) : "opened it"));
     if (body.trim()) c.append(h("div", "tx", clip(body, card.all)));
     return c;
   };
@@ -2950,9 +2919,9 @@ function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
 function threadHead(t: ThreadChatEntry, c: ChatItem | undefined): ViewHead {
   const view = threadCards.get(t.chat_id)?.view;
   const scope = h("span", "th-scope", scopeTag(t.chat_id));
-  if (view?.needs_reply) scope.append(h("span", "pj-st blocked", "needs reply"));
+  if (view?.needs_reply) scope.append(stateChip("blocked", "needs reply"));
   const tools: Node[] = [];
-  if (view?.url) tools.push(button(openLabel(view.url), "", () => agentActs.openUrl(view.url)));
+  if (view?.url) tools.push(button(openLabel(view.url), "", () => openUrl(view.url)));
   if (c) tools.push(pinButton(c));
   const title = view ? `${threadLabel(view.kind, view.number)} ${view.title}`.trim() : (c?.title || t.title || threadLabel(t.kind, t.number));
   return { title, tools, scope };

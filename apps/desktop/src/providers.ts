@@ -5,8 +5,9 @@
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
-import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView } from "./providers-state.ts";
+import { emptyPanel } from "./components/parts.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean }
@@ -223,7 +224,7 @@ export function registerProviders(deps: ProvidersDeps) {
       out.push(row(`${name} does not say whether it is signed in. Run it on ${m} to sign in.`));
     }
     if (!hv.runnable) out.push(h("div", "hv-note", "Beep cannot start it yet: beep-node finds the agent and its ACP adapter when it starts. Restart beep-node after installing."));
-    if (hv.latest && versionLine(hv).includes("out")) {
+    if (hasUpdate(hv)) {
       const up = button(busy ? "Updating…" : `Update to v${hv.latest}`, "", () => update([hv.agent]));
       up.disabled = busy || !hv.install;
       if (!hv.install) up.title = "Beep knows no way to update it here";
@@ -302,13 +303,13 @@ export function registerProviders(deps: ProvidersDeps) {
   }
 
   function body(): Node[] {
-    if (st.machines === undefined) return [h("div", "cc-panel cc-empty", h("b", "", "Loading your machines…"))];
+    if (st.machines === undefined) return [emptyPanel(h("b", "", "Loading your machines…"))];
     if (st.machines === null) return [h("div", "cc-err", st.note || "Could not load your machines.")];
-    if (!st.machine) return [h("div", "cc-panel cc-empty", h("b", "", "No machine online"), h("span", "", "Coding agents show here for machines that are online."))];
+    if (!st.machine) return [emptyPanel(h("b", "", "No machine online"), h("span", "", "Coding agents show here for machines that are online."))];
     const v = view();
     const err = st.errors.get(st.machine);
     const errEl = err ? h("div", "cc-err", err) : null;
-    if (v === undefined) return [h("div", "cc-panel cc-empty", h("b", "", `Asking ${machineName()}…`))];
+    if (v === undefined) return [emptyPanel(h("b", "", `Asking ${machineName()}…`))];
     if (v === false) return [h("div", "cc-err", "The server needs an update before it shows coding agents here.")];
     if (v === null) return [errEl ?? h("div", "cc-err", "Could not read the coding agents.")];
     const rows = listRows(v);

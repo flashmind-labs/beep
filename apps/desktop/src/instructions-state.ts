@@ -1,5 +1,6 @@
 // The Instructions view's words and sums, as pure functions so they can be
 // tested without Tauri. instructions.ts draws the view.
+import { plural } from "./components/format.ts";
 
 /// One saved version of the user's instructions (VersionRow).
 export interface VersionRow {
@@ -61,7 +62,7 @@ export function linesLabel(text: string | null | undefined) {
   const t = String(text || "").replace(/\s+$/, "");
   if (!t) return "empty";
   const n = t.split("\n").length;
-  return n === 1 ? "1 line" : `${n} lines`;
+  return plural(n, "line", "lines");
 }
 
 /// An agent file without the block Beep wrote into it, so importing it

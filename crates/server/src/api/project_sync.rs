@@ -649,6 +649,7 @@ mod tests {
             folder: folder.into(),
             url: "https://example.com/acme/game".into(),
             imported_at: chrono::Utc::now(),
+            fork: None,
         };
         let synced = SyncRow {
             project: "acme/game".into(),

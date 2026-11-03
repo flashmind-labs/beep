@@ -36,6 +36,7 @@ mod notify;
 mod orb;
 mod overview;
 mod palette;
+mod pasted_image;
 mod presence;
 mod products;
 mod project_groups;
@@ -165,6 +166,7 @@ fn main() {
             commands::status,
             commands::link_offer,
             commands::send_prompt,
+            pasted_image::read_pasted_image,
             commands::rerun_prompt,
             commands::answer_approval,
             commands::active_run,
@@ -271,6 +273,7 @@ fn main() {
             threads::center_thread_view,
             reviews::project_branches,
             branches::preview_import,
+            branches::find_import_fork,
             branches::add_branch_worktree,
             reviews::reviews_list,
             reviews::review_start,
