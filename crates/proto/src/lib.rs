@@ -1253,9 +1253,9 @@ requests! {
     /// The open pull requests and the open issues no task tracks of
     /// `project_id`, as `ListProjectPullRequests` and `ListProjectIssues`
     /// give them, from the server's copy and with when it was read. The
-    /// server reads the host again on the first ask, when its copy is a few
-    /// minutes old, and every few minutes while someone looks at the
-    /// project. `refresh` reads it now, at most once per 30 seconds per
+    /// server reads the host on the first ask, and every few minutes while
+    /// someone looks at the project. A copy a few minutes old is given as
+    /// it is and read again in the background; `WatchProject` says when. `refresh` reads it now, at most once per 30 seconds per
     /// project; sooner, the copy is given as it is. A host that could not
     /// be read gives its error and the lists read before. `NotFound` when
     /// the caller has no such project.
