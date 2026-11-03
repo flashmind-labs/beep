@@ -248,6 +248,10 @@ sample_struct! {
     PlanWindow { minutes, used_percent, resets_at, scope }
     ProjectSpend { project, cost_usd, unpriced }
     AgentTokens { agent, tokens }
+    SpendReport { limits, today, week, month }
+    SpendPeriod { cost_usd, metered_tokens, subscription_tokens, projects, harnesses }
+    ProjectBill { project, cost_usd, metered_tokens, subscription }
+    HarnessBill { agent, subscription, cost_usd, tokens, models }
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }
 }
 
