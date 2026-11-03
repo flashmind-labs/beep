@@ -4,7 +4,8 @@
 // draws these sections and holds the pure pieces the tests check.
 import { harnessEl } from "./harnessicon.ts";
 import type { ChatApproval } from "./home.ts";
-import { agentLabel, button, el } from "./projects-state.ts";
+import { agentLabel, el } from "./projects-state.ts";
+import { dbtn, emptyPanel, stateChip, svgEl } from "./components/parts.ts";
 import type { Kid } from "./projects-state.ts";
 
 /// A project agent with its chat (ProjectAgent).
@@ -226,20 +227,11 @@ const WORKER_STATUS: Record<string, string> = { starting: "starting", running: "
 
 // ---------- Drawing ----------
 
-/// A `dbtn` button with `cls`.
-function dbtn(label: string, cls: string, on: (e: MouseEvent) => void) {
-  return button(label, `dbtn${cls ? " " + cls : ""}`, on);
-}
-
 function section(id: string, title: string, sub: string, body: Node) {
   const box = el("div");
   box.id = id;
   box.append(el("div", "cc-sec", el("h4", "", title), sub ? el("small", "", sub) : null), body);
   return box;
-}
-
-function chip(state: string) {
-  return el("span", `pj-st ${state}`, state === "running" ? el("span", "dspin") : null, state);
 }
 
 function link(text: string, url: string, open: (url: string) => unknown) {
@@ -256,7 +248,7 @@ function acts(b: HTMLButtonElement, err: string | null | undefined) {
 
 /// An empty section's note.
 function empty(text: string) {
-  return el("div", "cc-panel cc-empty", el("span", "", text));
+  return emptyPanel(el("span", "", text));
 }
 
 /// The Tasks section. `act.change(task, change)` drops or reopens one.
@@ -273,7 +265,7 @@ export function tasksSection(view: ProjectView, act: RowActs) {
     const err = act.error(t.id);
     const title = el("span", "t", t.title);
     title.title = t.title;
-    const row = el("div", "pj-task", title, chip(t.state), meta, acts(b, err));
+    const row = el("div", "pj-task", title, stateChip(t.state, t.state, t.state === "running"), meta, acts(b, err));
     row.dataset.task = t.id;
     const review = reviewActs(t, act);
     if (review.length) row.querySelector(".acts")!.prepend(...review);
@@ -304,10 +296,7 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
   const titles = new Map(view.tasks.map(t => [t.id, t.title]));
   const now = Date.now();
   const lead = (ag: string, kid: Kid) => el("span", `cc-ag ${ag}`, kid);
-  const icon = el("span");
-  icon.style.display = "inline-flex";
-  icon.innerHTML = chatIcon; // fixed markup from center.ts, no server text
-  const nodes = [el("div", "pj-node", lead("beep", icon.firstChild), el("span", "t", el("b", "", "Project agent"), el("span", "", "Plans tasks, files issues, places workers")))];
+  const nodes = [el("div", "pj-node", lead("beep", svgEl(chatIcon)), el("span", "t", el("b", "", "Project agent"), el("span", "", "Plans tasks, files issues, places workers")))];
   for (const w of view.workers) {
     const name = titles.get(w.task_id) || workerFolder(w.folder);
     const sub = el("span", "", workerLine(w, now));

@@ -5,6 +5,7 @@ import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { LIVE_CHATS, VOICE_ICON } from "./live.ts";
 import { RESEARCHES } from "./researches.ts";
+import { dayDiff } from "./memories.ts";
 
 export type { GroupSummary } from "./groups.ts";
 
@@ -28,15 +29,6 @@ interface SessionMatch {
   from_user: boolean;
 }
 
-/// The chat being shared from the list: its link once made, or why not.
-interface Share {
-  id: string;
-  url?: string;
-  error?: string;
-}
-/// `S.chats.share` with what sharing adds to it.
-const share = () => S.chats.share as Share | null | undefined;
-
 /// A chat action, as the row buttons name it.
 export type ChatAction =
   | "rename" | "delete" | "cancel" | "window" | "rename-save" | "delete-yes" | "pin"
@@ -47,8 +39,7 @@ export function when(ms: number) {
   const mins = Math.round((now.getTime() - d.getTime()) / 60000);
   if (mins < 1) return "now";
   if (mins < 60) return `${mins} min ago`;
-  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((start(now) - start(d)) / 86400000);
+  const days = dayDiff(d, now);
   if (days === 0) return `${Math.round(mins / 60)} h ago`;
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -145,7 +136,7 @@ function chatRow(c: ChatRow, i: number) {
 }
 
 function shareCard() {
-  const sh = share();
+  const sh = S.chats.share;
   if (!sh || S.chats.mode !== "share") return "";
   const body = sh.error ? `<div class="derr">${esc(sh.error)}</div>`
     : !sh.url ? '<div class="dmuted"><span class="dspin"></span>Making a link…</div>'
@@ -214,14 +205,14 @@ export async function chatAction(a: ChatAction) {
         chatMode("share");
         try {
           const link = await invoke<{ url: string }>("share_session", { id: c.id });
-          if (share()?.id === c.id) share()!.url = link.url;
+          if (S.chats.share?.id === c.id) S.chats.share!.url = link.url;
         } catch (e) {
-          if (share()?.id === c.id) share()!.error = String(e);
+          if (S.chats.share?.id === c.id) S.chats.share!.error = String(e);
         }
         if (S.view === "chats" && S.chats.mode === "share") drawChats();
         break;
       case "copy-share":
-        await copy(share()!.url!, $('[data-a="copy-share"]'));
+        await copy(S.chats.share!.url!, $('[data-a="copy-share"]'));
         break;
       case "unshare":
         await invoke("unshare_session", { id: c.id });

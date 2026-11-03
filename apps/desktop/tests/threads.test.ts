@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN } from "../src/threads.ts";
+import { threadCode, issueTile, threadTile, issueMeta, threadMeta, prLines, prMeta, prChip, issueLines, issueCount, firstRows, issueBranch, issuePrompt, prPrompt, prNumber, SHOWN, makeThreads, type ThreadDeps } from "../src/threads.ts";
 
 const ago = () => "2 h ago";
 
@@ -162,4 +162,14 @@ test("the Issues tile says why the host could not be read", () => {
   const why = "git.example.lan is on your own network, which Beep's server cannot reach.";
   assert.equal(issueTile([], why).empty, why);
   assert.equal(issueTile([{ number: 1, title: "x", url: "u", labels: [], comments: 0 }], why).rows.length, 1);
+});
+
+test("a second load while the lists first load asks the server once", async () => {
+  const asked: string[] = [];
+  const invoke = (async (cmd: string) => { asked.push(cmd); return []; }) as unknown as ThreadDeps["invoke"];
+  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {} });
+  await Promise.all([thr.load("p1"), thr.load("p1")]);
+  assert.equal(asked.filter(c => c === "center_project_issues").length, 1);
+  await thr.load("p1");
+  assert.equal(asked.filter(c => c === "center_project_issues").length, 2, "a later load reads again");
 });

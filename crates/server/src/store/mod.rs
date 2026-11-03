@@ -499,8 +499,13 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     ),
     (
         81,
+        "import forks",
+        include_str!("../../migrations/0081_import_forks.sql"),
+    ),
+    (
+        82,
         "agent session usage",
-        include_str!("../../migrations/0081_agent_session_usage.sql"),
+        include_str!("../../migrations/0082_agent_session_usage.sql"),
     ),
 ];
 

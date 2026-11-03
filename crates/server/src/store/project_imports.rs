@@ -20,6 +20,8 @@ pub struct ImportRow {
     /// The repository's web page.
     pub url: String,
     pub imported_at: DateTime<Utc>,
+    /// The user's fork cloned as `origin`, `None` for the repository itself.
+    pub(crate) fork: Option<RepoName>,
 }
 
 /// An import to record.
@@ -45,7 +47,7 @@ impl Store {
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, project, endpoint_id)
              DO UPDATE SET folder=excluded.folder, url=excluded.url
-             RETURNING project, endpoint_id, folder, url, imported_at",
+             RETURNING project, endpoint_id, folder, url, imported_at, fork",
         )
         .bind(user.as_str())
         .bind(import.project)
@@ -63,13 +65,35 @@ impl Store {
     /// The user's imports, by project, then machine.
     pub(crate) async fn imports(&self, user: &UserKey) -> Result<Vec<ImportRow>> {
         let rows = sqlx::query(
-            "SELECT project, endpoint_id, folder, url, imported_at FROM project_imports
+            "SELECT project, endpoint_id, folder, url, imported_at, fork FROM project_imports
              WHERE user_id=$1 ORDER BY project, endpoint_id",
         )
         .bind(user.as_str())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(import_row).collect()
+    }
+
+    /// Notes the user's fork the import of `project` on `endpoint` cloned
+    /// or linked, or that it is the repository itself (`None`).
+    pub(crate) async fn set_import_fork(
+        &self,
+        user: &UserKey,
+        project: &str,
+        endpoint: &str,
+        fork: Option<&RepoName>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE project_imports SET fork=$4
+             WHERE user_id=$1 AND project=$2 AND endpoint_id=$3",
+        )
+        .bind(user.as_str())
+        .bind(project)
+        .bind(endpoint)
+        .bind(fork.map(ToString::to_string))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Records a checkout found on a machine as the project's folder there,
@@ -163,6 +187,9 @@ fn import_row(row: &sqlx::postgres::PgRow) -> Result<ImportRow> {
         folder: row.try_get(2)?,
         url: row.try_get(3)?,
         imported_at: row.try_get(4)?,
+        fork: row
+            .try_get::<Option<String>, _>(5)?
+            .and_then(|fork| RepoName::parse(&fork).ok()),
     })
 }
 
@@ -203,7 +230,19 @@ mod tests {
         let names: Vec<_> = listed.iter().map(|r| r.project.as_str()).collect();
         assert_eq!(names, ["org/a", "org/b"]);
         assert_eq!(listed[0].folder, "/w/elsewhere/a");
+        assert_eq!(listed[0].fork, None);
         assert!(store.imports(&bob).await.unwrap().is_empty());
+        let fork = RepoName::parse("octo/a").unwrap();
+        store
+            .set_import_fork(&alice, "org/a", "node-1", Some(&fork))
+            .await
+            .unwrap();
+        let again = store
+            .save_import(&alice, import("org/a", "node-1", "/w/elsewhere/a"))
+            .await
+            .unwrap();
+        assert_eq!(again.fork, Some(fork), "a second import keeps the fork");
+        assert_eq!(store.imports(&alice).await.unwrap()[1].fork, None);
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 import { bar, esc, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
+import { emptyPage, errLine } from "./memories.ts";
 import { span } from "./routines.ts";
 
 // ---------- Machines ----------
@@ -117,11 +118,9 @@ function drawMachines() {
   const list = MC.list ?? [], on = list.filter(m => m.online).length;
   const sum = !MC.list ? "" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Machines</b><small>${esc(sum || "Where Beep runs commands and coding agents")}</small></span></div>`;
-  const err = MC.error ? `<div class="derr" style="padding:8px 18px 0">${esc(MC.error)}</div>` : "";
   const setup = '<code>beep-node setup</code>';
-  bar.innerHTML = head + err + (MC.list && !list.length
-    ? `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${SERVER_ICON}</span><b style="font-size:14px">No machines yet.</b>
-      <span class="dmuted" style="display:block">Press Add a machine in the Beep window and run the ${setup} command it shows on that computer, or turn on Let Beep use this Mac in Settings.</span></div>`
+  bar.innerHTML = head + errLine(MC.error) + (MC.list && !list.length
+    ? emptyPage(SERVER_ICON, "No machines yet.", `Press Add a machine in the Beep window and run the ${setup} command it shows on that computer, or turn on Let Beep use this Mac in Settings.`)
     : `<div class="dlist" style="padding-top:6px">${list.map(machineCard).join("")}</div>
       ${MC.list ? `<div class="dmuted" style="display:block;padding:0 18px 12px">To add one, press Add a machine in the Beep window and run the ${setup} command it shows.</div>` : ""}`)
     + hints([["esc", "back"]]);

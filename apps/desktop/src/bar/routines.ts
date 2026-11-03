@@ -427,7 +427,8 @@ export function grantClick(e: MouseEvent) {
   if (S.view !== "grants") return;
   const target = e.target as HTMLElement;
   const btn = target.closest<HTMLElement>("[data-g]"), row = target.closest<HTMLElement>(".drt[data-i]");
-  if (row) GR.sel = Number(row.dataset.i);
+  // While a confirm row shows, it stays the grant Enter revokes.
+  if (row && GR.mode === "list") GR.sel = Number(row.dataset.i);
   if (btn) return grantAction(btn.dataset.g!);
   if (row && GR.mode === "list") drawGrants();
 }

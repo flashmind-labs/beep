@@ -13,6 +13,8 @@ import type { ProjectAgent, TaskRow } from "./project.ts";
 import type { TileData } from "./board.ts";
 import { STATE_LABEL, reviewState } from "./review.ts";
 import type { ReviewState, ReviewView } from "./review.ts";
+import { plural } from "./components/format.ts";
+import { emptyPanel, stateChip } from "./components/parts.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -161,7 +163,7 @@ export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "la
   const out = [`opened by ${i.author || "someone"}`];
   if (i.opened_at) out.push(ago(i.opened_at));
   out.push(...(i.labels || []));
-  if (i.comments) out.push(`${i.comments} ${i.comments === 1 ? "comment" : "comments"}`);
+  if (i.comments) out.push(plural(i.comments, "comment", "comments"));
   return out.join(" · ");
 }
 
@@ -375,14 +377,20 @@ export function makeThreads(deps: ThreadDeps) {
     return s;
   };
 
+  /// Projects whose first read is on its way; a draw asking again waits.
+  const first = new Set<string>();
+
   async function load(id: string) {
     const s = of(id);
+    if (s.issues === undefined && first.has(id)) return;
+    first.add(id);
     const [issues, threads, chats, prs] = await Promise.allSettled([
       invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
       invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
       invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
       invoke<PullRequestRow[] | null>("center_project_pull_requests", { projectId: id }),
     ]);
+    first.delete(id);
     s.error = "";
     /// What a list becomes: what came back, else what it had or none.
     const settle = <T>(r: PromiseSettledResult<T[] | null>, had: T[] | null | undefined) => {
@@ -466,7 +474,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// The section's note in place of its rows: why the host could not be
   /// read, that it loads, or that there is none.
   function emptyNote(text: string, bad = false) {
-    return h("div", "cc-panel cc-empty", h("span", bad ? "cc-err" : "", text));
+    return emptyPanel(h("span", bad ? "cc-err" : "", text));
   }
 
   /// The rows, the first `SHOWN` until Show all.
@@ -521,7 +529,7 @@ export function makeThreads(deps: ThreadDeps) {
       if (l.branch && ctx.review) buttons.push(button("Review", "", () => ctx.review!(l.branch!)));
       buttons.push(button("Open", "", () => openUrl(l.pr.url)));
       const row = h("div", "pj-task pj-issue", h("span", "t", link(`PR #${n}`, l.pr.url), ` ${l.pr.title}`),
-        chip ? h("span", `pj-st ${chip.cls}`, chip.cls === "running" ? h("span", "dspin") : null, chip.text) : null,
+        chip ? stateChip(chip.cls, chip.text, chip.cls === "running") : null,
         meta, actsEl(s, [`r${n}`, `c${n}`], buttons));
       row.title = l.pr.title;
       return row;
@@ -550,7 +558,7 @@ export function makeThreads(deps: ThreadDeps) {
       if (l.task) {
         const t = l.task;
         return h("div", "pj-task pj-issue", h("span", "t", code, ` ${l.title}`),
-          h("span", `pj-st ${t.state}`, t.state === "running" ? h("span", "dspin") : null, t.state),
+          stateChip(t.state, t.state, t.state === "running"),
           h("span", "m", h("span", "", `task: ${t.title}`), t.pr_url ? link(prLabel(t.pr_url), t.pr_url) : null));
       }
       const i = l.issue!;
@@ -578,17 +586,17 @@ export function makeThreads(deps: ThreadDeps) {
     if (s.threads === undefined) load(agent.project_id);
     const list = s.threads;
     const out: HTMLElement[] = [];
-    if (list === undefined) return [h("div", "cc-panel cc-empty", h("span", "", "Reading your pull requests and issues…"))];
+    if (list === undefined) return [emptyPanel(h("span", "", "Reading your pull requests and issues…"))];
     if (list === null) return [];
     if (s.error) out.push(h("div", "cc-err", s.error));
     const waiting = list.filter(t => t.needs_reply).length;
     out.push(h("div", "cc-sec", h("h4", "", "Your pull requests and issues", h("small", "", waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "")),
       button("Refresh", "quiet small", () => load(agent.project_id))));
     if (!list.length) {
-      out.push(h("div", "cc-panel cc-empty", h("span", "", "You have no open pull requests or issues here.")));
+      out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
     } else {
       out.push(h("div", "cc-panel", ...list.map(t => {
-        const st = t.needs_reply ? h("span", "pj-st blocked", "needs reply") : h("span", "pj-st done", "nothing to answer");
+        const st = t.needs_reply ? stateChip("blocked", "needs reply") : stateChip("done", "nothing to answer");
         const row = h("div", "pj-task pj-issue", h("span", "t", link(threadCode(t), t.url), ` ${t.title}`), st, h("span", "m", threadMeta(t, ago)));
         const acts = h("span", "acts");
         if (t.needs_reply) {

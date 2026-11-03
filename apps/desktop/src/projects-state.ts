@@ -3,6 +3,7 @@
 // importproject.ts draws the sheet; center.ts draws the page and sidebar.
 // The types are the rows the projects commands give, as Rust serializes them.
 import type { AgentQuestion, RunningAgent, RunningRow } from "./home.ts";
+import { plural } from "./components/format.ts";
 
 /// One imported project on one machine (ProjectRow), as `import_project`
 /// gives it and Home lists them.
@@ -139,9 +140,6 @@ export interface OverviewCard {
   workers: number;
   latest: LatestTask | null;
 }
-
-/// The last folder of a path.
-function base(path: string | null | undefined) { return String(path || "").split(/[\\/]/).filter(Boolean).pop() || ""; }
 
 /// Whether `cwd` is `folder` or inside it.
 function within(cwd: string, folder: string) {
@@ -691,8 +689,7 @@ function sortWhere(rows: WhereRow[]) {
 /// only the imported folders are known.
 export function whereCount(rows: readonly Pick<WhereRow, "kind">[], known: boolean) {
   const n = rows.filter(r => r.kind === "here").length;
-  const machines = (x: number) => x === 1 ? "1 machine" : `${x} machines`;
-  return known && rows.length > n ? `${n} of ${machines(rows.length)}` : machines(n);
+  return known && rows.length > n ? `${n} of ${plural(rows.length, "machine", "machines")}` : plural(n, "machine", "machines");
 }
 
 // ---------- The Projects overview ----------
@@ -779,7 +776,7 @@ export function latestLine(latest: (Pick<LatestTask, "slug" | "title" | "state">
 
 /// "1 worker", "2 workers", or "idle".
 export function workersLabel(n: number) {
-  return n ? `${n} ${n === 1 ? "worker" : "workers"}` : "idle";
+  return n ? plural(n, "worker", "workers") : "idle";
 }
 
 /// The heading's line: "3 projects in 2 orgs, 3 workers running", or
@@ -789,10 +786,10 @@ export function overviewSub(groups: readonly { group?: unknown; org: string | nu
   const orgs = groups.filter(g => g.org).length;
   const named = groups.filter(g => g.group).length;
   const workers = cards.reduce((n, c) => n + (c.sum?.workers || 0), 0);
-  const projects = `${cards.length} ${cards.length === 1 ? "project" : "projects"}`;
-  const parts = [named && `${named} ${named === 1 ? "group" : "groups"}`, orgs && `${orgs} ${orgs === 1 ? "org" : "orgs"}`].filter(Boolean);
+  const projects = plural(cards.length, "project", "projects");
+  const parts = [named && plural(named, "group", "groups"), orgs && plural(orgs, "org", "orgs")].filter(Boolean);
   const where = parts.length ? ` in ${parts.join(" and ")}` : "";
-  return `${projects}${where}, ${workers ? `${workers} ${workers === 1 ? "worker" : "workers"} running` : "no workers running"}`;
+  return `${projects}${where}, ${workers ? `${plural(workers, "worker", "workers")} running` : "no workers running"}`;
 }
 
 // ---------- Drawing ----------

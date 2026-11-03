@@ -1,9 +1,10 @@
 import { drawAgentButton } from "./agents.ts";
-import { askFiles, attached, attachError, drawAttached } from "./attach.ts";
+import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
 import { chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
 import { coderCard } from "./codercard.ts";
+import { composeField } from "./compose.ts";
 import { $, $$, bar, changed, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "./core.ts";
 import type { ChatBody, LiveEntry, PendingApproval, Step, Turn } from "./core.ts";
 import { chatHints, drawStop, refreshHints } from "./hints.ts";
@@ -104,6 +105,7 @@ export function renderChat() {
     if (typed !== !!ask.value.trim()) { typed = !typed; refreshHints(); }
   });
   dragGrip(ask);
+  composeField(ask, { images: attach });
   takeDraft(ask);
   drawStop();
   drawAgentButton();
