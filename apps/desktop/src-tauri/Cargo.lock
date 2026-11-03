@@ -433,7 +433,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "beep-desktop"
-version = "0.3.41"
+version = "0.3.42"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -487,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agent-client-protocol",
  "anyhow",

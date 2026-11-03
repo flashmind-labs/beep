@@ -626,9 +626,9 @@ async fn prompt_suggestions_fall_back_and_apps_list_without_composio() {
     assert_eq!(h.provider.calls.load(Ordering::SeqCst), 2);
 
     let apps = c.call(&ListApps {}).await.unwrap();
-    assert_eq!(apps.len(), 14);
+    assert_eq!(apps.len(), 10);
     assert_eq!(apps[0].slug, "gmail");
-    assert_eq!(apps[13].kind, AppKind::Fastmail {});
+    assert_eq!(apps[9].kind, AppKind::Fastmail {});
     assert!(apps.iter().all(|a| !a.connected));
     // Composio needs a server key; Fastmail is connected per user with OAuth.
     assert!(
