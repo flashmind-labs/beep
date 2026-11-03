@@ -284,7 +284,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-task .m a:hover { text-decoration: underline }
 .pj-task .m code { font-family: var(--mono); font-size: 11px }
 .pj-task .acts { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
-.pj-task .acts .dbtn { margin-left: -9px }
+.pj-task .acts .dbtn.quiet:first-child { margin-left: -9px }
 .pj-st { font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; display: inline-flex; gap: 5px; align-items: center }
 .pj-st.running { color: var(--emerald); border-color: rgba(59,155,122,.45) }
 .pj-st.review { color: #9DC3F0; border-color: rgba(157,195,240,.45) }
