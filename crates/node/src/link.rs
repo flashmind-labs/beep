@@ -103,6 +103,7 @@ pub async fn serve(
         .chain(state.files.iter().cloned())
         .collect();
     let folders = Folders::new(&shared);
+    offers.agents.share_folders(shared.clone());
     // The workspace as the node resolved it, only once it is shared.
     let workspace = workspace
         .and_then(|dir| dir.canonicalize().ok())
