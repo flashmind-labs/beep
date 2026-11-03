@@ -9,7 +9,6 @@ use crate::{
     provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result};
-use beep_proto::AgentAccount;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
@@ -19,6 +18,7 @@ use beep_proto::node::{
     harness::{AgentSettings, HarnessReport},
     usage::{PlanUsage, SessionSpend},
 };
+use beep_proto::{AgentAccount, ModelId};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -744,7 +744,7 @@ fn ensure_room(sessions: &HashMap<String, Arc<Session>>) -> Result<()> {
 struct Begin {
     prompt: Option<String>,
     resume: Option<String>,
-    model: Option<String>,
+    model: Option<ModelId>,
     effort: Option<agent::Effort>,
     /// A first line for the transcript, such as the branch it started on.
     note: Option<String>,
@@ -837,7 +837,7 @@ pub async fn serve_session(
             let begin = Begin {
                 prompt: Some(prompt),
                 resume: None,
-                model,
+                model: model.map(ModelId::new),
                 effort,
                 note: None,
             };
