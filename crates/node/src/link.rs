@@ -5,12 +5,13 @@ use crate::{
     agents::{AgentKind, Agents},
     env,
     files::Folders,
-    mcp::{self, Launch, Upstream},
+    mcp::{self, Upstream},
     provision::Provision,
     shell,
     state::State,
     stats, tasks, terminal,
     transfer::Transfers,
+    webhook::Webhooks,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -96,6 +97,12 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision);
+    // Live project updates: GitHub through `gh webhook forward`, Forgejo
+    // and Gitea on the private-network address the settings name.
+    match Webhooks::new(state.webhook_listen) {
+        Ok(webhooks) => offers.extra.push(Arc::new(webhooks)),
+        Err(e) => log::warn!("not taking webhooks: {e:#}"),
+    }
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
     let shared: Vec<_> = workspace
@@ -142,22 +149,7 @@ pub async fn serve(
     }));
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
-    let _mcp = match std::env::current_exe().and_then(std::path::absolute) {
-        Ok(exe) => {
-            let dir = std::path::absolute(&state.dir).unwrap_or_else(|_| state.dir.clone());
-            let launch = Arc::new(Launch::new(exe, dir));
-            let (agents, upstream) = (offers.agents.clone(), offers.tools.clone());
-            Some(AbortOnDropHandle::new(tokio::spawn(async move {
-                if let Err(e) = mcp::listen(launch, agents, upstream).await {
-                    log::warn!("not serving the Beep MCP server: {e:#}");
-                }
-            })))
-        }
-        Err(e) => {
-            log::warn!("not serving the Beep MCP server: this binary is not found: {e}");
-            None
-        }
-    };
+    let _mcp = mcp::start(&state.dir, &offers);
     let stay = async {
         let mut wait = FIRST_RETRY;
         loop {

@@ -2,7 +2,7 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { composeField, composeMessage } from "./compose.ts";
@@ -661,8 +661,10 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const live = status === "in_progress" && AGENT_ACTIVE.has(AG.page?.session.status);
   const label = stepLabel(en.text, live, open);
   const exit = failed ? log.exitCode(output) : null;
+  const beep = beepCall(title);
   const long = title.includes("\n") || label.length > 80;
-  const detail = commandDetail(title, label);
+  // A Beep call's row shows the first line of its command or prompt; opened, all of it.
+  const detail = beep ? (beep.detail.includes("\n") || beep.detail.length > 60 ? beep.detail : "") : commandDetail(title, label);
   const tail = log.tailLines(output), whole = AG.all.has(at);
   const body = !open ? ""
     : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "")
@@ -671,10 +673,25 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const opens = !!output || long;
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
   const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
-  return `<div class="dcoderen tool${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-    + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(commandOf(title))}">${esc(label)}</code>`
-    + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "")
+  const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
+  const head = beep ? beepHead(beep, title, state, live)
+    : `<code class="tt" title="${esc(commandOf(title))}">${esc(label)}</code>`
+      + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "");
+  return `<div class="dcoderen tool${beep ? " beep" : ""}${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
+    + `<span class="mk">${stepMark(status)}</span>${head}`
     + mediaButtons(title) + body + pics + "</div>";
+}
+
+const BEEP_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>';
+
+/// A call to the session's Beep tools: what it did, the machine as a chip,
+/// the first line of its command or prompt, then the file count and how it
+/// stands on the right.
+function beepHead(beep: BeepCall, title: string, state: string, live: boolean) {
+  return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${BEEP_ICON}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
+    + (beep.machine ? `<span class="mc">${esc(beep.machine)}</span>` : "")
+    + (beep.detail ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
+    + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}</span>`;
 }
 
 /// A button for each media file a step's title names (at most three),

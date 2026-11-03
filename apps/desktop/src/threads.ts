@@ -14,7 +14,7 @@ import type { TileData } from "./board.ts";
 import { STATE_LABEL, reviewState } from "./review.ts";
 import type { ReviewState, ReviewView } from "./review.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, freshNote, stateChip } from "./components/parts.ts";
+import { emptyPanel, fitRows, freshNote, stateChip } from "./components/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
 import { checksText, going } from "./runs.ts";
 import type { ChecksRow } from "./runs.ts";
@@ -380,6 +380,8 @@ export interface ThreadDeps {
   changed: () => unknown;
   /// Where the lists are kept between windows; in memory only without it.
   kept?: SectionStore<KeptThreads>;
+  /// The chip saying whether the project is live or polling.
+  mode?: (id: string) => HTMLElement | null;
 }
 
 /// A project's lists as the page cache keeps them.
@@ -559,7 +561,7 @@ export function makeThreads(deps: ThreadDeps) {
   function section(agent: Agent, id: string, title: string, count: string, body: HTMLElement[], note?: HTMLElement) {
     const box = h("div");
     box.id = id;
-    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
+    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), deps.mode?.(agent.project_id) ?? null, button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
     if (note) box.append(note);
     return box;
   }
@@ -702,7 +704,7 @@ export function makeThreads(deps: ThreadDeps) {
     const shown = withLabels(lines, s.labels);
     const body: HTMLElement[] = [];
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
-    body.push(rowsPanel(agent, "issues", shown, draw, ISSUES_SHOWN, bar));
+    body.push(h("div", "cc-panel", ...(bar ? [bar] : []), fitRows(shown.map(draw), ISSUES_SHOWN)));
     return section(agent, "sec-issues", title, issueCount(lines), body,
       h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
   }
