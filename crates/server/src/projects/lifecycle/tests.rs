@@ -290,6 +290,19 @@ async fn stopping_a_worker_starts_a_queued_task() {
 }
 
 #[tokio::test]
+async fn stopping_a_worker_labels_its_issue_blocked() {
+    let h = harness().await;
+    let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    crate::projects::worker::stop_worker_on(&h.fleet, &h.user, &worker)
+        .await
+        .expect("it stops");
+    assert_eq!(h.task(&task).await.state, TaskState::Blocked);
+    let relabeled = h.shell.ran_with("issue edit 12");
+    assert_eq!(relabeled.len(), 1, "{:?}", h.shell.ran());
+    assert!(relabeled[0].contains("--add-label beep:blocked --remove-label beep:running"));
+}
+
+#[tokio::test]
 async fn merged_pr_finishes_the_task() {
     let h = harness().await;
     let (task, worker) = h.working(TaskState::Review, minutes_ago(5)).await;

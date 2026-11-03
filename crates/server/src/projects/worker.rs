@@ -685,9 +685,9 @@ pub(crate) async fn end_worker(fleet: &dyn Fleet, user: &User, worker: &WorkerRo
         user.set_worker_state(current.id, WorkerState::Ended)
             .await?;
         if let Some(task) = user.project_task(current.task).await?
-            && task.state == TaskState::Running
+            && let Some(project) = user.project(task.project).await?
         {
-            user.set_task_state(task.id, TaskState::Blocked).await?;
+            lifecycle::block(fleet, user, &project, &task).await?;
         }
     }
     Ok(())
