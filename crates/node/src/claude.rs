@@ -60,7 +60,7 @@ impl External {
     }
 
     /// The sessions in the Claude Code folder `root`.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn at(root: &Path) -> Self {
         Self {
             store: Some(discover::Store::at(root)),

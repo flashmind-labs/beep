@@ -142,6 +142,8 @@ fn a_tilde_is_the_home() {
 async fn the_api_says_which_folder_holds_a_project_nested_or_through_a_link() {
     let home = Home::new();
     let sync = home.mkdir("sync");
+    // Only the Unix half below reaches the folder through a link.
+    #[cfg_attr(not(unix), expect(unused_variables))]
     let game = home.mkdir("sync/game");
     home.mkdir("other");
     // The API names the inner folder through a link, and a project is
