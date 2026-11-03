@@ -3,9 +3,10 @@
 
 use super::ImportError;
 use crate::{
-    credentials::ForgejoUrl,
+    credentials::{ForgejoUrl, Opened, Slot, github_for},
     projects::model::{RepoName, is_github, remote_parts},
 };
+use secrecy::ExposeSecret;
 use url::Url;
 
 const GITHUB: &str = "github.com";
@@ -102,6 +103,19 @@ impl RepoRef {
         };
         let (org, name) = org_and_name(&rest)?;
         Self::new(Host::Forgejo(server), org, name)
+    }
+
+    /// The user's saved token for this repository's host: their GitHub
+    /// account for its owner, or the one saved for its Forgejo server.
+    /// `None` when there is none or it is empty.
+    pub(crate) fn credential<'a>(&self, credentials: &'a [Opened]) -> Option<&'a Opened> {
+        match &self.host {
+            Host::GitHub => github_for(credentials, &self.org),
+            Host::Forgejo(url) => credentials
+                .iter()
+                .find(|opened| matches!(&opened.slot, Slot::Forgejo(saved) if saved == url)),
+        }
+        .filter(|opened| !opened.secret.expose_secret().is_empty())
     }
 
     fn new(host: Host, org: &str, name: &str) -> Result<Self, ImportError> {
