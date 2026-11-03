@@ -1,10 +1,4 @@
-//! Saved places, such as Home or Gym, and the routines that start on
-//! arriving at or leaving one.
-//!
-//! Every location fix the phone sends is checked against the user's places.
-//! A place is entered once the fix is inside its radius, and only left once
-//! the fix is clearly outside a wider ring, so GPS jitter at the edge does
-//! not flap between the two.
+//! Saved places and the routines that start on arriving or leaving, with a wider exit ring against GPS jitter.
 
 use crate::{
     app::App,
@@ -28,8 +22,7 @@ pub const MAX_RADIUS: u32 = 1000;
 
 /// The least a fix must be past the radius before it counts as leaving.
 const EXIT_MARGIN_MIN: f64 = 50.0;
-/// A fix less sure than this many metres, or twice the radius when that is
-/// more, cannot count as arriving.
+/// A fix less sure than this (or twice the radius) cannot count as arriving.
 const ARRIVE_ACCURACY_MIN: f64 = 100.0;
 
 /// Arriving at a place or leaving it.
@@ -109,9 +102,7 @@ impl PlaceRepeat {
     }
 }
 
-/// A routine's schedule when it starts at a place instead of at a time:
-/// `arrive:<place id>` or `leave:<place id>`, ending in `:daily` for once a
-/// day at most or `:once` for only the next time.
+/// A place schedule: `arrive:<id>` or `leave:<id>`, ending in `:daily` or `:once`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaceTrigger {
     pub event: PlaceEvent,
@@ -200,13 +191,7 @@ pub fn distance_to(place: &SavedPlace, fix: &Location) -> f64 {
     Point::from(place).distance_m(Point::from(fix))
 }
 
-/// What `fix` means for `place`, given whether the phone was there:
-/// arriving, leaving, or `None` for no change.
-///
-/// Arriving needs the fix inside the radius and sure enough to say so.
-/// Leaving needs it past the radius by a margin, and its whole accuracy
-/// circle outside the radius, so a fix wandering near the edge or a vague
-/// one indoors keeps the phone where it was.
+/// Arriving, leaving, or `None`. Leaving needs the whole accuracy circle past the radius by a margin.
 pub fn crossing(place: &SavedPlace, was_inside: bool, fix: &Location) -> Option<PlaceEvent> {
     let radius = f64::from(place.radius);
     let distance = distance_to(place, fix);
@@ -236,8 +221,7 @@ fn start_of_day(now: DateTime<Utc>, timezone: &str) -> DateTime<Utc> {
         .map_or(now, |start| start.with_timezone(&Utc))
 }
 
-/// Checks `fix` against the user's places, and starts the routines of
-/// every place it arrived at or left. Called with each fix the phone sends.
+/// Checks `fix` against the user's places and starts the routines it triggers.
 pub async fn track(app: &Arc<App>, user: &Arc<User>, fix: &Location) -> Result<()> {
     for crossing in user.cross_places(fix).await? {
         spawn_routines(app, user, crossing);
@@ -245,8 +229,7 @@ pub async fn track(app: &Arc<App>, user: &Arc<User>, fix: &Location) -> Result<(
     Ok(())
 }
 
-/// Starts the routines of place `id` when the phone's own geofencing saw it
-/// arrive or leave. Returns whether that changed where the phone was.
+/// Starts place `id`'s routines from the phone's own geofencing; returns whether that changed where it was.
 pub async fn cross(app: &Arc<App>, user: &Arc<User>, id: Uuid, event: PlaceEvent) -> Result<bool> {
     let Some(crossing) = user.cross_place(id, event).await? else {
         return Ok(false);

@@ -1,14 +1,11 @@
-//! Which new stretches of a chat are worth a watcher's model call. Memory
-//! reads every stretch. Skills only reads one where Beep did real work, and
-//! improvement reads those too plus any where a call was denied or failed.
+//! Which new stretches of a chat are worth a watcher's model call.
 
 use crate::{
     permissions,
     store::{StoredBody, StoredMessage},
 };
 
-/// Tool calls a stretch needs before the skills or improvement watcher
-/// reads it.
+/// Tool calls a stretch needs before skills or improvement reads it.
 pub(super) const MIN_TOOL_CALLS: usize = 3;
 
 /// Whether Beep made at least [`MIN_TOOL_CALLS`] tool calls in `messages`.

@@ -58,8 +58,7 @@ impl User {
             .await
     }
 
-    /// Puts events back in the queue whose triage started more than `after`
-    /// ago and never settled.
+    /// Requeues events whose triage started over `after` ago and never settled.
     pub(crate) async fn requeue_stale_triaging(&self, after: Duration) -> Result<u64> {
         self.store.requeue_stale_triaging(&self.key, after).await
     }

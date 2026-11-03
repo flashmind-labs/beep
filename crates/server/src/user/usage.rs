@@ -1,5 +1,4 @@
-//! What the user's coding agents spent and how much of their plans is
-//! left, as their machines report it.
+//! What the user's coding agents spent and their plans' usage, as machines report it.
 
 use super::User;
 use crate::{
@@ -19,8 +18,7 @@ impl User {
         self.store.add_turn_usage(&self.key, endpoint, turn).await
     }
 
-    /// Keeps a plan's usage as `endpoint` read it, unless a fresher one is
-    /// kept.
+    /// Keeps a plan's usage as `endpoint` read it, unless a fresher one is kept.
     pub(crate) async fn save_plan_usage(
         &self,
         endpoint: &EndpointId,
@@ -44,8 +42,7 @@ impl User {
         self.store.plan_usages(&self.key).await
     }
 
-    /// Keeps what a session on the machine `endpoint` spent, as its log
-    /// says, in place of what was kept of it.
+    /// Replaces what a session on `endpoint` spent with what its log says.
     pub(crate) async fn save_session_spend(
         &self,
         endpoint: &EndpointId,

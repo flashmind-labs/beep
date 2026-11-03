@@ -1,9 +1,5 @@
-//! What has no Composio trigger is polled on each sweep: GitHub
-//! notifications (review requests, mentions, assignments, failed CI and
-//! pull requests in watched repositories all show up there, account-wide),
-//! Fastmail, and Gmail or Outlook while their trigger is not set up or the
-//! realtime channel is down. A source whose app left the catalog is not
-//! polled, though its account and cursor stay.
+//! Sources without a Composio trigger are polled on each sweep: GitHub notifications, Fastmail,
+//! and Gmail or Outlook while their trigger or the realtime channel is down.
 
 use super::{Topic, normalize, submit, triggers};
 use crate::{
@@ -19,11 +15,9 @@ use serde_json::{Value, json};
 use std::{collections::HashSet, sync::Arc};
 use strum::IntoStaticStr;
 
-/// How far back a source's first poll reads, so connecting does not replay
-/// the past.
+/// How far back a source's first poll reads, so connecting does not replay the past.
 const FIRST_LOOKBACK: Days = Days::minutes(10);
-/// Each poll reads this far before where the last one stopped; the dedupe
-/// key drops what it saw already.
+/// Overlap with the previous poll; the dedupe key drops repeats.
 const OVERLAP: Days = Days::minutes(2);
 const GITHUB_PAGE: u32 = 50;
 /// The most pages of notifications one poll reads.
@@ -64,8 +58,7 @@ impl PollSource {
         }
     }
 
-    /// Whether the source's app is still in the catalog. One taken out is
-    /// left alone, even for users who connected it before.
+    /// Whether the source's app is still in the catalog; removed ones are not polled.
     fn listed(self) -> bool {
         catalog_app(self.app()).is_some()
     }
@@ -166,14 +159,12 @@ async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
     sources
 }
 
-/// Whether GitHub notifications are polled for a user with the Composio
-/// accounts `connected`.
+/// Whether GitHub notifications are polled for these connected accounts.
 fn polls_github(connected: &HashSet<String>) -> bool {
     PollSource::Github.listed() && connected.contains(PollSource::Github.app())
 }
 
-/// Queues the GitHub notifications updated since `since`, and returns how
-/// many it read.
+/// Queues GitHub notifications updated since `since` and returns how many it read.
 async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usize> {
     let Some(client) = user.composio_client() else {
         return Ok(0);
@@ -208,9 +199,7 @@ async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usi
     Ok(notifications.len())
 }
 
-/// Every item `fetch` gives from page 1 on, until a page comes back empty
-/// or `GITHUB_MAX_PAGES` were read. A short page is not taken as the last:
-/// the page size the tool honours may be below the one asked for.
+/// Every item from page 1 until an empty page or `GITHUB_MAX_PAGES`; a short page is not the last.
 async fn read_pages<F, Fut>(mut fetch: F) -> Result<Vec<Value>>
 where
     F: FnMut(u32) -> Fut,

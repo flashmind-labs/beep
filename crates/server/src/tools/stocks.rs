@@ -1,5 +1,4 @@
 //! Price history from Yahoo Finance's chart endpoint, which needs no key.
-//! `show_stock_chart` and the `StockChart` request draw from it.
 
 use crate::protocol::{
     Chart, ChartAxis, ChartKind, ChartPoint, ChartRange, ChartSeries, StockInfo,
@@ -14,8 +13,7 @@ use std::{
 use thiserror::Error;
 
 const BASE: &str = "https://query1.finance.yahoo.com/v8/finance/chart/";
-/// Yahoo answers 429 to a full browser User-Agent without its cookies, but
-/// takes this one.
+/// Yahoo answers 429 to a full browser User-Agent without cookies, but takes this one.
 const USER_AGENT: &str = "Mozilla/5.0";
 pub(crate) const SOURCE: &str = "Yahoo Finance";
 /// Symbols one chart compares at most.
@@ -100,8 +98,7 @@ pub(crate) struct Change {
     pub(crate) percent: f64,
 }
 
-/// The bar size Yahoo gives for `range`: fine enough to see the day, coarse
-/// enough to stay a few hundred points.
+/// The bar size for `range`, keeping a few hundred points.
 fn interval(range: ChartRange) -> &'static str {
     match range {
         ChartRange::Day => "5m",
@@ -114,8 +111,7 @@ fn interval(range: ChartRange) -> &'static str {
     }
 }
 
-/// The history of each of `symbols` over `range`, in order. Fails as a whole
-/// when any one fails, naming it.
+/// The history of each of `symbols` over `range`, in order; fails if any one fails.
 pub(crate) async fn fetch(
     symbols: &[Symbol],
     range: ChartRange,
@@ -260,8 +256,7 @@ fn parse(symbol: &Symbol, range: ChartRange, body: &[u8]) -> Result<History, Sto
     Ok(History { info, points })
 }
 
-/// The chart of `histories` over `range`: one symbol's price as an area, or
-/// several as lines of their percent change from their first point.
+/// The chart of `histories`: one price as an area, or several as percent-change lines.
 pub(crate) fn chart(range: ChartRange, histories: &[History]) -> Chart {
     let stock = histories.first().map(|first| first.info.clone());
     match histories {

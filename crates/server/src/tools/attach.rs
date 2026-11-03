@@ -1,7 +1,4 @@
-//! `attach`: shows the model a file from the user's home folder or one of
-//! their machines, as flashmind's `attach` does for a local file. The file
-//! goes to the model as a part of the tool result; an image for a model
-//! that cannot see goes to a vision model to be described instead.
+//! `attach`: shows the model a file from the user's home folder or machines.
 
 use super::{
     file::{UserFiles, read_user_file},
@@ -108,8 +105,7 @@ impl Attached {
     }
 }
 
-/// The media type of `path` by its extension, as flashmind's `attach`
-/// knows them.
+/// The media type of `path` by its extension.
 fn media_type(path: &str) -> Option<&'static str> {
     let extension = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
@@ -130,8 +126,7 @@ fn media_type(path: &str) -> Option<&'static str> {
     }
 }
 
-/// The media type the call gave, else the one `path`'s extension says;
-/// `None` when neither is a type.
+/// The media type the call gave, else `path`'s; `None` when neither is a type.
 fn chosen_type(given: Option<&str>, path: &str) -> Option<String> {
     given
         .map(str::trim)

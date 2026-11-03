@@ -18,14 +18,12 @@ tokio::task_local! {
     static RESEARCH_TURN: Cell<bool>;
 }
 
-/// Runs `work` with its model calls counted for `user`, for code that builds
-/// requests it cannot set a user on, such as flashmind's compaction.
+/// Runs `work` with its model calls counted for `user`.
 pub async fn billed_to<F: Future>(user: &str, work: F) -> F::Output {
     BILLED_TO.scope(user.to_owned(), work).await
 }
 
-/// Runs a turn, so the calls after `research_turn` count as research.
-/// Work it spawns, such as memory learning, counts as none.
+/// Runs a turn, so calls after `research_turn` count as research.
 pub async fn in_turn<F: Future>(work: F) -> F::Output {
     RESEARCH_TURN.scope(Cell::new(false), work).await
 }

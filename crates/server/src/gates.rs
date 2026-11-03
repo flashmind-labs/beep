@@ -1,13 +1,9 @@
-//! Checks a finished reply before the turn ends. Jev reads the reply with
-//! the calls the turn made, and each failed check tells the agent what to
-//! fix in one more pass: a map card it left out, an action it claimed but
-//! never took, a follow-up it promised with nothing scheduled.
+//! Checks a finished reply before the turn ends and sends the agent back once to fix failed checks.
 
 use crate::decision::{Criteria, DecisionTool};
 use std::fmt::Write;
 
-/// Jev's probability from which a check fails. High on purpose: a false
-/// alarm costs the user a second pass and a stray card.
+/// Jev's probability from which a check fails; high, since false alarms cost a pass.
 const THRESHOLD: f64 = 0.6;
 
 /// The tools that put a destination on the map.
@@ -28,14 +24,11 @@ pub struct Draft<'a> {
     pub asked: &'a str,
     pub reply: &'a str,
     pub calls: &'a [Call],
-    /// The tasks the user already has scheduled, so a reply that mentions
-    /// one does not count as an unkept promise.
+    /// The user's scheduled tasks, so mentioning one is not an unkept promise.
     pub scheduled: &'a [String],
-    /// Whether the run has a map card to show. A run started on a computer
-    /// has none, so a reply naming a place cannot be sent back for one.
+    /// Whether the run has a map card to show.
     pub can_map: bool,
-    /// Whether the run can schedule anything. A routine's run cannot, so a
-    /// reply promising a later check is not sent back to set one up.
+    /// Whether the run can schedule anything.
     pub can_schedule: bool,
 }
 
@@ -143,12 +136,10 @@ did in total.",
     },
 ];
 
-/// The check for a reply that stops partway through the user's task. It may
-/// send the agent back more than once, since a long job takes several passes.
+/// The check for a reply that stops partway; it may send the agent back more than once.
 pub const UNFINISHED: &str = "unfinished";
 
-/// Told before the fixes, so the second pass adds to the reply instead of
-/// writing it again.
+/// Told before the fixes, so the second pass adds to the reply.
 const PREFACE: &str = "Your reply may need a fix. The user already has it, so do not \
 repeat it or confirm it. Make the calls needed. Add one short sentence only when the fix \
 changes a fact you told them; otherwise write nothing.";
@@ -156,17 +147,14 @@ changes a fact you told them; otherwise write nothing.";
 /// A reply that failed checks.
 #[derive(Debug)]
 pub struct Verdict {
-    /// The keys of the checks it failed: `map`, `claimed`, `promised` or
-    /// `unfinished`.
+    /// The keys of the failed checks.
     pub failed: Vec<&'static str>,
     /// What the agent is told in its second pass.
     pub note: String,
 }
 
 impl Verdict {
-    /// Whether the fix is only a card the agent left out. The card speaks
-    /// for itself, so the second pass's text is dropped rather than shown
-    /// as a bubble saying the map is below.
+    /// Whether the fix is only a missing card, so the second pass's text is dropped.
     pub fn card_only(&self) -> bool {
         self.failed == ["map"]
     }
@@ -177,8 +165,7 @@ impl Verdict {
     }
 }
 
-/// The checks `draft` fails, or `None` when it passes. A check Jev cannot
-/// answer passes: the reply is already written.
+/// The checks `draft` fails, or `None`; an unanswered check passes.
 pub async fn review(decision: &DecisionTool, draft: &Draft<'_>) -> Option<Verdict> {
     if draft.reply.trim().is_empty() {
         return None;

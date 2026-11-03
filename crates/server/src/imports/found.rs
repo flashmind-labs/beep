@@ -1,6 +1,4 @@
-//! Git checkouts the user's coding agents worked in, as their machines find
-//! them, folded into one row per repository for the Add a project sheet.
-//! Checkouts already imported are left out.
+//! Checkouts the user's coding agents worked in, one row per repository, excluding imported ones.
 
 use super::repo::{RepoRef, remote_key};
 use crate::{
@@ -30,10 +28,7 @@ struct Row {
     last_activity: u64,
 }
 
-/// One row per repository the machines found, newest activity first:
-/// checkouts without a remote, folders imported on their machine and
-/// repositories imported anywhere left out. `servers` are the user's
-/// Forgejo servers, which name a remote's project.
+/// One row per found repository, newest first, skipping remoteless and already imported checkouts.
 pub(crate) fn group(
     found: Vec<MachineFound>,
     imported: &[ImportRow],

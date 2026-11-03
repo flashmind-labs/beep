@@ -1,7 +1,4 @@
-//! Workflow runs, jobs and steps as GitHub, Gitea and Forgejo give them,
-//! read into the wire's shapes, and what the page shows of them: a running
-//! run's current job and step, each pull request's checks, and the end of a
-//! failing job's log.
+//! Workflow runs, jobs and steps from GitHub, Gitea and Forgejo, read into the wire's shapes.
 
 use crate::protocol::{
     PrChecks, RunJob, RunProgress, RunState, RunStep, StepProgress, WorkflowRun,
@@ -10,8 +7,7 @@ use chrono::{DateTime, Datelike, Utc};
 use serde::Deserialize;
 use std::{collections::HashSet, time::SystemTime};
 
-/// A run list: GitHub and Gitea name it `workflow_runs`, as newer Forgejo
-/// does.
+/// A run list: GitHub, Gitea and newer Forgejo name it `workflow_runs`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct RunsReply {
     #[serde(default)]
@@ -33,8 +29,7 @@ impl RunsReply {
     }
 }
 
-/// A run as the list gives it, with the commit it ran on, which the wire's
-/// run does not carry.
+/// A listed run with its commit, which the wire's run does not carry.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ListedRun {
     pub(crate) run: WorkflowRun,
@@ -146,8 +141,7 @@ impl HostRun {
         }
     }
 
-    /// GitHub's name, else the workflow file's name without its folder or
-    /// the `@ref` Gitea adds.
+    /// GitHub's name, else the workflow file name without folder or Gitea's `@ref`.
     fn workflow_name(&self) -> String {
         if let Some(name) = self.name.as_deref().filter(|name| !name.trim().is_empty()) {
             return name.trim().to_owned();
@@ -165,8 +159,7 @@ impl HostRun {
     }
 }
 
-/// The pull request `refs/pull/12/head`, `refs/pull/12/merge` or `#12`
-/// names.
+/// The pull request `refs/pull/12/head`, `refs/pull/12/merge` or `#12` names.
 fn pull_of(reference: &str) -> Option<u64> {
     if let Some(rest) = reference.strip_prefix("refs/pull/") {
         return rest.split('/').next()?.parse().ok();
@@ -174,16 +167,14 @@ fn pull_of(reference: &str) -> Option<u64> {
     reference.strip_prefix('#')?.parse().ok()
 }
 
-/// A host's time, `None` when missing or Go's zero time, which Forgejo
-/// sends for a run that has not started.
+/// A host's time; `None` when missing or Go's zero time (Forgejo's not-started).
 fn time(text: Option<&str>) -> Option<SystemTime> {
     let at = DateTime::parse_from_rfc3339(text?.trim()).ok()?;
     let at = at.with_timezone(&Utc);
     (at.year() >= 1971).then(|| at.into())
 }
 
-/// How a run, job or step stands from the host's `status` and, once it is
-/// done, `conclusion`. Forgejo puts the outcome in `status` itself.
+/// A run, job or step's state from `status` and `conclusion`; Forgejo puts the outcome in `status`.
 pub(crate) fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
     let outcome = |word: &str| match word {
         "success" | "neutral" => Some(RunState::Passed {}),
@@ -293,9 +284,7 @@ fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// Where a run with `jobs` is: the running job, else the next one queued,
-/// and its running step, else the first one not done. `None` when no job
-/// is left to run.
+/// The running (else next queued) job and its current step; `None` when nothing is left to run.
 pub(crate) fn progress(jobs: &[RunJob]) -> Option<RunProgress> {
     let current = jobs
         .iter()
@@ -328,9 +317,7 @@ pub(crate) struct PrHeadRef<'a> {
     pub(crate) head: &'a str,
 }
 
-/// How each pull request's newest run of each workflow stands. A run is a
-/// pull request's when the host names it, or when it ran for a pull
-/// request event on its head branch. `runs` are newest first.
+/// Each PR's newest run per workflow, matched by number or PR event on its head; `runs` newest first.
 pub(crate) fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrChecks> {
     prs.iter()
         .filter_map(|pr| {
@@ -347,8 +334,7 @@ pub(crate) fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrCh
         .collect()
 }
 
-/// An open pull request's head on a host other than its own: the branch,
-/// and the commit its own host's checks ran on, when known.
+/// An open PR's head on another host: the branch, and the commit its own checks ran on.
 pub(crate) struct MirrorHead<'a> {
     pub(crate) number: u64,
     pub(crate) branch: &'a str,
@@ -356,10 +342,7 @@ pub(crate) struct MirrorHead<'a> {
     pub(crate) sha: &'a str,
 }
 
-/// How each pull request's head stands on a host it was pushed to but is
-/// not opened on, such as a Forgejo mirror of a GitHub repository: that
-/// host's pull request numbers are not this one's, so its runs count by the
-/// head branch and, where both hosts name it, the same commit.
+/// PR checks on a mirror host, matched by head branch and, where known, the same commit.
 pub(crate) fn mirror_checks(runs: &[ListedRun], heads: &[MirrorHead<'_>]) -> Vec<PrChecks> {
     heads
         .iter()
@@ -378,9 +361,7 @@ pub(crate) fn mirror_checks(runs: &[ListedRun], heads: &[MirrorHead<'_>]) -> Vec
         .collect()
 }
 
-/// The checks of pull request `number` from its runs, newest first: the
-/// newest run of each workflow, a failed one deciding, else a going one,
-/// else a passed one.
+/// PR `number`'s checks from its runs, newest first: any failure decides, else running, else passed.
 fn decide<'a>(number: u64, runs: impl Iterator<Item = &'a WorkflowRun>) -> Option<PrChecks> {
     let mut workflows = HashSet::new();
     let newest: Vec<&WorkflowRun> = runs
@@ -412,9 +393,7 @@ pub(crate) struct LogCut {
     pub(crate) truncated: bool,
 }
 
-/// From GitHub's log, the failing step's lines: from the last
-/// `##[group]` before the last `##[error]` up to just after it. Without
-/// those marks, the last lines. Timestamps and terminal colours go.
+/// The failing step's lines from a GitHub log (by `##[group]`/`##[error]`), else the tail, uncoloured.
 pub(crate) fn failing_part(log: &str, max: usize) -> LogCut {
     let lines: Vec<String> = log.lines().map(clean_line).collect();
     let error = lines.iter().rposition(|line| line.contains("##[error]"));

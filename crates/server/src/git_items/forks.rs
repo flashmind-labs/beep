@@ -1,7 +1,4 @@
-//! The user's fork of a repository and the branches of their open pull
-//! requests from it, read from GitHub's or Forgejo's API before an import
-//! clones. Both hosts answer these calls with the same fields; only the
-//! paging parameter differs.
+//! The user's fork of a repository and their open pull request branches, read from GitHub or Forgejo.
 
 use super::host::{Caller, HostError, Page};
 use crate::projects::{branches::branch_name, model::RepoName};
@@ -10,8 +7,7 @@ use serde::{Deserialize, de::DeserializeOwned};
 
 /// The most forks, or open pull requests, one page reads.
 const PAGE: &str = "50";
-/// The most pages of one list read, so a huge repository cannot keep an
-/// import calling its host.
+/// The most pages of one list read.
 const MAX_PAGES: usize = 20;
 
 /// Which API the calls go to.
@@ -31,8 +27,7 @@ impl Api {
     }
 }
 
-/// Where to look: the API's base, such as `https://api.github.com` or
-/// `https://git.example.com/api/v1`, and the repository there.
+/// The API base (such as `https://api.github.com`) and the repository there.
 pub(crate) struct Lookup<'a> {
     pub(crate) api: Api,
     pub(crate) base: &'a str,
@@ -91,8 +86,7 @@ struct Head {
     repo: Option<Named>,
 }
 
-/// The user's fork of `lookup.upstream`, `None` when they have none or the
-/// upstream is their own.
+/// The user's fork of `lookup.upstream`, `None` when they have none or own the upstream.
 pub(crate) async fn find(
     caller: &Caller<'_>,
     lookup: &Lookup<'_>,
@@ -126,9 +120,7 @@ pub(crate) async fn find(
     }))
 }
 
-/// The fork of `upstream` owned by `login`: the repository of the same
-/// name under `login` when it is that fork, else the one in the upstream's
-/// list of forks, as for a fork renamed.
+/// The fork of `upstream` owned by `login`, by name first, else from the upstream's fork list.
 async fn fork_of(
     caller: &Caller<'_>,
     lookup: &Lookup<'_>,
@@ -167,10 +159,7 @@ async fn fork_of(
         .and_then(|repo| RepoName::parse(&repo.full_name).ok()))
 }
 
-/// Every item of the list at `first`, page by page as the host's `Link`
-/// header leads, up to `MAX_PAGES`. Stops after a page `found` is true for.
-/// A next page on another host is not followed, so the token stays with
-/// the host it is for.
+/// Every item of the list at `first`, following `Link` up to `MAX_PAGES` and only on the same host.
 async fn all_pages<T: DeserializeOwned>(
     caller: &Caller<'_>,
     first: String,
@@ -197,8 +186,7 @@ async fn all_pages<T: DeserializeOwned>(
     Ok(items)
 }
 
-/// The head branches of `login`'s pull requests made from `fork`, once
-/// each. A name git would take as an option is left out.
+/// Head branches of `login`'s pull requests from `fork`, once each, skipping option-like names.
 fn branches_from(pulls: &[Pull], login: &str, fork: &RepoName) -> Vec<String> {
     let fork = fork.to_string();
     let mut branches: Vec<String> = Vec::new();
@@ -234,8 +222,7 @@ mod tests {
         sync::Semaphore,
     };
 
-    /// A host that answers each path from `routes` and 404 otherwise, and
-    /// checks every call carries the token.
+    /// A host that answers `routes`, 404s otherwise, and checks the token.
     async fn host(routes: HashMap<&'static str, &'static str>) -> String {
         paged_host(routes, HashMap::new()).await
     }

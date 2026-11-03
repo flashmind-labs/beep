@@ -1,19 +1,11 @@
-//! When a scope of the user's memories needs curating. Curation costs a
-//! model call, so it runs only for a scope that shows a need: it grew by
-//! `GROWTH` memories since it was last curated, new memories keep landing
-//! close to existing ones without being duplicates (which is also how
-//! contradictions look, "Lives in Lisbon" beside "Lives in Porto"), recalls
-//! keep coming back with many close hits, or one of its memories ended and
-//! its lasting part should be kept. The hourly check reads the memories and
-//! the per-scope state, two queries and no model call.
+//! When a scope of the user's memories needs curating (growth, near-duplicates, crowded recalls, ended memories).
 
 use super::DUPLICATE;
 use crate::store::{MemoryRow, Scope, Scored};
 use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
-/// A memory this close to an existing one in its scope, but not a
-/// duplicate, counts as a `Signal::Close` (cosine 0.75).
+/// A memory this close to another in its scope, not a duplicate, is a `Signal::Close` (cosine 0.75).
 pub(crate) const NEAR: f32 = 0.645;
 /// Memories a scope gains since its last curation that make it due.
 const GROWTH: usize = 25;
@@ -21,9 +13,7 @@ const GROWTH: usize = 25;
 const CLOSE_PILE: u32 = 3;
 /// Crowded recalls since the last curation that make a scope due.
 const CROWDED_PILE: u32 = 3;
-/// Hits in one scope scoring at least `CROWDED_SCORE` that make a recall
-/// crowded. Search scores add up to 0.3 for shared words, so this is close
-/// in meaning and in words.
+/// Hits scoring at least `CROWDED_SCORE` in one scope that make a recall crowded.
 const CROWDED_HITS: usize = 5;
 const CROWDED_SCORE: f32 = DUPLICATE;
 /// Most scopes one hourly check curates; the rest wait for the next.
@@ -77,8 +67,7 @@ pub(crate) struct ScopeNeed {
     pub(crate) need: Need,
 }
 
-/// When a memory's days ended by `now`: the start of the day after its
-/// last day.
+/// The start of the day after a memory's last day.
 fn ended_at(row: &MemoryRow, now: NaiveDateTime) -> Option<NaiveDateTime> {
     row.valid
         .until?
@@ -105,8 +94,7 @@ fn need(rows: &[&MemoryRow], state: &ScopeState, now: NaiveDateTime) -> Option<N
     (rows.len() >= state.size + GROWTH).then_some(Need::Grew)
 }
 
-/// The scopes of `rows` that need curating, the user's own first, then the
-/// biggest.
+/// The scopes of `rows` that need curating, the user's own first, then the biggest.
 pub(crate) fn curation_needs(
     rows: &[MemoryRow],
     states: &HashMap<Scope, ScopeState>,

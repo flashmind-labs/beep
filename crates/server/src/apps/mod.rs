@@ -1,9 +1,5 @@
-//! The curated app list, its Composio connections and the MCP servers users
-//! connect with OAuth.
-//!
-//! Each user's Composio entity id is their user id, the same one the agent
-//! uses when it calls Composio tools. Errors reaching the client never carry
-//! provider bodies or keys: they become `ApiError::Internal`, logged here.
+//! The curated app list, its Composio connections and the OAuth MCP servers.
+//! Errors reaching the client never carry provider bodies or keys.
 
 pub(crate) mod custom_mcp;
 pub(crate) mod files;
@@ -43,10 +39,7 @@ pub(crate) struct CatalogApp {
     pub(crate) name: &'static str,
     pub(crate) description: &'static str,
     pub(crate) kind: AppKind,
-    /// The Composio tools the agent gets once the app is connected. Every
-    /// tool's schema goes out on each model request, and an app's full set
-    /// runs to tens of thousands of tokens, so only the common ones are
-    /// picked.
+    /// The Composio tools the agent gets; only common ones, since every schema goes out on each request.
     pub(crate) tools: &'static [PickedTool],
 }
 
@@ -54,8 +47,7 @@ pub(crate) struct CatalogApp {
 pub(crate) struct PickedTool {
     pub(crate) slug: &'static str,
     pub(crate) acts: Acts,
-    /// Whether `acts` holds even when Composio's tags say the tool creates
-    /// or destroys something.
+    /// Whether `acts` holds even when Composio's tags say otherwise.
     pub(crate) over_hints: bool,
 }
 
@@ -68,8 +60,7 @@ pub(crate) const fn read(slug: &'static str) -> PickedTool {
     }
 }
 
-/// A read whose Composio tags say it creates something, when what it
-/// creates is no action of the user's.
+/// A read whose Composio tags wrongly say it creates something.
 const fn read_over_hints(slug: &'static str) -> PickedTool {
     PickedTool {
         slug,
@@ -78,8 +69,7 @@ const fn read_over_hints(slug: &'static str) -> PickedTool {
     }
 }
 
-/// A tool that sends, changes or deletes, so it falls under the app's
-/// permission level.
+/// A tool that sends, changes or deletes, so it falls under the app's permission level.
 const fn act(slug: &'static str) -> PickedTool {
     PickedTool {
         slug,
@@ -103,10 +93,7 @@ const fn composio(
     }
 }
 
-/// Shown in this order. GitHub, Linear, Todoist and SharePoint are left out:
-/// Composio's GitHub tools were mistaken for gh, which projects use. An
-/// account a user connected to one of them before is not shown and gives the
-/// agent no tools.
+/// Shown in this order. GitHub, Linear, Todoist and SharePoint are left out (Composio's GitHub was mistaken for gh).
 pub(crate) const CATALOG: &[CatalogApp] = &[
     composio(
         "gmail",
@@ -254,9 +241,7 @@ pub(crate) fn catalog_app(slug: &str) -> Option<&'static CatalogApp> {
 /// Composio credentials from the server config.
 pub struct ComposioSettings {
     pub key: SecretString,
-    /// Where Composio sends the browser after OAuth. Composio appends
-    /// `status` and `connected_account_id` query parameters. Without it,
-    /// Composio shows its own page.
+    /// Where Composio sends the browser after OAuth, with `status` and `connected_account_id` appended.
     pub callback_url: Option<String>,
 }
 
@@ -334,8 +319,7 @@ impl Composio {
         }
     }
 
-    /// Logo URLs by slug, refreshed at most once an hour. Failures leave
-    /// logos out rather than failing the list.
+    /// Logo URLs by slug, refreshed at most hourly; failures leave logos out.
     pub(crate) async fn logos(&self) -> HashMap<String, String> {
         let mut cache = self.logos.lock().await;
         if let Some(cached) = cache.as_ref().filter(|c| c.fetched.elapsed() < LOGO_TTL) {
@@ -468,9 +452,7 @@ pub(crate) async fn connected_accounts(
         .collect())
 }
 
-/// An OAuth URL for `slug`. A Tool Router session scoped to the toolkit uses
-/// the project's auth config when there is one and Composio-managed auth
-/// otherwise.
+/// An OAuth URL for `slug`, via a Tool Router session scoped to the toolkit.
 pub(crate) async fn connect_url(
     client: &ComposioClient,
     user: &str,

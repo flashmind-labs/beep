@@ -1,5 +1,4 @@
-//! Workers started on real `beep-node`s over iroh, in a real git checkout,
-//! with a scripted stand-in for the coding agent.
+//! Workers on real `beep-node`s over iroh, in a real git checkout, with a scripted agent.
 
 use super::{
     model::{
@@ -88,8 +87,7 @@ fn git_out(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-/// A bare `origin.git` in `tmp` and a clone of it at `tmp/widget` whose
-/// origin reads as a hosted repository.
+/// A bare `origin.git` in `tmp` and a clone at `tmp/widget` whose origin looks hosted.
 fn repo(tmp: &Path) -> PathBuf {
     let origin = tmp.join("origin.git");
     git(tmp, &["init", "--bare", "-b", "main", "origin.git"]);
@@ -216,9 +214,7 @@ impl World {
         }
     }
 
-    /// Drops `node`'s connection and connects it again offering `offers`,
-    /// as a node restarted with other sessions would. Waits until the server
-    /// has the new connection.
+    /// Reconnects `node` offering `offers`, as a restarted node would, and waits for the server.
     async fn reconnect(&self, node: &mut TestNode, offers: Offers) {
         node.task.abort();
         let old = node.online.connection.stable_id();
@@ -899,8 +895,7 @@ async fn inside_edits_are_answered_without_the_user() {
     assert_eq!(count(&posted, WORKER_LABEL, "asks"), 0, "{posted:?}");
 }
 
-/// A `claude/1` that only has the session `kept`, which finished a turn
-/// while the server was away.
+/// A `claude/1` holding only session `kept`, which finished a turn while the server was away.
 struct Restarted {
     kept: SessionInfo,
 }

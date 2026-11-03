@@ -1,7 +1,4 @@
-//! The custom agents a project's folder defines on one machine, for the
-//! project page. The node reads them and keeps every path inside the
-//! folder and the harnesses' own folders; the server passes them through
-//! and keeps nothing.
+//! The custom agents a project's folder defines on one machine; the node reads them.
 
 use super::{Reply, agent_control::live_host};
 use crate::{

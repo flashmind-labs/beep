@@ -1,9 +1,5 @@
-//! Importing a project: cloning a repository onto one of the user's
-//! machines and listing it as a project. The clone runs on the node through
-//! its shell, with the user's token for the host.
-//!
-//! Projects are named `org/repo`, as the projects store names them, so the
-//! two can be folded together.
+//! Importing a project: cloning a repository onto a user's machine through its node's shell, with
+//! the user's token. Projects are named `org/repo`, as the projects store names them.
 
 mod checks;
 mod clone;

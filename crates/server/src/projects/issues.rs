@@ -1,6 +1,4 @@
-//! Mirroring tasks to issues on the project's issues host, and the open
-//! issues there that no task tracks yet: listing them, tracking one as a
-//! task, or hiding it.
+//! Mirroring tasks to issues on the project's host, and tracking or hiding untracked open issues.
 
 use super::{
     commands::{
@@ -77,8 +75,7 @@ pub(crate) fn issue_body(task: TaskId, body: &str) -> String {
     format!("{}\n\n<!-- {} -->", body.trim_end(), marker(task))
 }
 
-/// Files the issue for `task` and saves it on the task. An issue an earlier
-/// try filed without hearing back is found by its marker and kept.
+/// Files and saves `task`'s issue, reusing one an earlier try filed (found by its marker).
 pub(crate) async fn file_issue(
     user: &User,
     shell: &dyn Shell,
@@ -124,8 +121,7 @@ pub(crate) fn task_leaks(public_text: &PublicText, task: &TaskRow) -> Vec<String
     .leaks(public_text)
 }
 
-/// Files issues for up to five open tasks that have none, as when an
-/// earlier try failed. Returns how many it filed.
+/// Files issues for up to five open tasks missing one. Returns how many it filed.
 pub(crate) async fn mirror_missing(
     fleet: &dyn Fleet,
     user: &User,
@@ -165,8 +161,7 @@ pub(crate) async fn mirror_missing(
     Ok(filed)
 }
 
-/// Where a project's open issues are read: its issues host, through a shell
-/// on a machine that has the project.
+/// Where a project's open issues are read: its host, via a shell on a machine with the project.
 pub(crate) struct IssueSource {
     pub(crate) host: IssueHost,
     /// The machine the shell is on.
@@ -204,8 +199,7 @@ fn host_of_url(url: &str) -> Option<IssueHost> {
     IssueHost::of_hostname(Url::parse(url).ok()?.host_str()?)
 }
 
-/// Where a project's issues host was found, and the machines that can
-/// reach it.
+/// A project's issues host and the machines that can reach it.
 pub(crate) struct HostAndMachines {
     pub(crate) host: IssueHost,
     /// The home checkout's machine, else the machines it was imported on.
@@ -214,9 +208,8 @@ pub(crate) struct HostAndMachines {
     home: bool,
 }
 
-/// A project set up with a home checkout uses its issues role and that
-/// checkout's machine; one only imported uses the host of its web page and
-/// the machines it is on. `None` when it has no GitHub or Forgejo host.
+/// From the home checkout's issues role and machine, else the imported web page's host and
+/// machines. `None` without a GitHub or Forgejo host.
 pub(crate) async fn host_and_machines(
     user: &User,
     project: &ProjectRow,
@@ -259,9 +252,7 @@ pub(crate) async fn issue_host(
         .map(|found| found.host))
 }
 
-/// Where `project`'s open issues are read, as [`issue_host`] finds it, with
-/// a shell on one of its machines that is online. `None` when it has no
-/// GitHub or Forgejo host.
+/// [`issue_host`] with a shell on an online machine. `None` without a GitHub or Forgejo host.
 pub(crate) async fn issue_source(
     fleet: &dyn Fleet,
     user: &User,
@@ -272,10 +263,8 @@ pub(crate) async fn issue_source(
         .and_then(|sources| sources.into_iter().next()))
 }
 
-/// Every place `project`'s open issues can be read, as [`issue_source`]
-/// finds them: the home checkout's machine alone, else each machine the
-/// project was imported on that is online, ordered by machine id. `None` when
-/// it has no GitHub or Forgejo host; refused when none is online.
+/// Every online place to read `project`'s issues: the home machine, else import machines by id.
+/// `None` without a GitHub or Forgejo host; refused when none is online.
 async fn issue_sources(
     fleet: &dyn Fleet,
     user: &User,
@@ -311,10 +300,8 @@ async fn issue_sources(
     Ok(Some(sources))
 }
 
-/// What one of `sources` printed for `command`, read by `parse`: each is
-/// tried in turn, so a machine whose CLI is missing, too old or signed out
-/// does not hide the list another can read. Gives the source that
-/// answered; when all fail, the last error and the machines tried.
+/// Tries `command` on each source in turn so one broken CLI does not hide the list.
+/// Gives the source that answered; when all fail, the last error and the machines tried.
 async fn read_any<'s, T>(
     fleet: &dyn Fleet,
     sources: &'s [IssueSource],
@@ -359,9 +346,7 @@ async fn read_any<'s, T>(
     )))
 }
 
-/// What older apps' Not now asks: nothing changes, since the issue list
-/// follows the host and hides no open issue. Still refused for a project
-/// without an issues host, as before.
+/// Older apps' Not now: a no-op, still refused for a project without an issues host.
 pub(crate) async fn dismiss(user: &User, project: &ProjectRow) -> Result<(), IssueError> {
     if issue_host(user, project).await?.is_none() {
         return Err(IssueError::Refused(
@@ -371,8 +356,7 @@ pub(crate) async fn dismiss(user: &User, project: &ProjectRow) -> Result<(), Iss
     Ok(())
 }
 
-/// Who opened `issue`: the account the host's CLI is signed in as, else
-/// anyone else. Not knowing counts as someone else, so Beep leaves it be.
+/// Who opened `issue`: the CLI's account, else someone else (also when unknown).
 async fn author_of(source: &IssueSource, project: &ProjectRow, issue: &ViewedIssue) -> IssueAuthor {
     let login = run_host(
         source.shell.as_ref(),
@@ -410,8 +394,7 @@ pub(crate) fn untracked(open: Vec<OpenIssue>, tracked: &[u64]) -> Vec<OpenIssue>
     left
 }
 
-/// The open issues on `project`'s host that no task tracks, newest first.
-/// Empty when it has no issues host.
+/// Open issues on `project`'s host no task tracks, newest first; empty without a host.
 #[cfg(test)]
 pub(crate) async fn list_open(
     fleet: &dyn Fleet,
@@ -431,8 +414,7 @@ pub(crate) struct HostIssues {
     pub(crate) open: Vec<OpenIssue>,
 }
 
-/// Every open issue on `project`'s host, tracked or not. `None` when it
-/// has no issues host.
+/// Every open issue on `project`'s host, tracked or not; `None` without a host.
 pub(crate) async fn read_open(
     fleet: &dyn Fleet,
     user: &User,
@@ -471,18 +453,15 @@ pub(crate) async fn untracked_now(
     Ok(untracked(read.open.clone(), &tracked))
 }
 
-/// The open pull requests on a project's host, and whether each is the
-/// user's.
+/// An open pull request on a project's host, and whether it is the user's.
 #[derive(Debug, Clone)]
 pub(crate) struct ListedPr {
     pub(crate) pr: OpenPr,
-    /// Opened by the account the host's CLI is signed in as. False when
-    /// that account is unknown.
+    /// Opened by the CLI's signed-in account; false when that is unknown.
     pub(crate) mine: bool,
 }
 
-/// The open pull requests on `project`'s host, any author's, newest first.
-/// Empty when it has no issues host.
+/// Open pull requests on `project`'s host, any author, newest first; empty without a host.
 pub(crate) async fn list_open_prs(
     fleet: &dyn Fleet,
     user: &User,
@@ -532,8 +511,7 @@ pub(crate) async fn list_open_prs(
         .collect())
 }
 
-/// The branch the pull request `number` of `project` is made from, read
-/// from its host now.
+/// The branch pull request `number` is made from, read from the host now.
 pub(crate) async fn pull_request_head(
     fleet: &dyn Fleet,
     user: &User,
@@ -581,8 +559,7 @@ fn issue_task_body(issue: &ViewedIssue) -> String {
     )
 }
 
-/// What the project agent is asked when the user wants `task`, made from
-/// `issue`, planned.
+/// What the project agent is asked to plan `task`, made from `issue`.
 fn plan_request(issue: &ViewedIssue, task: &TaskRow) -> String {
     format!(
         "The user asked you to plan issue #{number} (\"{title}\"), now tracked as the task {slug}. \
@@ -596,9 +573,7 @@ fn plan_request(issue: &ViewedIssue, task: &TaskRow) -> String {
     )
 }
 
-/// Makes a task that tracks the open issue `number`, without filing one.
-/// With `work`, starts a worker on it (or leaves it waiting for a slot);
-/// without, asks the project agent to plan it. Gives the task as it stands.
+/// Makes a task tracking open issue `number`; with `work` starts a worker, else asks for a plan.
 pub(crate) async fn track(
     fleet: &dyn Fleet,
     user: &User,
@@ -753,8 +728,7 @@ mod tests {
         .to_string()
     }
 
-    /// Alice's `acme/widget`, set up with GitHub issues and a home checkout
-    /// on `build-box`.
+    /// Alice's `acme/widget` with GitHub issues and a home checkout on `build-box`.
     async fn github_project(
         user: &User,
         fleet: &mut FakeFleet,

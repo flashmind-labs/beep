@@ -19,8 +19,7 @@ const CALENDAR_AHEAD_DAYS: i64 = 183;
 const CALENDAR_PAGES: usize = 200;
 /// How much of the calendar one Fastmail search covers.
 const FASTMAIL_SPAN_DAYS: i64 = 90;
-/// How much one Outlook calendar view covers. Graph refuses a view over
-/// 1825 days, which the whole read is.
+/// Days in one Outlook calendar view; Graph refuses views over 1825 days.
 const OUTLOOK_SPAN_DAYS: i64 = 365;
 const CALENDAR_SYSTEM: &str = "You help a personal assistant app get to know its user. You get events \
 from the user's own calendar. A repeating event is listed once with how many times it happened and between \
@@ -209,9 +208,7 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
     Ok(events)
 }
 
-/// Fastmail's tool is read from its own schema, since its arguments are not
-/// known ahead. It refuses to expand repeating events over a long window, so
-/// the window is read a season at a time.
+/// Reads Fastmail events a season at a time, since it refuses to expand repeats over long windows.
 async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     const TOOL: &str = "search_events";
     // The profile reads the first account, as the mail feed does.

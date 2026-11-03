@@ -1,6 +1,4 @@
-//! Running commands in a node's shell (`shell/1`). Each node keeps one shell
-//! stream, opened when first needed, so the folder and variables one command
-//! sets are there for the next.
+//! Commands in a node's shell (`shell/1`), on one stream so state carries to the next command.
 
 use super::Online;
 use crate::{
@@ -52,9 +50,7 @@ impl Online {
         }
         // Held for the whole command: commands in one shell run in turn.
         let mut slot = self.shell.lock().await;
-        // Taken out while the command runs, so a run cut short (its turn was
-        // cancelled) drops the stream, and the node stops the shell, instead
-        // of leaving its answer for the next command to read.
+        // Taken out while running, so a cancelled run drops the stream instead of leaving its answer.
         let mut shell = match slot.take() {
             Some(shell) => shell,
             None => self.open_shell().await?,
@@ -65,9 +61,7 @@ impl Online {
         Ok(done.ran(kept))
     }
 
-    /// Runs `command` in a shell of its own, started in the home folder, so
-    /// it shares nothing with other commands and several can run at once.
-    /// `on_output` gets the output as it comes; the node keeps up to 1 MiB.
+    /// Runs `command` in its own shell in the home folder; `on_output` gets output as it comes.
     pub async fn exec(
         &self,
         command: &str,
@@ -178,8 +172,7 @@ struct Kept {
 
 impl Kept {
     fn push(&mut self, text: &str) {
-        // Once anything went to the tail, the head is closed: later text
-        // belongs after it.
+        // Once anything went to the tail, the head is closed.
         let room = if self.tail.is_empty() {
             KEEP_HEAD - self.head.len()
         } else {

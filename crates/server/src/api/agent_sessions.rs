@@ -39,8 +39,6 @@ pub(super) struct Host {
     pub(super) name: String,
 }
 
-/// The caller's own machines. A machine whose key was unlinked is left
-/// out.
 pub(super) async fn list_agent_sessions(
     cx: Cx,
     _: ListAgentSessions,
@@ -48,8 +46,7 @@ pub(super) async fn list_agent_sessions(
     Ok(machine_sessions(&cx.app, &cx.user).await?)
 }
 
-/// The coding-agent sessions on `user`'s machines online now, newest
-/// activity first. A machine whose key was unlinked is left out.
+/// The coding-agent sessions on `user`'s linked online machines, newest activity first.
 pub(crate) async fn machine_sessions(
     app: &App,
     user: &User,
@@ -66,8 +63,7 @@ pub(crate) async fn machine_sessions(
         .into_iter()
         .map(|node| (node.endpoint, node.name))
         .collect();
-    // The futures are made up front: a closure inside the stream would keep
-    // the reply future from being `Send`.
+    // Futures made up front: a closure inside the stream would make the reply not `Send`.
     let asks: Vec<_> = app
         .nodes
         .of_user(user.id())
@@ -130,8 +126,7 @@ pub(super) async fn limited<T>(call: impl Future<Output = Result<T>>) -> Result<
         .context("the node did not answer in time")?
 }
 
-/// The sessions on one node: nothing when its list fails, and only its
-/// Beep sessions when its outside sessions cannot be listed.
+/// The sessions on one node: none when its list fails.
 async fn node_sessions(online: Online, host: Host) -> Vec<MachineSession> {
     if !online.offers(SESSIONS_PROTOCOL) {
         return Vec::new();
@@ -160,8 +155,7 @@ async fn node_sessions(online: Online, host: Host) -> Vec<MachineSession> {
     beep.chain(outside).collect()
 }
 
-/// The sessions of `agent` started outside Beep; none when the node cannot
-/// list them, as an older node or one without the agent may not.
+/// The sessions of `agent` started outside Beep; none when the node cannot list them.
 async fn external_sessions(online: &Online, agent: &str) -> Vec<ExternalSession> {
     match limited(online.external_sessions(agent, EXTERNAL_LIMIT, None)).await {
         Ok(sessions) => sessions,
@@ -172,8 +166,7 @@ async fn external_sessions(online: &Online, agent: &str) -> Vec<ExternalSession>
     }
 }
 
-/// A session Beep started. Its `last_activity` is when it started: the
-/// node reports no later time for it.
+/// A session Beep started; its `last_activity` is its start, as the node reports no later time.
 pub(super) fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
     let started_at = unix(info.started_at);
     MachineSession {

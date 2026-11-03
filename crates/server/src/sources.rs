@@ -1,5 +1,4 @@
-//! The web pages a reply used, which the apps show as chips under it
-//! instead of the model listing them in its text.
+//! The web pages a reply used, shown as chips under it.
 
 use crate::protocol::{MAX_SOURCES, WebSource};
 use flashmind::types::event::Source;
@@ -15,8 +14,7 @@ enum Found {
 }
 
 impl Found {
-    /// What `tool`'s sources are, `None` for a tool whose sources a reply
-    /// does not show.
+    /// What `tool`'s sources are, `None` when a reply does not show them.
     fn by(tool: &str) -> Option<Self> {
         match tool {
             "web_scrape" => Some(Self::Read),
@@ -28,8 +26,7 @@ impl Found {
 
 #[derive(Debug)]
 struct Entry {
-    /// The URL without its fragment or a trailing slash, which name the
-    /// same page.
+    /// The URL without its fragment or a trailing slash.
     key: String,
     url: Url,
     title: String,
@@ -43,9 +40,7 @@ pub struct ReplySources {
 }
 
 impl ReplySources {
-    /// Adds what a call of `tool` returned. A page seen again keeps its
-    /// first place, counts as read once any call read it, and takes a title
-    /// when it had none.
+    /// Adds a call's sources; a page seen again keeps its place and gains read status and a title.
     pub fn add(&mut self, tool: &str, sources: &[Source]) {
         let Some(found) = Found::by(tool) else {
             return;
@@ -79,8 +74,7 @@ impl ReplySources {
         self.entries.is_empty()
     }
 
-    /// What the reply shows: pages read first, then search results, each in
-    /// the order they came, at most `MAX_SOURCES`.
+    /// Pages read first, then search results, at most `MAX_SOURCES`.
     pub fn to_wire(&self) -> Vec<WebSource> {
         let read = self.entries.iter().filter(|e| e.found == Found::Read);
         let listed = self.entries.iter().filter(|e| e.found == Found::Listed);

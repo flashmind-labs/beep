@@ -1,6 +1,4 @@
-//! Folders the user picks on a machine: where an import goes, and what the
-//! Import a project sheet browses. They are read through the node's shell,
-//! so any folder the user can open is reachable, not only shared ones.
+//! Folders the user picks on a machine, read through the node's shell so any readable folder works.
 
 use super::{ImportError, clone::quote};
 use crate::protocol::MachineFolder;
@@ -12,8 +10,7 @@ const MAX_FOLDERS: u32 = 500;
 /// The longest path taken.
 const MAX_PATH: usize = 1024;
 
-/// A folder on a machine as the user gave it: absolute, or under the home
-/// folder, which the machine's shell expands.
+/// A folder on a machine as given: absolute, or under `~`, which the machine's shell expands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FolderPath {
     /// `/` and the parts after it, without a trailing `/`.
@@ -23,9 +20,7 @@ pub(crate) enum FolderPath {
 }
 
 impl FolderPath {
-    /// The folder `input` names; `None` when it is blank. A path must be
-    /// absolute or start with `~`; `.` and empty parts are dropped, and
-    /// `..` and control characters are refused.
+    /// The folder `input` names, `None` when blank; refuses relative paths, `..` and control characters.
     pub(crate) fn parse(input: &str) -> Result<Option<Self>, ImportError> {
         let input = input.trim();
         if input.is_empty() {
@@ -69,9 +64,7 @@ impl FolderPath {
     }
 }
 
-/// The script that reads one folder. It prints `path`, then for a folder
-/// `git <origin>` when it is a checkout, `full` when it holds anything and
-/// `dir <name>` per folder in it.
+/// Reads one folder: prints `path`, then `git <origin>`, `full` and `dir <name>` lines as they apply.
 pub(crate) fn script(folder: &FolderPath) -> String {
     format!(
         "d={word}\n\
@@ -165,8 +158,7 @@ fn parent(path: &str) -> Option<String> {
     }
 }
 
-/// Where an import into the picked folder `seen` goes: the folder itself
-/// when it is a checkout, empty or missing, else `<folder>/<name>`.
+/// Where an import into `seen` goes: the folder itself when a checkout, empty or missing, else `<folder>/<name>`.
 pub(crate) fn destination(seen: &MachineFolder, name: &str) -> String {
     if !seen.exists || seen.empty || seen.origin.is_some() {
         seen.path.clone()

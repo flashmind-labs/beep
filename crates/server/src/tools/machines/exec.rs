@@ -1,6 +1,4 @@
-//! `exec`: a shell command on one of the user's machines, as flashmind's
-//! tool of that name runs one locally, in the foreground or as a background
-//! task the node keeps (see `process`).
+//! `exec`: a shell command on one of the user's machines, in the foreground or background.
 
 use super::{Machines, Need, in_parameter};
 use crate::{
@@ -15,14 +13,12 @@ use serde_json::{Value, json};
 use std::{collections::VecDeque, time::Duration};
 
 pub(super) const NAME: &str = "exec";
-/// What every command's step says, `process` calls included: the command
-/// itself stays out of the chat.
+/// What every command's step says, so the command itself stays out of the chat.
 pub(super) const STEP: &str = "Running code";
 
 /// The longest `timeout_secs` the model may set.
 const MAX_TIMEOUT_SECS: u64 = 1800;
-/// How long a command runs when the model sets no timeout: the node's own
-/// limit.
+/// How long a command runs when the model sets no timeout.
 const DEFAULT_LIMIT: Duration = Duration::from_secs(60 * 60);
 /// The most lines `head` and `tail` keep together.
 const MAX_PREVIEW_LINES: usize = 1000;
@@ -201,8 +197,7 @@ impl Tool for ExecTool {
     }
 }
 
-/// `command`, run in `cwd` when the machine has a workspace. Each command
-/// gets its own shell, so the `cd` is all there is to it.
+/// `command`, run in `cwd` when the machine has a workspace.
 fn in_folder(cwd: Option<&str>, command: &str) -> Result<String, String> {
     match cwd {
         Some(cwd) => {
@@ -325,8 +320,7 @@ pub(super) fn task_lines(lines: &[String], earlier: bool) -> String {
     out
 }
 
-/// The step's label: "Running" and the command's first line, cut short, so
-/// the chat shows what ran; just `STEP` without one.
+/// The step's label: "Running" and the command's first line, else `STEP`.
 fn step(args: &Value) -> String {
     let command = args.get("command").and_then(Value::as_str).unwrap_or("");
     match command.lines().map(str::trim).find(|line| !line.is_empty()) {
