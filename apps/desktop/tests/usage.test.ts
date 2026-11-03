@@ -1,15 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { asOf, harnessLine, hasUsage, money, planLeft, planName, resetName, shortName, todayTotal, tokenCount, unpricedLine, windowLeft, windowName, type UsageView } from "../src/usage.ts";
+import { asOf, harnessLine, hasUsage, money, periods, planName, planUsed, resetName, shortName, tokenCount, unpricedLine, windowName, windowUsed, type Period, type UsageView } from "../src/usage.ts";
 
-const empty: UsageView = { limits: [], today: [], harnesses: [], week: { project: "", cost_usd: 0, unpriced: [] } };
+const none: Period = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
+const empty: UsageView = { limits: [], today: none, week: none, month: none };
 
-test("a plan has left what its tightest window has left", () => {
+test("a plan has used what its tightest window has used", () => {
   const plan = { windows: [{ used_percent: 38 }, { used_percent: 76.4 }] };
-  assert.equal(planLeft(plan), 24);
-  assert.equal(planLeft({ windows: [] }), null);
-  assert.equal(windowLeft({ used_percent: 130 }), 0);
-  assert.equal(windowLeft({ used_percent: -5 }), 100);
+  assert.equal(planUsed(plan), 76);
+  assert.equal(planUsed({ windows: [] }), null);
+  assert.equal(windowUsed({ used_percent: 130 }), 100);
+  assert.equal(windowUsed({ used_percent: -5 }), 0);
 });
 
 test("windows and plans read as people say them", () => {
@@ -47,13 +48,9 @@ test("dollars and tokens", () => {
   assert.equal(unpricedLine([{ name: "codex", tokens: 1_100_000 }, { name: "gemini", tokens: 0 }]), "1.1M Codex tokens");
 });
 
-test("today's total adds every project", () => {
-  const total = todayTotal([
-    { project: "widget", cost_usd: 3.1, unpriced: [{ name: "codex", tokens: 1_100_000 }] },
-    { project: "relay", cost_usd: 1.1, unpriced: [{ name: "codex", tokens: 200_000 }] },
-  ]);
-  assert.equal(money(total.cost), "$4.20");
-  assert.equal(total.tokens, 1_300_000);
+test("the month shows only when the server keeps it", () => {
+  assert.deepEqual(periods(empty).map(p => p.label), ["Today", "This week", "This month"]);
+  assert.deepEqual(periods({ ...empty, month: null }).map(p => p.key), ["today", "week"]);
 });
 
 test("a harness shows dollars only when it reports them", () => {
@@ -65,5 +62,6 @@ test("the pill hides with nothing to show or an old server", () => {
   assert.equal(hasUsage(null), false);
   assert.equal(hasUsage(empty), false);
   assert.equal(hasUsage({ ...empty, limits: [{ agent: "claude", plan: null, machine_name: "build-box", as_of: 0, windows: [] }] }), false);
-  assert.equal(hasUsage({ ...empty, today: [{ project: "widget", cost_usd: 0.5, unpriced: [] }] }), true);
+  assert.equal(hasUsage({ ...empty, today: { ...none, projects: [{ project: "widget", cost_usd: 0.5, unpriced: [] }] } }), true);
+  assert.equal(hasUsage({ ...empty, month: { ...none, tokens: 900_000 } }), true);
 });
