@@ -499,6 +499,40 @@ async fn questions_inside_the_worktree_are_answered() {
 }
 
 #[tokio::test]
+async fn a_question_whose_answer_fails_to_send_is_answered_again() {
+    use crate::protocol::node::agent::AnswerOption;
+    use std::sync::atomic::Ordering;
+    let h = harness().await;
+    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
+    let question = Question {
+        id: 1,
+        text: "Edit notes.txt".to_owned(),
+        detail: Some("/srv/widget/.worktrees/spin-it/notes.txt".to_owned()),
+        options: vec![AnswerOption {
+            id: "allow".into(),
+            name: "Allow".into(),
+            kind: OptionKind::AllowOnce,
+        }],
+    };
+    h.fleet.send_fails.store(true, Ordering::Relaxed);
+    asked(&h.fleet, &h.user, worker.id, question.clone(), true)
+        .await
+        .expect_err("the send fails");
+    assert!(h.fleet.sends().is_empty());
+    h.fleet.send_fails.store(false, Ordering::Relaxed);
+    asked(&h.fleet, &h.user, worker.id, question, true)
+        .await
+        .expect("it judges");
+    assert_eq!(
+        h.fleet.sends(),
+        vec![AgentRequest::Answer {
+            question: 1,
+            reply: "allow".into()
+        }]
+    );
+}
+
+#[tokio::test]
 async fn a_failed_reattach_leaves_the_worker() {
     let h = harness().await;
     let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;

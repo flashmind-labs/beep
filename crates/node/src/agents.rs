@@ -1240,12 +1240,17 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             Err(e) => failed(e),
         },
         SessionsRequest::CustomAgents { folder } => {
-            let home = dirs::home_dir();
-            work_request(move || {
-                let agents = custom_agents::list(&folder, home.as_deref())?;
-                Ok(SessionsReply::CustomAgents { agents })
-            })
-            .await
+            match agents.reachable(&folder, reach::Access::Work).await {
+                Ok(real) => {
+                    let home = dirs::home_dir();
+                    work_request(move || {
+                        let agents = custom_agents::list(&real, home.as_deref())?;
+                        Ok(SessionsReply::CustomAgents { agents })
+                    })
+                    .await
+                }
+                Err(e) => failed(e),
+            }
         }
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
