@@ -862,8 +862,9 @@ button.dachip:hover { border-color: #3A4A41 }
 .dthink .kk { max-height: calc(1.55em * 9); overflow-y: auto; scrollbar-width: none; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--dim) }
 .dthink .kk::-webkit-scrollbar { display: none }
 .dthink .kk.ov { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em); mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em) }
-.dthink .kk .n { background: linear-gradient(90deg, var(--dim) 0%, var(--muted) 45%, var(--fg) 85%, #fff 100%); -webkit-background-clip: text; background-clip: text; color: transparent }
-@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none; background: none; color: var(--muted) } .dthink .bd, .dthink .cv { transition: none } .dthink .kk .n { background: none; color: var(--dim) } }
+.dthink .kk .o { color: var(--muted) } .dthink .kk .u { opacity: .55 }
+.dthink .kk .n { background: linear-gradient(90deg, var(--muted) 0%, var(--fg) 70%, #fff 100%); -webkit-background-clip: text; background-clip: text; color: transparent }
+@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none; background: none; color: var(--muted) } .dthink .bd, .dthink .cv { transition: none } .dthink .kk .n { background: none; color: var(--muted) } }
 .dcoderthought { margin-top: -6px; padding-left: 24px; font-size: 12.5px; font-style: italic; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
