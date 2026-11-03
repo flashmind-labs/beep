@@ -360,7 +360,7 @@ export interface Placement {
 }
 
 /// Places a popover of `size` by `anchor` inside a `view` of that size:
-/// below it with right edges lined up when it fits there, else above, else
+/// above it with right edges lined up when it fits there, else below, else
 /// on the roomier side cut to fit. It stays `margin` inside the view.
 export function placePopover(anchor: Rect, size: { width: number; height: number }, view: { width: number; height: number }, margin = 8, gap = 6): Placement {
   const width = Math.min(size.width, Math.max(0, view.width - 2 * margin));
@@ -369,9 +369,11 @@ export function placePopover(anchor: Rect, size: { width: number; height: number
   const below = view.height - (anchor.top + anchor.height) - gap - margin;
   const under = Math.min(view.height - margin, anchor.top + anchor.height + gap);
   const over = (h: number) => Math.max(margin, anchor.top - gap - h);
-  if (size.height <= below) return { top: under, left, width, maxHeight: null };
   if (size.height <= above) return { top: over(size.height), left, width, maxHeight: null };
-  if (below >= above) return { top: under, left, width, maxHeight: Math.max(0, below) };
-  const h = Math.max(0, above);
-  return { top: over(h), left, width, maxHeight: h };
+  if (size.height <= below) return { top: under, left, width, maxHeight: null };
+  if (above >= below) {
+    const h = Math.max(0, above);
+    return { top: over(h), left, width, maxHeight: h };
+  }
+  return { top: under, left, width, maxHeight: Math.max(0, below) };
 }
