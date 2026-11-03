@@ -69,9 +69,3 @@ export function agentMeta(a: Pick<CustomAgentRow, "scope" | "model" | "tools">):
   if (a.tools.length) out.push(a.tools.length === 1 ? a.tools[0] : `${a.tools.length} tools`);
   return out;
 }
-
-/// The list's note: how many there are and where they were read.
-export function agentsNote(rows: readonly CustomAgentRow[], place: AgentsPlace) {
-  const mine = rows.filter(r => r.scope === "user").length;
-  return mine ? `in its folder and yours on ${place.name}` : `in its folder on ${place.name}`;
-}
