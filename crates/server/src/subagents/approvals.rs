@@ -74,6 +74,7 @@ impl Approvals {
         let _ = self.notifications.send(UserNotice {
             user: asked.user,
             notice: Notice::resolved(asked.chat.to_string(), question),
+            desktop: None,
         });
     }
 
@@ -163,6 +164,7 @@ impl Approvals {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         });
         let asked = Asked {
             approvals: self.clone(),

@@ -120,7 +120,7 @@ pub use shares::{CopiedShare, Share};
 pub use skills::{NewSkill, Review, SKILL_LIMIT, SkillOwner, SkillPatch, SkillRow};
 pub use test_db::{TestDb, TestTurn, test_chat, test_steps, test_turn, test_turn_with};
 pub use updates::{Bumped, UpdateHub, start_pruning};
-pub use user_keys::{Account, AccountKey, LinkKey, NewKey, SignIn};
+pub use user_keys::{Account, AccountKey, LinkKey, LiveKey, NewKey, SignIn};
 
 /// The schema, oldest first. Embedded by hand because `sqlx::migrate!`
 /// needs sqlx's `migrate` feature, which clashes with

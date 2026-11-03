@@ -667,7 +667,8 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
             received = rx.recv() => match received {
                 Ok(event) if event.user == cx.user.id()
                     && (resolves || event.notice.resolved_question().is_none()) => {
-                    match timeout(SEND_TIMEOUT, sink.send(&event.notice)).await {
+                    let notice = event.for_device(&cx.device);
+                    match timeout(SEND_TIMEOUT, sink.send(notice)).await {
                         Ok(sent) => sent?,
                         Err(_) => return Ok(()),
                     }

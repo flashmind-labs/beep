@@ -50,6 +50,7 @@ impl App {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         };
         // Best-effort: ignore send errors (no active receivers).
         let _ = self.notifications.send(notice);

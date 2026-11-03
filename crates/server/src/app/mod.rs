@@ -185,6 +185,9 @@ pub enum Admission {
 pub struct UserNotice {
     pub user: String,
     pub notice: Notice,
+    /// What the user's computers get instead of `notice`, when they read
+    /// more from it than phones do.
+    pub desktop: Option<Notice>,
 }
 
 impl UserNotice {
@@ -202,6 +205,15 @@ impl UserNotice {
                 changed: true,
                 group: false,
             },
+            desktop: None,
+        }
+    }
+
+    /// The notice a device of `kind` gets.
+    pub fn for_device(&self, kind: &DeviceKind) -> &Notice {
+        match &self.desktop {
+            Some(desktop) if matches!(kind, DeviceKind::Desktop {}) => desktop,
+            _ => &self.notice,
         }
     }
 

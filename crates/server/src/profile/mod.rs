@@ -316,6 +316,7 @@ fn notify(user: &User, source: Source, summary: &Summary, learned: usize) {
             changed: false,
             group: false,
         },
+        desktop: None,
     };
     // Nobody listening means the phone is offline; Memories still shows them.
     let _ = user.notifications.send(notice);
