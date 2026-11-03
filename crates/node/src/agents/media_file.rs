@@ -5,7 +5,6 @@
 use anyhow::{Context, Result, bail};
 use beep_proto::{AGENT_FILE_CHUNK, MAX_AGENT_FILE, media_mime};
 use std::{
-    fs::File,
     io::{ErrorKind, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
@@ -28,7 +27,7 @@ pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result
         bail!("{path} is not a picture, video, 3D model or PDF");
     };
     let full = resolve(path, home)?;
-    let mut file = match File::open(&full) {
+    let mut file = match crate::fsat::open_read(&full) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).with_context(|| format!("could not open {path}")),
