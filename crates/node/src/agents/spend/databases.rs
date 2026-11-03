@@ -11,6 +11,7 @@
 
 use super::ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL};
 use crate::agents::prices::Tokens;
+use beep_proto::ModelId;
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path, time::Duration};
@@ -98,7 +99,7 @@ pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap
         part.buckets
             .entry(BucketKey {
                 hour,
-                model: model.clone(),
+                model: ModelId::new(model.as_str()),
             })
             .or_default()
             .add(&model, &tokens, Some(cost));
@@ -166,7 +167,7 @@ pub(super) fn flsh(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<Str
         part.buckets.insert(
             BucketKey {
                 hour: last - last % 3600,
-                model,
+                model: ModelId::new(model),
             },
             bucket,
         );

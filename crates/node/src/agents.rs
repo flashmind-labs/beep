@@ -27,7 +27,6 @@ use std::{
     env,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
-    str::FromStr,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, SystemTime},
 };
@@ -43,6 +42,7 @@ mod harnesses;
 mod image_files;
 mod images;
 mod live;
+mod media_file;
 mod models;
 mod plans;
 mod prices;
@@ -293,16 +293,16 @@ impl Agents {
         Some(self.models.get(name, models::find(kind)).await)
     }
 
-    /// The CLI of the agent `name`, with `args`, as a plan read starts it:
-    /// signed in as the agent's sessions are, with the user's settings for
-    /// it. `None` when this node does not run it or the user turned it off.
-    fn cli(&self, name: &str, args: &[&str]) -> Option<tokio::process::Command> {
+    /// The CLI of `agent`, with `args`, as a plan read starts it: signed
+    /// in as the agent's sessions are, with the user's settings for it.
+    /// `None` when this node does not run it or the user turned it off.
+    fn cli(&self, agent: AgentAccount, args: &[&str]) -> Option<tokio::process::Command> {
+        let name = agent.slug();
         let kind = self.kinds.iter().find(|kind| kind.name == name)?;
         let kind = self.settings.configured(kind).ok()?;
         let program = harnesses::find(name)?;
         let mut command = process::command(program);
-        let account = AgentAccount::from_str(name).ok();
-        spawn_env::apply(&mut command, Scope::Agent(account));
+        spawn_env::apply(&mut command, Scope::Agent(Some(agent)));
         command
             .args(args)
             .envs(&kind.env)
@@ -313,8 +313,8 @@ impl Agents {
     /// How much of each agent's plan is left, read from the CLIs of the
     /// agents this node runs. One that cannot say is left out.
     async fn read_plans(&self) -> Vec<PlanUsage> {
-        let claude = self.cli("claude", plans::CLAUDE_ARGS);
-        let codex = self.cli("codex", plans::CODEX_ARGS);
+        let claude = self.cli(AgentAccount::Claude, plans::CLAUDE_ARGS);
+        let codex = self.cli(AgentAccount::Codex, plans::CODEX_ARGS);
         let (claude, codex) = tokio::join!(
             async {
                 match claude {
@@ -329,11 +329,11 @@ impl Agents {
                 }
             },
         );
-        [("claude", claude), ("codex", codex)]
+        [(AgentAccount::Claude, claude), (AgentAccount::Codex, codex)]
             .into_iter()
             .filter_map(|(agent, read)| {
                 read.unwrap_or_else(|e| {
-                    log::debug!("{agent} plan usage not read: {e:#}");
+                    log::debug!("{} plan usage not read: {e:#}", agent.slug());
                     None
                 })
             })
@@ -1006,6 +1006,26 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 message: format!("could not read session {session}: {e:#}"),
             },
         },
+        SessionsRequest::File { path, offset } => {
+            let home = dirs::home_dir();
+            let read =
+                spawn_blocking(move || media_file::read_chunk(&path, offset, home.as_deref()))
+                    .await;
+            match read {
+                Ok(Ok(Some(chunk))) => SessionsReply::File {
+                    size: chunk.size,
+                    mime: chunk.mime.to_owned(),
+                    data: chunk.data,
+                },
+                Ok(Ok(None)) => SessionsReply::NoFile {},
+                Ok(Err(e)) => SessionsReply::Error {
+                    message: format!("{e:#}"),
+                },
+                Err(e) => SessionsReply::Error {
+                    message: format!("the file read stopped: {e}"),
+                },
+            }
+        }
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
             None => SessionsReply::Error {

@@ -4,13 +4,14 @@
 use super::Reply;
 use crate::{
     protocol::{
-        AgentTokens, GetUsage, GetUsageReport, HarnessSpend, ModelSpend, PeriodSpend, PlanLimits,
-        PlanWindow, ProjectSpend, UsageReport, UsageView,
+        AgentSlug, AgentTokens, GetUsage, GetUsageReport, HarnessSpend, ModelId, ModelSpend,
+        PeriodSpend, PlanLimits, PlanWindow, ProjectSpend, UsageReport, UsageView,
     },
     router::Cx,
     store::{DayModelRow, DaySpendRow, ImportRow, ModelRow, PlanRow, SpendRow},
 };
 use chrono::NaiveDate;
+use iroh::EndpointId;
 use std::{
     cmp::{Ordering, Reverse},
     collections::{BTreeMap, HashMap, HashSet},
@@ -18,7 +19,7 @@ use std::{
 };
 
 /// The harnesses whose plans show first, in this order.
-const PLAN_ORDER: &[&str] = &["claude", "codex"];
+const PLAN_ORDER: &[AgentSlug] = &[AgentSlug::CLAUDE, AgentSlug::CODEX];
 
 pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<UsageView> {
     if refresh {
@@ -33,9 +34,11 @@ pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<U
         cx.user.imports(),
         cx.user.nodes(),
     )?;
-    let names: HashMap<String, String> = nodes
+    // A node whose stored key does not parse has no name to show; its
+    // plan still shows, without the machine.
+    let names: HashMap<EndpointId, String> = nodes
         .into_iter()
-        .map(|node| (node.endpoint, node.name))
+        .filter_map(|node| Some((node.endpoint.parse().ok()?, node.name)))
         .collect();
     Ok(UsageView {
         limits: limits(plans, &names),
@@ -62,9 +65,9 @@ pub(super) async fn get_usage_report(
         cx.user.imports(),
         cx.user.nodes(),
     )?;
-    let names: HashMap<String, String> = nodes
+    let names: HashMap<EndpointId, String> = nodes
         .into_iter()
-        .map(|node| (node.endpoint, node.name))
+        .filter_map(|node| Some((node.endpoint.parse().ok()?, node.name)))
         .collect();
     let period = |from: NaiveDate| period_spend(&days, &models, &imports, from);
     Ok(UsageReport {
@@ -87,7 +90,7 @@ fn period_spend(
         .iter()
         .filter(|row| row.day >= from)
         .map(|row| SpendRow {
-            endpoint: row.endpoint.clone(),
+            endpoint: row.endpoint,
             cwd: row.cwd.clone(),
             agent: row.agent.clone(),
             today: true,
@@ -108,22 +111,22 @@ fn period_spend(
 /// from the logs where an agent has any, else from the turns Beep watched.
 fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
     let models: Vec<&DayModelRow> = models.iter().filter(|row| row.day >= from).collect();
-    let logged: HashSet<&str> = models
+    let logged: HashSet<&AgentSlug> = models
         .iter()
         .filter(|row| row.from_logs)
-        .map(|row| row.agent.as_str())
+        .map(|row| &row.agent)
         .collect();
-    let mut by_model: BTreeMap<(&str, &str), u64> = BTreeMap::new();
+    let mut by_model: BTreeMap<(&AgentSlug, &ModelId), u64> = BTreeMap::new();
     for row in models {
-        if row.from_logs == logged.contains(row.agent.as_str()) {
+        if row.from_logs == logged.contains(&row.agent) {
             *by_model.entry((&row.agent, &row.model)).or_default() += row.tokens;
         }
     }
     let mut out: Vec<ModelRow> = by_model
         .into_iter()
         .map(|((agent, model), tokens)| ModelRow {
-            agent: agent.to_owned(),
-            model: model.to_owned(),
+            agent: agent.clone(),
+            model: model.clone(),
             tokens,
         })
         .collect();
@@ -132,11 +135,11 @@ fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
 }
 
 /// Each agent's plan, Claude Code and Codex first.
-fn limits(mut plans: Vec<PlanRow>, names: &HashMap<String, String>) -> Vec<PlanLimits> {
-    let rank = |agent: &str| {
+fn limits(mut plans: Vec<PlanRow>, names: &HashMap<EndpointId, String>) -> Vec<PlanLimits> {
+    let rank = |agent: &AgentSlug| {
         PLAN_ORDER
             .iter()
-            .position(|known| *known == agent)
+            .position(|known| known == agent)
             .unwrap_or(PLAN_ORDER.len())
     };
     plans.sort_by(|a, b| {
@@ -201,7 +204,7 @@ fn unpriced(spend: &ProjectSpend) -> u64 {
 /// What `rows` spent together, under no project.
 fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
     let mut cost_usd = 0.0;
-    let mut tokens: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut tokens: BTreeMap<&AgentSlug, u64> = BTreeMap::new();
     for row in rows {
         cost_usd += row.cost_usd.unwrap_or(0.0);
         if row.unpriced_tokens > 0 {
@@ -214,7 +217,7 @@ fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
         unpriced: tokens
             .into_iter()
             .map(|(agent, tokens)| AgentTokens {
-                agent: agent.to_owned(),
+                agent: agent.clone(),
                 tokens,
             })
             .collect(),
@@ -224,7 +227,7 @@ fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
 /// Today's spending by harness, only those that spent anything, the most
 /// expensive first: dollars where the harness reports them, tokens always.
 fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
-    let mut by_agent: BTreeMap<&str, HarnessSpend> = BTreeMap::new();
+    let mut by_agent: BTreeMap<&AgentSlug, HarnessSpend> = BTreeMap::new();
     for row in spend.iter().filter(|row| row.today) {
         let harness = by_agent.entry(&row.agent).or_insert_with(|| HarnessSpend {
             agent: row.agent.clone(),
@@ -239,7 +242,7 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
     }
     // Rows come the most used first.
     for model in models {
-        if let Some(harness) = by_agent.get_mut(model.agent.as_str()) {
+        if let Some(harness) = by_agent.get_mut(&model.agent) {
             harness.models.push(ModelSpend {
                 model: model.model.clone(),
                 tokens: model.tokens,
@@ -263,7 +266,8 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
 /// The project a session in `cwd` on the machine `endpoint` belongs to:
 /// the imported project whose folder there holds it, the innermost when
 /// they nest, else the folder's own name.
-fn project_of(endpoint: &str, cwd: &str, imports: &[ImportRow]) -> String {
+fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
+    let endpoint = endpoint.to_string();
     let separator = |c: char| c == '/' || c == '\\';
     let cwd = cwd.trim_end_matches(separator);
     let holds = |folder: &str| {
@@ -289,11 +293,16 @@ mod tests {
     use super::*;
     use crate::protocol::node::usage::LimitWindow;
     use chrono::{DateTime, Utc};
+    use iroh::SecretKey;
     use std::time::SystemTime;
+
+    fn machine(seed: u8) -> EndpointId {
+        SecretKey::from_bytes(&[seed; 32]).public()
+    }
 
     fn row(cwd: &str, agent: &str, today: bool, cost: Option<f64>, tokens: u64) -> SpendRow {
         SpendRow {
-            endpoint: "box".into(),
+            endpoint: machine(1),
             cwd: cwd.into(),
             agent: agent.into(),
             today,
@@ -306,7 +315,7 @@ mod tests {
     fn import(folder: &str, project: &str) -> ImportRow {
         ImportRow {
             project: project.into(),
-            endpoint: "box".into(),
+            endpoint: machine(1).to_string(),
             folder: folder.into(),
             url: String::new(),
             imported_at: DateTime::<Utc>::UNIX_EPOCH,
@@ -320,19 +329,25 @@ mod tests {
             import("/srv/work/widget/vendor/relay", "acme/relay"),
         ];
         assert_eq!(
-            project_of("box", "/srv/work/widget", &imports),
+            project_of(&machine(1), "/srv/work/widget", &imports),
             "acme/widget"
         );
         assert_eq!(
-            project_of("box", "/srv/work/widget/.worktrees/fix", &imports),
+            project_of(&machine(1), "/srv/work/widget/.worktrees/fix", &imports),
             "acme/widget"
         );
         assert_eq!(
-            project_of("box", "/srv/work/widget/vendor/relay/src", &imports),
+            project_of(&machine(1), "/srv/work/widget/vendor/relay/src", &imports),
             "acme/relay"
         );
-        assert_eq!(project_of("box", "/srv/work/widgets", &imports), "widgets");
-        assert_eq!(project_of("other", "/srv/work/widget", &imports), "widget");
+        assert_eq!(
+            project_of(&machine(1), "/srv/work/widgets", &imports),
+            "widgets"
+        );
+        assert_eq!(
+            project_of(&machine(2), "/srv/work/widget", &imports),
+            "widget"
+        );
     }
 
     #[test]
@@ -386,7 +401,7 @@ mod tests {
     fn periods_count_their_days_and_prefer_the_logs_models() {
         let day = |d: u32| NaiveDate::from_ymd_opt(2026, 11, d).expect("a real day");
         let spent = |cwd: &str, agent: &str, d: u32, cost: f64| DaySpendRow {
-            endpoint: "box".into(),
+            endpoint: machine(1),
             cwd: cwd.into(),
             agent: agent.into(),
             day: day(d),
@@ -434,7 +449,7 @@ mod tests {
     fn plans_show_claude_then_codex_with_their_machine() {
         let plan = |agent: &str| PlanRow {
             agent: agent.into(),
-            endpoint: "box".into(),
+            endpoint: machine(1),
             plan: Some("pro".into()),
             windows: vec![LimitWindow {
                 minutes: 300,
@@ -444,7 +459,7 @@ mod tests {
             }],
             read_at: SystemTime::now().into(),
         };
-        let names = HashMap::from([("box".to_owned(), "build box".to_owned())]);
+        let names = HashMap::from([(machine(1), "build box".to_owned())]);
         let empty = PlanRow {
             windows: Vec::new(),
             ..plan("pi")

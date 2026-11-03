@@ -4,6 +4,7 @@
 //! Like the rest of the node link these are msgpack maps, so either side
 //! may add a field with `#[serde(default)]`.
 
+use crate::{AgentSlug, ModelId};
 use serde::{Deserialize, Serialize};
 
 /// The longest window a plan limit may name, in minutes: a month.
@@ -16,7 +17,7 @@ pub struct TurnUsage {
     /// The node's id of the session, such as `a3f9c1`.
     pub session: String,
     /// The agent, such as `claude`.
-    pub agent: String,
+    pub agent: AgentSlug,
     /// The folder the session runs in.
     pub cwd: String,
     /// When the turn ended, in Unix seconds.
@@ -41,7 +42,7 @@ pub struct TurnUsage {
 #[serde(default)]
 pub struct ModelTokens {
     /// The model as the agent names it, such as `claude-opus-4-1`.
-    pub model: String,
+    pub model: ModelId,
     pub tokens: u64,
 }
 
@@ -62,7 +63,7 @@ pub const MAX_SESSION_HOURS: usize = 4_000;
 #[serde(default)]
 pub struct SessionSpend {
     /// The agent, such as `claude`.
-    pub agent: String,
+    pub agent: AgentSlug,
     /// The agent's own id of the session, as `TurnUsage::agent_session`
     /// names it.
     pub session: String,
@@ -81,7 +82,7 @@ pub struct HourSpend {
     /// The start of the hour, in Unix seconds.
     pub hour: u64,
     /// The model as the agent names it, such as `claude-opus-4-1`.
-    pub model: String,
+    pub model: ModelId,
     /// Input tokens read fresh, not from the cache.
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -109,8 +110,9 @@ impl HourSpend {
 #[serde(default)]
 pub struct PlanUsage {
     /// The agent, `claude` or `codex`.
-    pub agent: String,
-    /// The plan, such as `max` or `pro`, when the agent says.
+    pub agent: AgentSlug,
+    /// The plan, such as `max` or `pro`, when the agent says: free-form
+    /// text the agent reports.
     pub plan: Option<String>,
     pub windows: Vec<LimitWindow>,
     /// When it was read, in Unix seconds.
@@ -128,6 +130,7 @@ pub struct LimitWindow {
     /// When it resets, in Unix seconds, when known.
     pub resets_at: Option<u64>,
     /// What it is limited to, such as `Opus`; `None` for the whole plan.
+    /// Free-form text the agent reports.
     pub scope: Option<String>,
 }
 
@@ -182,7 +185,7 @@ mod tests {
     #[test]
     fn plan_usage_round_trips_and_reads_without_fields() {
         let plan = PlanUsage {
-            agent: "claude".into(),
+            agent: AgentSlug::CLAUDE,
             plan: Some("max".into()),
             windows: vec![LimitWindow {
                 minutes: 300,

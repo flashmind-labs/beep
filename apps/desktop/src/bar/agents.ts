@@ -2,13 +2,14 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { clock, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "./core.ts";
 import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { GONE, openViewer } from "./media.ts";
+import { drawPane, openPath, openPicture, paneFrame, startPane } from "./mediapane.ts";
 import { cap } from "./tools.ts";
 
 // ---------- Coding agents ----------
@@ -190,10 +191,6 @@ interface AgentState {
   flushing: boolean;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
-  /// The picture open in the side panel, at fit or actual size, and the
-  /// panel's tab.
-  panel: { url: string; name: string; actual: boolean } | null;
-  tab: "subagents" | "image";
 }
 
 export const AG: AgentState = {
@@ -203,7 +200,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, modelOpen: false, panel: null, tab: "subagents",
+  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
 };
 export const agentLog = () => import("../agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -293,7 +290,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, modelOpen: false, panel: null, tab: "subagents",
+    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, modelOpen: false,
   });
   drawAgentFrame();
   pollAgent();
@@ -396,7 +393,7 @@ export function agentHints() {
 
 /// Puts the session's key hints in place of those on screen.
 function redrawAgentHints() {
-  const hint = bar.querySelector(":scope > .dhints");
+  const hint = $("#agconv > .dhints");
   if (hint) hint.replaceWith(h(agentHints()));
 }
 
@@ -525,8 +522,10 @@ export function drawAgentFrame() {
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
     : `<div class="dinput small" id="agfield"><input id="agmsg" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
+  // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
-    <div class="dbody" id="agbody" style="padding-top:10px"></div>${field}${agentHints()}`;
+    <div class="agshell" id="agshell"><div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>${paneFrame()}</div>`;
+  startPane(s);
   drawAgentAttached();
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
@@ -547,7 +546,7 @@ function agentClick(e: MouseEvent) {
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
   // A subagent opens as its own conversation; the crumb goes back.
-  const sub = target.closest<HTMLElement>("#agbody [data-sub]");
+  const sub = target.closest<HTMLElement>(":is(#agbody, #agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
   if (target.closest("#agparent")) return closeChild();
   // "Show all N lines" opens the whole output in a box that scrolls.
@@ -565,32 +564,21 @@ function agentClick(e: MouseEvent) {
     if (!opened.delete(key)) opened.add(key);
     return drawAgentBody();
   }
-  // The side panel: its tabs, closing it, fit or actual size, full size.
-  const tab = target.closest<HTMLElement>("#agbody [data-tab]");
-  if (tab) { AG.tab = tab.dataset.tab as AgentState["tab"]; return drawAgentBody(); }
-  if (target.closest("#agbody [data-panelclose]")) { AG.panel = null; AG.tab = "subagents"; return drawAgentBody(); }
-  const fit = target.closest<HTMLElement>("#agbody [data-fit]");
-  if (fit && AG.panel) { AG.panel.actual = fit.dataset.fit === "1"; return drawAgentBody(); }
-  if (target.closest("#agbody [data-full]") && AG.panel) {
-    const shown = AG.panel;
-    return openViewer([{ url: shown.url, name: shown.name, caption: "", saves: shown.url.startsWith("data:") }], 0);
-  }
-  if (target.closest("#agbody .dimgbox")) return;
-  // A file the reply names opens its picture, as its thumbnail does.
-  const link = target.closest<HTMLElement>("#agbody a.imgl[data-img]");
-  const linked = link ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic")[Number(link.dataset.img)] : null;
-  if (link && !linked) return;
-  // The agent's pictures open in the side panel when there is room; any
-  // other, or without room, full size. One still loading opens once it is here.
+  // A file a step names opens in the media pane.
+  const step = target.closest<HTMLElement>("#agbody [data-media]");
+  if (step) { openPath(step.dataset.media!); return; }
+  // A file the reply names opens its picture, as its thumbnail does, or
+  // else the file itself from the machine, in the media pane.
+  const link = target.closest<HTMLElement>("#agbody a.imgl");
+  const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic")[Number(link.dataset.img)] : null;
+  if (link && !linked?.getAttribute("src")) { if (link.dataset.path) openPath(link.dataset.path); return; }
+  // The agent's pictures open in the media pane, the user's own full size.
+  // One still loading opens once it is here.
   const pic = linked ?? target.closest<HTMLImageElement>("#agbody img.pic");
   if (pic) {
     if (!pic.getAttribute("src")) return;
     const name = (link ? link.textContent : null) || pic.dataset.name || pic.alt;
-    if (!pic.closest(".dcoderen.user") && $("#agbody")!.clientWidth >= PANEL_MIN) {
-      AG.panel = { url: pic.src, name, actual: false };
-      AG.tab = "image";
-      return drawAgentBody();
-    }
+    if (!pic.closest(".dcoderen.user")) return openPicture(pic.src, name);
     const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic[src]")];
     // Each opens by its data URL, which can be saved or copied.
     const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
@@ -638,30 +626,40 @@ function stepMark(status: string) {
 }
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo
-/// test"). Opened, it shows the whole command and the last lines of its
-/// output, then "Show all N lines" for all of it in a box that scrolls. A
-/// failed step shows its exit code and output's end until closed. `at` is
-/// its place in the session, which keeps it open across redraws. `pics`
-/// are the pictures it showed, drawn last. A subagent's call is a card.
+/// test"). Opened, the label wraps to the whole command and the last lines
+/// of its output follow, then "Show all N lines" for all of it in a box
+/// that scrolls. A failed step is one line with its exit code like any
+/// other; only the newest step of a running turn starts open when it
+/// failed. `at` is its place in the session, which keeps it open across
+/// redraws. `pics` are the pictures it showed, drawn last. A subagent's
+/// call is a card.
 export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(en.text);
   if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
-  const failed = status === "failed", open = failed ? !AG.opened.has(at) : AG.opened.has(at);
+  const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.opened.has(at));
   const live = status === "in_progress" && AGENT_ACTIVE.has(AG.page?.session.status);
-  const label = stepLabel(en.text, live);
+  const label = stepLabel(en.text, live, open);
   const exit = failed ? log.exitCode(output) : null;
   const long = title.includes("\n") || label.length > 80;
+  const detail = commandDetail(title, label);
   const tail = log.tailLines(output), whole = AG.all.has(at);
   const body = !open ? ""
-    : (long ? `<pre class="cmd">${esc(title)}</pre>` : "")
+    : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "")
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const opens = !!output || long;
   return `<div class="dcoderen tool${failed ? " failed" : ""}${open ? " open" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}>`
-    + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(title)}">${esc(label)}</code>`
+    + `<span class="mk">${stepMark(status)}</span><code class="tt" title="${esc(commandOf(title))}">${esc(label)}</code>`
     + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "")
-    + body + pics + "</div>";
+    + mediaButtons(title) + body + pics + "</div>";
+}
+
+/// A button for each media file a step's title names (at most three),
+/// opening it in the media pane.
+function mediaButtons(title: string) {
+  const paths = AG.log!.mediaPaths(title).slice(0, 3);
+  return paths.length ? `<span class="dmedia">${paths.map(p => `<button data-media="${esc(p)}" title="Open ${esc(p)}">${ICON.image}${esc(p.slice(p.lastIndexOf("/") + 1))}</button>`).join("")}</span>` : "";
 }
 
 const SUB_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>';
@@ -700,25 +698,6 @@ function subCard(ats: number[]) {
   const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
   const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} subagents</b><span>${esc(counts)}</span></div>` : "";
   return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(subRow).join("")}</div>`;
-}
-
-/// How wide the log must be for the side panel to show; narrower, a
-/// picture opens full size and the panel hides.
-const PANEL_MIN = 820;
-
-/// The side panel: the session's subagents, and the picture opened from
-/// the log, each a tab when both are there.
-function sidePanel(subs: number[]) {
-  const img = AG.panel;
-  if (!subs.length && !img) return "";
-  const tab = img && (AG.tab === "image" || !subs.length) ? "image" : "subagents";
-  const tabs = `<div class="tabs">${subs.length ? `<button data-tab="subagents" class="${tab === "subagents" ? "on" : ""}">Subagents <small>${subs.length}</small></button>` : ""}`
-    + (img ? `<button data-tab="image" class="${tab === "image" ? "on" : ""}">Image</button><span class="sp"></span><button data-panelclose="1" aria-label="Close the image">${ICON.x}</button>` : "") + "</div>";
-  const body = tab === "image" && img
-    ? `<div class="nm" title="${esc(img.name)}">${esc(img.name)}</div><div class="dimgbox${img.actual ? " actual" : ""}"><img src="${esc(img.url)}" alt="${esc(img.name)}"></div>
-      <div class="acts"><button class="dbtn${img.actual ? "" : " on"}" data-fit="0">Fit</button><button class="dbtn${img.actual ? " on" : ""}" data-fit="1">Actual size</button><button class="dbtn" data-full="1" title="Full size, to save or copy">Open full size</button></div>`
-    : subs.map(subRow).join("");
-  return `<aside class="dsubs">${tabs}${body}</aside>`;
 }
 
 /// The places of the subagents' calls among the entries shown.
@@ -819,6 +798,9 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
 
 const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 
+/// The newest step of the running turn, which starts open when it failed.
+let newestStep: number | null = null;
+
 /// Rows for `ats` in order, subagents started one after another as one card.
 function rowsOf(p: AgentPage, ats: number[]) {
   const out: string[] = [];
@@ -839,10 +821,12 @@ function rowsOf(p: AgentPage, ats: number[]) {
 
 /// The log in turns: each message, then a heading with how long the agent
 /// worked, then its work and its answer. Done, the work folds into one
-/// summary line; failed steps, notes, subagents and pictures stay in view.
-/// While it runs, only the newest step shows, with the thought's line.
+/// summary line, failures counted in it; notes, subagents and pictures
+/// stay in view. While it runs, only the newest step shows, with the
+/// thought's line.
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
+  newestStep = null;
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
@@ -870,6 +854,7 @@ function turnsHtml(p: AgentPage) {
     let work: string;
     // The newest step of a running turn, shown as it goes.
     const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
+    if (newest != null) newestStep = newest;
     if (opened) work = rowsOf(p, t.steps);
     else {
       const kept = new Set(keptSteps(p.entries, t, p.earlier));
@@ -961,8 +946,8 @@ export function drawAgentBody() {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? subagentsShown(p) : [];
-  const aside = sidePanel(subs);
-  b.innerHTML = `<div class="dagsplit${aside ? " has" : ""}"><div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>${aside}</div>`;
+  b.innerHTML = `<div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>`;
+  drawPane({ html: subs.map(subRow).join(""), count: subs.length });
   fillAgentPics(b);
   drawModelPill();
   drawQueue();

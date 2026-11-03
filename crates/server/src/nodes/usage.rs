@@ -19,7 +19,7 @@ impl Online {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::FollowUsage { history: true })
             .await?;
-        let machine_id = self.connection.remote_id().to_string();
+        let machine_id = self.connection.remote_id();
         loop {
             let reply = tokio::select! {
                 reply = rx.recv::<SessionsReply>() => match reply? {

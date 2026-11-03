@@ -44,7 +44,7 @@ export function lastMachine(project: string | null | undefined) {
   return typeof id === "string" ? id : "";
 }
 
-function keepMachine(project: string | null | undefined, machine: string) {
+export function keepMachine(project: string | null | undefined, machine: string) {
   if (!machine) return;
   try {
     localStorage.setItem(LAST_MACHINE, JSON.stringify({ ...lastMachines(), [project ?? ""]: machine }));

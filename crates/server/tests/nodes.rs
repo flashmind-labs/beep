@@ -17,13 +17,14 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online, StartOn},
     protocol::{
-        AgentCheckoutPlan, AgentEffort, AgentImageData, AgentModel, AgentModelPick, AgentModels,
-        AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, DeviceKind, GetAgentImage,
-        GetAgentSession, GetNodeToken, GetUsage, GetUsageReport, HarnessSettings, ListAgentHosts,
-        ListAgentImages, ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats,
-        ListMachines, ListMemoryScopes, MachineCapability, MemoryScope, MemorySource,
-        PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings,
-        StartAgentSession, SteerAgentSession, Upload, image_key,
+        AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
+        AgentModels, AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, DeviceKind,
+        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetUsage, GetUsageReport,
+        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes, MachineCapability,
+        MemoryScope, MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine,
+        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
+        image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1088,6 +1089,9 @@ struct FakeAgents {
     orders: Option<mpsc::UnboundedSender<Request>>,
     /// The PNGs `Image` finds, by session.
     images: Vec<(String, Vec<u8>)>,
+    /// The files `File` reads, by path; another path has `NoFile`, and one
+    /// starting `/refused` an `Error`.
+    files: Vec<(String, Vec<u8>)>,
     /// The PNGs `FollowImages` sends, by session, before it holds the
     /// stream.
     sent: Vec<(String, Vec<u8>)>,
@@ -1203,6 +1207,23 @@ impl Protocol for FakeSessions {
                             data: data.clone(),
                         },
                     ),
+                (SessionsRequest::File { path, .. }, _) if path.starts_with("/refused") => {
+                    SessionsReply::Error {
+                        message: "not a file".into(),
+                    }
+                }
+                (SessionsRequest::File { path, offset }, _) => fake
+                    .files
+                    .iter()
+                    .find(|(at, _)| *at == path)
+                    .map_or(SessionsReply::NoFile {}, |(_, data)| {
+                        let from = usize::try_from(offset).unwrap().min(data.len());
+                        SessionsReply::File {
+                            size: data.len() as u64,
+                            mime: "video/mp4".into(),
+                            data: data[from..].to_vec(),
+                        }
+                    }),
                 _ => SessionsReply::Error {
                     message: "not faked".into(),
                 },
@@ -1765,6 +1786,66 @@ async fn agent_images_pass_through_from_the_node() {
         .await
         .unwrap();
     assert!(listed.is_empty());
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_files_are_read_from_the_node_in_parts() {
+    let mut center = CommandCenter::new(1).await;
+    let clip = b"ftypmp42 frames".to_vec();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                files: vec![("/srv/project/out/clip.mp4".into(), clip.clone())],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let get = |path: &str, offset: u64| GetAgentFile {
+        machine_id: build.clone(),
+        path: path.into(),
+        offset,
+    };
+    let got = client
+        .call(&get("/srv/project/out/clip.mp4", 0))
+        .await
+        .unwrap();
+    assert_eq!(
+        got,
+        AgentFileChunk {
+            size: clip.len() as u64,
+            mime: "video/mp4".into(),
+            data: clip.clone(),
+        }
+    );
+    let rest = client
+        .call(&get("/srv/project/out/clip.mp4", 9))
+        .await
+        .unwrap();
+    assert_eq!(rest.data, b"frames");
+    let elsewhere = GetAgentFile {
+        machine_id: "nowhere".into(),
+        path: "/srv/project/out/clip.mp4".into(),
+        offset: 0,
+    };
+    let cases = [
+        (get("/srv/project/out/gone.mp4", 0), true),
+        (get("/srv/project/notes.txt", 0), false),
+        (get("/refused/clip.mp4", 0), false),
+        (elsewhere, true),
+    ];
+    for (request, missing) in cases {
+        let error = client.call(&request).await.unwrap_err();
+        let error = error.downcast::<ApiError>().unwrap();
+        if missing {
+            assert!(matches!(error, ApiError::NotFound {}), "{request:?}");
+        } else {
+            assert!(matches!(error, ApiError::BadRequest { .. }), "{request:?}");
+        }
+    }
     center.shutdown().await;
 }
 
@@ -2376,7 +2457,7 @@ async fn what_agents_spend_and_their_plans_reach_the_pill() {
                 cost_usd: cost,
                 tokens,
                 models: vec![ModelTokens {
-                    model: format!("{agent}-model"),
+                    model: format!("{agent}-model").into(),
                     tokens,
                 }],
                 agent_session: None,
@@ -2486,7 +2567,7 @@ async fn sessions_read_from_the_logs_count_once() {
             since: now - 35 * 24 * 3600,
             hours: vec![HourSpend {
                 hour,
-                model: format!("{agent}-model"),
+                model: format!("{agent}-model").into(),
                 input_tokens: 1_000,
                 output_tokens: 500,
                 cost_usd: cost,
