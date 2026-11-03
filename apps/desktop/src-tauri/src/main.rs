@@ -48,6 +48,7 @@ mod terminals;
 mod threads;
 mod tool_labels;
 mod update;
+mod usage;
 mod view_cache;
 mod voice;
 mod waiting;
@@ -245,6 +246,7 @@ fn main() {
             instructions::agent_files_sync,
             terminals::terminals_list,
             terminals::terminals_all,
+            usage::usage_get,
             terminals::terminal_start,
             terminals::terminal_output,
             terminals::terminal_close,

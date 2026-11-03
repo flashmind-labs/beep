@@ -1,0 +1,146 @@
+//! The pill atop every command center page: how much of each coding
+//! agent's plan is left, and what the agents cost today and this week.
+
+use crate::{
+    beep::{Beep, epoch_ms},
+    error::Result,
+    projects::unknown_op,
+};
+use beep_proto::{
+    AgentTokens, GetUsage, HarnessSpend, PlanLimits, PlanWindow, ProjectSpend, UsageView,
+};
+use serde::Serialize;
+use std::sync::Arc;
+use tauri::State;
+
+type Service<'a> = State<'a, Arc<Beep>>;
+
+/// `UsageView` as the window reads it, times in milliseconds since the
+/// Unix epoch.
+#[derive(Debug, Serialize)]
+pub struct UsageRow {
+    limits: Vec<PlanRow>,
+    today: Vec<SpendRow>,
+    harnesses: Vec<HarnessRow>,
+    week: SpendRow,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlanRow {
+    agent: String,
+    plan: Option<String>,
+    machine_name: String,
+    as_of: u64,
+    windows: Vec<WindowRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WindowRow {
+    minutes: u32,
+    used_percent: f64,
+    resets_at: Option<u64>,
+    scope: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SpendRow {
+    project: String,
+    cost_usd: f64,
+    unpriced: Vec<TokensRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TokensRow {
+    name: String,
+    tokens: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HarnessRow {
+    agent: String,
+    cost_usd: Option<f64>,
+    tokens: u64,
+    models: Vec<TokensRow>,
+}
+
+impl From<PlanWindow> for WindowRow {
+    fn from(w: PlanWindow) -> Self {
+        Self {
+            minutes: w.minutes,
+            used_percent: w.used_percent,
+            resets_at: w.resets_at.map(epoch_ms),
+            scope: w.scope,
+        }
+    }
+}
+
+impl From<PlanLimits> for PlanRow {
+    fn from(p: PlanLimits) -> Self {
+        Self {
+            agent: p.agent,
+            plan: p.plan,
+            machine_name: p.machine_name,
+            as_of: epoch_ms(p.as_of),
+            windows: p.windows.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<AgentTokens> for TokensRow {
+    fn from(t: AgentTokens) -> Self {
+        Self {
+            name: t.agent,
+            tokens: t.tokens,
+        }
+    }
+}
+
+impl From<ProjectSpend> for SpendRow {
+    fn from(s: ProjectSpend) -> Self {
+        Self {
+            project: s.project,
+            cost_usd: s.cost_usd,
+            unpriced: s.unpriced.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<HarnessSpend> for HarnessRow {
+    fn from(h: HarnessSpend) -> Self {
+        Self {
+            agent: h.agent,
+            cost_usd: h.cost_usd,
+            tokens: h.tokens,
+            models: h
+                .models
+                .into_iter()
+                .map(|m| TokensRow {
+                    name: m.model,
+                    tokens: m.tokens,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<UsageView> for UsageRow {
+    fn from(v: UsageView) -> Self {
+        Self {
+            limits: v.limits.into_iter().map(Into::into).collect(),
+            today: v.today.into_iter().map(Into::into).collect(),
+            harnesses: v.harnesses.into_iter().map(Into::into).collect(),
+            week: v.week.into(),
+        }
+    }
+}
+
+/// The plans and spending; `None` from a server too old to keep them, so
+/// the pill hides. `refresh` has the machines read the plans again.
+#[tauri::command]
+pub async fn usage_get(beep: Service<'_>, refresh: bool) -> Result<Option<UsageRow>> {
+    match beep.call(GetUsage { refresh }).await {
+        Ok(view) => Ok(Some(view.into())),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
