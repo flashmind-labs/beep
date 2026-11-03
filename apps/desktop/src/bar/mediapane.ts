@@ -1,11 +1,13 @@
 // The media pane of a coding agent session: pictures, videos, 3D models
-// and PDFs the agent made or looked at, and its subagents, each a tab.
-// It docks to the right of the conversation or under it, resizes by its
-// divider and folds to a strip; where it sits is kept per window.
+// and PDFs the agent made or looked at, its files, terminals and
+// subagents, each a tab. A tab sits in one of two docks, right of the
+// conversation or under it, and drags by its tab to the other edge; each
+// dock resizes by its divider and folds to a strip. Where each tab sits
+// is kept per window.
 
 import {
-  actualView, baseName, type Dock, effectiveDock, fitView, type ImageView, type MediaKind, mediaKind,
-  type PaneLayout, paneSize, readLayout, resolvePath, zoomAt,
+  actualView, baseName, type Box, type Dock, DOCKS, dropDock, fitView, type ImageView, type MediaKind, mediaKind,
+  moveTab, type PaneLayout, paneSize, readLayout, resolvePath, SIDE_BY_SIDE_MIN, splitTabs, tabDock, zoomAt,
 } from "../media-state.ts";
 import { highlight, languageOf, MAX_LINES, shortSize, terminalName } from "../files-state.ts";
 import type { ModelView } from "../model3d.ts";
@@ -75,17 +77,23 @@ const SUBS = "subagents";
 const FILES = "files";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 const ARROW_STEP = 24;
+/// How far a tab moves under the pointer before it drags.
+const DRAG_START = 5;
 
 const P = {
   session: null as PaneSession | null,
   tabs: [] as MediaTab[],
-  /// The tab on screen: a tab's id, `FILES` or `SUBS`.
-  on: FILES,
+  /// The tab on screen in each dock: a tab's id, `FILES` or `SUBS`.
+  on: { right: FILES, bottom: FILES } as Record<Dock, string>,
   /// The subagents' rows and how many, as the log last drew them.
   subs: "",
   subCount: 0,
   layout: loadLayout(),
+  /// Tabs moved to a dock whose move is not kept (a picture by its data URL).
+  moved: new Map<string, Dock>(),
   watch: null as ResizeObserver | null,
+  /// A tab drag just ended: the click that follows it does nothing.
+  dragged: false,
 };
 
 function loadLayout(): PaneLayout {
@@ -116,31 +124,46 @@ const FOLD_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" s
 // ----- The pane's place -----
 
 const shell = () => document.getElementById("agshell");
+/// The conversation and the bottom dock under it.
+const main = () => document.getElementById("agmain");
+const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
 
-/// The pane's frame, drawn with the session's: the divider, the pane and
-/// the strip it folds to, after the conversation.
-export function paneFrame() {
-  return `<div class="agdiv" id="agdiv" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
-    + `<aside class="agpane" id="agpane" hidden><div class="agphead"><div class="agtabs" id="agtabs" role="tablist"></div>`
-    + `<button class="agpbtn agaddterm" id="agterm" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" id="agdock"></button><button class="agpbtn" id="agfold" title="Hide the pane"></button></div><div class="agpviews" id="agpviews"></div></aside>`
-    + `<button class="agpstrip" id="agpstrip" hidden title="Show the pane"></button>`;
+/// One dock's frame: its divider, its pane and the strip it folds to.
+function dockFrame(d: Dock) {
+  return `<div class="agdiv" id="agdiv-${d}" data-dock="${d}" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
+    + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" hidden><div class="agphead"><div class="agtabs" role="tablist"></div>`
+    + `<button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></aside>`
+    + `<button class="agpstrip" id="agpstrip-${d}" data-dock="${d}" hidden title="Show the pane"></button>`;
+}
+
+/// The session's frame around `conv`, the conversation: the bottom dock
+/// under it, the right dock beside both, and where a dragged tab drops.
+export function paneFrame(conv: string) {
+  return `<div class="agmain" id="agmain">${conv}${dockFrame("bottom")}</div>${dockFrame("right")}`
+    + `<div class="agdropzone" id="agdropzone" hidden></div>`;
 }
 
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closeAll();
   P.session = s;
-  P.on = FILES;
+  P.on = { right: FILES, bottom: FILES };
   P.subs = "";
   P.subCount = 0;
+  P.moved.clear();
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
-  P.watch = new ResizeObserver(() => place());
+  // Too narrow for a right dock, its tabs join the bottom one, and back.
+  P.watch = new ResizeObserver(() => el.classList.contains("narrow") !== (el.clientWidth < SIDE_BY_SIDE_MIN) ? draw() : place());
   P.watch.observe(el);
-  wireDivider();
-  document.getElementById("agpane")!.addEventListener("click", paneClick);
-  document.getElementById("agpstrip")!.addEventListener("click", () => { P.layout.hidden = false; saveLayout(); draw(); });
+  for (const d of DOCKS) {
+    wireDivider(d);
+    const pane = paneOf(d)!;
+    pane.addEventListener("click", e => paneClick(e, d));
+    pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
+    document.getElementById(`agpstrip-${d}`)!.addEventListener("click", () => { P.layout.hidden[d] = false; saveLayout(); draw(); });
+  }
 }
 
 /// Every open tab closed, its bytes let go.
@@ -161,65 +184,210 @@ function dropTab(t: MediaTab) {
 // Leaving the session view lets go of what its tabs hold.
 changeListeners.push(() => { if (S.view !== "agent") { closeAll(); P.watch?.disconnect(); P.watch = null; } });
 
-/// Lays the pane out for the shell's size: its dock, its size, folded or not.
-function place() {
-  const el = shell(), pane = document.getElementById("agpane"), div = document.getElementById("agdiv"), strip = document.getElementById("agpstrip");
-  if (!el || !pane || !div || !strip) return;
-  // The Files tab is always there while a session shows.
-  const has = !!P.session;
-  const dock = effectiveDock(P.layout.dock, el.clientWidth);
-  el.classList.toggle("dock-bottom", dock === "bottom");
-  el.classList.toggle("narrow", dock !== P.layout.dock);
-  pane.hidden = div.hidden = !has || P.layout.hidden;
-  strip.hidden = !has || !P.layout.hidden;
-  if (pane.hidden) return;
-  const total = dock === "right" ? el.clientWidth : el.clientHeight;
-  pane.style.flexBasis = `${paneSize(dock, P.layout[dock], total)}px`;
-  div.setAttribute("aria-orientation", dock === "right" ? "vertical" : "horizontal");
+/// Every tab's id, in the order the tab strips show them.
+function tabIds() {
+  return [FILES, ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
 }
 
-function wireDivider() {
-  const div = document.getElementById("agdiv")!;
-  const dockNow = (): Dock => shell()?.classList.contains("dock-bottom") ? "bottom" : "right";
-  const set = (dock: Dock, size: number | null) => {
-    const el = shell();
-    if (!el) return;
-    P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? el.clientWidth : el.clientHeight);
+/// The tabs in each dock, as the shell's width lets them sit.
+function docked(): Record<Dock, string[]> {
+  return splitTabs(P.layout, tabIds(), shell()?.clientWidth ?? SIDE_BY_SIDE_MIN, P.moved);
+}
+
+/// The dock tab `id` shows in now.
+function dockOf(id: string): Dock {
+  return docked().bottom.includes(id) ? "bottom" : "right";
+}
+
+/// Lays the docks out for the shell's size: which show, their size,
+/// folded or not. A dock with no tabs goes.
+function place() {
+  const el = shell(), box = main();
+  if (!el || !box) return;
+  const narrow = el.clientWidth < SIDE_BY_SIDE_MIN;
+  el.classList.toggle("narrow", narrow);
+  const split = docked();
+  for (const d of DOCKS) {
+    const pane = paneOf(d), div = document.getElementById(`agdiv-${d}`), strip = document.getElementById(`agpstrip-${d}`);
+    if (!pane || !div || !strip) continue;
+    // The Files tab is always there while a session shows, so one dock is.
+    const has = !!P.session && split[d].length > 0;
+    pane.hidden = div.hidden = !has || P.layout.hidden[d];
+    strip.hidden = !has || !P.layout.hidden[d];
+    if (pane.hidden) continue;
+    const total = d === "right" ? el.clientWidth : box.clientHeight;
+    pane.style.flexBasis = `${paneSize(d, P.layout[d], total)}px`;
+    div.setAttribute("aria-orientation", d === "right" ? "vertical" : "horizontal");
+  }
+}
+
+function wireDivider(dock: Dock) {
+  const div = document.getElementById(`agdiv-${dock}`)!;
+  const set = (size: number | null) => {
+    const el = shell(), box = main();
+    if (!el || !box) return;
+    P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? el.clientWidth : box.clientHeight);
     place();
   };
   div.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
     e.preventDefault();
     div.setPointerCapture(e.pointerId);
-    const el = shell()!, dock = dockNow();
-    el.classList.add("resizing");
+    const el = shell()!, box = main()!;
+    el.classList.add("resizing", `resizing-${dock}`);
+    div.classList.add("active");
     const move = (ev: PointerEvent) => {
-      const r = el.getBoundingClientRect();
-      set(dock, dock === "right" ? r.right - ev.clientX : r.bottom - ev.clientY);
+      const r = (dock === "right" ? el : box).getBoundingClientRect();
+      set(dock === "right" ? r.right - ev.clientX : r.bottom - ev.clientY);
     };
     const up = () => {
       div.removeEventListener("pointermove", move);
       div.removeEventListener("pointerup", up);
       div.removeEventListener("pointercancel", up);
-      el.classList.remove("resizing");
+      el.classList.remove("resizing", `resizing-${dock}`);
+      div.classList.remove("active");
       saveLayout();
     };
     div.addEventListener("pointermove", move);
     div.addEventListener("pointerup", up);
     div.addEventListener("pointercancel", up);
   });
-  div.addEventListener("dblclick", () => { set(dockNow(), null); saveLayout(); });
+  div.addEventListener("dblclick", () => { set(null); saveLayout(); });
   div.addEventListener("keydown", e => {
-    const dock = dockNow(), pane = document.getElementById("agpane")!;
+    const pane = paneOf(dock)!;
     const now = dock === "right" ? pane.offsetWidth : pane.offsetHeight;
     const grow: Record<string, number> = dock === "right" ? { ArrowLeft: 1, ArrowRight: -1 } : { ArrowUp: 1, ArrowDown: -1 };
     const by = grow[e.key];
     if (!by) return;
     e.preventDefault();
     e.stopPropagation();
-    set(dock, now + by * ARROW_STEP);
+    set(now + by * ARROW_STEP);
     saveLayout();
   });
+}
+
+// ----- Dragging a tab to a dock -----
+
+/// Where a tab drag stands: the tab, where the pointer went down, and once
+/// it moved far enough, the tab's ghost under the pointer and the dock it
+/// would drop in.
+interface TabDrag {
+  id: string;
+  tab: HTMLElement;
+  pointer: number;
+  x: number;
+  y: number;
+  ghost: HTMLElement | null;
+  to: Dock | null;
+}
+
+let drag: TabDrag | null = null;
+
+function tabDown(e: PointerEvent) {
+  if (e.button !== 0 || drag) return;
+  const target = e.target as HTMLElement;
+  if (target.closest("[data-mclose]")) return;
+  const tab = target.closest<HTMLElement>("[data-mtab]");
+  if (!tab) return;
+  drag = { id: tab.dataset.mtab!, tab, pointer: e.pointerId, x: e.clientX, y: e.clientY, ghost: null, to: null };
+  tab.setPointerCapture(e.pointerId);
+  tab.addEventListener("pointermove", tabMove);
+  tab.addEventListener("pointerup", tabUp);
+  tab.addEventListener("pointercancel", tabCancel);
+  tab.addEventListener("lostpointercapture", tabCancel);
+}
+
+function tabMove(e: PointerEvent) {
+  const d = drag, el = shell();
+  if (!d || e.pointerId !== d.pointer || !el) return;
+  if (!d.ghost) {
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_START) return;
+    d.ghost = d.tab.cloneNode(true) as HTMLElement;
+    d.ghost.classList.add("agtabghost");
+    d.ghost.removeAttribute("id");
+    document.body.append(d.ghost);
+    d.tab.classList.add("dragging");
+    el.classList.add("tabdrag");
+    document.addEventListener("keydown", dragKey, true);
+  }
+  d.ghost.style.transform = `translate(${e.clientX + 8}px, ${e.clientY + 6}px)`;
+  // Over a dock's own pane or strip, the tab goes there; else by the edge.
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".agpane, .agpstrip")?.dataset.dock as Dock | undefined;
+  const r = el.getBoundingClientRect();
+  const to = over ?? dropDock(r, e.clientX, e.clientY, el.clientWidth >= SIDE_BY_SIDE_MIN);
+  d.to = to && to !== dockOf(d.id) ? to : null;
+  drawDropZone(d.to);
+}
+
+/// Shows where a dragged tab would go: over that dock, or where it would
+/// open.
+function drawDropZone(to: Dock | null) {
+  const zone = document.getElementById("agdropzone"), el = shell(), box = main();
+  if (!zone || !el || !box) return;
+  zone.hidden = !to;
+  if (!to) return;
+  const s = el.getBoundingClientRect();
+  const pane = paneOf(to);
+  let r: Box;
+  if (pane && !pane.hidden) r = pane.getBoundingClientRect();
+  else if (to === "right") {
+    const w = paneSize("right", P.layout.right, s.width);
+    r = { left: s.right - w, top: s.top, width: w, height: s.height };
+  } else {
+    const m = box.getBoundingClientRect(), hgt = paneSize("bottom", P.layout.bottom, m.height);
+    r = { left: m.left, top: m.bottom - hgt, width: m.width, height: hgt };
+  }
+  Object.assign(zone.style, { left: `${r.left - s.left}px`, top: `${r.top - s.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  zone.innerHTML = `${to === "right" ? DOCK_RIGHT : DOCK_BOTTOM}<span>${to === "right" ? "Dock on the right" : "Dock at the bottom"}</span>`;
+}
+
+function tabUp(e: PointerEvent) {
+  const d = drag;
+  if (!d || e.pointerId !== d.pointer) return;
+  const to = d.ghost ? d.to : null;
+  endDrag();
+  if (to) moveTo(d.id, to);
+}
+
+function tabCancel() { endDrag(); }
+
+function dragKey(e: KeyboardEvent) {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  endDrag();
+}
+
+function endDrag() {
+  const d = drag;
+  if (!d) return;
+  drag = null;
+  d.tab.removeEventListener("pointermove", tabMove);
+  d.tab.removeEventListener("pointerup", tabUp);
+  d.tab.removeEventListener("pointercancel", tabCancel);
+  d.tab.removeEventListener("lostpointercapture", tabCancel);
+  if (d.tab.hasPointerCapture(d.pointer)) d.tab.releasePointerCapture(d.pointer);
+  document.removeEventListener("keydown", dragKey, true);
+  if (!d.ghost) return;
+  d.ghost.remove();
+  d.tab.classList.remove("dragging");
+  shell()?.classList.remove("tabdrag");
+  drawDropZone(null);
+  // The click that ends a drag does not pick the tab.
+  P.dragged = true;
+  setTimeout(() => { P.dragged = false; }, 0);
+  // What changed while it dragged.
+  draw();
+}
+
+/// Moves tab `id` to dock `to`, on screen there. Its view moves with it,
+/// so a terminal keeps its shell and screen.
+function moveTo(id: string, to: Dock) {
+  P.layout = moveTab(P.layout, id, to);
+  if (id.startsWith("data:")) P.moved.set(id, to);
+  saveLayout();
+  P.on[to] = id;
+  draw();
 }
 
 // ----- Tabs -----
@@ -232,77 +400,114 @@ export function drawPane(subs?: { html: string; count: number }) {
 }
 
 function draw() {
-  const tabs = document.getElementById("agtabs"), views = document.getElementById("agpviews");
-  if (!tabs || !views) return;
-  // The tab on screen went: the newest file, else the files.
-  if (P.on === SUBS ? !P.subCount : P.on !== FILES && !P.tabs.some(t => t.id === P.on)) P.on = P.tabs.at(-1)?.id ?? FILES;
-  const tab = (id: string, kind: TabKind | "subagents" | "files", name: string, extra: string) =>
-    `<button class="agtab${P.on === id ? " on" : ""}" role="tab" aria-selected="${P.on === id}" data-mtab="${esc(id)}" title="${esc(name)}">${ICONS[kind]}<span>${esc(name)}</span>${extra}</button>`;
-  tabs.innerHTML = tab(FILES, FILES, "Files", "")
-    + (P.subCount ? tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`) : "")
-    + P.tabs.map(t => tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close">${ICON.x}</em>`)).join("");
-  const box = shell();
-  const bottom = (box ? effectiveDock(P.layout.dock, box.clientWidth) : P.layout.dock) === "bottom";
-  const dock = document.getElementById("agdock")!;
-  dock.innerHTML = bottom ? DOCK_RIGHT : DOCK_BOTTOM;
-  dock.title = bottom ? "Dock on the right" : "Dock at the bottom";
-  document.getElementById("agfold")!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
-  const strip = document.getElementById("agpstrip")!;
-  const count = P.tabs.length + (P.subCount ? 1 : 0) + 1;
-  const shown = P.tabs.find(t => t.id === P.on);
-  const label = shown ? shown.name : P.on === SUBS ? "Subagents" : "Files";
-  strip.innerHTML = `${ICONS[shown?.kind ?? (P.on === SUBS ? SUBS : FILES)]}<span>${esc(label)}</span><small>${count}</small>`;
-  let filesEl = views.querySelector<HTMLElement>(":scope > .agpview.files");
-  const made = filesView();
-  if (filesEl !== made) { filesEl?.remove(); views.prepend(filesEl = made); }
-  filesEl.hidden = P.on !== FILES;
-  if (P.on !== FILES) closeFilesMenu();
-  // Subagents redraw each time; a file's view is drawn once and kept.
-  let subView = views.querySelector<HTMLElement>(":scope > .agpview.subs");
-  if (P.subCount) {
-    if (!subView) views.append(subView = h('<div class="agpview subs"></div>'));
-    if (subView.innerHTML !== P.subs) subView.innerHTML = P.subs;
-    subView.hidden = P.on !== SUBS;
-  } else subView?.remove();
-  for (const t of P.tabs) {
-    if (!t.el) views.append(t.el = viewOf(t));
-    const hide = t.id !== P.on;
-    if (hide && !t.el.hidden) t.el.querySelector("video")?.pause();
-    t.el.hidden = hide;
-    if (!hide) t.model?.resize();
-    if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); t.term?.screen.focus(); });
-  }
+  // A tab being dragged is not drawn over until it drops.
+  if (drag?.ghost) return;
+  const split = docked();
+  for (const d of DOCKS) drawDock(d, split[d]);
   place();
 }
 
-function paneClick(e: MouseEvent) {
+/// Draws dock `d` with tabs `ids`, moving into it the views of tabs that
+/// came from the other.
+function drawDock(d: Dock, ids: string[]) {
+  const pane = paneOf(d);
+  const tabs = pane?.querySelector<HTMLElement>(".agtabs"), views = pane?.querySelector<HTMLElement>(".agpviews");
+  if (!pane || !tabs || !views) return;
+  // The tab on screen went: the newest one here.
+  if (!ids.includes(P.on[d])) P.on[d] = ids.at(-1) ?? FILES;
+  const on = P.on[d];
+  const tab = (id: string, kind: TabKind | "subagents" | "files", name: string, extra: string) =>
+    `<button class="agtab${on === id ? " on" : ""}" role="tab" aria-selected="${on === id}" data-mtab="${esc(id)}" title="${esc(name)}">${ICONS[kind]}<span>${esc(name)}</span>${extra}</button>`;
+  tabs.innerHTML = ids.map(id => {
+    if (id === FILES) return tab(FILES, FILES, "Files", "");
+    if (id === SUBS) return tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`);
+    const t = P.tabs.find(x => x.id === id)!;
+    return tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close">${ICON.x}</em>`);
+  }).join("");
+  const bottom = d === "bottom";
+  const dock = pane.querySelector<HTMLElement>('[data-pact="dock"]')!;
+  dock.innerHTML = bottom ? DOCK_RIGHT : DOCK_BOTTOM;
+  dock.title = bottom ? "Dock these tabs on the right" : "Dock these tabs at the bottom";
+  pane.querySelector('[data-pact="fold"]')!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
+  const strip = document.getElementById(`agpstrip-${d}`)!;
+  const shown = P.tabs.find(t => t.id === on);
+  const label = shown ? shown.name : on === SUBS ? "Subagents" : "Files";
+  strip.innerHTML = `${ICONS[shown?.kind ?? (on === SUBS ? SUBS : FILES)]}<span>${esc(label)}</span><small>${ids.length}</small>`;
+  // The Files view is made once per session, wherever it sits.
+  const made = filesView();
+  let filesEl = document.querySelector<HTMLElement>(".agpviews > .agpview.files");
+  if (filesEl !== made) { filesEl?.remove(); filesEl = made; }
+  if (ids.includes(FILES)) {
+    if (filesEl.parentElement !== views) views.prepend(filesEl);
+    filesEl.hidden = on !== FILES;
+    if (on !== FILES) closeFilesMenu();
+  }
+  // Subagents redraw each time; a file's view is drawn once and kept.
+  let subView = document.querySelector<HTMLElement>(".agpviews > .agpview.subs");
+  if (!P.subCount) subView?.remove();
+  else if (ids.includes(SUBS)) {
+    if (!subView) subView = h('<div class="agpview subs"></div>');
+    if (subView.parentElement !== views) views.append(subView);
+    if (subView.innerHTML !== P.subs) subView.innerHTML = P.subs;
+    subView.hidden = on !== SUBS;
+  }
+  for (const t of P.tabs) {
+    if (!ids.includes(t.id)) continue;
+    if (!t.el) t.el = viewOf(t);
+    if (t.el.parentElement !== views) views.append(t.el);
+    const hide = t.id !== on || P.layout.hidden[d];
+    if (hide && !t.el.hidden) t.el.querySelector("video")?.pause();
+    t.el.hidden = t.id !== on;
+    if (!hide) t.model?.resize();
+    if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); if (t.id === P.on[d]) t.term?.screen.focus(); });
+  }
+}
+
+function paneClick(e: MouseEvent, d: Dock) {
   const target = e.target as HTMLElement;
   const close = target.closest<HTMLElement>("[data-mclose]");
   if (close) { e.stopPropagation(); return closeTab(close.dataset.mclose!); }
   const tab = target.closest<HTMLElement>("[data-mtab]");
-  if (tab) { P.on = tab.dataset.mtab!; return draw(); }
-  if (target.closest("#agdock")) {
-    P.layout.dock = P.layout.dock === "right" ? "bottom" : "right";
+  if (tab) {
+    if (P.dragged) return;
+    P.on[d] = tab.dataset.mtab!;
+    return draw();
+  }
+  const act = target.closest<HTMLElement>("[data-pact]")?.dataset.pact;
+  if (act === "dock") {
+    // This dock's tabs go to the other, which shows the one on screen here.
+    const to: Dock = d === "right" ? "bottom" : "right", on = P.on[d];
+    for (const id of docked()[d]) P.layout = moveTab(P.layout, id, to);
+    for (const id of P.moved.keys()) if (docked()[d].includes(id)) P.moved.set(id, to);
+    P.layout.dock = to;
+    P.on[to] = on;
     saveLayout();
     return draw();
   }
-  if (target.closest("#agfold")) { P.layout.hidden = true; saveLayout(); return draw(); }
-  if (target.closest("#agterm")) return newTerminal();
+  if (act === "fold") { P.layout.hidden[d] = true; saveLayout(); return draw(); }
+  if (act === "term") return newTerminal(d);
 }
 
 function closeTab(id: string) {
   const i = P.tabs.findIndex(t => t.id === id);
   if (i < 0) return;
+  const d = dockOf(id);
   dropTab(P.tabs[i]);
   P.tabs.splice(i, 1);
-  if (P.on === id) P.on = P.tabs[Math.min(i, P.tabs.length - 1)]?.id ?? SUBS;
+  P.moved.delete(id);
+  // The neighbour in the same dock shows next.
+  if (P.on[d] === id) {
+    const left = docked()[d];
+    P.on[d] = P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
+  }
   draw();
 }
 
-/// Shows the subagents' tab, unfolding the pane.
+/// Shows the subagents' tab, unfolding its dock.
 export function showSubagents() {
-  P.on = SUBS;
-  P.layout.hidden = false;
+  const d = dockOf(SUBS);
+  P.on[d] = SUBS;
+  P.layout.hidden[d] = false;
   draw();
 }
 
@@ -323,8 +528,6 @@ export function openPath(path: string) {
 }
 
 function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
-  P.layout.hidden = false;
-  saveLayout();
   if (!P.tabs.some(x => x.id === t.id)) {
     const tab: MediaTab = { ...t, size: 0, done: 0, error: "", el: null };
     P.tabs.push(tab);
@@ -332,7 +535,10 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
     else if (tab.kind === "term") startTerminal(tab);
     else if (!tab.url) load(tab);
   }
-  P.on = t.id;
+  const d = dockOf(t.id);
+  P.layout.hidden[d] = false;
+  saveLayout();
+  P.on[d] = t.id;
   draw();
 }
 
@@ -359,13 +565,22 @@ export function saveWorkFile(rel: string, note: (text: string) => void) {
     .catch(e => note(readError(e)));
 }
 
-/// Opens a terminal tab on the session's machine, in its folder (⌃`).
-export function newTerminal() {
+
+/// Opens a terminal tab on the session's machine, in its folder (⌃`), in
+/// dock `d`, else where the newest terminal sits.
+export function newTerminal(d?: Dock) {
   const s = P.session;
   if (!s) return;
-  const taken = P.tabs.filter(t => t.kind === "term").map(t => t.name);
-  const name = terminalName(s.cwd, taken);
-  open({ id: `term:${name}`, kind: "term", name, path: null, url: null });
+  const terms = P.tabs.filter(t => t.kind === "term");
+  const name = terminalName(s.cwd, terms.map(t => t.name));
+  const id = `term:${name}`;
+  // While the window is too narrow for a right dock, every tab shows at
+  // the bottom and a new one keeps the dock it would have.
+  const narrow = (shell()?.clientWidth ?? SIDE_BY_SIDE_MIN) < SIDE_BY_SIDE_MIN;
+  const newest = terms.at(-1);
+  const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
+  if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
+  open({ id, kind: "term", name, path: null, url: null });
 }
 
 // ----- Reading files from the machine -----

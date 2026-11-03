@@ -14,7 +14,7 @@ use serde::Deserialize;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    env, fs, io,
+    fs, io,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -103,10 +103,7 @@ pub(super) struct Snapshot {
 impl Store {
     /// The store on this machine, when Claude Code has one.
     pub(crate) fn locate() -> Option<Self> {
-        let root = match env::var_os("CLAUDE_CONFIG_DIR") {
-            Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-            _ => dirs::home_dir()?.join(".claude"),
-        };
+        let root = super::config_dir()?;
         root.join("projects").is_dir().then(|| Self {
             root,
             memos: Arc::default(),
@@ -321,7 +318,7 @@ fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
 /// What `transcript` says, read from its tail (and its head for when it
 /// started, when the file system does not say).
 fn summary(transcript: &Transcript) -> io::Result<Summary> {
-    let (digest, _) = transcript::digest_tail(&transcript.path, 0)?;
+    let digest = transcript::digest_tail(&transcript.path, 0)?;
     let started_at = transcript
         .created
         .map(unix)

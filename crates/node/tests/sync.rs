@@ -463,6 +463,31 @@ async fn a_node_taken_out_of_a_project_stops_getting_its_changes() {
     drop(b);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_named_another_way_keeps_syncing() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+    // The same folder, written with a trailing slash: the project starts
+    // again on it and must still see its changes.
+    let refused = a
+        .running()
+        .transfers
+        .syncs()
+        .configure(vec![Project {
+            name: PROJECT.into(),
+            folder: format!("{}/", a.folder().display()),
+            peers: vec![b.addr()],
+            paused: false,
+        }])
+        .await;
+    assert!(refused.is_empty(), "{refused:?}");
+    write(&a.path("later.txt"), "after the change");
+    eventually("the change made after it to arrive", || {
+        read(&b.path("later.txt")).as_deref() == Some(b"after the change".as_slice())
+    })
+    .await;
+}
+
 /// Writes a file on `a`, waits for it on `b`, and for `a` to settle.
 async fn synced_file(a: &Node, b: &Node) {
     write(&a.path("notes.txt"), "keep me");

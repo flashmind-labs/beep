@@ -14,7 +14,8 @@ import type { TileData } from "./board.ts";
 import { STATE_LABEL, reviewState } from "./review.ts";
 import type { ReviewState, ReviewView } from "./review.ts";
 import { plural } from "./components/format.ts";
-import { emptyPanel, stateChip } from "./components/parts.ts";
+import { emptyPanel, freshNote, stateChip } from "./components/parts.ts";
+import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -84,6 +85,10 @@ export type PrReview = Pick<ReviewView, "branch"> & Parameters<typeof reviewStat
 
 /// The rows a section shows before Show all.
 export const SHOWN = 10;
+
+/// How long after a try the lists may be read again unasked: the page
+/// cache's time for the code host's lists.
+const REFRESH_GAP = REFRESH_MS;
 
 /// "#52", "PR #41".
 export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
@@ -342,6 +347,16 @@ export interface ThreadDeps {
   openUrl: (url: string) => unknown;
   openChat: (chat: string) => void;
   changed: () => unknown;
+  /// Where the lists are kept between windows; in memory only without it.
+  kept?: SectionStore<KeptThreads>;
+}
+
+/// A project's lists as the page cache keeps them.
+export interface KeptThreads {
+  issues: IssueRow[] | null;
+  threads: ThreadRow[] | null;
+  prs: PullRequestRow[] | null;
+  chats: ThreadChatRow[] | null;
 }
 
 /// One project's lists: undefined while they load, null from a server too
@@ -366,31 +381,52 @@ type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
 export function makeThreads(deps: ThreadDeps) {
   const { invoke, h, button, ago, redraw, openUrl, openChat, changed } = deps;
+  const kept = deps.kept ?? new PageCache(null).section<KeptThreads>("threads");
   const all = new Map<string, ProjectThreads>();
 
+  /// A project's lists, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
     if (!s) {
-      s = { issues: undefined, threads: undefined, prs: undefined, chats: undefined, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set() };
+      const k = kept.get(id);
+      s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set() };
       all.set(id, s);
     }
     return s;
   };
 
-  /// Projects whose first read is on its way; a draw asking again waits.
-  const first = new Set<string>();
+  /// Projects whose read is on its way (a load meanwhile is dropped), and
+  /// when each was last tried, so a failing host is not asked on
+  /// every draw.
+  const reading = new Set<string>();
+  const tried = new Map<string, number>();
+
+  /// Reads `id` when it is due: never read, or the refresh time passed
+  /// since the last try. Every draw may ask; Refresh reads anyway.
+  function ensure(id: string) {
+    const last = tried.get(id);
+    const due = last === undefined ? kept.due(id) : Date.now() - last >= REFRESH_GAP;
+    if (due && !reading.has(id)) load(id);
+  }
+
+  /// The section header's note: a spinner while kept lists read again,
+  /// else how old they are.
+  const fresh = (id: string) => freshNote(freshness(kept.at(id), reading.has(id), Date.now()));
 
   async function load(id: string) {
     const s = of(id);
-    if (s.issues === undefined && first.has(id)) return;
-    first.add(id);
+    if (reading.has(id)) return;
+    reading.add(id);
+    tried.set(id, Date.now());
+    // Kept lists stay up meanwhile, with a spinner in their header.
+    if (s.issues !== undefined) queueMicrotask(redraw);
     const [issues, threads, chats, prs] = await Promise.allSettled([
       invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
       invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
       invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
       invoke<PullRequestRow[] | null>("center_project_pull_requests", { projectId: id }),
     ]);
-    first.delete(id);
+    reading.delete(id);
     s.error = "";
     /// What a list becomes: what came back, else what it had or none.
     const settle = <T>(r: PromiseSettledResult<T[] | null>, had: T[] | null | undefined) => {
@@ -407,6 +443,10 @@ export function makeThreads(deps: ThreadDeps) {
     s.prsError = prs.status === "rejected" ? reason(prs.reason) : "";
     // Without the list the tile shows the user's own threads as before.
     s.prs = prs.status === "fulfilled" ? prs.value : s.prs ?? null;
+    // Kept once the host answered; a failed read keeps the last good lists.
+    if (issues.status === "fulfilled" && prs.status === "fulfilled" && !s.error) {
+      kept.put(id, { issues: s.issues ?? null, threads: s.threads ?? null, prs: s.prs ?? null, chats: s.chats ?? null });
+    }
     redraw();
   }
 
@@ -459,7 +499,7 @@ export function makeThreads(deps: ThreadDeps) {
   function section(agent: Agent, id: string, title: string, count: string, body: HTMLElement[], note?: HTMLElement) {
     const box = h("div");
     box.id = id;
-    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, button("Refresh", "quiet small", () => load(agent.project_id))), ...body);
+    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id))), ...body);
     if (note) box.append(note);
     return box;
   }
@@ -495,7 +535,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// wrote after the user, Continue, Review and Open.
   function prsSection(agent: Agent, ctx: RepoActs) {
     const s = of(agent.project_id);
-    if (s.prs === undefined) load(agent.project_id);
+    ensure(agent.project_id);
     const list = s.prs;
     const title = "Pull requests";
     if (s.prsError && !list?.length) return section(agent, "sec-prs", title, "", [emptyNote(s.prsError, true)]);
@@ -537,7 +577,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// it, Plan and Discuss, a task's with its task.
   function issuesSection(agent: Agent, ctx: RepoActs) {
     const s = of(agent.project_id);
-    if (s.issues === undefined) load(agent.project_id);
+    ensure(agent.project_id);
     const list = s.issues;
     const title = "Issues";
     if (s.issuesError && !list?.length) return section(agent, "sec-issues", title, "", [emptyNote(s.issuesError, true)]);
@@ -575,7 +615,7 @@ export function makeThreads(deps: ThreadDeps) {
   /// The user's pull requests and issues, with replies and chats.
   function threadsPanel(agent: Agent) {
     const s = of(agent.project_id);
-    if (s.threads === undefined) load(agent.project_id);
+    ensure(agent.project_id);
     const list = s.threads;
     const out: HTMLElement[] = [];
     if (list === undefined) return [emptyPanel(h("span", "", "Reading your pull requests and issues…"))];
@@ -583,7 +623,7 @@ export function makeThreads(deps: ThreadDeps) {
     if (s.error) out.push(h("div", "cc-err", s.error));
     const waiting = list.filter(t => t.needs_reply).length;
     out.push(h("div", "cc-sec", h("h4", "", "Your pull requests and issues", h("small", "", waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "")),
-      button("Refresh", "quiet small", () => load(agent.project_id))));
+      fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id))));
     if (!list.length) {
       out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
     } else {
@@ -616,6 +656,9 @@ export function makeThreads(deps: ThreadDeps) {
 
   return {
     load,
+    ensure,
+    loading: (id: string) => reading.has(id),
+    at: (id: string) => kept.at(id),
     issues: (id: string) => of(id).issues,
     issuesError: (id: string) => of(id).issuesError,
     threads: (id: string) => of(id).threads,

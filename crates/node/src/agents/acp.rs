@@ -69,21 +69,6 @@ pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMe
     }
 }
 
-/// The session mode that asks no permission, for an agent whose launch
-/// cannot set it: Claude Code's `bypassPermissions`, as
-/// `claude --dangerously-skip-permissions` runs. The others start in theirs
-/// (see `KNOWN`).
-pub(super) fn bypass_mode(agent: &str) -> Option<&'static str> {
-    (agent == "claude").then_some("bypassPermissions")
-}
-
-/// The flag that starts the agent `agent` on a model, for an agent whose
-/// command line picks it: flsh and Gemini CLI take `--model`. The others
-/// switch over ACP once the session exists.
-pub(super) fn model_flag(agent: &str) -> Option<&'static str> {
-    matches!(agent, "flsh" | "gemini").then_some("--model")
-}
-
 /// The most models kept from one agent's list.
 pub(super) const MAX_MODELS: usize = 500;
 
@@ -344,10 +329,14 @@ pub(super) fn takes_images(initialized: &InitializeResponse) -> bool {
     initialized.agent_capabilities.prompt_capabilities.image
 }
 
-/// `session/prompt` with the text first, then each image as an image block.
-/// Only images go when there is no text.
-pub(super) fn prompt(session: &SessionId, prompt: &Prompt) -> PromptRequest {
-    let mut blocks = Vec::with_capacity(1 + prompt.images.len());
+/// `session/prompt` with `brief` (Beep's word to the agent) and the text
+/// first, then each image as an image block. Only images go when there is
+/// no text.
+pub(super) fn prompt(session: &SessionId, prompt: &Prompt, brief: Option<&str>) -> PromptRequest {
+    let mut blocks = Vec::with_capacity(2 + prompt.images.len());
+    if let Some(brief) = brief {
+        blocks.push(ContentBlock::Text(TextContent::new(brief)));
+    }
     if !prompt.text.is_empty() || prompt.images.is_empty() {
         blocks.push(ContentBlock::Text(TextContent::new(prompt.text.as_str())));
     }
@@ -588,7 +577,7 @@ mod tests {
             text: "The button overlaps".into(),
             images: vec![shot.clone()],
         };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message)).unwrap();
+        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message, None)).unwrap();
         let blocks = sent["prompt"].as_array().unwrap();
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0]["type"], "text");
@@ -603,7 +592,7 @@ mod tests {
             text: String::new(),
             images: vec![shot],
         };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only)).unwrap();
+        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only, None)).unwrap();
         assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
         assert_eq!(only.shown(), line);
     }
@@ -698,14 +687,6 @@ mod tests {
         let choice = [option("choice-0", AllowOnce), option("choice-1", AllowOnce)];
         assert_eq!(allowed(&choice), None);
         assert_eq!(allowed(&[]), None);
-    }
-
-    #[test]
-    fn only_claude_code_needs_its_mode_set() {
-        assert_eq!(bypass_mode("claude"), Some("bypassPermissions"));
-        for agent in ["codex", "gemini", "pi", "flsh", "opencode"] {
-            assert_eq!(bypass_mode(agent), None, "{agent}");
-        }
     }
 
     #[test]
@@ -809,15 +790,6 @@ mod tests {
         let broken = serde_json::json!({"sessionId": "s1", "models": {"availableModels": 3}});
         assert_eq!(offered_models(&broken), Offered::default());
         assert!(session_created(broken).is_ok());
-    }
-
-    #[test]
-    fn flsh_and_gemini_take_the_model_on_their_command_line() {
-        assert_eq!(model_flag("flsh"), Some("--model"));
-        assert_eq!(model_flag("gemini"), Some("--model"));
-        for agent in ["claude", "codex", "pi", "opencode"] {
-            assert_eq!(model_flag(agent), None, "{agent}");
-        }
     }
 
     #[test]

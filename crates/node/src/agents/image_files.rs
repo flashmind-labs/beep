@@ -8,7 +8,6 @@
 use super::images::Picture;
 use beep_proto::sniff_image;
 use std::{
-    fs,
     io::Read,
     path::{Path, PathBuf},
 };
@@ -82,7 +81,7 @@ fn read_one(cwd: &Path, path: &Path) -> std::io::Result<Option<Picture>> {
     if !path.starts_with(cwd) {
         return Ok(None);
     }
-    let file = fs::File::open(&path)?;
+    let file = crate::fsat::open_read(&path)?;
     let meta = file.metadata()?;
     let limit = u64::try_from(MAX_FILE).unwrap_or(u64::MAX);
     if !meta.is_file() || meta.len() > limit {
@@ -111,6 +110,7 @@ fn holds(mime: &str, data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn image_paths_are_found_however_they_are_written() {

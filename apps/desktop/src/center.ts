@@ -2,7 +2,8 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, emptyPanel, errorNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
+import { PageCache, backgroundTick, freshness, type PageSection, type SectionStore } from "./pagecache.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -27,7 +28,7 @@ import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { BAR_NOTE, type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "./bar/agentnew.ts";
-import { type BaseBranches, baseFor, type CheckoutPick, folderBusy, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
+import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner, preloadModels } from "./bar/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "./bar/agents.ts";
 import { registerInstructions } from "./instructions.ts";
@@ -147,6 +148,70 @@ const state = {
   groups: undefined as ProjectGroup[] | null | undefined,
   renaming: null as { id: string; draft: string } | null,
 };
+/// What each project's page last read, section by section: drawn at once
+/// when a project opens, then read again quietly. The app saves it a few
+/// seconds after a change, for this account only.
+const pages = new PageCache(null);
+/// The saved cache from `center_cached`, until this Mac's account is known.
+let pagesFile: unknown;
+const PAGES_SAVE_MS = 5000;
+let pagesTimer: ReturnType<typeof setTimeout> | undefined;
+
+function keepPages() {
+  clearTimeout(pagesTimer);
+  pagesTimer = setTimeout(() => {
+    if (!pages.takeChanged()) return;
+    const file = pages.toFile();
+    if (file) invoke("center_keep_pages", { pages: file }).catch(e => console.warn("keeping the project pages:", e));
+  }, PAGES_SAVE_MS);
+}
+
+/// Keeps `data` as what `section` of `id` read now.
+function keep(section: PageSection, id: string, data: unknown) {
+  pages.put(section, id, data);
+  keepPages();
+}
+
+/// `section` of the cache for threads.ts and review.ts, saved on change.
+function keptSection<T>(section: PageSection): SectionStore<T> {
+  const store = pages.section<T>(section);
+  return { ...store, put: (id, data) => { store.put(id, data); keepPages(); } };
+}
+
+/// Takes this Mac's account once known: the saved cache comes in for it,
+/// and another account's goes.
+function pagesAccount(mac: MacControl | null) {
+  if (!mac?.id) return;
+  if (pagesFile !== undefined) {
+    pages.restore(pagesFile, mac.id);
+    pagesFile = undefined;
+  } else {
+    pages.setAccount(mac.id);
+  }
+}
+
+/// Fills in project `name`'s sections from the cache where the window has
+/// not read them yet.
+function warm(name: string) {
+  if (!state.pview.get(name)?.view) {
+    const view = pages.get<ProjectView>("view", name);
+    if (view) state.pview.set(name, { view, error: state.pview.get(name)?.error ?? null });
+  }
+  if (!state.where.get(name)) {
+    const where = pages.get<ProjectMachineRow[]>("where", name);
+    if (where) state.where.set(name, where);
+  }
+  if (!state.sessions.has(name)) {
+    const sessions = pages.get<SessionRow[]>("sessions", name);
+    if (sessions) state.sessions.set(name, sessions);
+  }
+}
+
+/// A section header's note for `section` of `id`, `loading` while it reads.
+function pageFresh(section: PageSection, id: string, loading: boolean) {
+  return freshness(pages.at(section, id), loading, Date.now());
+}
+
 /// Whether Home was last drawn in two columns.
 let drawnWide = false;
 /// The server answered for Home in this window; until then Home may be
@@ -1816,8 +1881,9 @@ const loadOverview = single(async () => {
 /// per folder and "Clone here" where it is not, and the coding agents
 /// running in it now.
 function projectDetail(p: Project) {
+  if (p.imported) warm(p.name);
   const machines = p.imported ? state.where.get(p.name) : null;
-  if (p.imported && machines === undefined) loadWhere(p.name);
+  if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
@@ -1837,7 +1903,7 @@ function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   }
   // Once every machine answered, the note says the count instead.
   return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,
-    known && h("small", "", `on ${whereCount(rows, true)}`));
+    known && h("small", "", `on ${whereCount(rows, true)}`), freshNote(pageFresh("where", p.name, readingWhere === p.name)));
 }
 
 /// The coding agents running in the project's folders now.
@@ -1915,20 +1981,23 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   }
   const past = sessions ? pastSessions(sessions, running) : [];
   if (terms.list(p.name) === undefined) terms.load(p.name);
-  if (revs.branches(p.name) === undefined) revs.load(p.name);
-  if (thr.issues(agent.project_id) === undefined) thr.load(agent.project_id);
+  revs.ensure(p.name);
+  thr.ensure(agent.project_id);
+  const now = Date.now(), pid = agent.project_id;
+  const hostFresh = freshness(thr.at(pid), thr.loading(pid), now);
   // Tiles in sections, two a row: the work, the code host, the machines.
   const tileGroup = (title: string, ...tiles: Node[]) => h("div", "pb-sec", h("h4", "", title), h("div", "pb-grid", ...tiles));
   out.push(
     tileGroup("Work",
-      tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!) }),
-      tile("agents", "Agents", agentTile(running, past), openTile),
-      tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile)),
+      tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!), fresh: pageFresh("view", p.name, agentLoading) }),
+      tile("agents", "Agents", agentTile(running, past), openTile, { fresh: pageFresh("sessions", p.name, readingSessions.has(p.name)) }),
+      tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile, { fresh: freshness(revs.at(p.name), revs.loading(p.name), now) })),
     tileGroup("Pull requests and issues",
-      tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl }),
-      tile("issues", "Issues", issueTile(thr.issues(agent.project_id), thr.issuesError(agent.project_id)), openTile, { openUrl })),
+      tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl, fresh: hostFresh }),
+      tile("issues", "Issues", issueTile(thr.issues(agent.project_id), thr.issuesError(agent.project_id)), openTile, { openUrl, fresh: hostFresh })),
     tileGroup("Machines",
       tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
+        fresh: pageFresh("where", p.name, readingWhere === p.name),
         menu: (r, e) => {
           const m = rows.find(w => w.id === r.id);
           if (m?.id) openMachineMenu(e, { id: m.id, name: m.name, online: m.kind !== "offline" });
@@ -1988,6 +2057,7 @@ const revs = makeReviews({
   openUrl,
   openTile: (key: string) => openTile(key),
   machines: () => state.home?.machines || [],
+  kept: keptSection("branches"),
 });
 
 /// The project's open issues and the user's threads there; the Issues
@@ -1998,6 +2068,7 @@ const thr = makeThreads({
   openUrl,
   openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
+  kept: keptSection("threads"),
 });
 
 /// The Projects page's element.
@@ -2065,7 +2136,7 @@ async function act(id: string, call: () => Promise<unknown>) {
 /// Review opens a branch's review, Work on it and Continue fill the bar.
 function repoActs(p: Project): RepoActs {
   const view = state.pview.get(p.name)?.view;
-  if (revs.reviews(p.name) === undefined) revs.load(p.name);
+  revs.ensure(p.name);
   return {
     tasks: view?.tasks ?? [],
     reviews: revs.reviews(p.name),
@@ -2105,12 +2176,12 @@ function answerCard(agent: ProjectAgent, c: { query_id: string }, decision: stri
 }
 
 /// The bar under a project: it starts a coding agent in the project's
-/// checkout, by default on a new branch in a new worktree, and opens its
-/// session. Kept across redraws so what is typed stays.
+/// checkout, by default as it is (the agent makes its own branch), and
+/// opens its session. Kept across redraws so what is typed stays.
 const pc = {
   project: null as string | null,
   machine: "auto",
-  checkout: "new" as CheckoutPick,
+  checkout: DEFAULT_CHECKOUT,
   hosts: null as AgentHost[] | null,
   sessions: [] as AgentSession[],
   branches: new Map<string, BaseBranches | null>(),
@@ -2137,7 +2208,7 @@ const projectComp = (() => {
   machine.title = "The machine it runs on";
   const folder = h("button", "pill");
   folder.type = "button";
-  folder.title = "New worktree, the checkout, or an existing worktree";
+  folder.title = "The checkout, a new worktree, or an existing worktree";
   const harness = h("button", "pill");
   harness.type = "button";
   harness.title = "Harness, model and thinking";
@@ -2181,9 +2252,9 @@ const projectComp = (() => {
     const trees = knownWorktrees(pc.sessions, place.machine_id, place.cwd);
     const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
     openMenu(e, "Folder", [
+      { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
       { label: "New worktree", on: pick("new") },
       { label: "New branch in the checkout", on: pick("branch") },
-      { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
       ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
     ]);
   });
@@ -2251,7 +2322,7 @@ function drawProjectComp(name: string) {
   if (pc.project !== name) {
     pc.project = name;
     pc.machine = lastMachine(name) || "auto";
-    pc.checkout = "new";
+    pc.checkout = DEFAULT_CHECKOUT;
     pc.target = null;
     c.err.textContent = "";
     loadProjectBar(name);
@@ -2376,11 +2447,10 @@ async function startFromBar(fresh = false) {
   if (was && !fresh) return resumeFromBar(was, text);
   const { agent } = barHarness(place);
   const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
-  const busy = folderBusy(pc.sessions, place.machine_id, place.cwd);
   // Start new beside a session goes in that session's worktree.
   const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
     : t ? { cwd: place.cwd, checkout: targetPlan(t) }
-    : startPlace(pc.checkout, busy, place.cwd, baseFor(null, pc.branches.get(p.name)));
+    : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(p.name)));
   c.err.textContent = "";
   pc.starting = true;
   pc.open = false;
@@ -2444,6 +2514,7 @@ async function loadProjectAgent() {
       try {
         const view = await invoke<ProjectView>("center_project", { projectId: agent.project_id, chatId: agent.chat_id });
         state.pview.set(agent.name, { view, error: null });
+        keep("view", agent.name, view);
       } catch (e) {
         state.pview.set(agent.name, { view: was?.view ?? null, error: failure(e) });
       }
@@ -2494,10 +2565,15 @@ function whereRow(p: Project, m: WhereRow) {
 /// machine's sessions with it.
 let readingWhere: string | null = null;
 let whereTimer: ReturnType<typeof setTimeout> | undefined;
+/// Projects whose kept places are due another read on the next draw.
+const whereDue = new Set<string>();
 async function loadWhere(name: string) {
   if (readingWhere === name) return;
   readingWhere = name;
+  whereDue.delete(name);
   const before = state.where.get(name);
+  // A kept list shows a spinner in its header meanwhile.
+  if (before && state.picked === name) queueMicrotask(redrawProjects);
   let got: ProjectMachineRow[] | null = null;
   try {
     const [machines, places] = await Promise.all([
@@ -2510,9 +2586,11 @@ async function loadWhere(name: string) {
   } finally {
     readingWhere = null;
   }
-  state.where.set(name, got);
+  // A failed read keeps the last list it had.
+  if (got || !before) state.where.set(name, got);
+  if (got && !got.some(m => m.checking)) keep("where", name, got);
   const folders = (list: ProjectMachineRow[] | null) => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
-  if (before !== undefined && folders(before) !== folders(got)) {
+  if (got && before !== undefined && folders(before) !== folders(got)) {
     sessionsDue.add(name);
     refresh();
   }
@@ -2539,9 +2617,10 @@ function sessionsSection(p: Project, running: RunningAgent[]) {
       ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
       : emptyPanel(h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
+  const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
+  note?.classList.add("ss-updating");
   return section("sec-sessions", "Sessions", sessions?.length || "", null, body,
-    h("small", "", "from your coding agents in its folders on every machine, newest first"),
-    sessions !== undefined && readingSessions.has(p.name) && h("small", "ss-updating", "Updating…"));
+    h("small", "", "from your coding agents in its folders on every machine, newest first"), note);
 }
 
 /// The agent view for a session row.
@@ -2590,6 +2669,7 @@ async function loadSessions(name: string) {
   }
   const { list, changed } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
+  if (got) keep("sessions", name, list);
   if (shown !== "projects" || state.picked !== name) return;
   if (changed) drawProjects(projectsEl());
   else for (const el of document.querySelectorAll(".ss-updating")) el.remove();
@@ -2705,7 +2785,13 @@ registerView("projects", {
   },
   mount(el, arg) {
     state.picked = (arg as ProjectsArg | undefined)?.project || null;
-    if (state.picked) { sessionsDue.add(state.picked); state.where.delete(state.picked); }
+    // What the project last showed draws at once; what is due reads again
+    // behind it.
+    if (state.picked) {
+      warm(state.picked);
+      if (pages.due("sessions", state.picked)) sessionsDue.add(state.picked);
+      if (pages.due("where", state.picked)) whereDue.add(state.picked);
+    }
     openTile(null, false);
     drawProjects(el);
     if (!state.picked) { loadFound(); loadOverview(); }
@@ -3067,8 +3153,9 @@ document.addEventListener("keydown", e => {
   }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
-  // ⌘W closes this window; Beep keeps running in the menu bar.
-  if (key === "w" && !e.shiftKey) { e.preventDefault(); return window.close(); }
+  // ⌘W closes this window; Beep keeps running in the menu bar. The main
+  // window only hides, keeping what it shows.
+  if (key === "w" && !e.shiftKey) { e.preventDefault(); invoke("center_close_window").catch(() => window.close()); return; }
   if (key === "k") { e.preventDefault(); return openPalette(); }
   if (key === ",") { e.preventDefault(); return openSettings(); }
   const to = PANE_KEYS[key];
@@ -3140,6 +3227,7 @@ async function refresh() {
       invoke<ProjectGroup[] | null>("project_groups").catch(e => { console.warn("project groups:", e); return state.groups; }),
     ]);
     state.mac = mac;
+    pagesAccount(mac);
     state.top = top || [];
     state.groups = projectGroups;
     state.sync = sync;
@@ -3163,7 +3251,7 @@ async function refresh() {
   draw();
   // Every terminal's state refreshes with Home, while Home or the
   // Terminals page shows, or before the first list for the sidebar.
-  if (state.home?.machines && (shown === "home" || shown === "terminals" || allTerms.list(ALL) === undefined)) allTerms.load(ALL);
+  if (state.home?.machines && (onScreen() && (shown === "home" || shown === "terminals") || allTerms.list(ALL) === undefined)) allTerms.load(ALL);
   // A project's agent refreshes with Home: on focus, on notices and every
   // 10 seconds while the window shows.
   if (shown === "projects") {
@@ -3172,7 +3260,7 @@ async function refresh() {
     if (state.picked) {
       loadProjectAgent();
       const p = filterProjects(projectRows() || [], state.picked)[0];
-      if (p && boardOn(p)) terms.load(state.picked);
+      if (p && boardOn(p) && onScreen()) terms.load(state.picked);
     } else {
       loadOverview();
     }
@@ -3189,13 +3277,33 @@ async function refresh() {
 // "Still connecting" takes over once the wait passes its limit.
 setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
+/// Closing the main window only hides it (WKWebView may still call a
+/// hidden page visible, so Rust says so). Hidden, it keeps Home and the
+/// projects in step slowly: every `BACKGROUND_MS`, on the pushes below,
+/// never while the connection is down, and not on the late tick after
+/// the Mac slept, since reconnecting reads anyway.
+let windowHidden = false;
+const BACKGROUND_MS = 4 * 60_000;
+let lastBackground = Date.now();
+function onScreen() { return !windowHidden && document.visibilityState === "visible"; }
+listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); });
+listen("center-shown", () => { windowHidden = false; refresh(); });
+setInterval(() => {
+  const now = Date.now(), last = lastBackground;
+  lastBackground = now;
+  if (onScreen()) return;
+  if (backgroundTick(last, now, BACKGROUND_MS, fresh && !state.error) === "run") refresh();
+}, BACKGROUND_MS);
+
 window.addEventListener("focus", refresh);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
-setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 10000);
+document.addEventListener("visibilitychange", () => { if (onScreen()) refresh(); });
+setInterval(() => { if (onScreen()) refresh(); }, 10000);
 // Open PRs and issues: the server keeps them a few minutes, so once a minute
 // on Home is plenty.
 window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
-setInterval(() => { if (document.visibilityState === "visible" && shown === "home") refreshGit(); }, 60000);
+setInterval(() => { if (onScreen() && shown === "home") refreshGit(); }, 60000);
+// Signed out or removed: the kept project pages go with the account.
+listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); pagesFile = undefined; } });
 for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) {
   listen(name, () => refresh());
 }
@@ -3247,6 +3355,8 @@ async function showCached() {
   ]);
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
+  pagesFile = cached?.pages;
+  pagesAccount(mac);
   if (!home) return;
   draw();
   reloadGroup("projects");

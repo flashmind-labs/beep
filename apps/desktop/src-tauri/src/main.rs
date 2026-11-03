@@ -123,6 +123,11 @@ fn main() {
                     voice.minimize();
                 }
             }
+            WindowEvent::CloseRequested { api, .. } => {
+                if center::hide_on_close(window) {
+                    api.prevent_close();
+                }
+            }
             WindowEvent::Destroyed => {
                 if center::is_center(window.label()) {
                     // Its chat is not on screen any more, so its notices must
@@ -158,6 +163,8 @@ fn main() {
             center::open_center,
             center::center_home,
             center::center_cached,
+            center::center_keep_pages,
+            center::center_close_window,
             center::center_answer_agent,
             center::center_dismiss_updates,
             center::center_open_update_chat,
