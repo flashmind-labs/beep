@@ -237,6 +237,8 @@ function draw() {
   const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
   const keep = focused && listBox.contains(focused) ? focused.dataset.name : null;
   const shown = shownRows();
+  // The list is drawn anew, so it takes the old one's scroll with it.
+  const scrolled = listBox.querySelector<HTMLElement>(".ap-list")?.scrollTop ?? 0;
   if (found === null) {
     listBox.replaceChildren(el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines)));
   } else if (!found.length) {
@@ -250,8 +252,9 @@ function draw() {
       pick: { on: picked.has(row.name), toggle: () => toggle(row.name) },
       status: status.get(row.name),
     }))));
+    listBox.querySelector<HTMLElement>(".ap-list")!.scrollTop = scrolled;
   }
-  if (keep) rowEls().find(r => r.dataset.name === keep)?.focus();
+  if (keep) rowEls().find(r => r.dataset.name === keep)?.focus({ preventScroll: true });
   else if (any && !sheet?.contains(document.activeElement)) search.focus();
   if (!any) return;
   const names = shown.map(row => row.name);
