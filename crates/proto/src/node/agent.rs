@@ -419,6 +419,15 @@ pub enum SessionsRequest {
     /// Sent on a `FollowUsage` stream: reads the plans' usage again now,
     /// rather than at the next check.
     RefreshPlanUsage {},
+    /// Up to `AGENT_FILE_CHUNK` bytes from `offset` of the media file
+    /// `path`, absolute or starting `~/` for the node's home. Answered with
+    /// `File`, `NoFile` when there is no such file, or `Error` saying why it
+    /// cannot be read. A node from before it answers `Error` or closes the
+    /// stream.
+    File {
+        path: String,
+        offset: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -477,6 +486,16 @@ pub enum SessionsReply {
     PlanUsage {
         usage: super::usage::PlanUsage,
     },
+    /// The answer to `File`: the whole file's `size` and its MIME type,
+    /// with the bytes from the asked offset, empty at or past the end.
+    File {
+        size: u64,
+        mime: String,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
+    /// The answer to `File` when there is no file at its path.
+    NoFile {},
 }
 
 /// The models an agent can run on a node, as `SessionsRequest::Models`

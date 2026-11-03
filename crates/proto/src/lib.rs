@@ -1162,6 +1162,18 @@ requests! {
     /// machines every few minutes; `refresh` asks the online ones to read
     /// them again now, and the answer comes before they did.
     294 GetUsage { refresh: bool } => Call<UsageView>
+    /// Part of a media file on the caller's online machine `machine_id`,
+    /// such as a video, 3D model, PDF or picture a coding agent made.
+    /// `path` is absolute or starts `~/` (the node's home). Gives up to
+    /// [`AGENT_FILE_CHUNK`] bytes from `offset`, with the file's whole size
+    /// and MIME type; the app asks again from `offset` plus the bytes it
+    /// got until it has `size`. Only files whose extension [`media_mime`]
+    /// knows and of at most [`MAX_AGENT_FILE`] bytes. The server keeps
+    /// nothing. `NotFound` when the machine is not one of the caller's
+    /// online ones or the file is not there; `BadRequest` saying why for
+    /// another type, a file too large, or a node too old to read files
+    /// (updating beep-node may help).
+    300 GetAgentFile { machine_id: String, path: String, offset: u64 } => Call<AgentFileChunk>
 }
 
 /// What `GetUsage` gives.
@@ -2478,6 +2490,52 @@ pub struct AgentImageData {
     pub mime: String,
     #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
+}
+
+/// Part of a media file on a machine, as `GetAgentFile` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentFileChunk {
+    /// The whole file's size in bytes.
+    pub size: u64,
+    pub mime: String,
+    /// The bytes from the asked offset, at most [`AGENT_FILE_CHUNK`]; empty
+    /// at or past the end.
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+}
+
+/// The most of a file one `GetAgentFile` gives, well under a frame.
+pub const AGENT_FILE_CHUNK: usize = 4 * 1024 * 1024;
+
+/// The largest file `GetAgentFile` reads.
+pub const MAX_AGENT_FILE: u64 = 128 * 1024 * 1024;
+
+/// The MIME type of a media file `GetAgentFile` reads, by the extension of
+/// `path`, any case; `None` for any other file.
+pub fn media_mime(path: &str) -> Option<&'static str> {
+    let name = path.rsplit(['/', '\\']).next()?;
+    let (stem, ext) = name.rsplit_once('.')?;
+    if stem.is_empty() {
+        return None;
+    }
+    Some(match ext.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "glb" => "model/gltf-binary",
+        "gltf" => "model/gltf+json",
+        "obj" => "model/obj",
+        "stl" => "model/stl",
+        "pdf" => "application/pdf",
+        _ => return None,
+    })
 }
 
 /// A short name for an image's bytes, the same on the node and the server.
@@ -4847,6 +4905,19 @@ impl Notice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn media_mime_goes_by_extension() {
+        assert_eq!(media_mime("/out/clip.MP4"), Some("video/mp4"));
+        assert_eq!(media_mime("~/renders/scene.glb"), Some("model/gltf-binary"));
+        assert_eq!(media_mime("C:\\out\\report.pdf"), Some("application/pdf"));
+        assert_eq!(media_mime("/out/logo.svg"), Some("image/svg+xml"));
+        assert_eq!(media_mime("/out/take.mov"), Some("video/quicktime"));
+        assert_eq!(media_mime("/out/notes.txt"), None);
+        assert_eq!(media_mime("/out/mp4"), None);
+        assert_eq!(media_mime("/out/.png"), None);
+        assert_eq!(media_mime("/out.png/clip"), None);
+    }
 
     #[test]
     fn request_round_trip_is_compact() {
