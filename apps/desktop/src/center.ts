@@ -2094,7 +2094,12 @@ function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))), whereSection(p, rows, !!machines)];
+  const agent = p.imported ? agentFor(state.agents, p.name) : null;
+  return [
+    ...agentTop(p), ...repoSections(p),
+    h("div", "pj-cols pj-half", agent ? runs.section(agent) : sessionsSection(p, running), whereSection(p, rows, !!machines)),
+    h("div", "pj-cols pj-half", ...(agent ? [sessionsSection(p, running)] : []), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))),
+  ];
 }
 
 /// The project's custom agents: the named agents its folder defines for
@@ -2198,6 +2203,7 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
     tasks: () => [taskColumns(view)],
     prs: () => [thr.prsSection(agent, repoActs(p)), ...thr.threadsPanel(agent)],
     issues: () => [thr.issuesSection(agent, repoActs(p))],
+    actions: () => [runs.section(agent)],
     machines: () => [whereSection(p, rows, known)],
     agents: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)],
     terminals: () => terms.panel(p.name, rows),
@@ -2222,9 +2228,10 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
       tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!), fresh: pageFresh("view", p.name, agentLoading) }),
       tile("agents", "Agents", agentTile(running, past), openTile, { fresh: pageFresh("sessions", p.name, readingSessions.has(p.name)) }),
       tile("branches", "Branches", branchTile(revs.branches(p.name), revs.reviews(p.name), ago), openTile, { fresh: freshness(revs.at(p.name), revs.loading(p.name), now) })),
-    tileGroup("Pull requests and issues",
+    tileGroup("Code host",
       tile("prs", "Pull requests", threadTile(thr.threads(agent.project_id), prTile(view.tasks), thr.prs(agent.project_id)), openTile, { openUrl, fresh: hostFresh }),
-      tile("issues", "Issues", issueTile(thr.issues(agent.project_id), thr.issuesError(agent.project_id)), openTile, { openUrl, fresh: hostFresh })),
+      tile("issues", "Issues", issueTile(thr.issues(agent.project_id), thr.issuesError(agent.project_id)), openTile, { openUrl, fresh: hostFresh }),
+      tile("actions", "Actions", runs.tile(pid), openTile, { openUrl })),
     tileGroup("Machines",
       tile("machines", "Machines", machineTile(rows, state.sync.filter(s => s.project === p.name)), openTile, {
         fresh: pageFresh("where", p.name, readingWhere === p.name),
@@ -2412,13 +2419,13 @@ function repoActs(p: Project): RepoActs {
   };
 }
 
-/// The repository's open pull requests and issues, then its workflow runs
-/// across the page, under the tasks of a project with an agent.
+/// The repository's open pull requests beside its issues, under the tasks
+/// of a project with an agent.
 function repoSections(p: Project): Node[] {
   const agent = p.imported ? agentFor(state.agents, p.name) : null;
   if (!agent) return [];
   const acts = repoActs(p);
-  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts)), runs.section(agent)];
+  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts))];
 }
 
 /// The cards the project chat waits on, then Tasks beside Workers, above

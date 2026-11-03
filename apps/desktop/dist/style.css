@@ -972,3 +972,18 @@ button.dachip:hover { border-color: #3A4A41 }
 .cx-pop .h b { color: var(--fg); font-weight: 500 }
 .cx-pop .h .sp { flex: 1 }
 .cx-pop pre { margin: 0; padding: 8px 12px; max-height: 220px; overflow: auto; font: 11.5px/17px var(--mono); color: var(--muted); white-space: pre }
+
+/* Settings, Git hosts: one row per host, chips under it. */
+.dgit { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; row-gap: 5px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px }
+.dgit > :not(.ic) { grid-column: 2 }
+.dgit .ic { display: grid; place-items: center; color: var(--fg) }
+.dgit.off .ic { opacity: .45 }
+.dgit .l1 { display: flex; align-items: center; gap: 8px; min-width: 0 }
+.dgit .l1 b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dgit .acct { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dgit .acts { margin-left: auto; display: flex; gap: 4px; align-items: center; flex: none }
+.dgit .l2 { display: flex; flex-wrap: wrap; gap: 4px }
+.dgchip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; flex: none }
+.dgchip.warn { color: #E9B949; border-color: rgba(233, 185, 73, .4) }
+.dgchip.err { color: var(--err); border-color: rgba(232, 104, 90, .45) }
+.dbtn.dico { width: 26px; min-height: 24px; padding: 0; justify-content: center }
