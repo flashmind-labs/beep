@@ -324,6 +324,8 @@ pub fn router() -> Router {
         .call(harnesses::update_agent_harness)
         .call(harnesses::get_flsh_settings)
         .call(harnesses::save_flsh_settings)
+        .call(harnesses::list_harness_settings)
+        .call(harnesses::save_harness_settings_all)
         .call(project_sync::get_project_sync_detail)
         .call(project_sync::pause_project_sync)
         .call(project_sync::resolve_sync_conflict)

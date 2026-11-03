@@ -657,6 +657,12 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .hv-stat { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); padding: 6px 0 }
 .hv-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px }
 .hv-note { font-size: 12px; line-height: 17px; color: var(--muted); margin-top: 8px }
+/* A field not the same on every machine, and the save bar: this machine or every machine. */
+.hv-diff { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 10.5px; line-height: 15px; font-weight: 400; color: var(--muted); cursor: help; vertical-align: 1px }
+.hv-save { margin-top: 12px }
+.hv-incl { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap }
+.hv-ok { font-size: 12px; color: var(--emerald) }
+.hv-acts [hidden] { display: none }
 /* The machine picker: a segmented control whose names never wrap, or a select when they do not fit. */
 .hv-pick { display: inline-flex; min-width: 0 }
 .hv-seg { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.02) }

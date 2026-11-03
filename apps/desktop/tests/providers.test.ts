@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkedLabel, draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, listRows, settingsInput, splitArgs, statusLine, summaryLine, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/providers-state.ts";
+import { checkedLabel, differsLabel, differsOn, savedToLabel, draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, listRows, settingsInput, splitArgs, statusLine, summaryLine, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView, type MachineSettings } from "../src/providers-state.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };
 const harness = (agent: string, more: Partial<HarnessView> = {}): HarnessView => ({
@@ -95,4 +95,29 @@ test("the summary line names the signed-in account, else says what the list says
   assert.deepEqual(summaryLine(codex), statusLine(codex));
   assert.deepEqual(summaryLine(pi), statusLine(pi));
   assert.deepEqual(summaryLine(gemini), { text: "Not installed", bad: false });
+});
+
+test("a field differs on the machines whose saved value is not this one's", () => {
+  const on = (id: string, more: Partial<MachineSettings["settings"]> = {}): MachineSettings => ({
+    machine_id: id, machine_name: `${id}-box`, settings: { ...settings, ...more },
+  });
+  const all = [
+    on("a", { program: "/opt/claude", args: ["--verbose"], env: ["HTTPS_PROXY", "NO_PROXY"] }),
+    on("b", { program: "/srv/claude", args: ["--verbose"], env: ["NO_PROXY", "HTTPS_PROXY"] }),
+    on("c", { program: "/opt/claude" }),
+  ];
+  assert.deepEqual(differsOn(all, "a", "program"), ["b-box"]);
+  assert.deepEqual(differsOn(all, "a", "args"), ["c-box"]);
+  // Env vars compare by their names in any order; the values never come back.
+  assert.deepEqual(differsOn(all, "a", "env"), ["c-box"]);
+  assert.deepEqual(differsOn(all, "a", "home"), []);
+  assert.deepEqual(differsOn(all, "c", "args"), ["a-box", "b-box"]);
+  // A machine not listed, or alone, differs from nothing.
+  assert.deepEqual(differsOn(all, "z", "program"), []);
+  assert.deepEqual(differsOn([on("a")], "a", "program"), []);
+  assert.equal(differsLabel(["b-box"]), "differs on 1 machine");
+  assert.equal(differsLabel(["b-box", "c-box"]), "differs on 2 machines");
+  assert.equal(differsLabel([]), "");
+  assert.equal(savedToLabel(3), "Saved to 3 machines");
+  assert.equal(savedToLabel(1), "Saved to 1 machine");
 });

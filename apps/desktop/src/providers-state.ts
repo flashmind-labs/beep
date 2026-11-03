@@ -274,3 +274,41 @@ export function envProblem(env: EnvDraft[]) {
   }
   return "";
 }
+
+/// One machine's saved settings for a harness (MachineSettingsView).
+export interface MachineSettings {
+  machine_id: string;
+  machine_name: string;
+  settings: SettingsView;
+}
+
+/// A field "Save to all hosts" copies, and so can differ between machines.
+export type SharedField = "program" | "home" | "args" | "env";
+
+/// A field's value as compared across machines: env vars by their names,
+/// in any order, since the values never come back.
+function fieldKey(settings: SettingsView, field: SharedField) {
+  if (field === "args") return JSON.stringify(settings.args);
+  if (field === "env") return JSON.stringify([...settings.env].sort());
+  return settings[field];
+}
+
+/// The other machines whose saved `field` is not what `machineId` has
+/// saved, by name; empty when it is the same everywhere or the machine is
+/// not in `all`.
+export function differsOn(all: readonly MachineSettings[], machineId: string, field: SharedField): string[] {
+  const own = all.find(m => m.machine_id === machineId);
+  if (!own) return [];
+  const mine = fieldKey(own.settings, field);
+  return all.filter(m => m.machine_id !== machineId && fieldKey(m.settings, field) !== mine).map(m => m.machine_name);
+}
+
+/// "differs on 2 machines", or "" when it does not.
+export function differsLabel(names: readonly string[]) {
+  return names.length ? `differs on ${names.length} machine${names.length === 1 ? "" : "s"}` : "";
+}
+
+/// "Saved to 3 machines".
+export function savedToLabel(n: number) {
+  return `Saved to ${n} machine${n === 1 ? "" : "s"}`;
+}
