@@ -16,8 +16,10 @@ pub(crate) struct ProjectPersona {
     /// What a machine must be able to do to run it.
     pub(crate) needs: Vec<Capability>,
     /// MCP servers the persona wants.
+    #[allow(dead_code, reason = "workers do not start MCP servers yet")]
     pub(crate) mcp: Vec<String>,
     /// The file the persona was read from.
+    #[allow(dead_code, reason = "nothing names a persona's file yet")]
     pub(crate) file: String,
 }
 

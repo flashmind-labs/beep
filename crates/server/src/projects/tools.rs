@@ -688,14 +688,8 @@ impl PlanTool {
             match fleet::home_shell(tools.fleet.as_ref(), &tools.user, &project).await {
                 Ok(home) => {
                     for task in &made {
-                        match issues::file_issue(
-                            &tools.user,
-                            home.shell.as_ref(),
-                            host,
-                            &project,
-                            task,
-                        )
-                        .await
+                        match issues::file_issue(&tools.user, home.as_ref(), host, &project, task)
+                            .await
                         {
                             Ok(issue) => filed.push(format!("{} (#{})", task.slug, issue.number)),
                             Err(error) => failed.push(format!("{} ({error:#})", task.slug)),
@@ -1283,7 +1277,7 @@ async fn on_home(
         Ok(home) => home,
         Err(why) => return Ok(Err(why)),
     };
-    Ok(run_host(home.shell.as_ref(), host, project, command)
+    Ok(run_host(home.as_ref(), host, project, command)
         .await
         .map_err(|error| format!("{error:#}.")))
 }

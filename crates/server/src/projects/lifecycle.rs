@@ -283,7 +283,7 @@ async fn find_pr(
         branch: &branch,
         base: &project.default_branch,
     };
-    let out = run_host(home.shell.as_ref(), prs, project, command).await?;
+    let out = run_host(home.as_ref(), prs, project, command).await?;
     parse_pr(prs, &out)
 }
 
@@ -315,7 +315,7 @@ async fn relabel(
         add,
         remove,
     };
-    if let Err(error) = run_host(home.shell.as_ref(), host, project, command).await {
+    if let Err(error) = run_host(home.as_ref(), host, project, command).await {
         log::warn!("projects: unable to relabel an issue: {error:#}");
     }
 }
@@ -725,12 +725,9 @@ async fn pr_status(
         .await
         .map_err(anyhow::Error::msg)?;
     let command = HostCommand::PrStatus { number };
-    let out = timeout(
-        PR_LIMIT,
-        run_host(home.shell.as_ref(), prs, project, command),
-    )
-    .await
-    .context("the host did not answer in time")??;
+    let out = timeout(PR_LIMIT, run_host(home.as_ref(), prs, project, command))
+        .await
+        .context("the host did not answer in time")??;
     parse_pr(prs, &out)
 }
 
@@ -871,7 +868,7 @@ pub(crate) async fn finish_task(
         };
         match fleet::home_shell(fleet, user, project).await {
             Ok(home) => {
-                if let Err(error) = run_host(home.shell.as_ref(), host, project, command).await {
+                if let Err(error) = run_host(home.as_ref(), host, project, command).await {
                     log::warn!("projects: unable to close a done task's issue: {error:#}");
                 }
             }

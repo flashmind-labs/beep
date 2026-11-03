@@ -155,7 +155,7 @@ pub(crate) async fn mirror_missing(
             log::warn!("projects: a task's text names private details; no issue filed");
             continue;
         }
-        match file_issue(user, home.shell.as_ref(), host, project, &task).await {
+        match file_issue(user, home.as_ref(), host, project, &task).await {
             Ok(_) => filed += 1,
             Err(error) => {
                 log::warn!("projects: filing an issue failed again: {error:#}");

@@ -113,12 +113,6 @@ pub(crate) async fn thread_context(
     threads::chat_context(&fleet, user, project, chat).await
 }
 
-/// What the agent is told about its project each turn.
-pub(crate) async fn context(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = NodeFleet::new(app, user);
-    context_with(&fleet, user, project).await
-}
-
 fn host_name(host: Option<&IssueHost>) -> String {
     match host {
         None => "none, kept in Beep".to_owned(),
@@ -433,7 +427,6 @@ async fn owned_issues(
         let home = fleet::home_shell(fleet, user, project).await?;
         let command = HostCommand::ListOwnedIssues.render(host, &project.name);
         let out = home
-            .shell
             .run(&command, ISSUES_LIMIT)
             .await
             .map_err(|error| format!("{error:#}"))?;
