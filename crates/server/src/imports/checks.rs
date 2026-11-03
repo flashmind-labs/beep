@@ -12,6 +12,7 @@ use super::{remove, repo::same_repo};
 use crate::{
     app::App,
     credentials::{ForgejoUrl, Slot},
+    lock,
     protocol::{
         ProjectMachine,
         node::agent::{SESSIONS_PROTOCOL, SessionFolder},
@@ -23,7 +24,7 @@ use anyhow::Context;
 use chrono::{DateTime, TimeDelta, Utc};
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
@@ -61,10 +62,6 @@ impl Default for Checkouts {
             tasks: Mutex::new(JoinSet::new()),
         }
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Takes a machine off the running list when its task ends, even by a
