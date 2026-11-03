@@ -6,6 +6,7 @@ import type { invoke as Invoke } from "./tauri.ts";
 import type { Ago, Kid, MakeButton, MakeEl } from "./projects-state.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
+import { plural } from "./components/format.ts";
 
 /// The view's tabs.
 export type InstructionsTab = "editor" | "import" | "sync" | "history";
@@ -173,7 +174,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     const err = st.error ? h("div", "cc-err", st.error) : null;
     const summary = st.files ? syncSummary(st.files) : null;
     const files = h("div", "cc-panel cc-row in-side",
-      h("span", "t", h("b", "", summary ? `Synced to ${summary.synced} of ${summary.machines} ${summary.machines === 1 ? "machine" : "machines"}` : "Agent files"),
+      h("span", "t", h("b", "", summary ? `Synced to ${summary.synced} of ${plural(summary.machines, "machine", "machines")}` : "Agent files"),
         h("span", "", summary ? "Machines with Claude Code, Codex, Gemini CLI or pi" : "Write your rules into each agent's own file")),
       button("Sync", "", () => setTab("sync")));
     return h("div", "in-cols",

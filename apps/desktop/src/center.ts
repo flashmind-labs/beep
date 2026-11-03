@@ -1,7 +1,7 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
-import { ago, since } from "./components/format.ts";
+import { ago, plural, since } from "./components/format.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -159,7 +159,6 @@ let fresh = false;
 
 // ---------- Formatting ----------
 
-function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 function whenOf(iso: string) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return { time: "", day: "" };
@@ -189,7 +188,7 @@ function refusal(e: unknown) { return String(e).replace(/^(bad request|error):\s
 /// Green online, yellow with agents running there, grey offline.
 function dot(m: MachineCard) {
   const el = h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`);
-  el.title = !m.online ? "Offline" : m.agents ? `Online · ${m.agents === 1 ? "1 agent" : `${m.agents} agents`} running` : "Online";
+  el.title = !m.online ? "Offline" : m.agents ? `Online · ${plural(m.agents, "agent", "agents")} running` : "Online";
   return el;
 }
 
@@ -1725,10 +1724,9 @@ function projectTable(rows: Project[]) {
 /// workers, what changed last and where it lives.
 function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
-  const repos = (n: number) => `${n} ${n === 1 ? "repo" : "repos"}`;
   const out = groups.map(g => g.group ? groupSection(g.group, g)
     : h("section", "pj-org",
-      h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", repos(g.cards.length))),
+      h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", plural(g.cards.length, "repo", "repos"))),
       h("div", "pj-grid", ...g.cards.map(projectCard))));
   const add = h("div", "cc-panel cc-row pj-add",
     h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder your agents worked in, any folder, or a repository to clone.")),
@@ -1768,7 +1766,7 @@ function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewC
   } else {
     const paths = h("span", "gp-paths", g.paths.map(p => (p.startsWith("/") ? p : `~/${p}`)).join(", "));
     paths.title = "Matched on every machine";
-    head.append(g.name, h("small", "", `${n} ${n === 1 ? "repo" : "repos"}`), paths,
+    head.append(g.name, h("small", "", plural(n, "repo", "repos")), paths,
       h("span", "gp-acts",
         button("Rename", "quiet", () => startRename(g)),
         button("Folders…", "quiet", () => editGroup(g)),

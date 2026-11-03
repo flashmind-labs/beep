@@ -3,6 +3,7 @@
 // steps into one line and keeps only its answer in view.
 
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
+import { plural } from "./components/format.ts";
 
 /// The parts of an entry a turn needs.
 export interface LogEntry {
@@ -75,7 +76,6 @@ function target(text: string) {
   return parseTool(text).title.trim().replace(/^[A-Za-z]+:? /, "");
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /// A turn's steps as one line, naming at most two kinds, commands and
 /// edits first, and counting the rest: "Ran 3 commands, edited 2 files,

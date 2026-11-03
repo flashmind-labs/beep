@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ago, since } from "../src/components/format.ts";
+import { ago, plural, since } from "../src/components/format.ts";
+
+test("plural picks the word for the count", () => {
+  assert.equal(plural(1, "repo", "repos"), "1 repo");
+  assert.equal(plural(0, "repo", "repos"), "0 repos");
+  assert.equal(plural(3, "repo", "repos"), "3 repos");
+});
 
 const NOW = 1_700_000_000_000;
 

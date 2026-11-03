@@ -14,3 +14,6 @@ export function since(ms: number, now = Date.now()) {
   const a = ago(ms, now);
   return a === "now" ? "just now" : `${a} ago`;
 }
+
+/// "1 file", "3 files".
+export function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
