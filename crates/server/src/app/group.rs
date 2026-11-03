@@ -4,7 +4,7 @@
 //! before anyone sees it.
 
 use super::{
-    App, UserNotice, group_reminders,
+    App, Reach, UserNotice, group_reminders,
     group_tools::{self, GroupRun},
     learning::MEMORY_THRESHOLD,
     run::register_web_tools,
@@ -269,6 +269,7 @@ impl App {
                     group: true,
                 },
                 desktop: None,
+                to: Reach::Everyone,
             });
         }
     }
