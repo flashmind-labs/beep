@@ -2,7 +2,7 @@
 //! copy (see `crate::repo_watch`), for the project page.
 
 use super::{
-    Reply,
+    Reply, SEND_TIMEOUT,
     projects::{issue_view, project_of, pull_request_view},
 };
 use crate::{
@@ -13,11 +13,13 @@ use crate::{
     },
     protocol::*,
     repo_watch::ListsCopy,
-    router::Cx,
+    repo_watch::{Changed, LiveState},
+    router::{Cx, Sink},
     store::ProjectRow,
     user::User,
 };
 use std::sync::Arc;
+use tokio::{sync::broadcast::error::RecvError, time::timeout};
 
 pub(super) async fn get_project_lists(cx: Cx, req: GetProjectLists) -> Reply<ProjectLists> {
     project_lists(&cx.app, &cx.user, ProjectId(req.project_id), req.refresh).await
@@ -59,6 +61,63 @@ pub(super) async fn get_project_run_on(cx: Cx, req: GetProjectRunOn) -> Reply<Pr
         .run_detail(&cx.app, &cx.user, &project, Some(&host), req.run_id)
         .await
         .map_err(ApiError::bad_request)
+}
+
+/// Follows a project for its page: whether it is live first, then each
+/// time that changes or its copies were read again, until the page closes
+/// the stream. While a page follows, one of the user's nodes forwards the
+/// repository's webhook (see `crate::repo_watch`).
+pub(super) async fn watch_project(
+    cx: Cx,
+    req: WatchProject,
+    sink: Sink<ProjectChange>,
+) -> Reply<()> {
+    let id = ProjectId(req.project_id);
+    project_of(&cx.user, id).await?;
+    let mut changes = cx.app.repo_watch.changes();
+    let mut following = cx.app.repo_watch.forwards.follow(&cx.app, cx.user.id(), id);
+    let mut next = Some(change_of(
+        &following.state.borrow_and_update(),
+        false,
+        false,
+    ));
+    loop {
+        if let Some(change) = next.take() {
+            match timeout(SEND_TIMEOUT, sink.send(&change)).await {
+                Ok(sent) => sent?,
+                Err(_) => return Ok(()),
+            }
+        }
+        tokio::select! {
+            _ = cx.connection.closed() => return Ok(()),
+            changed = following.state.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                next = Some(change_of(&following.state.borrow_and_update(), false, false));
+            }
+            changed = changes.recv() => {
+                let (lists, runs) = match changed {
+                    Ok(Changed { user, project, lists, runs })
+                        if user == cx.user.id() && project == id => (lists, runs),
+                    Ok(_) => continue,
+                    // Some were missed: read everything again.
+                    Err(RecvError::Lagged(_)) => (true, true),
+                    Err(RecvError::Closed) => return Ok(()),
+                };
+                next = Some(change_of(&following.state.borrow(), lists, runs));
+            }
+        }
+    }
+}
+
+fn change_of(state: &LiveState, lists: bool, runs: bool) -> ProjectChange {
+    ProjectChange {
+        live: state.live,
+        polling_why: state.why.clone(),
+        lists,
+        runs,
+    }
 }
 
 /// The lists of `id` as `GetProjectLists` gives them.

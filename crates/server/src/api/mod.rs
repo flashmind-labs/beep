@@ -330,6 +330,7 @@ pub fn router() -> Router {
         .call(project_watch::get_project_run)
         .call(project_watch::list_project_runs_all)
         .call(project_watch::get_project_run_on)
+        .stream(project_watch::watch_project)
 }
 
 type Reply<T> = Result<T, ApiError>;

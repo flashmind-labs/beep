@@ -259,6 +259,8 @@ export interface RunDeps {
   redraw: () => void;
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
+  /// The chip saying whether the project is live or polling.
+  mode?: (id: string) => HTMLElement | null;
 }
 
 /// One project's runs: undefined while they load, null from a server too
@@ -438,7 +440,7 @@ export function makeRuns(deps: RunDeps) {
     const counts = perHost.length
       ? perHost.map(c => h("small", c.error ? "hosterr" : "", c.text))
       : [d?.runs.length ? h("small", "", runsCount(d.runs)) : null];
-    box.append(h("div", "cc-sec", h("h4", "", "Actions"), ...counts, synced,
+    box.append(h("div", "cc-sec", h("h4", "", "Actions"), ...counts, synced, deps.mode?.(id) ?? null,
       button("Refresh", "quiet small", () => load(id, true))));
     if (d === undefined) { box.append(emptyPanel(h("span", "", "Reading the runs…"))); return box; }
     if (d === null) { box.append(emptyPanel(h("span", "", "The server needs an update before it shows runs."))); return box; }

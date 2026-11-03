@@ -56,6 +56,21 @@ impl HarnessOwner<'_> {
     }
 }
 
+/// What a project webhook's secret belongs to: the user and the webhook's
+/// row. The prefix keeps it apart from any credential's.
+pub struct WebhookOwner<'a> {
+    pub user: &'a str,
+    pub id: &'a str,
+}
+
+impl WebhookOwner<'_> {
+    fn aad(&self) -> Vec<u8> {
+        ["project_webhook", self.user, self.id]
+            .join("\0")
+            .into_bytes()
+    }
+}
+
 /// The key credentials are sealed with.
 pub struct CredentialKey(SecretBox<[u8; 32]>);
 
@@ -93,6 +108,16 @@ impl CredentialKey {
     pub fn open_harness(&self, owner: &HarnessOwner<'_>, sealed: &[u8]) -> Result<SecretString> {
         let what = format!("the {} settings", owner.agent);
         self.open_for(&owner.aad(), sealed, &what)
+    }
+
+    /// A project webhook's secret sealed for `owner`.
+    pub fn seal_webhook(&self, owner: &WebhookOwner<'_>, plain: &SecretString) -> Result<Vec<u8>> {
+        self.seal_for(&owner.aad(), plain)
+    }
+
+    /// What `seal_webhook` sealed for `owner`.
+    pub fn open_webhook(&self, owner: &WebhookOwner<'_>, sealed: &[u8]) -> Result<SecretString> {
+        self.open_for(&owner.aad(), sealed, "a webhook secret")
     }
 
     fn seal_for(&self, aad: &[u8], plain: &SecretString) -> Result<Vec<u8>> {
@@ -142,6 +167,22 @@ impl fmt::Debug for CredentialKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_webhook_secret_opens_only_for_its_row() {
+        let key = CredentialKey::random();
+        let plain = SecretString::from("hook-secret");
+        let owner = |user, id| WebhookOwner { user, id };
+        let sealed = key.seal_webhook(&owner("alice", "w1"), &plain).unwrap();
+        assert_eq!(
+            key.open_webhook(&owner("alice", "w1"), &sealed)
+                .unwrap()
+                .expose_secret(),
+            "hook-secret"
+        );
+        assert!(key.open_webhook(&owner("alice", "w2"), &sealed).is_err());
+        assert!(key.open_webhook(&owner("bob", "w1"), &sealed).is_err());
+    }
 
     #[test]
     fn a_sealed_value_opens_only_with_its_key_and_owner() {
