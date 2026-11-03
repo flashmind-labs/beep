@@ -44,6 +44,7 @@ mod project_groups;
 mod projects;
 mod research;
 mod reviews;
+mod runs;
 mod state;
 mod sync;
 mod terminals;
@@ -285,6 +286,9 @@ fn main() {
             threads::center_open_thread_chat,
             threads::center_thread_chats,
             threads::center_thread_view,
+            runs::center_project_lists,
+            runs::center_project_runs,
+            runs::center_project_run,
             reviews::project_branches,
             branches::preview_import,
             branches::find_import_fork,

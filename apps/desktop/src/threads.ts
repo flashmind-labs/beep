@@ -16,6 +16,8 @@ import type { ReviewState, ReviewView } from "./review.ts";
 import { plural } from "./components/format.ts";
 import { emptyPanel, freshNote, stateChip } from "./components/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
+import { checksText, going } from "./runs.ts";
+import type { ChecksRow } from "./runs.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -341,12 +343,25 @@ export function prPrompt(p: Pick<PullRequestRow, "number" | "title" | "url">) {
   return `Continue PR #${p.number}: ${p.title} (${p.url}). Read the review comments and failing checks first.`;
 }
 
+/// The project's lists as the server keeps them (ListsRow).
+export interface ListsRow {
+  prs: PullRequestRow[];
+  prs_error: string | null;
+  issues: IssueRow[];
+  issues_error: string | null;
+  /// In milliseconds since the Unix epoch; null before the first read.
+  synced_at: number | null;
+}
+
 /// What the project page hands the Pull requests and Issues sections: the
-/// project's tasks and branch reviews, and what Review, Work on it and
-/// Continue do. `continuePr` may fail, saying why, in the row.
+/// project's tasks and branch reviews, each PR's checks from its workflow
+/// runs, and what Review, Work on it, Continue and a checks link do.
+/// `continuePr` may fail, saying why, in the row.
 export interface RepoActs {
   tasks: readonly TaskLink[];
   reviews: readonly PrReview[] | null | undefined;
+  checks?: readonly ChecksRow[] | null;
+  showRun?: (run: number) => void;
   review?: (branch: string) => void;
   workOn: (issue: IssueRow) => void;
   continuePr: (pr: PullRequestRow) => Promise<void>;
@@ -392,6 +407,8 @@ interface ProjectThreads {
   all: Set<string>;
   /// The labels the Issues section is filtered to; none shows every issue.
   labels: Set<string>;
+  /// When the server last read the lists from the host; null when unknown.
+  syncedAt: number | null;
 }
 
 /// The project agent the lists belong to.
@@ -407,7 +424,7 @@ export function makeThreads(deps: ThreadDeps) {
     let s = all.get(id);
     if (!s) {
       const k = kept.get(id);
-      s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set(), labels: new Set() };
+      s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set(), labels: new Set(), syncedAt: null };
       all.set(id, s);
     }
     return s;
@@ -428,23 +445,48 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// The section header's note: a spinner while kept lists read again,
-  /// else how old they are.
-  const fresh = (id: string) => freshNote(freshness(kept.at(id), reading.has(id), Date.now()));
+  /// else how old they are: when the server synced them from the host, or
+  /// on a server too old to say, when this page read them.
+  const fresh = (id: string) => {
+    const synced = of(id).syncedAt;
+    const f = freshness(synced ?? kept.at(id), reading.has(id), Date.now());
+    return freshNote(synced ? { ...f, text: f.text.replace(/^updated/, "synced") } : f);
+  };
 
-  async function load(id: string) {
+  /// The open issues and pull requests: from the server's copy, or read
+  /// from the host each time on a server too old to keep one. `refresh`
+  /// asks the server to read the host now.
+  async function lists(id: string, refresh: boolean): Promise<[PromiseSettledResult<IssueRow[] | null>, PromiseSettledResult<PullRequestRow[] | null>]> {
+    const s = of(id);
+    const copy = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh });
+    if (copy) {
+      s.syncedAt = copy.synced_at;
+      return [
+        copy.issues_error ? { status: "rejected", reason: copy.issues_error } : { status: "fulfilled", value: copy.issues },
+        copy.prs_error ? { status: "rejected", reason: copy.prs_error } : { status: "fulfilled", value: copy.prs },
+      ];
+    }
+    s.syncedAt = null;
+    return Promise.allSettled([
+      invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
+      invoke<PullRequestRow[] | null>("center_project_pull_requests", { projectId: id }),
+    ]);
+  }
+
+  async function load(id: string, refresh = false) {
     const s = of(id);
     if (reading.has(id)) return;
     reading.add(id);
     tried.set(id, Date.now());
     // Kept lists stay up meanwhile, with a spinner in their header.
     if (s.issues !== undefined) queueMicrotask(redraw);
-    const [issues, threads, chats, prs] = await Promise.allSettled([
-      invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
+    const [both, threads, chats] = await Promise.allSettled([
+      lists(id, refresh),
       invoke<ThreadRow[] | null>("center_project_threads", { projectId: id }),
       invoke<ThreadChatRow[] | null>("center_thread_chats", { projectId: id }),
-      invoke<PullRequestRow[] | null>("center_project_pull_requests", { projectId: id }),
     ]);
     reading.delete(id);
+    const [issues, prs] = both.status === "fulfilled" ? both.value : [both, both] as const;
     s.error = "";
     /// What a list becomes: what came back, else what it had or none.
     const settle = <T>(r: PromiseSettledResult<T[] | null>, had: T[] | null | undefined) => {
@@ -517,7 +559,7 @@ export function makeThreads(deps: ThreadDeps) {
   function section(agent: Agent, id: string, title: string, count: string, body: HTMLElement[], note?: HTMLElement) {
     const box = h("div");
     box.id = id;
-    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id))), ...body);
+    box.append(h("div", "cc-sec", h("h4", "", title), count ? h("small", "", count) : null, fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id, true))), ...body);
     if (note) box.append(note);
     return box;
   }
@@ -540,6 +582,19 @@ export function makeThreads(deps: ThreadDeps) {
       out.push(h("div", "pj-task pj-more", h("span", "t"), h("span", "acts", button("Show fewer", "quiet small", () => { s.all.delete(key); redraw(); }))));
     }
     return h("div", "cc-panel", ...out);
+  }
+
+  /// A pull request's checks from its newest workflow runs; a failing one
+  /// opens its run in the Actions section.
+  function checksEl(c: ChecksRow, ctx: RepoActs) {
+    const cls = c.state === "failed" ? "bad" : c.state === "passed" ? "ok" : going(c.state) ? "run" : "";
+    if (c.state === "failed" && ctx.showRun) {
+      const a = h("a", `pj-chk ${cls}`, checksText(c));
+      a.href = "#";
+      a.addEventListener("click", e => { e.preventDefault(); ctx.showRun!(c.run_id); });
+      return a;
+    }
+    return h("span", `pj-chk ${cls}`, going(c.state) ? h("span", "dspin") : null, checksText(c));
   }
 
   /// A row's actions and why its last one failed.
@@ -566,7 +621,9 @@ export function makeThreads(deps: ThreadDeps) {
     const draw = (l: PrLine) => {
       const n = l.pr.number;
       const chip = prChip(l);
-      const meta = h("span", "m", ...prMeta(l, ago).map(t => h("span", "", t)));
+      const runs = ctx.checks?.find(c => c.number === n);
+      const meta = h("span", "m", ...prMeta(runs ? { ...l, checks: null } : l, ago).map(t => h("span", "", t)));
+      if (runs) meta.append(checksEl(runs, ctx));
       const buttons: HTMLButtonElement[] = [];
       if (l.needs_reply) {
         buttons.push(button(s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${n}`, async () => {
@@ -701,6 +758,7 @@ export function makeThreads(deps: ThreadDeps) {
     issuesError: (id: string) => of(id).issuesError,
     threads: (id: string) => of(id).threads,
     prs: (id: string) => of(id).prs,
+    syncedAt: (id: string) => of(id).syncedAt,
     prsSection,
     issuesSection,
     threadsPanel,

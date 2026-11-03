@@ -37,6 +37,7 @@ pub mod projects;
 pub mod push;
 pub mod remote;
 pub mod repeat;
+pub mod repo_watch;
 pub mod research;
 pub mod router;
 pub mod search;
