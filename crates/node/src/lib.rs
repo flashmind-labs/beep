@@ -17,6 +17,8 @@ mod fsat;
 mod lines;
 pub mod link;
 pub mod local;
+mod local_socket;
+pub mod mcp;
 mod process;
 pub mod provision;
 pub mod service;

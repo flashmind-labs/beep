@@ -5,6 +5,7 @@
 use crate::{
     claude::{self, External},
     found::{self, Agent, Stores},
+    mcp::Launch,
     process,
     provision::spawn_env::{self, Scope},
 };
@@ -28,10 +29,11 @@ use std::{
     fmt::Display,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
+    sync::oneshot,
     task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval},
 };
@@ -55,8 +57,10 @@ mod subagent;
 mod usage;
 mod work_folder;
 
+pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
+pub(crate) use session::{Answered, Asking};
 pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
 use acp::Prompt;
@@ -314,6 +318,8 @@ pub struct Agents {
     settings: harnesses::Settings,
     /// The newest versions of the agents, found lately.
     latest: harnesses::Latest,
+    /// How sessions start the Beep MCP server, once the node serves it.
+    mcp: OnceLock<Arc<Launch>>,
 }
 
 impl Agents {
@@ -330,7 +336,37 @@ impl Agents {
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
+            mcp: OnceLock::new(),
         }
+    }
+
+    /// Gives the sessions started from now on the Beep MCP server, as
+    /// `launch` starts it. Only the first call counts.
+    pub fn serve_mcp(&self, launch: Arc<Launch>) {
+        // A second launch would give the same server.
+        let _ = self.mcp.set(launch);
+    }
+
+    /// Whether `session` is one of this node's and still runs.
+    pub(crate) fn runs(&self, session: &str) -> bool {
+        self.get(session)
+            .is_some_and(|session| session.live.borrow().status() != Status::Ended)
+    }
+
+    /// Puts `question` to the user in `session` and waits for the answer.
+    /// Fails when the session ends or its turn is cancelled first.
+    pub(crate) async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        let (reply, answer) = oneshot::channel();
+        session
+            .order(Command::Ask { question, reply })
+            .await
+            .map_err(anyhow::Error::msg)?;
+        answer
+            .await
+            .context("the question was dropped: the turn was cancelled or the session ended")
     }
 
     /// The last `last` entries of a session this node runs and how many
@@ -761,6 +797,7 @@ impl Agents {
             effort: begin.effort,
             note: begin.note,
             brief: begin.brief,
+            mcp: self.mcp.get().map(|launch| launch.server(&id)),
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),

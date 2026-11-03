@@ -4,9 +4,9 @@
 //! running node over a local socket (`socket`) and always exits 0,
 //! so a node that is not running never gets in Claude Code's way.
 
-use super::socket;
 use super::watch::MAX_MESSAGE;
 use crate::agents::cut;
+use crate::local_socket as socket;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Activity, ActivityKind};
 use serde::{Deserialize, Serialize};

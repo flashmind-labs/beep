@@ -2,12 +2,12 @@
 //! every `Watch` stream through a broadcast, and for sessions that send no
 //! hooks, their transcripts read as they grow.
 
-use super::socket::{self, Listener, Stream};
 use super::{
     discover::Store,
     hooks::HookMessage,
     transcript::{Digest, read_from},
 };
+use crate::local_socket::{self as socket, Listener, Stream};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,

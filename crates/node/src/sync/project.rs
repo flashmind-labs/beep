@@ -178,6 +178,10 @@ pub(super) struct Shared {
     merged: Notify,
     /// Wakes the task to scan when this node changed the folder itself.
     touched: Notify,
+    /// Wakes the task to scan at once, for `rescan`.
+    forced: Notify,
+    /// How many scans `forced` asked for are done.
+    rescans: watch::Sender<u64>,
     /// Paused by the server: no scans, fetches or pulls.
     paused: watch::Sender<bool>,
     stop: CancellationToken,
@@ -257,6 +261,8 @@ impl Shared {
             peers: watch::Sender::new(start.peers),
             merged: Notify::new(),
             touched: Notify::new(),
+            forced: Notify::new(),
+            rescans: watch::Sender::new(0),
             paused: watch::Sender::new(start.paused),
             stop: CancellationToken::new(),
         }))
@@ -378,6 +384,22 @@ impl Shared {
             *now = paused;
             changed
         });
+    }
+
+    /// Scans the folder now and brings it in line with what the peers
+    /// sent, then says how the project stands. Waits at most `limit`.
+    pub(super) async fn rescan(&self, limit: Duration) -> Result<ProjectStatus> {
+        if self.is_paused() {
+            bail!("sync of {} is paused; resume it to sync", self.name);
+        }
+        let mut done = self.rescans.subscribe();
+        let before = *done.borrow_and_update();
+        self.forced.notify_one();
+        timeout(limit, done.wait_for(|count| *count > before))
+            .await
+            .with_context(|| format!("{} did not finish scanning in time", self.name))?
+            .context("the project stopped")?;
+        Ok(self.status())
     }
 
     /// Settles the conflict copy at `path`: deletes it, or puts it in
@@ -564,6 +586,7 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
             Mode::Rescan { .. } => RESCAN,
         };
         let mut apply = false;
+        let mut forced = false;
         // A change waiting to be saved is saved once `SAVE_EVERY` passed.
         let unsaved = shared.lock().unsaved;
         tokio::select! {
@@ -605,6 +628,13 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
                 last_scan = Instant::now();
                 apply = true;
             }
+            () = shared.forced.notified() => {
+                settle = None;
+                task.scan().await;
+                last_scan = Instant::now();
+                apply = true;
+                forced = true;
+            }
             () = shared.merged.notified() => apply = true,
             () = sleep(RETRY), if task.pending > 0 => apply = true,
             () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
@@ -624,6 +654,9 @@ pub(super) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
             task.apply().await;
         }
         task.save(false).await;
+        if forced {
+            shared.rescans.send_modify(|count| *count += 1);
+        }
     }
     watcher.remove(shared.key).await;
     task.save(true).await;
