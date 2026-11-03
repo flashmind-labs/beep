@@ -19,11 +19,11 @@ use beep_server::{
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentImageData, AgentModel, AgentModelPick, AgentModels,
         AgentStatus, AgentSteer, AgentTokens, ApiError, CreateNodeToken, DeviceKind, GetAgentImage,
-        GetAgentSession, GetNodeToken, GetUsage, HarnessSettings, ListAgentHosts, ListAgentImages,
-        ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
-        ListMemoryScopes, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
-        RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings, StartAgentSession,
-        SteerAgentSession, Upload, image_key,
+        GetAgentSession, GetNodeToken, GetUsage, GetUsageReport, HarnessSettings, ListAgentHosts,
+        ListAgentImages, ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, MachineCapability, MemoryScope, MemorySource,
+        PreviewAgentMachine, RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings,
+        StartAgentSession, SteerAgentSession, Upload, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -33,7 +33,7 @@ use beep_server::{
                 SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
                 StopReason,
             },
-            usage::{LimitWindow, ModelTokens, PlanUsage, TurnUsage},
+            usage::{HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage},
         },
         setup::SetupToken,
     },
@@ -1143,7 +1143,7 @@ impl Protocol for FakeSessions {
                 while rx.recv::<SessionsRequest>().await?.is_some() {}
                 return Ok(());
             }
-            if matches!(request, SessionsRequest::FollowUsage {}) {
+            if matches!(request, SessionsRequest::FollowUsage { .. }) {
                 let Some(usage) = &fake.usage else {
                     return Ok(());
                 };
@@ -2379,6 +2379,7 @@ async fn what_agents_spend_and_their_plans_reach_the_pill() {
                     model: format!("{agent}-model"),
                     tokens,
                 }],
+                agent_session: None,
             },
         };
     let plan = |at: u64, used: f64| SessionsReply::PlanUsage {
@@ -2462,6 +2463,91 @@ async fn what_agents_spend_and_their_plans_reach_the_pill() {
     let (_other, theirs) = center.phone(1).await;
     let none = theirs.call(&GetUsage { refresh: false }).await.unwrap();
     assert!(none.today.is_empty() && none.limits.is_empty() && none.harnesses.is_empty());
+
+    for node in &center.nodes {
+        node.abort();
+    }
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn sessions_read_from_the_logs_count_once() {
+    let mut center = CommandCenter::new(1).await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let hour = now / 3600 * 3600;
+    let spend = |session: &str, agent: &str, cost: f64| SessionsReply::SessionSpend {
+        usage: SessionSpend {
+            agent: agent.into(),
+            session: session.into(),
+            cwd: "/srv/work/widget".into(),
+            since: now - 35 * 24 * 3600,
+            hours: vec![HourSpend {
+                hour,
+                model: format!("{agent}-model"),
+                input_tokens: 1_000,
+                output_tokens: 500,
+                cost_usd: cost,
+                ..HourSpend::default()
+            }],
+        },
+    };
+    // A turn Beep watched of a session its log also covers.
+    let watched = SessionsReply::TurnUsage {
+        usage: TurnUsage {
+            session: "beep-1".into(),
+            agent: "claude".into(),
+            cwd: "/srv/work/widget".into(),
+            at: now,
+            cost_usd: Some(1.5),
+            tokens: 1_500,
+            models: Vec::new(),
+            agent_session: Some("c-41".into()),
+        },
+    };
+    center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                usage: Some(vec![
+                    watched,
+                    spend("c-41", "claude", 2.25),
+                    // Read again, the session replaces what was kept of it.
+                    spend("c-41", "claude", 3.0),
+                    spend("x-9", "codex", 0.5),
+                ]),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    // Polls: keeping the reports has no signal to wait on.
+    let report = timeout(Duration::from_secs(20), async {
+        loop {
+            let report = client
+                .call(&GetUsageReport { refresh: true })
+                .await
+                .unwrap();
+            if (report.month.total.cost_usd - 3.5).abs() < 1e-9 {
+                return report;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the sessions were kept");
+    for period in [&report.today, &report.week, &report.month] {
+        assert!((period.total.cost_usd - 3.5).abs() < 1e-9);
+        assert_eq!(period.tokens, 3_000);
+        assert_eq!(period.projects.len(), 1);
+        assert_eq!(period.projects[0].project, "widget");
+        let agents: Vec<&str> = period.harnesses.iter().map(|h| h.agent.as_str()).collect();
+        assert_eq!(agents, ["claude", "codex"]);
+        assert_eq!(period.harnesses[0].models[0].model, "claude-model");
+    }
 
     for node in &center.nodes {
         node.abort();
