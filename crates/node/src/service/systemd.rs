@@ -10,7 +10,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-const UNIT: &str = "beep-node.service";
+pub(super) const UNIT: &str = "beep-node.service";
 
 /// Whether a systemd user instance answers here; the reason when not.
 pub(super) fn usable() -> Result<(), String> {
@@ -91,7 +91,7 @@ fn active() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn unit_path() -> Result<PathBuf> {
+pub(super) fn unit_path() -> Result<PathBuf> {
     Ok(dirs::config_dir()
         .context("this system has no config folder")?
         .join("systemd/user")

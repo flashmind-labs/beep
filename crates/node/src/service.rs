@@ -10,6 +10,7 @@ use std::{
 };
 
 mod launchd;
+pub mod logs;
 #[cfg(windows)]
 mod parent;
 mod systemd;
