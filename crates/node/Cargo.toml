@@ -8,7 +8,18 @@ publish = false
 [features]
 default = ["cli"]
 # The command line; a host that embeds the node, such as the Mac app, leaves it out.
-cli = ["dep:clap", "dep:logforth"]
+# `beep-node update` comes with it, with what it downloads and unpacks with.
+cli = [
+    "dep:clap",
+    "dep:logforth",
+    "dep:reqwest",
+    "dep:rustls",
+    "dep:webpki-roots",
+    "dep:flate2",
+    "dep:tar",
+    "dep:thiserror",
+    "dep:zip",
+]
 
 [[bin]]
 name = "beep-node"
@@ -24,6 +35,7 @@ beep-proto = { path = "../proto" }
 blake3 = "1"
 clap = { version = "4", features = ["derive", "env"], optional = true }
 dirs = "7"
+flate2 = { version = "1", optional = true }
 futures = "0.3"
 ignore = "0.4"
 iroh = "1.3"
@@ -33,20 +45,27 @@ logforth = { version = "0.30", features = ["starter-log"], optional = true }
 notify = "8"
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = "0.9"
+# `beep-node update` downloads releases with ring and webpki roots, as iroh does.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
 rmp-serde = "1"
 roxmltree = "0.20"
 # flsh keeps its sessions in SQLite; the same version flashmind uses.
 rusqlite = { version = "0.40", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
 sha2 = "0.10"
+tar = { version = "0.4", default-features = false, optional = true }
+thiserror = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 toml = "1"
 uuid = { version = "1", features = ["v4"] }
+webpki-roots = { version = "1", optional = true }
 which = "5"
+zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

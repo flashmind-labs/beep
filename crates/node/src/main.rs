@@ -1,6 +1,6 @@
 //! The `beep-node` command line.
 
-use beep_node::{agents::Agents, claude::hooks, env, link, local, service, setup, state};
+use beep_node::{agents::Agents, claude::hooks, env, link, local, service, setup, state, update};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -88,6 +88,13 @@ enum Command {
     Service {
         #[command(subcommand)]
         action: ServiceAction,
+    },
+    /// Installs the newest beep-node over this one and restarts the
+    /// service running it, as rerunning the installer does.
+    Update {
+        /// Only says whether a newer version is out.
+        #[arg(long)]
+        check: bool,
     },
     /// Claude Code hooks that tell the node when a session started outside
     /// Beep ends a turn or waits for the user. Install edits Claude Code's
@@ -288,6 +295,7 @@ async fn main() -> Result<()> {
         Command::Service {
             action: ServiceAction::Uninstall,
         } => service::uninstall(),
+        Command::Update { check } => Ok(update::update(check).await?),
         Command::Hooks { action, settings } => {
             let settings = match settings {
                 Some(path) => path,

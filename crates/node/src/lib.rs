@@ -29,6 +29,8 @@ pub mod syncthing;
 mod tasks;
 mod terminal;
 pub mod transfer;
+#[cfg(feature = "cli")]
+pub mod update;
 
 /// Kills every background task and terminal still running, at once. For
 /// a host about to exit, such as the Mac app: a process exit drops nothing,
