@@ -15,7 +15,7 @@
 //! behind each, and the user gets a notice. Content is never logged.
 
 use crate::{
-    app::{App, UserNotice},
+    app::{App, Reach, UserNotice},
     apps::mcp::FASTMAIL,
     feeds::mail::Mailbox,
     memories::clip,
@@ -317,6 +317,7 @@ fn notify(user: &User, source: Source, summary: &Summary, learned: usize) {
             group: false,
         },
         desktop: None,
+        to: Reach::Everyone,
     };
     // Nobody listening means the phone is offline; Memories still shows them.
     let _ = user.notifications.send(notice);

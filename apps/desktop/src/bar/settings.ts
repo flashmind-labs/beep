@@ -87,7 +87,7 @@ function voiceNotesRow(cur: NoticeVoice) {
 
 /// Settings, General: whether coding agents notify when they ask or finish.
 function agentNoticesRow(on: boolean) {
-  const why = on ? "When a coding agent asks something or finishes a turn, unless its session is on screen." : "Coding agents only show under Waiting in the menu bar.";
+  const why = on ? "When a coding agent started on this Mac or outside Beep asks something or finishes a turn, unless its session is on screen." : "Coding agents only show under Waiting in the menu bar.";
   return `<div class="dtoggle"><span><b>Coding agent notifications</b><small>${why}</small></span>
     <button class="dswitch" id="agentNotices" role="switch" aria-checked="${on}" aria-label="Coding agent notifications"></button></div>`;
 }
