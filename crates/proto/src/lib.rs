@@ -1268,6 +1268,12 @@ requests! {
     /// project; `BadRequest` saying why when the host cannot be read or has
     /// no such run.
     309 GetProjectRun { project_id: Uuid, run_id: u64 } => Call<ProjectRunDetail>
+    /// As `GetUsageReport`, with what a subscription covered apart: dollars
+    /// count only metered API spend (API keys, OpenRouter, Bedrock and the
+    /// like), and use a Claude, ChatGPT or Copilot plan covered counts as
+    /// tokens. A machine that cannot tell counts Claude Code and Codex as
+    /// subscription, the other harnesses as metered.
+    310 GetSpendReport { refresh: bool } => Call<SpendReport>
 }
 
 /// One custom agent a coding agent harness defines, as
@@ -1654,6 +1660,64 @@ pub struct HarnessSpend {
 pub struct ModelSpend {
     pub model: ModelId,
     pub tokens: u64,
+}
+
+/// What `GetSpendReport` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpendReport {
+    /// As in `UsageView`.
+    pub limits: Vec<PlanLimits>,
+    pub today: SpendPeriod,
+    /// From Monday.
+    pub week: SpendPeriod,
+    /// From the first of the month.
+    pub month: SpendPeriod,
+}
+
+/// What coding agents spent over one period, metered use apart from use a
+/// subscription covered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpendPeriod {
+    /// Metered API spend in US dollars, every project together.
+    pub cost_usd: f64,
+    /// The tokens of metered use, priced or not.
+    pub metered_tokens: u64,
+    /// The tokens a subscription covered.
+    pub subscription_tokens: u64,
+    /// By project, the most expensive first, then the most tokens, only
+    /// those that spent.
+    pub projects: Vec<ProjectBill>,
+    /// By harness and billing, the most expensive first, then the most
+    /// tokens, only those that spent.
+    pub harnesses: Vec<HarnessBill>,
+}
+
+/// What coding agents spent in one project.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectBill {
+    /// `org/repo`, else the folder's name.
+    pub project: String,
+    /// Metered API spend in US dollars.
+    pub cost_usd: f64,
+    /// The tokens of metered use, priced or not.
+    pub metered_tokens: u64,
+    /// The tokens a subscription covered, by agent.
+    pub subscription: Vec<AgentTokens>,
+}
+
+/// What one harness spent one way: metered, or on a subscription.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HarnessBill {
+    /// Its slug, such as `claude`.
+    pub agent: AgentSlug,
+    /// A subscription covered it: tokens only, `cost_usd` is `None`.
+    pub subscription: bool,
+    /// Metered API spend in US dollars; `None` when none of it was priced
+    /// or a subscription covered it.
+    pub cost_usd: Option<f64>,
+    pub tokens: u64,
+    /// The tokens by model, the most first, when it says.
+    pub models: Vec<ModelSpend>,
 }
 
 /// The coding agent harnesses on one machine, as `ListAgentHarnesses`
