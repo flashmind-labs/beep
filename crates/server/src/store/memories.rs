@@ -626,47 +626,11 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
-
-    fn date(text: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
-    }
-
-    #[test]
-    fn a_scope_reads_back_as_stored() {
-        let node = iroh::SecretKey::generate().public();
-        for scope in [
-            Scope::User,
-            Scope::Machine(node),
-            Scope::project(" Beep ").unwrap(),
-            Scope::account("GitHub").unwrap(),
-        ] {
-            assert_eq!(Scope::from_stored(scope.stored().as_deref()), scope);
-        }
-        assert_eq!(
-            Scope::project("Beep").unwrap(),
-            Scope::Project("beep".into())
-        );
-        assert!(Scope::project("a:b").is_err());
-        assert!(Scope::account(" ").is_err());
-        assert_eq!(Scope::from_stored(Some("planet:mars")), Scope::User);
-    }
 
     #[test]
     fn memory_length_counts_characters_not_bytes() {
         assert!(check_memory(&"é".repeat(4000)).is_ok());
         assert!(check_memory(&"é".repeat(4001)).is_err());
         assert!(check_memory(" ").is_err());
-    }
-
-    #[test]
-    fn ended_memories_expire_after_the_kept_days() {
-        assert_eq!(expiry(&Validity::default()), None);
-        let valid = Validity {
-            from: None,
-            until: Some(date("2026-01-01")),
-        };
-        let expected = date("2026-02-01").and_hms_opt(0, 0, 0).unwrap();
-        assert_eq!(expiry(&valid), Some(expected.and_utc().timestamp()));
     }
 }

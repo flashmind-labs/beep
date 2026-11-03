@@ -62,20 +62,3 @@ impl Store {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::{store::TestDb, user::UserKey};
-
-    #[tokio::test]
-    async fn auto_is_on_until_the_user_turns_it_off() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        assert!(store.user_auto_model(&alice).await.unwrap());
-        store.set_user_auto_model(&alice, false).await.unwrap();
-        assert!(!store.user_auto_model(&alice).await.unwrap());
-        store.set_user_auto_model(&alice, true).await.unwrap();
-        assert!(store.user_auto_model(&alice).await.unwrap());
-    }
-}

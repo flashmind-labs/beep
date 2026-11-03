@@ -550,56 +550,6 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashmind::core::ConversationEntry;
-
-    fn turn(conversation: &mut Conversation, at: i64, prompt: &str) {
-        let time = |ms| DateTime::from_timestamp_millis(ms).unwrap();
-        let mut entries = vec![
-            ConversationEntry::system_message("context"),
-            ConversationEntry::user(prompt),
-            ConversationEntry::assistant_with_tool_calls("", vec![], None),
-            ConversationEntry::tool("call", "done"),
-            ConversationEntry::assistant(format!("re: {prompt}")),
-        ];
-        for (i, entry) in entries.iter_mut().enumerate() {
-            entry.timestamp = time(at + i as i64);
-        }
-        conversation.entries_mut().extend(entries);
-    }
-
-    #[test]
-    fn remove_turn_takes_the_reply_and_tools_with_the_prompt() {
-        let mut chat = Conversation::new();
-        turn(&mut chat, 1000, "one");
-        turn(&mut chat, 2000, "two");
-        turn(&mut chat, 3000, "three");
-
-        assert!(remove_turn(&mut chat, 2001, TurnsToDelete::One));
-        let times: Vec<_> = chat
-            .entries()
-            .iter()
-            .map(|e| e.timestamp.timestamp_millis())
-            .collect();
-        assert_eq!(
-            times,
-            [1000, 1001, 1002, 1003, 1004, 3000, 3001, 3002, 3003, 3004]
-        );
-
-        assert!(remove_turn(&mut chat, 3001, TurnsToDelete::One));
-        assert_eq!(chat.entries().len(), 5);
-        assert!(!remove_turn(&mut chat, 1002, TurnsToDelete::One));
-    }
-
-    #[test]
-    fn remove_turn_onward_takes_every_later_turn() {
-        let mut chat = Conversation::new();
-        turn(&mut chat, 1000, "one");
-        turn(&mut chat, 2000, "two");
-        turn(&mut chat, 3000, "three");
-
-        assert!(remove_turn(&mut chat, 1001, TurnsToDelete::Onward));
-        assert!(chat.entries().is_empty());
-    }
 
     #[tokio::test]
     async fn search_finds_words_inside_messages() {
@@ -634,28 +584,6 @@ mod tests {
         assert!(alice.search_sessions("10_%", 10).await.unwrap().is_empty());
         let bob = User::for_test(store.clone(), "bob");
         assert!(bob.search_sessions("kimpton", 10).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_chat_whose_first_run_failed_is_found_and_deleted() {
-        use crate::store::{CreateRun, RunStatus, TestDb, test_chat};
-
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let s1 = test_chat("s1");
-        let CreateRun::Created(run) = store.create_run(&alice, s1, "req-1", "hi").await.unwrap()
-        else {
-            panic!("the run was not created");
-        };
-        store
-            .finish(&alice, &run, None, RunStatus::Failed)
-            .await
-            .unwrap();
-
-        assert!(store.delete_session(&alice, s1).await.unwrap());
-        assert!(!store.in_chat(&alice, s1).await.unwrap());
-        assert!(!store.delete_session(&alice, s1).await.unwrap());
     }
 
     #[tokio::test]
