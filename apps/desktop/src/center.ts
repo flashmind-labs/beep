@@ -447,7 +447,7 @@ function runningRow(r: RunningRow) {
   const row = r.kind === "research"
     ? bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})))
     // The pane's agent view follows and answers it.
-    : bare(line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r })));
+    : line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r }));
   row.dataset.key = runningKey(r);
   return row;
 }
