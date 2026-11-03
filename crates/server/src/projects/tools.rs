@@ -11,7 +11,8 @@ use super::{
     gate::{self, Asks, Gate, GatedExec, GatedProcess, ProjectGate},
     issues::{self, HOST_LIMIT, run_host},
     model::{
-        IssueHost, MachinePath, ProjectId, StartRequest, TaskId, TaskState, Visibility, WorkerAgent,
+        IssueHost, MachinePath, ProjectId, StartRequest, TaskId, TaskState, Visibility,
+        WorkerAgent, pr_number,
     },
 };
 use crate::{
@@ -197,13 +198,6 @@ fn machine_list(machines: &[Machine]) -> String {
     format!("Machines: {}.", names.join(", "))
 }
 
-fn host_label(host: &IssueHost) -> String {
-    match host {
-        IssueHost::Github => "GitHub".to_owned(),
-        IssueHost::Forgejo(host) => format!("Forgejo at {}", host.as_str()),
-    }
-}
-
 fn field(label: impl Into<String>, value: impl Into<String>) -> ApprovalField {
     ApprovalField {
         label: label.into(),
@@ -328,7 +322,8 @@ impl SetupTool {
         let project = tools.project().await?;
         let machines = tools.fleet.machines().await?;
         let mut text = format!("{}\n", project.name);
-        let role = |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), host_label);
+        let role =
+            |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), IssueHost::to_string);
         let _ = writeln!(text, "Issues: {}", role(project.roles.issues.as_ref()));
         let _ = writeln!(text, "Pull requests: {}", role(project.roles.prs.as_ref()));
         let visibility: &'static str = project.visibility.into();
@@ -448,7 +443,7 @@ impl SetupTool {
             return Ok(Err(format!(
                 "Could not make the beep labels on {}: {error:#}. Check that the CLI is \
                  signed in there.",
-                host_label(host)
+                host
             )));
         }
         let checkouts = tools.user.checkouts(project.id).await?;
@@ -471,7 +466,8 @@ impl SetupTool {
             .user
             .set_project_setup(project.id, &setup.roles, visibility, &setup.default_branch)
             .await?;
-        let role = |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), host_label);
+        let role =
+            |host: Option<&IssueHost>| host.map_or("kept in Beep".to_owned(), IssueHost::to_string);
         let visibility: &'static str = visibility.into();
         Ok(Ok(format!(
             "Added {path} on {name}{}. Issues: {}. Pull requests: {}. Default branch: {}. The \
@@ -968,11 +964,6 @@ fn waits_on(tasks: &[TaskRow], task: &TaskRow, target: TaskId) -> bool {
             .and_then(|next| tasks.iter().find(|other| other.id == next));
     }
     false
-}
-
-/// The number at the end of a pull request's URL.
-fn pr_number(url: &str) -> Option<u64> {
-    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
 }
 
 impl TasksTool {

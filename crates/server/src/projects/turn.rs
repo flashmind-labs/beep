@@ -114,11 +114,7 @@ pub(crate) async fn thread_context(
 }
 
 fn host_name(host: Option<&IssueHost>) -> String {
-    match host {
-        None => "none, kept in Beep".to_owned(),
-        Some(IssueHost::Github) => "GitHub".to_owned(),
-        Some(IssueHost::Forgejo(host)) => format!("Forgejo at {}", host.as_str()),
-    }
+    host.map_or_else(|| "none, kept in Beep".to_owned(), IssueHost::to_string)
 }
 
 pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &ProjectRow) -> String {
