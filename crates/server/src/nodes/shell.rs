@@ -178,8 +178,14 @@ struct Kept {
 
 impl Kept {
     fn push(&mut self, text: &str) {
-        let room = KEEP_HEAD - self.head.len();
-        let split = floor_boundary(text, room.min(text.len()));
+        // Once anything went to the tail, the head is closed: later text
+        // belongs after it.
+        let room = if self.tail.is_empty() {
+            KEEP_HEAD - self.head.len()
+        } else {
+            0
+        };
+        let split = text.floor_char_boundary(room);
         self.head.push_str(&text[..split]);
         self.tail.push_str(&text[split..]);
         if self.tail.len() > KEEP_TAIL * 2 {
@@ -189,7 +195,7 @@ impl Kept {
 
     fn trim_tail(&mut self) {
         if self.tail.len() > KEEP_TAIL {
-            let start = ceil_boundary(&self.tail, self.tail.len() - KEEP_TAIL);
+            let start = self.tail.ceil_char_boundary(self.tail.len() - KEEP_TAIL);
             self.tail.drain(..start);
             self.cut = true;
         }
@@ -205,20 +211,6 @@ impl Kept {
     }
 }
 
-fn floor_boundary(text: &str, mut at: usize) -> usize {
-    while !text.is_char_boundary(at) {
-        at -= 1;
-    }
-    at
-}
-
-fn ceil_boundary(text: &str, mut at: usize) -> usize {
-    while !text.is_char_boundary(at) {
-        at += 1;
-    }
-    at
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +222,15 @@ mod tests {
         kept.push("world");
         assert!(!kept.cut);
         assert_eq!(kept.text(), "hello world");
+    }
+
+    #[test]
+    fn a_split_character_keeps_the_output_in_order() {
+        let mut kept = Kept::default();
+        kept.push(&"a".repeat(KEEP_HEAD - 1));
+        kept.push("é");
+        kept.push("x");
+        assert_eq!(kept.text(), format!("{}éx", "a".repeat(KEEP_HEAD - 1)));
     }
 
     #[test]
