@@ -2,17 +2,22 @@
 // (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds), each with
 // Import, then "Choose a folder…" and "Clone a repository…", which open the
 // Import a project sheet. Import links the folder where it is, on every
-// machine that has it, so its sessions come along. Esc closes it.
+// machine that has it, so its sessions come along. A search filters the
+// list; ticked rows import together, three at a time. Typing goes to the
+// search, space ticks the focused row, ⌘↵ imports the ticked ones, Esc
+// closes it.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
-import { agentLabel, button, el, foundSessions, importPlan, lookingText, present, reason } from "./projects-state.ts";
+import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
+import type { ImportState } from "./addproject-state.ts";
+import { agentLabel, button, el, foundSessions, importPlan, lookingText, reason } from "./projects-state.ts";
 import type { FoundRow, ProjectRow } from "./projects-state.ts";
 
 /// What the window hands the sheet.
 export interface AddProjectOptions {
   /// The machines Home lists.
   machines?: readonly { online: boolean }[];
-  /// Runs once a found folder is in.
+  /// Runs once a found folder is in; after a batch, with the first that landed.
   onImported?: (project: ProjectRow) => void;
   /// Opens the Import a project sheet for a folder.
   onChoose?: () => void;
@@ -20,21 +25,32 @@ export interface AddProjectOptions {
   onClone?: () => void;
 }
 
-/// How a found row shows: `busy` names the row being imported, `error` is
-/// why this one failed, `quiet` drops the primary look from Import.
+/// How a found row shows: `busy` names the row being imported (any
+/// non-null value disables Import), `error` is why this one failed, `quiet`
+/// drops the primary look from Import. In the sheet a row also has a tick
+/// (`pick`) and where its batch import stands (`status`).
 export interface FoundRowState {
   busy?: string | null;
   error?: string | null;
   quiet?: boolean;
+  pick?: { on: boolean; toggle: () => void } | null;
+  status?: ImportState | null;
 }
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, back: Element | null = null;
 /// null while the machines look, then the rows they found.
 let found: FoundRow[] | null = null;
 let error: string | null = null;
-/// The row being imported, by name, and why one failed.
+/// The row being imported by its own button, by name, and why one failed.
 let importing: string | null = null;
 const failed = new Map<string, string>();
+/// What the search holds, the ticked rows by name, and each batch import.
+let query = "";
+let picked = new Set<string>();
+const status = new Map<string, ImportState>();
+/// True while a batch imports.
+let batch = false;
+let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, listBox: HTMLDivElement | null = null;
 
 /// Imports a found row in place on each machine that has it. Resolves to the
 /// first import's project; a failure on one machine after another worked is
@@ -63,9 +79,14 @@ export function openAddProject(options: AddProjectOptions = {}) {
   error = null;
   importing = null;
   failed.clear();
+  query = "";
+  picked = new Set();
+  status.clear();
+  batch = false;
   injectStyle();
   ({ root, sheet } = sheetShell("Add a project", "am-sheet ap-sheet"));
-  root.addEventListener("mousedown", e => { if (e.target === root && !importing) closeAddProject(); });
+  root.addEventListener("mousedown", e => { if (e.target === root && !busy()) closeAddProject(); });
+  build();
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
   draw();
@@ -79,21 +100,97 @@ export function closeAddProject() {
   if (!root) return;
   document.removeEventListener("keydown", onKey, true);
   root.remove();
-  root = sheet = null;
+  root = sheet = search = bar = listBox = null;
   focusBack(back);
 }
 
+const busy = () => !!importing || batch;
+
+/// The rows the search shows.
+function shownRows() {
+  return (found || []).filter(row => foundMatches(row, query));
+}
+
+/// The rows' elements, in list order.
+function rowEls() {
+  return [...(listBox?.querySelectorAll<HTMLElement>(".ap-row") || [])];
+}
+
 function onKey(e: KeyboardEvent) {
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  if (!importing) closeAddProject();
+  const stop = () => { e.preventDefault(); e.stopPropagation(); };
+  if (e.key === "Escape") {
+    stop();
+    if (!busy()) closeAddProject();
+    return;
+  }
+  if (e.isComposing || !search) return;
+  if (e.metaKey && e.key === "Enter") { stop(); importPicked(); return; }
+  const at = document.activeElement;
+  const row = at instanceof HTMLElement && at.classList.contains("ap-row") ? at : null;
+  if (e.key === " " && row) {
+    stop();
+    toggle(row.dataset.name || "");
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    const rows = rowEls();
+    if (!rows.length || (!row && at !== search)) return;
+    stop();
+    const i = row ? rows.indexOf(row) : -1;
+    const to = e.key === "ArrowDown" ? Math.min(i + 1, rows.length - 1) : i - 1;
+    (to < 0 ? search : rows[to]).focus();
+    return;
+  }
+  // Typing anywhere else in the sheet goes to the search.
+  if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !e.altKey && at !== search) search.focus();
+}
+
+function toggle(name: string) {
+  if (!name || batch || !tickable(status.get(name))) return;
+  if (picked.has(name)) picked.delete(name);
+  else picked.add(name);
+  draw();
+}
+
+/// Imports the ticked rows the search shows, a few at a time. Each row
+/// shows importing, done or why it failed; a failure leaves the rest going.
+/// When they all land the sheet closes; otherwise it stays open on the
+/// failures. The first that landed is opened either way.
+async function importPicked() {
+  if (busy() || !found) return;
+  const byName = new Map(found.map(row => [row.name, row]));
+  const names = toImport(shownRows().map(row => row.name), picked, status);
+  if (!names.length) return;
+  batch = true;
+  for (const name of names) {
+    status.set(name, { state: "importing" });
+    failed.delete(name);
+  }
+  draw();
+  const landed: ProjectRow[] = [];
+  await eachLimited(names, IMPORTS_AT_ONCE, async name => {
+    const row = byName.get(name);
+    if (!row) return;
+    try {
+      landed.push(await importFound(row));
+      status.set(name, { state: "done" });
+      picked.delete(name);
+    } catch (e) {
+      status.set(name, { state: "failed", why: reason(e) });
+    }
+    if (root) draw();
+  });
+  batch = false;
+  if (names.every(name => status.get(name)?.state === "done")) closeAddProject();
+  else if (root) draw();
+  if (landed[0]) opts.onImported?.(landed[0]);
 }
 
 async function doImport(row: FoundRow) {
-  if (importing) return;
+  if (busy()) return;
   importing = row.name;
   failed.delete(row.name);
+  status.delete(row.name);
   draw();
   try {
     const project = await importFound(row);
@@ -107,23 +204,69 @@ async function doImport(row: FoundRow) {
   }
 }
 
-function draw() {
+/// The sheet's fixed parts: the search, the bar over the list and the list,
+/// which `draw` fills, so the search keeps its text and caret.
+function build() {
+  search = el("input", "ap-q");
+  search.type = "search";
+  search.placeholder = "Filter by repo, folder, machine or agent";
+  search.autocomplete = "off";
+  search.spellcheck = false;
+  search.setAttribute("aria-label", "Filter found folders");
+  search.addEventListener("input", () => { query = search!.value; draw(); });
+  bar = el("div", "ap-bar");
+  listBox = el("div", "ap-box");
   const head = el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc"));
-  const list = found === null
-    ? el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines))
-    : found.length
-      ? el("div", "ap-list", ...found.map(row => foundRow(row, { busy: importing, error: failed.get(row.name) })))
-      : el("div", "am-sub", error || "No other folders yet. Folders show up here once a coding agent has worked in them.");
   const ways = el("div", "ap-ways",
     way("Choose a folder…", "Anywhere on this Mac, or browse another machine", () => { closeAddProject(); opts.onChoose?.(); }),
     way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }));
-  sheet!.replaceChildren(...present([
+  sheet!.replaceChildren(
     head,
     el("div", "am-label", "Found on your machines"),
-    list,
+    search,
+    bar,
+    listBox,
     el("div", "am-sub", "Import links the folder where it is and brings its sessions along. Your other machines with the same repository are linked too."),
-    ways,
-  ]));
+    ways);
+}
+
+function draw() {
+  if (!search || !bar || !listBox) return;
+  const any = !!found?.length;
+  search.hidden = bar.hidden = !any;
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
+  const keep = focused && listBox.contains(focused) ? focused.dataset.name : null;
+  const shown = shownRows();
+  if (found === null) {
+    listBox.replaceChildren(el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines)));
+  } else if (!found.length) {
+    listBox.replaceChildren(el("div", "am-sub", error || "No other folders yet. Folders show up here once a coding agent has worked in them."));
+  } else if (!shown.length) {
+    listBox.replaceChildren(el("div", "am-sub", `Nothing found matches “${query.trim()}”.`));
+  } else {
+    listBox.replaceChildren(el("div", "ap-list", ...shown.map(row => foundRow(row, {
+      busy: importing || (batch ? "" : null),
+      error: failed.get(row.name),
+      pick: { on: picked.has(row.name), toggle: () => toggle(row.name) },
+      status: status.get(row.name),
+    }))));
+  }
+  if (keep) rowEls().find(r => r.dataset.name === keep)?.focus();
+  else if (any && !sheet?.contains(document.activeElement)) search.focus();
+  if (!any) return;
+  const names = shown.map(row => row.name);
+  const open = names.filter(name => tickable(status.get(name)));
+  const ready = toImport(names, picked, status).length;
+  const all = el("input");
+  all.type = "checkbox";
+  all.checked = open.length > 0 && open.every(name => picked.has(name));
+  all.disabled = batch || !open.length;
+  all.addEventListener("change", () => { picked = toggleAllShown(names, picked, status); draw(); });
+  const go = button(batch ? "Importing…" : `Import ${ready}`, "dbtn pri small", () => importPicked());
+  go.append(el("kbd", "", "⌘↵"));
+  go.disabled = busy() || !ready;
+  const count = query.trim() ? `${shown.length} of ${found!.length} shown` : `${found!.length} found`;
+  bar.replaceChildren(el("label", "", all, "Select all shown"), el("span", "", count), go);
 }
 
 function way(title: string, sub: string, onClick: () => void) {
@@ -134,9 +277,14 @@ function way(title: string, sub: string, onClick: () => void) {
 /// per agent and when one last ran, and Import. `onImport` defaults to
 /// importing it from this sheet.
 export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (row: FoundRow) => void = doImport) {
-  const go = button(state.busy === row.name ? "Importing…" : "Import", `dbtn${state.quiet ? "" : " pri"} small`, () => onImport(row));
-  go.disabled = !!state.busy;
+  const st = state.status;
+  const go = button(state.busy === row.name ? "Importing…" : st?.state === "failed" ? "Retry" : "Import", `dbtn${state.quiet ? "" : " pri"} small`, () => onImport(row));
+  go.disabled = state.busy != null;
   go.title = `Import ${row.name} with ${foundSessions(row)} sessions`;
+  const act = st?.state === "importing" ? el("span", "ap-st", el("span", "dspin"), "Importing…")
+    : st?.state === "done" ? el("span", "ap-st ok", "Imported")
+    : go;
+  const why = st?.state === "failed" ? `Failed: ${st.why}` : state.error;
   const places = row.places.map(p => {
     const where = el("span", "", el("b", "", p.machine_name), " ", el("code", "", p.folder));
     where.title = `${p.machine_name}: ${p.folder}`;
@@ -144,12 +292,27 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
   });
   const agents = el("span", "m", ...row.agents.map(a => el("span", "ap-ag", `${agentLabel(a.agent)} ${a.sessions}`)),
     row.last_activity ? el("span", "", ago(row.last_activity)) : null);
-  return el("div", "ap-row",
+  const out = el("div", `ap-row${state.pick ? " ap-pick" : ""}`,
     el("span", "n", row.name),
     ...places,
     agents,
-    state.error ? el("span", "m bad", state.error) : null,
-    el("span", "acts", go));
+    why ? el("span", "m bad", why) : null,
+    el("span", "acts", act));
+  if (state.pick) {
+    const pick = state.pick;
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = pick.on;
+    box.disabled = !tickable(st ?? undefined);
+    box.tabIndex = -1;
+    box.setAttribute("aria-label", `Select ${row.name}`);
+    box.addEventListener("change", () => pick.toggle());
+    out.prepend(box);
+    out.tabIndex = 0;
+    out.dataset.name = row.name;
+    out.setAttribute("aria-selected", String(pick.on));
+  }
+  return out;
 }
 
 /// "12 min ago", "yesterday", "3 days ago".
@@ -182,6 +345,19 @@ export function injectStyle() {
     + " .ap-row .m.bad { color: var(--err, #e5826f); white-space: normal }"
     + " .ap-row .acts { grid-row: 1 / span 4; grid-column: 2; display: flex; gap: 6px }"
     + " .ap-ag { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border); font-size: 11px; line-height: 17px; color: var(--fg) }"
+    + " .ap-q { width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--fg); font: inherit; font-size: 13px }"
+    + " .ap-q[hidden], .ap-bar[hidden] { display: none }"
+    + " .ap-bar { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted) }"
+    + " .ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer }"
+    + " .ap-bar .dbtn { margin-left: auto }"
+    + " .ap-bar .dbtn kbd { margin-left: 6px; opacity: .7 }"
+    + " .ap-row.ap-pick { grid-template-columns: 18px minmax(0,1fr) auto }"
+    + " .ap-row.ap-pick > input { grid-row: 1 / span 4; grid-column: 1; align-self: start; margin: 3px 0 0 }"
+    + " .ap-row.ap-pick .n, .ap-row.ap-pick .m { grid-column: 2 }"
+    + " .ap-row.ap-pick .acts { grid-column: 3; align-items: center }"
+    + " .ap-row:focus { outline: none } .ap-row:focus-visible { outline: 1px solid var(--accent, #4fbf8a); outline-offset: 2px; border-radius: 6px }"
+    + " .ap-st { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center }"
+    + " .ap-st.ok { color: var(--ok, #4fbf8a) }"
     + " .ap-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }"
     + " .ap-ways button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--fg); font: inherit; cursor: pointer }"
     + " .ap-ways button > span { display: grid; gap: 2px }"
