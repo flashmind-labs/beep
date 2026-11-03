@@ -47,6 +47,7 @@ mod sync;
 mod tasks;
 mod terminals;
 pub mod transfer;
+mod usage;
 
 pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
@@ -94,6 +95,8 @@ pub struct Online {
     /// Woken when the user's settings for this machine's harnesses
     /// change, for a node that takes them.
     agent_settings: Option<Arc<Notify>>,
+    /// Woken to have the node read its agents' plans again.
+    usage_refresh: Arc<Notify>,
 }
 
 /// The nodes connected now, by key.
@@ -448,8 +451,19 @@ async fn serve(
         stats: stats.clone(),
         credentials: credentials.clone(),
         agent_settings: agent_settings.clone(),
+        usage_refresh: Arc::default(),
     };
     app.nodes.insert(endpoint, online.clone());
+    // Keeps what its agent sessions spend and its agents' plan usage.
+    // Ends with the connection.
+    let _usage = online.offers(SESSIONS_PROTOCOL).then(|| {
+        let (user, online) = (user.clone(), online.clone());
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            if let Err(e) = online.keep_usage(&user).await {
+                log::debug!("agent usage not followed; node={endpoint} error={e:#}");
+            }
+        }))
+    });
     // Keeps the pictures its agent sessions show. Ends with the connection.
     let _images = online.offers(SESSIONS_PROTOCOL).then(|| {
         let user = user.clone();
