@@ -69,10 +69,7 @@ const MIRROR_BUDGET: Duration = Duration::from_secs(30);
 /// The start of each project turn: files the issues earlier tries missed,
 /// then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = Arc::new(NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    });
+    let fleet = Arc::new(NodeFleet::new(app, user));
     start_with(fleet, user, project, MIRROR_BUDGET).await
 }
 
@@ -112,19 +109,13 @@ pub(crate) async fn thread_context(
     project: &ProjectRow,
     chat: &ThreadChatRow,
 ) -> String {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     threads::chat_context(&fleet, user, project, chat).await
 }
 
 /// What the agent is told about its project each turn.
 pub(crate) async fn context(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     context_with(&fleet, user, project).await
 }
 

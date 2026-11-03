@@ -136,10 +136,7 @@ pub(crate) fn register(
     gate: Arc<ProjectGate>,
 ) {
     let tools = Arc::new(ProjectTools {
-        fleet: Arc::new(NodeFleet {
-            app: app.clone(),
-            user: user.clone(),
-        }),
+        fleet: Arc::new(NodeFleet::new(app, user)),
         user: user.clone(),
         project: project.id,
         chat,

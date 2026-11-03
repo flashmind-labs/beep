@@ -102,6 +102,13 @@ pub(crate) struct NodeFleet {
 }
 
 impl NodeFleet {
+    pub(crate) fn new(app: &Arc<App>, user: &Arc<User>) -> Self {
+        Self {
+            app: app.clone(),
+            user: user.clone(),
+        }
+    }
+
     /// The node's connection, only while it is signed in as this user.
     fn online(&self, machine: &EndpointId) -> Option<Online> {
         self.app
