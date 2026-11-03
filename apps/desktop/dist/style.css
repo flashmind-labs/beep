@@ -662,9 +662,8 @@ button.dachip:hover { border-color: #3A4A41 }
 @media (prefers-reduced-motion: reduce) { .dskel { animation: none } }
 
 /* Start a coding agent: a composer with one pill for harness, model and thinking */
-.agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 14px 14px 16px }
-.agc { max-width: 760px; margin: 0 auto; display: grid; gap: 10px }
-.dbar[data-mode="window"] .agc { margin-top: 48px }
+.agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 14px 14px 16px; display: flex; flex-direction: column }
+.agc { max-width: 760px; width: 100%; box-sizing: border-box; margin: auto auto 18px; display: grid; gap: 10px }
 .agc h3 { margin: 0 0 14px; text-align: center; font-size: 22px; font-weight: 500; letter-spacing: -.01em }
 .dbar[data-mode="window"] .agc h3 { font-size: 26px }
 .agc h3 b { font-weight: 600 }

@@ -236,18 +236,18 @@ function drawModels() {
   placePicker();
 }
 
-/// Puts the picker under the box, its right edge at the pill's, whole and
-/// inside the form's pane: above the box when it does not fit below, else
-/// cut to the roomier side, where its columns scroll.
+/// Puts the picker above its pill, right edges lined up, whole and inside
+/// the form's pane: below the pill when it does not fit above, else cut to
+/// the roomier side, where its columns scroll.
 function placePicker() {
-  const pick = $<HTMLElement>(".agc-pick"), pill = $("#agpillb"), box = $("#agbox");
-  if (!pick || !pill || !box) return;
+  const pick = $<HTMLElement>(".agc-pick"), pill = $("#agpillb");
+  if (!pick || !pill) return;
   pick.style.removeProperty("--pick-h");
   pick.style.width = "";
-  const pane = bar.getBoundingClientRect(), a = pill.getBoundingClientRect(), b = box.getBoundingClientRect();
+  const pane = bar.getBoundingClientRect(), a = pill.getBoundingClientRect();
   const top = Math.max(0, pane.top), left = Math.max(0, pane.left);
   const view = { width: Math.min(pane.right, innerWidth) - left, height: Math.min(pane.bottom, innerHeight) - top };
-  const anchor = { top: b.top - top, left: a.left - left, width: a.width, height: b.height };
+  const anchor = { top: a.top - top, left: a.left - left, width: a.width, height: a.height };
   const at = placePopover(anchor, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
   pick.style.top = `${at.top + top}px`;
   pick.style.left = `${at.left + left}px`;
