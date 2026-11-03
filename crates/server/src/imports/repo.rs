@@ -2,7 +2,10 @@
 //! Forgejo or Gitea server they saved a token for.
 
 use super::ImportError;
-use crate::{credentials::ForgejoUrl, projects::model::RepoName};
+use crate::{
+    credentials::ForgejoUrl,
+    projects::model::{RepoName, is_github, remote_parts},
+};
 use url::Url;
 
 const GITHUB: &str = "github.com";
@@ -66,7 +69,7 @@ impl RepoRef {
         forgejo: &[ForgejoUrl],
     ) -> Result<Self, ImportError> {
         let host = host.to_ascii_lowercase();
-        if host == GITHUB || host == "www.github.com" {
+        if is_github(&host) {
             let (org, name) = org_and_name(path)?;
             return Self::new(Host::GitHub, org, name);
         }
@@ -195,18 +198,6 @@ pub(crate) fn same_repo(url: &str, origin: &str, servers: &[ForgejoUrl]) -> bool
     };
     remote_key(url).is_some_and(|known| known == key)
         || RepoRef::parse(url, servers).is_ok_and(|repo| repo.matches_remote(origin))
-}
-
-/// A remote URL's host, without port or user, and its path.
-fn remote_parts(remote: &str) -> Option<(String, String)> {
-    if remote.contains("://") {
-        let url = Url::parse(remote).ok()?;
-        return Some((url.host_str()?.to_owned(), url.path().to_owned()));
-    }
-    // scp-like: [user@]host:path
-    let (host, path) = remote.split_once(':')?;
-    let host = host.rsplit('@').next()?;
-    Some((host.to_owned(), path.to_owned()))
 }
 
 /// The first two segments of `path`: the rest, such as `/tree/main`, is a

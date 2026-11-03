@@ -8,6 +8,7 @@ use beep_proto::node::agent;
 use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};
 use strum::{Display, EnumString, IntoStaticStr, VariantNames};
+use url::Url;
 use uuid::Uuid;
 
 /// Most live workers in one project.
@@ -366,6 +367,16 @@ impl IssueHost {
         }
     }
 
+    /// The host a remote or web page on `hostname` is on: GitHub for
+    /// `github.com` or `www.github.com`, else a Forgejo server.
+    pub(crate) fn of_hostname(hostname: &str) -> Option<IssueHost> {
+        let hostname = hostname.to_ascii_lowercase();
+        if is_github(&hostname) {
+            return Some(Self::Github);
+        }
+        ForgejoHost::parse(&hostname).map(Self::Forgejo)
+    }
+
     pub(crate) fn from_stored(text: &str) -> Option<IssueHost> {
         if text == "github" {
             return Some(Self::Github);
@@ -373,6 +384,23 @@ impl IssueHost {
         let host = text.strip_prefix("forgejo:")?;
         ForgejoHost::parse(host).map(Self::Forgejo)
     }
+}
+
+/// A remote URL's host, without port or user, and its path.
+pub(crate) fn remote_parts(remote: &str) -> Option<(String, String)> {
+    if remote.contains("://") {
+        let url = Url::parse(remote).ok()?;
+        return Some((url.host_str()?.to_owned(), url.path().to_owned()));
+    }
+    // scp-like: [user@]host:path
+    let (host, path) = remote.split_once(':')?;
+    let host = host.rsplit('@').next()?;
+    Some((host.to_owned(), path.to_owned()))
+}
+
+/// Whether `hostname`, lowercased, is GitHub's.
+pub(crate) fn is_github(hostname: &str) -> bool {
+    matches!(hostname, "github.com" | "www.github.com")
 }
 
 /// Which hosts a project files its issues and opens its PRs on. `None` keeps
