@@ -1235,7 +1235,7 @@ requests! {
     /// project; sooner, the copy is given as it is. A host that could not
     /// be read gives its error and the lists read before. `NotFound` when
     /// the caller has no such project.
-    305 GetProjectLists { project_id: Uuid, refresh: bool } => Call<ProjectLists>
+    307 GetProjectLists { project_id: Uuid, refresh: bool } => Call<ProjectLists>
     /// The newest workflow runs (GitHub Actions or Forgejo Actions) of
     /// `project_id`'s repository, newest first, with how far a running one
     /// got and the checks of each open pull request. Read from the server's
@@ -1244,13 +1244,13 @@ requests! {
     /// `refresh` as in `GetProjectLists`. A host that cannot be read, or
     /// that limits the caller's token, says so in the reply. `NotFound`
     /// when the caller has no such project.
-    306 ListProjectRuns { project_id: Uuid, refresh: bool } => Call<ProjectRuns>
+    308 ListProjectRuns { project_id: Uuid, refresh: bool } => Call<ProjectRuns>
     /// One workflow run of `project_id` with its jobs and steps and, when
     /// it failed, the end of its failing job's log. Read as
     /// `ListProjectRuns` reads jobs. `NotFound` when the caller has no such
     /// project; `BadRequest` saying why when the host cannot be read or has
     /// no such run.
-    307 GetProjectRun { project_id: Uuid, run_id: u64 } => Call<ProjectRunDetail>
+    309 GetProjectRun { project_id: Uuid, run_id: u64 } => Call<ProjectRunDetail>
 }
 
 /// What `GetProjectLists` gives.
