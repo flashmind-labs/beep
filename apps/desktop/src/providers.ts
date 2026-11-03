@@ -9,6 +9,7 @@ import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProble
 import type { HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import { emptyPanel } from "./components/parts.ts";
 import { flshPanel } from "./flsh.ts";
+import { failBanner } from "./components/failbanner.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean }
@@ -416,7 +417,8 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!st.machine) return [emptyPanel(h("b", "", "No machine online"), h("span", "", "Coding agents show here for machines that are online."))];
     const v = view();
     const err = st.errors.get(st.machine);
-    const errEl = err ? h("div", "cc-err", err) : null;
+    const machine = st.machine;
+    const errEl = err ? failBanner(err, () => { st.errors.delete(machine); draw(); }) : null;
     if (v === undefined) return [emptyPanel(h("b", "", `Asking ${machineName()}…`))];
     if (v === false) return [h("div", "cc-err", "The server needs an update before it shows coding agents here.")];
     if (v === null) return [errEl ?? h("div", "cc-err", "Could not read the coding agents.")];
