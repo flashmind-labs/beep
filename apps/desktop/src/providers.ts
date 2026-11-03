@@ -5,7 +5,7 @@
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
-import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView } from "./providers-state.ts";
 import { emptyPanel } from "./components/parts.ts";
 import { flshPanel } from "./flsh.ts";
@@ -45,9 +45,9 @@ export function registerProviders(deps: ProvidersDeps) {
   const { registerView, invoke, h, button } = deps;
   const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, loading: false, note: "" };
   let el: HTMLElement | null = null;
-  /// Settings' breadcrumb, told of the agent picked, and the last it was told.
-  let onPick: ((agent: string) => void) | null = null;
-  let reported: string | null = null;
+  /// Drawn in Settings, which lists the agents in its own left pane: the
+  /// page shows the one agent it was opened at, under a toolbar of its own.
+  let inSettings = false;
   const flsh = flshPanel({ invoke, h, button, redraw: () => draw() });
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
@@ -157,14 +157,25 @@ export function registerProviders(deps: ProvidersDeps) {
     return harnessEl(agent);
   }
 
+  /// The name, version and update chip on one line; the version gives way
+  /// first when the line runs out of room.
+  function nameLine(name: string, version: string, latest: string | null) {
+    const up = latest ? h("span", "hv-up", "update") : null;
+    up?.setAttribute("title", `v${latest} is out`);
+    return h("span", "hv-nm", h("b", "", name), version ? h("span", "ver", version) : null, up);
+  }
+
+  /// One status line that never wraps; the full text is in its tooltip.
+  function statusSmall(text: string, bad: boolean) {
+    const s = h("small", bad ? "bad" : "", text);
+    s.title = text;
+    return s;
+  }
+
   function list(v: HarnessesView) {
     const rows = listRows(v).map(r => {
       const hv = v.harnesses.find(x => x.agent === r.agent)!;
-      const name = h("span", "hv-name", h("b", "", r.name),
-        r.version ? h("span", "ver", `v${r.version}`) : null,
-        r.update ? h("span", "up", "update") : null,
-        h("small", r.bad ? "bad" : "", r.status));
-      if (r.update) name.querySelector(".up")!.setAttribute("title", "An update is available");
+      const name = h("span", "hv-name", nameLine(r.name, r.version ? `v${r.version}` : "", r.update ? hv.latest : null), statusSmall(r.status, r.bad));
       const row = h("div", `hv-it${r.on || !r.switchable ? "" : " off"}`, avatar(r.agent), name, r.switchable ? toggle(hv, r.on) : h("span", ""));
       row.setAttribute("role", "button");
       row.tabIndex = 0;
@@ -177,8 +188,18 @@ export function registerProviders(deps: ProvidersDeps) {
     return h("div", "hv-list", ...rows);
   }
 
-  function field(label: string, help: string, input: HTMLInputElement) {
-    return h("div", "hv-f", h("span", "", h("b", "", label), h("small", "", help)), input);
+  function field(label: string, help: string, control: HTMLElement) {
+    return h("div", "hv-f", h("span", "", h("b", "", label), h("small", "", help)), control);
+  }
+
+  /// The box atop the page in Settings: the agent, its version and status,
+  /// and its switch on the machine picked.
+  function summary(hv: HarnessView) {
+    const s = summaryLine(hv), m = machineName();
+    const name = h("span", "hv-name", nameLine(harnessName(hv.agent), hv.installed && hv.version ? `v${hv.version}` : "", hasUpdate(hv) ? hv.latest : null), statusSmall(s.text, s.bad));
+    const on = hv.installed && hv.settings.enabled;
+    const end = hv.installed ? [h("span", "on", `${on ? "On" : "Off"} for ${m}`), toggle(hv, on)] : [h("span", ""), h("span", "")];
+    return h("div", `hv-sum${hv.installed && !on ? " off" : ""}`, avatar(hv.agent), name, ...end);
   }
 
   function input(value: string, placeholder: string, onInput: (v: string) => void, label: string) {
@@ -194,11 +215,13 @@ export function registerProviders(deps: ProvidersDeps) {
 
   function statusBlock(hv: HarnessView) {
     const m = machineName(), name = harnessName(hv.agent);
-    const row = (...kids: (Node | string | null)[]) => h("div", "hv-stat", ...kids);
+    // In Settings the summary box above already says the status line.
+    const row = (...kids: (Node | string | null)[]): Node | null => (inSettings ? null : h("div", "hv-stat", ...kids));
+    const nodes = (out: (Node | null)[]) => out.filter((n): n is Node => n !== null);
     const acts = (...kids: Node[]) => h("div", "hv-acts", ...kids);
     const busy = st.updating.has(key(hv.agent));
     if (!hv.installed) {
-      const out: Node[] = [row(`Not installed on ${m}.`)];
+      const out: (Node | null)[] = [row(`Not installed on ${m}.`)];
       if (hv.install) {
         const install = button(busy ? "Installing…" : `Install on ${m}`, "pri", () => update([hv.agent]));
         install.disabled = busy;
@@ -209,9 +232,9 @@ export function registerProviders(deps: ProvidersDeps) {
       } else {
         out.push(h("div", "hv-note", "Beep knows no way to install it here. Install it on the machine, then check again."));
       }
-      return out;
+      return nodes(out);
     }
-    const out: Node[] = [];
+    const out: (Node | null)[] = [];
     const s = hv.sign_in;
     if (s.state === "signed_in") {
       const plan = s.plan ? ` · ${s.plan[0].toUpperCase()}${s.plan.slice(1)} plan` : "";
@@ -226,7 +249,8 @@ export function registerProviders(deps: ProvidersDeps) {
       if (hv.agent === "claude" || hv.agent === "codex") out.push(acts(button("Sign in", "pri", () => deps.openSettings("agents"))));
       else out.push(h("div", "hv-note", `Run ${hv.agent} on ${m} and sign in there.`));
     } else {
-      out.push(row(`${name} does not say whether it is signed in. Run it on ${m} to sign in.`));
+      const why = `${name} does not say whether it is signed in. Run it on ${m} to sign in.`;
+      out.push(inSettings ? h("div", "hv-note", why) : row(why));
     }
     if (!hv.runnable) out.push(h("div", "hv-note", "Beep cannot start it yet: beep-node finds the agent and its ACP adapter when it starts. Restart beep-node after installing."));
     if (hasUpdate(hv)) {
@@ -235,7 +259,7 @@ export function registerProviders(deps: ProvidersDeps) {
       if (!hv.install) up.title = "Beep knows no way to update it here";
       out.push(acts(up));
     }
-    return out;
+    return nodes(out);
   }
 
   function detail(hv: HarnessView) {
@@ -247,8 +271,9 @@ export function registerProviders(deps: ProvidersDeps) {
       refreshSave();
     };
     const m = machineName(), name = harnessName(hv.agent);
-    const head = h("h3", "", avatar(hv.agent), name, h("span", "ver", versionLine(hv)));
-    const box = h("div", "hv-d", head, h("h4", "", "Status"), ...statusBlock(hv));
+    const box = inSettings
+      ? h("div", "hv-d", ...statusBlock(hv))
+      : h("div", "hv-d", h("h3", "", avatar(hv.agent), name, h("span", "ver", versionLine(hv))), h("h4", "", "Status"), ...statusBlock(hv));
     if (!hv.installed) return box;
 
     const homeVar = hv.home_var ?? "Home folder";
@@ -257,7 +282,6 @@ export function registerProviders(deps: ProvidersDeps) {
       field(homeVar, "Its home and config folder.", input(draft.home, hv.home_default ?? "", v => setDraft({ home: v }), homeVar)),
       field("Launch arguments", "Added to every session it starts.", input(draft.args, "none", v => setDraft({ args: v }), "Launch arguments")));
 
-    box.append(h("h4", "", "Environment"));
     const envBox = h("div", "hv-envs");
     const drawEnv = () => {
       const rows = [...draft.env, { name: "", value: "", saved: false }].map((v, i) => {
@@ -287,7 +311,7 @@ export function registerProviders(deps: ProvidersDeps) {
       envBox.replaceChildren(...rows);
     };
     drawEnv();
-    box.append(envBox, h("div", "hv-note", "Values are kept encrypted and never shown again. Keys belong in Credentials; Beep hands them to the agent itself."));
+    box.append(field("Environment", "Values are kept encrypted and never shown again. Keys belong in Credentials; Beep hands them to the agent itself.", envBox));
 
     const problem = h("span", "derr", "");
     const saveBtn = button(st.saving ? "Saving…" : "Save", "pri", () => {
@@ -319,6 +343,12 @@ export function registerProviders(deps: ProvidersDeps) {
     if (v === undefined) return [emptyPanel(h("b", "", `Asking ${machineName()}…`))];
     if (v === false) return [h("div", "cc-err", "The server needs an update before it shows coding agents here.")];
     if (v === null) return [errEl ?? h("div", "cc-err", "Could not read the coding agents.")];
+    if (inSettings) {
+      // Settings' left pane picks the agent; the page shows that one only.
+      const hv = v.harnesses.find(x => x.agent === st.picked);
+      const page = hv ? [summary(hv), detail(hv)] : [emptyPanel(h("b", "", `${machineName()} does not report ${harnessName(st.picked ?? "")}`))];
+      return errEl ? [errEl, ...page] : page;
+    }
     const rows = listRows(v);
     if (!st.picked || !rows.some(r => r.agent === st.picked)) st.picked = rows.find(r => r.on)?.agent ?? rows[0]?.agent ?? null;
     const hv = v.harnesses.find(x => x.agent === st.picked);
@@ -331,13 +361,11 @@ export function registerProviders(deps: ProvidersDeps) {
     const active = document.activeElement;
     const label = active instanceof HTMLInputElement && el.contains(active) ? active.getAttribute("aria-label") : null;
     const at = active instanceof HTMLInputElement ? active.selectionStart : null;
-    const viewEl = h("div", "cc-view hv-view", ...body());
+    const viewEl = inSettings
+      ? h("div", "cc-view hv-view in-set", h("div", "hv-bar", h("span", "lbl", "Machine"), ...tools(true)), ...body())
+      : h("div", "cc-view hv-view", ...body());
     const old = el.querySelector(":scope > .cc-view");
     if (old) old.replaceWith(viewEl); else el.append(viewEl);
-    if (onPick && st.picked && st.picked !== reported) {
-      reported = st.picked;
-      onPick(st.picked);
-    }
     if (label) {
       const again = viewEl.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(label)}"]`);
       again?.focus();
@@ -345,15 +373,38 @@ export function registerProviders(deps: ProvidersDeps) {
     }
   }
 
-  function tools(): Node[] {
-    const chips = (st.machines ?? []).map(m => {
-      const b = button(m.name, "dchip", () => pickMachine(m.id));
-      b.className = "dchip";
+  /// The machines as a segmented control whose names never wrap, and the
+  /// same as a select, which shows instead when the names do not fit: many
+  /// machines or long names here, a narrow toolbar in the CSS.
+  function machinePicker() {
+    const all = st.machines ?? [];
+    const seg = h("span", "hv-seg", ...all.map(m => {
+      const b = h("button", "", m.name);
+      b.type = "button";
+      b.title = m.online ? m.name : `${m.name} (offline)`;
       b.setAttribute("aria-pressed", String(m.id === st.machine));
       b.disabled = !m.online;
-      if (!m.online) b.title = "offline";
+      b.addEventListener("click", () => pickMachine(m.id));
       return b;
-    });
+    }));
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "Machine");
+    const sel = h("select", "hv-sel", ...all.map(m => {
+      const o = h("option", "", m.online ? m.name : `${m.name} (offline)`);
+      o.value = m.id;
+      o.disabled = !m.online;
+      return o;
+    }));
+    sel.value = st.machine ?? "";
+    sel.setAttribute("aria-label", "Machine");
+    sel.addEventListener("change", () => pickMachine(sel.value));
+    const letters = all.reduce((n, m) => n + m.name.length, 0);
+    return h("span", `hv-pick${all.length > 4 || letters > 48 ? " crowded" : ""}`, seg, sel);
+  }
+
+  /// The header buttons; in Settings (`bar`) a spacer puts the check and
+  /// Update all at the toolbar's end.
+  function tools(bar = false): Node[] {
     const v = view();
     const behind = updatable(v || null);
     const running = [...st.updating].filter(k => k.startsWith(`${st.machine} `)).length;
@@ -363,19 +414,18 @@ export function registerProviders(deps: ProvidersDeps) {
     const check = button(st.loading ? "Checking…" : checkedLabel(v ? v.checked_at : null, Date.now()), "quiet", () => load(true));
     check.disabled = st.loading || !st.machine;
     check.title = "Check the versions again";
-    return [h("span", "hv-mach", ...chips), all, check];
+    return bar ? [machinePicker(), h("span", "sp"), check, all] : [machinePicker(), all, check];
   }
 
   registerView("providers", {
-    title: () => ({ title: "Coding agents", sub: "What each machine can run", tools: tools() }),
-    // Settings opens it at one agent (`arg.agent`) and follows the one
-    // picked (`arg.onPick`), for its breadcrumb.
+    // In Settings (`arg.settings`) its buttons sit in the page's own toolbar.
+    title: () => ({ title: "Coding agents", sub: "What each machine can run", tools: inSettings ? [] : tools() }),
+    // Settings opens it at one agent (`arg.agent`), which its left pane picks.
     mount(root, arg) {
       el = root;
-      const want = arg && typeof arg === "object" ? arg as { agent?: string; onPick?: (agent: string) => void } : {};
+      const want = arg && typeof arg === "object" ? arg as { agent?: string; settings?: boolean } : {};
       if (want.agent) st.picked = want.agent;
-      onPick = want.onPick ?? null;
-      reported = st.picked;
+      inSettings = want.settings === true;
       draw();
       loadMachines();
     },

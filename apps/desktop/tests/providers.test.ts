@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkedLabel, draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, listRows, settingsInput, splitArgs, statusLine, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/providers-state.ts";
+import { checkedLabel, draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, listRows, settingsInput, splitArgs, statusLine, summaryLine, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/providers-state.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };
 const harness = (agent: string, more: Partial<HarnessView> = {}): HarnessView => ({
@@ -87,4 +87,12 @@ test("saving sends typed values only, and the switch keeps the saved ones", () =
   assert.equal(envProblem([{ name: "1X", value: "", saved: false }]), "1X is not a variable name.");
   assert.equal(envProblem([{ name: "A", value: "", saved: false }, { name: "A", value: "", saved: true }]), "A is set twice.");
   assert.equal(envProblem([{ name: "", value: "", saved: false }]), "");
+});
+
+test("the summary line names the signed-in account, else says what the list says", () => {
+  const [claude, codex, pi, gemini] = view.harnesses;
+  assert.deepEqual(summaryLine(claude), { text: "Signed in as you@example.com · Max plan", bad: false });
+  assert.deepEqual(summaryLine(codex), statusLine(codex));
+  assert.deepEqual(summaryLine(pi), statusLine(pi));
+  assert.deepEqual(summaryLine(gemini), { text: "Not installed", bad: false });
 });
