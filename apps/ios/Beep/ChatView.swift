@@ -654,11 +654,15 @@ private struct EmptyChat: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Updates from the user's apps sit on their own card, never inside a reply. Tapping one
-            // fills the composer with its summary, for the user to send or change.
+            // opens its chat, where Beep's first message tells it and the user replies. A server from
+            // before update chats fills the composer with its summary instead.
             if !model.updates.isEmpty {
                 UpdatesCard(updates: model.updates, open: { update in
                     model.dismissUpdates([update.id])
-                    fill(update.summary)
+                    Task {
+                        let opened = await model.openUpdateChat(update)
+                        if !opened { fill(update.summary) }
+                    }
                 }, dismiss: model.dismissUpdates)
                 .padding(.top, 16)
             }
