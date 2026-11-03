@@ -10,11 +10,12 @@ use agent_client_protocol::{
         v1::{
             AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
             CompactionCapabilities, ContentBlock, ImageContent, Implementation, InitializeRequest,
-            InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse,
-            PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-            SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
-            SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
-            SessionId, SetSessionConfigOptionRequest, TextContent,
+            InitializeResponse, LoadSessionRequest, McpServer, NewSessionRequest,
+            NewSessionResponse, PermissionOptionId, PromptRequest, RequestPermissionOutcome,
+            RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
+            SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+            SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
+            SetSessionConfigOptionRequest, TextContent,
         },
     },
 };
@@ -127,29 +128,57 @@ pub(super) fn new_session(
     )
 }
 
+/// `session/load` or `session/resume` of `session` in `cwd`, sent untyped
+/// so the answer keeps `models`, as `new_session` does.
+pub(super) fn resume_session(
+    method: ResumeMethod,
+    session: SessionId,
+    cwd: &Path,
+    mcp_servers: Vec<McpServer>,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    match method {
+        ResumeMethod::Load => UntypedMessage::new(
+            AGENT_METHOD_NAMES.session_load,
+            LoadSessionRequest::new(session, cwd).mcp_servers(mcp_servers),
+        ),
+        ResumeMethod::Resume => UntypedMessage::new(
+            AGENT_METHOD_NAMES.session_resume,
+            ResumeSessionRequest::new(session, cwd).mcp_servers(mcp_servers),
+        ),
+    }
+}
+
 /// The session an answer to `session/new` made, and the models it offers.
 pub(super) fn session_created(
     answer: Value,
 ) -> Result<(NewSessionResponse, Offered), serde_json::Error> {
-    let offered = Offered {
-        thinking: thinking_option(&answer),
-        ..offered_models(&answer)
-    };
+    let offered = offers(&answer);
     Ok((serde_json::from_value(answer)?, offered))
 }
 
-/// The config options in an answer to `session/new`; none when it has
-/// none or they do not read.
-fn config_options(answer: &Value) -> Vec<SessionConfigOption> {
-    answer
-        .get("configOptions")
-        .filter(|options| options.is_array())
-        .and_then(|_| serde_json::from_value::<NewSessionResponse>(answer.clone()).ok())
-        .and_then(|created| created.config_options)
-        .unwrap_or_default()
+/// The models and thinking option an answer to `session/new`,
+/// `session/load` or `session/resume` offers.
+pub(super) fn offers(answer: &Value) -> Offered {
+    Offered {
+        thinking: thinking_option(answer),
+        ..offered_models(answer)
+    }
 }
 
-/// The selector of category `thought_level` in an answer to `session/new`:
+/// The config options in an answer that offers them, skipping any that do
+/// not read. The answer to `session/load` has no `sessionId`, so the
+/// options are read on their own rather than as a `NewSessionResponse`.
+fn config_options(answer: &Value) -> Vec<SessionConfigOption> {
+    let Some(options) = answer.get("configOptions").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    options
+        .iter()
+        .filter_map(|option| SessionConfigOption::deserialize(option).ok())
+        .collect()
+}
+
+/// The selector of category `thought_level` in an answer:
 /// Claude Code's `effort`, Codex's `reasoning_effort` and pi's
 /// `thought_level`, which take the values `Effort` names.
 fn thinking_option(answer: &Value) -> Option<SessionConfigId> {
@@ -175,7 +204,7 @@ pub(super) fn set_effort(
     )
 }
 
-/// The models an answer to `session/new` offers: its config option of
+/// The models an answer offers: its config option of
 /// category `model` when it has one, else its unstable `models`.
 pub(super) fn offered_models(answer: &Value) -> Offered {
     let selector = config_options(answer).into_iter().find_map(|option| {
@@ -786,6 +815,57 @@ mod tests {
         assert_eq!(request.params()["value"], "xhigh");
         let without = serde_json::json!({"sessionId": "s1"});
         assert_eq!(session_created(without).unwrap().1.thinking, None);
+    }
+
+    /// Codex's answer to `session/new` and `session/load`, trimmed: its
+    /// model selector sits among categories the crate does not name.
+    fn codex_answer() -> Value {
+        serde_json::json!({
+            "sessionId": "s1",
+            "models": {
+                "availableModels": [
+                    {"modelId": "gpt-test[low]", "name": "Test (low)"},
+                    {"modelId": "gpt-test[high]", "name": "Test (high)"},
+                ],
+                "currentModelId": "gpt-test[high]",
+            },
+            "modes": {"currentModeId": "agent", "availableModes": [{"id": "agent", "name": "Agent"}]},
+            "configOptions": [
+                {"id": "mode", "name": "Mode", "category": "mode", "type": "select",
+                 "currentValue": "agent", "options": [{"value": "agent", "name": "Agent"}]},
+                {"id": "collaboration_mode", "name": "Collaboration mode",
+                 "category": "collaboration_mode", "type": "select", "currentValue": "default",
+                 "options": [{"value": "default", "name": "Default"}]},
+                {"id": "model", "name": "Model", "category": "model", "type": "select",
+                 "currentValue": "gpt-test", "options": [
+                    {"value": "gpt-test", "name": "Test"},
+                    {"value": "gpt-mini", "name": "Mini", "description": "Faster"}]},
+                {"id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level",
+                 "type": "select", "currentValue": "high", "options": [
+                    {"value": "low", "name": "Low"}, {"value": "high", "name": "High"}]},
+                {"id": "fast-mode", "name": "Fast mode", "category": "model_config",
+                 "type": "select", "currentValue": "off", "options": [{"value": "off", "name": "Off"}]},
+            ],
+        })
+    }
+
+    #[test]
+    fn codex_offers_its_model_selector() {
+        let (_, offered) = session_created(codex_answer()).unwrap();
+        assert_eq!(
+            offered.switch,
+            Some(ModelSwitch::ConfigOption(SessionConfigId::new("model")))
+        );
+        assert_eq!(offered.current.as_deref(), Some("gpt-test"));
+        assert_eq!(offered.models.len(), 2);
+        assert_eq!(
+            offered.thinking,
+            Some(SessionConfigId::new("reasoning_effort"))
+        );
+        // `session/load` answers the same without a `sessionId`.
+        let mut loaded = codex_answer();
+        loaded.as_object_mut().unwrap().remove("sessionId");
+        assert_eq!(offers(&loaded), offered);
     }
 
     #[test]
