@@ -6,6 +6,7 @@ import { openSession } from "./history.ts";
 import { LIVE_CHATS, VOICE_ICON } from "./live.ts";
 import { RESEARCHES } from "./researches.ts";
 import { dayDiff } from "./memories.ts";
+import { withoutResearch } from "../research-list.ts";
 
 export type { GroupSummary } from "./groups.ts";
 
@@ -91,7 +92,9 @@ export async function loadChats(query: string) {
       invoke<GroupSummary[]>("list_groups"),
     ]);
     const q = query.toLowerCase();
-    const list = rows(sessions, query ? groups.filter(g => g.name.toLowerCase().includes(q)) : groups);
+    // The window lists researches under Research; the bar marks them here.
+    const chats = PANE ? withoutResearch(sessions, RESEARCHES) : sessions;
+    const list = rows(chats, query ? groups.filter(g => g.name.toLowerCase().includes(q)) : groups);
     if (!query) S.cache = list;
     if (S.view !== "chats") return;
     // An older search can finish after a newer one: keep only the box's.
