@@ -1214,6 +1214,16 @@ class ChatRepository(private val storage: LocalStorage) {
         }
     }
 
+    /**
+     * Opens the update's chat, which starts with Beep telling it so the user can reply; the same chat
+     * each time. False when the server could not, such as one from before update chats.
+     */
+    suspend fun openUpdateChat(update: com.flashmind.beep.proto.AppUpdate): Boolean {
+        val session = runCatching { api().openUpdateChat(update.id) }.getOrElse { return false }
+        select(session.id)
+        return true
+    }
+
     /** Takes a used starter off the saved set until the next one loads. */
     fun dropStarter(prompt: String) {
         val left = starters.value.filter { it.prompt != prompt }

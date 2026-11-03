@@ -167,13 +167,13 @@ pub(crate) fn decisions() -> Vec<Decision<Triage>> {
     vec![
         Decision {
             name: "inform_beep",
-            description: "Pass the events that matter on to Beep, with a summary written for \
-                Beep. Ends your run.",
+            description: "Pass the events that matter on to Beep, with a summary written to \
+                the user. Ends your run.",
             parameters: || {
                 json!({
                     "type": "object",
                     "properties": {
-                        "summary": {"type": "string", "description": "What happened and what is asked of the user, in two to four plain sentences."},
+                        "summary": {"type": "string", "description": "What happened and what is asked of them, written to the user as \"you\", in two to four plain sentences."},
                         "why": {"type": "string", "description": "Why the user would want to know, in one line."},
                         "urgency": {"type": "string", "enum": ["now", "later"], "description": "now when it needs the user soon; later to bring it up next time."},
                         "refs": {"type": "array", "items": {"type": "integer"}, "description": "The [#id]s of the events the summary covers."}
@@ -429,7 +429,7 @@ pub(crate) fn describe_inform(
     read_only: &[EventApp],
 ) -> String {
     let mut text = format!(
-        "From your event triage agent:\n{}\nWhy now: {}",
+        "From your event triage agent, written to the user:\n{}\nWhy now: {}",
         inform.summary.as_deref().unwrap_or_default(),
         inform.reason
     );
@@ -654,7 +654,7 @@ mod tests {
         let text = describe_inform(&now, &[&earlier], &rows, &[EventApp::Github]);
         assert_eq!(
             text,
-            "From your event triage agent:\nAna asked for a review of PR 42.\n\
+            "From your event triage agent, written to the user:\nAna asked for a review of PR 42.\n\
              Why now: A person is waiting.\n\n\
              The events it covers:\n\n\
              [#1] GitHub, review requested, 2026-10-20 09:30 UTC: Event 1\nids: {\"n\":1}\n\n\
