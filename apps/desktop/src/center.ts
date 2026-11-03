@@ -28,7 +28,7 @@ import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { BAR_NOTE, type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "./bar/agentnew.ts";
-import { type BaseBranches, baseFor, type CheckoutPick, folderBusy, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
+import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner, preloadModels } from "./bar/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "./bar/agents.ts";
 import { registerInstructions } from "./instructions.ts";
@@ -2172,12 +2172,12 @@ function answerCard(agent: ProjectAgent, c: { query_id: string }, decision: stri
 }
 
 /// The bar under a project: it starts a coding agent in the project's
-/// checkout, by default on a new branch in a new worktree, and opens its
-/// session. Kept across redraws so what is typed stays.
+/// checkout, by default as it is (the agent makes its own branch), and
+/// opens its session. Kept across redraws so what is typed stays.
 const pc = {
   project: null as string | null,
   machine: "auto",
-  checkout: "new" as CheckoutPick,
+  checkout: DEFAULT_CHECKOUT,
   hosts: null as AgentHost[] | null,
   sessions: [] as AgentSession[],
   branches: new Map<string, BaseBranches | null>(),
@@ -2204,7 +2204,7 @@ const projectComp = (() => {
   machine.title = "The machine it runs on";
   const folder = h("button", "pill");
   folder.type = "button";
-  folder.title = "New worktree, the checkout, or an existing worktree";
+  folder.title = "The checkout, a new worktree, or an existing worktree";
   const harness = h("button", "pill");
   harness.type = "button";
   harness.title = "Harness, model and thinking";
@@ -2248,9 +2248,9 @@ const projectComp = (() => {
     const trees = knownWorktrees(pc.sessions, place.machine_id, place.cwd);
     const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
     openMenu(e, "Folder", [
+      { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
       { label: "New worktree", on: pick("new") },
       { label: "New branch in the checkout", on: pick("branch") },
-      { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
       ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
     ]);
   });
@@ -2318,7 +2318,7 @@ function drawProjectComp(name: string) {
   if (pc.project !== name) {
     pc.project = name;
     pc.machine = lastMachine(name) || "auto";
-    pc.checkout = "new";
+    pc.checkout = DEFAULT_CHECKOUT;
     pc.target = null;
     c.err.textContent = "";
     loadProjectBar(name);
@@ -2443,11 +2443,10 @@ async function startFromBar(fresh = false) {
   if (was && !fresh) return resumeFromBar(was, text);
   const { agent } = barHarness(place);
   const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
-  const busy = folderBusy(pc.sessions, place.machine_id, place.cwd);
   // Start new beside a session goes in that session's worktree.
   const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
     : t ? { cwd: place.cwd, checkout: targetPlan(t) }
-    : startPlace(pc.checkout, busy, place.cwd, baseFor(null, pc.branches.get(p.name)));
+    : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(p.name)));
   c.err.textContent = "";
   pc.starting = true;
   pc.open = false;

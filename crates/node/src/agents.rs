@@ -9,26 +9,27 @@ use crate::{
     provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result};
-use beep_proto::AgentAccount;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        self, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL, SessionFolder,
-        SessionInfo, SessionsReply, SessionsRequest, State, Status,
+        self, CheckoutPlan, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL,
+        SessionFolder, SessionInfo, SessionsReply, SessionsRequest, State, Status,
     },
     harness::{AgentSettings, HarnessReport},
     usage::{PlanUsage, SessionSpend},
 };
+use beep_proto::{AgentAccount, ModelId};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet, hash_map::RandomState},
     env,
+    fmt::Display,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     task::{JoinHandle, spawn_blocking},
@@ -55,6 +56,7 @@ pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
 
 use acp::Prompt;
+use compaction::Route;
 use images::Images;
 use models::ModelCache;
 use session::{Command, Session, Start};
@@ -117,11 +119,33 @@ impl std::fmt::Debug for AgentKind {
 /// ask; a permission request that comes anyway is allowed by the session.
 struct Known {
     name: &'static str,
+    /// What people call it, such as Claude Code.
+    title: &'static str,
     /// The CLI whose presence says the user has this agent.
     cli: &'static str,
     adapter: Adapter,
     /// Variables that turn its permission prompts off.
     env: &'static [(&'static str, &'static str)],
+    /// The session mode that asks no permission, for an agent whose
+    /// launch cannot set it, set once the session exists.
+    bypass_mode: Option<&'static str>,
+    /// It starts on a model given as `--model` on its command line; the
+    /// others switch over ACP once the session exists.
+    model_flag: bool,
+    /// How it is asked to compact.
+    compact: Route,
+}
+
+/// Now, in Unix seconds.
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}
+
+/// What the node knows of the agent `name`, when it is a known one.
+fn known(name: &str) -> Option<&'static Known> {
+    KNOWN.iter().find(|known| known.name == name)
 }
 
 enum Adapter {
@@ -138,56 +162,80 @@ const KNOWN: &[Known] = &[
     // The session switches it to `bypassPermissions` once it has one.
     Known {
         name: "claude",
+        title: "Claude Code",
         cli: "claude",
         adapter: Adapter::Npm {
             bin: "claude-agent-acp",
             package: "@agentclientprotocol/claude-agent-acp",
         },
         env: &[],
+        bypass_mode: Some("bypassPermissions"),
+        model_flag: false,
+        compact: Route::Advertised,
     },
     // Full access: approval policy `never` and sandbox `danger-full-access`,
     // for new and resumed sessions alike.
     Known {
         name: "codex",
+        title: "Codex",
         cli: "codex",
         adapter: Adapter::Npm {
             bin: "codex-acp",
             package: "@agentclientprotocol/codex-acp",
         },
         env: &[("INITIAL_AGENT_MODE", "agent-full-access")],
+        bypass_mode: None,
+        model_flag: false,
+        compact: Route::Advertised,
     },
     // YOLO approves every tool. Gemini CLI drops back to `default` in a
     // folder it does not trust, so the folder is trusted too.
     Known {
         name: "gemini",
+        title: "Gemini CLI",
         cli: "gemini",
         adapter: Adapter::Flags(&["--acp", "--approval-mode", "yolo"]),
         env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
+        bypass_mode: None,
+        model_flag: true,
+        compact: Route::OwnTrigger,
     },
     // pi has no permission prompts; only its extensions ask.
     Known {
         name: "pi",
+        title: "pi",
         cli: "pi",
         adapter: Adapter::Npm {
             bin: "pi-acp",
             package: "pi-acp",
         },
         env: &[],
+        bypass_mode: None,
+        model_flag: false,
+        compact: Route::Advertised,
     },
     // flsh never asks permission.
     Known {
         name: "flsh",
+        title: "flsh",
         cli: "flsh",
         adapter: Adapter::Flags(&["acp"]),
         env: &[],
+        bypass_mode: None,
+        model_flag: true,
+        compact: Route::OwnTrigger,
     },
     // Merged over its config as the last rule, which wins over the defaults
     // that ask (`doom_loop`, `external_directory`, reading `.env` files).
     Known {
         name: "opencode",
+        title: "OpenCode",
         cli: "opencode",
         adapter: Adapter::Flags(&["acp"]),
         env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
+        bypass_mode: None,
+        model_flag: false,
+        compact: Route::Always,
     },
 ];
 
@@ -448,9 +496,13 @@ impl Agents {
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
-        let ended = self
-            .get(id)
-            .map(|session| session.live.borrow().agent_session.clone());
+        let ours = self.get(id);
+        if let Some(session) = &ours
+            && session.agent != kind.name
+        {
+            anyhow::bail!("session {id} runs {}", session.agent);
+        }
+        let ended = ours.map(|session| session.live.borrow().agent_session.clone());
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
@@ -465,6 +517,7 @@ impl Agents {
         })?;
         let owned = self.owned();
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
+            && session.agent == kind.name
             && session.live.borrow().status() != Status::Ended
         {
             if let Some(text) = prompt {
@@ -501,6 +554,7 @@ impl Agents {
                 model: None,
                 effort: None,
                 note: None,
+                brief: None,
             },
         )
     }
@@ -596,6 +650,28 @@ impl Agents {
         sessions
     }
 
+    /// Starts a session in the branch or worktree `checkout` makes in
+    /// `cwd`, or in `cwd` itself without one. A start that would be refused
+    /// is refused before anything is made.
+    async fn start_in(
+        &self,
+        kind: &AgentKind,
+        cwd: Option<&str>,
+        checkout: Option<CheckoutPlan>,
+        mut begin: Begin,
+    ) -> Result<Arc<Session>> {
+        if checkout.is_some() {
+            // Refused starts must not leave a branch or worktree behind.
+            self.settings.configured(kind)?;
+            ensure_room(&self.lock())?;
+        }
+        let prompt = begin.prompt.as_deref().unwrap_or_default();
+        let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
+        begin.note = place.note;
+        begin.brief = place.brief;
+        self.start(kind, place.folder.as_deref(), begin)
+    }
+
     fn start(&self, kind: &AgentKind, cwd: Option<&str>, begin: Begin) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         let cwd = folder(cwd)?;
@@ -610,14 +686,7 @@ impl Agents {
         {
             anyhow::bail!("session {resume} already runs here as {}", running.id);
         }
-        let running = sessions
-            .values()
-            .filter(|session| session.live.borrow().status() != Status::Ended)
-            .count();
-        anyhow::ensure!(
-            running < MAX_RUNNING,
-            "{MAX_RUNNING} sessions already run here; close one first"
-        );
+        ensure_room(&sessions)?;
         if sessions.len() >= MAX_KEPT {
             let oldest = sessions
                 .values()
@@ -644,6 +713,7 @@ impl Agents {
             model: begin.model,
             effort: begin.effort,
             note: begin.note,
+            brief: begin.brief,
             images: self.images.clone(),
             usage: self.usage.clone(),
         })?);
@@ -654,16 +724,31 @@ impl Agents {
     }
 }
 
+/// Refuses a start once `MAX_RUNNING` of `sessions` run.
+fn ensure_room(sessions: &HashMap<String, Arc<Session>>) -> Result<()> {
+    let running = sessions
+        .values()
+        .filter(|session| session.live.borrow().status() != Status::Ended)
+        .count();
+    anyhow::ensure!(
+        running < MAX_RUNNING,
+        "{MAX_RUNNING} sessions already run here; close one first"
+    );
+    Ok(())
+}
+
 /// How a session begins: on a prompt, and as a new session (on a model
 /// and thinking level when given) or an earlier one resumed by the agent's
 /// id.
 struct Begin {
     prompt: Option<String>,
     resume: Option<String>,
-    model: Option<String>,
+    model: Option<ModelId>,
     effort: Option<agent::Effort>,
     /// A first line for the transcript, such as the branch it started on.
     note: Option<String>,
+    /// Beep's word to the agent ahead of the first prompt.
+    brief: Option<&'static str>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or
@@ -750,36 +835,18 @@ pub async fn serve_session(
             effort,
             checkout,
         } => {
-            // The branch or worktree comes first; the agent starts in it.
-            let made = match checkout {
-                Some(plan) => checkout::make_checkout(cwd.as_deref(), plan, &prompt)
-                    .await
-                    .map(Some),
-                None => Ok(None),
+            let begin = Begin {
+                prompt: Some(prompt),
+                resume: None,
+                model: model.map(ModelId::new),
+                effort,
+                note: None,
+                brief: None,
             };
-            made.and_then(|made| {
-                let folder = match &made {
-                    Some(made) => Some(
-                        made.folder
-                            .to_str()
-                            .context("the new folder is not UTF-8")?
-                            .to_owned(),
-                    ),
-                    None => cwd,
-                };
-                agents.start(
-                    &kind,
-                    folder.as_deref(),
-                    Begin {
-                        prompt: Some(prompt),
-                        resume: None,
-                        model,
-                        effort,
-                        note: made.as_ref().map(checkout::Made::note),
-                    },
-                )
-            })
-            .map_err(|e| format!("{e:#}"))
+            agents
+                .start_in(&kind, cwd.as_deref(), checkout, begin)
+                .await
+                .map_err(|e| format!("{e:#}"))
         }
         Request::Resume { session, prompt } => agents
             .resume(&kind, &session, prompt)
@@ -963,9 +1030,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         } if agent == "claude" => {
             match agents.external.list(limit, session, agents.owned()).await {
                 Ok(sessions) => SessionsReply::External { sessions },
-                Err(e) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Err(e) => failed(e),
             }
         }
         SessionsRequest::External { agent, .. } => SessionsReply::Error {
@@ -973,16 +1038,12 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         },
         SessionsRequest::Folders { limit } => match agents.found_folders(limit).await {
             Ok(folders) => SessionsReply::Folders { folders },
-            Err(e) => SessionsReply::Error {
-                message: format!("{e:#}"),
-            },
+            Err(e) => failed(e),
         },
         SessionsRequest::InFolders { folders, limit } => {
             match agents.sessions_in(folders, limit).await {
                 Ok(sessions) => SessionsReply::External { sessions },
-                Err(e) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Err(e) => failed(e),
             }
         }
         SessionsRequest::Watch { sessions } => {
@@ -1013,15 +1074,9 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 spawn_blocking(move || media_file::read_chunk(&path, offset, home.as_deref()))
                     .await;
             match read {
-                Ok(Ok(Some(chunk))) => SessionsReply::File {
-                    size: chunk.size,
-                    mime: chunk.mime.to_owned(),
-                    data: chunk.data,
-                },
+                Ok(Ok(Some(chunk))) => file_reply(chunk),
                 Ok(Ok(None)) => SessionsReply::NoFile {},
-                Ok(Err(e)) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Ok(Err(e)) => failed(e),
                 Err(e) => SessionsReply::Error {
                     message: format!("the file read stopped: {e}"),
                 },
@@ -1048,11 +1103,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             work_request(move |home| {
                 let root = work_folder::WorkRoot::open(&root, home)?;
                 Ok(match work_folder::read(&root, &path, offset, len)? {
-                    Some(chunk) => SessionsReply::File {
-                        size: chunk.size,
-                        mime: chunk.mime.to_owned(),
-                        data: chunk.data,
-                    },
+                    Some(chunk) => file_reply(chunk),
                     None => SessionsReply::NoFile {},
                 })
             })
@@ -1086,9 +1137,7 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 Ok(()) => SessionsReply::Harnesses {
                     report: agents.harnesses(false).await,
                 },
-                Err(e) => SessionsReply::Error {
-                    message: format!("{e:#}"),
-                },
+                Err(e) => failed(e),
             }
         }
         other => SessionsReply::Error {
@@ -1096,6 +1145,22 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         },
     };
     tx.send(&reply).await
+}
+
+/// The reply saying `e`, with its causes.
+fn failed(e: impl Display) -> SessionsReply {
+    SessionsReply::Error {
+        message: format!("{e:#}"),
+    }
+}
+
+/// The reply carrying a chunk of a file.
+fn file_reply(chunk: media_file::Chunk) -> SessionsReply {
+    SessionsReply::File {
+        size: chunk.size,
+        mime: chunk.mime.to_owned(),
+        data: chunk.data,
+    }
 }
 
 /// Runs `job`, which blocks on a session's working folder, off the async
@@ -1106,9 +1171,7 @@ async fn work_request(
     let home = dirs::home_dir();
     match spawn_blocking(move || job(home.as_deref())).await {
         Ok(Ok(reply)) => reply,
-        Ok(Err(e)) => SessionsReply::Error {
-            message: format!("{e:#}"),
-        },
+        Ok(Err(e)) => failed(e),
         Err(e) => SessionsReply::Error {
             message: format!("the folder work stopped: {e}"),
         },
@@ -1179,7 +1242,7 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
             }
             _ = every_scan.tick(), if history && scanning.is_none() => {
                 let spend = agents.spend.clone();
-                scanning = Some(spawn_blocking(move || spend.pass(live::unix_now())));
+                scanning = Some(spawn_blocking(move || spend.pass(unix_now())));
             }
             Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
                 scanning = None;
@@ -1284,6 +1347,7 @@ while read -r line; do reply '{}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
         };
         let session = agents
             .start(&kind, Some(dir.to_str().unwrap()), begin)
@@ -1331,6 +1395,26 @@ while read -r line; do reply '{}'; done
         assert!(missing.unwrap().is_none());
         session.close().await;
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_claude_code_needs_its_mode_set() {
+        assert_eq!(
+            known("claude").and_then(|known| known.bypass_mode),
+            Some("bypassPermissions")
+        );
+        for agent in ["codex", "gemini", "pi", "flsh", "opencode", "custom"] {
+            assert_eq!(known(agent).and_then(|k| k.bypass_mode), None, "{agent}");
+        }
+    }
+
+    #[test]
+    fn flsh_and_gemini_take_the_model_on_their_command_line() {
+        let flag = |agent| known(agent).is_some_and(|known| known.model_flag);
+        assert!(flag("flsh") && flag("gemini"));
+        for agent in ["claude", "codex", "pi", "opencode", "custom"] {
+            assert!(!flag(agent), "{agent}");
+        }
     }
 
     #[test]
@@ -1521,6 +1605,7 @@ while read -r line; do reply '{}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
         };
         let first = agents.start(&kind, Some("/"), begin()).unwrap();
         let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
@@ -1550,6 +1635,7 @@ while read -r line; do reply '{}'; done
             model: None,
             effort: None,
             note: None,
+            brief: None,
         };
         let first = agents.start(&kind, Some("/"), begin).unwrap();
         first.close().await;
@@ -1557,6 +1643,68 @@ while read -r line; do reply '{}'; done
         // agent's id that the node looks for, not its own.
         let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
         assert!(err.to_string().contains(id), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_refused_start_makes_no_branch() {
+        let (_dir, work) = checkout::tests::repo("refused");
+        let kind = AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), "cat > /dev/null".into()],
+            env: BTreeMap::new(),
+        };
+        let agents = Agents::new(vec![kind.clone()]);
+        agents.set_settings(AgentSettings {
+            harnesses: vec![beep_proto::node::harness::HarnessConfig {
+                enabled: false,
+                ..beep_proto::node::harness::HarnessConfig::new("codex")
+            }],
+        });
+        let begin = Begin {
+            prompt: Some("Fix the login bug".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+        };
+        let plan = CheckoutPlan::NewBranch { base: None };
+        let refused = agents
+            .start_in(&kind, work.to_str(), Some(plan), begin)
+            .await
+            .err();
+        assert!(refused.is_some_and(|e| e.to_string().contains("turned off")));
+        assert_eq!(checkout::tests::current(&work), "main");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_session_resumes_only_on_its_own_agent() {
+        let kind = |name: &str| AgentKind {
+            name: name.into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), "cat > /dev/null".into()],
+            env: BTreeMap::new(),
+        };
+        let (claude, codex) = (kind("claude"), kind("codex"));
+        let agents = Agents::new(vec![claude.clone(), codex.clone()]);
+        let begin = Begin {
+            prompt: None,
+            resume: Some("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b".to_owned()),
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+        };
+        let running = agents.start(&codex, Some("/"), begin).unwrap();
+        let err = agents.resume(&claude, &running.id, None).await.err();
+        assert!(
+            err.is_some_and(|e| e.to_string().contains("runs codex")),
+            "a claude stream took over a codex session"
+        );
+        running.close().await;
     }
 
     #[cfg(unix)]

@@ -56,10 +56,14 @@ impl State {
 
     /// Saves the settings for `server` with the key `ensure_key` made.
     pub fn save(dir: &Path, key: SecretKey, server: EndpointId, name: &str) -> Result<Self> {
-        // Linking again keeps the agents and folders set by hand.
-        let (agents, files) = read_settings(dir)
-            .map(|old| (old.agents, old.files))
-            .unwrap_or_default();
+        // Linking again keeps the agents and folders set by hand, and
+        // refuses rather than drop settings it cannot read.
+        let (agents, files) = if dir.join(SETTINGS_FILE).exists() {
+            let old = read_settings(dir)?;
+            (old.agents, old.files)
+        } else {
+            Default::default()
+        };
         let settings = Settings {
             server: server.to_string(),
             name: name.trim().to_owned(),
@@ -176,6 +180,18 @@ mod tests {
         let loaded = State::load(&dir).unwrap();
         assert_eq!(loaded.name, "build box");
         assert_eq!(loaded.key.public(), first.key.public());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn linking_again_keeps_settings_it_cannot_read() {
+        let dir = temp_dir("relink-broken");
+        let server = SecretKey::generate().public().to_string();
+        State::create(&dir, &server, "box").unwrap();
+        let broken = "files = [\"/srv/project\"\n";
+        fs::write(dir.join(SETTINGS_FILE), broken).unwrap();
+        assert!(State::create(&dir, &server, "box").is_err());
+        assert_eq!(fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap(), broken);
         fs::remove_dir_all(&dir).unwrap();
     }
 }
