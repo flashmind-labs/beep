@@ -162,21 +162,18 @@ export function harnessName(spend: Pick<HarnessSpend, "agent" | "subscription">)
   return spend.subscription ? `${agentLabel(spend.agent)}, subscription` : agentLabel(spend.agent);
 }
 
-/// What a project row adds after its dollars: metered and subscription
-/// tokens, or on an older server the tokens no price covered.
+/// What a project row adds after its dollars: its API tokens, or on an
+/// older server the tokens no price covered. Tokens a plan covered are
+/// left out: the plan's bars above say how far it is used.
 export function projectExtra(spend: Spend, metered: boolean) {
   if (!metered) return unpricedLine(spend.unpriced);
-  const covered = (spend.subscription ?? []).reduce((sum, t) => sum + t.tokens, 0);
-  return [
-    spend.metered_tokens ? `${tokenCount(spend.metered_tokens)} API tokens` : "",
-    covered > 0 ? `${tokenCount(covered)} subscription tokens` : "",
-  ].filter(Boolean).join(" · ");
+  return spend.metered_tokens ? `${tokenCount(spend.metered_tokens)}` : "";
 }
 
 /// One harness's line in a period: its cost when it reports one, then
 /// tokens; tokens only for use a subscription covered.
 export function harnessLine(spend: HarnessSpend) {
-  const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)} tokens` : "";
+  const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)}` : "";
   if (spend.cost_usd == null || spend.subscription) return tokens;
   return tokens ? `${money(spend.cost_usd)} · ${tokens}` : money(spend.cost_usd);
 }
@@ -224,7 +221,7 @@ function limitBlock(plan: PlanLimits, now: number) {
 
 function spendRow(name: Node | string, cost: string, extra: string, strong = false) {
   const tag = strong ? "b" : "span";
-  const right = h(tag, "", cost, extra ? h("small", "", `${cost ? " · " : ""}${extra}`) : null);
+  const right = h(tag, "us-r", cost, extra ? h("small", "", `${cost ? " · " : ""}${extra}`) : null);
   return h("div", "us-row", typeof name === "string" ? h(tag, "", name) : name, right);
 }
 
@@ -254,10 +251,20 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
     }
   }
   const meteredTokens = period.total.metered_tokens ?? 0;
-  const tokens = metered ? (meteredTokens ? `${tokenCount(meteredTokens)} API tokens` : "")
-    : period.tokens ? `${tokenCount(period.tokens)} tokens` : unpricedLine(period.total.unpriced);
+  const tokens = metered ? (meteredTokens ? `${tokenCount(meteredTokens)}` : "")
+    : period.tokens ? `${tokenCount(period.tokens)}` : unpricedLine(period.total.unpriced);
   block.append(spendRow("Total", money(period.total.cost_usd), tokens, true));
   return block;
+}
+
+/// Moves `pop` back inside the window when its edge would leave it, and
+/// lets it scroll when it is taller than the room below.
+function keepInWindow(pop: HTMLElement) {
+  const r = pop.getBoundingClientRect();
+  const gap = 8;
+  if (r.right > window.innerWidth - gap) pop.style.transform = `translateX(${window.innerWidth - gap - r.right}px)`;
+  else if (r.left < gap) pop.style.transform = `translateX(${gap - r.left}px)`;
+  pop.style.maxHeight = `${Math.max(160, window.innerHeight - r.top - gap)}px`;
 }
 
 function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void, now: number) {
@@ -296,7 +303,9 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
     button.title = "Plan usage and cost today";
     button.setAttribute("aria-expanded", String(open));
     button.addEventListener("click", () => toggle(!open));
-    host.replaceChildren(button, ...(open ? [popover(view, period, pick, Date.now())] : []));
+    const pop = open ? popover(view, period, pick, Date.now()) : null;
+    host.replaceChildren(button, ...(pop ? [pop] : []));
+    if (pop) keepInWindow(pop);
   };
 
   const load = async (refresh: boolean) => {

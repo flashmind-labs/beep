@@ -36,6 +36,10 @@ const A = {
   el: null as HTMLElement | null,
 };
 
+/// The sessions whose preview the user folded, by `A.key`, kept while the
+/// window is open so going back to a session finds it as it was left.
+const folded = new Set<string>();
+
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
 function syncSession() {
@@ -58,7 +62,7 @@ export function artifactsView() {
   syncSession();
   if (A.el) return A.el;
   const el = h(`<div class="agpview arts"><div class="agartlist" role="listbox" aria-label="Artifacts"></div><div class="agartshow"></div>`
-    + `<div class="agpacts"><span class="meta mono"></span><span class="sp"></span>`
+    + `<div class="agpacts"><button class="dbtn" data-aact="fold" title="Fold or show the preview"></button><span class="meta mono"></span><span class="sp"></span>`
     + `<button class="dbtn" data-aact="claude" hidden>Open on claude.ai</button><button class="dbtn" data-aact="file">Open file</button><button class="dbtn" data-aact="copy">Copy path</button></div></div>`);
   A.el = el;
   el.querySelector(".agartlist")!.addEventListener("click", e => {
@@ -69,10 +73,23 @@ export function artifactsView() {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-aact]")?.dataset.aact;
     if (act) action(act);
   });
+  drawFold();
   drawList();
   const a = picked();
   if (a) load(a);
   return el;
+}
+
+/// Shows the preview, or folds it away so the list has the room.
+function drawFold() {
+  const el = A.el;
+  if (!el) return;
+  const fold = folded.has(A.key);
+  el.classList.toggle("folded", fold);
+  el.querySelector<HTMLElement>(".agartshow")!.hidden = fold;
+  const btn = el.querySelector<HTMLButtonElement>('[data-aact="fold"]')!;
+  btn.textContent = fold ? "Show" : "Fold";
+  btn.setAttribute("aria-expanded", String(!fold));
 }
 
 /// Takes the artifacts the log has now; `turnStart` says when a turn began.
@@ -140,7 +157,7 @@ function drawList() {
   const s = paneSession();
   if (!box || !s) return;
   const html = A.list.length ? A.list.map(a => rowHtml(a, s.cwd)).join("")
-    : '<div class="agpmsg">Pages and documents the agent publishes or writes show here.</div>';
+    : '<div class="agpmsg">Pages the agent publishes, or writes outside its folder, show here. Repo files it edits are in Files.</div>';
   if (html !== A.drawn) { box.innerHTML = html; A.drawn = html; }
   const a = picked();
   const acts = A.el!.querySelector<HTMLElement>(".agpacts")!;
@@ -208,6 +225,11 @@ function drawShown(html: string | null) {
 }
 
 function action(act: string) {
+  if (act === "fold") {
+    if (!folded.delete(A.key)) folded.add(A.key);
+    drawFold();
+    return;
+  }
   const a = picked(), s = paneSession();
   if (!a || !s) return;
   if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => note(readError(e)));
