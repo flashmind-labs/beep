@@ -83,16 +83,6 @@ export const LIVE_PTT_KEYS = [["hold ⌥", "reply"], ["tap ⌥", "leave"], ["esc
 export const liveSheet = () => `<div class="dover lsheet" role="dialog" aria-label="What to say"><div class="vt"><span class="tt"><b>What to say</b></span></div>
   <div class="dkeys">${([["Say", LIVE_SAY], ["Keys", LIVE_TALK]] as [string, string[][]][]).map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>
   ${hints([["esc", "close"], ["⌘/", "close"]])}</div>`;
-/// Bars of a waveform, the same every time for a seed.
-export function wave(n: number, cls = "", seed = 7) {
-  let a = seed;
-  const bars = Array.from({ length: n }, (_, i) => {
-    a = (a * 9301 + 49297) % 233280;
-    const tall = 4 + Math.round((a / 233280) * 18 * (0.55 + 0.45 * Math.sin(i / 3)));
-    return `<i style="height:${Math.max(3, tall)}px;animation-delay:${(i % 7) * -0.13}s"></i>`;
-  });
-  return `<span class="dwave ${cls}" aria-hidden="true">${bars.join("")}</span>`;
-}
 /// What the dock and the keys row say for view `v`.
 export function liveParts(v: LiveView) {
   const mode = v.speaking || (v.phase === "speaking" && v.line) ? "speak" : v.phase === "thinking" ? "think" : "listen";
