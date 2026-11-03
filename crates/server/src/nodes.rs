@@ -53,6 +53,7 @@ mod tasks;
 mod terminals;
 pub mod transfer;
 mod usage;
+mod webhook;
 
 pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,

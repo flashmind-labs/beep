@@ -256,6 +256,7 @@ sample_struct! {
     GitItem { host, repo, number, kind, title, url, updated_at, authored, assigned, review_requested, draft, review, checks_failing, comments }
     ProjectLists { pull_requests, prs_error, issues, issues_error, synced_at }
     ProjectRuns { runs, checks, synced_at, error, rate_limited_until }
+    ProjectChange { live, polling_why, lists, runs }
     WorkflowRun { id, number, workflow, title, branch, event, actor, state, url, started_at, finished_at, progress, pull_requests }
     RunProgress { job, job_started_at, jobs_done, jobs, step }
     StepProgress { number, of, name, started_at }
