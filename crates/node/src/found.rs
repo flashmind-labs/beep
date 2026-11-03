@@ -254,6 +254,8 @@ pub(crate) struct LogRoots {
     pub(crate) flsh: Option<PathBuf>,
     /// OpenCode's database, or its data folder of them.
     pub(crate) opencode: Option<PathBuf>,
+    /// pi's agent dir, which holds its `auth.json`.
+    pub(crate) pi_agent: Option<PathBuf>,
 }
 
 impl LogRoots {
@@ -263,6 +265,7 @@ impl LogRoots {
             pi: pi::locate(),
             flsh: flsh::locate(),
             opencode: opencode::locate(),
+            pi_agent: pi::agent_dir(),
         }
     }
 }
