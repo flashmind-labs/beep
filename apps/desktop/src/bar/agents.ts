@@ -11,6 +11,8 @@ import { openSession } from "./history.ts";
 import { GONE, openViewer } from "./media.ts";
 import { drawPane, openPath, openPicture, paneFrame, startPane } from "./mediapane.ts";
 import { cap } from "./tools.ts";
+import { withMentions } from "../files-state.ts";
+import { MN, mentionChips, resetMentions, takeMentions, wireMentionChips } from "./workdrop.ts";
 
 // ---------- Coding agents ----------
 
@@ -442,13 +444,16 @@ export function drawAgentAttached() {
   const field = $("#agfield");
   if (!field) return;
   const old = $("#agatt");
-  const el = AG.att.length || AG.attError ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
-    `<span class="chip"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
+  // Paths dragged in from the Files tab and files uploaded, after the images.
+  const mentions = mentionChips();
+  const el = AG.att.length || AG.attError || mentions ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
+    `<span class="chip"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${mentions}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
   el?.querySelectorAll<HTMLElement>("[data-agatt]").forEach(b => b.addEventListener("click", () => {
     AG.att.splice(Number(b.dataset.agatt), 1);
     drawAgentAttached();
     $("#agmsg")?.focus();
   }));
+  if (el) wireMentionChips(el);
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) field.before(el);
   if (S.view === "agent") redrawAgentHints();
@@ -516,6 +521,9 @@ const SWITCHES = new Set(["claude", "codex", "opencode"]);
 /// The model and thinking switched to in each session from here, by session.
 const sessionPicks = new Map<string, { model: string; effort: string | null }>();
 
+/// The session the mentions waiting above the field belong to.
+let paneSessionKey = "";
+
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
@@ -525,6 +533,9 @@ export function drawAgentFrame() {
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell"><div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>${paneFrame()}</div>`;
+  if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
+  MN.redraw = drawAgentAttached;
+  MN.error = agentAttachError;
   startPane(s);
   drawAgentAttached();
   drawModelPill();
@@ -1126,8 +1137,10 @@ export async function steerAgent(steer: Steer) {
 }
 
 export async function sendAgentMessage() {
-  const input = $<HTMLInputElement>("#agmsg"), text = input?.value.trim() ?? "", images = AG.att;
-  if (!text && !images.length) return;
+  const input = $<HTMLInputElement>("#agmsg"), typed = input?.value.trim() ?? "", images = AG.att;
+  if (!typed && !images.length && !MN.paths.length) return;
+  // Paths from the Files tab and uploads go after what was typed, as `@path`.
+  const text = MN.paths.length ? withMentions(typed, takeMentions()) : typed;
   const o = AG.open!, page = AG.page!;
   if (page.session.status === "ended") return continueAgent(input!, text, images);
   input!.value = "";
