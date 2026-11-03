@@ -12,9 +12,8 @@ export interface ConnectProblem {
   view: string | null;
 }
 
-/// What to show for `error`, or null when trying again may help, such as
-/// a slow or lost connection or a server error. `view` is the pane page
-/// that fixes it, when there is one.
+/// What to show for `error`, or null when trying again may help, such as a slow
+/// or lost connection or a server error.
 export function connectProblem(error: unknown): ConnectProblem | null {
   const e = String(error ?? "");
   if (e === "not linked to a phone yet") {

@@ -21,9 +21,7 @@ export function atBottom(b: ScrollBox) {
 /// `keep` puts the row the reader saw (or clicked) back where it was.
 export type LogScroll = "bottom" | "keep";
 
-/// How the log scrolls after a redraw. `wasAtBottom` is whether the
-/// reader was at the bottom before it; `toggled` is whether the redraw
-/// comes from their click opening or folding a row, which never jumps.
+/// How the log scrolls after a redraw.
 export function logScroll(wasAtBottom: boolean, toggled: boolean): LogScroll {
   return wasAtBottom && !toggled ? "bottom" : "keep";
 }

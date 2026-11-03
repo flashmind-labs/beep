@@ -1,7 +1,6 @@
-// Branches with work outside the review screen: the machines a branch can
-// get a worktree on, what the import sheet asks for, and the open PRs and
-// issues in repos without a project. Apart from the DOM so they can be
-// tested.
+// Branches with work outside the review screen: the machines a branch can get
+// a worktree on, what the import sheet asks for, and the open PRs and issues
+// in repos without a project.
 import type { GitItemRow } from "./openitems.ts";
 
 /// A checkout of the repository found on a machine (CheckoutRow).
@@ -74,10 +73,9 @@ export function worktreeName(branch: string) {
   return `.worktrees/${String(branch).replace(/\//g, "-")}`;
 }
 
-/// Where each preview branch goes by default, by name: the first
-/// checkout's machine for a branch with a pull request or commits ahead
-/// and no worktree yet; nothing (Skip) for the rest. `""` stands for the
-/// machine the project lands on when no checkout was found.
+/// Where each preview branch goes by default, by name: the first checkout's
+/// machine for a branch with a pull request or commits ahead and no worktree
+/// yet; nothing (Skip) for the rest.
 export function defaultPlaces(preview: Preview | null | undefined) {
   const out: BranchPicks = {};
   if (!preview) return out;

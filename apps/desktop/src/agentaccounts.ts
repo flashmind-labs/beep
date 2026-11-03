@@ -1,6 +1,4 @@
 // Settings, Agent accounts: how the coding agents sign in on your machines.
-// Claude Code signs in once here and Beep hands its token to the machines;
-// Codex signs in on each machine, or uses an API key Beep hands out.
 
 import { harnessTile } from "./harnessicon.ts";
 
@@ -60,10 +58,7 @@ export type CodexFlow =
   | (CodexLogin & { copied?: boolean; starting?: undefined; error?: undefined })
   | { error: string; starting?: undefined; task?: undefined; code?: undefined };
 
-/// The section's state. `data` is GetAgentAccounts' answer (undefined
-/// until it came, null when it failed, false from a server too old);
-/// `edit` the agent whose token is being typed; `busy` the agent being
-/// saved or `revoke:<agent>`; `codex` the sign-ins under way by machine id.
+/// The section's state.
 export interface AgentAccountsState {
   data: AgentAccounts | null | false | undefined;
   edit?: string | null;

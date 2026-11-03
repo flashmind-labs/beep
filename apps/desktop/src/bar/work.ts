@@ -92,8 +92,7 @@ export function keepWaitingQuestions(id: string | null) {
 }
 
 /// Loads the questions chat `id`'s background work still waits on, so cards
-/// outlive a restart and show on every device. Ones answered here stay to say
-/// so; ones no longer listed went elsewhere and leave quietly.
+/// outlive a restart and show on every device.
 export async function loadQuestions(id: string | null) {
   if (!id) return;
   const fetched = await invoke<WorkQuestion[]>("list_questions", { session: id }).catch(() => null);

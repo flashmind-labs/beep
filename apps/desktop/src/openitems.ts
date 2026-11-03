@@ -1,6 +1,5 @@
 // Home's open PRs and issues, broken down by project: what each row says,
-// apart from the DOM so it can be tested. `view` is what the `git_items`
-// command gives: `{ items, hosts }`.
+// apart from the DOM so it can be tested.
 import type { Project } from "./projects-state.ts";
 
 /// A saved git host, as `git_items` lists it (GitHostRow).
@@ -89,9 +88,6 @@ export function repoUrl(url: string | null | undefined) {
 }
 
 /// One row per repository with its counts and its items, newest first.
-/// Projects with something waiting on the user come first, then by
-/// latest activity. `projects` are Home's project rows, to know which are
-/// imported.
 export function projectsWithOpen<P extends OpenProject>(
   view: { items?: readonly GitItemRow[] } | null | undefined,
   projects: readonly P[] | null | undefined,

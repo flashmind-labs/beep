@@ -34,9 +34,7 @@ export function agentsPlace(rows: readonly { kind: string; id: string; name: str
   return pick ? { id: pick.id, name: pick.name, folder: pick.folder! } : null;
 }
 
-/// What Start puts in the bar. The node runs Claude Code and the others
-/// through ACP, which has no way to pick a named agent, so the prompt asks
-/// for it; each harness hands the work to the agent it names.
+/// What Start puts in the bar.
 export function agentPrompt(name: string) {
   return `Use the ${name} agent to `;
 }

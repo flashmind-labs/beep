@@ -1,6 +1,4 @@
 // The bar's page, and the pane the command center window shows it in.
-// Rust does the networking and Markdown; this draws it. This module holds
-// what every part shares: the state of the view on screen and small helpers.
 import type { GroupState } from "./groups.ts";
 
 export { invoke, Channel, listen } from "../tauri.ts";
@@ -112,8 +110,7 @@ export const S: BarState = new Proxy<BarState>({
   },
 });
 
-const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESCAPES[c]);
+export { esc } from "../components/format.ts";
 /// The first element of `html`.
 export function h<T extends Element = HTMLElement>(html: string): T {
   const t = document.createElement("template");
@@ -205,17 +202,15 @@ export interface WindowHooks {
   /// A page Settings leads to, such as Apps: the sheet closes and the pane
   /// shows it; null only closes.
   settingsAway(view: string | null): void;
-  /// Draws window view `name` (such as "providers") inside `root`, a page
-  /// of the Settings sheet, opened with `arg`. `tools` gets the view's
-  /// header buttons each time they change. Returns what puts the view back.
+  /// Draws window view `name` (such as "providers") inside `root`, a page of
+  /// the Settings sheet, opened with `arg`.
   embedView?(name: string, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void): () => void;
   /// ⌘N in the pane: the window picks the chat.
   newChat(): void;
   /// Esc from an agent view goes back to the view that opened it.
   goBack(from: BackTo): void;
-  /// What shows atop chat `session`, such as the card of the pull request
-  /// or issue it is about; null for nothing. The window keeps the element
-  /// and fills it in as it loads.
+  /// What shows atop chat `session`, such as the card of the pull request or
+  /// issue it is about; null for nothing.
   chatTop?(session: string): HTMLElement | null;
 }
 

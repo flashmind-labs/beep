@@ -293,9 +293,8 @@ function fieldKey(settings: SettingsView, field: SharedField) {
   return settings[field];
 }
 
-/// The other machines whose saved `field` is not what `machineId` has
-/// saved, by name; empty when it is the same everywhere or the machine is
-/// not in `all`.
+/// The other machines whose saved `field` is not what `machineId` has saved, by
+/// name; empty when it is the same everywhere or the machine is not in `all`.
 export function differsOn(all: readonly MachineSettings[], machineId: string, field: SharedField): string[] {
   const own = all.find(m => m.machine_id === machineId);
   if (!own) return [];

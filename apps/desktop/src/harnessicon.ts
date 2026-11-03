@@ -1,6 +1,5 @@
-// The harnesses' marks as inline SVG: the one icon every place a harness
-// shows uses (the pill, the picker's rail, rows and headers). A harness
-// without a mark shows its initials instead.
+// The harnesses' marks as inline SVG: the one icon every place a harness shows
+// uses (the pill, the picker's rail, rows and headers).
 
 /// Each harness's mark, coloured as its maker draws it. OpenCode's is the
 /// square "O" of its favicon.

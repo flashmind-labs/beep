@@ -1,7 +1,6 @@
-// The Coding agents page: per machine, each harness (Claude Code, Codex,
-// pi, ...) with its version, sign-in and an on/off switch, and the picked
-// one's runtime settings. center.ts registers it; providers-state.ts holds
-// the words and sums.
+// The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
+// ...) with its version, sign-in and an on/off switch, and the picked one's
+// runtime settings.
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
@@ -26,9 +25,7 @@ export interface ProvidersDeps {
   redrawTop: () => void;
 }
 
-/// The page's state. `views` holds each machine's harnesses once read
-/// (null when that failed, false from a server too old); `drafts` the
-/// runtime fields being edited, by machine and agent.
+/// The page's state.
 interface ProvidersState {
   machines: MachineRow[] | null | undefined;
   machine: string | null;
@@ -241,8 +238,6 @@ export function registerProviders(deps: ProvidersDeps) {
   }
 
   /// A setting: its label and help on the left, `control` on the right.
-  /// `names` are the other machines where it is not the same, noted
-  /// beside the label.
   function field(label: string, help: string, control: HTMLElement, names: readonly string[] = []) {
     const note = names.length ? h("span", "hv-diff", differsLabel(names)) : null;
     note?.setAttribute("title", `Not the same on ${names.join(", ")}`);

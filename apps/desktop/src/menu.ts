@@ -12,9 +12,7 @@ export interface MenuItem {
 
 let open: { box: HTMLElement; close: () => void } | null = null;
 
-/// Opens a menu titled `title` where `e` was clicked, in place of the
-/// system's. Esc, a click elsewhere, scrolling or leaving the window closes
-/// it; Up and Down move between its lines.
+/// Opens a menu titled `title` where `e` was clicked, in place of the system's.
 export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[]) {
   e.preventDefault();
   e.stopPropagation();

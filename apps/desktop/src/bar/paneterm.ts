@@ -1,8 +1,6 @@
-// Terminals in a coding agent session's pane: a shell on the session's
-// machine in its folder, kept running by the node like any terminal (Home
-// lists it under the machine). Each is a tab, attached live while the
-// session view shows; its screen is xterm.js, loaded on first use. When
-// its shell exits the tab goes.
+// Terminals in a coding agent session's pane: a shell on the session's machine
+// in its folder, kept running by the node like any terminal (Home lists it
+// under the machine).
 
 import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals.ts";
 import { Channel, invoke } from "./core.ts";

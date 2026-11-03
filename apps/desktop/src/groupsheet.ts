@@ -1,7 +1,4 @@
-// The group sheet: the folders of a project group. New group opens it
-// empty, Folders… on a group with that group's. A folder typed as
-// ~/Projects/work on one machine matches ~/work on
-// another; the sheet shows each folder as groups compare it.
+// The group sheet: the folders of a project group.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { addGroupFolder, button, el, groupPath, present, reason } from "./projects-state.ts";

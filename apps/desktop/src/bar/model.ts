@@ -34,10 +34,7 @@ interface Agents {
   agents: { id: string; name: string; when: string; model: string; thinking: Thinking }[];
 }
 
-/// The caller's model settings. `choices` is empty unless they are an
-/// admin, and then the bar shows no chip, no model view and no rerun.
-/// `agents` is whether an admin turned agents on for everyone.
-/// `list` names the agents set up, General first; empty when there are none.
+/// The caller's model settings.
 export const MODELS: { info: Models | null; sel: number; agents: boolean; list: string[] } = { info: null, sel: 0, agents: false, list: [] };
 export const THINKING: Thinking[] = ["off", "low", "medium", "high"];
 

@@ -99,17 +99,9 @@ function sendRow(onPause: boolean) {
     <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:6px 0 10px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
-/// Settings: drawn at once from what this Mac knows (its own settings and
-/// the last devices, apps and machines seen), then each server-backed
-/// section fills in on its own as its call answers. The calls run side by
-/// side: one after another they took as long as all four together. In the
-/// bar it is the bar's page; in the window it is a sheet over the view
-/// (`root`), which `settingsSheet` opens. `devices` is null until listed;
-/// `machines` is undefined until listed and null when that failed;
-/// `confirm` whether Unlink is asked; `token` names the latest drawing.
-/// In the sheet, `path` is the page picked in its left pane (and the
-/// subpage open under it), `local` what this Mac answered for the last
-/// drawing, and `unembed` puts back a window view drawn in the right pane.
+/// Settings: drawn at once from what this Mac knows (its own settings and the
+/// last devices, apps and machines seen), then each server-backed section fills
+/// in on its own as its call answers.
 export const SET: {
   root: HTMLElement | null;
   token: number;
@@ -172,9 +164,8 @@ function setDevicesHtml(linked: boolean, set: MacSettings) {
     : SET.confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
 }
 
-/// Settings, Models: the model every turn of yours uses, how long it
-/// thinks, and Auto. Auto picks only the thinking for each prompt; the
-/// model stays the one picked here.
+/// Settings, Models: the model every turn of yours uses, how long it thinks,
+/// and Auto.
 function setModelsHtml() {
   const m = MODELS.info;
   if (!m) return SET.modelsError ? `<div class="dmuted">Could not load your models.</div>` : setSkeleton(2);
@@ -325,10 +316,7 @@ function refocus(box: HTMLElement, key: string) {
   (box.closest<HTMLElement>(".cc-set") || box).focus();
 }
 
-/// The sections of Settings, in order, each with the page it is. The bar
-/// stacks them all; the window's sheet shows one at a time, where Apps,
-/// Machines, a coding agent and Instructions draw their own pages in place
-/// of the rows that open them.
+/// The sections of Settings, in order, each with the page it is.
 function settingsSections(set: MacSettings, mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, string][] {
   const sec = (id: string, title: string, body: string) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat" style="padding-top:6px">${title}</div><div id="set-${id}">${body}</div></section>`;
   // A page drawn by its own code, into this box.

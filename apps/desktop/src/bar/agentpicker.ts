@@ -1,7 +1,6 @@
-// The harness, model and thinking picker, as the start form and a
-// project's agent bar both show it: the pill that opens it, the popover
-// with its rail, model column and thinking column, and where it goes on
-// screen. The caller keeps what is picked and redraws when told.
+// The harness, model and thinking picker, as the start form and a project's
+// agent bar both show it: the pill that opens it, the popover with its rail,
+// model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { effortNote, effortsOf, modelLabel, modelRows, pillDetail, placePopover, railOf } from "./agentpick.ts";
@@ -17,11 +16,8 @@ export const badge = (agent: string) => harnessTile(agent);
 
 // ----- Models -----
 
-/// The models each machine's agents offer, by `machine/agent`: `null` when
-/// it could not say, `undefined` in `list` until the first answer. `asking`
-/// while a request is out; `waiting` are told when its answer changes the
-/// list. Kept across launches (`MODELS_STORE`), so the picker opens on the
-/// last list at once and refreshes it behind.
+/// The models each machine's agents offer, by `machine/agent`: `null` when it
+/// could not say, `undefined` in `list` until the first answer.
 const MODELS = new Map<string, ModelsEntry>();
 interface ModelsEntry { list: AgentModels | null | undefined; at: number; asking: boolean; waiting: (() => void)[] }
 
@@ -72,9 +68,8 @@ function askModels(key: string, machine: string, agent: string, loaded: (() => v
     });
 }
 
-/// The models `agent` offers on `machine` as known now: `undefined` only
-/// before the first answer. A list not asked lately is shown as it is and
-/// asked again behind; `loaded` runs when the answer changes it.
+/// The models `agent` offers on `machine` as known now: `undefined` only before
+/// the first answer.
 export function modelsOn(machine: string, agent: string, loaded: () => void): AgentModels | null | undefined {
   const key = `${machine}/${agent}`, known = MODELS.get(key);
   if (known && known.list !== undefined && Date.now() - known.at <= MODELS_KEPT_MS) return known.list;

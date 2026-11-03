@@ -1,7 +1,5 @@
 // flsh's own settings on its Coding agents page: OpenRouter routing and
-// auto-compact, the same on every machine. Each machine writes them to
-// flsh's config.toml before it starts flsh. providers.ts places it under
-// flsh's runtime settings; flsh-state.ts holds the sums.
+// auto-compact, the same on every machine.
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
 import { EMPTY, QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization } from "./flsh-state.ts";

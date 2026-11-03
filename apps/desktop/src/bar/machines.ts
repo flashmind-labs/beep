@@ -154,9 +154,8 @@ function agentChip(env: MachineEnv, t: MachineEnv["tools"][number], column: numb
   return `<span class="dmag" style="grid-column:${column}" title="${esc(title)}">${harnessTile(t.name, "dmag-ic")}<span class="v">${esc(version)}</span>${dot}</span>`;
 }
 
-/// A machine in the list: name, status, spec and beep-node on the first
-/// line, a column per coding agent on the second, the other tools on the
-/// third. In Settings it opens on its own page, and Remove waits there.
+/// A machine in the list: name, status, spec and beep-node on the first line, a
+/// column per coding agent on the second, the other tools on the third.
 function machineCard(m: Machine, columns: string[]) {
   const env = m.env;
   const opens = !!hosted();
