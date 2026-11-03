@@ -426,6 +426,7 @@ fn post_request(review: &ReviewRow, number: u64, url: &str, open: &[&ReviewFindi
 /// A branch name as git takes it: one line, not an option.
 fn branch_name(text: &str) -> Result<&str, ApiError> {
     let text = text.trim();
+    let text = text.strip_prefix("origin/").unwrap_or(text);
     if text.is_empty()
         || text.len() > MAX_BRANCH
         || text.starts_with('-')
@@ -433,7 +434,7 @@ fn branch_name(text: &str) -> Result<&str, ApiError> {
     {
         return Err(ApiError::bad_request("That is not a branch name."));
     }
-    Ok(text.strip_prefix("origin/").unwrap_or(text))
+    Ok(text)
 }
 
 async fn review_of(cx: &Cx, id: Uuid) -> Result<ReviewRow, ApiError> {
@@ -816,5 +817,7 @@ mod tests {
         assert!(branch_name("--upload-pack=x").is_err());
         assert!(branch_name("a b").is_err());
         assert!(branch_name("").is_err());
+        assert!(branch_name("origin/-x").is_err());
+        assert!(branch_name("origin/").is_err());
     }
 }
