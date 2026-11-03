@@ -258,6 +258,9 @@ impl Live {
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
         self.turn_images.clear();
+        // A tool whose entry left the transcript has nothing left to show.
+        let dropped = self.dropped;
+        self.tools.retain(|_, tool| tool.entry >= dropped);
         let state = &mut self.info.state;
         state.status = Status::Working;
         state.summary = "Thinking".into();
@@ -1093,6 +1096,27 @@ mod tests {
                 mime: "image/png".into(),
                 data: png,
             })
+        );
+    }
+
+    #[test]
+    fn tool_calls_go_with_their_entries() {
+        let mut live = live();
+        for n in 0..MAX_ENTRIES {
+            live.prompted("again");
+            live.apply(&update(json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": format!("t{n}"),
+                "title": "Run the tests",
+                "kind": "execute",
+                "status": "completed",
+            })));
+        }
+        live.prompted("once more");
+        assert!(
+            live.tools.len() <= MAX_ENTRIES / 2 + 1,
+            "{}",
+            live.tools.len()
         );
     }
 
