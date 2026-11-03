@@ -14,8 +14,9 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        self, CheckoutPlan, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL,
-        SessionFolder, SessionInfo, SessionsReply, SessionsRequest, State, Status,
+        self, CheckoutPlan, Event, ExternalSession, ModelList, Presence, Request,
+        SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, State,
+        Status,
     },
     harness::{AgentSettings, HarnessReport},
     usage::{PlanUsage, SessionSpend},
@@ -30,7 +31,10 @@ use std::{
     fmt::Display,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, OnceLock, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -46,6 +50,7 @@ mod compaction;
 mod custom_agents;
 mod flsh_config;
 mod harnesses;
+mod holders;
 mod image_files;
 mod images;
 mod ledger;
@@ -103,6 +108,9 @@ const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
 /// How often the agents' logs are read for what sessions spent, while the
 /// server follows it.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
+/// How long a new session's stream waits for the agent's own id before it
+/// tells the server about the session, under the server's wait.
+const AGENT_ID_WAIT: Duration = Duration::from_secs(6);
 /// How long the folders found in the agents' logs are kept.
 const SIGHTED_FOR: Duration = Duration::from_secs(60);
 /// How long a file request may wait for a look in the agents' logs.
@@ -352,9 +360,11 @@ pub struct Agents {
     mcp: OnceLock<Arc<Launch>>,
     /// The sessions Beep started here, kept across restarts.
     ledger: Arc<Ledger>,
-    /// The tasks writing each session's agent id and end to the ledger;
-    /// one per session, ending with it.
+    /// The tasks writing what each session's agent id and end are to the
+    /// ledger; one per session, ending with it.
     noting: Mutex<JoinSet<()>>,
+    /// Set once the node is stopping.
+    stopping: Arc<AtomicBool>,
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
@@ -384,6 +394,7 @@ impl Agents {
             mcp: OnceLock::new(),
             ledger: Arc::default(),
             noting: Mutex::default(),
+            stopping: Arc::default(),
             sighted: AsyncMutex::default(),
         }
     }
@@ -652,8 +663,8 @@ impl Agents {
         self.lock()
             .values()
             .filter_map(|session| {
-                let agent_session = session.live.borrow().agent_session.clone()?;
-                Some((agent_session, session.id.clone()))
+                let live = session.live.borrow();
+                Some((live.agent_session.clone()?, live.info.id.clone()))
             })
             .collect()
     }
@@ -674,13 +685,24 @@ impl Agents {
         {
             anyhow::bail!("session {id} runs {}", session.agent);
         }
+        // One Beep ran before the node restarted goes on by the agent's id.
+        let recorded = self.ledger.find(id);
+        if let Some(entry) = &recorded
+            && entry.agent != kind.name
+        {
+            anyhow::bail!("session {id} ran {}", entry.agent);
+        }
         let ended = ours.map(|session| session.live.borrow().agent_session.clone());
-        let id = match ended {
-            Some(Some(agent_session)) => agent_session,
-            Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
-            None => id.to_owned(),
+        let id = match (ended, recorded) {
+            (Some(Some(agent_session)), _) => agent_session,
+            (Some(None), _) => anyhow::bail!("session {id} ended before the agent gave it an id"),
+            (None, Some(entry)) => entry
+                .agent_session
+                .with_context(|| format!("session {id} ended before the agent gave it an id"))?,
+            (None, None) => id.to_owned(),
         };
         let id = id.as_str();
+        let beep_started = self.ledger.find(id).is_some();
         let agent = Agent::from_name(&kind.name).with_context(|| {
             format!(
                 "{} sessions started outside Beep cannot be taken over",
@@ -714,6 +736,8 @@ impl Agents {
             }
         }
         .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
+        let mut found = found;
+        found.presence = self.presence(agent, &found, beep_started).await;
         if let Some(reason) = claude::refuse_takeover(&found) {
             anyhow::bail!("{reason}");
         }
@@ -730,6 +754,42 @@ impl Agents {
                 brief: None,
             },
         )
+    }
+
+    /// What `found`, a session in `agent`'s logs, is doing, once a
+    /// recent write alone is checked: Codex keeps a session's rollout open
+    /// while it runs, and a session Beep ran here ended with Beep.
+    async fn presence(
+        &self,
+        agent: Agent,
+        found: &ExternalSession,
+        beep_started: bool,
+    ) -> Presence {
+        if found.pid.is_some() {
+            return found.presence;
+        }
+        let held = match agent {
+            // Claude Code does not keep its transcript open; its processes
+            // were looked at already.
+            Agent::Claude => None,
+            other => {
+                let stores = self.stores.clone();
+                let id = found.id.clone();
+                spawn_blocking(move || holders::held_open(&stores.file(Some(other), &id)?))
+                    .await
+                    .unwrap_or_else(|e| {
+                        log::warn!("could not tell whether session {} runs: {e}", found.id);
+                        None
+                    })
+            }
+        };
+        holders::settle(found.presence, found.pid, beep_started, held)
+    }
+
+    /// Session `id` as the node lists one Beep ran before it restarted.
+    fn dormant(&self, id: &str) -> Option<SessionInfo> {
+        let entry = self.ledger.find(id)?;
+        Some(dormant(&entry))
     }
 
     /// The picture `key` of `session`'s transcript: kept, or else found
@@ -780,6 +840,7 @@ impl Agents {
     /// Closes every running session and waits until their agents have
     /// stopped: for the node shutting down.
     pub async fn shutdown(&self) {
+        self.begin_stopping();
         let running: Vec<Arc<Session>> = self
             .lock()
             .values()
@@ -799,6 +860,12 @@ impl Agents {
         if let Err(e) = self.ledger.save().await {
             log::warn!("the sessions Beep started were not saved: {e:#}");
         }
+    }
+
+    /// Marks the node as stopping: sessions that end from now on ended
+    /// with it, even when the service manager stopped their agents first.
+    pub fn begin_stopping(&self) {
+        self.stopping.store(true, Ordering::Relaxed);
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
@@ -824,13 +891,44 @@ impl Agents {
         self.kinds.iter().find(|kind| kind.name == name)
     }
 
+    /// The session `id` names: by the id it started under, by the agent's
+    /// own id (the newest, a running one first), or by the short id a
+    /// session had before the agent gave it one.
     fn get(&self, id: &str) -> Option<Arc<Session>> {
-        self.lock().get(id).cloned()
+        if let Some(found) = find_session(&self.lock(), id) {
+            return Some(found);
+        }
+        let entry = self.ledger.find(id)?;
+        let current = entry.current_id();
+        if current == id {
+            return None;
+        }
+        find_session(&self.lock(), current)
     }
 
-    /// Every session, oldest first.
+    /// Every session, oldest first: those running here and those the node
+    /// stopped when it last restarted, ended.
     fn list(&self) -> Vec<SessionInfo> {
-        let mut sessions: Vec<SessionInfo> = self.lock().values().map(|s| s.info()).collect();
+        let mut sessions: Vec<SessionInfo> = Vec::new();
+        let mut shown: HashSet<String> = HashSet::new();
+        for session in self.lock().values() {
+            let live = session.live.borrow();
+            shown.insert(session.id.clone());
+            shown.extend(live.agent_session.clone());
+            sessions.push(live.info.clone());
+        }
+        let mut stopped = self.ledger.entries();
+        stopped.reverse();
+        for entry in stopped {
+            if entry.ended.as_deref() != Some(ledger::NODE_STOPPED)
+                || shown.contains(&entry.id)
+                || shown.contains(entry.current_id())
+            {
+                continue;
+            }
+            shown.insert(entry.current_id().to_owned());
+            sessions.push(dormant(&entry));
+        }
         sessions.sort_by_key(|info| info.started_at);
         sessions
     }
@@ -890,14 +988,22 @@ impl Agents {
                 sessions.remove(&oldest);
             }
         }
-        let id = loop {
-            let id = new_id();
-            if !sessions.contains_key(&id) {
-                break id;
+        // A resumed session goes by the agent's id from the start; a new
+        // one by a short id until the agent gives its own.
+        let id = match &begin.resume {
+            Some(resume) => {
+                // Ended under that id before: the new run takes its place.
+                sessions.remove(resume);
+                resume.clone()
             }
+            None => loop {
+                let id = new_id();
+                if !sessions.contains_key(&id) {
+                    break id;
+                }
+            },
         };
         let resumed = begin.resume.is_some();
-        let info_resume = begin.resume.clone();
         let session = Arc::new(Session::start(Start {
             id: id.clone(),
             kind,
@@ -912,13 +1018,14 @@ impl Agents {
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),
+            stopping: self.stopping.clone(),
         })?);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
         let info = session.info();
         self.ledger.record(Entry {
             id: id.clone(),
-            agent_session: info_resume,
+            agent_session: resumed.then(|| id.clone()),
             agent: kind.name.clone(),
             cwd: cwd.clone(),
             started_at: info.started_at,
@@ -930,6 +1037,37 @@ impl Agents {
         drop(noting);
         sessions.insert(id, session.clone());
         Ok(session)
+    }
+}
+
+/// The session `id` names in `sessions`, by its key or the agent's id.
+fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Arc<Session>> {
+    if let Some(found) = sessions.get(id) {
+        return Some(found.clone());
+    }
+    sessions
+        .values()
+        .filter(|session| session.live.borrow().agent_session.as_deref() == Some(id))
+        .max_by_key(|session| {
+            let live = session.live.borrow();
+            (live.status() != Status::Ended, live.info.started_at)
+        })
+        .cloned()
+}
+
+/// `entry` as the node lists a session that is not running.
+fn dormant(entry: &Entry) -> SessionInfo {
+    SessionInfo {
+        id: entry.current_id().to_owned(),
+        agent: entry.agent.clone(),
+        cwd: entry.cwd.display().to_string(),
+        started_at: entry.started_at,
+        state: State {
+            status: Status::Ended,
+            error: entry.ended.clone(),
+            ..State::default()
+        },
+        ..SessionInfo::default()
     }
 }
 
@@ -1070,6 +1208,21 @@ pub async fn serve_session(
         .recv()
         .await?
         .context("the stream closed before its first request")?;
+    // A session Beep ran before the node restarted ended with it.
+    if let Request::Attach { session } = &first
+        && agents.get(session).is_none()
+        && let Some(info) = agents
+            .dormant(session)
+            .filter(|info| info.agent == kind.name)
+    {
+        let reason = info.state.error.clone().unwrap_or_else(|| "closed".into());
+        tx.send(&Event::Attached {
+            session: Box::new(info),
+        })
+        .await?;
+        return tx.send(&Event::Ended { reason }).await;
+    }
+    let new = matches!(first, Request::Start { .. });
     let session = match first {
         Request::Start {
             model: Some(model), ..
@@ -1110,6 +1263,18 @@ pub async fn serve_session(
         Err(reason) => return tx.send(&Event::Refused { reason }).await,
     };
     let mut live = session.live.clone();
+    if new {
+        // The server learns the session by the agent's own id, which
+        // outlives the node, once the agent gave it in time.
+        let named =
+            live.wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended);
+        if tokio::time::timeout(AGENT_ID_WAIT, named).await.is_err() {
+            log::info!(
+                "session {} goes by its short id: the agent gave none in time",
+                session.id
+            );
+        }
+    }
     let mut seen = Seen::new(&live.borrow_and_update().info);
     tx.send(&Event::Attached {
         session: Box::new(session.info()),
@@ -2108,6 +2273,82 @@ done
         // agent's id that the node looks for, not its own.
         let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
         assert!(err.to_string().contains(id), "{err}");
+    }
+
+    /// Answers `initialize` and `session/new` with the agent's own id, then
+    /// anything else with nothing, until its input closes.
+    #[cfg(unix)]
+    const NAMING_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line
+reply '{"sessionId":"0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b"}'
+while read -r line; do reply '{}'; done
+"#;
+
+    /// A session goes by the agent's id once it gives one; the node
+    /// stopping ends it as such, and after a restart the node still lists
+    /// it and resumes it by the agent's id, whichever id it is asked by.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_session_the_node_stopped_resumes_by_the_agents_id_after_a_restart() {
+        const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
+        let node = tempfile::tempdir().unwrap();
+        let kind = AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), NAMING_ADAPTER.into()],
+            env: BTreeMap::new(),
+        };
+        let before = Agents::new(vec![kind.clone()]);
+        before.keep_ledger(node.path()).await;
+        let begin = Begin {
+            prompt: None,
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            brief: None,
+        };
+        let session = before.start(&kind, Some("/"), begin).unwrap();
+        let short = session.id.clone();
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            live.wait_for(|live| live.agent_session.is_some()),
+        )
+        .await
+        .expect("the agent gives its id")
+        .expect("the session is still there");
+        assert_eq!(session.info().id, AGENT_ID);
+        assert!(Arc::ptr_eq(&before.get(&short).unwrap(), &session));
+        assert!(Arc::ptr_eq(&before.get(AGENT_ID).unwrap(), &session));
+        before.shutdown().await;
+        let ended = session.info();
+        assert_eq!(ended.state.status, Status::Ended);
+        assert_eq!(ended.state.error.as_deref(), Some(ledger::NODE_STOPPED));
+        drop(session);
+        drop(before);
+
+        let after = Agents::new(vec![kind.clone()]);
+        after.keep_ledger(node.path()).await;
+        let listed = after.list();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, AGENT_ID);
+        assert_eq!(listed[0].state.status, Status::Ended);
+        assert_eq!(listed[0].state.error.as_deref(), Some(ledger::NODE_STOPPED));
+        // Asked by the short id it went by first, the node looks for the
+        // agent's own session: nothing here has it, so it says that id.
+        for asked in [short.as_str(), AGENT_ID] {
+            let err = after.resume(&kind, asked, None).await.err().unwrap();
+            assert!(
+                err.to_string()
+                    .contains(&format!("no codex session {AGENT_ID}")),
+                "{err}"
+            );
+        }
     }
 
     #[cfg(unix)]

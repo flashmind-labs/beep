@@ -49,6 +49,11 @@ impl Entry {
     fn named(&self, id: &str) -> bool {
         self.id == id || self.agent_session.as_deref() == Some(id)
     }
+
+    /// The id it goes by: the agent's own once known.
+    pub(super) fn current_id(&self) -> &str {
+        self.agent_session.as_deref().unwrap_or(&self.id)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -107,6 +112,16 @@ impl Ledger {
         if let Some(entry) = self.lock().iter_mut().find(|entry| entry.named(id)) {
             entry.ended = Some(reason.to_owned());
         }
+    }
+
+    /// The session `id` names, by either of its ids; the newest when two
+    /// share the agent's id, as a resumed one does.
+    pub(super) fn find(&self, id: &str) -> Option<Entry> {
+        self.lock()
+            .iter()
+            .filter(|entry| entry.named(id))
+            .max_by_key(|entry| entry.started_at)
+            .cloned()
     }
 
     /// Every session, oldest first.
@@ -219,6 +234,20 @@ mod tests {
         let entries = ledger.entries();
         assert_eq!(entries.len(), MAX_ENTRIES);
         assert_eq!(entries[0].started_at, 5);
+    }
+
+    #[test]
+    fn the_newest_of_two_with_one_agent_id_is_found() {
+        let ledger = Ledger::default();
+        let mut first = entry("aaaaaa", 1);
+        first.agent_session = Some("thread".into());
+        first.ended = Some("closed".into());
+        let mut second = entry("thread", 2);
+        second.agent_session = Some("thread".into());
+        ledger.record(first);
+        ledger.record(second);
+        assert_eq!(ledger.find("thread").unwrap().started_at, 2);
+        assert_eq!(ledger.find("aaaaaa").unwrap().current_id(), "thread");
     }
 
     #[test]

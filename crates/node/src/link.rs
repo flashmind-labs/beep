@@ -174,6 +174,8 @@ pub async fn serve(
         () = stay => {}
         () = stop => {}
     }
+    // Agents that end from here on ended with the node, whatever their exit.
+    offers.agents.begin_stopping();
     // Stopped, the machine keeps no token: teacli's config, its shim and
     // the env vars go.
     if let Some(provision) = &offers.provision {

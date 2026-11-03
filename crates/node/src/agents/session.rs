@@ -42,7 +42,10 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     str::FromStr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -160,6 +163,9 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// Set once the node is stopping: an agent that ends then ended with
+    /// the node, whatever its exit says.
+    pub(super) stopping: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -183,6 +189,7 @@ impl Session {
             images,
             usage,
             alerts,
+            stopping,
         } = start;
         let brief = match (brief, &mcp) {
             (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::mcp::BRIEF)),
@@ -244,6 +251,7 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
+            node_stopping: stopping,
             session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
@@ -384,6 +392,8 @@ impl Waiting {
 struct Actor {
     live: watch::Sender<Live>,
     alerts: Arc<AlertHub>,
+    /// Set once the node is stopping.
+    node_stopping: Arc<AtomicBool>,
     /// The session's id on the node.
     session: String,
     /// The agent, such as `claude`.
@@ -446,6 +456,8 @@ enum End {
     Failed(String),
     /// The agent did not end its turn within `stop_within` of Stop.
     Unstoppable(Duration),
+    /// The node stopped or restarted.
+    NodeStopped,
 }
 
 /// Why the node asked the agent to end its turn.
@@ -483,10 +495,20 @@ impl Actor {
         let mut child = GroupLeader::new(child);
         let held = child.hold_output();
         let end = self.serve(child.child_mut(), &mut orders).await;
+        // The node stopping ends its sessions, whether it closed them or the
+        // service manager stopped the agents first.
+        let end = match end {
+            Ok(End::Closed | End::Exited) if self.node_stopping.load(Ordering::Relaxed) => {
+                Ok(End::NodeStopped)
+            }
+            end => end,
+        };
         let closed = matches!(end, Ok(End::Closed));
-        // Stopped as the user asked, so not a failure to alert about.
-        let asked = closed || matches!(end, Ok(End::Unstoppable(_)));
+        // Stopped as the user asked, or with the node, so not a failure to
+        // alert about.
+        let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
         let reason = match end {
+            Ok(End::NodeStopped) => super::ledger::NODE_STOPPED.to_owned(),
             Ok(End::Closed) => "closed".to_owned(),
             Ok(End::Unstoppable(within)) => format!(
                 "the agent did not stop within {} s, so Beep stopped it; send a message to continue",
@@ -815,8 +837,12 @@ impl Actor {
         self.acp_session = Some(session.clone());
         self.thinking = offered.thinking;
         self.switch = offered.switch.clone();
-        self.live
-            .send_modify(|live| live.agent_session = Some(session.to_string()));
+        // From now on the session goes by the agent's own id, which
+        // still finds it once the node restarts.
+        self.live.send_modify(|live| {
+            live.agent_session = Some(session.to_string());
+            live.info.id = session.to_string();
+        });
         let Some(model) = self.model.take() else {
             self.think(cx);
             return None;
@@ -1687,6 +1713,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1752,6 +1779,7 @@ cat > /dev/null
                 images: Arc::default(),
                 usage: Arc::default(),
                 alerts: Arc::default(),
+                stopping: Arc::default(),
             })
             .unwrap()
         };
@@ -1811,6 +1839,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1895,6 +1924,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1942,6 +1972,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1974,6 +2005,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -2024,6 +2056,7 @@ read -r line; log "$1"
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -2078,6 +2111,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -2123,6 +2157,7 @@ read -r line
                 images: Arc::default(),
                 usage: Arc::default(),
                 alerts: Arc::default(),
+                stopping: Arc::default(),
             },
             within,
         )
@@ -2272,6 +2307,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -2415,6 +2451,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         }
     }
 
@@ -2815,6 +2852,7 @@ cat > /dev/null
         let alerts = Arc::new(AlertHub::default());
         let session = Session::start(Start {
             alerts: alerts.clone(),
+            stopping: Arc::default(),
             ..start_on(&kind, &dir, None)
         })
         .unwrap();
@@ -2874,6 +2912,7 @@ cat > /dev/null
         let alerts = Arc::new(AlertHub::default());
         let session = Session::start(Start {
             alerts: alerts.clone(),
+            stopping: Arc::default(),
             ..start_on(&kind, &dir, None)
         })
         .unwrap();
@@ -2948,6 +2987,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            stopping: Arc::default(),
         })
         .unwrap();
         until(&session, |live| {
