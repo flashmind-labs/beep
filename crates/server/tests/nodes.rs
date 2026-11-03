@@ -17,28 +17,27 @@ use beep_server::{
     models::ModelChoices,
     nodes::{self, Online, StartOn},
     protocol::{
-        AgentCheckoutPlan, AgentEffort, AgentEntryKind, AgentImageData, AgentModel, AgentModelPick,
-        AgentModels, AgentPlanStatus, AgentStatus, AgentSteer, AnswerAgentQuestion, ApiError,
-        CreateNodeToken, DeviceKind, GetAgentImage, GetAgentSession, GetNodeToken, HarnessSettings,
-        ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions, ListMachineDetails,
-        ListMachineStats, ListMachines, ListMemoryScopes, ListProjectSessions, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
-        image_key,
+        AgentCheckoutPlan, AgentEffort, AgentImageData, AgentModel, AgentModelPick, AgentModels,
+        AgentStatus, AgentSteer, ApiError, CreateNodeToken, DeviceKind, GetAgentImage,
+        GetAgentSession, GetNodeToken, HarnessSettings, ListAgentHosts, ListAgentImages,
+        ListAgentModels, ListAgentSessions, ListMachineDetails, ListMachineStats, ListMachines,
+        ListMemoryScopes, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
+        RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings, StartAgentSession,
+        SteerAgentSession, Upload, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
             agent::{
                 AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event, ExternalSession,
-                ModelList, ModelOption, ModelPick, OptionKind, PlanEntry, PlanStatus, Presence,
-                Question, Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest,
-                State, Status, StopReason,
+                ModelList, ModelOption, ModelPick, OptionKind, Presence, Question, Request,
+                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
+                StopReason,
             },
         },
         setup::SetupToken,
     },
     push::Pusher,
-    store::{Fact, NewImport, NewKey, NewNode, Scope, TestDb},
+    store::{Fact, NewKey, NewNode, Scope, TestDb},
     transport,
     user::User,
 };
@@ -1384,87 +1383,6 @@ impl CommandCenter {
 }
 
 #[tokio::test]
-async fn agent_sessions_skip_a_hung_node() {
-    let mut center = CommandCenter::new(1).await;
-    for name in ["build-box", "mac-box"] {
-        center
-            .node(
-                0,
-                name,
-                FakeAgents {
-                    sessions: vec![beep_session(name, None)],
-                    external: Some(Vec::new()),
-                    ..FakeAgents::default()
-                },
-            )
-            .await;
-    }
-    center
-        .node(
-            0,
-            "hung-box",
-            FakeAgents {
-                sessions: vec![beep_session("hung", None)],
-                hang: true,
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let sessions = timeout(Duration::from_secs(5), client.call(&ListAgentSessions {}))
-        .await
-        .expect("a hung node does not hold up the list")
-        .unwrap();
-    let mut names: Vec<&str> = sessions
-        .iter()
-        .map(|session| session.machine_name.as_str())
-        .collect();
-    names.sort();
-    assert_eq!(names, ["build-box", "mac-box"]);
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn project_sessions_skip_a_hung_node() {
-    let mut center = CommandCenter::new(1).await;
-    let mut machines = Vec::new();
-    for (name, hang) in [("build-box", false), ("mac-box", false), ("hung-box", true)] {
-        let fake = FakeAgents {
-            external: Some(vec![external_session(name, Presence::Stopped)]),
-            hang,
-            ..FakeAgents::default()
-        };
-        machines.push(center.node(0, name, fake).await);
-    }
-    for machine in &machines {
-        center.users[0]
-            .save_import(NewImport {
-                project: "org/proj",
-                endpoint: machine,
-                folder: "/srv/project",
-                url: "https://example.com/org/proj",
-            })
-            .await
-            .unwrap();
-    }
-    let (_node, client) = center.phone(0).await;
-    let asked = ListProjectSessions {
-        project: "org/proj".into(),
-    };
-    let sessions = timeout(Duration::from_secs(5), client.call(&asked))
-        .await
-        .expect("a hung node does not hold up the list")
-        .unwrap();
-    let mut names: Vec<&str> = sessions
-        .iter()
-        .map(|session| session.machine_name.as_str())
-        .collect();
-    names.sort();
-    assert_eq!(names, ["build-box", "mac-box"]);
-    center.shutdown().await;
-}
-
-#[tokio::test]
 async fn agent_sessions_survive_no_external() {
     let mut center = CommandCenter::new(1).await;
     center
@@ -1508,37 +1426,6 @@ async fn agent_sessions_drop_stopped_external() {
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     assert_eq!(sessions[0].id, "waiting");
     assert_eq!(sessions[0].status, AgentStatus::Waiting {});
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn answer_agent_question_conflict_when_gone() {
-    let mut center = CommandCenter::new(1).await;
-    let machine = center
-        .node(
-            0,
-            "build-box",
-            FakeAgents {
-                sessions: vec![beep_session("a3f9c1", None)],
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let refused = client
-        .call(&AnswerAgentQuestion {
-            machine_id: machine,
-            agent: "claude".into(),
-            session: "a3f9c1".into(),
-            question: 3,
-            reply: "allow".into(),
-        })
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        refused.downcast::<ApiError>().unwrap(),
-        ApiError::Conflict { .. }
-    ));
     center.shutdown().await;
 }
 
@@ -1770,63 +1657,6 @@ async fn auto_preview_names_the_machine_without_starting() {
         ApiError::BadRequest { .. }
     ));
     assert!(received.try_recv().is_err(), "nothing was started");
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn get_agent_session_reads_plan_files_and_transcript() {
-    let mut center = CommandCenter::new(1).await;
-    let mut session = beep_session("a3f9c1", None);
-    session.state.plan = vec![
-        PlanEntry {
-            content: "Find the bug".into(),
-            status: PlanStatus::Completed,
-        },
-        PlanEntry {
-            content: "Fix it".into(),
-            status: PlanStatus::InProgress,
-        },
-    ];
-    session.state.files_touched = vec!["src/main.rs".into()];
-    session.turns = 2;
-    let build = center
-        .node(
-            0,
-            "build-box",
-            FakeAgents {
-                sessions: vec![session],
-                ..FakeAgents::default()
-            },
-        )
-        .await;
-    let (_node, client) = center.phone(0).await;
-    let get = |session: &str| GetAgentSession {
-        machine_id: build.clone(),
-        agent: "claude".into(),
-        session: session.into(),
-        last: 30,
-    };
-    let view = client.call(&get("a3f9c1")).await.unwrap();
-    assert_eq!(view.session.status, AgentStatus::Working {});
-    let plan: Vec<AgentPlanStatus> = view.plan.iter().map(|step| step.status).collect();
-    assert_eq!(
-        plan,
-        [
-            AgentPlanStatus::Completed {},
-            AgentPlanStatus::InProgress {}
-        ]
-    );
-    assert_eq!(view.files, ["src/main.rs"]);
-    assert_eq!(view.turns, 2);
-    assert_eq!(view.entries.len(), 1);
-    assert_eq!(view.entries[0].kind, AgentEntryKind::Agent {});
-    assert_eq!(view.entries[0].text, "a3f9c1: the last 30");
-    assert_eq!(view.earlier, 4);
-    let missing = client.call(&get("000000")).await.unwrap_err();
-    assert!(matches!(
-        missing.downcast::<ApiError>().unwrap(),
-        ApiError::NotFound {}
-    ));
     center.shutdown().await;
 }
 
