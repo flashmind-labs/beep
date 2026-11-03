@@ -1,6 +1,7 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
+import { ago, since } from "./components/format.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -159,13 +160,6 @@ let fresh = false;
 // ---------- Formatting ----------
 
 function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
-function ago(ms: number) {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return "now";
-  if (s < 3600) return `${Math.round(s / 60)} min`;
-  if (s < 86400) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} d`;
-}
 function whenOf(iso: string) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return { time: "", day: "" };
@@ -286,7 +280,7 @@ function machineTable(machines: MachineCard[]) {
     if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
     const sync = m.online ? machineSync(m.id, state.sync) : null;
     const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
-    if (!m.online) now.title = ago(m.seen_at) === "now" ? "Seen just now" : `Seen ${ago(m.seen_at)} ago`;
+    if (!m.online) now.title = `Seen ${since(m.seen_at)}`;
     const d = machineDisk(m), mem = machineMemory(m);
     const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
     if (d.title) disk.title = d.title;
@@ -2366,7 +2360,7 @@ function whereRow(p: Project, m: WhereRow) {
     return [name, folder, h("span", "acts", finder, copy, start)];
   }
   const said = h("span", "os", m.text);
-  if (m.kind === "none" && m.checked_at) said.title = `Checked ${ago(m.checked_at)} ago`;
+  if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
   const what = h("span", "nm", said);
   const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(false, repoFromRemote(p.url), m.id)) : null;
   return [name, what, h("span", "acts", clone)];
@@ -2788,7 +2782,7 @@ function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
   const where = openLabel(v.url) === "Open on GitHub" ? "On GitHub" : "On its host";
   const head = h("span", "who", `${where} · ${plural(total, "comment", "comments")}${v.needs_reply ? " · waits on your reply" : ""}`);
   const post = (author: string, at: number | null, body: string) => {
-    const c = h("div", "c", h("b", "", author), " ", h("span", "who", at ? `${ago(at)} ago` : "opened it"));
+    const c = h("div", "c", h("b", "", author), " ", h("span", "who", at ? since(at) : "opened it"));
     if (body.trim()) c.append(h("div", "tx", clip(body, card.all)));
     return c;
   };
