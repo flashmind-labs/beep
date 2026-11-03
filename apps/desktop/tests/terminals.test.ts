@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stateLabel, terminalTile, terminalPlaces, splice, fromBase64, retryDelay, linkLabel, byMachine, terminalWhere, terminalNote, terminalsCount } from "../src/terminals.ts";
+import { stateLabel, terminalTile, terminalPlaces, splice, fromBase64, retryDelay, linkLabel, byMachine, terminalWhere, terminalNote, terminalsCount, endsForGood } from "../src/terminals.ts";
 
 const ago = () => "2 h";
 
@@ -87,4 +87,12 @@ test("a terminal says where it runs and how it stands", () => {
   assert.equal(terminalNote({ state: "running", started_at: 1 }, ago), "2 h");
   assert.equal(terminalNote({ state: "exited", code: 0, started_at: 1 }, ago), "exited 0");
   assert.equal(terminalNote({ state: "exited", code: null, started_at: 1 }, ago), "ended");
+});
+
+test("a terminal that exited or is gone is done; an offline one is not", () => {
+  assert.ok(endsForGood("exited"));
+  assert.ok(endsForGood("stopped"));
+  assert.ok(endsForGood("gone"));
+  assert.ok(!endsForGood("offline"));
+  assert.ok(!endsForGood("running"));
 });

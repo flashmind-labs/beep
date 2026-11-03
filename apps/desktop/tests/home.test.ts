@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { MacControl } from "../src/home.ts";
-import { agentOf, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningLine, thisMacRow } from "../src/home.ts";
+import { agentOf, byRecent, bytes, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, needsLine, runningKey, runningLine, thisMacRow } from "../src/home.ts";
+
+test("Running now puts the session that moved last first", () => {
+  const agent = (id: string, started_at: number, last_activity: number) => ({ kind: "agent" as const, machine_id: "m", id, started_at, last_activity });
+  const rows = [agent("old", 10, 20), { kind: "research" as const, session: "r", started_at: 30 }, agent("new", 5, 40), agent("quiet", 25, 0)];
+  assert.deepEqual(byRecent(rows).map(runningKey), ["agent:m:new", "research:r", "agent:m:quiet", "agent:m:old"]);
+  assert.equal(runningKey(rows[0]), "agent:m:old", "the list it was given stays as it was");
+});
 
 const machine = (over = {}) => ({
   online: true, agents: 0, capabilities: [], gpus: [], apps: [], env: null, ...over,

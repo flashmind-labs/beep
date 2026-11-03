@@ -2,6 +2,8 @@
 // Claude Code signs in once here and Beep hands its token to the machines;
 // Codex signs in on each machine, or uses an API key Beep hands out.
 
+import { harnessTile } from "./harnessicon.ts";
+
 type Esc = (s: unknown) => string;
 /// "today", "3 days ago": how long ago a time in milliseconds was.
 type Ago = (ms: number) => string;
@@ -136,7 +138,7 @@ function form(state: AgentAccountsState, esc: Esc, agent: "claude" | "codex") {
 function claudeHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ago: Ago) {
   const token = data.claude;
   const on = machinesWith(data.machines, "claude");
-  const head = (sub: string) => `<div style="display:flex;align-items:center;gap:10px"><span class="cc-ag claude">CC</span><span style="display:grid;gap:2px;min-width:0"><b style="font-size:13.5px">Claude Code</b>${sub ? `<span style="font-size:11.5px;color:var(--muted)">${sub}</span>` : ""}</span>`;
+  const head = (sub: string) => `<div style="display:flex;align-items:center;gap:10px">${harnessTile("claude")}<span style="display:grid;gap:2px;min-width:0"><b style="font-size:13.5px">Claude Code</b>${sub ? `<span style="font-size:11.5px;color:var(--muted)">${sub}</span>` : ""}</span>`;
   const err = state.claudeError ? `<div class="derr" style="margin-top:6px">${esc(state.claudeError)}</div>` : "";
   if (state.claudeFlow) {
     return box(`${head("")}<span style="margin-left:auto"><button class="dbtn quiet" ${sm} data-ag-claude-cancel>Cancel</button></span></div>
@@ -189,7 +191,7 @@ function codexHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ago
   const rows = on.length
     ? on.map(m => codexRow(state, esc, m, now)).join("")
     : none("No machine has Codex yet.");
-  return box(`<div style="display:flex;align-items:center;gap:10px"><span class="cc-ag codex">CX</span><span style="display:grid;gap:2px;min-width:0"><b style="font-size:13.5px">Codex</b><span style="font-size:11.5px;color:var(--muted)">${sub}</span></span><span style="margin-left:auto;display:flex;gap:6px;flex:none">${edit ? "" : acts}</span></div>
+  return box(`<div style="display:flex;align-items:center;gap:10px">${harnessTile("codex")}<span style="display:grid;gap:2px;min-width:0"><b style="font-size:13.5px">Codex</b><span style="font-size:11.5px;color:var(--muted)">${sub}</span></span><span style="margin-left:auto;display:flex;gap:6px;flex:none">${edit ? "" : acts}</span></div>
     ${edit}<div style="margin-top:6px">${rows}</div>`);
 }
 

@@ -1,5 +1,6 @@
 // The command center window: a sidebar, Home, and the bar's page as a pane
 // (src/bar, loaded with this module) for chats, memories and routines.
+import { harnessEl } from "./harnessicon.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { initPalette, openPalette } from "./palette.ts";
@@ -9,13 +10,13 @@ import { pane, type PaneTarget } from "./bar/pane.ts";
 import type { BackTo, PaneNow } from "./bar/core.ts";
 import { withoutDismissed } from "./updates.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { WIDE_HOME_PX, agentOf, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
+import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow } from "./home.ts";
 import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
-import { openImportProject } from "./importproject.ts";
+import { keepLastImport, lastImport, openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
-import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, el as h } from "./projects-state.ts";
-import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
+import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderUnder, reason, el as h } from "./projects-state.ts";
+import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectRow, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
@@ -24,7 +25,7 @@ import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, prsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { BAR_NOTE, barCheckout, barPlace, barPrompt } from "./projectbar.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, folderBusy, harnessFor, keepEffort, knownWorktrees, startPlace } from "./bar/agentpick.ts";
-import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner } from "./bar/agentpicker.ts";
+import { closedPicker, drawPicker, focusSearch, modelsOn, type Picked, pillInner, preloadModels } from "./bar/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "./bar/agents.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
@@ -393,16 +394,45 @@ function offlineNote(machines: MachineCard[]) {
 
 function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r, state.home?.projects || []);
-  const right = [r.status === "asking" ? tag("wait", "needs you") : ago(r.started_at)];
-  if (r.kind === "research") {
-    return bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})));
-  }
-  // The pane's agent view follows and answers it.
-  return bare(line(null, title, sub, right, () => go("pane", { agent: r })));
+  const right = [r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r))];
+  const row = r.kind === "research"
+    ? bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})))
+    // The pane's agent view follows and answers it.
+    : bare(line(null, title, sub, right, () => go("pane", { agent: r })));
+  row.dataset.key = runningKey(r);
+  return row;
 }
 
-/// A panel of Running now rows.
-const runningPanel = (running: RunningRow[]) => h("div", "cc-panel", ...running.map(runningRow));
+/// Where each Running now row sat in its panel when last drawn, by key.
+const runningTops = new Map<string, number>();
+/// How long a row takes to slide to its new place.
+const SLIDE_MS = 200;
+
+/// Slides each row of a just drawn panel from where it sat last time to
+/// where it sits now, so a session that moves to the top is seen moving.
+/// Nothing slides when the system asks for less motion.
+function slideRows(panel: HTMLElement) {
+  requestAnimationFrame(() => {
+    if (!panel.isConnected) return;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const top = panel.getBoundingClientRect().top, seen = new Set<string>();
+    for (const row of panel.querySelectorAll<HTMLElement>(":scope > [data-key]")) {
+      const key = row.dataset.key!, now = row.getBoundingClientRect().top - top, was = runningTops.get(key);
+      seen.add(key);
+      runningTops.set(key, now);
+      if (still || was === undefined || was === now) continue;
+      row.animate([{ transform: `translateY(${was - now}px)` }, { transform: "none" }], { duration: SLIDE_MS, easing: "ease-out" });
+    }
+    for (const key of runningTops.keys()) if (!seen.has(key)) runningTops.delete(key);
+  });
+}
+
+/// A panel of Running now rows, the one that moved last first.
+function runningPanel(running: RunningRow[]) {
+  const panel = h("div", "cc-panel", ...byRecent(running).map(runningRow));
+  slideRows(panel);
+  return panel;
+}
 
 function runningSection(running: RunningRow[]) {
   return section("sec-running", "Running now", running.length, null, runningPanel(running));
@@ -505,8 +535,7 @@ function needsRow(n: NeedsYou) {
     open = () => go("pane", { chat: { session: n.session_id } });
     act = () => answerChat(n, "allow", "Allowed");
   } else {
-    const ag = agentOf(n.agent);
-    lead = avatar(ag.cls, ag.ini);
+    lead = harnessEl(n.agent);
     open = act = () => openAsking(n);
   }
   let right;
@@ -656,7 +685,14 @@ function openProjectRows(p: OpenRepo, i: number) {
     .filter(Boolean).map(t => h("span", "", t));
   const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
   const sub = p.project ? p.host : `${p.host} · not imported`;
+  if (!p.project) right.push(rowImportButton(p));
   const head = repoLine(i, p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
+  if (!p.project) {
+    head.addEventListener("contextmenu", e => openMenu(e, p.repo, [
+      { label: "Import…", on: () => quickImport(p) },
+      { label: "Import with settings…", on: () => importWithSettings(p) },
+    ]));
+  }
   const all = state.gitAll.has(p.key);
   const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project))];
   if (p.items.length > ITEMS_SHOWN) {
@@ -667,6 +703,80 @@ function openProjectRows(p: OpenRepo, i: number) {
     rows.push(h("div", "cc-gr it more", more));
   }
   return rows;
+}
+
+/// Repositories being imported from their row, by key, and why one failed.
+const rowImports = new Map<string, "busy" | { error: string }>();
+
+/// What `import_project` takes for an open-items repository: `org/repo`
+/// on GitHub, its URL elsewhere.
+function importRepo(p: OpenRepo) {
+  return p.host === "github.com" ? p.repo : p.url;
+}
+
+/// The row's Import button, or how its import stands.
+function rowImportButton(p: OpenRepo): HTMLElement {
+  const now = rowImports.get(p.key);
+  if (now === "busy") return h("span", "age", h("span", "dspin"), " Importing…");
+  const b = rowButton("Import", "small", () => quickImport(p));
+  b.title = importTitle(p);
+  if (now) {
+    const failed = tag("bad", "Import failed");
+    failed.title = now.error;
+    return h("span", "", failed, " ", b);
+  }
+  return b;
+}
+
+/// Where Import puts it: the last machine and folder used, else the server's
+/// default on the first online machine.
+function importPlace(p: OpenRepo) {
+  const machines = (state.home?.machines || []).filter(m => m.online);
+  const last = lastImport();
+  const machine = machines.find(m => m.id === last?.machine) || machines[0] || null;
+  const folder = machine && last?.root && machine.id === last.machine ? folderUnder(last.root, importRepo(p)) : null;
+  return { machine, folder };
+}
+
+function importTitle(p: OpenRepo) {
+  const { machine, folder } = importPlace(p);
+  if (!machine) return "No machine is online; Import opens the sheet";
+  return `Imports on ${machine.name}${folder ? `, into ${folder}` : ""}. Right-click for Import with settings…`;
+}
+
+/// Imports from the row with the last machine and folder; the row turns
+/// into the project once it is in. With no machine online, the sheet.
+async function quickImport(p: OpenRepo) {
+  if (rowImports.get(p.key) === "busy") return;
+  const { machine, folder } = importPlace(p);
+  if (!machine) return importWithSettings(p);
+  rowImports.set(p.key, "busy");
+  draw();
+  try {
+    const project = await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder, worktrees: [] });
+    keepLastImport(project);
+    rowImports.delete(p.key);
+    await refresh();
+  } catch (e) {
+    const error = reason(e);
+    rowImports.set(p.key, { error });
+    console.warn(`importing ${p.repo}:`, error);
+  }
+  draw();
+}
+
+/// The Import a project sheet for the row's repository, on the last
+/// machine and folder used.
+function importWithSettings(p: OpenRepo) {
+  const { machine, folder } = importPlace(p);
+  openImportProject({
+    machines: state.home?.machines || [],
+    macId: state.mac?.id || null,
+    repo: importRepo(p),
+    machine: machine?.id ?? null,
+    folder,
+    onDone: () => refresh(),
+  });
 }
 
 /// Open PRs and issues on the user's git hosts, one row per project with
@@ -1678,7 +1788,9 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   pin.type = "button";
   pin.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
   pin.addEventListener("click", e => { e.stopPropagation(); setProjectOnTop(c.name, !c.pinned); });
-  const card = h("div", "pj-card", h("div", "h", projectDot(c.i), h("b", "", c.repo), pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
+  const repo = h("b", "", c.repo);
+  repo.title = c.name;
+  const card = h("div", "pj-card", h("div", "h", projectDot(c.i), repo, pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.title = c.name;
@@ -2104,7 +2216,7 @@ function barProject() {
 /// agents, the sessions (for worktrees) and the project's branches.
 function loadProjectBar(name: string) {
   const redraw = () => { if (shown === "projects" && state.picked === name) redrawProjects(); };
-  invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
+  invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
   invoke<AgentSession[]>("agent_sessions").then(list => { pc.sessions = list; }).catch(e => console.warn("agent sessions:", e));
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
@@ -2830,6 +2942,8 @@ initPalette({ go, jump, pane, settings: openSettings, providers: () => go("provi
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
 
 document.addEventListener("keydown", e => {
+  // Keys typed into a terminal are the terminal's, Esc and Tab too.
+  if (inTerminal(e)) return;
   // Esc on an opened board tile goes back to the board.
   if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
     e.preventDefault();
@@ -2847,6 +2961,16 @@ document.addEventListener("keydown", e => {
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
+
+/// The machines online in `home`, as a key that changes when one connects.
+function onlineMachines(home: HomeView | null) {
+  return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
+}
+
+/// Whether `e` was typed into a terminal's screen.
+function inTerminal(e: KeyboardEvent) {
+  return e.target instanceof Element && !!e.target.closest(".tm-xterm");
+}
 
 /// ⌘N: the project's chat while a project or its chat shows, else a new
 /// general chat. A project with no chat gets its bar, which starts a
@@ -2904,8 +3028,14 @@ async function refresh() {
     state.groups = projectGroups;
     state.sync = sync;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
+    const was = onlineMachines(state.home);
     state.home = home;
     fresh = true;
+    // A machine came online: its harnesses' models are read ahead of the
+    // picker.
+    if (onlineMachines(home) !== was) {
+      invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
+    }
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);

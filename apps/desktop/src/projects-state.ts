@@ -224,6 +224,22 @@ function orgAndName(repo: string) {
   return parts.length >= 2 ? parts.slice(-2) : null;
 }
 
+/// The folder projects go under, from where one landed: `folder` less its
+/// `org/repo` ending when it has one, else the folder it sits in. Null
+/// when there is none.
+export function importRoot(folder: string, name: string): string | null {
+  const clean = folder.replace(/\/+$/, "");
+  const tail = `/${name.replace(/^\/+|\/+$/g, "")}`;
+  const root = clean.endsWith(tail) ? clean.slice(0, -tail.length) : clean.slice(0, clean.lastIndexOf("/"));
+  return root || null;
+}
+
+/// The folder `repo` goes in under `root`, as the last import put its own.
+export function folderUnder(root: string, repo: string): string | null {
+  const parts = orgAndName(repo);
+  return parts ? `${root.replace(/\/+$/, "")}/${parts[0]}/${parts[1]}` : null;
+}
+
 /// Where the server puts it when no folder is chosen: `projects/org/repo`
 /// in the machine's workspace on Linux, `Projects/org/repo` in its home
 /// elsewhere. `base` is the folder `list_machine_folder` starts in (the

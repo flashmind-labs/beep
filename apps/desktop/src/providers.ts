@@ -2,9 +2,10 @@
 // pi, ...) with its version, sign-in and an on/off switch, and the picked
 // one's runtime settings. center.ts registers it; providers-state.ts holds
 // the words and sums.
+import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
-import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, initials, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, listRows, settingsInput, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView } from "./providers-state.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
@@ -147,7 +148,7 @@ export function registerProviders(deps: ProvidersDeps) {
   }
 
   function avatar(agent: string) {
-    return h("span", `cc-ag ${agent}`, initials(agent));
+    return harnessEl(agent);
   }
 
   function list(v: HarnessesView) {

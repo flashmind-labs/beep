@@ -7,38 +7,91 @@ import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { effortNote, effortsOf, modelLabel, modelRows, pillDetail, placePopover, railOf } from "./agentpick.ts";
 import { agentKind } from "./agents.ts";
 import { esc, invoke } from "./core.ts";
+import { harnessTile } from "../harnessicon.ts";
 
 const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
 
-/// A harness's badge, the window's `cc-ag` tile.
-export const badge = (agent: string) => { const k = agentKind(agent); return `<span class="cc-ag ${esc(k.cls)}">${esc(k.ini)}</span>`; };
+/// A harness's badge, the window's `cc-ag` tile with its mark.
+export const badge = (agent: string) => harnessTile(agent);
 
 // ----- Models -----
 
 /// The models each machine's agents offer, by `machine/agent`: `null` when
-/// it could not say, `undefined` in `list` while it is asked.
-/// `waiting` are told once an answer asked for comes.
-const MODELS = new Map<string, { list: AgentModels | null | undefined; at: number; waiting: (() => void)[] }>();
+/// it could not say, `undefined` in `list` until the first answer. `asking`
+/// while a request is out; `waiting` are told when its answer changes the
+/// list. Kept across launches (`MODELS_STORE`), so the picker opens on the
+/// last list at once and refreshes it behind.
+const MODELS = new Map<string, ModelsEntry>();
+interface ModelsEntry { list: AgentModels | null | undefined; at: number; asking: boolean; waiting: (() => void)[] }
 
-/// The models `agent` offers on `machine` as known now: `undefined` while
-/// asked. Asks when not known lately; `loaded` runs once the answer comes.
-export function modelsOn(machine: string, agent: string, loaded: () => void): AgentModels | null | undefined {
-  const key = `${machine}/${agent}`, known = MODELS.get(key);
-  if (known && known.list === undefined) {
-    known.waiting.push(loaded);
-    return undefined;
+/// Where the lists are kept between launches; both windows share it.
+const MODELS_STORE = "beep.agentModels.v1";
+/// Lists older than this are not shown again after a restart.
+const MODELS_STORE_MAX_MS = 14 * 24 * 60 * 60 * 1000;
+
+function restoreModels() {
+  let kept: Record<string, { list: AgentModels; at: number }> = {};
+  try { kept = JSON.parse(localStorage.getItem(MODELS_STORE) || "{}") || {}; } catch { return; }
+  const now = Date.now();
+  for (const [key, v] of Object.entries(kept)) {
+    if (v && v.list && typeof v.at === "number" && now - v.at < MODELS_STORE_MAX_MS) {
+      // Shown at once, and asked again the first time it is wanted.
+      MODELS.set(key, { list: v.list, at: 0, asking: false, waiting: [] });
+    }
   }
-  if (known && Date.now() - known.at <= MODELS_KEPT_MS) return known.list;
-  const asked = { list: undefined, at: Date.now(), waiting: [loaded] };
-  MODELS.set(key, asked);
+}
+
+function storeModels() {
+  const out: Record<string, { list: AgentModels; at: number }> = {};
+  for (const [key, v] of MODELS) if (v.list) out[key] = { list: v.list, at: v.at || Date.now() };
+  try { localStorage.setItem(MODELS_STORE, JSON.stringify(out)); } catch { /* kept for this launch only */ }
+}
+
+restoreModels();
+
+/// Asks `machine` for `agent`'s models unless a request is out; `loaded`
+/// runs once the answer comes, if it changed what is shown.
+function askModels(key: string, machine: string, agent: string, loaded: (() => void) | null) {
+  let entry = MODELS.get(key);
+  if (!entry) MODELS.set(key, entry = { list: undefined, at: 0, asking: false, waiting: [] });
+  if (loaded) entry.waiting.push(loaded);
+  if (entry.asking) return;
+  entry.asking = true;
   invoke<AgentModels | null>("agent_models", { machineId: machine, agent })
     .catch(() => null)
     .then(list => {
-      MODELS.set(key, { list, at: Date.now(), waiting: [] });
-      for (const tell of asked.waiting) tell();
+      const e = MODELS.get(key)!;
+      const waiting = e.waiting;
+      // A failed refresh keeps the list shown.
+      const next = list ?? (e.list === undefined ? null : e.list);
+      const changed = JSON.stringify(next) !== JSON.stringify(e.list);
+      MODELS.set(key, { list: next, at: Date.now(), asking: false, waiting: [] });
+      if (list) storeModels();
+      if (changed) for (const tell of waiting) tell();
     });
-  return undefined;
+}
+
+/// The models `agent` offers on `machine` as known now: `undefined` only
+/// before the first answer. A list not asked lately is shown as it is and
+/// asked again behind; `loaded` runs when the answer changes it.
+export function modelsOn(machine: string, agent: string, loaded: () => void): AgentModels | null | undefined {
+  const key = `${machine}/${agent}`, known = MODELS.get(key);
+  if (known && known.list !== undefined && Date.now() - known.at <= MODELS_KEPT_MS) return known.list;
+  askModels(key, machine, agent, loaded);
+  return known?.list;
+}
+
+/// Reads the models of every harness on `hosts` ahead of the picker, such
+/// as when a machine connects; lists read lately are left alone.
+export function preloadModels(hosts: readonly { machine_id: string; agents: readonly string[] }[]) {
+  for (const h of hosts) {
+    for (const agent of h.agents) {
+      const key = `${h.machine_id}/${agent}`, known = MODELS.get(key);
+      if (known && known.list !== undefined && Date.now() - known.at <= MODELS_KEPT_MS) continue;
+      askModels(key, h.machine_id, agent, null);
+    }
+  }
 }
 
 /// The models known for `agent` on `machine`, without asking.
@@ -97,7 +150,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
     : `<p class="none">${esc(effortNote(p.agent, name))}</p>`;
   el.innerHTML = `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
       <div class="agc-rail">${rail}</div>
-      <div class="agc-list"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${esc(name)} models…" value="${esc(p.query)}"><div class="agc-models"></div></div>
+      <div class="agc-list"><div class="agc-find"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${esc(name)} models…" value="${esc(p.query)}"></div><div class="agc-models"></div></div>
       <div class="agc-think"><h5><span>Thinking</span><span>${esc(name)}</span></h5>${think}</div>
     </div>`;
   el.onclick = e => {

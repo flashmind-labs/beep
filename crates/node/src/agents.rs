@@ -816,6 +816,7 @@ pub async fn serve_session(
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::Cancel {})) => Command::Cancel,
                     Ok(Some(Request::Close {})) => Command::Close,
+                    Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },
                     Ok(Some(other)) => {
                         let error = Some(format!("{other:?} is not for an open session"));
                         tx.send(&Event::Ack { error }).await?;

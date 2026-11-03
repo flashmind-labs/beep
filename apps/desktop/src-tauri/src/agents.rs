@@ -186,6 +186,13 @@ pub enum Steer {
     },
     Cancel,
     Close,
+    /// Switches the running session's model or thinking from its next turn.
+    Configure {
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        effort: Option<Effort>,
+    },
 }
 
 /// An image as the page sends it: its bytes in base64.
@@ -223,6 +230,10 @@ impl TryFrom<Steer> for AgentSteer {
             }
             Steer::Cancel => Self::Cancel {},
             Steer::Close => Self::Close {},
+            Steer::Configure { model, effort } => Self::Configure {
+                model,
+                effort: effort.map(Into::into),
+            },
         })
     }
 }
@@ -231,6 +242,11 @@ impl TryFrom<Steer> for AgentSteer {
 /// reads op 3 of `AgentSteer` as unknown.
 fn older_than_images(error: &DesktopError) -> bool {
     matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 3"))
+}
+
+/// True when the server did not know `Configure`, op 4 of `AgentSteer`.
+fn older_than_configure(error: &DesktopError) -> bool {
+    matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 4"))
 }
 
 #[tauri::command]
@@ -468,6 +484,7 @@ pub async fn agent_steer(
         _ => Vec::new(),
     };
     let images = !keys.is_empty();
+    let configure = matches!(steer, AgentSteer::Configure { .. });
     let sent = beep
         .call(SteerAgentSession {
             machine_id,
@@ -479,6 +496,9 @@ pub async fn agent_steer(
     match sent {
         Err(e) if images && older_than_images(&e) => Err(DesktopError::BadRequest(
             "This Beep server does not take images yet. Send the message without them.".into(),
+        )),
+        Err(e) if configure && older_than_configure(&e) => Err(DesktopError::BadRequest(
+            "This Beep server cannot switch a running session's model yet.".into(),
         )),
         other => other.map(|()| keys),
     }

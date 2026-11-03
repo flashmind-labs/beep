@@ -2,7 +2,7 @@
 // agent did after it, up to the next message. A finished turn folds its
 // steps into one line and keeps only its answer in view.
 
-import { parseTool } from "./agentlog.ts";
+import { imageLines, parseTool, subagent } from "./agentlog.ts";
 
 /// The parts of an entry a turn needs.
 export interface LogEntry {
@@ -77,21 +77,66 @@ function target(text: string) {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/// A turn's steps as one line: "Ran 1 command, edited 2 files".
-export function summary(entries: LogEntry[], t: Turn, offset = 0) {
-  const tools = t.steps.map(at => entries[at - offset]).filter(en => en.kind === "tool");
+/// A turn's steps as one line, naming at most two kinds, commands and
+/// edits first, and counting the rest: "Ran 3 commands, edited 2 files,
+/// performed 4 other actions". `steps` limits it to some of the turn's.
+export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.steps) {
+  const tools = steps.map(at => entries[at - offset]).filter(en => en.kind === "tool");
   const of = (k: ToolKind) => tools.filter(en => toolKind(en.text) === k);
   const files = (k: ToolKind) => new Set(of(k).map(en => target(en.text))).size;
-  const parts = [
-    of("command").length && `ran ${plural(of("command").length, "command", "commands")}`,
-    files("edit") && `edited ${plural(files("edit"), "file", "files")}`,
-    files("read") && `read ${plural(files("read"), "file", "files")}`,
-    of("search").length && `searched ${of("search").length === 1 ? "once" : `${of("search").length} times`}`,
-    of("web").length && `made ${plural(of("web").length, "web request", "web requests")}`,
-    of("other").length && `used ${plural(of("other").length, "other tool", "other tools")}`,
-  ].filter(Boolean).join(", ");
-  const line = parts || plural(t.steps.length, "step", "steps");
+  const kinds: { kind: ToolKind; text: string | 0 }[] = [
+    { kind: "command", text: of("command").length && `ran ${plural(of("command").length, "command", "commands")}` },
+    { kind: "edit", text: files("edit") && `edited ${plural(files("edit"), "file", "files")}` },
+    { kind: "read", text: files("read") && `read ${plural(files("read"), "file", "files")}` },
+    { kind: "search", text: of("search").length && `searched ${of("search").length === 1 ? "once" : `${of("search").length} times`}` },
+    { kind: "web", text: of("web").length && `made ${plural(of("web").length, "web request", "web requests")}` },
+    { kind: "other", text: of("other").length && `used ${plural(of("other").length, "other tool", "other tools")}` },
+  ];
+  const named = kinds.filter(k => k.text).slice(0, 2);
+  const rest = tools.filter(en => !named.some(k => k.kind === toolKind(en.text))).length;
+  // Pictures the agent looked at fold away with the steps, counted.
+  const images = tools.reduce((n, en) => n + imageLines(en.text).names.length, 0);
+  const parts = [...named.map(k => k.text), images && `viewed ${plural(images, "image", "images")}`,
+    rest && `performed ${plural(rest, "other action", "other actions")}`].filter(Boolean).join(", ");
+  const line = parts || plural(steps.length, "step", "steps");
   return line[0].toUpperCase() + line.slice(1);
+}
+
+/// A step as one short line: "Ran cargo test", "Read src/x.rs",
+/// "Running cargo test" while it runs.
+export function stepLabel(text: string, running = false) {
+  const { title } = parseTool(text);
+  const line = title.trim().split("\n")[0];
+  const named = /^([A-Za-z]+): (.*)$/.exec(line);
+  const kind = toolKind(text), what = named ? named[2] : line;
+  const verb: Partial<Record<ToolKind, [string, string]>> = {
+    command: ["Ran", "Running"], edit: ["Edited", "Editing"], read: ["Read", "Reading"], search: ["Searched", "Searching"], web: ["Fetched", "Fetching"],
+  };
+  const v = verb[kind];
+  // A live title already starts with its verb ("Read src/x.rs"), except a
+  // command, which is the command itself.
+  if (!named && kind !== "command") return line;
+  if (!v) return line;
+  return `${v[running ? 1 : 0]} ${what}`;
+}
+
+/// The steps of a turn that stay in view when it folds: notes (a model
+/// switch, a compaction), failed steps, subagents and the agent's own
+/// words that showed pictures. Pictures a tool showed fold with it.
+export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
+  return t.steps.filter(at => {
+    const en = entries[at - offset];
+    if (en.kind === "other") return true;
+    if (en.kind !== "tool") return imageLines(en.text).names.length > 0;
+    const { status, output } = parseTool(imageLines(en.text).text);
+    return status === "failed" || subagent(output) != null;
+  });
+}
+
+/// Whether a turn with no message of its own is only notes, which show as
+/// they are, without a heading.
+export function onlyNotes(entries: LogEntry[], t: Turn, offset = 0) {
+  return t.user == null && !t.answer.length && t.steps.every(at => entries[at - offset].kind === "other");
 }
 
 /// A duration: "48s", "1m 12s", "2h 5m".

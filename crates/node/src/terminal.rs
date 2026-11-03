@@ -214,17 +214,23 @@ impl Terminals {
         match request {
             Request::Start { command, cwd, size } => self.start(command, cwd, size),
             Request::List {} => Reply::Terminals {
-                terminals: lock(&self.inner)
-                    .terms
-                    .iter()
-                    .map(|term| term.live.task())
-                    .collect(),
+                terminals: self.list(),
             },
             Request::Stop { id } => self.stop(id).await,
             other => Reply::Error {
                 message: format!("{other:?} needs an attached terminal"),
             },
         }
+    }
+
+    /// Every terminal as it stands. One that ended is listed this once,
+    /// with how it ended, then dropped: a stream still attached to it holds
+    /// its own handle until it has sent the end.
+    fn list(&self) -> Vec<Task> {
+        let mut inner = lock(&self.inner);
+        let listed = inner.terms.iter().map(|term| term.live.task()).collect();
+        inner.terms.retain(|term| term.live.is_running());
+        listed
     }
 
     fn start(&self, command: Option<String>, cwd: Option<String>, size: Size) -> Reply {
@@ -657,6 +663,13 @@ mod tests {
         };
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].command, "echo done; exit 3");
+        // Listed with how it ended once, then gone.
+        let Reply::Terminals { terminals: listed } = terminals.answer(Request::List {}).await
+        else {
+            panic!("no list");
+        };
+        assert!(listed.is_empty());
+        assert!(terminals.live(id).is_none());
     }
 
     #[tokio::test]

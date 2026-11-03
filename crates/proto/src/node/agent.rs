@@ -90,6 +90,14 @@ pub enum Request {
     Cancel {},
     /// Ends the session and stops the agent.
     Close {},
+    /// Switches the running session to `model` and thinking at `effort`
+    /// (`None` keeps it), from its next turn. Refused when the agent cannot
+    /// switch. A node from before it answers that it does not know the
+    /// request.
+    Configure {
+        model: Option<String>,
+        effort: Option<Effort>,
+    },
 }
 
 /// What the node sends on an agent stream.
