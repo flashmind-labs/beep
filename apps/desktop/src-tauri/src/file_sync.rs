@@ -4,8 +4,10 @@
 
 use crate::{
     beep::Beep,
+    center::kept,
     error::{DesktopError, Result},
     projects::unknown_op,
+    view_cache::{View, ViewCache},
 };
 use beep_proto::{
     ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
@@ -45,12 +47,16 @@ impl SyncRow {
 /// Every machine's sync of every project, one row each. Empty from a
 /// server too old to sync projects.
 #[tauri::command]
-pub async fn project_sync(beep: State<'_, Arc<Beep>>) -> Result<Vec<SyncRow>> {
-    match beep.call(ListProjectSync {}).await {
+pub async fn project_sync(
+    beep: State<'_, Arc<Beep>>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Result<Vec<SyncRow>> {
+    let rows = match beep.call(ListProjectSync {}).await {
         Ok(projects) => Ok(rows(projects)),
         Err(e) if unknown_op(&e) => Ok(Vec::new()),
         Err(e) => Err(e),
-    }
+    };
+    kept(&cache, View::Sync, rows)
 }
 
 /// A project's sync as the File sync view shows it.

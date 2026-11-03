@@ -14,6 +14,7 @@ use crate::{
     markdown, orb,
     projects::unknown_op,
     state::{LinkState, NoticeVoice},
+    view_cache::ViewCache,
     voice::{Answered, NoticeCard, Voice, Waiting},
     waiting,
 };
@@ -349,6 +350,10 @@ const NO_GROUP: &str = "No group has this code. Check it, or ask for a new one."
 
 #[tauri::command]
 pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
+    // The copy answers at once; the server only before it first caught up.
+    if let Some(groups) = beep.chats().groups() {
+        return Ok(groups);
+    }
     let groups = beep.call(ListGroups {}).await?;
     Ok(groups.into_iter().map(GroupView::from).collect())
 }
@@ -791,8 +796,13 @@ pub fn allow_mac_permission(permission: Permission) {
 /// Forgets this computer's key and starts again with a new one, the only
 /// way back after the phone removed it.
 #[tauri::command]
-pub fn start_over(app: AppHandle, beep: Service<'_>) -> Result<()> {
+pub fn start_over(
+    app: AppHandle,
+    beep: Service<'_>,
+    views: State<'_, Arc<ViewCache>>,
+) -> Result<()> {
     beep.chats().clear();
+    views.clear();
     crate::forget_identity(&app)?;
     app.restart()
 }
