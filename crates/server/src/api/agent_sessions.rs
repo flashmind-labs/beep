@@ -2,6 +2,7 @@
 
 use super::Reply;
 use crate::{
+    app::App,
     nodes::Online,
     protocol::{
         node::agent::{
@@ -11,6 +12,7 @@ use crate::{
         *,
     },
     router::Cx,
+    user::User,
 };
 use anyhow::{Context, Result};
 use futures::{StreamExt, future::join_all, stream};
@@ -43,9 +45,22 @@ pub(super) async fn list_agent_sessions(
     cx: Cx,
     _: ListAgentSessions,
 ) -> Reply<Vec<MachineSession>> {
-    let keys = linked_keys(&cx).await?;
-    let names: HashMap<String, String> = cx
-        .user
+    Ok(machine_sessions(&cx.app, &cx.user).await?)
+}
+
+/// The coding-agent sessions on `user`'s machines online now, newest
+/// activity first. A machine whose key was unlinked is left out.
+pub(crate) async fn machine_sessions(
+    app: &App,
+    user: &User,
+) -> anyhow::Result<Vec<MachineSession>> {
+    let keys: HashSet<String> = user
+        .account_keys()
+        .await?
+        .into_iter()
+        .map(|key| key.endpoint_id)
+        .collect();
+    let names: HashMap<String, String> = user
         .nodes()
         .await?
         .into_iter()
@@ -53,10 +68,9 @@ pub(super) async fn list_agent_sessions(
         .collect();
     // The futures are made up front: a closure inside the stream would keep
     // the reply future from being `Send`.
-    let asks: Vec<_> = cx
-        .app
+    let asks: Vec<_> = app
         .nodes
-        .of_user(cx.user.id())
+        .of_user(user.id())
         .into_iter()
         .filter_map(|online| {
             let id = online.connection.remote_id().to_string();
