@@ -3,11 +3,16 @@
 use super::User;
 use crate::{
     events::{AppEvent, Topic},
-    store::{EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow, UpdateRow},
+    protocol::Session,
+    store::{
+        EventRow, EventState, NewTriage, RecentEvent, TriageRow, TriggerRow, UpdateChat,
+        UpdateChatSeed, UpdateDetail, UpdateRow,
+    },
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Whether each topic is on for the user, defaults filled in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +90,29 @@ impl User {
 
     pub(crate) async fn mark_delivered(&self, ids: &[i64], run_id: Option<&str>) -> Result<()> {
         self.store.mark_delivered(&self.key, ids, run_id).await
+    }
+
+    /// The update `id` with its events; `None` when it is not the user's.
+    pub(crate) async fn update_detail(&self, id: i64) -> Result<Option<UpdateDetail>> {
+        self.store.update_detail(&self.key, id).await
+    }
+
+    /// The chat about update `id`, made from `seed` when it has none.
+    pub(crate) async fn open_update_chat(
+        &self,
+        id: i64,
+        seed: &UpdateChatSeed<'_>,
+    ) -> Result<Option<UpdateChat>> {
+        let opened = self.store.open_update_chat(&self.key, id, seed).await?;
+        if opened.is_some_and(|opened| opened.made) {
+            self.changed("");
+        }
+        Ok(opened)
+    }
+
+    /// The session `chat` as the apps list it; `None` when not the user's.
+    pub(crate) async fn session_of(&self, chat: Uuid) -> Result<Option<Session>> {
+        self.store.session_of(&self.key, chat).await
     }
 
     pub async fn recent_events(

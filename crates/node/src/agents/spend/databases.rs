@@ -4,15 +4,20 @@
 //! OpenCode keeps each assistant message in `message.data` with `modelID`,
 //! `tokens` (`input` read fresh, `output`, `reasoning`, `cache.read`,
 //! `cache.write`) and `cost` (zero on a subscription), and `time_created`
-//! in Unix milliseconds. flsh keeps only each session's totals, in
+//! in Unix milliseconds, and `providerID`, which tells how it was paid
+//! for. flsh keeps only each session's totals, in
 //! `session_meta.total_usage` (`input_tokens` counting cached input,
 //! `cached_input_tokens`, `output_tokens`, `total_cost` as a decimal
-//! string): they count in the hour of its last entry.
+//! string): they count in the hour of its last entry, paid for as the
+//! provider its model names (`openrouter:example/model`).
 
-use super::ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL};
+use super::{
+    billing::{Accounts, flsh_provider},
+    ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
+};
 use crate::agents::prices::Tokens;
-use crate::found::open_database;
-use beep_proto::ModelId;
+use crate::found::{Agent, open_database};
+use beep_proto::{ModelId, node::usage::Billing};
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path};
 
@@ -26,10 +31,11 @@ const OPENCODE: &str = "SELECT m.session_id, s.directory, (m.time_created / 3600
             + COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0)) AS INTEGER),
         CAST(SUM(COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)) AS INTEGER),
         CAST(SUM(COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0)) AS INTEGER),
-        SUM(COALESCE(json_extract(m.data, '$.cost'), 0))
+        SUM(COALESCE(json_extract(m.data, '$.cost'), 0)),
+        COALESCE(json_extract(m.data, '$.providerID'), '')
      FROM message m JOIN session s ON s.id = m.session_id
      WHERE m.time_created >= ?1 AND json_extract(m.data, '$.role') = 'assistant'
-     GROUP BY 1, 2, 3, 4
+     GROUP BY 1, 2, 3, 4, 10
      LIMIT ?2";
 
 const FLSH: &str = "SELECT m.chat_key, m.working_dir, COALESCE(m.model, ''), m.total_usage,
@@ -56,7 +62,11 @@ fn count(value: i64) -> u64 {
 
 /// What each OpenCode session in `database` spent from `since` (Unix
 /// seconds) on, by session.
-pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<String, Part>> {
+pub(super) fn opencode(
+    database: &Path,
+    since: u64,
+    accounts: &mut Accounts,
+) -> rusqlite::Result<BTreeMap<String, Part>> {
     let conn = open_database(database)?;
     let mut statement = conn.prepare(OPENCODE)?;
     let since_ms = i64::try_from(since.saturating_mul(1000)).unwrap_or(i64::MAX);
@@ -75,9 +85,16 @@ pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap
             cache_write_long: 0,
         };
         let cost: f64 = row.get(8)?;
+        let provider: String = row.get(9)?;
         if tokens.total() == 0 && cost <= 0.0 {
             continue;
         }
+        let billing = accounts.resolve(
+            Agent::OpenCode,
+            Billing::Unknown,
+            Some(provider.as_str()).filter(|provider| !provider.is_empty()),
+            Some(cwd.as_str()),
+        );
         let model = if model.is_empty() {
             UNKNOWN_MODEL.to_owned()
         } else {
@@ -89,6 +106,7 @@ pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap
             .entry(BucketKey {
                 hour,
                 model: ModelId::new(model.as_str()),
+                billing,
             })
             .or_default()
             .add(&model, &tokens, Some(cost));
@@ -99,7 +117,11 @@ pub(super) fn opencode(database: &Path, since: u64) -> rusqlite::Result<BTreeMap
 /// What each flsh session in `database` active from `since` (Unix
 /// seconds) on spent, by session. A database from before flsh kept usage
 /// has no `total_usage` and fails.
-pub(super) fn flsh(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<String, Part>> {
+pub(super) fn flsh(
+    database: &Path,
+    since: u64,
+    accounts: &mut Accounts,
+) -> rusqlite::Result<BTreeMap<String, Part>> {
     let conn = open_database(database)?;
     let mut statement = conn.prepare(FLSH)?;
     let since = i64::try_from(since).unwrap_or(i64::MAX);
@@ -137,6 +159,12 @@ pub(super) fn flsh(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<Str
             continue;
         }
         let last = count(last.unwrap_or(0));
+        let billing = accounts.resolve(
+            Agent::Flsh,
+            Billing::Unknown,
+            flsh_provider(&model),
+            Some(cwd.as_str()),
+        );
         let model = match model.as_str() {
             "" => UNKNOWN_MODEL.to_owned(),
             _ => model,
@@ -157,6 +185,7 @@ pub(super) fn flsh(database: &Path, since: u64) -> rusqlite::Result<BTreeMap<Str
             BucketKey {
                 hour: last - last % 3600,
                 model: ModelId::new(model),
+                billing,
             },
             bucket,
         );
@@ -179,7 +208,7 @@ pub(super) mod tests {
              INSERT INTO session VALUES ('ses_a', '/srv/project'), ('ses_b', '/srv/other');
              INSERT INTO message VALUES
                ('m1', 'ses_a', 1793614500000, 0, '{\"role\":\"user\"}'),
-               ('m2', 'ses_a', 1793614600000, 0, '{\"role\":\"assistant\",\"modelID\":\"gpt-6.1-sol\",\"cost\":0,\"tokens\":{\"input\":1000000,\"output\":100000,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}}}'),
+               ('m2', 'ses_a', 1793614600000, 0, '{\"role\":\"assistant\",\"providerID\":\"github-copilot\",\"modelID\":\"gpt-6.1-sol\",\"cost\":0,\"tokens\":{\"input\":1000000,\"output\":100000,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}}}'),
                ('m3', 'ses_b', 1793614700000, 0, '{\"role\":\"assistant\",\"modelID\":\"example-model\",\"cost\":0.25,\"tokens\":{\"input\":10,\"output\":10,\"cache\":{\"read\":0,\"write\":0}}}'),
                ('m4', 'ses_b', 1000, 0, '{\"role\":\"assistant\",\"modelID\":\"example-model\",\"cost\":9,\"tokens\":{\"input\":10}}');",
         )
@@ -191,13 +220,15 @@ pub(super) mod tests {
         let dir = tempfile::tempdir().expect("a temp folder");
         let path = dir.path().join("opencode.db");
         opencode_database(&path);
-        let parts = opencode(&path, 1_793_600_000).expect("the sessions");
+        let parts = opencode(&path, 1_793_600_000, &mut Accounts::default()).expect("the sessions");
         let a = &parts["ses_a"];
         assert_eq!(a.cwd, "/srv/project");
-        let bucket = a.buckets.values().next().expect("a bucket");
+        let (key, bucket) = a.buckets.iter().next().expect("a bucket");
+        assert_eq!(key.billing, Billing::Subscription);
         // 1M input at $2 and 100K output at $10.
         assert!((bucket.cost_usd - 3.0).abs() < 1e-9);
-        let b = parts["ses_b"].buckets.values().next().expect("a bucket");
+        let (key, b) = parts["ses_b"].buckets.iter().next().expect("a bucket");
+        assert_eq!(key.billing, Billing::Unknown, "no provider named");
         assert!(
             (b.cost_usd - 0.25).abs() < 1e-9,
             "the old message is left out"
@@ -223,12 +254,18 @@ pub(super) mod tests {
                  VALUES ('c1', '{\"type\":\"user\"}', 0, 1793600000), ('c1', 'x', 1, 1793614500);",
         )
         .expect("the schema");
-        let parts = flsh(&path, 1_793_000_000).expect("the sessions");
+        let accounts = &mut Accounts::default();
+        let parts = flsh(&path, 1_793_000_000, accounts).expect("the sessions");
         let (key, bucket) = parts["c1"].buckets.iter().next().expect("a bucket");
         assert_eq!(key.hour, 1_793_613_600);
+        assert_eq!(key.billing, Billing::Metered);
         assert_eq!(bucket.tokens.cache_read, 400);
         assert_eq!(bucket.tokens.input, 600);
         assert!((bucket.cost_usd - 0.42).abs() < 1e-9);
-        assert!(flsh(&path, 1_793_700_000).expect("none").is_empty());
+        assert!(
+            flsh(&path, 1_793_700_000, accounts)
+                .expect("none")
+                .is_empty()
+        );
     }
 }

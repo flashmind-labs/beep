@@ -2,7 +2,7 @@
 //! shows them.
 
 use super::provider::{MediaKind, MediaProvider};
-use crate::{permissions::shorten, protocol::ApprovalField};
+use crate::{permissions::shorten, protocol::ApprovalField, tools::args::text};
 use serde_json::{Value, json};
 use std::str::FromStr;
 
@@ -43,13 +43,6 @@ pub(super) struct Call {
     pub(super) texture: bool,
     /// What the file is called, without its extension.
     pub(super) filename: Option<String>,
-}
-
-fn text<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
 }
 
 impl Call {

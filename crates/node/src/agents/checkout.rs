@@ -89,10 +89,16 @@ pub(super) async fn place(
     prompt: &str,
 ) -> Result<Place> {
     let Some(plan) = plan else {
+        // Only a main checkout needs one: a worktree, such as a project
+        // worker's, or a folder outside git is left as it is.
+        let dir = folder(cwd.as_deref())?;
+        let main = spawn_blocking(move || in_main_checkout(&dir))
+            .await
+            .context("the checkout task stopped")?;
         return Ok(Place {
             folder: cwd,
             note: None,
-            brief: Some(WORKTREE_BRIEF),
+            brief: main.then_some(WORKTREE_BRIEF),
         });
     };
     let made = make_checkout(cwd.as_deref(), plan, prompt).await?;
@@ -106,6 +112,15 @@ pub(super) async fn place(
         note: Some(made.note()),
         brief: None,
     })
+}
+
+/// Whether `dir` is inside a git repository's main checkout: the nearest
+/// `.git` above it is a folder, where a linked worktree has a file.
+fn in_main_checkout(dir: &Path) -> bool {
+    dir.ancestors()
+        .map(|at| at.join(".git"))
+        .find(|git| git.exists())
+        .is_some_and(|git| git.is_dir())
 }
 
 /// Carries out `plan` in the git checkout of `cwd` (as `folder` reads it),
@@ -424,6 +439,24 @@ pub(super) mod tests {
         assert_eq!(current(&work), "main");
         assert_eq!(run(&work, &["branch", "--format=%(refname:short)"]), "main");
         assert!(!work.join(".worktrees").exists(), "no worktree");
+    }
+
+    #[tokio::test]
+    async fn a_worktree_or_a_plain_folder_gets_no_brief() {
+        let (_dir, work) = repo("briefless");
+        run(
+            &work,
+            &["worktree", "add", "-q", ".worktrees/side", "-b", "side"],
+        );
+        let side = work.join(".worktrees/side/src");
+        fs::create_dir_all(&side).expect("a folder in the worktree");
+        let inside = side.to_str().expect("a UTF-8 folder").to_owned();
+        let place_in = place(Some(inside), None, "Fix it").await.expect("a place");
+        assert_eq!(place_in.brief, None, "a linked worktree");
+        let plain = tempfile::TempDir::new().expect("a temp folder");
+        let outside = plain.path().to_str().expect("a UTF-8 folder").to_owned();
+        let place_out = place(Some(outside), None, "Fix it").await.expect("a place");
+        assert_eq!(place_out.brief, None, "not a git folder");
     }
 
     #[tokio::test]
