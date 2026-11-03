@@ -57,7 +57,14 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
-pub(super) fn restart(exe: &Path) -> Result<Restart> {
+pub(super) fn restart() -> Result<()> {
+    // Ending the task ends conhost, and the node with it (`--with-parent`).
+    end();
+    schtasks(&["/Run", "/TN", TASK])
+}
+
+/// What `restart` would do, without doing it.
+pub(super) fn plan(exe: &Path) -> Result<Restart> {
     if !installed() {
         return Ok(Restart::NotInstalled);
     }
@@ -71,9 +78,6 @@ pub(super) fn restart(exe: &Path) -> Result<Restart> {
     if !runs(&xml, exe) {
         return Ok(Restart::OtherBinary(path));
     }
-    // Ending the task ends conhost, and the node with it (`--with-parent`).
-    end();
-    schtasks(&["/Run", "/TN", TASK])?;
     Ok(Restart::Restarted(Manager::TaskScheduler))
 }
 

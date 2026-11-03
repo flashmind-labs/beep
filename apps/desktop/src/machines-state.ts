@@ -70,3 +70,31 @@ export function newestNode(versions: readonly string[]): string | null {
 export function nodeBehind(version: string, newest: string | null) {
   return !!newest && /^\d/.test(version) && isNewer(newest, version);
 }
+
+/// Where Update on a machine's page stands: asking before it stops agent
+/// sessions, installing, waiting for the node to come back on `to`, or
+/// stopped with what went wrong. `note` is why an installed node did not
+/// restart.
+export type NodeUpdate =
+  | { step: "confirm"; text: string }
+  | { step: "updating" }
+  | { step: "restarting"; to: string }
+  | { step: "failed"; error: string }
+  | { step: "note"; text: string };
+
+/// The question Update asks when `sessions` agent sessions run there.
+export function sessionsStop(sessions: number) {
+  return sessions === 1 ? "1 agent session is running and will stop." : `${sessions} agent sessions are running and will stop.`;
+}
+
+/// An error's text without the API's "bad request: " in front.
+export const errorText = (e: unknown) => String(e).replace(/^bad request: /, "");
+
+/// Whether the server refused an update because agent sessions would stop,
+/// so the page asks instead of failing.
+export const asksToStop = (text: string) => / will stop\.$/.test(text);
+
+/// Whether a node restarting on `to` is back: online on `to` or newer.
+export function updatedTo(m: { online: boolean; version: string }, to: string) {
+  return m.online && /^\d/.test(m.version) && !isNewer(to, m.version);
+}
