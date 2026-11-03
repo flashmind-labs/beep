@@ -7,8 +7,8 @@ use super::{Nodes, Online};
 use crate::{
     AsyncMutex,
     protocol::node::sync::{
-        CONTROLS, Keep, MAX_SKIPPED, PROTOCOL, Project, ProjectStatus, Refused, Reply, Request,
-        Skipped,
+        CONTROLS, Keep, MAX_SKIPPED, PROTOCOL, Project, ProjectStatus, RESCAN, Refused, Reply,
+        Request, Skipped,
     },
     store::SyncRow,
     user::User,
@@ -28,6 +28,8 @@ const CONFIGURE_LIMIT: Duration = Duration::from_secs(30);
 /// what one leaves out.
 const STATUS_LIMIT: Duration = Duration::from_secs(5);
 const SKIPPED_LIMIT: Duration = Duration::from_secs(30);
+/// How long a node may take to scan a project when asked.
+const RESCAN_LIMIT: Duration = Duration::from_secs(130);
 /// How long a node may take to settle a conflict.
 const RESOLVE_LIMIT: Duration = Duration::from_secs(30);
 
@@ -80,6 +82,23 @@ impl Online {
     /// Whether this node pauses projects and settles conflicts.
     pub fn sync_controls(&self) -> bool {
         self.syncs() && self.offers(CONTROLS)
+    }
+
+    /// Whether this node scans a project when asked.
+    pub fn sync_rescans(&self) -> bool {
+        self.syncs() && self.offers(RESCAN)
+    }
+
+    /// Has this node scan `project` now and bring it in line; gives how
+    /// it stands after.
+    pub async fn sync_rescan(&self, project: &str) -> Result<ProjectStatus> {
+        let request = Request::Rescan {
+            project: project.to_owned(),
+        };
+        match self.sync_call(&request, RESCAN_LIMIT).await? {
+            Reply::Rescanned { status } => Ok(status),
+            other => bail!("{} answered {other:?}", self.name),
+        }
     }
 
     async fn sync_call(&self, request: &Request, limit: Duration) -> Result<Reply> {

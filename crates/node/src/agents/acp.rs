@@ -10,8 +10,8 @@ use agent_client_protocol::{
         v1::{
             AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
             CompactionCapabilities, ContentBlock, ImageContent, Implementation, InitializeRequest,
-            InitializeResponse, NewSessionRequest, NewSessionResponse, PermissionOptionId,
-            PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
+            InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse,
+            PermissionOptionId, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
             SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
             SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
             SessionId, SetSessionConfigOptionRequest, TextContent,
@@ -117,8 +117,14 @@ struct AcpModel {
 
 /// `session/new` in `cwd`, sent untyped so the answer keeps `models`, which
 /// the crate's typed answer drops.
-pub(super) fn new_session(cwd: &Path) -> Result<UntypedMessage, agent_client_protocol::Error> {
-    UntypedMessage::new(AGENT_METHOD_NAMES.session_new, NewSessionRequest::new(cwd))
+pub(super) fn new_session(
+    cwd: &Path,
+    mcp_servers: Vec<McpServer>,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    UntypedMessage::new(
+        AGENT_METHOD_NAMES.session_new,
+        NewSessionRequest::new(cwd).mcp_servers(mcp_servers),
+    )
 }
 
 /// The session an answer to `session/new` made, and the models it offers.
@@ -439,7 +445,7 @@ fn messages<R: AsyncBufRead + Unpin + Send + 'static>(
 
 /// One line read by a `LineReader`.
 #[derive(Debug, PartialEq)]
-pub(super) enum Line {
+pub(crate) enum Line {
     /// The line without its newline.
     Text(String),
     /// A line longer than the cap, dropped; its length in bytes.
@@ -448,14 +454,14 @@ pub(super) enum Line {
 
 /// Reads lines without holding more than `max` bytes of any one: the rest
 /// of a longer line is read and thrown away.
-pub(super) struct LineReader<R> {
+pub(crate) struct LineReader<R> {
     reader: R,
     max: usize,
     line: Vec<u8>,
 }
 
 impl<R: AsyncBufRead + Unpin> LineReader<R> {
-    pub(super) fn new(reader: R, max: usize) -> Self {
+    pub(crate) fn new(reader: R, max: usize) -> Self {
         Self {
             reader,
             max,
@@ -464,7 +470,7 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
     }
 
     /// The next line; `None` at the end of the input.
-    pub(super) async fn next(&mut self) -> io::Result<Option<Line>> {
+    pub(crate) async fn next(&mut self) -> io::Result<Option<Line>> {
         self.line.clear();
         let mut length = 0usize;
         loop {
