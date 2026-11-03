@@ -294,14 +294,27 @@ export const runningKey = (r: Pick<RunningAgent, "kind" | "machine_id" | "id"> |
   r.kind === "agent" ? `agent:${r.machine_id}:${r.id}` : `research:${r.session}`;
 
 /// An imported project's folder on one machine.
-type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder">;
+type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder"> & { url?: ProjectRow["url"] };
 
-/// The repo a session runs in: the name of the imported project whose
-/// folder on its machine holds it ("repo" of "org/repo"), else its folder's.
+/// The repo's path on its host from a remote, groups and all, without
+/// `.git`: `org/repo`, or `group/sub/repo` on GitLab. Takes
+/// `https://host/org/repo.git`, `ssh://git@host:22/org/repo` and
+/// `git@host:org/repo.git`. Null when `url` is none of those.
+export function remotePath(url: string | null | undefined) {
+  const u = String(url || "").trim();
+  const m = /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/(.+)$/i.exec(u) ?? /^[^/\s:@]+@[^/\s:]+:(.+)$/.exec(u);
+  const path = m?.[1].replace(/\/+$/, "").replace(/\.git$/i, "").replace(/^\/+/, "");
+  return path && path.includes("/") ? path : null;
+}
+
+/// The repo a session runs in: the imported project whose folder on its
+/// machine holds it, by its remote's full path ("group/sub/repo"), else by
+/// its short name ("repo" of "org/repo"); else its folder's name.
 export function repoOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: readonly ProjectFolder[] = []) {
   const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
   const p = projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
-  return p ? p.name.split("/").pop() : base(r.cwd);
+  if (!p) return base(r.cwd);
+  return remotePath(p.url) ?? p.name.split("/").pop();
 }
 
 /// A Needs you row: a title, one muted line and its one button. A chat

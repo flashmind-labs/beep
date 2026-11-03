@@ -79,8 +79,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-comp, .cc-pjc { margin-inline: max(16px, calc((100% - 760px) / 2)) }
 .cc-pjc .box { border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,30,.92); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: rgba(59,155,122,.6) }
-.cc-pjc input { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; min-width: 0; user-select: text }
-.cc-pjc input::placeholder { color: var(--dim) }
+.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
+.cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; min-width: 0; user-select: text }
+.cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
 .cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
 .cc-pjc .sp { flex: 1 }
 .cc-pjc .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; max-width: 100% }

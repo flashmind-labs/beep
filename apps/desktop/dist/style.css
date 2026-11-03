@@ -723,6 +723,7 @@ button.dachip:hover { border-color: #3A4A41 }
 .agpview.arts [hidden] { display: none !important }
 .agartlist { flex: none; max-height: 34%; overflow: auto; display: grid; align-content: start; gap: 1px; padding: 4px; border-bottom: 1px solid var(--border) }
 .agartlist .agpmsg { padding: 12px }
+.agpview.arts.folded .agartlist { flex: 1; max-height: none; border-bottom: 0 }
 .agart { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px }
 .agart:hover { background: rgba(228, 238, 232, .05) } .agart.on { background: rgba(228, 238, 232, .09) }
 .agart .k { flex: none; width: 62px; text-align: center; padding: 1px 0; border-radius: 4px; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); color: var(--muted) }
