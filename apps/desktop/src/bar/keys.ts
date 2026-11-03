@@ -21,6 +21,7 @@ import { createRoutine, drawGrants, GR, grantKeys, R, renderGrants, renderRoutin
 import { renderSettings } from "./settings.ts";
 import { K, renderSkills, skillAction, skillKeys } from "./skills.ts";
 import { answerWork, waitingQuestion } from "./work.ts";
+import { windowTakes } from "../windowkeys.ts";
 
 // ---------- Keys ----------
 
@@ -139,18 +140,14 @@ export function liveKeys(e: KeyboardEvent, cmd: boolean) {
 /// while it shows.
 let paneMounted = false;
 export function mountPane(on: boolean) { paneMounted = on; }
-/// Keys the window keeps for itself: its palette and its views.
-export const WINDOW_KEYS = new Set(["k", "m", "j", "l", ","]);
-
 document.addEventListener("keydown", e => {
   const cmd = e.metaKey;
   if (PANE && !paneMounted) return;
   // A key meant for the sidebar (Enter on a row) is not the pane's.
   const t = target(e);
   if (PANE && !cmd && t !== document.body && !bar.contains(t)) return;
-  // ⌘M picks the model while the start form shows.
-  const formKey = S.view === "agentnew" && e.key.toLowerCase() === "m";
-  if (PANE && cmd && WINDOW_KEYS.has(e.key.toLowerCase()) && !formKey) return;
+  // The window's palette and pages, Research among them, are the window's.
+  if (PANE && cmd && windowTakes(e.key, S.view)) return;
   // ⌃` opens a terminal in the session's folder, in its pane.
   if (S.view === "agent" && e.ctrlKey && !cmd && e.key === "`") { e.preventDefault(); return newTerminal(); }
   // Keys typed into a terminal of the pane are the terminal's: Tab, Esc

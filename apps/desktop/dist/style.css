@@ -805,6 +805,14 @@ button.dachip:hover { border-color: #3A4A41 }
 .dbody .dcoderen.tool .out.all { max-height: 320px; overflow: auto; color: var(--muted) }
 .dbody .dcoderen.tool .cmd { grid-column: 2 / -1; margin: 3px 0 0; padding: 0; border: 0; background: none; font: 11.5px/17px var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere }
 .dcoderen.tool .exit { font: 11px/20px var(--mono); color: var(--coral) }
+/* A call to the session's Beep tools: what it did, the machine, the command or prompt, the file count and how it stands. */
+.dbody .dcoderen.tool.beep .tt.bp { display: flex; align-items: center; gap: 6px; min-width: 0; font-family: inherit }
+.dcoderen.tool.beep .bi { flex: none; display: grid; color: var(--emerald) }
+.dcoderen.tool.beep .v { flex: none; color: var(--fg) }
+.dcoderen.tool.beep .mc { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 11.5px; line-height: 17px; color: var(--fg) }
+.dcoderen.tool.beep .bp code { min-width: 0; font: 12px var(--mono); color: var(--muted); background: none; border: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dcoderen.tool.beep .bs { font-size: 11px; line-height: 20px; color: var(--dim); white-space: nowrap }
+.dcoderen.tool.beep.failed .bs { color: var(--coral) }
 .dcoderen.tool button.more { all: unset; cursor: pointer; grid-column: 2 / -1 }
 .dbody .dcoderen.tool.failed .out { border-color: rgba(232, 104, 90, .35) }
 .dcoderen.tool .more { grid-column: 2 / -1; font-size: 11.5px; line-height: 18px; padding-top: 2px; color: var(--dim) }

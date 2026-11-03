@@ -5,7 +5,7 @@ use crate::{
     agents::{AgentKind, Agents},
     env,
     files::Folders,
-    mcp::{self, Launch, Upstream},
+    mcp::{self, Upstream},
     provision::Provision,
     shell,
     state::State,
@@ -142,22 +142,7 @@ pub async fn serve(
     }));
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
-    let _mcp = match std::env::current_exe().and_then(std::path::absolute) {
-        Ok(exe) => {
-            let dir = std::path::absolute(&state.dir).unwrap_or_else(|_| state.dir.clone());
-            let launch = Arc::new(Launch::new(exe, dir));
-            let (agents, upstream) = (offers.agents.clone(), offers.tools.clone());
-            Some(AbortOnDropHandle::new(tokio::spawn(async move {
-                if let Err(e) = mcp::listen(launch, agents, upstream).await {
-                    log::warn!("not serving the Beep MCP server: {e:#}");
-                }
-            })))
-        }
-        Err(e) => {
-            log::warn!("not serving the Beep MCP server: this binary is not found: {e}");
-            None
-        }
-    };
+    let _mcp = mcp::start(&state.dir, &offers);
     let stay = async {
         let mut wait = FIRST_RETRY;
         loop {
