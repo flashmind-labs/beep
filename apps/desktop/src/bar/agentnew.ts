@@ -1,9 +1,12 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
-import { type AgentModels, MODELS_KEPT_MS, modelMachine } from "./agentmodels.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, modelLabel, modelRows, pillDetail, railOf, startPlace } from "./agentpick.ts";
+import { modelMachine } from "./agentmodels.ts";
+import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "./core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../foldercomplete.ts";
-import { folderOn, type MachineFolder } from "../projects-state.ts";
+import { folderOn, type MachineFolder, type ProjectRow } from "../projects-state.ts";
+import type { CachedViews } from "../cached.ts";
+import type { HomeView } from "../home.ts";
 import { hints } from "./hints.ts";
 import type { Machine } from "./machines.ts";
 
@@ -48,6 +51,25 @@ function loadBranches(project: string) {
 
 const formBranches = () => AG.form.project ? BRANCHES.get(AG.form.project) : null;
 
+/// The user's projects and their checkouts, for the Project and Folder
+/// menus; null until read.
+let PROJECTS: FormProject[] | null = null;
+
+/// Reads the projects: Home as the app kept it, at once, then the server's
+/// answer when nothing was kept.
+async function loadProjects() {
+  const show = (rows: ProjectRow[] | null | undefined) => {
+    if (!rows) return false;
+    PROJECTS = formProjects(rows);
+    if (S.view === "agentnew") drawParts();
+    return true;
+  };
+  const kept = await invoke<CachedViews | null>("center_cached").catch(() => null);
+  if (show(kept?.home?.projects)) return;
+  const home = await invoke<HomeView>("center_home").catch(e => { console.warn("projects for the start form:", e); return null; });
+  show(home?.projects);
+}
+
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
 export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: AgentPlace | null = null) {
@@ -63,6 +85,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   invoke<AgentSession[]>("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
   invoke<Machine[]>("list_machines").then(list => { KNOWN = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) loadBranches(at.project);
+  loadProjects();
 }
 
 export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
@@ -77,11 +100,8 @@ const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" strok
 const UP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 const HOST = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>';
 const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>';
+const PROJECT = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
 const BRANCH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>';
-const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-
-/// A harness's badge, the window's `cc-ag` tile.
-const badge = (agent: string) => { const k = agentKind(agent); return `<span class="cc-ag ${esc(k.cls)}">${esc(k.ini)}</span>`; };
 
 /// Redraws the form, keeping the prompt as typed when it shows already.
 export function drawAgentNew() {
@@ -95,9 +115,8 @@ function drawFrame() {
   const f = AG.form;
   const head = PANE ? "" : `<div class="dhead"><span class="tt"><b>Start a coding agent</b><small>It runs on your machine; follow it and answer it here</small></span>
       <button class="dbtn quiet" id="agList">All sessions</button></div>`;
-  const title = f.project ? `What should we build in <b>${esc(f.project)}</b>?` : "What should we build?";
-  bar.innerHTML = `${head}<div class="agc-wrap"><div class="agc">
-      <h3>${title}</h3>
+  bar.innerHTML = `${head}<div class="agc-wrap" id="agwrap"><div class="agc">
+      <h3 id="agtitle"></h3>
       <div class="agc-box" id="agbox">
         <textarea id="agprompt" rows="3" placeholder="Describe the task." aria-label="What should the agent do?">${esc(f.prompt)}</textarea>
         <div class="agc-row"><span class="sp"></span><span id="agpill"></span>
@@ -132,7 +151,10 @@ function drawParts() {
   $$("#agbox").classList.toggle("err", missing);
   $$<HTMLTextAreaElement>("#agprompt").placeholder = missing ? "Say what the agent should do." : "Describe the task.";
   // The search and the folder field are drawn again; they keep the keys.
-  const focused = document.activeElement?.id;
+  const active = document.activeElement;
+  const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";
+  const title = formTitle(f.project);
+  $$("#agtitle").innerHTML = title.name ? `${esc(title.lead)} <b>${esc(title.name)}</b>?` : esc(title.lead);
   const go = $$<HTMLButtonElement>("#aggo");
   go.disabled = AG.busy || !hosts.length;
   go.innerHTML = AG.busy ? '<span class="dspin"></span>' : UP;
@@ -144,8 +166,8 @@ function drawParts() {
   $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
       <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
       <div><button class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
-  if (focused === "agq" || focused === "agcwd" || focused === "agbase") {
-    const field = $<HTMLInputElement>(`#${focused}`);
+  if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") {
+    const field = $<HTMLInputElement>(focused);
     field?.focus();
     field?.setSelectionRange(field.value.length, field.value.length);
   }
@@ -157,78 +179,113 @@ function drawPill(none: boolean) {
     el.innerHTML = `<button class="agc-pill" disabled>No agent</button>`;
     return;
   }
-  const list = MODELS.get(f.modelFor ?? "")?.list;
-  const detail = pillDetail(modelLabel(list, f.model), f.agent, f.effort);
-  el.innerHTML = `<button class="agc-pill" id="agpillb" aria-expanded="${f.open === "pick"}" title="Harness, model and thinking (⌘M)">${badge(f.agent)}${esc(agentKind(f.agent).name)} <small>${esc(detail)}</small>${CARET}</button>`;
+  const inner = pillInner(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? formModelMachine() : null);
+  el.innerHTML = `<button class="agc-pill" id="agpillb" aria-expanded="${f.open === "pick"}" title="Harness, model and thinking (⌘M)">${inner}</button>`;
 }
 
-/// The picker under the pill: harnesses, their models, their thinking.
+/// The picker by the pill: harnesses, their models, their thinking.
 function drawPicker() {
   const f = AG.form, el = $$("#agpick");
-  if (f.open !== "pick" || !f.agent) { el.innerHTML = ""; return; }
-  const host = formHost();
-  const rail = railOf(formAgents(), [...new Set((AG.hosts ?? []).flatMap(m => m.agents))]).map(r => {
-    const k = agentKind(r.agent);
-    const why = r.enabled ? k.name : `${k.name} (not on ${host ? host.machine_name : "any machine"})`;
-    return `<button data-agh="${esc(r.agent)}" aria-pressed="${r.agent === f.agent}" title="${esc(why)}"${r.enabled ? "" : " disabled"}>${badge(r.agent)}</button>`;
-  }).join("");
-  const name = agentKind(f.agent).name, levels = effortsOf(f.agent);
-  const think = levels.length
-    ? [`<button data-age="" class="${f.effort ? "" : "on"}">Default${f.effort ? "" : CHECK}</button>`,
-      ...levels.map(l => `<button data-age="${l.value}" class="${f.effort === l.value ? "on" : ""}">${esc(l.label)}${f.effort === l.value ? CHECK : ""}</button>`)].join("")
-    : `<p class="none">${esc(effortNote(f.agent, name))}</p>`;
-  el.innerHTML = `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
-      <div class="agc-rail">${rail}</div>
-      <div class="agc-list"><input class="agc-search" id="agq" spellcheck="false" autocomplete="off" placeholder="Search ${esc(name)} models…" value="${esc(f.query ?? "")}"><div id="agmodels"></div></div>
-      <div class="agc-think"><h5><span>Thinking</span><span>${esc(name)}</span></h5>${think}</div>
-    </div>`;
-  drawModels();
-  const q = $$<HTMLInputElement>("#agq");
-  q.addEventListener("input", () => { f.query = q.value; drawModels(); });
-  q.addEventListener("keydown", e => {
-    if (e.key !== "Enter" || e.metaKey) return;
-    e.preventDefault();
-    const first = $<HTMLElement>("#agmodels [data-agmo]");
-    if (first) pickModel(first.dataset.agmo!);
+  if (f.open !== "pick" || !f.agent) { el.innerHTML = ""; closedPicker(el); return; }
+  const host = formHost(), machine = f.modelFor ? formModelMachine() : null;
+  const name = machine ? AG.hosts?.find(m => m.machine_id === machine)?.machine_name ?? machine : null;
+  const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, query: f.query ?? "" };
+  drawPickerIn(el, {
+    picked,
+    offered: formAgents(),
+    everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
+    machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
+    noMachine: "Pick a machine, or describe the task so Auto picks one, to list its models.",
+    anchor: () => $("#agpillb"),
+    bounds: () => bar,
+    changed: what => {
+      if (what === "models") return drawPill(false);
+      Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, query: picked.query });
+      if (what === "model") { f.open = null; drawParts(); return $("#agprompt")?.focus(); }
+      drawParts();
+      if (what === "agent") focusSearch(el);
+    },
   });
 }
 
-/// The model column, for what the search holds.
-function drawModels() {
-  const f = AG.form, el = $("#agmodels");
-  if (!el) return;
-  if (!f.modelFor) {
-    el.innerHTML = `<button data-agmo="" class="on">Default<small>its own</small></button><p class="none">Pick a machine, or describe the task so Auto picks one, to list its models.</p>`;
-    return;
-  }
-  const { rows, note } = modelRows(MODELS.get(f.modelFor)?.list, f.query ?? "");
-  el.innerHTML = rows.map(r => `<button data-agmo="${esc(r.value)}" class="${r.value === (f.model ?? "") ? "on" : ""}${r.value && f.agent === "flsh" ? " mono" : ""}">${esc(r.label)}${r.note ? `<small>${esc(r.note)}</small>` : ""}</button>`).join("")
-    + (note ? `<p class="none">${MODELS.get(f.modelFor)?.list === undefined ? '<span class="dspin"></span> ' : ""}${esc(note)}</p>` : "");
-}
+addEventListener("resize", () => { if (S.view === "agentnew") placeMenu(); });
 
-function pickModel(model: string) {
-  const f = AG.form;
-  f.model = model;
-  f.query = "";
-  f.open = null;
-  drawParts();
-  $("#agprompt")?.focus();
-}
-
-/// Machine and Folder under the box, with whichever menu is open.
+/// Project, Machine and Folder under the box, with whichever menu is open.
 function drawUnder() {
   const f = AG.form, el = $$("#agunder"), host = formHost();
   const checkout = checkoutHere();
   const busy = checkout ? folderBusy(AG.sessions, formModelMachine(), f.cwd) : false;
-  const folderText = f.cwd.trim() ? `<span class="mono">${esc(f.cwd.trim())}</span>` : esc(host?.workspace ? "Workspace" : "Home folder");
+  const shown = folderPill(f.cwd, host?.workspace, host?.home);
+  const folderText = shown.label ? `${esc(shown.label)} <small class="mono">${esc(shown.path)}</small>` : `<span class="mono">${esc(shown.path)}</span>`;
   const sub = checkout ? `<small>${esc(checkoutLabel(f.checkout ?? "auto", busy))}</small>` : "";
   const folder = f.typing
     ? `<span class="agc-type"><input id="agcwd" spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="${esc(f.cwd)}"><span id="agcwdmenu"></span></span>`
-    : `<button class="agc-pill" id="agfoldb" aria-expanded="${f.open === "folder"}">${FOLDER}${folderText}${sub}${CARET}</button>`;
+    : `<button class="agc-pill" id="agfoldb" aria-expanded="${f.open === "folder"}" title="${esc(f.cwd.trim() || host?.workspace || "The machine's workspace")}">${FOLDER}${folderText}${sub}${CARET}</button>`;
   const base = checkout && makesBranch(f.checkout ?? "auto", busy) ? `<span class="bar"></span>${baseButton()}` : "";
-  el.innerHTML = `<button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Auto")}${CARET}</button><span class="bar"></span>${folder}${base}${hostMenu()}${folderMenu(checkout, busy)}${baseMenu()}`;
+  const project = `<button class="agc-pill" id="agprojb" aria-expanded="${f.open === "project"}" title="${f.project ? "The project this agent works on" : "Pick a project, or run in a folder"}">${PROJECT}${esc(f.project || "No project")}${CARET}</button>`;
+  el.innerHTML = `${project}<span class="bar"></span><button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Auto")}${CARET}</button><span class="bar"></span>${folder}${base}${projectMenu()}${hostMenu()}${folderMenu(checkout, busy)}${baseMenu()}`;
+  placeMenu();
   if (f.typing) bindFolderField();
   if (f.baseTyping) bindBaseField();
+}
+
+/// Lines the open menu up under its pill, inside the row.
+function placeMenu() {
+  const f = AG.form;
+  const pill = f.open === "project" ? "#agprojb" : f.open === "host" ? "#aghostb" : f.open === "folder" ? "#agfoldb" : null;
+  const menu = $<HTMLElement>("#agunder > .agc-menu"), under = $("#agunder"), anchor = pill ? $<HTMLElement>(pill) : null;
+  if (!menu || !under || !anchor) return;
+  menu.style.left = `${Math.max(0, Math.min(anchor.offsetLeft, under.clientWidth - menu.offsetWidth))}px`;
+}
+
+/// The Project menu: the user's projects, then none.
+function projectMenu() {
+  const f = AG.form;
+  if (f.open !== "project") return "";
+  const machine = f.machine === "auto" ? null : f.machine;
+  const rows = (PROJECTS ?? []).map(p => {
+    const here = machine ? p.places.find(x => x.machine === machine) : null;
+    const where = here ? tildePath(here.cwd, formHost()?.home) : `${p.places.length} ${p.places.length === 1 ? "machine" : "machines"}`;
+    return `<button data-agp="${esc(p.name)}" class="${f.project === p.name ? "on" : ""}"><span></span><span>${esc(p.name)}</span><small class="${here ? "mono" : ""}">${esc(where)}</small></button>`;
+  });
+  const note = PROJECTS === null ? ['<button disabled><span></span><span><span class="dspin"></span> Reading projects…</span><small></small></button>'] : [];
+  const none = `<button data-agp="" class="${f.project ? "" : "on"}"><span></span>No project<small>run in a folder</small></button>`;
+  return `<div class="agc-menu" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), none].join("")}</div>`;
+}
+
+/// Sets the form's project, at its checkout on the machine picked; a
+/// project not on that machine goes to Auto. Null leaves the project for
+/// the workspace.
+function setProject(name: string | null) {
+  const f = AG.form, p = name ? PROJECTS?.find(x => x.name === name) : null;
+  f.checkout = "auto";
+  f.base = null;
+  if (!p) {
+    f.project = null;
+    f.places = undefined;
+    f.cwd = "";
+    return;
+  }
+  if (f.machine !== "auto" && !p.places.some(x => x.machine === f.machine)) f.machine = "auto";
+  f.project = p.name;
+  f.places = p.places;
+  f.cwd = folderOn(p.places[0]?.cwd ?? "", f.machine === "auto" ? null : f.machine, p.places);
+  if (!BRANCHES.has(p.name)) loadBranches(p.name);
+}
+
+/// After a folder is picked or typed: the project whose checkout it is,
+/// else none.
+function projectForFolder() {
+  const f = AG.form, machine = f.machine === "auto" ? null : f.machine;
+  const p = PROJECTS ? projectAt(PROJECTS, machine, f.cwd) : null;
+  if (p) {
+    f.project = p.name;
+    f.places = p.places;
+    if (!BRANCHES.has(p.name)) loadBranches(p.name);
+  } else if (PROJECTS || !f.cwd.trim()) {
+    f.project = null;
+    f.places = undefined;
+  }
 }
 
 /// The Base button, which the new branch starts from: the ref picked, else
@@ -285,13 +342,25 @@ function folderMenu(checkout: boolean, busy: boolean) {
   const f = AG.form;
   if (f.open !== "folder") return "";
   const machine = f.machine === "auto" ? null : f.machine, host = formHost();
+  if (!f.project) {
+    // Outside a project: the workspace, then the projects checked out on
+    // the machine; picking one sets the Project pill.
+    const rows = folderRows(f.cwd, host?.workspace, host?.home, projectFolders(PROJECTS ?? [], machine, host?.home)).map(r => {
+      if (r.kind === "rule") return "<hr>";
+      if (r.kind === "type") return `<button data-agtype="1"><span></span>Type a folder…<small></small></button>`;
+      if (r.kind === "workspace") return `<button data-agf="" class="${r.on ? "on" : ""}"><span></span>Workspace<small class="mono">${esc(r.shown)}</small></button>`;
+      return `<button data-agf="${esc(r.cwd)}" class="${r.on ? "on" : ""}"><span></span><span>${esc(r.project)}</span><small class="mono">${esc(r.shown)}</small></button>`;
+    });
+    return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
+  }
   const places = [...new Set((f.places ?? []).filter(p => !machine || p.machine === machine).map(p => machine ? p.cwd : folderOn(p.cwd, null, null)))];
   const pick = f.checkout ?? "auto";
   const same = (p: CheckoutPick) => JSON.stringify(p) === JSON.stringify(pick);
   const trees = checkout ? knownWorktrees(AG.sessions, formModelMachine(), f.cwd) : [];
   const resolved = checkoutFor("auto", busy) === "new" ? "new worktree: the checkout is busy" : "the checkout";
+  const workspace = host?.workspace ? tildePath(host.workspace, host.home) : "~";
   const rows = [
-    ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(p)}</span><small>checkout</small></button>`),
+    ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(tildePath(p, host?.home))}</span><small>checkout</small></button>`),
     ...(checkout ? ["<hr>",
       `<button data-agk="auto" class="${same("auto") ? "on" : ""}"><span></span>Auto<small>${esc(resolved)}</small></button>`,
       `<button data-agk="current" class="${same("current") ? "on" : ""}"><span></span>Current checkout<small>as it is</small></button>`,
@@ -299,7 +368,7 @@ function folderMenu(checkout: boolean, busy: boolean) {
       `<button data-agk="new" class="${same("new") ? "on" : ""}"><span></span>New worktree<small>new branch in .worktrees/</small></button>`,
       ...trees.map(t => `<button data-agw="${esc(t)}" class="${same({ worktree: t }) ? "on" : ""}"><span></span><span class="mono">${esc(t.split("/").slice(-2).join("/"))}</span><small>worktree</small></button>`)] : []),
     ...(places.length || checkout ? ["<hr>"] : []),
-    `<button data-agf="" class="${f.cwd.trim() ? "" : "on"}"><span></span>Workspace<small>${esc(host?.workspace || host?.home || "home folder")}</small></button>`,
+    `<button data-agf="" class="${f.cwd.trim() ? "" : "on"}"><span></span>Workspace<small class="mono">${esc(workspace)}</small></button>`,
     `<button data-agtype="1"><span></span>Type a folder…<small></small></button>`,
   ];
   return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
@@ -321,6 +390,9 @@ function onClick(e: MouseEvent) {
   if (at("#agList")) return renderAgents();
   if (at("#agmachines")) return import("./machines.ts").then(m => m.renderMachines());
   if (at("#agpillb")) return togglePicker();
+  if (at("#agprojb")) { f.open = f.open === "project" ? null : "project"; return drawParts(); }
+  const project = at("[data-agp]");
+  if (project) { setProject(project.dataset.agp || null); f.open = null; drawParts(); return previewAuto(); }
   if (at("#aghostb")) { f.open = f.open === "host" ? null : "host"; return drawParts(); }
   if (at("#agfoldb")) { f.open = f.open === "folder" ? null : "folder"; return drawParts(); }
   if (at("#agbaseb")) {
@@ -332,12 +404,6 @@ function onClick(e: MouseEvent) {
   const base = at("[data-agb]");
   if (base) { f.base = base.dataset.agb!; f.open = null; return drawParts(); }
   if (at("[data-agbtype]")) return typeBase();
-  const harness = at("[data-agh]");
-  if (harness) { f.agent = harness.dataset.agh!; f.query = ""; drawParts(); return $("#agq")?.focus(); }
-  const model = at("[data-agmo]");
-  if (model) return pickModel(model.dataset.agmo!);
-  const effort = at("[data-age]");
-  if (effort) { f.effort = effort.dataset.age || null; return drawParts(); }
   const machine = at("[data-agm]");
   if (machine) {
     f.machine = machine.dataset.agm!;
@@ -347,7 +413,7 @@ function onClick(e: MouseEvent) {
     return previewAuto();
   }
   const folder = at("[data-agf]");
-  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = "auto"; f.open = null; drawParts(); return previewAuto(); }
+  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = "auto"; f.open = null; projectForFolder(); drawParts(); return previewAuto(); }
   const checkout = at("[data-agk]");
   if (checkout) { f.checkout = checkout.dataset.agk as CheckoutPick; f.open = null; return drawParts(); }
   const tree = at("[data-agw]");
@@ -383,7 +449,7 @@ export function togglePicker() {
   f.open = f.open === "pick" ? null : "pick";
   f.query = "";
   drawParts();
-  if (f.open === "pick") $("#agq")?.focus();
+  if (f.open === "pick") focusSearch($$("#agpick"));
 }
 
 /// Closes an open menu or the folder field; true when there was one, so
@@ -430,6 +496,7 @@ function bindFolderField() {
 function doneTyping() {
   const f = AG.form;
   f.typing = false;
+  projectForFolder();
   menu = NO_MENU;
   lookup++;
   clearTimeout(lookupTimer);
@@ -524,10 +591,6 @@ export function previewAuto() {
 
 // ----- Models -----
 
-/// The models each machine's agents offer, by `machine/agent`: `null` when
-/// it could not say, `undefined` in `list` while it is asked.
-const MODELS = new Map<string, { list: AgentModels | null | undefined; at: number }>();
-
 /// The machine the picker lists models on: the one picked, else the one
 /// Auto would pick for the form as it stands.
 function formModelMachine() {
@@ -543,24 +606,7 @@ function syncModel() {
   const key = machine && f.agent ? `${machine}/${f.agent}` : "";
   if (f.modelFor !== key) { f.model = ""; f.modelFor = key; }
   if (!key) return;
-  const known = MODELS.get(key);
-  if (!known || (known.list !== undefined && Date.now() - known.at > MODELS_KEPT_MS)) loadModels(machine!, f.agent!, key);
-}
-
-/// Asks `machine` which models `agent` offers, then redraws when the form
-/// still shows them.
-async function loadModels(machine: string, agent: string, key: string) {
-  MODELS.set(key, { list: undefined, at: Date.now() });
-  let list: AgentModels | null = null;
-  try {
-    list = await invoke<AgentModels | null>("agent_models", { machineId: machine, agent });
-  } catch {
-    list = null;
-  }
-  MODELS.set(key, { list, at: Date.now() });
-  if (S.view !== "agentnew" || AG.form.modelFor !== key) return;
-  drawPill(false);
-  drawModels();
+  modelsOn(machine!, f.agent!, () => { if (S.view === "agentnew" && AG.form.modelFor === key) drawPill(false); });
 }
 
 // ----- Start -----

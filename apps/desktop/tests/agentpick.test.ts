@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/bar/agentmodels.ts";
-import { baseFor, baseRows, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, railOf, startPlace } from "../src/bar/agentpick.ts";
+import { baseFor, baseRows, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, folderPill, folderRows, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, placePopover, projectAt, projectFolders, railOf, startPlace, tildePath } from "../src/bar/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -161,4 +161,83 @@ test("the Base menu lists the default branch first, then the newest", () => {
   assert.equal(baseFor(null, list), "main", "the default branch");
   assert.equal(baseFor("old", list), "old");
   assert.equal(baseFor(" ", null), null, "the checkout's HEAD");
+});
+
+test("folders under the home folder are written with ~", () => {
+  assert.equal(tildePath("/srv/user", "/srv/user"), "~");
+  assert.equal(tildePath("/srv/user/acme/widget/", "/srv/user"), "~/acme/widget");
+  assert.equal(tildePath("/home/user/acme", null), "~/acme", "a /home folder without the home known");
+  assert.equal(tildePath("/Users/user", undefined), "~");
+  assert.equal(tildePath("/opt/work", "/srv/user"), "/opt/work");
+  assert.equal(tildePath("  ", "/srv/user"), "");
+});
+
+const ROWS = [
+  { name: "acme/widget", machine_id: "a", folder: "/home/user/acme/widget" },
+  { name: "acme/widget", machine_id: "b", folder: "/Users/user/Projects/widget" },
+  { name: "acme/relay", machine_id: "a", folder: "/home/user/srv/relay" },
+  { name: "acme/empty", machine_id: "a", folder: "" },
+];
+
+test("projects gather their checkouts by name", () => {
+  assert.deepEqual(formProjects(ROWS), [
+    { name: "acme/relay", places: [{ machine: "a", cwd: "/home/user/srv/relay" }] },
+    { name: "acme/widget", places: [{ machine: "a", cwd: "/home/user/acme/widget" }, { machine: "b", cwd: "/Users/user/Projects/widget" }] },
+  ]);
+  assert.deepEqual(formProjects(null), []);
+});
+
+test("outside a project the Folder menu lists Workspace, the machine's projects, then Type a folder", () => {
+  const projects = formProjects(ROWS);
+  const onB = projectFolders(projects, "b", "/Users/user");
+  assert.deepEqual(onB, [{ project: "acme/widget", cwd: "/Users/user/Projects/widget", shown: "~/Projects/widget" }]);
+  const rows = folderRows("", "/home/user", "/home/user", projectFolders(projects, "a", "/home/user"));
+  assert.deepEqual(rows, [
+    { kind: "workspace", shown: "~", on: true },
+    { kind: "rule" },
+    { kind: "project", project: "acme/relay", cwd: "/home/user/srv/relay", shown: "~/srv/relay", on: false },
+    { kind: "project", project: "acme/widget", cwd: "/home/user/acme/widget", shown: "~/acme/widget", on: false },
+    { kind: "rule" },
+    { kind: "type" },
+  ]);
+  const picked = folderRows("/home/user/srv/relay/", null, null, projectFolders(projects, "a", null));
+  assert.deepEqual(picked.filter(r => "on" in r && r.on).map(r => r.kind), ["project"]);
+  assert.deepEqual(folderRows("", null, null, []).map(r => r.kind), ["workspace", "rule", "type"]);
+  // On Auto each project shows at its folder under ~, which every machine reads as its own.
+  assert.deepEqual(projectFolders(projects, null, null).map(f => f.cwd), ["~/srv/relay", "~/acme/widget"]);
+});
+
+test("the Folder pill reads Workspace ~ outside a project, else the folder", () => {
+  assert.deepEqual(folderPill("", "/home/user", "/home/user"), { label: "Workspace", path: "~" });
+  assert.deepEqual(folderPill("", null, null), { label: "Workspace", path: "~" });
+  assert.deepEqual(folderPill("/home/user/acme/widget", "/home/user", "/home/user"), { label: "", path: "~/acme/widget" });
+});
+
+test("a folder picked is the project whose checkout it is", () => {
+  const projects = formProjects(ROWS);
+  assert.equal(projectAt(projects, "a", "/home/user/acme/widget/")?.name, "acme/widget");
+  assert.equal(projectAt(projects, null, "~/srv/relay")?.name, "acme/relay");
+  assert.equal(projectAt(projects, "b", "/home/user/srv/relay"), null, "not checked out on that machine");
+  assert.equal(projectAt(projects, "a", ""), null);
+});
+
+test("the heading names the project's short name", () => {
+  assert.deepEqual(formTitle("acme/widget"), { lead: "What should we build in", name: "widget" });
+  assert.deepEqual(formTitle(null), { lead: "What should we build?", name: null });
+});
+
+test("the picker opens above its pill, else below, else cut to the roomier side, always inside the view", () => {
+  const view = { width: 1000, height: 800 };
+  const size = { width: 600, height: 340 };
+  const pill = (top: number) => ({ top, left: 700, width: 200, height: 30 });
+  assert.deepEqual(placePopover(pill(500), size, view), { top: 154, left: 300, width: 600, maxHeight: null }, "above, right edges lined up");
+  assert.deepEqual(placePopover(pill(100), size, view), { top: 136, left: 300, width: 600, maxHeight: null }, "no room above: below");
+  const short = { width: 1000, height: 500 };
+  assert.deepEqual(placePopover(pill(300), size, short), { top: 8, left: 300, width: 600, maxHeight: 286 }, "neither fits: the roomier side, cut");
+  assert.deepEqual(placePopover(pill(150), size, short), { top: 186, left: 300, width: 600, maxHeight: 306 }, "below when it has more room");
+  const narrow = placePopover({ top: 300, left: 10, width: 100, height: 30 }, size, { width: 400, height: 800 });
+  assert.equal(narrow.width, 384, "never wider than the view");
+  assert.equal(narrow.left, 8, "kept inside on the left");
+  const left = placePopover({ top: 500, left: 0, width: 60, height: 30 }, size, view);
+  assert.equal(left.left, 8);
 });

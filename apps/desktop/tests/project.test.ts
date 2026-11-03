@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, workerSession, barPlaceholder, chatStarted, chatProject, shortName, newChatProject } from "../src/project.ts";
+import { agentFor, duration, taskAction, taskSummary, prLabel, taskMeta, workerFolder, workerLine, workerSession, chatProject, shortName, newChatProject } from "../src/project.ts";
 
 const MIN = 60000;
 
@@ -53,15 +53,6 @@ test("a worker's line names its agent, machine, worktree, state and time", () =>
   const w = { agent: "codex", machine_name: "build-box", folder: "/srv/project/.worktrees/bump", state: "ended", started_at: 0, ended_at: 42 * MIN };
   assert.equal(workerLine(w, 99 * MIN), "Codex · build-box · .worktrees/bump · ended · 42 min");
   assert.equal(workerLine({ ...w, state: "running", ended_at: null }, 18 * MIN), "Codex · build-box · .worktrees/bump · running · 18 min");
-});
-
-test("the prompt bar names the project and offers the chat once it has turns", () => {
-  assert.equal(barPlaceholder("acme/widget"), "Ask the project agent about acme/widget");
-  assert.equal(chatStarted(undefined), false);
-  assert.equal(chatStarted([]), false);
-  assert.equal(chatStarted([{ role: "scheduled", label: "Nightly" }, { role: "approval", action: "Create 3 tasks" }]), false);
-  assert.equal(chatStarted([{ role: "user", text: "Plan the 0.4 release" }]), true);
-  assert.equal(chatStarted([{ role: "assistant", html: "<p>Done</p>" }]), true);
 });
 
 test("a chat belongs to the project whose agent chat it is", () => {
