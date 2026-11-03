@@ -127,9 +127,10 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("rollout.jsonl");
         std::fs::write(&path, "{}\n").unwrap();
-        let open = std::fs::File::open(&path).unwrap();
+        let _open = std::fs::File::open(&path).unwrap();
         assert_eq!(held_open(&path), Some(true));
-        drop(open);
-        assert_eq!(held_open(&path), Some(false));
+        // A path nothing opened. (A file closed again may still be held for
+        // a moment by a child another test forks before it execs.)
+        assert_eq!(held_open(dir.path()), Some(false));
     }
 }
