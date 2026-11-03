@@ -1258,6 +1258,8 @@ struct FakeAgents {
     external: Option<Vec<ExternalSession>>,
     /// Takes requests and never answers.
     hang: bool,
+    /// Where a hanging node hands each first request it takes.
+    heard: Option<mpsc::UnboundedSender<SessionsRequest>>,
     /// Where the `claude/1` stream hands the orders it gets.
     orders: Option<mpsc::UnboundedSender<Request>>,
     /// The PNGs `Image` finds, by session.
@@ -1309,6 +1311,9 @@ impl Protocol for FakeSessions {
                 return Ok(());
             };
             if fake.hang {
+                if let Some(heard) = &fake.heard {
+                    let _ = heard.send(request.clone());
+                }
                 // Holds the stream until the server drops it.
                 while rx.recv::<SessionsRequest>().await?.is_some() {}
                 return Ok(());
@@ -1689,6 +1694,12 @@ impl CommandCenter {
     /// Links a node named `name` to user `user`, connects it serving
     /// `fake`, and waits until it is online. Gives its machine id.
     async fn node(&mut self, user: usize, name: &'static str, fake: FakeAgents) -> String {
+        let key = self.node_key(user, name, fake).await;
+        key.public().to_string()
+    }
+
+    /// `node`, giving the node's key.
+    async fn node_key(&mut self, user: usize, name: &'static str, fake: FakeAgents) -> SecretKey {
         let key = SecretKey::generate();
         self.users[user]
             .link_key(NewKey {
@@ -1698,14 +1709,19 @@ impl CommandCenter {
             })
             .await
             .unwrap();
+        self.connect(&key, name, fake).await;
+        online(&self.app, &key.public().to_string()).await;
+        key
+    }
+
+    /// Connects a node with the linked key `key` serving `fake`, on an
+    /// endpoint of its own, as a node does when it starts again.
+    async fn connect(&mut self, key: &SecretKey, name: &'static str, fake: FakeAgents) {
         let addr = self.router.endpoint().addr();
         let node = endpoint(key.clone()).await;
         self.nodes.push(tokio::spawn(async move {
             beep_node::link::connect(&node, addr, name, &fake.offers()).await
         }));
-        let id = key.public().to_string();
-        online(&self.app, &id).await;
-        id
     }
 
     async fn phone(&self, user: usize) -> (Node, Client) {
@@ -2281,6 +2297,52 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
         missing.downcast::<ApiError>().unwrap(),
         ApiError::NotFound {}
     ));
+    center.shutdown().await;
+}
+
+/// A node that restarts leaves the server holding its old connection for a
+/// while; a folder read sent on it goes again on the new one instead of
+/// failing.
+#[tokio::test]
+async fn a_folder_read_lost_with_a_replaced_connection_goes_again() {
+    let mut center = CommandCenter::new(1).await;
+    let (heard, mut taken) = mpsc::unbounded_channel();
+    let stale = FakeAgents {
+        hang: true,
+        heard: Some(heard),
+        ..FakeAgents::default()
+    };
+    let key = center.node_key(0, "build-box", stale).await;
+    let (_node, client) = center.phone(0).await;
+    let list = ListWorkFolder {
+        machine_id: key.public().to_string(),
+        root: "/srv/project".into(),
+        path: "src".into(),
+        ignored: false,
+    };
+    let call = client.call(&list);
+    tokio::pin!(call);
+    // The stale connection takes the read and never answers it.
+    loop {
+        tokio::select! {
+            done = &mut call => panic!("answered on the stale connection: {done:?}"),
+            request = taken.recv() => {
+                if matches!(request, Some(SessionsRequest::Folder { .. })) {
+                    break;
+                }
+            }
+        }
+    }
+    // The node starts again and reconnects, replacing that connection.
+    center
+        .connect(&key, "build-box", FakeAgents::default())
+        .await;
+    let folder = timeout(Duration::from_secs(30), call)
+        .await
+        .expect("the read ends")
+        .expect("the read goes again on the new connection");
+    assert_eq!(folder.path, "src");
+    assert_eq!(folder.entries[0].name, "main.rs");
     center.shutdown().await;
 }
 
