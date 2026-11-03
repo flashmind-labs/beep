@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, ghChoices, githubAccounts, hostOf, sameServer, teaHas, teaOffers, toolLine,
+  GITHUB_TOKEN_PAGE, cliHost, credentialsHtml, draft, editFor, forgejoTokenPage, ghChoices, githubAccounts, hostOf, sameServer, teaHas, teaOffers, toolChip, foldOrgs,
   type CliLogins, type Credential,
 } from "../src/credentials.ts";
 
@@ -28,10 +28,18 @@ test("each Forgejo server is its own row, with an add button", () => {
   assert.match(html, /git\.example\.com/);
   assert.match(html, /code\.example\.org/);
   assert.match(html, /\+ Add a Forgejo server/);
-  assert.match(html, /gh on build-box, mac-box/);
-  assert.match(html, /teacli on build-box/);
-  assert.match(html, /…4f2a/);
+  // One chip for where each CLI is, the machine names in its tooltip.
+  assert.match(html, /title="build-box, mac-box">gh on 2 machines/);
+  assert.match(html, />teacli on build-box</);
+  // The token's last 4 are not shown on git host rows.
+  assert.doesNotMatch(html, /…4f2a/);
+  assert.doesNotMatch(html, /…9c1d/);
   assert.match(html, /@you/);
+  // A server that could not be reached is a warning chip.
+  assert.match(html, /class="dgchip warn">not checked: the server could not reach it/);
+  // Replace and Remove are icon buttons with their label as tooltip.
+  assert.match(html, /title="Replace the token for git\.example\.com"[^>]*data-cred-edit="forgejo:f1"/);
+  assert.match(html, /title="Remove code\.example\.org"[^>]*data-cred-remove="f2"/);
   // A key that is missing gets an Add button and shows its env var.
   assert.match(html, /data-cred-edit="api:elevenlabs">Add key/);
   assert.match(html, /ELEVENLABS_API_KEY/);
@@ -46,15 +54,14 @@ test("a credential the server cannot open asks to be entered again", () => {
   const html = credentialsHtml({ list: unreadable, providers, edit: null }, machines, esc, ago);
   assert.match(html, /Re-enter this token/);
   assert.match(html, /Re-enter this key/);
-  assert.doesNotMatch(html, /…4f2a/);
   assert.doesNotMatch(html, /…a91f/);
 });
 
 test("without the machines list only the token shows", () => {
   const html = credentialsHtml({ list, providers, edit: null }, null, esc, ago);
   assert.doesNotMatch(html, / on build-box/);
-  assert.equal(toolLine("gh", null), "");
-  assert.equal(toolLine("teacli", []), "teacli on no machine yet");
+  assert.equal(toolChip("gh", null), null);
+  assert.equal(toolChip("teacli", [])?.text, "teacli on no machine yet");
 });
 
 test("drafts carry what the server takes", () => {
@@ -161,11 +168,12 @@ test("each GitHub account is a row, the default tagged", () => {
   assert.match(html, /@octo-one/);
   assert.match(html, /@octo-two/);
   assert.match(html, />default<\/span>/);
-  assert.match(html, /orgs acme, acme-labs/);
-  assert.match(html, /GH_TOKEN on your machines/);
+  assert.match(html, />acme<\/span><span class="dgchip">acme-labs</);
+  assert.match(html, /title="GH_TOKEN on your machines">default/);
+  assert.doesNotMatch(html, /projects of its login/);
   assert.match(html, /data-cred-gh-default="g2">Make default/);
   assert.doesNotMatch(html, /data-cred-gh-default="g1"/);
-  assert.match(html, /data-cred-edit="github:g2">Replace/);
+  assert.match(html, /data-cred-edit="github:g2"/);
   assert.match(html, /data-cred-remove="g2"/);
   assert.match(html, /data-cred-gh-add="1">\+ Add another GitHub account/);
   // The row from the credentials list is not shown twice.
@@ -227,4 +235,24 @@ test("Forgejo token pages and CLI hosts", () => {
   const replacing = credentialsHtml({ list, providers, edit: editFor("forgejo:f1", list) }, machines, esc, ago);
   assert.match(replacing, /data-cred-open="https:\/\/git\.example\.com\/user\/settings\/applications"/);
   assert.match(GITHUB_TOKEN_PAGE, /^https:\/\/github\.com\/settings\/tokens\/new\?/);
+});
+
+test("past three orgs the rest fold into +N, named in its tooltip", () => {
+  assert.deepEqual(foldOrgs(["a", "b"]), { shown: ["a", "b"], more: [] });
+  assert.deepEqual(foldOrgs(["a", "b", "c", "d", "e"]), { shown: ["a", "b", "c"], more: ["d", "e"] });
+  const many = [{ ...accounts[0], orgs: ["octo-org", "acme", "acme-labs", "widget-co", "infra"] }];
+  const html = credentialsHtml({ list, github: many, providers, edit: null }, machines, esc, ago);
+  assert.match(html, /title="widget-co, infra">\+2</);
+  assert.doesNotMatch(html, />widget-co</);
+});
+
+test("the add buttons sit together after every host", () => {
+  const html = credentialsHtml({ list, github: accounts, providers, edit: null }, machines, esc, ago);
+  const gh = html.indexOf("+ Add another GitHub account"), fj = html.indexOf("+ Add a Forgejo server");
+  assert.ok(gh > html.indexOf("code.example.org"));
+  assert.ok(fj > gh);
+  // Adding a Forgejo server hides only its own button.
+  const adding = credentialsHtml({ list, github: accounts, providers, edit: editFor("forgejo", list) }, machines, esc, ago);
+  assert.match(adding, /\+ Add another GitHub account/);
+  assert.doesNotMatch(adding, /\+ Add a Forgejo server/);
 });
