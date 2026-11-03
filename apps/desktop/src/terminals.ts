@@ -1,17 +1,22 @@
-// A project's terminals: commands and shells kept running on the user's
-// machines, apart from any chat. The board's Terminals tile, and its full
-// view: a tab per terminal, the open one attached live so what is typed
-// goes to it, and a form to start one. center.ts draws the page; this file
-// keeps the terminals' state. Terminals from before interactive ones are
+// Terminals: commands and shells kept running on the user's machines,
+// apart from any chat, like tmux sessions: the node owns them, so they keep
+// running with the window closed and can be attached to again. A project's
+// board has a Terminals tile and its full view: a tab per terminal, the
+// open one attached live so what is typed goes to it, and a form to start
+// one. The Terminals page (`ALL`) lists every terminal by machine and opens
+// new ones anywhere. center.ts draws the pages; this file keeps the
+// terminals' state. Terminals from before interactive ones are
 // view only: their last lines are read every few seconds instead.
 import type { invoke as Invoke, Channel as ChannelCtor } from "./tauri.ts";
 import { reason } from "./projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
 import type { TileData } from "./board.ts";
 
-/// A terminal of a project (TerminalRow).
+/// A terminal (TerminalRow).
 export interface TerminalRow {
   id: string;
+  /// `org/repo`, or empty for a terminal of no project.
+  project: string;
   machine_id: string;
   machine_name: string;
   name: string;
@@ -64,6 +69,26 @@ export interface Screen {
   setInput(on: boolean): void;
   dispose(): void;
 }
+
+/// A machine as the Terminals page lists it (MachineView).
+export interface TerminalMachine {
+  id: string;
+  name: string;
+  online: boolean;
+}
+
+/// One machine's terminals on the Terminals page and Home.
+export interface MachineTerminals<T> {
+  id: string;
+  name: string;
+  online: boolean;
+  terms: T[];
+}
+
+/// The scope of the Terminals page: every terminal, of any project or none.
+/// Project names are never empty, and a terminal started there has no
+/// project.
+export const ALL = "";
 
 /// What the window hands `makeTerminals`.
 export interface TerminalDeps {
@@ -121,6 +146,39 @@ const POLL_MS = 2000;
 const START_SIZE = { cols: 100, rows: 30 };
 /// Attaches tried in a row before giving up until asked again.
 const MAX_TRIES = 6;
+
+/// Every machine with its terminals, in the machines' order; a terminal of
+/// a machine no longer listed goes under its own name at the end, offline.
+export function byMachine<T extends Pick<TerminalRow, "machine_id" | "machine_name">>(machines: readonly TerminalMachine[], list: readonly T[]): MachineTerminals<T>[] {
+  const out: MachineTerminals<T>[] = machines.map(m => ({ id: m.id, name: m.name, online: m.online, terms: [] }));
+  for (const t of list) {
+    let m = out.find(x => x.id === t.machine_id);
+    if (!m) out.push(m = { id: t.machine_id, name: t.machine_name || "Removed machine", online: false, terms: [] });
+    m.terms.push(t);
+  }
+  return out;
+}
+
+/// Where a terminal runs: its project and folder, or the folder alone.
+export function terminalWhere(t: Pick<TerminalRow, "project" | "cwd">) {
+  return t.project ? `${t.project} · ${t.cwd}` : t.cwd;
+}
+
+/// How a terminal stands in a list: how long it has run, or how it ended,
+/// with its exit code.
+export function terminalNote(t: Pick<TerminalRow, "state" | "started_at"> & Partial<Pick<TerminalRow, "code">>, ago: Ago) {
+  if (t.state === "running") return ago(t.started_at);
+  if (t.state === "exited" && t.code != null) return `exited ${t.code}`;
+  return stateLabel(t);
+}
+
+/// "N on M machines", counting the machines that have any.
+export function terminalsCount(groups: readonly MachineTerminals<unknown>[]) {
+  const n = groups.reduce((a, m) => a + m.terms.length, 0);
+  const on = groups.filter(m => m.terms.length).length;
+  if (!n) return "None open";
+  return `${n} on ${on} ${on === 1 ? "machine" : "machines"}`;
+}
 
 /// "running", "exited 1", "stopped", "offline", "gone".
 export function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<TerminalRow, "code">>) {
@@ -206,7 +264,9 @@ export function makeTerminals(deps: TerminalDeps) {
   async function load(name: string) {
     const t = of(name);
     try {
-      t.list = await invoke<TerminalRow[] | null>("terminals_list", { project: name });
+      t.list = name === ALL
+        ? await invoke<TerminalRow[] | null>("terminals_all")
+        : await invoke<TerminalRow[] | null>("terminals_list", { project: name });
       if (t.open && !t.list?.some(x => x.id === t.open)) t.open = null;
     } catch (e) {
       t.list ??= [];
@@ -409,8 +469,11 @@ export function makeTerminals(deps: TerminalDeps) {
     redraw();
   }
 
+  /// The New terminal form. On the Terminals page (`ALL`) the folder may
+  /// stay empty, for the machine's workspace or home folder.
   function formView(name: string, places: TerminalPlace[]) {
     const t = of(name);
+    const anywhere = name === ALL;
     const f = t.form!;
     // A redraw while typing keeps the field and the caret.
     const was = document.activeElement?.closest?.(".tm-form") ? document.activeElement : null;
@@ -430,21 +493,27 @@ export function makeTerminals(deps: TerminalDeps) {
       return h("label", "tm-f", h("span", "", label), field);
     };
     const chips = h("div", "tm-chips", ...places.map(m => {
-      const b = button(m.name, "dchip", () => { f.machine = m.id; f.cwd = m.folder; redraw(); });
+      const b = button(m.name, "dchip", () => { f.machine = m.id; if (!anywhere) f.cwd = m.folder; redraw(); });
       b.setAttribute("aria-pressed", String(f.machine === m.id));
       return b;
     }));
-    const go = button(t.busy ? "Starting…" : "Start", "pri", () => {
-      if (f.machine && f.cwd.trim()) start(name, f);
+    const go = button(t.busy ? "Starting…" : anywhere ? "Open" : "Start", "pri", () => {
+      if (f.machine && (anywhere || f.cwd.trim())) start(name, f);
     });
     go.disabled = t.busy || !places.length;
-    const form = h("form", "cc-panel tm-form",
-      input("command", "Command", "Empty for a shell, or npm run dev"),
-      input("name", "Name", "The command, or shell, when empty"),
-      h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", "No machine has this project yet")),
-      input("cwd", "Folder", "The project's folder"),
-      h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }),
-        h("small", "", "It keeps running when the window closes. Kill stops it.")));
+    const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", anywhere ? "No machine is online" : "No machine has this project yet"));
+    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }),
+      h("small", "", "It keeps running when the window closes. Kill stops it."));
+    const form = anywhere
+      ? h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
+        input("cwd", "Folder", "Empty for the workspace or home folder"),
+        input("command", "Command", "Empty for your shell"),
+        input("name", "Name", "The command, or shell, when empty"), acts)
+      : h("form", "cc-panel tm-form",
+        input("command", "Command", "Empty for a shell, or npm run dev"),
+        input("name", "Name", "The command, or shell, when empty"),
+        machine,
+        input("cwd", "Folder", "The project's folder"), acts);
     form.addEventListener("submit", e => { e.preventDefault(); go.click(); });
     return form;
   }
@@ -535,10 +604,72 @@ export function makeTerminals(deps: TerminalDeps) {
     return out;
   }
 
+  /// Opens the New terminal form of the Terminals page on `machine`.
+  function newOn(machine: string | null) {
+    const t = of(ALL);
+    t.open = null;
+    t.form = { command: "", name: "", machine, cwd: "" };
+    redraw();
+  }
+
+  /// The Terminals page: every machine with its terminals at the left, the
+  /// open terminal or the New terminal form at the right.
+  function machinesPanel(machines: readonly TerminalMachine[]) {
+    if (shown !== ALL) { dropAll(); shown = ALL; }
+    const t = of(ALL);
+    if (t.list === undefined) load(ALL);
+    if (t.list === null) {
+      watch(null);
+      return [h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it lists terminals on every machine."))];
+    }
+    const groups = byMachine(machines, t.list || []);
+    const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
+    const list = h("div", "tl-list", ...groups.map(m => {
+      const add = button("New", "", () => newOn(m.id));
+      add.disabled = !m.online;
+      const head = h("h5", "", h("span", `ddot${m.online ? "" : " off"}`), m.online ? m.name : `${m.name} · offline`, add);
+      const items = m.terms.map(x => {
+        const b = h("button", "tl-it");
+        b.type = "button";
+        b.addEventListener("click", () => select(ALL, x.id));
+        b.title = `${x.machine_name}: ${x.command} in ${x.cwd}`;
+        b.append(h("span", `ddot${x.state === "running" ? "" : " off"}`), h("b", "", x.name),
+          h("small", "", `${terminalWhere(x)} · ${terminalNote(x, ago)}`));
+        if (t.open === x.id) b.setAttribute("aria-current", "true");
+        return b;
+      });
+      const kids: Node[] = [head, ...(items.length ? items : [h("div", "tl-empty", "No terminals.")])];
+      if (!m.online && items.length) kids.push(h("div", "tl-empty", "They keep running there and show again when it is back."));
+      return h("div", "tl-m", ...kids);
+    }));
+    let right: HTMLElement;
+    const open = t.open && (t.list || []).find(x => x.id === t.open);
+    if (t.form) {
+      watch(null);
+      right = formView(ALL, places);
+    } else if (open) {
+      right = openView(ALL, open);
+    } else {
+      watch(null);
+      const any = (t.list || []).length > 0;
+      right = h("div", "cc-conn", h("b", "", any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
+        h("span", "why", "Open one on any machine. It keeps running when you close the window, and you can attach again from here or your phone."),
+        button("New terminal", "pri", () => newOn(places[0]?.id || null)));
+    }
+    const out: HTMLElement[] = [];
+    if (t.error) out.push(h("div", "cc-err", t.error));
+    out.push(h("div", "tl", list, right));
+    return out;
+  }
+
   return {
     load,
     list: (name: string) => of(name).list,
     panel,
+    machinesPanel,
+    newOn,
+    /// Opens terminal `id` on the Terminals page, attached live.
+    show: (id: string) => select(ALL, id),
     stop: () => { watch(null); dropAll(); shown = null; },
   };
 }
