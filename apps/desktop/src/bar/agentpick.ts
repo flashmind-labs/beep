@@ -362,6 +362,20 @@ export interface Placement {
 /// Places a popover of `size` by `anchor` inside a `view` of that size:
 /// above it with right edges lined up when it fits there, else below, else
 /// on the roomier side cut to fit. It stays `margin` inside the view.
+/// Where a menu opens from its pill: below it when it fits, else on the
+/// roomier side, cut to the room there so it scrolls. `area` is the band
+/// it must stay in (the window above the key hints), `width` the window's.
+export function placeMenuAt(anchor: Rect, size: { width: number; height: number }, area: { top: number; bottom: number; width: number }, margin = 8, gap = 4) {
+  const below = area.bottom - margin - (anchor.top + anchor.height + gap);
+  const above = anchor.top - gap - (area.top + margin);
+  const up = size.height > below && above > below;
+  const room = Math.max(0, up ? above : below);
+  const height = Math.min(size.height, room);
+  const top = up ? anchor.top - gap - height : anchor.top + anchor.height + gap;
+  const left = Math.max(margin, Math.min(anchor.left, area.width - margin - size.width));
+  return { top, left, maxHeight: room, up };
+}
+
 export function placePopover(anchor: Rect, size: { width: number; height: number }, view: { width: number; height: number }, margin = 8, gap = 6): Placement {
   const width = Math.min(size.width, Math.max(0, view.width - 2 * margin));
   const left = Math.max(margin, Math.min(anchor.left + anchor.width - width, view.width - margin - width));
