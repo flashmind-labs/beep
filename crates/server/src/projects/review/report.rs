@@ -49,11 +49,7 @@ fn short(sha: &str) -> &str {
 /// `text` cut to `max` bytes on a character boundary, on one line.
 fn clip(text: &str, max: usize) -> String {
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
+    text[..text.floor_char_boundary(max)].to_owned()
 }
 
 fn intro(subject: &Subject<'_>) -> String {
