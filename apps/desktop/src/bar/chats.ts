@@ -5,6 +5,7 @@ import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { LIVE_CHATS, VOICE_ICON } from "./live.ts";
 import { RESEARCHES } from "./researches.ts";
+import { dayDiff } from "./memories.ts";
 
 export type { GroupSummary } from "./groups.ts";
 
@@ -47,8 +48,7 @@ export function when(ms: number) {
   const mins = Math.round((now.getTime() - d.getTime()) / 60000);
   if (mins < 1) return "now";
   if (mins < 60) return `${mins} min ago`;
-  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((start(now) - start(d)) / 86400000);
+  const days = dayDiff(d, now);
   if (days === 0) return `${Math.round(mins / 60)} h ago`;
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
