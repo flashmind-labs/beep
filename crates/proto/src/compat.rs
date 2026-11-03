@@ -235,6 +235,7 @@ sample_struct! {
     AgentHarness { agent, installed, runnable, version, latest, program, home_var, home_default, sign_in, install, settings }
     HarnessSettings { enabled, program, home, args, env }
     HarnessEnv { name, value }
+    MachineHarnessSettings { machine_id, machine_name, settings }
     FlshSettings { zdr, quantizations, sort, allow_fallbacks, autocompact, models }
     FlshAutoCompact { enabled, tokens }
     FlshModelRule { model, autocompact }

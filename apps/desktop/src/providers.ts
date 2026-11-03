@@ -5,8 +5,8 @@
 import { harnessEl } from "./harnessicon.ts";
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeButton, MakeEl } from "./projects-state.ts";
-import { checkedLabel, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
-import type { HarnessDraft, HarnessesView, HarnessView } from "./providers-state.ts";
+import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import type { HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import { emptyPanel } from "./components/parts.ts";
 import { flshPanel } from "./flsh.ts";
 
@@ -39,11 +39,20 @@ interface ProvidersState {
   saving: boolean;
   loading: boolean;
   note: string;
+  /// Each machine's saved settings, by agent, to say which fields differ
+  /// (false from a server too old to list them).
+  others: Map<string, MachineSettings[] | false>;
+  /// "Save to all hosts" copies the binary path too.
+  includeProgram: boolean;
+  /// What the last save to all hosts did, by machine and agent.
+  savedAll: Map<string, string>;
 }
 
 export function registerProviders(deps: ProvidersDeps) {
   const { registerView, invoke, h, button } = deps;
-  const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, loading: false, note: "" };
+  const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, loading: false, note: "", others: new Map(), includeProgram: false, savedAll: new Map() };
+  /// The agents whose machines' settings are being read.
+  const reading = new Set<string>();
   let el: HTMLElement | null = null;
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
@@ -126,8 +135,50 @@ export function registerProviders(deps: ProvidersDeps) {
     try {
       await invoke("harness_settings_save", { machineId: machine, agent: hv.agent, settings: input });
       st.drafts.delete(`${machine} ${hv.agent}`);
+      st.savedAll.delete(`${machine} ${hv.agent}`);
+      st.others.delete(hv.agent);
       st.errors.delete(machine);
       // Read back what the server saved, without asking npm again.
+      await load(false);
+    } catch (e) {
+      st.errors.set(machine, fail(e));
+    } finally {
+      st.saving = false;
+    }
+    draw();
+  }
+
+  /// Reads `agent`'s settings on every machine, once, for the differs notes.
+  async function loadOthers(agent: string) {
+    if (reading.has(agent) || st.others.has(agent)) return;
+    reading.add(agent);
+    try {
+      st.others.set(agent, (await invoke<MachineSettings[] | null>("harness_settings_all", { agent })) ?? false);
+    } catch (e) {
+      // The notes are a hint; the page works without them.
+      console.warn("harness settings on every machine:", e);
+      st.others.set(agent, false);
+    } finally {
+      reading.delete(agent);
+    }
+    draw();
+  }
+
+  /// Saves the form for `hv` on every machine of the user's, online or not.
+  async function saveAll(hv: HarnessView, input: ReturnType<typeof settingsInput>) {
+    const machine = st.machine;
+    if (!machine || st.saving) return;
+    st.saving = true;
+    draw();
+    try {
+      const n = await invoke<number>("harness_settings_save_all", { fromMachine: machine, agent: hv.agent, settings: input, includeProgram: st.includeProgram });
+      // Drafts on the other machines were of the settings before.
+      for (const k of [...st.drafts.keys()]) if (k.endsWith(` ${hv.agent}`)) st.drafts.delete(k);
+      st.savedAll.set(`${machine} ${hv.agent}`, savedToLabel(n));
+      st.errors.delete(machine);
+      st.others.delete(hv.agent);
+      // The other machines' lists are read again when shown.
+      for (const id of [...st.views.keys()]) if (id !== machine) st.views.delete(id);
       await load(false);
     } catch (e) {
       st.errors.set(machine, fail(e));
@@ -188,8 +239,13 @@ export function registerProviders(deps: ProvidersDeps) {
     return h("div", "hv-list", ...rows);
   }
 
-  function field(label: string, help: string, control: HTMLElement) {
-    return h("div", "hv-f", h("span", "", h("b", "", label), h("small", "", help)), control);
+  /// A setting: its label and help on the left, `control` on the right.
+  /// `names` are the other machines where it is not the same, noted
+  /// beside the label.
+  function field(label: string, help: string, control: HTMLElement, names: readonly string[] = []) {
+    const note = names.length ? h("span", "hv-diff", differsLabel(names)) : null;
+    note?.setAttribute("title", `Not the same on ${names.join(", ")}`);
+    return h("div", "hv-f", h("span", "", h("b", "", label), note, h("small", "", help)), control);
   }
 
   /// The box atop the page in Settings: the agent, its version and status,
@@ -277,10 +333,13 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!hv.installed) return box;
 
     const homeVar = hv.home_var ?? "Home folder";
+    const others = st.others.get(hv.agent);
+    if (others === undefined) loadOthers(hv.agent);
+    const differs = (f: SharedField) => (others && st.machine ? differsOn(others, st.machine, f) : []);
     box.append(h("h4", "", "Runtime"),
-      field("Binary path", `The command Beep starts for ${name} on ${m}.`, input(draft.program, hv.program ?? hv.agent, v => setDraft({ program: v }), "Binary path")),
-      field(homeVar, "Its home and config folder.", input(draft.home, hv.home_default ?? "", v => setDraft({ home: v }), homeVar)),
-      field("Launch arguments", "Added to every session it starts.", input(draft.args, "none", v => setDraft({ args: v }), "Launch arguments")));
+      field("Binary path", `The command Beep starts for ${name} on ${m}.`, input(draft.program, hv.program ?? hv.agent, v => setDraft({ program: v }), "Binary path"), differs("program")),
+      field(homeVar, "Its home and config folder.", input(draft.home, hv.home_default ?? "", v => setDraft({ home: v }), homeVar), differs("home")),
+      field("Launch arguments", "Added to every session it starts.", input(draft.args, "none", v => setDraft({ args: v }), "Launch arguments"), differs("args")));
 
     const envBox = h("div", "hv-envs");
     const drawEnv = () => {
@@ -311,23 +370,41 @@ export function registerProviders(deps: ProvidersDeps) {
       envBox.replaceChildren(...rows);
     };
     drawEnv();
-    box.append(field("Environment", "Values are kept encrypted and never shown again. Keys belong in Credentials; Beep hands them to the agent itself.", envBox));
+    box.append(field("Environment", "Values are kept encrypted and never shown again. Keys belong in Credentials; Beep hands them to the agent itself.", envBox, differs("env")));
 
     const problem = h("span", "derr", "");
     const saveBtn = button(st.saving ? "Saving…" : "Save", "pri", () => {
       if (envProblem(draft.env)) return;
       save(hv, settingsInput(hv.settings.enabled, draft));
     });
+    saveBtn.title = `Save for ${m} only`;
     const discard = button("Discard", "quiet", () => { st.drafts.delete(k); draw(); });
+    // Save to all hosts: every machine of the user's, offline ones when
+    // they next connect; shown once there is another machine to copy to.
+    const allBtn = button(st.saving ? "Saving…" : "Save to all hosts", "", () => {
+      if (envProblem(draft.env)) return;
+      saveAll(hv, settingsInput(hv.settings.enabled, draft));
+    });
+    allBtn.title = "Save these settings on every machine; offline ones get them when they next connect";
+    const withProgram = h("input", "");
+    withProgram.type = "checkbox";
+    withProgram.checked = st.includeProgram;
+    withProgram.addEventListener("change", () => { st.includeProgram = withProgram.checked; });
+    const include = h("label", "hv-incl", withProgram, "Include binary path");
+    include.title = "Binary paths usually differ between machines";
+    const many = !!others && others.length > 1;
+    const done = h("span", "hv-ok", st.savedAll.get(k) ?? "");
     const refreshSave = () => {
       const changed = draftChanged(hv, draft);
       const why = envProblem(draft.env);
       problem.textContent = why;
       saveBtn.disabled = st.saving || !changed || !!why;
+      allBtn.disabled = st.saving || !!why;
       discard.hidden = !changed;
+      if (changed) done.textContent = "";
     };
     refreshSave();
-    box.append(h("div", "hv-acts", saveBtn, discard, problem));
+    box.append(h("div", "hv-acts hv-save", saveBtn, many ? allBtn : null, many ? include : null, discard, done, problem));
     // flsh's own settings are the same on every machine and save apart.
     if (hv.agent === "flsh") box.append(...flsh.render());
     return box;
