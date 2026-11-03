@@ -83,6 +83,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-pjc .pill:hover { background: rgba(228,238,232,.06) }
 .cc-pjc .pill[disabled] { color: var(--dim); cursor: default; background: transparent }
 .cc-pjc .pill small { color: var(--muted); font-size: 12px }
+.cc-pjc .pill .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8.5px; flex: none }
+.cc-pjc .pill svg { color: var(--muted); flex: none }
+.cc-pjc .pill[aria-expanded="true"] { background: rgba(228,238,232,.06) }
 .cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--muted) }
 .cc-pjc .cc-err:empty { display: none }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }

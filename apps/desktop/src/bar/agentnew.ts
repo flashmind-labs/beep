@@ -1,6 +1,7 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, openAgent, renderAgents, type Started } from "./agents.ts";
-import { type AgentModels, MODELS_KEPT_MS, modelMachine } from "./agentmodels.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, modelLabel, modelRows, pillDetail, placePopover, projectAt, projectFolders, railOf, startPlace, tildePath } from "./agentpick.ts";
+import { modelMachine } from "./agentmodels.ts";
+import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutFor, checkoutLabel, folderBusy, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "./core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../projects-state.ts";
@@ -23,10 +24,6 @@ export interface AgentPlace {
   places?: { machine: string; cwd: string }[];
   /// The project's name, for the heading.
   project?: string | null;
-  /// The checkout to start on, as a project's bar picked it.
-  checkout?: CheckoutPick;
-  /// Opens with the harness picker showing.
-  pick?: boolean;
 }
 
 /// Where Auto would start a session, as `agent_preview` says.
@@ -79,11 +76,11 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: at?.checkout ?? "auto", base: null, baseTyping: false, effort: null, open: at?.pick ? "pick" : null, query: "", typing: false };
+  AG.form = { prompt, machine: at?.machine || "auto", agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: "auto", base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   AG.error = "";
   AG.busy = false;
   drawFrame();
-  ($("#agq") ?? $("#agprompt"))?.focus();
+  $("#agprompt")?.focus();
   loadAgentHosts();
   invoke<AgentSession[]>("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
   invoke<Machine[]>("list_machines").then(list => { KNOWN = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
@@ -105,10 +102,6 @@ const HOST = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke
 const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>';
 const PROJECT = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
 const BRANCH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>';
-const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-
-/// A harness's badge, the window's `cc-ag` tile.
-const badge = (agent: string) => { const k = agentKind(agent); return `<span class="cc-ag ${esc(k.cls)}">${esc(k.ini)}</span>`; };
 
 /// Redraws the form, keeping the prompt as typed when it shows already.
 export function drawAgentNew() {
@@ -141,7 +134,6 @@ function drawFrame() {
     previewAuto();
   });
   bar.onclick = onClick;
-  $("#agwrap")?.addEventListener("scroll", placePicker, { passive: true });
   drawParts();
   previewAuto();
 }
@@ -159,7 +151,8 @@ function drawParts() {
   $$("#agbox").classList.toggle("err", missing);
   $$<HTMLTextAreaElement>("#agprompt").placeholder = missing ? "Say what the agent should do." : "Describe the task.";
   // The search and the folder field are drawn again; they keep the keys.
-  const focused = document.activeElement?.id;
+  const active = document.activeElement;
+  const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";
   const title = formTitle(f.project);
   $$("#agtitle").innerHTML = title.name ? `${esc(title.lead)} <b>${esc(title.name)}</b>?` : esc(title.lead);
   const go = $$<HTMLButtonElement>("#aggo");
@@ -173,8 +166,8 @@ function drawParts() {
   $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
       <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
       <div><button class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
-  if (focused === "agq" || focused === "agcwd" || focused === "agbase") {
-    const field = $<HTMLInputElement>(`#${focused}`);
+  if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") {
+    const field = $<HTMLInputElement>(focused);
     field?.focus();
     field?.setSelectionRange(field.value.length, field.value.length);
   }
@@ -186,85 +179,36 @@ function drawPill(none: boolean) {
     el.innerHTML = `<button class="agc-pill" disabled>No agent</button>`;
     return;
   }
-  const list = MODELS.get(f.modelFor ?? "")?.list;
-  const detail = pillDetail(modelLabel(list, f.model), f.agent, f.effort);
-  el.innerHTML = `<button class="agc-pill" id="agpillb" aria-expanded="${f.open === "pick"}" title="Harness, model and thinking (⌘M)">${badge(f.agent)}${esc(agentKind(f.agent).name)} <small>${esc(detail)}</small>${CARET}</button>`;
+  const inner = pillInner(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? formModelMachine() : null);
+  el.innerHTML = `<button class="agc-pill" id="agpillb" aria-expanded="${f.open === "pick"}" title="Harness, model and thinking (⌘M)">${inner}</button>`;
 }
 
-/// The picker under the pill: harnesses, their models, their thinking.
+/// The picker by the pill: harnesses, their models, their thinking.
 function drawPicker() {
   const f = AG.form, el = $$("#agpick");
-  if (f.open !== "pick" || !f.agent) { el.innerHTML = ""; return; }
-  const host = formHost();
-  const rail = railOf(formAgents(), [...new Set((AG.hosts ?? []).flatMap(m => m.agents))]).map(r => {
-    const k = agentKind(r.agent);
-    const why = r.enabled ? k.name : `${k.name} (not on ${host ? host.machine_name : "any machine"})`;
-    return `<button data-agh="${esc(r.agent)}" aria-pressed="${r.agent === f.agent}" title="${esc(why)}"${r.enabled ? "" : " disabled"}>${badge(r.agent)}</button>`;
-  }).join("");
-  const name = agentKind(f.agent).name, levels = effortsOf(f.agent);
-  const think = levels.length
-    ? [`<button data-age="" class="${f.effort ? "" : "on"}">Default${f.effort ? "" : CHECK}</button>`,
-      ...levels.map(l => `<button data-age="${l.value}" class="${f.effort === l.value ? "on" : ""}">${esc(l.label)}${f.effort === l.value ? CHECK : ""}</button>`)].join("")
-    : `<p class="none">${esc(effortNote(f.agent, name))}</p>`;
-  el.innerHTML = `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
-      <div class="agc-rail">${rail}</div>
-      <div class="agc-list"><input class="agc-search" id="agq" spellcheck="false" autocomplete="off" placeholder="Search ${esc(name)} models…" value="${esc(f.query ?? "")}"><div id="agmodels"></div></div>
-      <div class="agc-think"><h5><span>Thinking</span><span>${esc(name)}</span></h5>${think}</div>
-    </div>`;
-  drawModels();
-  const q = $$<HTMLInputElement>("#agq");
-  q.addEventListener("input", () => { f.query = q.value; drawModels(); });
-  q.addEventListener("keydown", e => {
-    if (e.key !== "Enter" || e.metaKey) return;
-    e.preventDefault();
-    const first = $<HTMLElement>("#agmodels [data-agmo]");
-    if (first) pickModel(first.dataset.agmo!);
+  if (f.open !== "pick" || !f.agent) { el.innerHTML = ""; closedPicker(el); return; }
+  const host = formHost(), machine = f.modelFor ? formModelMachine() : null;
+  const name = machine ? AG.hosts?.find(m => m.machine_id === machine)?.machine_name ?? machine : null;
+  const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, query: f.query ?? "" };
+  drawPickerIn(el, {
+    picked,
+    offered: formAgents(),
+    everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
+    machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
+    noMachine: "Pick a machine, or describe the task so Auto picks one, to list its models.",
+    anchor: () => $("#agpillb"),
+    bounds: () => bar,
+    changed: what => {
+      if (what === "models") return drawPill(false);
+      Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, query: picked.query });
+      if (what === "model") { f.open = null; drawParts(); return $("#agprompt")?.focus(); }
+      drawParts();
+      if (what === "agent") focusSearch(el);
+    },
   });
 }
 
-/// The model column, for what the search holds.
-function drawModels() {
-  const f = AG.form, el = $("#agmodels");
-  if (!el) return;
-  if (!f.modelFor) {
-    el.innerHTML = `<button data-agmo="" class="on">Default<small>its own</small></button><p class="none">Pick a machine, or describe the task so Auto picks one, to list its models.</p>`;
-    return;
-  }
-  const { rows, note } = modelRows(MODELS.get(f.modelFor)?.list, f.query ?? "");
-  el.innerHTML = rows.map(r => `<button data-agmo="${esc(r.value)}" class="${r.value === (f.model ?? "") ? "on" : ""}${r.value && f.agent === "flsh" ? " mono" : ""}">${esc(r.label)}${r.note ? `<small>${esc(r.note)}</small>` : ""}</button>`).join("")
-    + (note ? `<p class="none">${MODELS.get(f.modelFor)?.list === undefined ? '<span class="dspin"></span> ' : ""}${esc(note)}</p>` : "");
-  placePicker();
-}
-
-/// Puts the picker above its pill, right edges lined up, whole and inside
-/// the form's pane: below the pill when it does not fit above, else cut to
-/// the roomier side, where its columns scroll.
-function placePicker() {
-  const pick = $<HTMLElement>(".agc-pick"), pill = $("#agpillb");
-  if (!pick || !pill) return;
-  pick.style.removeProperty("--pick-h");
-  pick.style.width = "";
-  const pane = bar.getBoundingClientRect(), a = pill.getBoundingClientRect();
-  const top = Math.max(0, pane.top), left = Math.max(0, pane.left);
-  const view = { width: Math.min(pane.right, innerWidth) - left, height: Math.min(pane.bottom, innerHeight) - top };
-  const anchor = { top: a.top - top, left: a.left - left, width: a.width, height: a.height };
-  const at = placePopover(anchor, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
-  pick.style.top = `${at.top + top}px`;
-  pick.style.left = `${at.left + left}px`;
-  pick.style.width = `${at.width}px`;
-  pick.style.setProperty("--pick-h", at.maxHeight === null ? "" : `${at.maxHeight}px`);
-}
-
-addEventListener("resize", () => { if (S.view === "agentnew") { placePicker(); placeMenu(); } });
-
-function pickModel(model: string) {
-  const f = AG.form;
-  f.model = model;
-  f.query = "";
-  f.open = null;
-  drawParts();
-  $("#agprompt")?.focus();
-}
+addEventListener("resize", () => { if (S.view === "agentnew") placeMenu(); });
 
 /// Project, Machine and Folder under the box, with whichever menu is open.
 function drawUnder() {
@@ -460,12 +404,6 @@ function onClick(e: MouseEvent) {
   const base = at("[data-agb]");
   if (base) { f.base = base.dataset.agb!; f.open = null; return drawParts(); }
   if (at("[data-agbtype]")) return typeBase();
-  const harness = at("[data-agh]");
-  if (harness) { f.agent = harness.dataset.agh!; f.query = ""; drawParts(); return $("#agq")?.focus(); }
-  const model = at("[data-agmo]");
-  if (model) return pickModel(model.dataset.agmo!);
-  const effort = at("[data-age]");
-  if (effort) { f.effort = effort.dataset.age || null; return drawParts(); }
   const machine = at("[data-agm]");
   if (machine) {
     f.machine = machine.dataset.agm!;
@@ -511,7 +449,7 @@ export function togglePicker() {
   f.open = f.open === "pick" ? null : "pick";
   f.query = "";
   drawParts();
-  if (f.open === "pick") $("#agq")?.focus();
+  if (f.open === "pick") focusSearch($$("#agpick"));
 }
 
 /// Closes an open menu or the folder field; true when there was one, so
@@ -653,10 +591,6 @@ export function previewAuto() {
 
 // ----- Models -----
 
-/// The models each machine's agents offer, by `machine/agent`: `null` when
-/// it could not say, `undefined` in `list` while it is asked.
-const MODELS = new Map<string, { list: AgentModels | null | undefined; at: number }>();
-
 /// The machine the picker lists models on: the one picked, else the one
 /// Auto would pick for the form as it stands.
 function formModelMachine() {
@@ -672,24 +606,7 @@ function syncModel() {
   const key = machine && f.agent ? `${machine}/${f.agent}` : "";
   if (f.modelFor !== key) { f.model = ""; f.modelFor = key; }
   if (!key) return;
-  const known = MODELS.get(key);
-  if (!known || (known.list !== undefined && Date.now() - known.at > MODELS_KEPT_MS)) loadModels(machine!, f.agent!, key);
-}
-
-/// Asks `machine` which models `agent` offers, then redraws when the form
-/// still shows them.
-async function loadModels(machine: string, agent: string, key: string) {
-  MODELS.set(key, { list: undefined, at: Date.now() });
-  let list: AgentModels | null = null;
-  try {
-    list = await invoke<AgentModels | null>("agent_models", { machineId: machine, agent });
-  } catch {
-    list = null;
-  }
-  MODELS.set(key, { list, at: Date.now() });
-  if (S.view !== "agentnew" || AG.form.modelFor !== key) return;
-  drawPill(false);
-  drawModels();
+  modelsOn(machine!, f.agent!, () => { if (S.view === "agentnew" && AG.form.modelFor === key) drawPill(false); });
 }
 
 // ----- Start -----
