@@ -6,19 +6,23 @@ use crate::{
     bar,
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
+    home_sessions::AgentSessions,
     projects::ProjectRow,
+    state::LinkState,
+    view_cache::{View, ViewCache},
 };
 use beep_proto::{
     AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
-    DismissUpdates, ImportedProject, ListAgentSessions, ListCrons, ListImportedProjects,
-    ListMachineDetails, ListMachineStats, ListMachines, ListPendingApprovals, ListResearches,
-    ListUpdates, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu,
-    MachineSession, MachineStats, PendingApproval, ResearchStatus, ResearchSummary, Session,
+    DismissUpdates, ImportedProject, ListCrons, ListImportedProjects, ListMachineDetails,
+    ListMachineStats, ListMachines, ListPendingApprovals, ListResearches, ListUpdates, Machine,
+    MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
+    PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     cmp::Reverse,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tauri::{
@@ -494,8 +498,15 @@ struct HomeParts {
     projects: Result<Vec<ImportedProject>>,
 }
 
+/// Home, from the server. Every section but the machines' agent sessions
+/// waits for the server; those wait only as long as `AgentSessions` allows.
 #[tauri::command]
-pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
+pub async fn center_home(
+    app: AppHandle,
+    beep: Service<'_>,
+    cache: State<'_, Arc<ViewCache>>,
+    agents: State<'_, Arc<AgentSessions>>,
+) -> Result<HomeView> {
     let (
         machines,
         details,
@@ -511,7 +522,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         beep.call(ListMachines {}),
         beep.call(ListMachineDetails {}),
         beep.call(ListMachineStats {}),
-        beep.call(ListAgentSessions {}),
+        agents.list(&app, beep.inner(), cache.inner()),
         beep.call(ListResearches {}),
         beep.call(ListPendingApprovals {}),
         beep.sessions(),
@@ -519,7 +530,7 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         beep.call(ListUpdates {}),
         beep.call(ListImportedProjects {}),
     );
-    home_view(HomeParts {
+    let view = home_view(HomeParts {
         machines,
         details,
         stats,
@@ -530,7 +541,53 @@ pub async fn center_home(beep: Service<'_>) -> Result<HomeView> {
         crons,
         updates,
         projects,
-    })
+    })?;
+    remember(&cache, View::Home, &view);
+    Ok(view)
+}
+
+/// What the window last drew from the server, by view, for a window that
+/// opens to show before the server answers; `None` until this Mac is linked.
+#[tauri::command]
+pub fn center_cached(
+    beep: Service<'_>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Option<BTreeMap<View, Value>> {
+    if beep.link_state() != LinkState::Linked {
+        return None;
+    }
+    let mut views = cache.views();
+    // Home's own head start, not the page's.
+    views.remove(&View::AgentSessions);
+    Some(views)
+}
+
+/// `result`, kept as the latest `view` when it is an answer.
+pub(crate) fn kept<T: Serialize>(
+    cache: &Arc<ViewCache>,
+    view: View,
+    result: Result<T>,
+) -> Result<T> {
+    if let Ok(value) = &result {
+        remember(cache, view, value);
+    }
+    result
+}
+
+/// Keeps `value` as the latest `view` for the next window that opens. The
+/// file is written on a blocking thread, one write at a time.
+pub(crate) fn remember<T: Serialize>(cache: &Arc<ViewCache>, view: View, value: &T) {
+    let value = match serde_json::to_value(value) {
+        Ok(value) => value,
+        Err(e) => {
+            log::warn!("keeping the {view:?} view: {e}");
+            return;
+        }
+    };
+    if cache.put(view, value) {
+        let cache = cache.clone();
+        tauri::async_runtime::spawn_blocking(move || cache.write_unsaved());
+    }
 }
 
 /// `None` for a request the server does not know or this account may not

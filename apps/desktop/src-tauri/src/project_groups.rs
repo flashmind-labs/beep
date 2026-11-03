@@ -3,8 +3,10 @@
 
 use crate::{
     beep::Beep,
+    center::kept,
     error::{DesktopError, Result},
     projects::unknown_op,
+    view_cache::{View, ViewCache},
 };
 use beep_proto::{DeleteProjectGroup, ListProjectGroups, ProjectGroup, SaveProjectGroup};
 use std::sync::Arc;
@@ -16,12 +18,16 @@ type Service<'a> = State<'a, Arc<Beep>>;
 /// The user's groups, oldest first; `None` from a server too old to keep
 /// them, when the page offers none.
 #[tauri::command]
-pub async fn project_groups(beep: Service<'_>) -> Result<Option<Vec<ProjectGroup>>> {
-    match beep.call(ListProjectGroups {}).await {
+pub async fn project_groups(
+    beep: Service<'_>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Result<Option<Vec<ProjectGroup>>> {
+    let groups = match beep.call(ListProjectGroups {}).await {
         Ok(groups) => Ok(Some(groups)),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
-    }
+    };
+    kept(&cache, View::Groups, groups)
 }
 
 /// Makes a group without `id`, else changes the group `id`.

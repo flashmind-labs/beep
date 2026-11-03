@@ -5,8 +5,9 @@
 use crate::{
     agents::SessionRow,
     beep::{BarEvent, Beep, Pick, Sent, Turn, epoch_ms},
-    center::{self, Chat},
+    center::{self, Chat, kept},
     error::{DesktopError, Result},
+    view_cache::{View, ViewCache},
 };
 use beep_proto::{
     ApiError, BranchPlace, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent,
@@ -299,23 +300,31 @@ fn outdated(e: DesktopError) -> DesktopError {
 /// Every project agent of the user's; `None` from a server too old to have
 /// them, and the page offers no project chat.
 #[tauri::command]
-pub async fn center_projects(beep: Service<'_>) -> Result<Option<Vec<ProjectAgent>>> {
-    match beep.call(ListProjects {}).await {
+pub async fn center_projects(
+    beep: Service<'_>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Result<Option<Vec<ProjectAgent>>> {
+    let agents = match beep.call(ListProjects {}).await {
         Ok(agents) => Ok(Some(agents)),
         Err(e) if center::is_unsupported(&e) => Ok(None),
         Err(e) => Err(e),
-    }
+    };
+    kept(&cache, View::Agents, agents)
 }
 
 /// The projects pinned to the top of the sidebar, oldest pin first; none
 /// from a server too old to pin them.
 #[tauri::command]
-pub async fn projects_on_top(beep: Service<'_>) -> Result<Vec<String>> {
-    match beep.call(ListProjectsOnTop {}).await {
+pub async fn projects_on_top(
+    beep: Service<'_>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Result<Vec<String>> {
+    let names = match beep.call(ListProjectsOnTop {}).await {
         Ok(names) => Ok(names),
         Err(e) if unknown_op(&e) => Ok(Vec::new()),
         Err(e) => Err(e),
-    }
+    };
+    kept(&cache, View::Top, names)
 }
 
 /// Pins `project` (`org/repo`) to the top of the sidebar, or unpins it.

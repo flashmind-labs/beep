@@ -3,8 +3,10 @@
 
 use crate::{
     beep::{Beep, epoch_ms},
+    center::kept,
     error::Result,
     projects::unknown_op,
+    view_cache::{View, ViewCache},
 };
 use beep_proto::{ListProjectOverview, ProjectOverview, ProjectTask, TaskCounts};
 use serde::Serialize;
@@ -63,12 +65,16 @@ impl From<ProjectOverview> for OverviewCard {
 /// Every project's card, by name; `None` from a server too old to sum them
 /// up, when the page shows its table instead.
 #[tauri::command]
-pub async fn project_overview(beep: State<'_, Arc<Beep>>) -> Result<Option<Vec<OverviewCard>>> {
-    match beep.call(ListProjectOverview {}).await {
+pub async fn project_overview(
+    beep: State<'_, Arc<Beep>>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Result<Option<Vec<OverviewCard>>> {
+    let cards = match beep.call(ListProjectOverview {}).await {
         Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
-    }
+    };
+    kept(&cache, View::Overview, cards)
 }
 
 #[cfg(test)]
