@@ -274,7 +274,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 
 /* A project's agent: Tasks beside Workers, then the cards its chat waits on. */
 .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
+.pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
 @container (max-width: 640px) { .pj-cols { grid-template-columns: minmax(0, 1fr) } }
+.pj-issue .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; align-items: center }
 .pj-task + .pj-task { border-top: 1px solid var(--border) }
 .pj-task .t { font-size: 13px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

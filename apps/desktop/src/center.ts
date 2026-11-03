@@ -1840,7 +1840,7 @@ function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
-  return [...agentTop(p), ...repoSections(p), whereSection(p, rows, !!machines), agentsSection(running), sessionsSection(p, running)];
+  return [...agentTop(p), ...repoSections(p), h("div", "pj-cols pj-half", sessionsSection(p, running), agentsSection(running)), whereSection(p, rows, !!machines)];
 }
 
 /// "Where it lives": every machine with the project's folder there, or why
@@ -2105,7 +2105,7 @@ function repoSections(p: Project): Node[] {
   const agent = p.imported ? agentFor(state.agents, p.name) : null;
   if (!agent) return [];
   const acts = repoActs(p);
-  return [thr.prsSection(agent, acts), thr.issuesSection(agent, acts)];
+  return [h("div", "pj-cols pj-half", thr.prsSection(agent, acts), thr.issuesSection(agent, acts))];
 }
 
 /// The cards the project chat waits on, then Tasks beside Workers, above
