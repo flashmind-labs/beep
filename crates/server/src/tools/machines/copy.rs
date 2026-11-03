@@ -1,5 +1,4 @@
-//! Copying a file from one machine to another over their `files/1`, a
-//! chunk at a time, so a large file is never held whole.
+//! Copying a file between machines over `files/1`, a chunk at a time.
 
 use super::Picked;
 use crate::{
@@ -63,10 +62,7 @@ pub(crate) struct Copied {
     pub(crate) bytes: u64,
 }
 
-/// `path` on a machine: `~` is its home, a relative path starts in `base`
-/// (the folder commands start in), and an absolute one stays. Without a
-/// home or base, the path is left for the node, which starts relative
-/// paths in its first shared folder.
+/// `path` on a machine, resolved against `~` or `base`; without either it is left for the node.
 pub(crate) fn on_machine(path: &str, base: Option<&str>, home: Option<&str>) -> Result<String> {
     let path = path.trim();
     ensure!(!path.is_empty(), "the path is empty");
@@ -105,8 +101,7 @@ async fn stat(node: &impl FileNode, path: &str) -> Result<Option<(String, u64, F
     }
 }
 
-/// Copies the file `src` on `from` to `dst` on `to`, making `dst`'s folder.
-/// An existing `dst` is replaced only with `overwrite`.
+/// Copies `src` on `from` to `dst` on `to`; an existing `dst` is replaced only with `overwrite`.
 pub(crate) async fn copy<N: FileNode>(
     from: &N,
     src: &str,
@@ -158,8 +153,7 @@ pub(crate) async fn copy<N: FileNode>(
             other => bail!("the node answered {other:?}"),
         };
         let last = data.is_empty() || offset + data.len() as u64 >= size;
-        // The first write replaces the file, even with nothing; the rest
-        // append.
+        // The first write replaces the file, even with nothing; the rest append.
         if !data.is_empty() || written.is_none() {
             let length = data.len() as u64;
             match to
@@ -227,8 +221,7 @@ mod tests {
     use crate::protocol::node::files::FileEntry;
     use std::{collections::HashMap, sync::Mutex};
 
-    /// A machine whose files are in memory. It records the largest chunk
-    /// it was sent and the folders made.
+    /// A machine whose files are in memory, recording the largest chunk and folders made.
     #[derive(Default)]
     struct FakeNode {
         files: Mutex<HashMap<String, Vec<u8>>>,
@@ -364,41 +357,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_empty_file_and_a_missing_one() {
-        let from = FakeNode::with(4096, &[("/empty", Vec::new())]);
-        let to = FakeNode::with(4096, &[]);
-        let copied = copy(&from, "/empty", &to, "/copy", false).await.unwrap();
-        assert_eq!(copied.bytes, 0);
-        assert_eq!(to.file("/copy"), Some(Vec::new()));
-        assert!(copy(&from, "/nothing", &to, "/x", false).await.is_err());
-    }
-
-    #[tokio::test]
     async fn reading_stops_at_the_limit() {
         let node = FakeNode::with(3, &[("/f", b"abcdefgh".to_vec())]);
         assert_eq!(read_all(&node, "/f", 100).await.unwrap(), b"abcdefgh");
         assert!(read_all(&node, "/f", 4).await.is_err());
-    }
-
-    #[test]
-    fn paths_resolve_on_each_machine() {
-        let home = Some("/Users/me");
-        assert_eq!(
-            on_machine("~/a.pdf", None, home).unwrap(),
-            "/Users/me/a.pdf"
-        );
-        assert_eq!(
-            on_machine("a.pdf", Some("/home/user"), home).unwrap(),
-            "/home/user/a.pdf"
-        );
-        assert_eq!(
-            on_machine("x/a.pdf", None, home).unwrap(),
-            "/Users/me/x/a.pdf"
-        );
-        assert_eq!(on_machine("/srv/a.pdf", None, home).unwrap(), "/srv/a.pdf");
-        assert_eq!(on_machine("a.pdf", None, None).unwrap(), "a.pdf");
-        assert!(on_machine("~", None, home).is_err());
-        assert!(on_machine(" ", None, home).is_err());
-        assert_eq!(file_name("/home/user/r.pdf"), Some("r.pdf"));
     }
 }

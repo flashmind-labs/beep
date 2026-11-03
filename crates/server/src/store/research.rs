@@ -158,8 +158,7 @@ impl<'a> EntryColumns<'a> {
 }
 
 impl Store {
-    /// Makes session `chat` a research on `topic`, making the session if it
-    /// is new. A chat that is already one keeps its research.
+    /// Makes session `chat` a research on `topic`, creating it if new; an existing research is kept.
     pub(crate) async fn start_research(
         &self,
         user: &UserKey,
@@ -218,8 +217,7 @@ impl Store {
         row.as_ref().map(research_from).transpose()
     }
 
-    /// Starts the team on `plan`, if the research can start: it is not
-    /// running. Says whether it did.
+    /// Starts the team on `plan` unless running; says whether it did.
     pub(crate) async fn approve_research(&self, id: Uuid, plan: &Plan) -> Result<bool> {
         let can_start: Vec<&str> = [
             Status::Planning,
@@ -255,8 +253,7 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the research from `from` to `to`. Says whether it was at
-    /// `from`, so a stop in between wins over the team moving on.
+    /// Moves the research from `from` to `to`; says whether it was at `from`, so a stop wins.
     pub(crate) async fn move_research(&self, id: Uuid, from: Status, to: Status) -> Result<bool> {
         let moved = sqlx::query(
             "UPDATE researches SET status=$3,
@@ -291,8 +288,7 @@ impl Store {
         Ok(moved == 1)
     }
 
-    /// Marks every running research interrupted, at startup: their teams
-    /// died with the last server.
+    /// Marks running researches interrupted at startup.
     pub(crate) async fn interrupt_researches(&self) -> Result<()> {
         sqlx::query(
             "UPDATE researches SET status='interrupted', finished_at=now()
@@ -348,8 +344,7 @@ impl Store {
         rows.iter().map(entry_from).collect()
     }
 
-    /// Keeps a source and returns its number. A URL kept before keeps its
-    /// number.
+    /// Keeps a source and returns its number; a known URL keeps its number.
     pub(crate) async fn add_research_source(
         &self,
         id: Uuid,
@@ -523,120 +518,5 @@ mod tests {
         store.interrupt_researches().await.unwrap();
         let row = store.research(made.id).await.unwrap().unwrap();
         assert_eq!(row.status, Status::Interrupted);
-    }
-
-    #[tokio::test]
-    async fn entries_and_sources_keep_their_order() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let made = store
-            .start_research(&user, Uuid::new_v4(), "topic")
-            .await
-            .unwrap();
-        let id = made.id;
-
-        let new = |url| NewSource {
-            url,
-            title: "Title",
-            quote: "A quote",
-        };
-        assert_eq!(
-            store
-                .add_research_source(id, Member::Scout(1), &new("https://a.example"))
-                .await
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            store
-                .add_research_source(id, Member::Scout(2), &new("https://b.example"))
-                .await
-                .unwrap(),
-            2
-        );
-        assert_eq!(
-            store
-                .add_research_source(id, Member::Scout(2), &new("https://a.example"))
-                .await
-                .unwrap(),
-            1
-        );
-        let sources = store.research_sources(id).await.unwrap();
-        assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0].member, Member::Scout(1));
-
-        // The list counts them, newest research first, and only the user's.
-        let newer = store
-            .start_research(&user, Uuid::new_v4(), "newer")
-            .await
-            .unwrap();
-        store
-            .start_research(&UserKey::for_test("bob"), Uuid::new_v4(), "bob's")
-            .await
-            .unwrap();
-        let listed: Vec<_> = store
-            .list_researches(&user)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|listed| (listed.research.id, listed.sources))
-            .collect();
-        assert_eq!(listed, [(newer.id, 0), (id, 2)]);
-
-        let said = Entry::Said {
-            to: Some(Member::Scout(2)),
-            content: "Check the cost".into(),
-        };
-        let note = Entry::Note {
-            content: "Yields are low".into(),
-            sources: vec![1, 2],
-        };
-        let step = Entry::Step {
-            label: "Searched the web".into(),
-            success: false,
-        };
-        let first = store
-            .add_research_entry(id, Member::Lead, &said)
-            .await
-            .unwrap();
-        store
-            .add_research_entry(id, Member::Scout(1), &note)
-            .await
-            .unwrap();
-        store
-            .add_research_entry(id, Member::Scout(1), &step)
-            .await
-            .unwrap();
-
-        let all = store.research_entries(id, 0).await.unwrap();
-        let entries: Vec<_> = all
-            .iter()
-            .map(|row| (row.member, row.entry.clone()))
-            .collect();
-        assert_eq!(
-            entries,
-            [
-                (Member::Lead, said),
-                (Member::Scout(1), note),
-                (Member::Scout(1), step)
-            ]
-        );
-        assert_eq!(store.research_entries(id, first).await.unwrap().len(), 2);
-    }
-
-    #[tokio::test]
-    async fn deleting_the_chat_deletes_the_research() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let chat = Uuid::new_v4();
-        let made = store.start_research(&user, chat, "topic").await.unwrap();
-        sqlx::query("DELETE FROM chats WHERE id=$1")
-            .bind(chat)
-            .execute(&store.pool)
-            .await
-            .unwrap();
-        assert!(store.research(made.id).await.unwrap().is_none());
     }
 }

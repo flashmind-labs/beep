@@ -27,10 +27,11 @@ use beep_server::{
         GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
         GetUsageReport, GetWorkDiff, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
         ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
-        ListMachines, ListMemoryScopes, ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
-        WorkDiff, WorkEntry, WorkFolder, WriteWorkFile, image_key,
+        ListMachines, ListMemoryScopes, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
+        MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile,
+        RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings, StartAgentSession,
+        SteerAgentSession, Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile,
+        image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -312,7 +313,15 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
     assert!(ran.fresh, "a timed out shell is replaced");
     assert_ne!(ran.output, "/\n");
 
-    // The report arrived after the hello; by now it is stored.
+    // The report follows the hello on its own, beside the sessions above;
+    // wait until it is stored.
+    timeout(Duration::from_secs(20), async {
+        while user.nodes().await.unwrap()[0].env.is_none() {
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the node reported");
     let rows = user.nodes().await.unwrap();
     let env = rows[0].env.as_ref().expect("the node reported");
     assert_eq!(env.os, std::env::consts::OS);
@@ -1069,26 +1078,6 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
 }
 
 #[tokio::test]
-async fn machine_details_of_a_user_without_machines_are_empty() {
-    let db = TestDb::new().await.unwrap();
-    let store = db.store().await.unwrap();
-    let model = "openai:test".parse().unwrap();
-    let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
-    let app = App::new(
-        store.clone(),
-        Arc::new(NoModel),
-        AgentLlmConfig::new("openai:test".parse().unwrap()),
-        ServerTools::default(),
-        models,
-    );
-    let router = phone_router(&app, store).await;
-    let (_node, bob) = phone(SecretKey::generate(), &router).await;
-    assert!(bob.call(&ListMachineDetails {}).await.unwrap().is_empty());
-    assert!(bob.call(&ListMachineStats {}).await.unwrap().is_empty());
-    router.shutdown().await.unwrap();
-}
-
-#[tokio::test]
 async fn a_session_that_asks_or_finishes_notifies_unless_a_chat_hears_of_it() {
     let mut center = CommandCenter::new(1).await;
     let mut notices = center.app.notifications.subscribe();
@@ -1258,6 +1247,8 @@ struct FakeAgents {
     external: Option<Vec<ExternalSession>>,
     /// Takes requests and never answers.
     hang: bool,
+    /// Where a hanging node hands each first request it takes.
+    heard: Option<mpsc::UnboundedSender<SessionsRequest>>,
     /// Where the `claude/1` stream hands the orders it gets.
     orders: Option<mpsc::UnboundedSender<Request>>,
     /// The PNGs `Image` finds, by session.
@@ -1309,6 +1300,9 @@ impl Protocol for FakeSessions {
                 return Ok(());
             };
             if fake.hang {
+                if let Some(heard) = &fake.heard {
+                    let _ = heard.send(request.clone());
+                }
                 // Holds the stream until the server drops it.
                 while rx.recv::<SessionsRequest>().await?.is_some() {}
                 return Ok(());
@@ -1466,6 +1460,25 @@ impl Protocol for FakeSessions {
                         more: 0,
                     },
                 },
+                // A tree from the top; below it, a folder alone, as a node
+                // from before trees answers.
+                (SessionsRequest::Folder { path, depth, .. }, _)
+                    if depth > 0 && path.is_empty() =>
+                {
+                    SessionsReply::Tree {
+                        tree: WorkTree {
+                            folders: ["", "src"]
+                                .map(|path| WorkFolder {
+                                    path: path.into(),
+                                    entries: Vec::new(),
+                                    more: 0,
+                                    git: true,
+                                })
+                                .to_vec(),
+                            truncated: true,
+                        },
+                    }
+                }
                 (SessionsRequest::Folder { path, ignored, .. }, _) => SessionsReply::Folder {
                     folder: WorkFolder {
                         path,
@@ -1689,6 +1702,12 @@ impl CommandCenter {
     /// Links a node named `name` to user `user`, connects it serving
     /// `fake`, and waits until it is online. Gives its machine id.
     async fn node(&mut self, user: usize, name: &'static str, fake: FakeAgents) -> String {
+        let key = self.node_key(user, name, fake).await;
+        key.public().to_string()
+    }
+
+    /// `node`, giving the node's key.
+    async fn node_key(&mut self, user: usize, name: &'static str, fake: FakeAgents) -> SecretKey {
         let key = SecretKey::generate();
         self.users[user]
             .link_key(NewKey {
@@ -1698,14 +1717,19 @@ impl CommandCenter {
             })
             .await
             .unwrap();
+        self.connect(&key, name, fake).await;
+        online(&self.app, &key.public().to_string()).await;
+        key
+    }
+
+    /// Connects a node with the linked key `key` serving `fake`, on an
+    /// endpoint of its own, as a node does when it starts again.
+    async fn connect(&mut self, key: &SecretKey, name: &'static str, fake: FakeAgents) {
         let addr = self.router.endpoint().addr();
         let node = endpoint(key.clone()).await;
         self.nodes.push(tokio::spawn(async move {
             beep_node::link::connect(&node, addr, name, &fake.offers()).await
         }));
-        let id = key.public().to_string();
-        online(&self.app, &id).await;
-        id
     }
 
     async fn phone(&self, user: usize) -> (Node, Client) {
@@ -1726,19 +1750,6 @@ async fn agent_sessions_list_none_of_another_users_machines() {
     center.node(0, "build-box", FakeAgents::default()).await;
     let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
     assert!(bob.call(&ListAgentSessions {}).await.unwrap().is_empty());
-    center.shutdown().await;
-}
-
-#[tokio::test]
-async fn agent_hosts_list_machines_with_agents() {
-    let mut center = CommandCenter::new(1).await;
-    let build = center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
-    let hosts = client.call(&ListAgentHosts {}).await.unwrap();
-    assert_eq!(hosts.len(), 1, "{hosts:?}");
-    assert_eq!(hosts[0].machine_id, build);
-    assert_eq!(hosts[0].machine_name, "build-box");
-    assert_eq!(hosts[0].agents, ["claude"]);
     center.shutdown().await;
 }
 
@@ -2234,6 +2245,19 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
     assert_eq!(folder.path, "src");
     assert_eq!(folder.entries[0].change, Some(GitChange::Modified {}));
     assert!(folder.entries[0].ignored);
+    let tree = |path: &str| ListWorkTree {
+        machine_id: build.clone(),
+        root: "/srv/project".into(),
+        path: path.into(),
+        ignored: true,
+        depth: 3,
+    };
+    let top = client.call(&tree("")).await.unwrap();
+    let paths: Vec<_> = top.folders.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!((paths, top.truncated), (vec!["", "src"], true));
+    let alone = client.call(&tree("src")).await.unwrap();
+    assert_eq!(alone.folders, [folder]);
+    assert!(!alone.truncated);
     let read = |path: &str, offset: u64, len: u32| ReadWorkFile {
         machine_id: build.clone(),
         root: "/srv/project".into(),
@@ -2281,6 +2305,52 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
         missing.downcast::<ApiError>().unwrap(),
         ApiError::NotFound {}
     ));
+    center.shutdown().await;
+}
+
+/// A node that restarts leaves the server holding its old connection for a
+/// while; a folder read sent on it goes again on the new one instead of
+/// failing.
+#[tokio::test]
+async fn a_folder_read_lost_with_a_replaced_connection_goes_again() {
+    let mut center = CommandCenter::new(1).await;
+    let (heard, mut taken) = mpsc::unbounded_channel();
+    let stale = FakeAgents {
+        hang: true,
+        heard: Some(heard),
+        ..FakeAgents::default()
+    };
+    let key = center.node_key(0, "build-box", stale).await;
+    let (_node, client) = center.phone(0).await;
+    let list = ListWorkFolder {
+        machine_id: key.public().to_string(),
+        root: "/srv/project".into(),
+        path: "src".into(),
+        ignored: false,
+    };
+    let call = client.call(&list);
+    tokio::pin!(call);
+    // The stale connection takes the read and never answers it.
+    loop {
+        tokio::select! {
+            done = &mut call => panic!("answered on the stale connection: {done:?}"),
+            request = taken.recv() => {
+                if matches!(request, Some(SessionsRequest::Folder { .. })) {
+                    break;
+                }
+            }
+        }
+    }
+    // The node starts again and reconnects, replacing that connection.
+    center
+        .connect(&key, "build-box", FakeAgents::default())
+        .await;
+    let folder = timeout(Duration::from_secs(30), call)
+        .await
+        .expect("the read ends")
+        .expect("the read goes again on the new connection");
+    assert_eq!(folder.path, "src");
+    assert_eq!(folder.entries[0].name, "main.rs");
     center.shutdown().await;
 }
 

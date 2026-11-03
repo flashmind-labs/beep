@@ -248,6 +248,12 @@ export function stepIcon(state: Step["state"]) {
 
 // Same fold as the phone: while running, the last three steps and a
 // "+N tools" row; once done, one "N steps" row that opens them all.
+/// A step's label, with the machine of "Running on build-box: df -h" as a chip.
+export function stepText(label: string) {
+  const m = /^(Running|Ran) on (\S+): (.*)$/s.exec(label);
+  return m ? `${m[1]} on <span class="dhost">${esc(m[2])}</span> ${esc(m[3])}` : esc(label);
+}
+
 export function drawSteps(turn: Turn, done: boolean | undefined) {
   let box = turn.querySelector(".tools");
   if (!turn.steps.length) { box?.remove(); return; }
@@ -256,7 +262,7 @@ export function drawSteps(turn: Turn, done: boolean | undefined) {
     const reply = turn.querySelector(".reply, .dcard, .derr");
     reply ? turn.insertBefore(box, reply) : turn.append(box);
   }
-  const rows = (steps: Step[]) => steps.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${esc(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
+  const rows = (steps: Step[]) => steps.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${stepText(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
   const n = turn.steps.length;
   const row = (expanded: boolean, label: string) => `<button class="drow" aria-expanded="${expanded}"><span class="chev">${ICON.chev}</span>${label}</button>`;
   if (done) {
@@ -396,6 +402,19 @@ export function sendQueued(id: string | null) {
   if (!q.list.length) queued.delete(id);
   drawQueue();
   send(text);
+}
+
+/// Takes the open chat's last queued prompt back into the empty field to
+/// edit. False when nothing is queued.
+export function popQueued() {
+  const q = queued.get(S.session);
+  const text = q?.list.pop();
+  if (text == null) return false;
+  if (!q!.list.length) queued.delete(S.session);
+  setAsk(text);
+  drawQueue();
+  refreshHints();
+  return true;
 }
 
 /// The open chat's queued prompts, between the reply and the hints. x puts

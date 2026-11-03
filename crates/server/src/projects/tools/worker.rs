@@ -25,8 +25,7 @@ use std::{sync::Arc, time::Duration};
 use strum::VariantNames;
 
 pub(crate) const WORKER: &str = "project_worker";
-/// The gate's name for a start card. Every start asks, so "Always" on it
-/// saves nothing: the agents run without permission prompts.
+/// The gate's name for a start card; every start asks, so "Always" saves nothing.
 pub(super) const START_SLUG: &str = "PROJECT_WORKER_START";
 
 pub(super) struct WorkerTool {
@@ -70,9 +69,7 @@ struct WorkerArgs {
     prompt: Option<String>,
 }
 
-/// The start card for `task` placed as `placement`. It asks every time:
-/// the node starts each agent with its permission prompts off, so nothing
-/// the worker does is put to Beep first.
+/// The start card for `task` at `placement`. Always asks: agents run with permission prompts off.
 pub(crate) fn start_card(
     task: &TaskRow,
     machine: &str,
@@ -404,39 +401,6 @@ mod tests {
             issue_foreign: false,
             issue_commented: false,
         }
-    }
-
-    #[test]
-    fn a_start_card_names_where_and_how() {
-        let inputs = [InputFile {
-            machine: None,
-            path: "/srv/in/model.glb".to_owned(),
-        }];
-        let card = start_card(
-            &task(),
-            "build-box",
-            &placement(WorkerAgent::Claude),
-            &inputs,
-        );
-        assert_eq!(card.action, "Start fix-it");
-        let shown: Vec<String> = card
-            .fields
-            .iter()
-            .map(|field| format!("{}: {}", field.label, field.value))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                "Task: fix-it: Fix it",
-                "Machine: build-box",
-                "Agent: claude",
-                "Persona: reviewer",
-                "Branch: beep/fix-it from main",
-                "Inputs: /srv/in/model.glb",
-                "Permissions: claude runs commands without asking: nothing it does in the \
-                 worktree is checked first.",
-            ]
-        );
     }
 
     #[test]

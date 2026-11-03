@@ -1,5 +1,4 @@
-//! An app with two users for the watchers' tests, on a model
-//! that answers each system prompt as a test tells it to.
+//! A two-user app for watcher tests, on a scripted model.
 
 use crate::{
     app::{App, ServerTools},
@@ -21,8 +20,7 @@ use uuid::Uuid;
 
 static NEXT: AtomicI64 = AtomicI64::new(0);
 
-/// Answers each request with the reply of the first rule whose text starts
-/// its system prompt, and keeps every prompt it was sent.
+/// Answers with the first rule whose text starts the system prompt, and records every prompt.
 #[derive(Default)]
 pub(crate) struct Scripted {
     rules: Vec<(&'static str, String)>,

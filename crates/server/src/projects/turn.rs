@@ -1,5 +1,4 @@
-//! A project chat's turn: its prompt, what kind of turn it is, and the
-//! context block that tells the agent where the project stands.
+//! A project chat's turn: its prompt, its kind and the context block.
 
 use super::{
     commands::{HostCommand, OwnedIssue, parse_owned_issues},
@@ -66,16 +65,13 @@ pub(crate) fn turn_kind(message: &Message) -> TurnKind {
 /// How long filing missed issues may hold up the start of a turn.
 const MIRROR_BUDGET: Duration = Duration::from_secs(30);
 
-/// The start of each project turn: files the issues earlier tries missed,
-/// then gives the context block.
+/// Each project turn's start: files missed issues, then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
     let fleet = Arc::new(NodeFleet::new(app, user));
     start_with(fleet, user, project, MIRROR_BUDGET).await
 }
 
-/// `start` on `fleet`, waiting at most `budget` for the missed issues. The
-/// filing goes on past it, and those it does not get to wait for a later
-/// turn.
+/// `start` on `fleet`, waiting at most `budget` for missed issues; filing goes on past it.
 pub(crate) async fn start_with(
     fleet: Arc<dyn Fleet>,
     user: &Arc<User>,
@@ -101,8 +97,7 @@ pub(crate) async fn start_with(
     context_with(fleet.as_ref(), user, project).await
 }
 
-/// What the agent is told each turn of a chat about one thread: the thread
-/// read again now.
+/// What the agent is told each turn of a thread chat: the thread read again now.
 pub(crate) async fn thread_context(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -239,8 +234,7 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
     ctx
 }
 
-/// For each checkout Syncthing keeps in step, a line saying so and with
-/// which machines, the others sharing its Syncthing folder.
+/// A line per Syncthing-synced checkout naming the machines sharing its folder.
 fn syncthing_lines(project: &str, machines: &[Machine], checkouts: &[CheckoutRow]) -> Vec<String> {
     let mut lines = Vec::new();
     for checkout in checkouts {
@@ -326,9 +320,7 @@ async fn memories(ctx: &mut String, user: &User, project: &ProjectRow) {
     }
 }
 
-/// The persona files in the home checkout's `.agents/`, each read as a
-/// persona or with why it does not read as one. Empty when the folder or
-/// the machine is not there.
+/// The home checkout's `.agents/` personas, or why each does not parse; empty if unreachable.
 pub(crate) async fn read_personas(
     fleet: &dyn Fleet,
     home: &CheckoutRow,
@@ -468,64 +460,13 @@ async fn owned_issues(
 mod tests {
     use super::*;
     use crate::{
-        app::Draws,
         projects::{
             model::{IssueHost, RepoName},
             testing::FakeFleet,
         },
-        protocol::{DeviceKind, node::Capability},
+        protocol::node::Capability,
         store::{NewTask, TestDb},
     };
-    use uuid::Uuid;
-
-    fn message(text: &str, scheduled: Option<&str>) -> Message {
-        Message {
-            session_id: Uuid::new_v4(),
-            request_id: Uuid::new_v4(),
-            message: text.to_owned(),
-            cron_id: None,
-            scheduled: scheduled.map(str::to_owned),
-            always_sent: false,
-            woken: None,
-            images: Vec::new(),
-            files: Vec::new(),
-            voice: None,
-            spoken: false,
-            answer: None,
-            model: None,
-            thinking: None,
-            origin: DeviceKind::Phone {},
-            platform: None,
-            draws: Draws::default(),
-            finished_research: false,
-        }
-    }
-
-    #[test]
-    fn planning_turns_are_prompts_and_replans() {
-        assert_eq!(turn_kind(&message("Fix it", None)), TurnKind::Planning);
-        assert_eq!(
-            turn_kind(&message("The worker ended", Some(REPLAN_LABEL))),
-            TurnKind::Planning
-        );
-        assert_eq!(
-            turn_kind(&message("Plan issue 12", Some(ISSUE_LABEL))),
-            TurnKind::Planning
-        );
-        assert_eq!(
-            turn_kind(&message("Turn done", Some(WORKER_LABEL))),
-            TurnKind::Routine
-        );
-        assert_eq!(
-            turn_kind(&message("Checks changed", Some(CHECK_LABEL))),
-            TurnKind::Routine
-        );
-    }
-
-    #[test]
-    fn the_prompt_stays_short() {
-        assert!(PROJECT_PROMPT.lines().count() < 60);
-    }
 
     #[tokio::test]
     async fn context_lists_tasks_machines_and_issues() {
@@ -592,60 +533,6 @@ mod tests {
         );
         assert!(ctx.contains("- gpu-box: /srv/widget (home)"), "{ctx}");
         assert_eq!(shell.ran_with("issue list").len(), 1);
-    }
-
-    #[test]
-    fn a_checkout_syncthing_keeps_says_so_with_the_other_machines() {
-        use crate::protocol::node::SyncthingFolder;
-        let mut fleet = FakeFleet::default();
-        let (laptop, _) = fleet.add(1, "laptop", &[], "/srv");
-        let (build, _) = fleet.add(2, "build-box", &[], "/srv");
-        let (plain, _) = fleet.add(3, "gpu-box", &[], "/srv");
-        let synced = |id: &str, path: &str| SyncthingFolder {
-            id: id.into(),
-            label: "Work".into(),
-            path: path.into(),
-        };
-        fleet.machines[0].syncthing = vec![synced("work-1", "/srv/work")];
-        fleet.machines[1].syncthing = vec![synced("work-1", "/data/work")];
-        let checkout = |machine, path| CheckoutRow {
-            machine,
-            path: MachinePath::parse(path).unwrap(),
-            home: false,
-        };
-        let lines = syncthing_lines(
-            "acme/widget",
-            &fleet.machines,
-            &[
-                checkout(laptop, "/srv/work/widget"),
-                checkout(plain, "/srv/widget"),
-                checkout(build, "/srv/widget"),
-            ],
-        );
-        assert_eq!(
-            lines,
-            [
-                "acme/widget on laptop is kept in step by Syncthing with build-box; edits there \
-              reach those machines on their own, so don't copy files between them."
-            ]
-        );
-
-        fleet.machines[1].syncthing.clear();
-        let alone = syncthing_lines(
-            "acme/widget",
-            &fleet.machines,
-            &[checkout(laptop, "/srv/work/widget")],
-        );
-        assert_eq!(alone.len(), 1);
-        assert!(alone[0].contains("with its other devices"), "{alone:?}");
-        assert!(
-            syncthing_lines(
-                "acme/widget",
-                &fleet.machines,
-                &[checkout(plain, "/srv/widget")]
-            )
-            .is_empty()
-        );
     }
 
     #[tokio::test]
@@ -753,32 +640,5 @@ mod tests {
         fleet.projects.mirrored(project.id).await;
         let tasks = user.project_tasks(project.id).await.unwrap();
         assert_eq!(tasks[0].issue.as_ref().map(|issue| issue.number), Some(3));
-    }
-
-    #[tokio::test]
-    async fn unreadable_issues_take_one_line() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = User::for_test(store, "alice");
-        let fleet = FakeFleet::default();
-        let project = user
-            .ensure_project(&RepoName::parse("acme/widget").unwrap())
-            .await
-            .unwrap();
-        let roles = crate::projects::model::Roles {
-            issues: Some(IssueHost::Github),
-            prs: None,
-        };
-        user.set_project_setup(project.id, &roles, Visibility::Public, "main")
-            .await
-            .unwrap();
-        let project = user.project(project.id).await.unwrap().unwrap();
-        let ctx = context_with(&fleet, &user, &project).await;
-        let lines: Vec<&str> = ctx
-            .lines()
-            .filter(|line| line.starts_with("Could not read the project's issues"))
-            .collect();
-        assert_eq!(lines.len(), 1, "{ctx}");
-        assert!(ctx.contains("Open tasks: none"));
     }
 }

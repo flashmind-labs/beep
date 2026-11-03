@@ -1,5 +1,4 @@
-//! Projects: a folder of work with its own agent, whose personas live in
-//! Markdown files next to the code.
+//! Projects: a folder of work with its own agent and Markdown personas.
 
 use crate::app::App;
 use std::sync::Arc;
@@ -31,9 +30,7 @@ pub(crate) mod tools;
 pub(crate) mod turn;
 pub(crate) mod worker;
 
-/// Starts following project workers: fails the ones a restart left
-/// starting, arms the pending checks and idle closes, and runs the timer
-/// and the loop that moves branch reviews on.
+/// Starts the project lifecycle: startup recovery, the timer and the branch review loop.
 pub fn start(app: Arc<App>) {
     app.projects.start_timer(&app);
     let job = service::Job::new(service::JobKind::Startup, |app| async move {

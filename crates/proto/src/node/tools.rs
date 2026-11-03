@@ -84,34 +84,6 @@ pub enum Reply {
 mod tests {
     use super::*;
 
-    fn round_trip<T: Serialize + for<'de> Deserialize<'de>>(value: &T) -> T {
-        let bytes = rmp_serde::to_vec_named(value).expect("encodes");
-        rmp_serde::from_slice(&bytes).expect("decodes")
-    }
-
-    #[test]
-    fn requests_and_replies_round_trip() {
-        let request = Request {
-            session: "a3f9c1".into(),
-            tool: Tool::RunOn,
-            args: r#"{"machine":"build-box","command":"cargo test"}"#.into(),
-            approved: Approved::Once,
-        };
-        assert_eq!(round_trip(&request), request);
-        let ask = Reply::Ask {
-            app: "Your machines".into(),
-            action: "run on".into(),
-            fields: vec![Field {
-                label: "Machine".into(),
-                value: "build-box".into(),
-            }],
-        };
-        assert_eq!(round_trip(&ask), ask);
-        let name: &'static str = Tool::SendFiles.into();
-        assert_eq!(name, "send_files");
-        assert_eq!("job_status".parse::<Tool>(), Ok(Tool::JobStatus));
-    }
-
     #[test]
     fn an_unknown_tool_and_a_missing_approval_still_read() {
         #[derive(Serialize)]

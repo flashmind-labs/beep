@@ -1,6 +1,4 @@
-//! The project chat's own tools: `project_setup` for checkouts and roles,
-//! `project_plan` to make tasks and their issues, and `project_tasks` to
-//! list, change, drop, reopen and merge them.
+//! The project chat's tools: `project_setup`, `project_plan` and `project_tasks`.
 
 use super::{
     commands::{
@@ -69,8 +67,7 @@ pub(crate) struct ProjectTools {
 }
 
 impl ProjectTools {
-    /// The project as it is now: a setup call earlier in the turn may have
-    /// changed it.
+    /// The project as it is now, since a setup call this turn may have changed it.
     pub(crate) async fn project(&self) -> Result<ProjectRow> {
         self.user
             .project(self.project)
@@ -78,8 +75,7 @@ impl ProjectTools {
             .ok_or_else(|| anyhow::anyhow!("the project is gone"))
     }
 
-    /// What text bound for the code host must not name: the machines, their
-    /// homes, the project's checkouts and the folders the machines share.
+    /// What text bound for the code host must not name.
     pub(crate) async fn public_text(&self) -> Result<PublicText> {
         let project = self.project().await?;
         let machines = self.fleet.machines().await?;
@@ -87,9 +83,7 @@ impl ProjectTools {
     }
 }
 
-/// What "Always" on the card for this call saves, or `None` when the card
-/// always asks (a merge, a big plan, a host command, a worker start), so
-/// nothing is saved.
+/// What "Always" on this call's card saves; `None` when the card always asks.
 pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option<String> {
     let text = |key: &str| args.get(key).and_then(Value::as_str);
     let slug = match tool {
@@ -125,9 +119,8 @@ fn plan_asks(n: usize, project: &ProjectRow) -> Asks {
     }
 }
 
-/// Registers the project tools, plus `exec` behind the gate and `process`
-/// when one of the user's machines offers a shell. There is no
-/// `code_agent`: workers start through the project's own tools.
+/// Registers the project tools, gated `exec`, and `process` when a machine offers a shell.
+/// No `code_agent`: workers start through the project tools.
 pub(crate) fn register(
     registry: &mut ToolRegistry,
     app: &Arc<App>,
@@ -1167,8 +1160,7 @@ impl TasksTool {
         )))
     }
 
-    /// Posts one comment on the task's issue, always asking first. An issue
-    /// someone else opened gets at most one.
+    /// Posts one comment on the task's issue, always asking; at most one on someone else's.
     async fn comment(
         &self,
         id: &str,
@@ -1255,8 +1247,7 @@ impl TasksTool {
     }
 }
 
-/// Runs `command` on the project's home machine; the error is for the
-/// model or the user.
+/// Runs `command` on the project's home machine; the error is for the model or user.
 async fn on_home(
     fleet: &dyn Fleet,
     user: &User,
@@ -1273,8 +1264,7 @@ async fn on_home(
         .map_err(|error| format!("{error:#}.")))
 }
 
-/// Drops an open `task`: stops its workers and closes its issue as not
-/// planned. Says what happened.
+/// Drops an open `task`: stops its workers and closes its issue as not planned.
 pub(crate) async fn drop_task(
     fleet: &dyn Fleet,
     user: &Arc<User>,

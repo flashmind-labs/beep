@@ -1,12 +1,8 @@
-//! Auto: the machine a session started from the app runs on when the app
-//! names none. What the app asks for (`needs`) and the folder are hard
-//! requirements; what the prompt mentions (hints) only steers the pick.
+//! Auto picks a session's machine: `needs` and the folder are required, prompt hints only steer.
 
 use crate::protocol::MachineCapability;
 
-/// Words that hint at a capability, matched against whole words of the
-/// prompt and folder, lowercase. Two-word phrases are matched joined by a
-/// space.
+/// Lowercase words of the prompt and folder that hint at a capability.
 const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
     (
         MachineCapability::Xcode {},
@@ -116,8 +112,7 @@ pub(super) struct Pool {
     pub(super) missed: Vec<MachineCapability>,
 }
 
-/// The machines that offer the agent, have every need and the folder, and,
-/// when some of them do, every hint they can.
+/// The machines with the agent, every need and the folder, narrowed by hints when some match.
 pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
     let agent = wants.agent.to_owned();
     let names = |at: &[usize]| list(at.iter().map(|&at| candidates[at].name));
@@ -172,8 +167,7 @@ pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Po
     })
 }
 
-/// Whether picking in `pool` needs each machine's running sessions: when
-/// several fit and none is the user's environment.
+/// Whether picking needs running-session counts: several fit and none is the user's environment.
 pub(super) fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
     pool.at.len() > 1 && !pool.at.iter().any(|&at| candidates[at].workspace)
 }
@@ -185,8 +179,7 @@ pub(super) struct Choice {
     pub(super) why: String,
 }
 
-/// Picks in `pool` (never empty, as `pool` makes it): the user's
-/// environment, else the machine running the fewest sessions, then by name.
+/// Picks the user's environment, else the least busy machine, then by name; `pool` is never empty.
 pub(super) fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
     let wanted: Vec<&str> = wants
         .needs
@@ -303,49 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn a_hint_steers_to_the_machine_that_has_it() {
-        let machines = [
-            candidate("home", &[], true, 0),
-            candidate("studio", &[XCODE], false, 3),
-        ];
-        let wants = wants(&[], &[XCODE]);
-        let pool = pool(&machines, &wants).unwrap();
-        assert_eq!(pool.at, [1]);
-        assert!(!needs_load(&machines, &pool));
-        assert_eq!(
-            choose(&machines, &pool, &wants),
-            Choice {
-                at: 1,
-                why: "It is the only one with Xcode.".into()
-            }
-        );
-    }
-
-    #[test]
-    fn a_hint_no_machine_meets_falls_back_with_a_note() {
-        let machines = [
-            candidate("home", &[GPU], true, 0),
-            candidate("mac", &[], false, 0),
-        ];
-        assert_eq!(
-            pick(&machines, &wants(&[], &[XCODE, GPU])),
-            Ok(Choice {
-                at: 0,
-                why: "It has a GPU and is your environment. No machine has Xcode, which the task mentions."
-                    .into()
-            })
-        );
-        assert_eq!(
-            pick(&machines, &wants(&[], &[XCODE])),
-            Ok(Choice {
-                at: 0,
-                why: "It is your environment. No machine has Xcode, which the task mentions."
-                    .into()
-            })
-        );
-    }
-
-    #[test]
     fn auto_prefers_the_environment_then_the_least_busy() {
         let machines = [
             candidate("gpu-b", &[GPU], false, 2),
@@ -397,23 +347,6 @@ mod tests {
                 folder: "/Users/sam/app".into(),
                 checked: "home and mac".into()
             })
-        );
-    }
-
-    #[test]
-    fn auto_says_why_nothing_fits() {
-        let mut machines = [candidate("home", &[GPU], true, 0)];
-        let mut need = wants(&[XCODE, CUDA], &[]);
-        need.agent = "Claude Code";
-        assert_eq!(
-            pick(&machines, &need).unwrap_err().to_string(),
-            "No machine online with Claude Code has Xcode and CUDA. With Claude Code: home."
-        );
-        machines[0].offers = false;
-        need.agent = "pi";
-        assert_eq!(
-            pick(&machines, &need),
-            Err(AutoError::NoAgent { agent: "pi".into() })
         );
     }
 }

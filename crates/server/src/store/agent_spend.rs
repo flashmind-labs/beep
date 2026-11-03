@@ -1,7 +1,4 @@
-//! What coding agent sessions spent as the agents' own logs on the user's
-//! machines tell it (`SessionSpend`, see `crate::nodes::usage`), and what
-//! the user's agents spent each day of this month: the logs, and the turns
-//! Beep watched (`agent_usage`) that no log of the same session covers.
+//! What agent sessions spent per their logs, and daily spend this month including watched turns no log covers.
 
 use super::{
     Store,
@@ -45,8 +42,7 @@ impl Periods {
     }
 }
 
-/// What the sessions in one folder of one machine spent with one agent on
-/// one day.
+/// What one folder's sessions on one machine spent with one agent on one day.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DaySpendRow {
     pub(crate) endpoint: EndpointId,
@@ -86,8 +82,7 @@ fn name(what: &str, value: &str, max: usize) -> Result<()> {
 }
 
 impl Store {
-    /// Keeps what a session on `endpoint` spent, in place of what was kept
-    /// of it from the report's `since` on.
+    /// Keeps a session's spend on `endpoint`, replacing what was kept from the report's `since` on.
     pub(crate) async fn save_session_spend(
         &self,
         user: &UserKey,
@@ -207,9 +202,7 @@ impl Store {
         })
     }
 
-    /// What the user's agents spent each day of `periods`, by machine,
-    /// folder, agent and billing: from the logs, and from the turns Beep
-    /// watched of sessions no log covers that day.
+    /// Daily spend over `periods` by machine, folder, agent and billing, from logs plus uncovered watched turns.
     pub(crate) async fn day_spend(
         &self,
         user: &UserKey,
@@ -265,8 +258,7 @@ impl Store {
             .collect()
     }
 
-    /// The tokens each model used each day of `periods`, by agent, from
-    /// the logs and from the turns Beep watched apart.
+    /// Tokens per model per day of `periods`, by agent, from logs and watched turns.
     pub(crate) async fn day_models(
         &self,
         user: &UserKey,

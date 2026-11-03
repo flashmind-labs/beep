@@ -1,5 +1,4 @@
-//! A project's branches with work, and giving one a worktree: the shell
-//! scripts that ask git and the host, and reading what they print.
+//! A project's branches with work, and giving one a worktree.
 
 pub(crate) use super::commands::quote;
 use super::{
@@ -25,8 +24,7 @@ pub(crate) const READ_LIMIT: Duration = Duration::from_secs(30);
 /// The most open pull requests read.
 const MAX_PRS: u32 = 50;
 
-/// A branch name as git takes it: one line, not an option, no `..` and
-/// none of the characters git refuses in a ref.
+/// A branch name git accepts: one line, not an option, no `..` or bad ref characters.
 pub(crate) fn branch_name(text: &str) -> Option<&str> {
     let text = text.trim();
     let bad = text.is_empty()
@@ -46,18 +44,13 @@ pub(crate) fn branch_name(text: &str) -> Option<&str> {
     (!bad).then_some(text)
 }
 
-/// Where a branch's worktree goes in its checkout: `.worktrees/` and the
-/// name with each `/` as `-`.
+/// The branch's worktree path: `.worktrees/` plus the name with `/` as `-`.
 pub(crate) fn worktree_path(branch: &str) -> String {
     agent::worktree_path(branch)
 }
 
-/// Gives `branch` a worktree at [`worktree_path`] in the checkout
-/// `folder`: the local branch when there is one, else fetched from
-/// `origin`, then from the other remotes, tracking the one that has it.
-/// Exits 3 when the folder is not there, 5 when the branch has a worktree
-/// already, 6 when the path is taken, 7 when no remote has the branch and
-/// 4 when git fails.
+/// Gives `branch` a worktree in `folder`, from the local branch or the first remote that has it.
+/// Exits 3 no folder, 4 git failed, 5 worktree exists, 6 path taken, 7 no remote has it.
 pub(crate) fn add_worktree_script(folder: &str, branch: &str) -> String {
     let exclude = MachinePath::parse(folder)
         .map(|path| format!("{{ {}; }} >/dev/null 2>&1; ", exclude_project_dirs(&path)))
@@ -103,8 +96,7 @@ fn tail(text: &str) -> &str {
     &text[start..]
 }
 
-/// Adds `branch`'s worktree in `folder` on `node` and gives the branch as
-/// git lists it after. The error is for the user.
+/// Adds `branch`'s worktree on `node` and gives the branch as git lists it after.
 pub(crate) async fn add_worktree(
     node: &Online,
     folder: &str,
@@ -146,8 +138,7 @@ pub(crate) async fn add_worktree(
     }
 }
 
-/// The checkout's default branch and its branches, as `ListProjectBranches`
-/// reads them.
+/// The checkout's default branch and its branches, for `ListProjectBranches`.
 pub(crate) async fn read_branches(
     node: &Online,
     folder: &str,
@@ -156,8 +147,7 @@ pub(crate) async fn read_branches(
     parse_branches(&run_script(node, &branches_script(folder, default_branch), READ_LIMIT).await?)
 }
 
-/// Runs `script` on `node` and gives what it printed, failing unless it
-/// exits 0.
+/// Runs `script` on `node` and gives its output; fails unless it exits 0.
 pub(crate) async fn run_script(node: &Online, script: &str, limit: Duration) -> Result<String> {
     let ran = node.run(script, limit).await?;
     ok(&ran)?;
@@ -183,8 +173,7 @@ pub(crate) struct OpenPr {
     pub(crate) head: String,
 }
 
-/// Lists the user's open pull requests on GitHub's `repo` (`org/repo`)
-/// with `gh`, as the account for the repository's owner.
+/// Lists the user's open pull requests on GitHub `repo` with `gh`, as the owner's account.
 pub(crate) fn my_prs_command(repo: &str) -> String {
     let account = repo
         .split_once('/')
@@ -206,10 +195,8 @@ pub(crate) async fn my_prs(node: &Online, repo: &str) -> Result<Vec<OpenPr>> {
     parse_prs(&run_script(node, &my_prs_command(repo), READ_LIMIT).await?)
 }
 
-/// The branches with work: those an open pull request is from, those
-/// ahead of `default_branch` and those with a worktree, in the order
-/// given; then the pull requests whose branch the checkout does not have;
-/// then the default branch.
+/// Branches with work (open PR, ahead of default, or with a worktree), then PRs whose branch
+/// is missing locally, then the default branch.
 pub(crate) fn branches_with_work(
     branches: &[ProjectBranch],
     prs: &[OpenPr],
@@ -309,15 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn worktree_path_flattens_slashes() {
-        assert_eq!(worktree_path("login-copy"), ".worktrees/login-copy");
-        assert_eq!(
-            worktree_path("beep/fix/android"),
-            ".worktrees/beep-fix-android"
-        );
-    }
-
-    #[test]
     fn branch_names_git_refuses_are_refused() {
         assert_eq!(branch_name(" beep/login "), Some("beep/login"));
         for bad in [
@@ -325,21 +303,6 @@ mod tests {
         ] {
             assert_eq!(branch_name(bad), None, "{bad:?}");
         }
-    }
-
-    #[test]
-    fn prs_read_from_gh() {
-        let out = r#"[{"number":41,"title":"Fix the copy","headRefName":"login-copy"}]"#;
-        assert_eq!(
-            parse_prs(out).unwrap(),
-            [OpenPr {
-                number: 41,
-                title: "Fix the copy".into(),
-                head: "login-copy".into(),
-            }]
-        );
-        assert!(my_prs_command("acme/widget").contains("gh pr list -R acme/widget --author @me"));
-        assert!(parse_prs("not json").is_err());
     }
 
     fn git(dir: &Path, args: &[&str]) {

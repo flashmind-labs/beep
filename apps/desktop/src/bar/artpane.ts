@@ -6,7 +6,7 @@ import { clock } from "../agentturns.ts";
 import { esc, h, invoke } from "./core.ts";
 import { revealPath } from "./filespane.ts";
 import { fileSize } from "./media.ts";
-import { paneSession, readError } from "./mediapane.ts";
+import { paneSession } from "./mediapane.ts";
 
 /// An artifact made ready to show, as `agent_artifact` gives it.
 type Shown =
@@ -179,6 +179,13 @@ function about(a: Artifact, size: number | null) {
   return [rel, KIND_NAMES[a.kind], size != null ? fileSize(size) : ""].filter(Boolean).join(" · ");
 }
 
+/// What an error from reading an artifact says to the user.
+function readError(e: unknown) {
+  const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
+  if (/no longer|not found|gone|is not there/i.test(text)) return "This file is not on the machine any more, or the machine is offline.";
+  if (/unknown op|not serve|closes the stream/i.test(text)) return "Update Beep's server and beep-node on that machine to show this.";
+  return text;
+}
 
 /// Reads `a` from the machine and shows it, unless a newer read started.
 async function load(a: Artifact) {

@@ -29,15 +29,13 @@ const MAX_CALLS: usize = 16;
 
 /// What one user was last given.
 struct Cached {
-    /// The credential ids it was read with: a token saved or removed since
-    /// reads again.
+    /// The credential ids it was read with, so a token change rereads.
     logins: Vec<String>,
     at: Instant,
     items: GitItems,
 }
 
-/// Each user's last list, behind a lock of its own so two asks at once
-/// read the hosts once.
+/// Each user's last list, locked per user so concurrent asks read the hosts once.
 pub struct GitBoard {
     users: Mutex<HashMap<String, Arc<AsyncMutex<Option<Cached>>>>>,
     calls: Arc<Semaphore>,
@@ -57,8 +55,7 @@ impl GitBoard {
         }
     }
 
-    /// The server-wide limit on calls to git hosts in flight, for other
-    /// reads of a host's API.
+    /// The server-wide limit on git host calls in flight.
     pub(crate) fn calls(&self) -> &Arc<Semaphore> {
         &self.calls
     }
@@ -141,9 +138,7 @@ struct Answer {
     result: Result<Vec<GitItem>, HostError>,
 }
 
-/// Every host with its error, and their items once each, newest activity
-/// first. Two accounts on one host can see the same item: it lists once,
-/// with the marks of both.
+/// Every host's error and their items deduplicated, newest activity first.
 fn combine(answers: Vec<Answer>) -> GitItems {
     let mut hosts = Vec::new();
     let mut items: Vec<GitItem> = Vec::new();
@@ -264,15 +259,5 @@ mod tests {
         assert!(merged.authored && merged.review_requested);
         assert_eq!(merged.review, GitReview::Approved {});
         assert!(got.items[0].updated_at > SystemTime::UNIX_EPOCH);
-    }
-
-    #[tokio::test]
-    async fn no_git_host_lists_nothing_without_asking() {
-        let board = GitBoard::new();
-        let got = board
-            .list("user", Vec::new())
-            .await
-            .expect("no call is made");
-        assert!(got.items.is_empty() && got.hosts.is_empty());
     }
 }

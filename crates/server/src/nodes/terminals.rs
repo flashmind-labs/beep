@@ -1,6 +1,4 @@
-//! Interactive terminals on a node (`terminal/1`). Starting, listing and
-//! stopping open a stream each; attaching keeps one open while the app
-//! follows the terminal.
+//! Interactive terminals on a node (`terminal/1`).
 
 use super::Online;
 use crate::{
@@ -35,8 +33,7 @@ impl Online {
             .context("the node closed the terminal session")
     }
 
-    /// Opens a stream following terminal `id` from byte `from`, sized
-    /// `size`. The node sends `Output` on it and reads `Input`.
+    /// Opens a stream following terminal `id` from byte `from`.
     pub(crate) async fn attach_terminal(
         &self,
         id: TaskId,
@@ -49,9 +46,7 @@ impl Online {
         Ok((tx, rx))
     }
 
-    /// Stops terminal `row` while it still runs its command: a background
-    /// task, or an interactive terminal. One that ended, or another under
-    /// its number, is left alone.
+    /// Stops terminal `row` if it still runs its command; one reusing its number is left alone.
     pub(crate) async fn stop_terminal(&self, row: &TerminalRow) -> Result<()> {
         let id = TaskId(row.task);
         if !row.pty {

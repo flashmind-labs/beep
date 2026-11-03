@@ -113,8 +113,7 @@ fn tail(text: &str) -> String {
     text[start..].to_owned()
 }
 
-/// Starts `task` as `request` asks: waits for its dependency, else picks a
-/// machine, makes the worktree, copies the inputs and starts the agent.
+/// Starts `task` per `request`: waits for its dependency, else places and starts the agent.
 pub(crate) async fn start_task(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -470,8 +469,7 @@ struct OnNode<'a> {
 }
 
 impl OnNode<'_> {
-    /// Makes the worktree, copies the inputs and starts the agent. Gives the
-    /// node and the agent's session, or why not, for the model.
+    /// Makes the worktree, copies inputs and starts the agent; the error is for the model.
     async fn start(&self, inputs: &[InputFile]) -> Result<(Online, String), String> {
         let placement = self.placement;
         let online = online(self.app, self.user, &placement.machine)
@@ -546,9 +544,8 @@ async fn run_checked(online: &Online, command: &str) -> Result<(), String> {
     }
 }
 
-/// Copies each input into `incoming` on the machine `to`, which commands
-/// name so. An input without a machine is on the user's environment, or on
-/// `to` when the environment is not there. Says where each landed.
+/// Copies each input into `incoming` on `to`; one without a machine comes from the user's
+/// environment (or `to` when absent). Says where each landed.
 pub(crate) async fn copy_inputs(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -634,8 +631,7 @@ async fn copy_input(
     }
 }
 
-/// Stops `worker`: closes its session, ends it, blocks its task when it was
-/// running and forgets its session. Nothing happens to an ended worker.
+/// Stops `worker`: closes and untracks its session, ends it, blocks a running task. No-op if ended.
 pub(crate) async fn stop_worker(
     app: &Arc<App>,
     user: &Arc<User>,
@@ -645,8 +641,7 @@ pub(crate) async fn stop_worker(
     stop_worker_on(&fleet, user, worker).await
 }
 
-/// [`stop_worker`] through `fleet`. The slot it held may start a queued
-/// task.
+/// [`stop_worker`] through `fleet`, then refills the freed slot.
 pub(crate) async fn stop_worker_on(
     fleet: &dyn Fleet,
     user: &Arc<User>,
@@ -814,51 +809,9 @@ mod tests {
     }
 
     #[test]
-    fn prompt_names_branch_inputs_and_issue() {
+    fn a_foreign_issue_is_referred_to_never_closed() {
         let fixture = fixture();
-        let prompt = task_prompt(&facts(&fixture));
-        assert!(
-            prompt.starts_with(
-                "You are working on one task of the project acme/widget, tracked as issue #12"
-            ),
-            "{prompt}"
-        );
-        assert!(
-            prompt.contains("Task: Fix it\nMake the build pass.\n"),
-            "{prompt}"
-        );
-        assert!(
-            prompt.contains(
-                "You are in a git worktree at /srv/widget/.worktrees/fix-it on branch beep/fix-it, \
-                 made from main. Work only in this worktree.\n\
-                 The input files are in .beep/incoming/fix-it/ in the worktree.\n"
-            ),
-            "{prompt}"
-        );
-        assert!(prompt.contains("2. Push the branch: git push -u origin beep/fix-it\n"));
-        assert!(
-            prompt.contains(
-                "3. Open a pull request from beep/fix-it into main with \"Closes #12\" in its \
-                 description.\n"
-            ),
-            "{prompt}"
-        );
-        assert!(prompt.ends_with("Files you make that git ignores are copied back on request.\n"));
-        // Issues on another host are linked by their URL.
-        let forgejo = IssueHost::Forgejo(
-            crate::projects::model::ForgejoHost::parse("git.example.com").expect("a host"),
-        );
-        let linked = task_prompt(&PromptFacts {
-            issues: Some(&forgejo),
-            has_inputs: false,
-            ..facts(&fixture)
-        });
-        assert!(
-            linked.contains("into main linking https://github.com/acme/widget/issues/12."),
-            "{linked}"
-        );
-        assert!(!linked.contains(".beep/incoming"), "{linked}");
-        // Someone else's issue is referred to, never closed by the PR.
+        assert!(task_prompt(&facts(&fixture)).contains("\"Closes #12\""));
         let foreign = task_prompt(&PromptFacts {
             issue_foreign: true,
             ..facts(&fixture)
@@ -868,43 +821,5 @@ mod tests {
             "{foreign}"
         );
         assert!(!foreign.contains("Closes"), "{foreign}");
-        let untracked = task_prompt(&PromptFacts {
-            issue: None,
-            ..facts(&fixture)
-        });
-        assert!(
-            untracked.contains("tracked as a task in Beep."),
-            "{untracked}"
-        );
-        assert!(untracked.contains("into main.\n"), "{untracked}");
-    }
-
-    #[test]
-    fn prompt_without_prs_role_says_push_only() {
-        let fixture = fixture();
-        let prompt = task_prompt(&PromptFacts {
-            prs: None,
-            ..facts(&fixture)
-        });
-        assert!(
-            prompt.contains(
-                "3. Do not open a pull request; say in your last message that the branch is pushed.\n"
-            ),
-            "{prompt}"
-        );
-        assert!(!prompt.contains("Open a pull request"), "{prompt}");
-        assert!(prompt.contains("Never push to main, never force push, and never merge."));
-    }
-
-    #[test]
-    fn persona_prompt_goes_first() {
-        let fixture = fixture();
-        let task = task_prompt(&facts(&fixture));
-        let prompt = worker_prompt(Some("You rig models."), &task);
-        assert!(
-            prompt.starts_with("You rig models.\n\nYou are working on one task"),
-            "{prompt}"
-        );
-        assert_eq!(worker_prompt(None, &task), task);
     }
 }

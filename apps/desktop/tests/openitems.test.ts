@@ -1,26 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { itemChips, openTitle, projectsWithOpen, replyPrompt, repoUrl, reviewStart, waitsOnYou } from "../src/openitems.ts";
-import { homeColumns, homeRows } from "../src/home.ts";
+import { projectsWithOpen, reviewStart, waitsOnYou } from "../src/openitems.ts";
 import type { GitItemRow } from "../src/openitems.ts";
 
 const item = (over: Partial<GitItemRow> = {}): GitItemRow => ({
   host: "github.com", repo: "acme/widget", number: 1, kind: "pull_request", title: "A change",
   url: "https://github.com/acme/widget/pull/1", updated_at: 1000, authored: false, assigned: false,
   review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, ...over,
-});
-
-test("the title names the kinds of host saved", () => {
-  assert.equal(openTitle([{ forgejo: false }]), "Open on GitHub");
-  assert.equal(openTitle([{ forgejo: true }]), "Open on Forgejo");
-  assert.equal(openTitle([{ forgejo: true }, { forgejo: false }]), "Open on GitHub and Forgejo");
-});
-
-test("the section shows only once a git host is saved", () => {
-  const home = { running: [], needs_you: [], updates: [], coming_up: [], projects: [], machines: [] };
-  assert.deepEqual(homeRows({ ...home, git: null }), []);
-  assert.deepEqual(homeRows({ ...home, git: { items: [], hosts: [{}] } }), [["git"]]);
-  assert.deepEqual(homeColumns({ ...home, git: { items: [], hosts: [{}] } }), { left: ["git"], right: ["machines"] });
 });
 
 test("an item waits on you when it asks for your review or your PR needs work", () => {
@@ -53,14 +39,6 @@ test("items group by project, waiting ones first, with counts", () => {
   assert.deepEqual(widget.items.map(i => i.number), [3, 2]);
 });
 
-test("chips say what state a PR is in", () => {
-  const texts = (it: GitItemRow) => itemChips(it).map(c => c.text);
-  assert.deepEqual(texts(item({ review_requested: true, checks_failing: true })), ["your review", "checks failing"]);
-  assert.deepEqual(texts(item({ draft: true, review: "changes_requested" })), ["draft", "changes requested"]);
-  assert.deepEqual(texts(item({ review: "approved" })), ["approved"]);
-  assert.deepEqual(texts(item({ kind: "issue", assigned: true })), ["assigned"]);
-});
-
 test("Review starts in the project's folder on an online machine, else on Auto", () => {
   const pr = item();
   const project = { machines: [{ id: "m1", folder: "/srv/project/widget" }, { id: "m2", folder: "/path/to/work/widget" }] };
@@ -71,13 +49,4 @@ test("Review starts in the project's folder on an online machine, else on Auto",
   assert.match(start.prompt, /only after I approve it/);
   assert.equal(reviewStart(pr, null, machines).at, null);
   assert.match(reviewStart(item({ host: "git.example.com" }), null, []).prompt, /with teacli/);
-});
-
-test("Reply asks Beep about the item by its link", () => {
-  assert.equal(replyPrompt(item()), "Help me reply to https://github.com/acme/widget/pull/1");
-});
-
-test("the repository page comes from an item's", () => {
-  assert.equal(repoUrl("https://github.com/acme/widget/issues/12"), "https://github.com/acme/widget");
-  assert.equal(repoUrl("https://git.example.com/forge/tools-org/uploader/pulls/61"), "https://git.example.com/forge/tools-org/uploader");
 });

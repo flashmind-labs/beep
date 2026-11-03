@@ -1,6 +1,4 @@
-//! Reads the stored transcript of every session saved before messages had
-//! rows into those rows, once, between migrations 0029 and 0030. Only Rust
-//! reads the transcript JSON, so this cannot be SQL.
+//! One-time backfill of message rows from stored transcripts, between migrations 0029 and 0030 (needs Rust to parse the JSON).
 
 use super::{
     messages::{Step, StepBody, TurnRecord, insert_steps},
@@ -17,8 +15,7 @@ use uuid::Uuid;
 /// Sessions read per transaction.
 const BATCH: i64 = 50;
 
-/// Fills in the messages of every session not yet done. Does nothing on a
-/// database already past 0030.
+/// Fills in the messages of every session not yet done; no-op past 0030.
 pub(super) async fn run(pool: &PgPool) -> Result<()> {
     let pending: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM information_schema.columns

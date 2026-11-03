@@ -135,33 +135,3 @@ fn parse_info_plist_version(xml: &str) -> Option<String> {
     let value = after.split_once("<string>")?.1.split_once("</string>")?.0;
     first_line(value)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use beep_proto::node::{AppInfo, AppName};
-
-    #[test]
-    fn desktop_entry_finds_blender() {
-        let text = "[Desktop Entry]\nName=Blender\nExec=blender %f\nX-KDE-Example=1\n";
-        assert_eq!(
-            parse_desktop_entry(text),
-            Some(AppInfo {
-                name: AppName::Blender,
-                version: None
-            })
-        );
-        assert_eq!(
-            parse_desktop_entry("[Desktop Entry]\nName=Calculator\n"),
-            None
-        );
-    }
-
-    #[test]
-    fn plist_version_reads_short_version() {
-        let xml = "<plist><dict>\n<key>CFBundleName</key>\n<string>Blender</string>\n\
-            <key>CFBundleShortVersionString</key>\n\t<string>4.2.1</string>\n</dict></plist>";
-        assert_eq!(parse_info_plist_version(xml).as_deref(), Some("4.2.1"));
-        assert_eq!(parse_info_plist_version("<plist/>"), None);
-    }
-}

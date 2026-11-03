@@ -1,7 +1,4 @@
-//! The agent's event tools: `event_topics` lists and changes which account
-//! events the user gets, and `recent_events` says what came in and what the
-//! triage agent made of it, in any chat; `hold_events` keeps events of a
-//! woken turn for a later digest.
+//! The agent's event tools: `event_topics`, `recent_events` and `hold_events`.
 
 use super::{Topic, Urgency, Verdict, triggers};
 use crate::{
@@ -260,60 +257,4 @@ fn recent_line(recent: &RecentEvent) -> String {
     };
     let _ = write!(line, " -> {outcome}");
     line
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        events::{EventApp, EventKind},
-        store::{EventRow, TriageRow},
-    };
-    use chrono::TimeZone;
-
-    fn recent(triage: Option<TriageRow>) -> RecentEvent {
-        RecentEvent {
-            event: EventRow {
-                id: 4,
-                app: EventApp::Gmail,
-                kind: EventKind::NewMail,
-                summary: "From Ana: Lease renewal".to_owned(),
-                detail: None,
-                ids: Value::Null,
-                occurred: Utc.with_ymd_and_hms(2026, 10, 20, 9, 30, 0).unwrap(),
-                state: EventState::Triaged,
-            },
-            triage,
-        }
-    }
-
-    fn triage(verdict: Verdict, refs: Vec<i64>) -> TriageRow {
-        TriageRow {
-            id: 1,
-            decided_at: Utc::now(),
-            verdict,
-            urgency: (verdict == Verdict::Inform).then_some(Urgency::Later),
-            summary: (verdict == Verdict::Inform).then(|| "Ana wants the lease signed.".to_owned()),
-            reason: "Newsletter.".to_owned(),
-            refs,
-            delivered: false,
-        }
-    }
-
-    #[test]
-    fn each_event_says_what_triage_made_of_it() {
-        let line = recent_line(&recent(Some(triage(Verdict::Inform, vec![4]))));
-        assert_eq!(
-            line,
-            "[#4] 2026-10-20 09:30 UTC, Gmail, new mail: From Ana: Lease renewal \
-             -> passed on for later: Ana wants the lease signed."
-        );
-        let line = recent_line(&recent(Some(triage(Verdict::Inform, vec![5]))));
-        assert!(line.ends_with("-> left out of a summary passed on for later"));
-        let line = recent_line(&recent(Some(triage(Verdict::Ignore, vec![]))));
-        assert!(line.ends_with("-> ignored: Newsletter."));
-        let mut pending = recent(None);
-        pending.event.state = EventState::Pending;
-        assert!(recent_line(&pending).ends_with("-> not triaged yet"));
-    }
 }

@@ -1,5 +1,4 @@
-//! `add_machine`: a one-time setup token, so the user can link a new
-//! machine by running `beep-node setup <token>` on it.
+//! `add_machine`: a one-time setup token for `beep-node setup <token>`.
 
 use crate::nodes::{self, TokenRefusal};
 use async_trait::async_trait;

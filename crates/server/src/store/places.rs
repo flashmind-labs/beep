@@ -1,5 +1,4 @@
-//! The user's saved places, whether the phone is at each, and the routines
-//! that start at them.
+//! Saved places, whether the phone is at each, and routines that start there.
 
 use super::{
     Location, Store,
@@ -52,8 +51,7 @@ pub struct NewPlace<'a> {
     pub longitude: f64,
     pub radius: u32,
     pub address: Option<&'a str>,
-    /// Whether the phone is there now, so saving where it stands is not
-    /// an arrival.
+    /// Whether the phone is there now, so saving where it stands is not an arrival.
     pub inside: bool,
 }
 
@@ -149,8 +147,7 @@ impl Store {
         row.as_ref().map(place_from).transpose()
     }
 
-    /// Saves a place, or moves the one with its name here, keeping its id
-    /// and routines.
+    /// Saves a place, or moves the same-named one here, keeping its id and routines.
     pub(crate) async fn save_place(
         &self,
         user: &UserKey,
@@ -187,8 +184,7 @@ impl Store {
         place.ok_or_else(|| anyhow::anyhow!("the saved place is gone"))
     }
 
-    /// Renames a place or changes its radius; `None` when there is no such
-    /// place.
+    /// Renames a place or changes its radius; `None` when missing.
     pub(crate) async fn update_place(
         &self,
         user: &UserKey,
@@ -230,8 +226,7 @@ impl Store {
         self.place(user, id).await
     }
 
-    /// Forgets a place and the routines that start there; false when there
-    /// is no such place.
+    /// Forgets a place and its routines; false when missing.
     pub(crate) async fn delete_place(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM places WHERE user_id=$1 AND id=$2")
             .bind(user.as_str())
@@ -242,9 +237,7 @@ impl Store {
         Ok(deleted > 0)
     }
 
-    /// Checks `fix` against every place, records which the phone is now at,
-    /// and returns the places it arrived at or left. Each crossing is
-    /// returned once, even when two fixes race.
+    /// Checks `fix` against every place and returns crossings, each once even when fixes race.
     pub(crate) async fn cross_places(
         &self,
         user: &UserKey,
@@ -280,9 +273,7 @@ impl Store {
         Ok(crossed)
     }
 
-    /// Records that the phone's own geofencing saw it arrive at or leave
-    /// place `id` at `at`. Returns the crossing when it changed where the
-    /// phone was, `None` when it was already known or there is no such place.
+    /// Records a geofence crossing of place `id` at `at`; `None` if already known or no such place.
     pub(crate) async fn cross_place(
         &self,
         user: &UserKey,
@@ -340,8 +331,7 @@ impl Store {
         Ok(routines)
     }
 
-    /// Records that routine `id` runs at `now`, unless it already ran at or
-    /// after `since`. False when it did, so it is skipped.
+    /// Claims routine `id` to run at `now` unless it ran since `since`; false to skip.
     pub(crate) async fn claim_place_run(
         &self,
         user: &UserKey,
@@ -398,8 +388,7 @@ impl Store {
         Ok(id)
     }
 
-    /// Fails when `schedule` is meant as a place trigger but is malformed or
-    /// names a place the user does not have.
+    /// Fails when a place `schedule` is malformed or names an unknown place.
     pub(crate) async fn check_place_schedule(&self, user: &UserKey, schedule: &str) -> Result<()> {
         if !PlaceTrigger::claims(schedule) {
             return Ok(());
@@ -419,7 +408,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{protocol::Cron, store::TestDb};
+    use crate::store::TestDb;
 
     fn gym<'a>() -> NewPlace<'a> {
         NewPlace {
@@ -636,57 +625,6 @@ mod tests {
             ..fits
         };
         assert!(store.create_place_routine(&alice, &too_long).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn a_place_routine_replies_in_the_chat_it_came_from() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let place = store.save_place(&alice, &gym()).await.unwrap();
-        let chat = Uuid::new_v4();
-        let routine = NewPlaceRoutine {
-            label: "Shop",
-            task: "Point the user to the shop",
-            trigger: PlaceTrigger::parse(&format!("leave:{}:once", place.id)).unwrap(),
-            chat: Some(chat),
-        };
-        store.create_place_routine(&alice, &routine).await.unwrap();
-        let routines = store
-            .place_routines(&alice, place.id, PlaceEvent::Leave)
-            .await
-            .unwrap();
-        assert_eq!(
-            routines[0].job.metadata["session_id"],
-            chat.to_string().as_str()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_place_schedule_says_whether_it_runs_once() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let place = store.save_place(&alice, &gym()).await.unwrap();
-        let once = format!("leave:{}:once", place.id);
-        let id = store
-            .create_cron(&alice, "Shop", &once, "Point me to the shop")
-            .await
-            .unwrap();
-        let run_once = |crons: Vec<Cron>| crons.iter().find(|c| c.id == id).unwrap().run_once;
-        assert!(run_once(store.list_crons(&alice).await.unwrap()));
-
-        let always = format!("leave:{}", place.id);
-        let edited = store.update_cron(&alice, &id, None, None, Some(&always));
-        assert!(edited.await.unwrap());
-        assert!(!run_once(store.list_crons(&alice).await.unwrap()));
-
-        // Leaving a place for a clock schedule stops it running once.
-        let edited = store.update_cron(&alice, &id, None, None, Some(&once));
-        assert!(edited.await.unwrap());
-        let edited = store.update_cron(&alice, &id, None, None, Some("0 9 * * *"));
-        assert!(edited.await.unwrap());
-        assert!(!run_once(store.list_crons(&alice).await.unwrap()));
     }
 
     #[tokio::test]

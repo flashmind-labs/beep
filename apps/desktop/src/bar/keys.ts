@@ -2,7 +2,7 @@ import { closeAgentNewMenus, renderAgentNew } from "./agentnew.ts";
 import { agentBack, agentKeys } from "./agents.ts";
 import { A, addServer, drawApps, drawMcpTools, renderApps } from "./apps.ts";
 import { attachedCount, unattach } from "./attach.ts";
-import { answer, newChat, openInWindow, renderChat, send, sendQueued, stop, toWindow } from "./chat.ts";
+import { answer, newChat, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "./chat.ts";
 import { chatAction, chatMode, drawChats, openRow, renderChats } from "./chats.ts";
 import { $, $$, bar, G, here, invoke, PANE, queued, S, windowHooks } from "./core.ts";
 import { composeMessage } from "./compose.ts";
@@ -199,6 +199,7 @@ document.addEventListener("keydown", e => {
     const ask = t.id === "ask" ? t.value! : null;
     if (cmd && e.shiftKey && e.key === "Enter" && ask != null) { e.preventDefault(); return research(composeMessage(ask)); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && ask != null) { e.preventDefault(); return send(composeMessage(ask)); }
+    if (e.key === "ArrowUp" && ask === "" && popQueued()) { e.preventDefault(); return; }
     if (!PANE && e.key === "ArrowUp" && ask === "") { e.preventDefault(); return renderChats(); }
     if (e.key === "Backspace" && !cmd && ask === "" && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
   }

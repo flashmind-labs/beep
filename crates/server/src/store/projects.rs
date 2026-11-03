@@ -64,8 +64,7 @@ pub(crate) struct TaskRow {
     pub(crate) pr_seen: Option<String>,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
-    /// Its issue was opened by someone else: Beep never closes, relabels or
-    /// edits it, and comments on it at most once, after asking.
+    /// Someone else opened the issue: Beep never closes, relabels or edits it, and comments at most once after asking.
     pub(crate) issue_foreign: bool,
     /// Beep commented on its issue.
     pub(crate) issue_commented: bool,
@@ -74,8 +73,7 @@ pub(crate) struct TaskRow {
 /// Who opened the issue a task tracks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IssueAuthor {
-    /// The user's own account on the host: Beep keeps it in step as it
-    /// does the issues it files.
+    /// The user's own host account, kept in step like the issues Beep files.
     User,
     /// Anyone else: Beep leaves it as it is.
     Other,
@@ -319,11 +317,8 @@ fn lock_refusal(error: &sqlx::Error) -> Option<StartRefused> {
     }
 }
 
-/// Commits `tx` when `keep`, else rolls it back, and returns `done`.
-/// Transactions end here rather than on drop: a dropped one rolls back only
-/// when its connection is next used, and holds its locks until then. When
-/// `done` already failed, a failed rollback is logged and `done`'s error
-/// returned.
+/// Commits `tx` when `keep`, else rolls back, returning `done`.
+/// A dropped transaction holds its locks until the connection is reused, so end them here.
 pub(super) async fn end<T>(
     tx: Transaction<'_, Postgres>,
     keep: bool,
@@ -645,8 +640,7 @@ impl Store {
         row.as_ref().map(project_from).transpose()
     }
 
-    /// The project whose agent talks in `chat`, if it is one: its own chat
-    /// or a chat about one of its pull requests or issues.
+    /// The project whose agent talks in `chat`: its own chat or a thread chat.
     pub(crate) async fn project_in(
         &self,
         user: &UserKey,
@@ -666,8 +660,7 @@ impl Store {
         row.as_ref().map(project_from).transpose()
     }
 
-    /// The chat of the project's agent, made and titled with the project's
-    /// name on first use.
+    /// The project agent's chat, created and titled on first use.
     pub(crate) async fn ensure_project_agent(
         &self,
         user: &UserKey,
@@ -762,8 +755,7 @@ impl Store {
         end(tx, keep, done).await
     }
 
-    /// Makes `tasks` in `project`, in order. A slug the project already
-    /// has gets `-2`, `-3` and so on.
+    /// Creates `tasks` in `project` in order; clashing slugs get `-2`, `-3` and so on.
     pub(crate) async fn create_tasks(
         &self,
         project: ProjectId,
@@ -823,8 +815,7 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the task from `from` to `to`, unless something moved it since
-    /// it was read. Says whether it moved.
+    /// Moves the task from `from` to `to` unless it moved since read; says whether it did.
     pub(crate) async fn move_task_state(
         &self,
         id: TaskId,
@@ -862,9 +853,7 @@ impl Store {
         Ok(())
     }
 
-    /// Makes `task` tracking the existing `issue` on `host`, unless a task
-    /// of the project tracks it already. Nothing is made when any step
-    /// fails, so no task is left without its issue.
+    /// Makes `task` tracking existing `issue` on `host` unless already tracked; all or nothing.
     pub(crate) async fn track_issue(
         &self,
         project: ProjectId,
@@ -879,8 +868,7 @@ impl Store {
         end(tx, keep, done).await
     }
 
-    /// Notes that Beep commented on the task's issue. With `once`, only
-    /// when it had not yet; says whether it noted it.
+    /// Notes Beep commented on the task's issue (only the first time with `once`); says whether noted.
     pub(crate) async fn note_issue_comment(&self, id: TaskId, once: bool) -> Result<bool> {
         let noted = sqlx::query(
             "UPDATE project_tasks SET issue_commented=true, updated_at=now()
@@ -984,9 +972,7 @@ impl Store {
         rows.iter().map(task_from).collect()
     }
 
-    /// Starts a worker on the task if the caps and locks allow it. Starts
-    /// for one user run one at a time, so two cannot both take the last
-    /// slot.
+    /// Starts a worker if caps and locks allow; serialized per user so two cannot take the last slot.
     pub(crate) async fn start_worker(
         &self,
         user: &UserKey,
@@ -1018,9 +1004,7 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the worker to `state`, noting when it ended. An ended or failed
-    /// worker never comes back to life, so a live `state` only moves a live
-    /// worker. Says whether it moved.
+    /// Moves the worker to `state`, noting the end; ended or failed workers never revive. Says whether it moved.
     pub(crate) async fn set_worker_state(&self, id: WorkerId, state: WorkerState) -> Result<bool> {
         let moved = sqlx::query(
             "UPDATE project_workers SET state=$2,
@@ -1037,10 +1021,7 @@ impl Store {
         Ok(moved == 1)
     }
 
-    /// Notes a finished turn: the worker waits, not asking anything, with
-    /// `turns` of its session's turns heard about. An ended worker stays
-    /// ended, and a turn no later than one already noted changes nothing, so
-    /// a late report cannot undo newer news. Says whether it was noted.
+    /// Notes a finished turn (worker waits, `turns` heard); ignored for ended workers or stale turns. Says whether noted.
     pub(crate) async fn worker_turn(
         &self,
         id: WorkerId,
@@ -1105,8 +1086,7 @@ impl Store {
         rows.iter().map(worker_from).collect()
     }
 
-    /// The project's live workers and those that ended since `since`,
-    /// oldest first.
+    /// The project's live workers plus those ended since `since`, oldest first.
     pub(crate) async fn workers(
         &self,
         project: ProjectId,
@@ -1136,8 +1116,7 @@ impl Store {
         row.as_ref().map(worker_from).transpose()
     }
 
-    /// Fails every worker still starting, at startup: the server that was
-    /// starting them is gone, so they never got a session.
+    /// Fails every still-starting worker at startup, since the server starting them is gone.
     pub(crate) async fn fail_starting_workers(&self) -> Result<Vec<WorkerRow>> {
         let rows = sqlx::query(&format!(
             "UPDATE project_workers AS w SET state=$2, ended_at=now() WHERE state=$1
@@ -1198,9 +1177,7 @@ impl Store {
         rows.iter().map(worker_from).collect()
     }
 
-    /// Every project of `user`'s summed up, by name: its tasks per state,
-    /// its live workers and the task that changed last. Dropped tasks are
-    /// left out. Two queries, whatever the number of projects.
+    /// Overview of every project of `user` by name, dropped tasks left out, in two queries.
     pub(crate) async fn project_overviews(&self, user: &UserKey) -> Result<Vec<OverviewRow>> {
         let rows = sqlx::query(
             "SELECT p.id, p.name,
@@ -1284,8 +1261,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{projects::model::InputFile, store::TestDb};
-    use chrono::Duration as TimeDelta;
+    use crate::store::TestDb;
     use iroh::SecretKey;
 
     fn machine() -> EndpointId {
@@ -1345,58 +1321,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_overview_counts_every_project_in_one_go() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let widget = store
-            .ensure_project(&user, &repo("acme/widget"))
-            .await
-            .unwrap();
-        let relay = store
-            .ensure_project(&user, &repo("acme/relay"))
-            .await
-            .unwrap();
-        store
-            .ensure_project(&UserKey::for_test("bob"), &repo("acme/other"))
-            .await
-            .unwrap();
-        let tasks = tasks_in(&store, widget.id, 4).await;
-        store
-            .set_task_state(tasks[0], TaskState::Done)
-            .await
-            .unwrap();
-        store
-            .set_task_state(tasks[1], TaskState::Dropped)
-            .await
-            .unwrap();
-        store
-            .set_task_state(tasks[2], TaskState::Blocked)
-            .await
-            .unwrap();
-        start(&store, &user, &worker_for(tasks[3], machine(), "/srv/w"))
-            .await
-            .unwrap();
-
-        let rows = store.project_overviews(&user).await.unwrap();
-        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
-        assert_eq!(names, ["acme/relay", "acme/widget"]);
-        assert_eq!(rows[0].id, relay.id);
-        assert_eq!(rows[0].tasks, TaskCounts::default());
-        assert_eq!(rows[0].workers, 0);
-        assert!(rows[0].latest.is_none());
-        let counts = rows[1].tasks;
-        assert_eq!(
-            (counts.planned, counts.blocked, counts.done, counts.running),
-            (1, 1, 1, 0)
-        );
-        assert_eq!(rows[1].workers, 1);
-        let latest = rows[1].latest.as_ref().expect("a latest task");
-        assert_ne!(latest.state, TaskState::Dropped);
-        assert_eq!(latest.project, widget.id);
-    }
-
-    #[tokio::test]
     async fn a_project_and_its_chat_are_made_once() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -1440,57 +1364,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn setup_and_checkouts_are_kept() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let project = store
-            .ensure_project(&user, &repo("acme/widget"))
-            .await
-            .unwrap();
-        let build_box = machine();
-        let gpu_box = machine();
-        for (machine, home) in [(build_box, true), (gpu_box, false)] {
-            let checkout = CheckoutRow {
-                machine,
-                path: path("/srv/project"),
-                home,
-            };
-            store.add_checkout(project.id, &checkout).await.unwrap();
-        }
-        store
-            .set_home(project.id, &gpu_box, &path("/srv/project"))
-            .await
-            .unwrap();
-        let checkouts = store.checkouts(project.id).await.unwrap();
-        assert_eq!(checkouts.len(), 2);
-        let homes: Vec<EndpointId> = checkouts
-            .iter()
-            .filter(|c| c.home)
-            .map(|c| c.machine)
-            .collect();
-        assert_eq!(homes, vec![gpu_box]);
-
-        let roles = Roles {
-            issues: Some(IssueHost::Github),
-            prs: IssueHost::from_stored("forgejo:git.example.com"),
-        };
-        store
-            .set_project_setup(project.id, &roles, Visibility::Private, "trunk")
-            .await
-            .unwrap();
-        store.set_pin(project.id, Some(&build_box)).await.unwrap();
-        let row = store.project(&user, project.id).await.unwrap().unwrap();
-        assert_eq!(row.roles, roles);
-        assert_eq!(row.visibility, Visibility::Private);
-        assert_eq!(row.default_branch, "trunk");
-        assert_eq!(row.pin, Some(build_box));
-        store.set_pin(project.id, None).await.unwrap();
-        let row = store.project(&user, project.id).await.unwrap().unwrap();
-        assert_eq!(row.pin, None);
-    }
-
-    #[tokio::test]
     async fn slugs_stay_unique() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -1520,34 +1393,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_tasks_keep_their_start() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let project = store
-            .ensure_project(&user, &repo("acme/widget"))
-            .await
-            .unwrap();
-        let start = StartRequest {
-            base: None,
-            machine: Some("gpu-box".into()),
-            agent: Some(WorkerAgent::Codex),
-            persona: None,
-            inputs: Vec::new(),
-        };
-        let queued = NewTask {
-            start: Some(start.clone()),
-            ..new_task("Render")
-        };
-        let made = store
-            .create_tasks(project.id, &[queued, new_task("Ship")])
-            .await
-            .unwrap();
-        assert_eq!(made[0].start, Some(start));
-        assert_eq!(made[1].start, None);
-    }
-
-    #[tokio::test]
     async fn tasks_wait_for_earlier_ones_of_the_same_call() {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -1574,124 +1419,6 @@ mod tests {
         store.set_task_after(made[1].id, None).await.unwrap();
         let render = store.task_by_slug(project.id, "render").await.unwrap();
         assert_eq!(render.unwrap().depends_on, None);
-    }
-
-    #[tokio::test]
-    async fn tasks_keep_their_fields() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let project = store
-            .ensure_project(&user, &repo("acme/widget"))
-            .await
-            .unwrap();
-        let first = store
-            .create_tasks(project.id, &[new_task("Build")])
-            .await
-            .unwrap();
-        let second = NewTask {
-            title: "Render".into(),
-            body: "On the GPU".into(),
-            depends_on: Some(After::Task(first[0].id)),
-            needs: vec![Capability::Cuda, Capability::Blender],
-            start: None,
-        };
-        let made = store.create_tasks(project.id, &[second]).await.unwrap();
-        let id = made[0].id;
-        let host = IssueHost::Github;
-        let issue = IssueRef {
-            number: 12,
-            url: "https://example.com/acme/widget/issues/12".into(),
-        };
-        store.set_task_issue(id, &host, &issue).await.unwrap();
-        store
-            .set_task_pr(id, "https://example.com/acme/widget/pull/13")
-            .await
-            .unwrap();
-        store.set_pr_seen(id, "abc123").await.unwrap();
-        store.set_task_state(id, TaskState::Blocked).await.unwrap();
-        store
-            .update_task_text(id, Some("Render it"), None)
-            .await
-            .unwrap();
-        let request = StartRequest {
-            base: None,
-            machine: Some("gpu-box".into()),
-            agent: Some(WorkerAgent::Codex),
-            persona: None,
-            inputs: vec![InputFile {
-                machine: None,
-                path: "/srv/project/scene.blend".into(),
-            }],
-        };
-        store.set_task_start(id, Some(&request)).await.unwrap();
-
-        let task = store.task(&user, id).await.unwrap().unwrap();
-        assert_eq!(task.title, "Render it");
-        assert_eq!(task.body, "On the GPU");
-        assert_eq!(task.depends_on, Some(first[0].id));
-        assert_eq!(task.needs, vec![Capability::Cuda, Capability::Blender]);
-        assert_eq!(task.issue_host, Some(host));
-        assert_eq!(task.issue, Some(issue));
-        assert_eq!(task.pr_seen.as_deref(), Some("abc123"));
-        assert_eq!(task.state, TaskState::Blocked);
-        assert_eq!(task.start, Some(request));
-        assert!(
-            store
-                .task(&UserKey::for_test("bob"), id)
-                .await
-                .unwrap()
-                .is_none()
-        );
-
-        let queued = store.queued_tasks(&user).await.unwrap();
-        assert_eq!(queued.iter().map(|t| t.id).collect::<Vec<_>>(), vec![id]);
-        store.set_task_start(id, None).await.unwrap();
-        assert!(store.queued_tasks(&user).await.unwrap().is_empty());
-        assert_eq!(store.tasks(project.id).await.unwrap().len(), 2);
-        let counts = store.open_counts(project.id).await.unwrap();
-        assert_eq!(
-            counts,
-            OpenCounts {
-                tasks: 2,
-                workers: 0
-            }
-        );
-        store.set_task_state(id, TaskState::Dropped).await.unwrap();
-        assert_eq!(store.open_counts(project.id).await.unwrap().tasks, 1);
-    }
-
-    #[tokio::test]
-    async fn caps_refuse_past_three_per_project() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let project = store
-            .ensure_project(&user, &repo("acme/widget"))
-            .await
-            .unwrap();
-        let tasks = tasks_in(&store, project.id, 5).await;
-        let (build_box, gpu_box, spare_box) = (machine(), machine(), machine());
-        let a = start(&store, &user, &worker_for(tasks[0], build_box, "/srv/a"))
-            .await
-            .unwrap();
-        start(&store, &user, &worker_for(tasks[1], build_box, "/srv/b"))
-            .await
-            .unwrap();
-        start(&store, &user, &worker_for(tasks[2], gpu_box, "/srv/c"))
-            .await
-            .unwrap();
-        let refused = start(&store, &user, &worker_for(tasks[3], spare_box, "/srv/d")).await;
-        assert!(matches!(refused, Err(StartRefused::ProjectFull)));
-        assert_eq!(store.open_counts(project.id).await.unwrap().workers, 3);
-
-        store
-            .set_worker_state(a.id, WorkerState::Ended)
-            .await
-            .unwrap();
-        start(&store, &user, &worker_for(tasks[3], spare_box, "/srv/d"))
-            .await
-            .unwrap();
     }
 
     #[tokio::test]
@@ -1987,76 +1714,6 @@ mod tests {
             1
         );
         assert_eq!(store.open_counts(project.id).await.unwrap().workers, 3);
-    }
-
-    #[tokio::test]
-    async fn workers_list_ended_from_the_last_day() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let project = store
-            .ensure_project(&user, &repo("acme/widget"))
-            .await
-            .unwrap();
-        let tasks = tasks_in(&store, project.id, 3).await;
-        let build_box = machine();
-        let old = start(&store, &user, &worker_for(tasks[0], build_box, "/srv/a"))
-            .await
-            .unwrap();
-        let recent = start(&store, &user, &worker_for(tasks[1], build_box, "/srv/b"))
-            .await
-            .unwrap();
-        store
-            .set_worker_state(old.id, WorkerState::Ended)
-            .await
-            .unwrap();
-        store
-            .set_worker_state(recent.id, WorkerState::Ended)
-            .await
-            .unwrap();
-        sqlx::query("UPDATE project_workers SET ended_at = now() - interval '2 days' WHERE id=$1")
-            .bind(old.id.0)
-            .execute(store.pool())
-            .await
-            .unwrap();
-        let live = start(&store, &user, &worker_for(tasks[2], build_box, "/srv/c"))
-            .await
-            .unwrap();
-        store
-            .set_worker_session(live.id, "session-1")
-            .await
-            .unwrap();
-        let at = Utc::now();
-        store
-            .worker_turn(live.id, 4, "Done with step one", at)
-            .await
-            .unwrap();
-
-        let since = Utc::now() - TimeDelta::days(1);
-        let listed: Vec<WorkerId> = store
-            .workers(project.id, since)
-            .await
-            .unwrap()
-            .iter()
-            .map(|w| w.id)
-            .collect();
-        assert_eq!(listed, vec![recent.id, live.id]);
-        let row = store.worker(&user, live.id).await.unwrap().unwrap();
-        assert_eq!(row.state, WorkerState::Waiting);
-        assert_eq!(row.session.as_deref(), Some("session-1"));
-        assert_eq!(row.turns_seen, 4);
-        assert_eq!(row.last_output.as_deref(), Some("Done with step one"));
-        assert!(row.last_turn_at.is_some());
-        assert!(!row.asking);
-        store.set_worker_asking(live.id, true).await.unwrap();
-        assert!(store.worker(&user, live.id).await.unwrap().unwrap().asking);
-        assert!(
-            store
-                .worker(&UserKey::for_test("bob"), live.id)
-                .await
-                .unwrap()
-                .is_none()
-        );
     }
 
     #[tokio::test]

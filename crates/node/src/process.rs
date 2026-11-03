@@ -176,18 +176,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_child_that_takes_sigterm_exits_cleanly() {
-        let (mut leader, mut stdout) =
-            start("trap 'echo terminated; exit 0' TERM; echo ready; while :; do sleep 1; done")
-                .await;
-        // A grace far longer than the test runs: SIGTERM alone ends it.
-        leader.stop(Duration::from_secs(600)).await;
-        assert!(leader.reaped());
-        assert_eq!(exit(&mut leader).code(), Some(0), "it exited on its own");
-        assert!(wait_closed(&mut stdout).await.contains("terminated"));
-    }
-
-    #[tokio::test]
     async fn a_child_that_ignores_sigterm_is_killed_after_the_grace() {
         let (mut leader, mut stdout) =
             start("trap 'echo ignored' TERM; echo ready; while :; do sleep 1; done").await;

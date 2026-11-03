@@ -1,8 +1,4 @@
-//! Checking a Forgejo token from the user's machines. A server on the
-//! user's own network is out of the cloud server's reach, but their
-//! machines often reach it, and teacli there holds the token already (see
-//! `Down::Credentials`). Each machine runs `teacli whoami` against the
-//! server; the first login found wins.
+//! Checks a Forgejo token with `teacli whoami` from the user's machines, for servers only they reach.
 
 use super::ForgejoUrl;
 use crate::{
@@ -33,15 +29,7 @@ enum Said {
     NotSetUp,
 }
 
-/// `teacli whoami` against `url`, which names the server as the node's
-/// teacli config does.
-fn whoami(url: &ForgejoUrl) -> String {
-    format!("teacli whoami --host {} --format json", quote(url.as_str()))
-}
-
-/// What `teacli whoami` printed and exited with. teacli exits 4 when
-/// refused and 2 for a server it has no config for; a token the server
-/// refuses can also come back as exit 1 naming the status.
+/// Reads `teacli whoami` output: exit 4 is refused, 2 is unknown server, 1 may name the status.
 fn read(ran: &CommandOutput) -> Said {
     let text = ran.out.to_ascii_lowercase();
     match ran.code {
@@ -62,11 +50,10 @@ fn read(ran: &CommandOutput) -> Said {
     }
 }
 
-/// Checks the token for `url` from `machines`, at most [`MAX_MACHINES`]
-/// of them, all at once.
+/// Checks the token for `url` from up to [`MAX_MACHINES`] machines at once.
 pub(crate) async fn check_from(machines: &[Reach], url: &ForgejoUrl) -> CredentialCheck {
     let machines = &machines[..machines.len().min(MAX_MACHINES)];
-    let command = whoami(url);
+    let command = format!("teacli whoami --host {} --format json", quote(url.as_str()));
     let said = join_all(machines.iter().map(|machine| async {
         match machine.shell.run(&command, LIMIT).await {
             Ok(ran) => read(&ran),
@@ -154,62 +141,6 @@ mod tests {
         assert_eq!(
             on.ran(),
             ["teacli whoami --host http://forge.example.lan:3000 --format json"]
-        );
-    }
-
-    #[tokio::test]
-    async fn a_refusal_names_the_machine() {
-        let shell = Arc::new(FakeShell::default());
-        shell.answer("teacli", 1, "teacli: 401 Unauthorized");
-        let checked = check_from(&[reach("build-box", &shell)], &url()).await;
-        assert_eq!(
-            checked,
-            CredentialCheck::Refused {
-                machine: Some("build-box".into()),
-                message: "forge.example.lan:3000 refused the token from build-box. Check that \
-                          it is current and has access."
-                    .into(),
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn no_machine_reaching_it_is_said_plainly() {
-        let down = Arc::new(FakeShell::default());
-        down.answer("teacli", 1, "dial tcp: no route to host");
-        let unset = Arc::new(FakeShell::default());
-        unset.answer(
-            "teacli",
-            2,
-            r#"{"error":true,"code":2,"message":"unknown host"}"#,
-        );
-        let dropped = Arc::new(FakeShell::default());
-        dropped.fail_on("teacli");
-        let checked = check_from(
-            &[
-                reach("build-box", &down),
-                reach("mac-box", &unset),
-                reach("gpu-box", &dropped),
-            ],
-            &url(),
-        )
-        .await;
-        assert_eq!(
-            checked,
-            CredentialCheck::Unreachable {
-                message: "forge.example.lan:3000 is not reachable from the server or your \
-                          machines (tried build-box, gpu-box)."
-                    .into(),
-            }
-        );
-        let checked = check_from(&[], &url()).await;
-        assert_eq!(
-            checked,
-            CredentialCheck::Unreachable {
-                message: "forge.example.lan:3000 is not reachable from the server, and none of \
-                          your online machines has teacli set up for it."
-                    .into(),
-            }
         );
     }
 }

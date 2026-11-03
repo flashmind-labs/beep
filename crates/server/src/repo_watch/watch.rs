@@ -1,5 +1,4 @@
-//! The copies of each project's host lists, by user and project, and the
-//! background sync that keeps the ones someone looks at fresh.
+//! The copies of each project's host lists, and the background sync that keeps viewed ones fresh.
 
 use super::{
     forward::{Forwards, Refresh},
@@ -21,11 +20,9 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 
-/// How often the background sync looks for copies to read again. A
-/// webhook wakes it at once too.
+/// How often the background sync looks for copies to reread; a webhook wakes it at once.
 const TICK: Duration = Duration::from_secs(5);
-/// Reads of copies kept for the pages following them before the slowest
-/// misses some (and reads everything again).
+/// Buffered copy updates for followers before the slowest misses some and rereads everything.
 const MAX_CHANGES: usize = 256;
 /// Projects the background sync reads at once.
 const MAX_SYNCS: usize = 4;
@@ -37,9 +34,7 @@ pub(super) struct Key {
     pub(super) project: ProjectId,
 }
 
-/// One copy and when it was asked for and read. The copy's lock is held
-/// across a read on purpose: a second ask waits for the first and takes
-/// its copy.
+/// One copy with its ask and read times. Its lock is held across a read on purpose, so a second ask waits.
 #[derive(Default)]
 pub(super) struct Watched<T> {
     timing: Mutex<Timing>,
@@ -68,15 +63,12 @@ impl<T> Watched<T> {
         }
     }
 
-    /// Whether the copy is old enough to read again, checked once its lock
-    /// is held, so an ask that waited on another's read takes that one.
+    /// Whether the copy is old enough to reread, checked under its lock.
     pub(super) fn stale(&self) -> bool {
         self.timing().stale(Instant::now())
     }
 
-    /// What an ask does about the host, checked once the copy's lock is
-    /// held: `forced` when Refresh may read now, `has_copy` once a read
-    /// succeeded.
+    /// What an ask does about the host, checked under the copy's lock.
     pub(super) fn ask_read(&self, forced: bool, has_copy: bool) -> AskRead {
         self.timing().ask_read(Instant::now(), forced, has_copy)
     }
@@ -95,12 +87,9 @@ pub(super) struct OpenHead {
 pub(super) struct Entry {
     pub(super) lists: Watched<ListsCopy>,
     pub(super) runs: Watched<RunsCopy>,
-    /// The open pull requests' numbers and head branches, from the last
-    /// list read, which the checks match runs with. Apart from `lists` so
-    /// reading runs never waits on a list read.
+    /// Open PRs' numbers and heads from the last list read, kept apart so run reads never wait on lists.
     heads: Mutex<Vec<OpenHead>>,
-    /// The remotes last read from one of the project's checkouts, which
-    /// name the other hosts its runs are on.
+    /// The remotes last read from a project checkout, naming the other hosts its runs are on.
     remotes: Mutex<Option<RemotesRead>>,
 }
 
@@ -128,8 +117,7 @@ impl Entry {
     }
 }
 
-/// A copy the background sync read again, for the pages following the
-/// project (`WatchProject`).
+/// A copy the background sync reread, for pages following the project (`WatchProject`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Changed {
     pub(crate) user: String,
@@ -138,8 +126,7 @@ pub(crate) struct Changed {
     pub(crate) runs: bool,
 }
 
-/// Every user's copies of their projects' pull requests, issues and
-/// workflow runs, and the calls that read the runs.
+/// Every user's copies of their projects' PRs, issues and workflow runs, and the run calls.
 pub struct RepoWatch {
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
     pub(super) calls: HostCalls,
@@ -168,8 +155,7 @@ impl RepoWatch {
         self.changes.subscribe()
     }
 
-    /// A webhook says `project`'s host changed: what `refresh` names is
-    /// read again within seconds, while someone looks at the project.
+    /// A webhook says `project`'s host changed: reread what `refresh` names within seconds.
     pub(crate) fn poke(&self, user: &str, project: ProjectId, refresh: Refresh) {
         if !refresh.lists && !refresh.runs {
             return;
@@ -184,14 +170,9 @@ impl RepoWatch {
         self.wake.notify_one();
     }
 
-    /// Has the background sync look for old copies now: an ask just
-    /// answered with one.
+    /// Has the background sync look for old copies now.
     pub(super) fn sync_soon(&self) {
         self.wake.notify_one();
-    }
-
-    fn wake_handle(&self) -> Arc<Notify> {
-        self.wake.clone()
     }
 
     pub(super) fn entry(&self, user: &str, project: ProjectId) -> Arc<Entry> {
@@ -206,8 +187,7 @@ impl RepoWatch {
             .clone()
     }
 
-    /// The copies the background sync reads now, dropping the ones nobody
-    /// asked about for long.
+    /// The copies to reread now, dropping ones nobody asked about for long.
     fn due(&self, now: Instant) -> Vec<Due> {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
         entries.retain(|_, entry| {
@@ -228,8 +208,7 @@ impl RepoWatch {
             .collect()
     }
 
-    /// Reads again every copy someone looked at in the last half hour that
-    /// is a few minutes old, a few projects at a time.
+    /// Rereads every copy viewed in the last half hour that is a few minutes old, a few at a time.
     async fn sync_due(&self, app: &Arc<App>) {
         let due = self.due(Instant::now());
         stream::iter(due)
@@ -271,12 +250,11 @@ struct Due {
     runs: bool,
 }
 
-/// Runs the background sync until the app goes. Holds it weakly: the app
-/// owns the loop.
+/// Runs the background sync until the app goes; holds it weakly since the app owns the loop.
 pub(super) async fn run(app: Weak<App>) {
     let mut tick = interval(TICK);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let Some(wake) = app.upgrade().map(|app| app.repo_watch.wake_handle()) else {
+    let Some(wake) = app.upgrade().map(|app| app.repo_watch.wake.clone()) else {
         return;
     };
     loop {

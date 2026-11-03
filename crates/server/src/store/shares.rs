@@ -33,8 +33,7 @@ pub enum CopiedShare {
 }
 
 impl Store {
-    /// Shares session `chat` as `conversation`, replacing an earlier copy
-    /// of it and keeping its token. `None` when the user has no such session.
+    /// Shares session `chat` as `conversation`, replacing an earlier copy and keeping its token; `None` when missing.
     pub(crate) async fn share_session(
         &self,
         user: &UserKey,
@@ -96,8 +95,7 @@ impl Store {
         .transpose()
     }
 
-    /// Copies the share with `token` into a new session `chat` of the user,
-    /// under the share's title.
+    /// Copies share `token` into a new session `chat` of the user, under its title.
     pub(crate) async fn copy_share(
         &self,
         user: &UserKey,

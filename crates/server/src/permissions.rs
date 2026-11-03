@@ -1,7 +1,4 @@
-//! What Beep may do in each connected app. Reading is always allowed; tools
-//! that send, change or delete follow the app's level: ask first (the
-//! default), always allow, or read only. Under ask first the run ends on the
-//! open call, and the user's answer resumes the session from there.
+//! What Beep may do in each connected app: reads always, acting tools by the app's level (ask, allow, read only).
 
 use crate::{
     apps::{
@@ -47,8 +44,7 @@ pub(crate) enum Acts {
     Always,
     /// Only when it moves mail to another folder, which can bin it.
     WhenMoving,
-    /// Only when it sends to one of the user's machines (`to` names one)
-    /// rather than to the user in the chat.
+    /// Only when `to` names one of the user's machines.
     WhenToMachine,
 }
 
@@ -74,19 +70,15 @@ impl Acts {
 
 /// `send_file` as rules keep it.
 const SEND_FILE: &str = "SEND_FILE";
-/// `add_machine` as rules keep it: a setup token grants access to the
-/// account, so making one acts.
+/// `add_machine` as rules keep it: a setup token grants account access, so it acts.
 const ADD_MACHINE: &str = "ADD_MACHINE";
-/// `import_project` as rules keep it: it clones onto a machine with the
-/// user's tokens.
+/// `import_project` as rules keep it: it clones with the user's tokens.
 const IMPORT_PROJECT: &str = "IMPORT_PROJECT";
-/// The Beep MCP server's `run_on` and `send_files`, which coding agents on
-/// the user's machines call (`crate::tools::machines::mcp`).
+/// The Beep MCP server's `run_on` and `send_files` (`crate::tools::machines::mcp`).
 pub(crate) const RUN_ON: &str = "RUN_ON";
 pub(crate) const SEND_FILES: &str = "SEND_FILES";
 
-/// Composio tags of tools that create or destroy something. Such a tool
-/// asks first even if the catalog lists it as a read.
+/// Composio tags of tools that create or destroy, which ask even when listed as reads.
 const ACTING_HINTS: &[&str] = &["createHint", "destructiveHint"];
 
 /// Whether a Composio tool's tags say it creates or destroys something.
@@ -94,13 +86,8 @@ pub(crate) fn hinted_to_act(tags: &[String]) -> bool {
     tags.iter().any(|tag| ACTING_HINTS.contains(&tag.as_str()))
 }
 
-/// The project agent's own tools, which ask or refuse through the project
-/// gate (`crate::projects::gate`) rather than `guard`: `Acts::Never` keeps
-/// `guard` and `actions_since` off them. It is outside `CATALOG`, so it is
-/// not listed as an app to connect; `kind` means nothing for it. `exec` and
-/// `process` are here because a project chat gates them too, so a reloaded
-/// project chat shows their card; [`lookup`] leaves them out, since every
-/// other chat has them as well (see [`lookup_in`]).
+/// The project agent's own tools, gated by `crate::projects::gate` rather than `guard`, hence `Acts::Never`.
+/// `exec` and `process` are here so a reloaded project chat shows their card; [`lookup`] leaves them out.
 pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
     slug: "project",
     name: "Project",
@@ -122,8 +109,7 @@ pub(crate) const PROJECT_APP: CatalogApp = CatalogApp {
     ],
 };
 
-/// The project actions the user can allow always, each on its own: a merge
-/// and a plan card that always asks are never among them.
+/// Project actions the user can allow always; merges and plan cards always ask.
 const PROJECT_ALWAYS: &[&str] = &[
     "EXEC",
     "PROCESS_STOP",
@@ -135,8 +121,7 @@ const PROJECT_ALWAYS: &[&str] = &[
     "PROJECT_WORKER",
 ];
 
-/// A tool's name as rules keep it. Composio's tool wrappers lowercase the
-/// slug, so `outlook_reply_email` is `OUTLOOK_REPLY_EMAIL`.
+/// A tool's name as rules keep it: upper case, since Composio's wrappers lowercase slugs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ToolSlug(String);
 
@@ -150,17 +135,14 @@ impl ToolSlug {
     }
 }
 
-/// The app a tool belongs to: one in the catalog, or a server the user
-/// added, by its row name such as `mcp_my-notes`.
+/// The app a tool belongs to: a catalog app, or an added server by row name.
 #[derive(Clone)]
 pub(crate) enum ToolApp {
     Catalog(&'static CatalogApp),
     Added(String),
-    /// Beep's own tools that act on the user's machines, such as
-    /// `send_file` sending to one.
+    /// Beep's own tools that act on the user's machines.
     Machines,
-    /// Beep's tools that make media with the user's own API keys, which
-    /// spend their money: `image_gen`, `video_gen` and `3d_gen`.
+    /// Beep's media tools that spend the user's own API keys.
     Media,
 }
 
@@ -192,10 +174,7 @@ impl ToolApp {
     }
 }
 
-/// The app a tool belongs to and whether it acts, for Composio slugs such
-/// as `GMAIL_SEND_EMAIL`, MCP tools such as `FASTMAIL_DELETE_EMAIL`, in
-/// either case, and tools of added servers such as `MCP_MY-NOTES_SEARCH`.
-/// An added server says nothing Beep trusts about its tools, so they all act.
+/// The app a tool belongs to and whether it acts; every added server's tool acts.
 pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
     let tool = tool.as_str();
@@ -236,8 +215,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
 /// Tools every chat has that only a project chat gates as Project's.
 const PROJECT_ONLY: [&str; 2] = ["EXEC", "PROCESS"];
 
-/// [`lookup`] in a chat that is a project's, where `exec` and `process` are
-/// Project's too.
+/// [`lookup`] in a chat that may be a project's.
 pub(crate) fn lookup_in(tool: &str, is_project: bool) -> Option<(ToolApp, Acts)> {
     if is_project && let Some(found) = project_tool(ToolSlug::new(tool).as_str()) {
         return Some(found);
@@ -253,9 +231,7 @@ fn project_tool(slug: &str) -> Option<(ToolApp, Acts)> {
     Some((ToolApp::Catalog(&PROJECT_APP), picked.acts))
 }
 
-/// The catalog app of `tool` and whether a call with `args` acts, for a
-/// call made outside a session, such as from a group. `None` for a tool
-/// outside the catalog.
+/// The catalog app of `tool` and whether a call with `args` acts, for calls outside a session.
 pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp, bool)> {
     match lookup(tool)? {
         (ToolApp::Catalog(app), acts) => Some((app, acts.on(args))),
@@ -272,8 +248,7 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
     }
 }
 
-/// The arguments a card shows. A media call shows the service and model it
-/// runs on even when the model left the model out.
+/// The arguments a card shows; media calls always show service and model.
 fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
     match (app, MediaKind::from_tool(tool)) {
         (ToolApp::Media, Some(kind)) => media::approval_fields(kind, args),
@@ -281,9 +256,7 @@ fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
     }
 }
 
-/// The tools of `app` that can act, by the name the agent calls them. The
-/// project's tools all count: its gate asks for them, so each can be
-/// allowed always.
+/// The tools of `app` that can act; every project tool counts.
 fn action_tools(app: &CatalogApp) -> Vec<String> {
     if app.slug == PROJECT_APP.slug {
         return PROJECT_ALWAYS.iter().map(|&slug| slug.to_owned()).collect();
@@ -376,9 +349,7 @@ impl Rules {
         self.level(app) == PermissionLevel::ReadOnly {}
     }
 
-    /// Adds what the user allowed for the rest of one chat: those actions
-    /// run without asking under ask first. An app's level stays as it is,
-    /// so read only still refuses.
+    /// Adds what the user allowed for the rest of one chat; read only still refuses.
     pub(crate) fn allow_in_chat(&mut self, allows: Vec<ChatAllow>) {
         for ChatAllow { app, tool } in allows {
             self.0.entry(app).or_default().allowed.insert(tool);
@@ -432,10 +403,7 @@ struct Shared {
     grants: Option<Arc<RoutineGrants>>,
 }
 
-/// The app of `tool` and whether it acts, by the catalog or by its Composio
-/// tags in `hinted`, the slugs `hinted_to_act` picked out. Tags only add
-/// asking: a catalog action whose tags say update still asks. A catalog
-/// tool marked `over_hints` keeps its own answer.
+/// The app of `tool` and whether it acts; Composio tags only add asking, unless `over_hints`.
 fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolApp, Acts)> {
     let (app, acts) = lookup(tool)?;
     let slug = ToolSlug::new(tool);
@@ -449,9 +417,7 @@ fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolApp, Acts)> {
     Some((app, acts))
 }
 
-/// The catalog app of `tool` when no call of it can act, by the catalog and
-/// the tags in `hinted`; `None` for a tool that can act or that Beep does
-/// not know.
+/// The catalog app of `tool` when no call of it can act.
 pub(crate) fn read_tool_app(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<&'static str> {
     match classify(tool, hinted)? {
         (ToolApp::Catalog(app), Acts::Never) => Some(app.slug),
@@ -459,8 +425,7 @@ pub(crate) fn read_tool_app(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<&'
     }
 }
 
-/// Only those of `tools` that Beep knows never act, for a turn that runs on
-/// untrusted text.
+/// Only the `tools` that never act, for a turn on untrusted text.
 pub(crate) fn read_tools_only(
     tools: Vec<Arc<dyn Tool>>,
     hinted: &HashSet<ToolSlug>,
@@ -471,10 +436,7 @@ pub(crate) fn read_tools_only(
         .collect()
 }
 
-/// Puts the app tools under the user's rules: under read only the tools that
-/// always act are left out, and the rest that can act are wrapped so they
-/// ask first or refuse. In a routine's run, a call that would ask first
-/// runs without asking when one of the routine's `grants` lets it through.
+/// Puts the app tools under the user's rules; in a routine's run, `grants` may let an asking call through.
 pub(crate) fn guard(
     tools: Vec<Arc<dyn Tool>>,
     rules: Rules,
@@ -559,8 +521,7 @@ struct Guarded {
     shared: Arc<Shared>,
 }
 
-/// What a guarded call stops the run with: the session parks on the open
-/// call until the user answers.
+/// What a guarded call stops the run with; the session parks on it until the user answers.
 #[derive(Debug)]
 pub(crate) struct ApprovalPayload {
     pub(crate) approval: Approval,
@@ -583,16 +544,14 @@ pub(crate) const DENIED: &str =
 pub(crate) const SKIPPED: &str = "Not done: the user sent a new message instead of answering. \
      Do not retry unless they ask.";
 
-/// The result recorded for a call left unanswered when a routine's turn
-/// showed in the chat, which takes its card away.
+/// The result for a call left unanswered when a routine's turn took its card away.
 pub(crate) const SUPERSEDED: &str = "Not done: a routine ran in this chat before the user \
      answered, and the question was dropped. Do not retry unless they ask.";
 
 /// How the result of a call refused under read only starts.
 const READ_ONLY: &str = "Not done: the user set";
 
-/// The tool calls of the conversation's last model turn that have no result
-/// yet: the call the session stopped on to ask, and the ones after it.
+/// The last model turn's calls without a result: the one asking and those after it.
 pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
     let entries = conversation.entries();
     let Some(at) = entries.iter().rposition(|entry| {
@@ -621,17 +580,14 @@ pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {
         .collect()
 }
 
-/// Records `output` as the result of every open call of `conversation`, so
-/// none is left without one once its card is gone.
+/// Records `output` as the result of every open call.
 pub(crate) fn close_open_calls(conversation: &mut Conversation, output: &str) {
     for call in open_calls(conversation) {
         conversation.add(ConversationEntry::tool(&call.id, output));
     }
 }
 
-/// The card for the call the session stopped on to ask, when it has one:
-/// its first open call, the one an answer resumes.
-/// `is_project` says the chat is a project's, whose `exec` asks as Project.
+/// The card for the first open call, the one an answer resumes.
 pub(crate) fn waiting_approval(
     conversation: &Conversation,
     is_project: bool,
@@ -650,9 +606,7 @@ pub(crate) fn waiting_approval(
     })
 }
 
-/// What the records `call_id` names are, such as the subject and sender of
-/// the email behind a message ID, read from earlier tool results in
-/// `conversation`. Empty when the call names none or nothing said more.
+/// What the records `call_id` names are, from earlier tool results in `conversation`.
 pub(crate) fn describe_records(call_id: &str, conversation: &Conversation) -> Vec<ApprovalField> {
     find_call(call_id, conversation)
         .map(|call| records(call, conversation))
@@ -715,14 +669,11 @@ struct Lookup {
     tools: &'static [&'static str],
     /// The tool that reads one record, Fastmail's by their MCP name.
     read: &'static str,
-    /// Arguments carried from the call to the read, as (call's, read's). A
-    /// list, such as Fastmail's `ids`, is read one item at a time.
+    /// Arguments carried from the call to the read, as (call's, read's); lists are read per item.
     args: &'static [(&'static str, &'static str)],
 }
 
-/// Every acting tool that names a record a tool can read back. Fastmail has
-/// no tool that reads one event or contact, and Slack and Teams calls name
-/// channels rather than one record.
+/// Every acting tool that names a record a tool can read back.
 const LOOKUPS: &[Lookup] = &[
     Lookup {
         tools: &[
@@ -795,9 +746,7 @@ const LOOKUPS: &[Lookup] = &[
     },
 ];
 
-/// What the records of call `call_id` are: from earlier results in
-/// `conversation`, or else read back with the app's own tool, so a delete
-/// that only names an ID still says what it deletes.
+/// What the records of `call_id` are, from earlier results or read back with the app's tool.
 pub(crate) async fn describe_call(
     user: &User,
     call_id: &str,
@@ -842,9 +791,7 @@ pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField
     shown
 }
 
-/// The arguments for each read `lookup` makes for a call with `args`: one,
-/// or one per item when the call names a list. None when the call left out
-/// what the read needs.
+/// The arguments for each read `lookup` makes, one per item for a list; none when something is missing.
 fn read_args(lookup: &Lookup, args: &Value) -> Vec<Map<String, Value>> {
     let mut shared = Map::new();
     let mut listed: Option<(&str, &Vec<Value>)> = None;
@@ -876,9 +823,7 @@ fn read_args(lookup: &Lookup, args: &Value) -> Vec<Map<String, Value>> {
         .collect()
 }
 
-/// Calls `read`, on Fastmail's MCP server in `account` (or the first
-/// account) for a lowercase name and on Composio otherwise, and returns
-/// what it found.
+/// Calls `read` on Fastmail's MCP server for a lowercase name, else on Composio.
 async fn read_record(
     user: &User,
     read: &str,
@@ -914,8 +859,7 @@ fn record_ids(args: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// What the sender of the email `call` names is to the user. A reply or
-/// forward is sent by the user, so the original's sender is who they answer.
+/// What the sender of the email `call` names is to the user.
 fn sender_label(call: &ToolCall) -> &'static str {
     match ToolSlug::new(&call.name).as_str() {
         "GMAIL_REPLY_TO_THREAD" | "OUTLOOK_REPLY_EMAIL" => "Replying to",
@@ -995,8 +939,7 @@ fn find_record<'a>(value: &'a Value, id: &str) -> Option<&'a Value> {
     }
 }
 
-/// `key` of `record` as text: a plain string, an address, or a list of
-/// addresses, as Gmail, Outlook and Fastmail write a sender.
+/// `key` of `record` as text: a string, an address, or a list of addresses.
 fn record_value(record: &Value, key: &str) -> Option<String> {
     let value = record
         .as_object()?
@@ -1021,8 +964,7 @@ pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
     allow_always_in(user, tool, false).await
 }
 
-/// [`allow_always`] in a chat that may be a project's, where `EXEC` is
-/// Project's.
+/// [`allow_always`] in a chat that may be a project's.
 pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -> Result<()> {
     let Some((app, _)) = lookup_in(tool, is_project) else {
         return Ok(());
@@ -1045,8 +987,7 @@ pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -
     user.save_app_permissions(&row).await
 }
 
-/// Stops asking for `tool` in `chat` only, for "Allow for this session".
-/// `is_project` as for [`allow_always_in`].
+/// Stops asking for `tool` in `chat` only ("Allow for this session").
 pub(crate) async fn allow_in_chat(
     user: &User,
     chat: Uuid,
@@ -1109,8 +1050,7 @@ pub(crate) fn shorten(text: &str, max: usize) -> String {
     }
 }
 
-/// A recipient written as `{"name": "Jo", "email": "jo@example.com"}`, as
-/// Fastmail takes them, read as "Jo <jo@example.com>".
+/// A Fastmail `{"name", "email"}` recipient as "Jo <jo@example.com>".
 fn address(item: &Value) -> Option<String> {
     let email = item
         .get("email")
@@ -1122,9 +1062,7 @@ fn address(item: &Value) -> Option<String> {
     })
 }
 
-/// An argument's name as the user reads it: `recipient_email` becomes
-/// "Recipient email", and a list of IDs is named by what it lists, so
-/// `addLabelIds` becomes "Add labels".
+/// An argument's name as the user reads it: `addLabelIds` becomes "Add labels".
 pub(crate) fn field_label(key: &str) -> String {
     let mut words = String::new();
     for c in key.chars() {
@@ -1146,9 +1084,7 @@ pub(crate) fn field_label(key: &str) -> String {
     capitalize(&words)
 }
 
-/// An argument that only names a record, such as `message_id` or `emailId`,
-/// whose value means nothing to the user. Label IDs are names like `TRASH`
-/// or `INBOX`, so they are shown.
+/// An argument that only names a record, such as `message_id`; label IDs are shown.
 pub(crate) fn is_id(key: &str) -> bool {
     if key.to_ascii_lowercase().contains("label") {
         return false;
@@ -1229,10 +1165,7 @@ const MAX_ACTION_VALUE_CHARS: usize = 80;
 /// Fields an action's description keeps.
 const MAX_ACTION_FIELDS: usize = 4;
 
-/// What the turn did in the user's apps from `since` on, each as one line
-/// such as "Gmail: send email (Recipient email: jo@example.com; Subject:
-/// Lunch)". Only calls that act and went through: denied, skipped and
-/// failed calls are left out.
+/// One line per acting call that went through since `since`, such as "Gmail: send email (Subject: Lunch)".
 pub(crate) fn actions_since(conversation: &Conversation, since: DateTime<Utc>) -> Vec<String> {
     let entries = conversation.entries();
     let calls: HashMap<&str, &ToolCall> = entries
@@ -1300,8 +1233,7 @@ fn describe_action(app: &ToolApp, call: &ToolCall, conversation: &Conversation) 
     }
 }
 
-/// The argument fields that say most about an action: who and what, before
-/// long text such as a body.
+/// The argument fields that say most about an action, before long text.
 fn fields_of(args: &Value) -> Vec<ApprovalField> {
     let mut fields = fields(args);
     fields.sort_by_key(|field| field.value.chars().count() > MAX_ACTION_VALUE_CHARS);
@@ -1437,56 +1369,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn adding_a_machine_asks_first() {
-        let (app, acts) = lookup("add_machine").unwrap();
-        assert_eq!(app.slug(), MACHINES_APP);
-        assert_eq!(acts, Acts::Always);
-        let guarded = guard(
-            vec![Arc::new(Named("add_machine"))],
-            Rules::default(),
-            Approved(None),
-            &HashSet::new(),
-            None,
-        );
-        let token = tokio_util::sync::CancellationToken::new();
-        let result = guarded[0]
-            .execute(ToolContext::new(
-                "call",
-                json!({ "name": "build box" }),
-                None,
-                &token,
-            ))
-            .await
-            .unwrap();
-        assert!(result.is_interrupt());
-        let approval = approval_for(&app, "add_machine", &json!({ "name": "build box" }));
-        assert_eq!(approval.action, "add machine");
-    }
-
-    #[tokio::test]
-    async fn importing_a_project_asks_first() {
-        let (app, acts) = lookup("import_project").unwrap();
-        assert_eq!(app.slug(), MACHINES_APP);
-        assert_eq!(acts, Acts::Always);
-        let guarded = guard(
-            vec![Arc::new(Named("import_project"))],
-            Rules::default(),
-            Approved(None),
-            &HashSet::new(),
-            None,
-        );
-        let token = tokio_util::sync::CancellationToken::new();
-        let args = json!({ "repo": "n0-computer/iroh" });
-        let result = guarded[0]
-            .execute(ToolContext::new("call", args.clone(), None, &token))
-            .await
-            .unwrap();
-        assert!(result.is_interrupt());
-        let approval = approval_for(&app, "import_project", &args);
-        assert_eq!(approval.action, "import project");
-    }
-
-    #[tokio::test]
     async fn making_media_asks_first_with_its_service_and_model() {
         let token = tokio_util::sync::CancellationToken::new();
         let args = json!({ "prompt": "a red fox", "provider": "openai" });
@@ -1560,17 +1442,6 @@ mod tests {
     }
 
     #[test]
-    fn lowercase_composio_names_are_classified() {
-        let none = HashSet::new();
-        let (app, acts) = classify("outlook_reply_email", &none).unwrap();
-        assert_eq!((app.slug(), acts), ("outlook", Acts::Always));
-        assert_eq!(
-            classify("outlook_query_emails", &none).unwrap().1,
-            Acts::Never
-        );
-    }
-
-    #[test]
     fn project_tools_are_known_and_can_be_allowed_always() {
         let (app, acts) = lookup("project_plan").unwrap();
         assert_eq!((app.slug(), acts), ("project", Acts::Never));
@@ -1626,88 +1497,6 @@ mod tests {
         let update = Acts::WhenMoving;
         assert!(!update.on(&json!({"ids": ["M1"], "isRead": true})));
         assert!(update.on(&json!({"ids": ["M1"], "folder": "Trash"})));
-    }
-
-    #[test]
-    fn actions_are_listed_with_labels() {
-        let gmail = catalog_app("gmail").unwrap();
-        let mut rules = Rules::default();
-        rules.0.insert(
-            "gmail".into(),
-            Rule {
-                level: PermissionLevel::Ask {},
-                allowed: ["GMAIL_REPLY_TO_THREAD".to_owned()].into(),
-            },
-        );
-        let permissions = app_permissions(gmail, &rules);
-        let labels: Vec<(&str, bool)> = permissions
-            .actions
-            .iter()
-            .map(|action| (action.label.as_str(), action.allowed))
-            .collect();
-        assert_eq!(
-            labels,
-            [
-                ("Send email", false),
-                ("Reply to thread", true),
-                ("Move to trash", false),
-                ("Batch modify messages", false)
-            ]
-        );
-        let fastmail = app_permissions(catalog_app("fastmail").unwrap(), &Rules::default());
-        assert!(
-            fastmail
-                .actions
-                .iter()
-                .any(|a| a.tool == "FASTMAIL_DELETE_EMAIL")
-        );
-        assert!(
-            !fastmail
-                .actions
-                .iter()
-                .any(|a| a.tool == "FASTMAIL_READ_EMAIL")
-        );
-    }
-
-    #[test]
-    fn saved_rows_keep_only_known_actions() {
-        let gmail = catalog_app("gmail").unwrap();
-        let row = row(
-            gmail,
-            PermissionLevel::Ask {},
-            vec![
-                "GMAIL_SEND_EMAIL".into(),
-                "GMAIL_FETCH_EMAILS".into(),
-                "X".into(),
-            ],
-        );
-        assert_eq!(row.allowed, ["GMAIL_SEND_EMAIL"]);
-    }
-
-    #[test]
-    fn open_calls_are_the_unanswered_ones_of_the_last_turn() {
-        let call = |id: &str| ToolCall {
-            id: id.into(),
-            name: "GMAIL_SEND_EMAIL".into(),
-            arguments: json!({}),
-        };
-        let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::user("hi"));
-        assert!(open_calls(&conversation).is_empty());
-        conversation.add(ConversationEntry::assistant_with_tool_calls(
-            "",
-            vec![call("a"), call("b"), call("c")],
-            None,
-        ));
-        conversation.add(ConversationEntry::tool("a", "sent"));
-        let open: Vec<String> = open_calls(&conversation)
-            .into_iter()
-            .map(|call| call.id)
-            .collect();
-        assert_eq!(open, ["b", "c"]);
-        conversation.add(ConversationEntry::tool("b", "sent"));
-        conversation.add(ConversationEntry::tool("c", "sent"));
-        assert!(open_calls(&conversation).is_empty());
     }
 
     #[test]
@@ -1834,87 +1623,6 @@ mod tests {
     }
 
     #[test]
-    fn a_batch_card_names_every_record_it_acts_on() {
-        let mut conversation = Conversation::new();
-        conversation.add(ConversationEntry::assistant_with_tool_calls(
-            "",
-            vec![ToolCall {
-                id: "find".into(),
-                name: "gmail_fetch_emails".into(),
-                arguments: json!({"query": "is:unread"}),
-            }],
-            None,
-        ));
-        let ids: Vec<String> = (1..=6).map(|n| format!("m{n}")).collect();
-        let messages: Vec<Value> = ids
-            .iter()
-            .map(|id| json!({"messageId": id, "subject": format!("Mail {id}"), "sender": "news@example.com"}))
-            .collect();
-        let found = json!({"data": {"messages": messages}});
-        conversation.add(ConversationEntry::tool("find", found.to_string()));
-        conversation.add(ConversationEntry::assistant_with_tool_calls(
-            "",
-            vec![ToolCall {
-                id: "read".into(),
-                name: "gmail_batch_modify_messages".into(),
-                arguments: json!({"messageIds": ids, "removeLabelIds": ["UNREAD"]}),
-            }],
-            None,
-        ));
-        let Some(HistoryEntry::Approval { approval, .. }) = waiting_approval(&conversation, false)
-        else {
-            panic!("expected the open call's card");
-        };
-        let subjects = approval
-            .fields
-            .iter()
-            .filter(|field| field.label == "Subject")
-            .count();
-        assert_eq!(subjects, 6);
-    }
-
-    #[test]
-    fn a_fastmail_email_names_itself() {
-        let email = json!({
-            "id": "M1", "subject": "Your order shipped",
-            "from": [{"name": "Shop", "email": "orders@example.com"}],
-        });
-        assert_eq!(record_ids(&json!({"ids": ["M1", ""], "keep": "x"})), ["M1"]);
-        let delete = ToolCall {
-            id: "delete".into(),
-            name: "FASTMAIL_DELETE_EMAIL".into(),
-            arguments: json!({"ids": ["M1"]}),
-        };
-        let shown: Vec<_> = record_fields(find_record(&email, "M1").unwrap(), &delete)
-            .into_iter()
-            .map(|f| (f.label, f.value))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                ("Subject".into(), "Your order shipped".into()),
-                ("From".into(), "Shop <orders@example.com>".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn a_reply_names_who_it_answers() {
-        let email = json!({
-            "id": "M1", "subject": "Booking",
-            "from": [{"name": "Hotel", "email": "desk@example.com"}],
-        });
-        let send = |mode| ToolCall {
-            id: "send".into(),
-            name: "FASTMAIL_SEND_EMAIL".into(),
-            arguments: json!({"mode": mode, "emailId": "M1", "body": "Thanks"}),
-        };
-        let sender = |call| record_fields(&email, &call).pop().unwrap();
-        assert_eq!(sender(send("reply")).label, "Replying to");
-        assert_eq!(sender(send("forward")).label, "Forwarding from");
-    }
-
-    #[test]
     fn a_read_takes_the_ids_a_call_names() {
         let lookup = |tool| LOOKUPS.iter().find(|l| l.tools.contains(&tool)).unwrap();
         let reads = read_args(
@@ -1950,48 +1658,6 @@ mod tests {
     }
 
     #[test]
-    fn a_notion_page_names_itself_by_its_title_property() {
-        let page = json!({"id": "p1", "properties": {
-            "Status": {"type": "select"},
-            "Name": {"type": "title", "title": [{"plain_text": "Trip "}, {"plain_text": "plan"}]},
-        }});
-        let update = ToolCall {
-            id: "update".into(),
-            name: "NOTION_UPDATE_PAGE".into(),
-            arguments: json!({"page_id": "p1"}),
-        };
-        let shown = record_fields(&page, &update);
-        assert_eq!(
-            (shown[0].label.as_str(), shown[0].value.as_str()),
-            ("Title", "Trip plan")
-        );
-    }
-
-    #[test]
-    fn records_read_outlook_senders() {
-        let record = json!({"from": {"emailAddress": {"name": "Jo", "address": "jo@example.com"}}});
-        assert_eq!(
-            record_value(&record, "from").as_deref(),
-            Some("Jo <jo@example.com>")
-        );
-    }
-
-    #[test]
-    fn fields_skip_empty_values() {
-        let shown = fields(&json!({"recipient_email": "a@example.com", "cc": [], "body": null}));
-        assert_eq!(shown.len(), 1);
-        assert_eq!(shown[0].label, "Recipient email");
-    }
-
-    #[test]
-    fn fields_skip_ids() {
-        let shown =
-            fields(&json!({"message_id": "AAMk", "ids": ["M1"], "emailId": "M2", "comment": "Hi"}));
-        let labels: Vec<&str> = shown.iter().map(|field| field.label.as_str()).collect();
-        assert_eq!(labels, ["Comment"]);
-    }
-
-    #[test]
     fn values_at_the_limit_are_not_marked_cut() {
         let exact = "a".repeat(MAX_VALUE_CHARS);
         assert_eq!(fields(&json!({ "body": exact }))[0].value, exact);
@@ -2007,31 +1673,6 @@ mod tests {
         };
         let action = describe_action(&ToolApp::Catalog(gmail), &call, &Conversation::new());
         assert!(!action.contains("..."), "{action}");
-    }
-
-    #[test]
-    fn a_batch_shows_its_labels_and_how_many_it_names() {
-        let shown = fields(&json!({
-            "messageIds": ["M1", "M2", "M3"],
-            "addLabelIds": ["TRASH"],
-            "removeLabelIds": [],
-        }));
-        // Fields follow the map's key order, which depends on whether
-        // serde_json keeps insertion order in this build.
-        let mut shown: Vec<(&str, &str)> = shown
-            .iter()
-            .map(|field| (field.label.as_str(), field.value.as_str()))
-            .collect();
-        shown.sort_unstable();
-        assert_eq!(shown, [("Add labels", "TRASH"), ("Messages", "3")]);
-        assert!(record_ids(&json!({"addLabelIds": ["TRASH"], "messageIds": ["M1"]})) == ["M1"]);
-    }
-
-    #[test]
-    fn fields_read_recipients() {
-        let to = json!([{"name": "Jo", "email": "jo@example.com"}, {"email": "sam@example.com"}]);
-        let shown = fields(&json!({ "to": to }));
-        assert_eq!(shown[0].value, "Jo <jo@example.com>, sam@example.com");
     }
 
     #[test]

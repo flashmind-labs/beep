@@ -1,8 +1,5 @@
-//! Every host a project's repository is on. A repository pushed to GitHub
-//! and to a Forgejo server runs its workflows on both, so its runs are read
-//! from each: the primary host (where its issues and pull requests are, as
-//! `ListProjectRuns` always read), the hosts its roles and imports name,
-//! and the GitHub or Forgejo remotes of one of its checkouts.
+//! Every host a project's repository is on (primary, roles, imports, checkout remotes), since a
+//! mirrored repository runs workflows on each.
 
 use super::watch::Entry;
 use crate::{
@@ -32,14 +29,12 @@ const REMOTES_LIMIT: Duration = Duration::from_secs(10);
 pub(crate) struct RepoOnHost {
     pub(crate) host: IssueHost,
     pub(crate) repo: RepoName,
-    /// Where the project's issues and pull requests are: the host
-    /// `ListProjectRuns` reads.
+    /// Where the project's issues and pull requests are: the host `ListProjectRuns` reads.
     pub(crate) primary: bool,
 }
 
 impl RepoOnHost {
-    /// The host's name as the wire gives it: `github.com`, or the Forgejo
-    /// server's host.
+    /// The host's wire name: `github.com`, or the Forgejo server's host.
     pub(crate) fn name(&self) -> String {
         host_name(&self.host)
     }
@@ -60,8 +55,7 @@ pub(crate) fn host_name(host: &IssueHost) -> String {
     }
 }
 
-/// Which hosts the user has a token for: a remote on a host without one is
-/// left out rather than shown as an error, as a remote on GitLab would be.
+/// Hosts the user has a token for; remotes elsewhere are left out rather than shown as errors.
 pub(crate) struct Tokens<'a>(pub(crate) &'a [Opened]);
 
 impl Tokens<'_> {
@@ -87,8 +81,7 @@ pub(crate) struct Sources<'a> {
     pub(crate) remotes: &'a [String],
 }
 
-/// The repository named by a web page or remote URL: its host and its last
-/// two path parts, without `.git`.
+/// The repository a web or remote URL names: its host and last two path parts, without `.git`.
 fn repo_of_url(url: &str) -> Option<(IssueHost, RepoName)> {
     let (host, path) = remote_parts(url.trim())?;
     let host = IssueHost::of_hostname(&host)?;
@@ -101,11 +94,8 @@ fn repo_of_url(url: &str) -> Option<(IssueHost, RepoName)> {
     Some((host, name))
 }
 
-/// Every host the project's repository is on, the primary one first, at
-/// most [`MAX_HOSTS`]. The project's roles and imports name hosts as they
-/// are; a remote counts only when the user has a token for its host and
-/// it is the same repository, by full name or, on another host, by its
-/// name alone (a mirror under another owner). One repository per host.
+/// Every host of the project's repository, primary first, at most [`MAX_HOSTS`], one repo per host.
+/// A remote counts only with a token for its host and a matching full name (or name, on another host).
 pub(crate) fn collect(sources: &Sources<'_>, tokens: &Tokens<'_>) -> Vec<RepoOnHost> {
     let name = &sources.project.name;
     let mut found: Vec<RepoOnHost> = Vec::new();
@@ -166,8 +156,7 @@ struct Place {
     folder: String,
 }
 
-/// The project's checkouts, the home one first, then the folders it was
-/// imported to.
+/// The project's checkouts, home first, then its import folders.
 async fn places(user: &User, project: &ProjectRow) -> anyhow::Result<Vec<Place>> {
     let mut checkouts = user.checkouts(project.id).await?;
     checkouts.sort_by_key(|checkout| !checkout.home);
@@ -196,8 +185,7 @@ async fn places(user: &User, project: &ProjectRow) -> anyhow::Result<Vec<Place>>
     Ok(places)
 }
 
-/// The remote URLs of the first checkout whose machine is online, `None`
-/// when none is.
+/// The remote URLs of the first checkout whose machine is online; `None` when none is.
 async fn read_remotes(
     fleet: &dyn Fleet,
     user: &User,
@@ -219,8 +207,7 @@ async fn read_remotes(
     Ok(None)
 }
 
-/// The project's remotes: the ones read in the last half hour, else read
-/// again from a checkout that is online, else the last ones read.
+/// The project's remotes: read in the last half hour, else reread from an online checkout, else the last read.
 async fn remotes(fleet: &NodeFleet, project: &ProjectRow, entry: &Entry) -> Vec<String> {
     let kept = entry.remotes();
     if let Some(kept) = &kept
@@ -244,8 +231,7 @@ async fn remotes(fleet: &NodeFleet, project: &ProjectRow, entry: &Entry) -> Vec<
     }
 }
 
-/// Every host `project`'s runs are read from, or why the project's host is
-/// unknown.
+/// Every host `project`'s runs are read from, or why its host is unknown.
 pub(super) async fn find(
     fleet: &NodeFleet,
     project: &ProjectRow,

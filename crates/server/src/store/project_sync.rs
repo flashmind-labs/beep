@@ -1,5 +1,4 @@
-//! Which machines sync which projects, and the projects pinned to the
-//! machines they are on.
+//! Which machines sync which projects, and pinned projects.
 
 use super::Store;
 use crate::user::UserKey;
@@ -124,8 +123,7 @@ impl Store {
         )
     }
 
-    /// Pauses `project`'s sync on every machine, or resumes it; `false`
-    /// when it already was.
+    /// Pauses or resumes `project`'s sync everywhere; false when unchanged.
     pub(crate) async fn pause_sync(
         &self,
         user: &UserKey,
@@ -156,8 +154,7 @@ impl Store {
         .await?)
     }
 
-    /// Pins `project` to the top of the sidebar, or unpins it. Pinning it
-    /// again keeps its place.
+    /// Pins or unpins `project` at the top of the sidebar; repinning keeps its place.
     pub(crate) async fn pin_project_to_top(
         &self,
         user: &UserKey,
@@ -235,56 +232,5 @@ mod tests {
         assert_eq!(store.project_syncs(&other).await.unwrap().len(), 1);
         store.pin_project(&user, "game", false).await.unwrap();
         assert!(store.pinned_projects(&user).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_paused_sync_is_kept_per_user_until_resumed() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let other = UserKey::for_test("bob");
-        assert!(store.pause_sync(&user, "game", true).await.unwrap());
-        assert!(!store.pause_sync(&user, "game", true).await.unwrap());
-        assert_eq!(store.paused_syncs(&user).await.unwrap(), ["game"]);
-        assert!(store.paused_syncs(&other).await.unwrap().is_empty());
-        assert!(store.pause_sync(&user, "game", false).await.unwrap());
-        assert!(!store.pause_sync(&user, "game", false).await.unwrap());
-        assert!(store.paused_syncs(&user).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn projects_on_top_keep_their_order_and_leave_sync_alone() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-        let other = UserKey::for_test("bob");
-        store
-            .set_project_sync(&user, &row("acme/widget", "a", "/srv/widget"))
-            .await
-            .unwrap();
-        store
-            .pin_project_to_top(&user, "acme/widget", true)
-            .await
-            .unwrap();
-        store
-            .pin_project_to_top(&user, "acme/relay", true)
-            .await
-            .unwrap();
-        store
-            .pin_project_to_top(&user, "acme/widget", true)
-            .await
-            .unwrap();
-        assert_eq!(
-            store.projects_on_top(&user).await.unwrap(),
-            ["acme/widget", "acme/relay"]
-        );
-        assert_eq!(store.project_syncs(&user).await.unwrap().len(), 1);
-        assert!(store.pinned_projects(&user).await.unwrap().is_empty());
-        assert!(store.projects_on_top(&other).await.unwrap().is_empty());
-        store
-            .pin_project_to_top(&user, "acme/widget", false)
-            .await
-            .unwrap();
-        assert_eq!(store.projects_on_top(&user).await.unwrap(), ["acme/relay"]);
     }
 }

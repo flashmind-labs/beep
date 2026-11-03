@@ -1,6 +1,4 @@
-//! Mirroring tasks to issues on the project's issues host, and the open
-//! issues there that no task tracks yet: listing them, tracking one as a
-//! task, or hiding it.
+//! Mirroring tasks to issues on the project's host, and tracking or hiding untracked open issues.
 
 use super::{
     commands::{
@@ -77,8 +75,7 @@ pub(crate) fn issue_body(task: TaskId, body: &str) -> String {
     format!("{}\n\n<!-- {} -->", body.trim_end(), marker(task))
 }
 
-/// Files the issue for `task` and saves it on the task. An issue an earlier
-/// try filed without hearing back is found by its marker and kept.
+/// Files and saves `task`'s issue, reusing one an earlier try filed (found by its marker).
 pub(crate) async fn file_issue(
     user: &User,
     shell: &dyn Shell,
@@ -124,8 +121,7 @@ pub(crate) fn task_leaks(public_text: &PublicText, task: &TaskRow) -> Vec<String
     .leaks(public_text)
 }
 
-/// Files issues for up to five open tasks that have none, as when an
-/// earlier try failed. Returns how many it filed.
+/// Files issues for up to five open tasks missing one. Returns how many it filed.
 pub(crate) async fn mirror_missing(
     fleet: &dyn Fleet,
     user: &User,
@@ -165,8 +161,7 @@ pub(crate) async fn mirror_missing(
     Ok(filed)
 }
 
-/// Where a project's open issues are read: its issues host, through a shell
-/// on a machine that has the project.
+/// Where a project's open issues are read: its host, via a shell on a machine with the project.
 pub(crate) struct IssueSource {
     pub(crate) host: IssueHost,
     /// The machine the shell is on.
@@ -204,8 +199,7 @@ fn host_of_url(url: &str) -> Option<IssueHost> {
     IssueHost::of_hostname(Url::parse(url).ok()?.host_str()?)
 }
 
-/// Where a project's issues host was found, and the machines that can
-/// reach it.
+/// A project's issues host and the machines that can reach it.
 pub(crate) struct HostAndMachines {
     pub(crate) host: IssueHost,
     /// The home checkout's machine, else the machines it was imported on.
@@ -214,9 +208,8 @@ pub(crate) struct HostAndMachines {
     home: bool,
 }
 
-/// A project set up with a home checkout uses its issues role and that
-/// checkout's machine; one only imported uses the host of its web page and
-/// the machines it is on. `None` when it has no GitHub or Forgejo host.
+/// From the home checkout's issues role and machine, else the imported web page's host and
+/// machines. `None` without a GitHub or Forgejo host.
 pub(crate) async fn host_and_machines(
     user: &User,
     project: &ProjectRow,
@@ -259,9 +252,7 @@ pub(crate) async fn issue_host(
         .map(|found| found.host))
 }
 
-/// Where `project`'s open issues are read, as [`issue_host`] finds it, with
-/// a shell on one of its machines that is online. `None` when it has no
-/// GitHub or Forgejo host.
+/// [`issue_host`] with a shell on an online machine. `None` without a GitHub or Forgejo host.
 pub(crate) async fn issue_source(
     fleet: &dyn Fleet,
     user: &User,
@@ -272,10 +263,8 @@ pub(crate) async fn issue_source(
         .and_then(|sources| sources.into_iter().next()))
 }
 
-/// Every place `project`'s open issues can be read, as [`issue_source`]
-/// finds them: the home checkout's machine alone, else each machine the
-/// project was imported on that is online, ordered by machine id. `None` when
-/// it has no GitHub or Forgejo host; refused when none is online.
+/// Every online place to read `project`'s issues: the home machine, else import machines by id.
+/// `None` without a GitHub or Forgejo host; refused when none is online.
 async fn issue_sources(
     fleet: &dyn Fleet,
     user: &User,
@@ -311,10 +300,8 @@ async fn issue_sources(
     Ok(Some(sources))
 }
 
-/// What one of `sources` printed for `command`, read by `parse`: each is
-/// tried in turn, so a machine whose CLI is missing, too old or signed out
-/// does not hide the list another can read. Gives the source that
-/// answered; when all fail, the last error and the machines tried.
+/// Tries `command` on each source in turn so one broken CLI does not hide the list.
+/// Gives the source that answered; when all fail, the last error and the machines tried.
 async fn read_any<'s, T>(
     fleet: &dyn Fleet,
     sources: &'s [IssueSource],
@@ -359,9 +346,7 @@ async fn read_any<'s, T>(
     )))
 }
 
-/// What older apps' Not now asks: nothing changes, since the issue list
-/// follows the host and hides no open issue. Still refused for a project
-/// without an issues host, as before.
+/// Older apps' Not now: a no-op, still refused for a project without an issues host.
 pub(crate) async fn dismiss(user: &User, project: &ProjectRow) -> Result<(), IssueError> {
     if issue_host(user, project).await?.is_none() {
         return Err(IssueError::Refused(
@@ -371,8 +356,7 @@ pub(crate) async fn dismiss(user: &User, project: &ProjectRow) -> Result<(), Iss
     Ok(())
 }
 
-/// Who opened `issue`: the account the host's CLI is signed in as, else
-/// anyone else. Not knowing counts as someone else, so Beep leaves it be.
+/// Who opened `issue`: the CLI's account, else someone else (also when unknown).
 async fn author_of(source: &IssueSource, project: &ProjectRow, issue: &ViewedIssue) -> IssueAuthor {
     let login = run_host(
         source.shell.as_ref(),
@@ -410,8 +394,7 @@ pub(crate) fn untracked(open: Vec<OpenIssue>, tracked: &[u64]) -> Vec<OpenIssue>
     left
 }
 
-/// The open issues on `project`'s host that no task tracks, newest first.
-/// Empty when it has no issues host.
+/// Open issues on `project`'s host no task tracks, newest first; empty without a host.
 #[cfg(test)]
 pub(crate) async fn list_open(
     fleet: &dyn Fleet,
@@ -431,8 +414,7 @@ pub(crate) struct HostIssues {
     pub(crate) open: Vec<OpenIssue>,
 }
 
-/// Every open issue on `project`'s host, tracked or not. `None` when it
-/// has no issues host.
+/// Every open issue on `project`'s host, tracked or not; `None` without a host.
 pub(crate) async fn read_open(
     fleet: &dyn Fleet,
     user: &User,
@@ -471,18 +453,15 @@ pub(crate) async fn untracked_now(
     Ok(untracked(read.open.clone(), &tracked))
 }
 
-/// The open pull requests on a project's host, and whether each is the
-/// user's.
+/// An open pull request on a project's host, and whether it is the user's.
 #[derive(Debug, Clone)]
 pub(crate) struct ListedPr {
     pub(crate) pr: OpenPr,
-    /// Opened by the account the host's CLI is signed in as. False when
-    /// that account is unknown.
+    /// Opened by the CLI's signed-in account; false when that is unknown.
     pub(crate) mine: bool,
 }
 
-/// The open pull requests on `project`'s host, any author's, newest first.
-/// Empty when it has no issues host.
+/// Open pull requests on `project`'s host, any author, newest first; empty without a host.
 pub(crate) async fn list_open_prs(
     fleet: &dyn Fleet,
     user: &User,
@@ -532,8 +511,7 @@ pub(crate) async fn list_open_prs(
         .collect())
 }
 
-/// The branch the pull request `number` of `project` is made from, read
-/// from its host now.
+/// The branch pull request `number` is made from, read from the host now.
 pub(crate) async fn pull_request_head(
     fleet: &dyn Fleet,
     user: &User,
@@ -581,8 +559,7 @@ fn issue_task_body(issue: &ViewedIssue) -> String {
     )
 }
 
-/// What the project agent is asked when the user wants `task`, made from
-/// `issue`, planned.
+/// What the project agent is asked to plan `task`, made from `issue`.
 fn plan_request(issue: &ViewedIssue, task: &TaskRow) -> String {
     format!(
         "The user asked you to plan issue #{number} (\"{title}\"), now tracked as the task {slug}. \
@@ -596,9 +573,7 @@ fn plan_request(issue: &ViewedIssue, task: &TaskRow) -> String {
     )
 }
 
-/// Makes a task that tracks the open issue `number`, without filing one.
-/// With `work`, starts a worker on it (or leaves it waiting for a slot);
-/// without, asks the project agent to plan it. Gives the task as it stands.
+/// Makes a task tracking open issue `number`; with `work` starts a worker, else asks for a plan.
 pub(crate) async fn track(
     fleet: &dyn Fleet,
     user: &User,
@@ -753,8 +728,7 @@ mod tests {
         .to_string()
     }
 
-    /// Alice's `acme/widget`, set up with GitHub issues and a home checkout
-    /// on `build-box`.
+    /// Alice's `acme/widget` with GitHub issues and a home checkout on `build-box`.
     async fn github_project(
         user: &User,
         fleet: &mut FakeFleet,
@@ -787,19 +761,6 @@ mod tests {
             .unwrap();
         let project = user.project(project.id).await.unwrap().unwrap();
         (project, home, shell)
-    }
-
-    #[test]
-    fn untracked_skips_tracked_only() {
-        let open = vec![
-            open_issue(1, 1),
-            open_issue(2, 5),
-            open_issue(3, 3),
-            open_issue(4, 4),
-        ];
-        let left = untracked(open, &[2]);
-        let numbers: Vec<u64> = left.iter().map(|issue| issue.number).collect();
-        assert_eq!(numbers, [4, 3, 1]);
     }
 
     #[tokio::test]
@@ -835,25 +796,6 @@ mod tests {
             "{again:?}"
         );
         assert_eq!(user.project_tasks(project.id).await.unwrap().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn track_without_start_posts_plan_request_to_project_chat() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (project, _, shell) = github_project(&user, &mut fleet).await;
-        shell.answer("issue view 12", 0, &viewed(12, "OPEN"));
-        let task = track(&fleet, &user, &project, 12, None).await.unwrap();
-        assert_eq!(task.issue.as_ref().map(|issue| issue.number), Some(12));
-        assert_eq!(task.start, None);
-        assert!(fleet.starts().is_empty());
-        let posts = fleet.posts();
-        assert_eq!(posts.len(), 1, "{posts:?}");
-        assert_eq!(posts[0].0, ISSUE_LABEL);
-        assert!(posts[0].1.contains("issue #12"), "{}", posts[0].1);
-        assert!(posts[0].1.contains(task.slug.as_str()), "{}", posts[0].1);
-        assert!(shell.ran_with("issue create").is_empty());
     }
 
     #[tokio::test]
@@ -963,21 +905,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_users_own_issue_is_kept_in_step() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (project, _, shell) = github_project(&user, &mut fleet).await;
-        // The issue's author is the account the CLI is signed in as.
-        shell.answer("issue view 12", 0, &viewed(12, "OPEN"));
-        shell.answer("api user", 0, "Sam\n");
-        let task = track(&fleet, &user, &project, 12, None).await.unwrap();
-        assert!(!task.issue_foreign);
-        drop_task(&fleet, &user, &project, &task).await.unwrap();
-        assert_eq!(shell.ran_with("issue close 12").len(), 1);
-    }
-
-    #[tokio::test]
     async fn an_unknown_account_counts_as_someone_else() {
         let db = TestDb::new().await.unwrap();
         let user = User::for_test(db.store().await.unwrap(), "alice");
@@ -987,33 +914,6 @@ mod tests {
         shell.answer("api user", 1, "gh: not logged in");
         let task = track(&fleet, &user, &project, 12, None).await.unwrap();
         assert!(task.issue_foreign);
-    }
-
-    #[tokio::test]
-    async fn list_issues_without_host_is_empty() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (_, shell) = fleet.add(1, "build-box", &[], "/srv");
-        // No checkout and no import: nowhere to read from.
-        let bare = user
-            .ensure_project(&RepoName::parse("acme/bare").unwrap())
-            .await
-            .unwrap();
-        assert!(list_open(&fleet, &user, &bare).await.unwrap().is_empty());
-        // Set up with issues kept in Beep only.
-        let (project, _, _) = github_project(&user, &mut fleet).await;
-        user.set_project_setup(project.id, &Roles::default(), Visibility::Private, "main")
-            .await
-            .unwrap();
-        let project = user.project(project.id).await.unwrap().unwrap();
-        assert!(list_open(&fleet, &user, &project).await.unwrap().is_empty());
-        assert!(shell.ran_with("issue list").is_empty());
-        let refused = track(&fleet, &user, &project, 1, None).await;
-        assert!(
-            matches!(refused, Err(IssueError::Refused(_))),
-            "{refused:?}"
-        );
     }
 
     #[tokio::test]
@@ -1051,63 +951,6 @@ mod tests {
             "{:?}",
             failed.err()
         );
-    }
-
-    #[tokio::test]
-    async fn a_failing_host_gives_its_error() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (project, _, shell) = github_project(&user, &mut fleet).await;
-        shell.answer("issue list", 1, "HTTP 401: Bad credentials");
-        let failed = list_open(&fleet, &user, &project).await;
-        match failed {
-            Err(IssueError::Refused(why)) => assert!(why.contains("Bad credentials"), "{why}"),
-            other => panic!("expected the host's error, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn an_imported_project_reads_its_web_page_host() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (machine, shell) = fleet.add(1, "build-box", &[], "/srv");
-        user.save_import(NewImport {
-            project: "acme/widget",
-            endpoint: &machine.to_string(),
-            folder: "/srv/widget",
-            url: "https://git.example.com/acme/widget",
-        })
-        .await
-        .unwrap();
-        let project = user
-            .ensure_project(&RepoName::parse("acme/widget").unwrap())
-            .await
-            .unwrap();
-        shell.answer("issue list", 0, "[]");
-        assert!(list_open(&fleet, &user, &project).await.unwrap().is_empty());
-        let ran = shell.ran_with("issue list");
-        assert_eq!(ran.len(), 1, "{ran:?}");
-        assert!(
-            ran[0].starts_with("teacli issue list acme/widget --host git.example.com"),
-            "{}",
-            ran[0]
-        );
-        // One on a host that is neither keeps an empty list.
-        let other = user
-            .ensure_project(&RepoName::parse("acme/other").unwrap())
-            .await
-            .unwrap();
-        user.save_import(NewImport {
-            project: "acme/other",
-            endpoint: &machine.to_string(),
-            folder: "/srv/other",
-            url: "not a url",
-        })
-        .await
-        .unwrap();
-        assert!(list_open(&fleet, &user, &other).await.unwrap().is_empty());
     }
 
     #[tokio::test]

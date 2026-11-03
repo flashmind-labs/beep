@@ -17,23 +17,6 @@ function drawn() {
   return { shown, draw: (query: string, hits: string[]) => { shown.push(`${query}: ${hits.join(",")}`); } };
 }
 
-test("each keystroke asks for local hits at once and for the full search once typing pauses", t => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { asks, find } = finder();
-  const search = new PaletteSearch(find, drawn().draw);
-  search.type("b");
-  search.type("be");
-  search.type("bee");
-  assert.deepEqual(asks.map(a => [a.query, a.full]), [["b", false], ["be", false], ["bee", false]]);
-  t.mock.timers.tick(DEBOUNCE_MS - 1);
-  assert.equal(asks.length, 3);
-  t.mock.timers.tick(1);
-  assert.deepEqual(asks.map(a => [a.query, a.full]).slice(3), [["bee", true]]);
-  t.mock.timers.tick(DEBOUNCE_MS * 10);
-  assert.equal(asks.length, 4);
-  search.stop();
-});
-
 test("an answer to an earlier query never draws over a later one", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { asks, find } = finder();

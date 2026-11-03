@@ -25,3 +25,5 @@ __pycache__/
 /apps/ios/Beep.xcodeproj/
 /apps/ios/build/
 admin.sock
+/tests/e2e/.fleet
+/tests/e2e/.logs/

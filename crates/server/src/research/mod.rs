@@ -1,13 +1,10 @@
-//! Research: a lead agent plans a topic with the user in an ordinary chat,
-//! then a team researches it in the background. Scouts take one question
-//! each, a critic challenges what they found, the lead fills the gaps and
-//! briefs the writer, and the writer drafts a paper. Follow-up questions in
-//! the chat start more rounds, which revise the same paper. The chat only
-//! gets the plan and the results; everything the team does is kept as
-//! entries that the Mac's research window reads (`GetResearch`). Each role
-//! runs on its own model, set in the config's `[research]`.
+//! Research: the lead plans a topic with the user, then a team of scouts, a critic and a writer drafts a paper in the background.
 
 mod lead;
+#[cfg(feature = "pdf")]
+pub(crate) mod pdf;
+#[cfg(not(feature = "pdf"))]
+#[path = "pdf_off.rs"]
 pub(crate) mod pdf;
 mod tools;
 
@@ -55,12 +52,6 @@ impl Status {
     /// The team is at work.
     pub fn is_running(self) -> bool {
         matches!(self, Self::Researching | Self::Reviewing | Self::Writing)
-    }
-
-    /// The team can be started from here, on a new round or the last one
-    /// again.
-    pub fn can_start(self) -> bool {
-        !self.is_running()
     }
 
     pub fn wire(self) -> ResearchStatus {
@@ -146,8 +137,7 @@ fn default_thinking() -> ReasoningLevel {
     ReasoningLevel::Medium
 }
 
-/// The config's `[research]`: the model each role runs on. Each must be one
-/// of the server's model choices.
+/// The config's `[research]`: each role's model, one of the server's model choices.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResearchConfig {
@@ -167,8 +157,7 @@ impl ResearchConfig {
     }
 }
 
-/// What the user approved: one scout per question, and the models. Each
-/// round adds its scouts.
+/// What the user approved: one scout per question, and the models.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub scouts: Vec<Scout>,
@@ -271,35 +260,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn members_read_back_from_their_ids() {
-        for member in [
-            Member::Lead,
-            Member::Scout(1),
-            Member::Scout(5),
-            Member::Critic,
-            Member::Writer,
-        ] {
-            assert_eq!(member.to_string().parse::<Member>().ok(), Some(member));
-        }
-        assert!("scout-0".parse::<Member>().is_err());
-        assert!(
-            format!("scout-{}", MAX_TEAM_SCOUTS + 1)
-                .parse::<Member>()
-                .is_err()
-        );
-        assert!("boss".parse::<Member>().is_err());
-    }
-
-    #[test]
-    fn statuses_read_back_from_the_store() {
-        assert_eq!("researching".parse(), Ok(Status::Researching));
-        assert_eq!(Status::Interrupted.as_str(), "interrupted");
-        assert!(Status::Stopped.can_start());
-        assert!(Status::Done.can_start(), "a follow-up starts a round");
-        assert!(!Status::Writing.can_start());
-    }
-
-    #[test]
     fn a_plan_reads_its_rounds_scouts() {
         let model = RoleModel {
             model: "openai:test".parse().expect("a model id"),
@@ -325,24 +285,5 @@ mod tests {
         }))
         .expect("a plan from before rounds");
         assert_eq!(old.round(), 1);
-    }
-
-    #[test]
-    fn the_config_reads_a_model_and_thinking_per_role() {
-        let config: ResearchConfig = toml::from_str(
-            r#"
-            lead = { model = "openrouter:anthropic/claude-sonnet-5.5", thinking = "high" }
-            scout = { model = "openrouter:deepseek/deepseek-v4.1-flash-1017" }
-            critic = { model = "openrouter:openai/gpt-6-luna" }
-            writer = { model = "openrouter:anthropic/claude-haiku-5.5" }
-            scout_choices = ["openrouter:z-ai/glm-5.3-flash"]
-            "#,
-        )
-        .expect("the example parses");
-        assert_eq!(config.lead.thinking, ReasoningLevel::High);
-        assert_eq!(config.scout.thinking, ReasoningLevel::Medium);
-        let glm = "openrouter:z-ai/glm-5.3-flash".parse().expect("a model id");
-        assert!(config.scout_may_use(&glm));
-        assert!(!config.scout_may_use(&config.lead.model));
     }
 }

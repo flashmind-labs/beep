@@ -1,5 +1,4 @@
-//! What the event triage agent kept for the user, shown by the apps on its
-//! own rather than inside a reply.
+//! What the event triage agent kept for the user.
 
 use super::Reply;
 use crate::{

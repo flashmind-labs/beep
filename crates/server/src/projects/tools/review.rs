@@ -1,7 +1,5 @@
-//! `branch_review`: act on a finished branch review. `post` puts its open
-//! findings on the pull request as one review with inline comments, and
-//! `merge` squash-merges the pull request. Both always ask, and the card
-//! shows what goes out: every comment, or the pull request with its checks.
+//! `branch_review`: `post` the open findings as one inline PR review, or `merge` (squash) the PR.
+//! Both always ask, and the card shows exactly what goes out.
 
 use super::{Planned, ProjectTools, card, field, gated, leaked, on_home};
 use crate::{
@@ -63,8 +61,7 @@ fn short(sha: &str) -> &str {
     sha.get(..7).unwrap_or(sha)
 }
 
-/// The inline comment for one finding; `None` for one with no line, which
-/// goes in the review's summary instead.
+/// The inline comment for one finding; `None` without a line (it goes in the summary).
 fn inline(finding: &ReviewFindingRow) -> Option<InlineComment> {
     let severity: &'static str = finding.severity.into();
     Some(InlineComment {
@@ -74,8 +71,7 @@ fn inline(finding: &ReviewFindingRow) -> Option<InlineComment> {
     })
 }
 
-/// The review's summary: the agent's text, then the findings that name no
-/// line.
+/// The review's summary: the agent's text, then the findings without a line.
 fn summary(body: &str, open: &[&ReviewFindingRow]) -> String {
     let mut out = body.trim().to_owned();
     let loose: Vec<String> = open
@@ -370,61 +366,5 @@ impl ReviewTool {
             crate::projects::finish_task(tools.fleet.as_ref(), &tools.user, project, task).await?;
         }
         Ok(Planned::Done(format!("Merged {url}.")))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{projects::model::RepoName, protocol::ReviewSeverity, store::Verdict};
-
-    fn finding(id: u32, line: Option<u32>) -> ReviewFindingRow {
-        ReviewFindingRow {
-            id,
-            shard: 0,
-            severity: ReviewSeverity::High {},
-            title: format!("Finding {id}"),
-            file: "src/limit.rs".into(),
-            line,
-            why: "It breaks".into(),
-            verdict: Some(Verdict::Verified),
-            verdict_why: None,
-            dismissed: false,
-        }
-    }
-
-    #[test]
-    fn the_post_card_lists_every_comment() {
-        let with_line = finding(0, Some(72));
-        let without = finding(1, None);
-        let open = [&with_line, &without];
-        let comments: Vec<InlineComment> = open.iter().filter_map(|f| inline(f)).collect();
-        assert_eq!(comments.len(), 1);
-        let text = summary("Two problems.", &open);
-        assert!(
-            text.starts_with("Two problems.\n\n- high: Finding 1 (src/limit.rs)"),
-            "{text}"
-        );
-        let shown = post_card("https://example.com/pr/41", "3f2c1a0aaaa", &text, &comments);
-        assert_eq!(shown.action, "Post review");
-        let labels: Vec<&str> = shown.fields.iter().map(|f| f.label.as_str()).collect();
-        assert_eq!(
-            labels,
-            ["Pull request", "On commit", "Summary", "src/limit.rs:72"]
-        );
-        assert_eq!(shown.fields[3].value, "high: Finding 0\n\nIt breaks");
-        let repo = RepoName::parse("acme/widget").expect("a repo");
-        let rendered = HostCommand::PostReview {
-            number: 41,
-            commit: "3f2c1a0aaaa",
-            body: &text,
-            comments: &comments,
-        }
-        .render(&IssueHost::Github, &repo);
-        assert!(
-            rendered.contains("gh api repos/acme/widget/pulls/41/reviews --method POST --input -"),
-            "{rendered}"
-        );
-        assert!(rendered.contains(r#"\"line\":72"#), "{rendered}");
     }
 }

@@ -1,5 +1,4 @@
-//! Live mode's calls besides `Transcribe`: which turns were spoken, and
-//! lines read out while a reply streams.
+//! Live mode's calls besides `Transcribe`.
 
 use super::Reply;
 use crate::{

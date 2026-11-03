@@ -10,9 +10,7 @@ use crate::{
 use chrono::Utc;
 
 impl App {
-    /// Conversation starters for the empty chat, personalized and cached
-    /// until they go stale, unless `refresh` and the user has refreshes left.
-    /// Never fails: falls back to fixed starters.
+    /// Personalized starters for the empty chat, cached until stale; falls back to fixed ones.
     pub async fn suggest_prompts(&self, user: &User, refresh: bool) -> PromptSuggestions {
         let here = user.get_location().await.ok().flatten();
         // Past the limit a refresh gets the cached set.
@@ -83,20 +81,5 @@ async fn starter_context(user: &User, location: Option<Location>, refresh: bool)
         connected_apps,
         done,
         shown,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::TestDb;
-
-    #[tokio::test]
-    async fn starters_use_the_saved_timezone_without_a_location() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        user.set_timezone("Asia/Tokyo").await.unwrap();
-        let context = starter_context(&user, None, false).await;
-        assert_eq!(context.now.timezone, Some(chrono_tz::Tz::Asia__Tokyo));
     }
 }

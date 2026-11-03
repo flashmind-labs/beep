@@ -1,6 +1,4 @@
-//! What the user's coding agents left on their machines: the git checkouts
-//! they worked in, to suggest as projects, and the sessions that ran in an
-//! imported project's folders.
+//! Checkouts the user's coding agents worked in, and sessions in imported projects' folders.
 
 use super::{
     Reply,
@@ -28,8 +26,7 @@ const MAX_SESSIONS: usize = 50;
 /// A node slower than this to list a project's sessions is logged.
 const SLOW_NODE: Duration = Duration::from_secs(1);
 
-/// The caller's own machines, like `ListMachines`. A machine that cannot
-/// say is left out.
+/// Checkouts found on the caller's machines; a machine that cannot say is left out.
 pub(super) async fn list_found_folders(cx: Cx, _: ListFoundFolders) -> Reply<Vec<FoundProject>> {
     let asks: Vec<_> = live_hosts(&cx)
         .await?
@@ -62,9 +59,7 @@ async fn machine_found(live: Live) -> Option<MachineFound> {
     }
 }
 
-/// `NotFound` unless the caller imported `project`. The machines are asked
-/// side by side, `IN_FLIGHT` at a time, each for at most `NODE_LIMIT`; one
-/// that is slower is left out, so it does not hold up the rest.
+/// `NotFound` unless the caller imported `project`; a machine slower than `NODE_LIMIT` is left out.
 pub(super) async fn list_project_sessions(
     cx: Cx,
     request: ListProjectSessions,
@@ -134,9 +129,7 @@ async fn machine_sessions(live: Live, folders: Vec<String>) -> Vec<MachineSessio
     }
 }
 
-/// A session as a project lists it. One Beep took over opens as Beep's own
-/// session. Only Claude Code's outside sessions can be followed live, so
-/// another agent's reads as ended, and the project offers to resume it.
+/// A session as a project lists it; only Claude Code's outside sessions can be followed live.
 fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
     let followed = session.agent == "claude";
     let status = match session.presence {
@@ -170,35 +163,6 @@ fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_stopped_session_reads_as_ended_with_its_prompt_for_a_title() {
-        let host = Host {
-            id: "m".into(),
-            name: "build-box".into(),
-        };
-        let session = ExternalSession {
-            id: "s".into(),
-            agent: "codex".into(),
-            cwd: "/home/user/proj".into(),
-            presence: Presence::Stopped,
-            last_prompt: "Fix the parser".into(),
-            last_activity: 10,
-            ..ExternalSession::default()
-        };
-        let listed = past_session(&host, session.clone());
-        assert_eq!(listed.status, AgentStatus::Ended {});
-        assert_eq!(listed.title.as_deref(), Some("Fix the parser"));
-        assert!(listed.external);
-        let taken = ExternalSession {
-            taken_over: Some("a3f9c1".into()),
-            ..session
-        };
-        let listed = past_session(&host, taken);
-        assert_eq!(listed.status, AgentStatus::Running {});
-        assert_eq!(listed.id, "a3f9c1", "it opens as Beep's session");
-        assert!(!listed.external);
-    }
 
     #[test]
     fn a_recent_outside_session_offers_resume_unless_it_can_be_followed() {

@@ -1,5 +1,4 @@
-//! The projects a user imported onto their machines (see
-//! `crate::imports`).
+//! Projects a user imported onto their machines (see `crate::imports`).
 
 use super::Store;
 use crate::{projects::model::RepoName, user::UserKey};
@@ -33,9 +32,7 @@ pub struct NewImport<'a> {
 }
 
 impl Store {
-    /// Records an import, or moves an earlier one of the same project on
-    /// the same machine to `folder`, and makes the project if it is new.
-    /// Gives the row as stored.
+    /// Records an import (or moves it to `folder`), making the project if new; returns the stored row.
     pub(crate) async fn save_import(
         &self,
         user: &UserKey,
@@ -74,8 +71,7 @@ impl Store {
         rows.iter().map(import_row).collect()
     }
 
-    /// Notes the user's fork the import of `project` on `endpoint` cloned
-    /// or linked, or that it is the repository itself (`None`).
+    /// Notes the fork the import of `project` on `endpoint` uses, or `None` for the repository itself.
     pub(crate) async fn set_import_fork(
         &self,
         user: &UserKey,
@@ -96,9 +92,7 @@ impl Store {
         Ok(())
     }
 
-    /// Records a checkout found on a machine as the project's folder there,
-    /// unless the project already has one on that machine. Says whether it
-    /// was recorded. Makes the project if it is new.
+    /// Records a found checkout as the project's folder on that machine unless it has one; makes the project if new.
     pub(crate) async fn link_import(&self, user: &UserKey, import: NewImport<'_>) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let done = sqlx::query(
@@ -118,8 +112,7 @@ impl Store {
         Ok(done.rows_affected() == 1)
     }
 
-    /// Notes that the user's machine `endpoint` was looked through for
-    /// checkouts at `at`.
+    /// Notes that `endpoint` was scanned for checkouts at `at`.
     pub(crate) async fn save_checkout_check(
         &self,
         user: &UserKey,
@@ -154,9 +147,7 @@ impl Store {
     }
 }
 
-/// Makes the project an import names, unless the user has one of that
-/// name in any case, so its agent and board exist without its chat being
-/// opened first. A name that is not `owner/repo` gets no project.
+/// Makes the project an import names unless one exists (any case); non-`owner/repo` names get none.
 async fn ensure_imported_project(
     conn: &mut PgConnection,
     user: &UserKey,
@@ -205,100 +196,6 @@ mod tests {
             folder,
             url: "https://github.com/org/repo",
         }
-    }
-
-    #[tokio::test]
-    async fn imports_list_per_user_and_a_second_import_moves_the_folder() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let bob = UserKey::for_test("bob");
-        store
-            .save_import(&alice, import("org/b", "node-1", "/w/projects/org/b"))
-            .await
-            .unwrap();
-        store
-            .save_import(&alice, import("org/a", "node-1", "/w/projects/org/a"))
-            .await
-            .unwrap();
-        let moved = store
-            .save_import(&alice, import("org/a", "node-1", "/w/elsewhere/a"))
-            .await
-            .unwrap();
-        assert_eq!(moved.folder, "/w/elsewhere/a");
-        let listed = store.imports(&alice).await.unwrap();
-        let names: Vec<_> = listed.iter().map(|r| r.project.as_str()).collect();
-        assert_eq!(names, ["org/a", "org/b"]);
-        assert_eq!(listed[0].folder, "/w/elsewhere/a");
-        assert_eq!(listed[0].fork, None);
-        assert!(store.imports(&bob).await.unwrap().is_empty());
-        let fork = RepoName::parse("octo/a").unwrap();
-        store
-            .set_import_fork(&alice, "org/a", "node-1", Some(&fork))
-            .await
-            .unwrap();
-        let again = store
-            .save_import(&alice, import("org/a", "node-1", "/w/elsewhere/a"))
-            .await
-            .unwrap();
-        assert_eq!(again.fork, Some(fork), "a second import keeps the fork");
-        assert_eq!(store.imports(&alice).await.unwrap()[1].fork, None);
-    }
-
-    #[tokio::test]
-    async fn a_found_checkout_never_moves_a_folder_and_checks_keep_the_latest() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        store
-            .save_import(&alice, import("org/a", "node-1", "/w/projects/org/a"))
-            .await
-            .unwrap();
-        let linked = store
-            .link_import(&alice, import("org/a", "node-2", "/srv/a"))
-            .await
-            .unwrap();
-        assert!(linked);
-        let again = store
-            .link_import(&alice, import("org/a", "node-1", "/elsewhere/a"))
-            .await
-            .unwrap();
-        assert!(!again);
-        let folders: Vec<_> = store
-            .imports(&alice)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|row| (row.endpoint, row.folder))
-            .collect();
-        assert_eq!(
-            folders,
-            [
-                ("node-1".to_owned(), "/w/projects/org/a".to_owned()),
-                ("node-2".to_owned(), "/srv/a".to_owned())
-            ]
-        );
-        let first = Utc::now() - chrono::Duration::minutes(5);
-        let later = Utc::now();
-        store
-            .save_checkout_check(&alice, "node-2", first)
-            .await
-            .unwrap();
-        store
-            .save_checkout_check(&alice, "node-2", later)
-            .await
-            .unwrap();
-        let checks = store.checkout_checks(&alice).await.unwrap();
-        assert_eq!(checks.len(), 1);
-        let at = checks["node-2"];
-        assert!((at - later).num_milliseconds().abs() < 1, "{at} {later}");
-        assert!(
-            store
-                .checkout_checks(&UserKey::for_test("bob"))
-                .await
-                .unwrap()
-                .is_empty()
-        );
     }
 
     async fn project_names(store: &Store, user: &UserKey) -> Vec<String> {

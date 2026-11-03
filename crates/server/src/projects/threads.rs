@@ -1,9 +1,7 @@
-//! The user's open pull requests and issues on a project's host: which of
-//! them wait on a reply, one read in full for the agent, a reply posted on
-//! one, and the chats about one thread.
+//! The user's open PRs and issues on a project's host: replies due, reading, replying, chats.
 
 use super::{
-    commands::{HostCommand, Shell, gh_account, parse_login, quote},
+    commands::{HostCommand, Shell, gh_account, json, parse_login, quote, text},
     fleet::Fleet,
     issues::{self, IssueError, run_host, run_rendered},
     model::{IssueHost, RepoName},
@@ -14,7 +12,7 @@ use crate::{
     store::{NewThreadChat, ProjectRow, ThreadChatRow},
     user::User,
 };
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::{fmt::Write, sync::Arc};
@@ -77,8 +75,7 @@ pub(crate) struct ThreadComment {
     pub(crate) body: String,
 }
 
-/// Whether `login` is a bot's: GitHub's `app/` and `[bot]` accounts and
-/// the usual `-bot` names.
+/// Whether `login` is a bot: `app/`, `[bot]` or the usual `-bot` names.
 fn is_bot(login: &str) -> bool {
     let login = login.to_ascii_lowercase();
     login.ends_with("[bot]")
@@ -91,9 +88,7 @@ fn is_me(login: &str, me: &str) -> bool {
     !me.is_empty() && login.eq_ignore_ascii_case(me)
 }
 
-/// Whether the newest comment or review by someone other than `me`, bots
-/// aside, is newer than `me`'s newest. A thread nobody else wrote on needs
-/// none.
+/// Whether someone other than `me` (bots aside) wrote after `me`'s newest comment or review.
 pub(crate) fn needs_reply(comments: &[ThreadComment], me: &str) -> bool {
     let newest = |mine: bool| {
         comments
@@ -118,8 +113,7 @@ fn head(text: &str, max: usize) -> &str {
     &text[..end]
 }
 
-/// "sam: Can we cut it down?": the newest comment by someone else, bots
-/// aside, on one line.
+/// "sam: Can we cut it down?": the newest non-bot comment by someone else, on one line.
 fn last_other(comments: &[ThreadComment], me: &str) -> String {
     let Some(last) = comments
         .iter()
@@ -235,18 +229,6 @@ impl ThreadCommand<'_> {
     }
 }
 
-fn json(out: &str) -> Result<Value> {
-    serde_json::from_str(out.trim()).context("the host did not print JSON")
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
-}
-
 fn login(value: &Value) -> String {
     value
         .get("author")
@@ -262,8 +244,7 @@ fn time(value: &Value, key: &str) -> Option<DateTime<Utc>> {
         .map(|at| at.with_timezone(&Utc))
 }
 
-/// A thread from what `gh pr view`, `gh issue view` or one item of their
-/// lists printed. A pull request's URL has `/pull/` in it.
+/// A thread from `gh pr view`/`gh issue view` output; a PR's URL has `/pull/`.
 fn thread_from(value: &Value) -> Result<Thread> {
     let number = value
         .get("number")
@@ -323,8 +304,7 @@ fn host_failed(error: &anyhow::Error) -> IssueError {
     IssueError::Refused(format!("Could not read the host: {error:#}"))
 }
 
-/// Where the project's threads are read: a shell on a machine that has it.
-/// `None` when its host is not GitHub.
+/// A shell on a machine with the project; `None` when its host is not GitHub.
 async fn github_shell(
     fleet: &dyn Fleet,
     user: &User,
@@ -347,9 +327,7 @@ async fn whoami(shell: &dyn Shell, project: &ProjectRow) -> String {
     })
 }
 
-/// The user's open pull requests and the open issues they opened on the
-/// project's GitHub repository, newest activity first. Empty for a project
-/// with no GitHub host.
+/// The user's open PRs and issues on the project's GitHub repo, newest activity first.
 pub(crate) async fn list(
     fleet: &dyn Fleet,
     user: &User,
@@ -415,8 +393,7 @@ pub(crate) struct ReadThread {
 }
 
 impl ReadThread {
-    /// Whether someone other than the user opened it. Not knowing who the
-    /// user is counts as someone else.
+    /// Whether someone else opened it; an unknown user counts as someone else.
     pub(crate) fn foreign(&self) -> bool {
         !is_me(&self.thread.author, &self.me)
     }
@@ -437,8 +414,7 @@ impl ReadThread {
     }
 }
 
-/// Reads thread `number` of the project's GitHub repository again, with one
-/// `gh` call.
+/// Reads thread `number` of the project's GitHub repo again with one `gh` call.
 pub(crate) async fn read(
     fleet: &dyn Fleet,
     user: &User,
@@ -484,8 +460,7 @@ fn clipped(text: &str, max: usize) -> String {
     }
 }
 
-/// Thread `number` of `repo` read now, as the card atop its chat shows it:
-/// the opening post and the newest comments, each cut short when long.
+/// Thread `number` of `repo` as its chat card shows it, long text cut short.
 pub(crate) async fn view(
     fleet: &dyn Fleet,
     user: &User,
@@ -524,8 +499,7 @@ fn card(thread: &Thread, me: &str) -> ThreadView {
     }
 }
 
-/// The thread as the agent reads it: its text and newest comments, marked
-/// as the host's words, not the user's.
+/// The thread as the agent reads it, marked as the host's words, not the user's.
 pub(crate) fn thread_block(project: &ProjectRow, read: &ReadThread) -> String {
     let thread = &read.thread;
     let mut text = String::new();
@@ -584,8 +558,7 @@ pub(crate) fn thread_block(project: &ProjectRow, read: &ReadThread) -> String {
     text
 }
 
-/// The context block of a turn in a chat about `chat`'s thread: the thread
-/// read again now, or why it could not be.
+/// The thread chat's turn context: the thread read now, or why it could not be.
 pub(crate) async fn chat_context(
     fleet: &dyn Fleet,
     user: &User,
@@ -604,8 +577,7 @@ pub(crate) async fn chat_context(
     }
 }
 
-/// Asks the project agent, in the project chat, to draft a reply to thread
-/// `number` of `repo`, with the thread read now. Gives the chat.
+/// Asks the project agent to draft a reply to thread `number` of `repo`. Gives the chat.
 pub(crate) async fn ask_for_reply(
     fleet: &dyn Fleet,
     user: &User,
@@ -630,8 +602,7 @@ pub(crate) async fn ask_for_reply(
     Ok(chat)
 }
 
-/// The chat about thread `number` of `repo`, made on the first ask with the
-/// thread's title.
+/// The chat about thread `number` of `repo`, made on first ask with the thread's title.
 pub(crate) async fn open_chat(
     fleet: &dyn Fleet,
     user: &User,

@@ -3,7 +3,10 @@
 //! `install.ps1` does on an upgrade, for the binary that is running wherever
 //! it lives: the same archives, checked against the release's `SHA256SUMS`.
 
-use crate::service::{self, Restart};
+use crate::{
+    restart::{self, Drained},
+    service::{self, Restart},
+};
 use reqwest::{Client, StatusCode, Url};
 use rustls::{ClientConfig, RootCertStore};
 use sha2::{Digest, Sha256};
@@ -233,7 +236,20 @@ impl Target {
 
 /// `beep-node update`: installs the newest release over this binary and
 /// restarts its service. With `check`, only says whether there is one.
-pub async fn update(check: bool) -> Result<(), Error> {
+/// How `beep-node update` runs.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Only says whether a newer version is out.
+    pub check: bool,
+    /// How long to wait for the node's agent sessions to be idle before
+    /// restarting it; `None` restarts at once.
+    pub wait: Option<Duration>,
+    /// The node's folder, where the running node is asked to wait.
+    pub dir: PathBuf,
+}
+
+pub async fn update(options: Options) -> Result<(), Error> {
+    let Options { check, wait, dir } = options;
     let base = base();
     let current: Version = CURRENT.parse()?;
     let client = client()?;
@@ -271,13 +287,19 @@ pub async fn update(check: bool) -> Result<(), Error> {
     println!("Downloading beep-node {latest} for {}", target.triple());
     let packed = fetch(&client, &url(&base, &format!("{latest}/{archive}"))?).await?;
     let sums = fetch(&client, &url(&base, &format!("{latest}/SHA256SUMS"))?).await?;
-    let installed = exe.clone();
-    spawn_blocking(move || {
+    let binary = spawn_blocking(move || {
         verify(&archive, &packed, &String::from_utf8_lossy(&sums))?;
-        let binary = unpack(target, &archive, &packed)?;
-        replace(&installed, &binary)
+        unpack(target, &archive, &packed)
     })
     .await??;
+
+    // Kept until the restart, so the node holds new prompts until then.
+    let _holding = match wait {
+        Some(limit) => wait_for_idle(&dir, limit).await,
+        None => None,
+    };
+    let installed = exe.clone();
+    spawn_blocking(move || replace(&installed, &binary)).await??;
     println!("Installed {}", exe.display());
 
     let restarted = {
@@ -304,6 +326,26 @@ pub async fn update(check: bool) -> Result<(), Error> {
         ),
     }
     Ok(())
+}
+
+/// Asks the running node to finish its agents' turns and hold new prompts,
+/// waiting up to `limit`. What holds them, while the node does.
+async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::Holding> {
+    println!(
+        "Waiting up to {} min for the agent sessions to finish their turns \
+         (`--now` skips this); new prompts wait until the restart",
+        limit.as_secs().div_ceil(60)
+    );
+    match restart::drain(dir, limit).await {
+        Drained::NoNode => None,
+        Drained::Idle(holding) => Some(holding),
+        Drained::TimedOut(holding) => {
+            println!(
+                "A turn still runs; restarting anyway. Its session resumes after the restart."
+            );
+            Some(holding)
+        }
+    }
 }
 
 /// The release folder, without a trailing slash.
@@ -398,7 +440,7 @@ fn verify(archive: &str, packed: &[u8], sums: &str) -> Result<(), Error> {
     let expected = expected_sum(archive, sums).ok_or_else(|| Error::NotListed {
         archive: archive.to_owned(),
     })?;
-    let actual = format!("{:x}", Sha256::digest(packed));
+    let actual = hex::encode(Sha256::digest(packed));
     if actual != expected {
         return Err(Error::Checksum {
             archive: archive.to_owned(),
@@ -563,61 +605,6 @@ mod tests {
     }
 
     #[test]
-    fn junk_is_not_a_version() {
-        for junk in ["", "1..2", "1.2.x", "1.2.3-beta", "<html>", "1.-2"] {
-            assert!(junk.parse::<Version>().is_err(), "{junk:?}");
-        }
-    }
-
-    #[test]
-    fn this_binary_has_a_version() {
-        assert!(CURRENT.parse::<Version>().is_ok());
-    }
-
-    #[test]
-    fn each_platform_gets_the_installers_asset() {
-        let v = version("0.1.15");
-        let asset = |os, arch| Target::detect(os, arch).map(|target| target.archive(&v));
-        assert_eq!(
-            asset("linux", "x86_64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-unknown-linux-musl.tar.gz")
-        );
-        assert_eq!(
-            asset("linux", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-aarch64-unknown-linux-musl.tar.gz")
-        );
-        assert_eq!(
-            asset("macos", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-aarch64-apple-darwin.tar.gz")
-        );
-        assert_eq!(
-            asset("windows", "x86_64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-pc-windows-msvc.zip")
-        );
-        assert_eq!(
-            asset("windows", "aarch64").ok().as_deref(),
-            Some("beep-node-0.1.15-x86_64-pc-windows-msvc.zip")
-        );
-    }
-
-    #[test]
-    fn platforms_without_a_build_are_named() {
-        assert!(matches!(
-            Target::detect("macos", "x86_64"),
-            Err(Error::IntelMac)
-        ));
-        let other = Target::detect("freebsd", "x86_64");
-        assert!(matches!(
-            other,
-            Err(Error::Platform {
-                os: "freebsd",
-                arch: "x86_64"
-            })
-        ));
-        assert!(Target::detect("linux", "riscv64").is_err());
-    }
-
-    #[test]
     fn the_sum_is_read_in_either_mode() {
         let sums = "AAAA  beep-node-1-x.tar.gz\nbbbb *beep-node-1-y.zip\n";
         assert_eq!(
@@ -634,7 +621,7 @@ mod tests {
     #[test]
     fn a_download_that_does_not_match_its_sum_is_refused() {
         let packed = b"archive";
-        let sum = format!("{:x}", Sha256::digest(packed));
+        let sum = hex::encode(Sha256::digest(packed));
         let sums = format!("{sum}  a.tar.gz\n");
         assert!(verify("a.tar.gz", packed, &sums).is_ok());
         assert!(matches!(

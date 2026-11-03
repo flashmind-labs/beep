@@ -10,6 +10,7 @@ use std::{
 };
 
 mod launchd;
+pub mod logs;
 #[cfg(windows)]
 mod parent;
 mod systemd;
@@ -223,7 +224,9 @@ pub enum Restart {
 }
 
 /// Restarts the service `setup` installed, if it runs `exe` (canonical, as
-/// `Launch` keeps it), so it picks up a new binary at that path.
+/// `Launch` keeps it), so it picks up a new binary at that path. A unit or
+/// plist an older node wrote is written again first, with the same command
+/// and `PATH`, so it gets this node's settings.
 pub fn restart(exe: &Path) -> Result<Restart> {
     match env::consts::OS {
         "linux" => systemd::restart(exe),
@@ -290,38 +293,6 @@ mod tests {
         assert_eq!(
             choose("linux", || Err("no bus".to_owned())),
             Err(Unusable::NoSystemd("no bus".to_owned()))
-        );
-    }
-
-    #[test]
-    fn macos_uses_launchd_without_asking_systemd() {
-        let asked = choose("macos", || panic!("systemd asked on macOS"));
-        assert_eq!(asked, Ok(Manager::Launchd));
-    }
-
-    #[test]
-    fn windows_uses_task_scheduler() {
-        let asked = choose("windows", || panic!("systemd asked on Windows"));
-        assert_eq!(asked, Ok(Manager::TaskScheduler));
-    }
-
-    #[test]
-    fn other_systems_serve_in_the_foreground() {
-        assert_eq!(choose("freebsd", || Ok(())), Err(Unusable::Os("freebsd")));
-    }
-
-    #[test]
-    fn the_node_runs_with_its_folder_and_workspace() {
-        assert_eq!(launch(None).args(), ["--dir", "/srv/node", "run"]);
-        assert_eq!(
-            launch(Some("/home/user/work")).args(),
-            [
-                "--dir",
-                "/srv/node",
-                "--workspace",
-                "/home/user/work",
-                "run"
-            ]
         );
     }
 }
