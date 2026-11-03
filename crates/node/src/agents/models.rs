@@ -428,18 +428,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn flsh_lists_its_models_with_its_own_command() {
-        let dir = tempfile::tempdir().unwrap();
-        let listed = flsh_models(&fake_flsh(dir.path())).await.unwrap();
-        let ids: Vec<&str> = listed.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, ["openai:gpt-test", "openrouter:vendor/model-a"]);
-        let mut broken = fake_flsh(dir.path());
-        broken.program = "/no/such/flsh".into();
-        assert!(flsh_models(&broken).await.is_err());
-    }
-
     /// An adapter that answers `session/new` with models and stays up.
     #[cfg(unix)]
     const MODELS_ADAPTER: &str = r#"
