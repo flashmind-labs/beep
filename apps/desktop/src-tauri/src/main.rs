@@ -108,7 +108,7 @@ fn main() {
     if let Some(status) = mcp_command::run(std::env::args_os().skip(1)) {
         std::process::exit(status);
     }
-    logfile::start();
+    let _log = logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
     unsafe { login_path::adopt() };
@@ -412,6 +412,7 @@ fn main() {
             commands::quit,
             commands::open_url,
             commands::open_log,
+            logfile::log_webview,
             commands::group_typing,
             commands::list_memories,
             commands::list_memory_scopes,
@@ -880,6 +881,13 @@ fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         None => ("check-update", "Check for Updates…"),
     };
     menu.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "show-logs",
+        "Show Logs",
+        true,
+        None::<&str>,
+    )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
@@ -1013,6 +1021,11 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             tauri::async_runtime::spawn(async move { update::check(&app, true).await });
         }
         "restart-update" => update::restart(app),
+        "show-logs" => {
+            if let Err(e) = commands::open_log() {
+                log::warn!("showing the logs: {e}");
+            }
+        }
         "quit" => app.exit(0),
         _ => {}
     }

@@ -26,6 +26,23 @@ declare global {
   }
 }
 
-export const { invoke, Channel } = window.__TAURI__.core;
+const core = window.__TAURI__.core;
+export const { Channel } = core;
+
+/// Sends a page's error to the app's log.
+function logError(message: string) {
+  core.invoke("log_webview", { message }).catch(() => {});
+}
+
+/// Calls a Rust command, logging it when it fails.
+export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return core.invoke<T>(cmd, args).catch((e: unknown) => {
+    logError(`${cmd} failed: ${e}`);
+    throw e;
+  });
+}
+
+window.addEventListener("error", e => logError(e.error instanceof Error ? e.error.stack ?? String(e.error) : e.message));
+window.addEventListener("unhandledrejection", e => logError(`unhandled rejection: ${e.reason instanceof Error ? e.reason.stack ?? e.reason : e.reason}`));
 export const { listen } = window.__TAURI__.event;
 
