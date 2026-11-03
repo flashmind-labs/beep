@@ -29,21 +29,6 @@ export function windowTitle(project: string | null): string {
   return project || "Beep";
 }
 
-/// The tabs of a project window: the board, then each tile opened in full
-/// (`openTile` keys in center.ts).
-export const PROJECT_TABS: readonly { key: string | null; label: string }[] = [
-  { key: null, label: "Overview" },
-  { key: "tasks", label: "Tasks" },
-  { key: "agents", label: "Agents" },
-  { key: "branches", label: "Branches" },
-  { key: "prs", label: "Pull requests" },
-  { key: "issues", label: "Issues" },
-  { key: "actions", label: "Actions" },
-  { key: "machines", label: "Machines" },
-  { key: "terminals", label: "Terminals" },
-  { key: "sync", label: "File sync" },
-];
-
 /// What a project window knows to tell its own targets from the rest.
 export interface ProjectScope {
   project: string;
