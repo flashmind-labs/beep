@@ -94,7 +94,7 @@ export function drawResearches() {
     const rows = RL.list.map((r, i) => {
       const cur = i === RL.sel && !typed.trim();
       const ic = RUNNING.has(r.status) ? '<span class="dspin"></span>'
-        : r.status === "planning" ? '<span class="ddot" style="background:var(--coral)"></span>'
+        : r.status === "planning" ? '<span class="ddot" style="background:var(--hot)"></span>'
         : r.status === "done" ? `<span class="dok">${ICON.check}</span>` : ICON.doc;
       const tail = cur && RL.mode === "actions" && r.sources
         ? '<span class="acts"><button class="dbtn" data-rl="pdf">Export PDF</button></span>' : "";

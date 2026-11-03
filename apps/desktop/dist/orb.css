@@ -4,20 +4,17 @@
 .obody { display: grid; justify-items: end; align-content: start }
 .ospot { width: 112px; height: 112px; display: grid; place-items: center }
 .omini { position: relative; width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center;
-  background: rgba(18, 25, 22, .86); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0, 0, 0, .35) }
+  background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--border); box-shadow: 0 4px 14px color-mix(in srgb, var(--shade) 35%, transparent) }
 .omini .dorb { width: 56px; height: 56px; margin: 0 }
-/* The bar's glow reaches 62 px, past the window's edge, where it shows as a
-   square: keep it inside the window's 24 px of padding. */
-.omini .dorb .core { width: 34px; height: 34px;
-  box-shadow: 0 0 calc(8px + var(--lvl) * 12px) rgba(var(--glow), calc(.28 + var(--lvl) * .4)), inset 0 -4px 8px rgba(0,0,0,.35) }
+.omini .dorb .core { width: 34px; height: 34px }
 .omini .dorb .ring { inset: 11px }
 .ox { position: absolute; top: -4px; right: -4px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border);
   background: var(--elev); color: var(--fg); padding: 0; display: none; place-items: center }
 .omini:hover .ox { display: grid }
 /* An action waiting for an OK. Its right edge lines up with the orb's; the
    margins leave room for its shadow. */
-.oask { width: 256px; margin: -16px 24px 20px 16px; background: rgba(18, 25, 22, .94); box-shadow: 0 8px 20px rgba(0, 0, 0, .45) }
-.oask:hover { border-color: #3A4A41 }
+.oask { width: 256px; margin: -16px 24px 20px 16px; background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 8px 20px color-mix(in srgb, var(--shade) 45%, transparent) }
+.oask:hover { border-color: var(--border-hi) }
 .oask .head { gap: 9px; padding: 9px 11px }
 .oask .head .tt { flex: 1; min-width: 0; display: grid; line-height: 17px }
 .oask .head b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
@@ -33,20 +30,20 @@
 .oask .err { padding: 8px 11px 0; font-size: 12px; color: var(--err) }
 /* A short note under the orb: a toast, "Let go to send" while Option is
    held, "Sending..." while the last words come in. */
-.otoast { max-width: 200px; margin: -22px 24px 12px 16px; padding: 4px 10px; border-radius: 999px; background: rgba(18, 25, 22, .92);
+.otoast { max-width: 200px; margin: -22px 24px 12px 16px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 92%, transparent);
   border: 1px solid var(--border); font-size: 12px; font-weight: 500; line-height: 16px; color: var(--fg); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; box-shadow: 0 6px 14px rgba(0, 0, 0, .4) }
+  overflow: hidden; text-overflow: ellipsis; box-shadow: 0 6px 14px color-mix(in srgb, var(--shade) 40%, transparent) }
 .otoast.bad { color: var(--err) }
 .otoast + .oask { margin-top: 0 }
 /* Held Option: a halo. A pause about to send: a ring that runs down. */
-.omini.hold { box-shadow: 0 0 0 3px rgba(59, 155, 122, .55), 0 4px 14px rgba(0, 0, 0, .35) }
+.omini.hold { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 4px 14px color-mix(in srgb, var(--shade) 35%, transparent) }
 .oring { position: absolute; inset: -4px; width: 72px; height: 72px; pointer-events: none; transform: rotate(-90deg) }
-.oring circle { fill: none; stroke: var(--emerald); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 207.4; animation: oring var(--ms, 1200ms) linear forwards }
+.oring circle { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 207.4; animation: oring var(--ms, 1200ms) linear forwards }
 @keyframes oring { from { stroke-dashoffset: var(--from, 0) } to { stroke-dashoffset: 207.4 } }
 /* A new notice, when Voice notes asks first: who it is from, two lines of
    it, Play and Open. A line runs down while it stays; hovering holds it. */
-.onote { width: 256px; margin: -16px 24px 20px 16px; background: rgba(18, 25, 22, .94); box-shadow: 0 8px 20px rgba(0, 0, 0, .45) }
-.onote:hover { border-color: #3A4A41 }
+.onote { width: 256px; margin: -16px 24px 20px 16px; background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 8px 20px color-mix(in srgb, var(--shade) 45%, transparent) }
+.onote:hover { border-color: var(--border-hi) }
 .onote .head { gap: 9px; padding: 9px 8px 0 11px; background: none; border: 0 }
 .onote .head .tt { flex: 1; min-width: 0; display: grid; line-height: 17px }
 .onote .head b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
@@ -57,6 +54,6 @@
 .onote .acts { display: flex; flex-wrap: nowrap; gap: 6px; padding: 10px 11px }
 .onote .acts .dbtn { flex: 1; justify-content: center; min-height: 26px; padding: 0 8px; font-size: 12px }
 .onote .life { height: 2px; background: var(--border) }
-.onote .life i { display: block; height: 100%; background: var(--emerald); animation: olife var(--ms, 20000ms) linear forwards }
+.onote .life i { display: block; height: 100%; background: var(--accent); animation: olife var(--ms, 20000ms) linear forwards }
 .onote:hover .life i { animation-play-state: paused }
 @keyframes olife { from { width: 100% } to { width: 0 } }

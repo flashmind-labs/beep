@@ -236,7 +236,7 @@ function shown(esc: Esc, cred: { last4: string; unreadable?: boolean }, what: st
 }
 
 /// A link that opens in the browser.
-const link = (esc: Esc, href: string, text: string) => `<a href="${esc(href)}" data-cred-open="${esc(href)}" style="color:var(--emerald)">${esc(text)}</a>`;
+const link = (esc: Esc, href: string, text: string) => `<a href="${esc(href)}" data-cred-open="${esc(href)}" style="color:var(--accent)">${esc(text)}</a>`;
 const code = (text: string) => `<code style="font-size:11px">${text}</code>`;
 /// A muted line in a row.
 const note = (html: string) => `<span style="font-size:11.5px;color:var(--muted)">${html}</span>`;

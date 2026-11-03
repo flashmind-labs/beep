@@ -1,9 +1,9 @@
 /* The diff viewer: a coding session's Changes tab, and a branch's or a task's diff. */
 :root {
-  --dv-add-bg: rgba(59,155,122,.15); --dv-add-gut: rgba(59,155,122,.24); --dv-add-fg: #6FD3A8;
-  --dv-del-bg: rgba(240,122,106,.13); --dv-del-gut: rgba(240,122,106,.22); --dv-del-fg: #F4A196;
-  --dv-hunk-bg: rgba(111,168,220,.09); --dv-hunk-fg: #9DC3F0;
-  --dv-file-bg: rgba(18,25,22,.82); --dv-head-bg: #151E1A; --dv-gut-bg: #121916;
+  --dv-add-bg: color-mix(in srgb, var(--accent) 15%, transparent); --dv-add-gut: color-mix(in srgb, var(--accent) 24%, transparent); --dv-add-fg: var(--ok);
+  --dv-del-bg: color-mix(in srgb, var(--hot) 13%, transparent); --dv-del-gut: color-mix(in srgb, var(--hot) 22%, transparent); --dv-del-fg: var(--err);
+  --dv-hunk-bg: color-mix(in srgb, var(--link) 9%, transparent); --dv-hunk-fg: var(--link);
+  --dv-file-bg: color-mix(in srgb, var(--surface) 82%, transparent); --dv-head-bg: var(--elev); --dv-gut-bg: var(--surface);
 }
 :root[data-theme="light"] {
   --dv-add-bg: #E5F5EC; --dv-add-gut: #CDEBDA; --dv-add-fg: #1E7A55;
@@ -27,13 +27,13 @@
 .dv-plus { color: var(--dv-add-fg); font-variant-numeric: tabular-nums; font-style: normal }
 .dv-minus { color: var(--dv-del-fg); font-variant-numeric: tabular-nums; font-style: normal }
 .dv-sp { flex: 1 }
-.dv-flash { flex: none; color: var(--emerald); font-size: 11.5px; white-space: nowrap }
+.dv-flash { flex: none; color: var(--accent); font-size: 11.5px; white-space: nowrap }
 .dv-flash:empty { display: none }
-.dv-find { flex: 0 1 200px; min-width: 110px; height: 26px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--elev); color: var(--fg); font: 12px var(--body, inherit); outline: 0 }
-.dv-find:focus { border-color: var(--emerald) }
+.dv-find { flex: 0 1 200px; min-width: 110px; height: 26px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); color: var(--fg); font: 12px var(--body, inherit); outline: 0 }
+.dv-find:focus { border-color: var(--accent) }
 .dv-find::placeholder { color: var(--dim) }
-.dv-btn { height: 26px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: 12px var(--body, inherit); white-space: nowrap; cursor: pointer }
-.dv-btn:hover { background: rgba(228,238,232,.06) }
+.dv-btn { height: 26px; padding: 0 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--fg); font: 12px var(--body, inherit); white-space: nowrap; cursor: pointer }
+.dv-btn:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .dv-btn:disabled { opacity: .45; cursor: default }
 .dv-btn.icon { width: 26px; padding: 0; display: inline-grid; place-items: center; color: var(--muted) }
 .dv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) }
@@ -41,22 +41,22 @@
 .dv-tree { display: none; min-height: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); scrollbar-width: thin }
 .dv.wide .dv-tree { display: block }
 .dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 7px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: pointer }
-.dv-tr:hover { background: rgba(228,238,232,.05) }
-.dv-tr.on { background: rgba(59,155,122,.2) }
+.dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.dv-tr.on { background: color-mix(in srgb, var(--accent) 20%, transparent) }
 .dv-tr .nm { display: flex; min-width: 0; white-space: nowrap }
 .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal }
 .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 }
 .dv-tr .ct { font-size: 11px; display: flex; gap: 5px }
 .dv-st { font: 600 10.5px var(--mono); text-align: center; color: var(--muted) }
-.dv-st.A { color: var(--dv-add-fg) } .dv-st.D { color: var(--dv-del-fg) } .dv-st.M { color: #E5B567 } .dv-st.R { color: var(--dv-hunk-fg) }
+.dv-st.A { color: var(--dv-add-fg) } .dv-st.D { color: var(--dv-del-fg) } .dv-st.M { color: var(--warn) } .dv-st.R { color: var(--dv-hunk-fg) }
 .dv-files { min-height: 0; min-width: 0; overflow: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; overscroll-behavior: contain }
-.dv-file { flex: none; min-width: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--dv-file-bg) }
+.dv-file { flex: none; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--dv-file-bg) }
 .dv-file:first-child { margin-top: 10px }
 .dv-fh { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 6px 4px 8px; border-radius: 9px 9px 0 0;
   background: var(--dv-head-bg); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none }
-.dv-file.closed .dv-fh { border-radius: 9px; border-bottom-color: transparent }
-.dv-file.cur .dv-fh { box-shadow: inset 2px 0 0 var(--emerald) }
-.dv-fh:focus-visible { outline: 2px solid var(--emerald); outline-offset: -2px }
+.dv-file.closed .dv-fh { border-radius: var(--radius-sm); border-bottom-color: transparent }
+.dv-file.cur .dv-fh { box-shadow: inset 2px 0 0 var(--accent) }
+.dv-fh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 .dv-chev { flex: none; display: grid; color: var(--muted); transition: transform .18s ease }
 .dv-file:not(.closed) .dv-chev { transform: rotate(90deg) }
 .dv-path { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font: 12px var(--mono); white-space: nowrap; overflow: hidden }
@@ -66,7 +66,7 @@
 .dv-chip { flex: none; font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted) }
 .dv-chip.added { color: var(--dv-add-fg); border-color: color-mix(in srgb, var(--dv-add-fg) 40%, transparent) }
 .dv-chip.deleted { color: var(--dv-del-fg); border-color: color-mix(in srgb, var(--dv-del-fg) 40%, transparent) }
-.dv-chip.modified { color: #E5B567; border-color: rgba(229,181,103,.4) }
+.dv-chip.modified { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent) }
 .dv-chip.renamed { color: var(--dv-hunk-fg); border-color: color-mix(in srgb, var(--dv-hunk-fg) 40%, transparent) }
 .dv-fct { flex: none; display: flex; gap: 6px; font-size: 11.5px }
 .dv-facts { flex: none; display: flex; gap: 2px }
@@ -94,11 +94,11 @@
 .dv-note .dv-btn { height: 24px }
 .dv-empty { margin: auto; padding: 24px; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); font-size: 13px }
 .dv-empty b { color: var(--fg); font-weight: 500 }
-.dv-err { margin: 10px; padding: 9px 12px; border-radius: 9px; border: 1px solid rgba(232,104,90,.4); color: var(--err); font-size: 12.5px }
+.dv-err { margin: 10px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); color: var(--err); font-size: 12.5px }
 .dv-more { padding: 4px 2px 0; color: var(--muted); font-size: 12px }
 /* The sheet a branch's or a task's diff opens in, over the window. */
-.dv-sheet { position: fixed; inset: 0; z-index: 60; display: grid; padding: 18px; background: rgba(5,8,7,.62) }
-.dv-sheet > .box { min-height: 0; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 50px rgba(0,0,0,.5); overflow: hidden }
+.dv-sheet { position: fixed; inset: 0; z-index: 60; display: grid; padding: 18px; background: color-mix(in srgb, var(--shade) 62%, transparent) }
+.dv-sheet > .box { min-height: 0; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); overflow: hidden }
 .dv-sheet .top { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 16px; border-bottom: 1px solid var(--border) }
 .dv-sheet .top h3 { margin: 0; font: 800 17px var(--display); letter-spacing: -0.02em; white-space: nowrap }
 .dv-sheet .top small { min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }

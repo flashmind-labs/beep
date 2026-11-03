@@ -116,7 +116,7 @@ const AV_COLORS = ["#F0C14B", "#F07A6A", "#7AB8F0", "#C99BF0", "#F0A35E", "#8FD1
 
 export function authorName(a: Author) { return a.kind === "beep" ? "Beep" : a.you ? "You" : a.name; }
 function avColor(name: string) {
-  if (name === "Beep") return "var(--emerald)";
+  if (name === "Beep") return "var(--accent)";
   let n = 0;
   for (const c of name) n = (n * 31 + c.codePointAt(0)!) >>> 0;
   return AV_COLORS[n % AV_COLORS.length];
@@ -514,7 +514,7 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
   if (mode !== J.mode) J.error = "";
   J.mode = mode;
   const head = (t: string, sub: string, icon: string) => `<div class="dhead">${icon}<span class="tt"><b>${esc(t)}</b><small>${esc(sub)}</small></span></div>`;
-  const logo = `<span class="dlogo" style="background:var(--emerald)">${ICON.group}</span>`;
+  const logo = `<span class="dlogo" style="background:var(--accent)">${ICON.group}</span>`;
   // Each form's Cancel and the field that takes focus.
   let cancel: () => unknown = renderChats, first: string;
   if (mode === "new") {
