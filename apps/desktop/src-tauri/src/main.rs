@@ -177,6 +177,7 @@ fn main() {
             center::center_window_project,
             palette::center_palette,
             palette::center_palette_branches,
+            palette::center_palette_prs,
             palette::center_palette_sessions,
             palette::center_find,
             commands::status,
