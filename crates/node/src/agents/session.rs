@@ -907,6 +907,12 @@ impl Actor {
                 Some(reply.to_owned()),
             ),
         };
+        let follow_up = follow_up.map(Prompt::from);
+        if let Some(prompt) = &follow_up
+            && let Err(full) = queue_room(&self.queued, prompt)
+        {
+            return Ok(Err(full));
+        }
         let answer = match chosen {
             Some(option) => acp::selected(&option.id),
             None => acp::cancelled(),
@@ -917,8 +923,8 @@ impl Actor {
         if let Some(asked) = self.asked.pop_front() {
             asked.responder.respond(answer)?;
         }
-        if let Some(text) = follow_up {
-            self.queued.push_front(Prompt::from(text));
+        if let Some(prompt) = follow_up {
+            self.queued.push_front(prompt);
             self.show_queued();
         }
         self.live.send_modify(|live| {
@@ -1427,6 +1433,41 @@ cat > /dev/null
         assert_eq!(question.options.len(), 2);
         let sent = std::fs::read_to_string(&log).unwrap();
         assert!(!sent.contains("session/set_mode"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_declining_answer_waits_only_where_there_is_room() {
+        let dir = temp("asks-full");
+        let log = dir.join("sent.jsonl");
+        let session = Session::start(Start {
+            id: "b4e0d5".into(),
+            kind: &script("pi", ASKING_ADAPTER, &log),
+            cwd: &dir,
+            prompt: Some("go".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+            images: Arc::default(),
+            usage: Arc::default(),
+        })
+        .unwrap();
+        settle(&session).await;
+        let question = session.info().question.expect("a question").id;
+        for n in 0..MAX_QUEUED {
+            let prompt = Command::Prompt(format!("later {n}").into());
+            session.order(prompt).await.unwrap();
+        }
+        let answer = Command::Answer {
+            question,
+            reply: "neither, look in docs".into(),
+        };
+        assert!(session.order(answer).await.is_err());
+        assert_eq!(session.info().state.queued as usize, MAX_QUEUED);
+        assert!(session.info().question.is_some(), "still open");
+        session.close().await;
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
