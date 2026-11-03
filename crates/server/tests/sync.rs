@@ -209,6 +209,7 @@ impl Server {
             agents: Arc::default(),
             extra,
             provision: None,
+            tools: Default::default(),
         };
         let addr = self.router.endpoint().addr();
         let task =

@@ -21,7 +21,8 @@ use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     sync::{
-        CONTROLS, Keep, PROTOCOL, Project, ProjectStatus, Refused, Reply, Request, Skipped, State,
+        CONTROLS, Keep, PROTOCOL, Project, ProjectStatus, RESCAN, Refused, Reply, Request, Skipped,
+        State,
     },
 };
 use iroh::{Endpoint, EndpointAddr, EndpointId};
@@ -58,6 +59,8 @@ pub(crate) use peer::{ALPN, PeerHandler};
 use project::{Shared, Start};
 use watch::{Key, Watcher};
 
+/// How long a scan `Request::Rescan` asks for may take.
+const RESCAN_LIMIT: Duration = Duration::from_secs(120);
 /// How long a project that stops may take to save its state.
 const STOP_LIMIT: Duration = Duration::from_secs(10);
 /// How often the synced folders are checked against Syncthing's.
@@ -535,6 +538,19 @@ impl Syncs {
         shared.resolve(path, keep).await
     }
 
+    /// Scans `project` now and brings it in line, then says how it stands.
+    pub async fn rescan(&self, project: &str) -> Result<ProjectStatus> {
+        let Some(shared) = self.project(project) else {
+            bail!("{project} is not synced on this machine");
+        };
+        shared.rescan(RESCAN_LIMIT).await
+    }
+
+    /// What tells the server this node scans a project when asked.
+    pub fn rescans(&self) -> Rescans {
+        Rescans(self.clone())
+    }
+
     /// What tells the server this node pauses projects and settles
     /// conflicts.
     pub fn controls(&self) -> Controls {
@@ -611,6 +627,20 @@ impl Protocol for Controls {
     }
 }
 
+/// `RESCAN`, offered beside `sync/1`: the server sends `Request::Rescan`
+/// only to a node that offers it. Its sessions are served as `sync/1`'s.
+pub struct Rescans(Syncs);
+
+impl Protocol for Rescans {
+    fn name(&self) -> &str {
+        RESCAN
+    }
+
+    fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
+        Box::pin(serve(self.0.clone(), tx, rx))
+    }
+}
+
 /// Serves one `sync/1` request.
 async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let Some(request) = rx.recv::<Request>().await? else {
@@ -636,6 +666,12 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
             keep,
         } => match syncs.resolve(&project, &path, keep).await {
             Ok(()) => Reply::Resolved {},
+            Err(e) => Reply::Error {
+                message: format!("{e:#}"),
+            },
+        },
+        Request::Rescan { project } => match syncs.rescan(&project).await {
+            Ok(status) => Reply::Rescanned { status },
             Err(e) => Reply::Error {
                 message: format!("{e:#}"),
             },
