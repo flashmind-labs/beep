@@ -164,9 +164,29 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// What the node as a whole asks of its sessions.
+    pub(super) node: NodeMode,
+}
+
+/// What the node as a whole asks of its sessions.
+#[derive(Clone)]
+pub(super) struct NodeMode {
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
+    /// While true, prompts wait instead of starting a turn: the node is
+    /// about to restart for an update.
+    pub(super) holding: watch::Receiver<bool>,
+}
+
+impl Default for NodeMode {
+    /// A node that never holds prompts and is not stopping.
+    fn default() -> Self {
+        Self {
+            stopping: Arc::default(),
+            holding: watch::channel(false).1,
+        }
+    }
 }
 
 impl Session {
@@ -190,7 +210,7 @@ impl Session {
             images,
             usage,
             alerts,
-            stopping,
+            node,
         } = start;
         let brief = match (brief, &mcp) {
             (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::mcp::BRIEF)),
@@ -252,7 +272,8 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
-            node_stopping: stopping,
+            node_stopping: node.stopping,
+            holding: node.holding,
             session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
@@ -399,6 +420,8 @@ struct Actor {
     alerts: Arc<AlertHub>,
     /// Set once the node is stopping.
     node_stopping: Arc<AtomicBool>,
+    /// While true, prompts wait instead of starting a turn.
+    holding: watch::Receiver<bool>,
     /// The session's id on the node.
     session: String,
     /// The agent, such as `claude`.
@@ -512,6 +535,12 @@ impl Actor {
         // Stopped as the user asked, or with the node, so not a failure to
         // alert about.
         let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
+        // What still waits goes with the session when the node resumes it.
+        let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
+            self.steers.drain(..).chain(self.queued.drain(..)).collect()
+        } else {
+            Vec::new()
+        };
         let reason = match end {
             Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),
             Ok(End::Closed) => "closed".to_owned(),
@@ -544,6 +573,7 @@ impl Actor {
             live.info.question = None;
             live.info.state.status = Status::Ended;
             live.info.state.queued = 0;
+            live.held = waiting;
             if !closed {
                 live.info.state.error = Some(reason);
             }
@@ -620,6 +650,11 @@ impl Actor {
                     None => return Ok(End::Exited),
                 },
                 Some(length) = inputs.oversized.recv() => self.oversized(length),
+                Ok(()) = self.holding.changed() => {
+                    if !*self.holding.borrow() && self.live.borrow().status() == Status::Idle {
+                        self.next_prompt(cx);
+                    }
+                }
                 () = cx.incoming_closed() => return Ok(End::Exited),
                 Some(reply) = self.replies.next() => {
                     if let Some(end) = self.reply(cx, reply)? {
@@ -1422,6 +1457,11 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
+        // Held for an update; they go when the hold ends, or after the
+        // restart.
+        if *self.holding.borrow() {
+            return;
+        }
         if self.queued.is_empty() && self.steers.is_empty() {
             return;
         }
@@ -1679,7 +1719,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1744,7 +1784,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1811,7 +1851,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1844,7 +1884,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         settle(&session).await;
@@ -1895,7 +1935,7 @@ read -r line; log "$1"
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -1950,7 +1990,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         let mut live = session.live.clone();
@@ -1996,7 +2036,7 @@ read -r line
                 images: Arc::default(),
                 usage: Arc::default(),
                 alerts: Arc::default(),
-                stopping: Arc::default(),
+                node: NodeMode::default(),
             },
             within,
         )
@@ -2114,7 +2154,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         until(&session, |live| {
@@ -2258,7 +2298,7 @@ cat > /dev/null
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         }
     }
 
@@ -2533,7 +2573,7 @@ cat > /dev/null
         let alerts = Arc::new(AlertHub::default());
         let session = Session::start(Start {
             alerts: alerts.clone(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
             ..start_on(&kind, &dir, None)
         })
         .unwrap();
@@ -2631,7 +2671,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
-            stopping: Arc::default(),
+            node: NodeMode::default(),
         })
         .unwrap();
         until(&session, |live| {

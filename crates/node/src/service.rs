@@ -224,7 +224,9 @@ pub enum Restart {
 }
 
 /// Restarts the service `setup` installed, if it runs `exe` (canonical, as
-/// `Launch` keeps it), so it picks up a new binary at that path.
+/// `Launch` keeps it), so it picks up a new binary at that path. A unit or
+/// plist an older node wrote is written again first, with the same command
+/// and `PATH`, so it gets this node's settings.
 pub fn restart(exe: &Path) -> Result<Restart> {
     match env::consts::OS {
         "linux" => systemd::restart(exe),

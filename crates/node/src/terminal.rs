@@ -16,6 +16,7 @@ use beep_proto::node::{
     terminal::{MAX_INPUT, MAX_OUTPUT, MAX_SCROLLBACK, MAX_TERMINALS, Reply, Request, Size},
 };
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
     collections::VecDeque,
@@ -53,6 +54,31 @@ static TERMINALS: LazyLock<Terminals> = LazyLock::new(Terminals::default);
 /// Kills every terminal still running, at once, for a host about to exit.
 pub fn kill_all() {
     TERMINALS.kill_all();
+}
+
+/// A terminal open when the node stopped, to open again as a new shell
+/// under the same id when it starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct OpenTerminal {
+    id: u32,
+    /// Where its shell was last, else where it started.
+    cwd: Option<PathBuf>,
+    /// What it ran.
+    command: String,
+}
+
+/// The terminals running now.
+pub(crate) fn running() -> Vec<OpenTerminal> {
+    TERMINALS.running()
+}
+
+/// Opens `terminals` again, each a new shell in its folder that says so.
+pub(crate) fn reopen(terminals: Vec<OpenTerminal>) {
+    for open in terminals {
+        if let Err(e) = TERMINALS.reopen(&open) {
+            log::warn!("could not reopen terminal {}: {e:#}", open.id);
+        }
+    }
 }
 
 /// Serves one session stream until the server closes it. An `Attach`
@@ -108,6 +134,10 @@ struct Term {
     /// The child's process group: it leads a session of its own.
     #[cfg(unix)]
     group: Option<crate::process::Group>,
+    /// The child's process id.
+    pid: Option<u32>,
+    /// The folder it started in.
+    cwd: Option<PathBuf>,
 }
 
 /// What an attached stream shares with the terminal.
@@ -263,7 +293,7 @@ impl Terminals {
         }
         inner.last = inner.last.wrapping_add(1);
         let id = TaskId(inner.last);
-        match open(id, command.as_deref(), cwd, size) {
+        match open(id, command.as_deref(), cwd, size, None) {
             Ok(term) => {
                 let task = term.live.task();
                 inner.terms.push(term);
@@ -303,6 +333,41 @@ impl Terminals {
         if term.live.is_running() {
             term.signal(hard);
         }
+    }
+
+    fn running(&self) -> Vec<OpenTerminal> {
+        lock(&self.inner)
+            .terms
+            .iter()
+            .filter(|term| term.live.is_running())
+            .map(|term| OpenTerminal {
+                id: term.live.id.0,
+                cwd: term.pid.and_then(current_dir).or_else(|| term.cwd.clone()),
+                command: term.live.command.clone(),
+            })
+            .collect()
+    }
+
+    /// Opens a new shell for `open` under its id, unless one runs there.
+    fn reopen(&self, was: &OpenTerminal) -> Result<()> {
+        let mut inner = lock(&self.inner);
+        let id = TaskId(was.id);
+        anyhow::ensure!(
+            inner.terms.len() < MAX_TERMINALS,
+            "{MAX_TERMINALS} terminals already run"
+        );
+        anyhow::ensure!(
+            inner.terms.iter().all(|term| term.live.id != id),
+            "terminal {id} already runs"
+        );
+        let cwd = was.cwd.as_ref().filter(|cwd| cwd.is_dir());
+        let banner = reopened_banner(was, cwd);
+        let cwd = cwd.map(|cwd| cwd.to_string_lossy().into_owned());
+        let term = open(id, None, cwd, Size::DEFAULT, Some(&banner))?;
+        // Ids handed out later stay clear of it.
+        inner.last = inner.last.max(was.id);
+        inner.terms.push(term);
+        Ok(())
     }
 
     fn kill_all(&self) {
@@ -382,8 +447,36 @@ fn shell_command(command: Option<&str>) -> (String, CommandBuilder) {
     }
 }
 
-/// Opens a pseudo-terminal of `size` and starts the shell in it.
-fn open(id: TaskId, command: Option<&str>, cwd: Option<String>, size: Size) -> Result<Term> {
+/// The first line of a terminal opened again after a restart.
+fn reopened_banner(open: &OpenTerminal, cwd: Option<&PathBuf>) -> String {
+    let place = cwd.map_or_else(
+        || "the home folder".to_owned(),
+        |cwd| cwd.display().to_string(),
+    );
+    format!(
+        "\x1b[2m[beep-node restarted: this is a new shell in {place}; it was {}]\x1b[0m\r\n",
+        open.command
+    )
+}
+
+/// The folder process `pid` is in, where the system says.
+fn current_dir(pid: u32) -> Option<PathBuf> {
+    if cfg!(target_os = "linux") {
+        std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+    } else {
+        None
+    }
+}
+
+/// Opens a pseudo-terminal of `size` and starts the shell in it, its
+/// output starting with `banner` when given.
+fn open(
+    id: TaskId,
+    command: Option<&str>,
+    cwd: Option<String>,
+    size: Size,
+    banner: Option<&str>,
+) -> Result<Term> {
     let command = command.map(str::trim).filter(|command| !command.is_empty());
     let (program, mut builder) = shell_command(command);
     let cwd = cwd.map(PathBuf::from).or_else(dirs::home_dir);
@@ -414,8 +507,9 @@ fn open(id: TaskId, command: Option<&str>, cwd: Option<String>, size: Size) -> R
         .take_writer()
         .context("writing to the terminal")?;
     let killer = child.clone_killer();
+    let pid = child.process_id();
     #[cfg(unix)]
-    let group = child.process_id().and_then(crate::process::Group::led_by);
+    let group = pid.and_then(crate::process::Group::led_by);
     let name = match command {
         Some(command) => command.to_owned(),
         None => program
@@ -429,7 +523,7 @@ fn open(id: TaskId, command: Option<&str>, cwd: Option<String>, size: Size) -> R
         id,
         command: name,
         screen: Mutex::new(Screen {
-            bytes: VecDeque::new(),
+            bytes: banner.map(|b| b.bytes().collect()).unwrap_or_default(),
             start: 0,
             state: TaskState::Running,
         }),
@@ -453,6 +547,8 @@ fn open(id: TaskId, command: Option<&str>, cwd: Option<String>, size: Size) -> R
         killer,
         #[cfg(unix)]
         group,
+        pid,
+        cwd,
     })
 }
 
@@ -694,4 +790,36 @@ mod tests {
         assert!(listed.is_empty());
         assert!(terminals.live(id).is_none());
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_terminal_opens_again_as_a_new_shell_in_its_folder() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let folder = dir.path().canonicalize().expect("the folder resolves");
+        let before = Terminals::default();
+        let id = started(
+            before
+                .answer(Request::Start {
+                    command: Some("read wait".into()),
+                    cwd: Some(folder.display().to_string()),
+                    size: Size::DEFAULT,
+                })
+                .await,
+        );
+        let open = before.running();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, id.0);
+        assert_eq!(open[0].cwd.as_deref(), Some(folder.as_path()));
+        before.kill_all();
+
+        let after = Terminals::default();
+        after.reopen(&open[0]).expect("the terminal opens again");
+        let live = after.live(id).expect("the terminal keeps its id");
+        assert!(live.is_running());
+        let shown = wait_for_output(&live, "beep-node restarted").await;
+        assert!(shown.contains(&folder.display().to_string()), "{shown}");
+        assert!(after.reopen(&open[0]).is_err(), "one runs under that id");
+        after.kill_all();
+    }
+
 }
