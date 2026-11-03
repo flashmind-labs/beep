@@ -11,6 +11,7 @@ use super::{
 };
 use crate::{
     app::App,
+    lock,
     nodes::{News, Post},
     protocol::node::agent::Question,
     user::User,
@@ -23,7 +24,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     future::Future,
     panic::AssertUnwindSafe,
-    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use strum::Display;
@@ -138,10 +139,6 @@ struct Jobs {
 struct Mirror {
     done: watch::Receiver<bool>,
     _task: AbortOnDropHandle<()>,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Projects {

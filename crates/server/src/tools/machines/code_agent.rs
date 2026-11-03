@@ -102,11 +102,17 @@ impl Args {
         )
     }
 
-    fn id(&self) -> Result<String, String> {
+    /// The session id given, trimmed; a blank one is none.
+    fn given_id(&self) -> Option<String> {
         self.id
-            .clone()
-            .map(|id| id.trim().to_owned())
+            .as_deref()
+            .map(str::trim)
             .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+    }
+
+    fn id(&self) -> Result<String, String> {
+        self.given_id()
             .ok_or_else(|| format!("{:?} needs the session's `id`.", self.action))
     }
 
@@ -123,7 +129,7 @@ impl Args {
     fn any_agent(&self) -> bool {
         self.agent.is_none()
             && (self.action == Action::Sessions && !self.all
-                || self.action == Action::Status && self.id.is_none())
+                || self.action == Action::Status && self.given_id().is_none())
     }
 
     /// What the call does; the error is for the model.
@@ -138,7 +144,7 @@ impl Args {
                 wait: self.wait(),
             },
             Action::Status => Order::Status {
-                id: self.id.clone(),
+                id: self.given_id(),
                 wait: self.wait_secs.map(|_| self.wait()),
             },
             Action::Sessions => Order::Sessions { all: self.all },
@@ -281,6 +287,21 @@ mod tests {
         serde_json::from_value::<Args>(value)
             .map_err(|e| e.to_string())?
             .plan()
+    }
+
+    #[test]
+    fn a_status_id_is_trimmed_and_a_blank_one_is_none() {
+        assert_eq!(
+            plan(json!({ "action": "status", "id": " " })),
+            Ok(Plan::AllSessions)
+        );
+        assert_eq!(
+            plan(json!({ "action": "status", "agent": "codex", "id": "a3f9c1 " })),
+            Ok(Plan::Agent(Order::Status {
+                id: Some("a3f9c1".into()),
+                wait: None
+            }))
+        );
     }
 
     #[test]

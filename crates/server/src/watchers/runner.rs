@@ -11,6 +11,7 @@ use super::{
 };
 use crate::{
     app::App,
+    lock,
     starters::Generator,
     store::{StoredBody, StoredMessage},
     user::User,
@@ -23,7 +24,7 @@ use futures::FutureExt;
 use std::{
     collections::{HashMap, HashSet},
     panic::AssertUnwindSafe,
-    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use tokio::{
@@ -149,10 +150,6 @@ pub struct Hub {
     /// The watchers that run, once started.
     kinds: Mutex<Vec<WatcherKind>>,
     task: Mutex<Option<AbortOnDropHandle<()>>>,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Hub {

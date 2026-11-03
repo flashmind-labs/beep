@@ -5,14 +5,13 @@
 use super::repo::{Host, RepoRef};
 use crate::{
     app::App,
-    credentials::{Opened, Slot, github_for, host_client},
+    credentials::{Opened, host_client},
     git_items::{
         Caller,
         forks::{self, Api, Fork, Lookup},
     },
     projects::model::RepoName,
 };
-use secrecy::ExposeSecret;
 
 const GITHUB_API: &str = "https://api.github.com";
 
@@ -39,20 +38,15 @@ struct Target<'a> {
 /// for a Forgejo server on the user's own network, which the server
 /// cannot reach.
 async fn target<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<Target<'a>> {
-    let target = match &repo.host {
-        Host::GitHub => {
-            let opened = github_for(credentials, repo.org())?;
-            Target {
-                opened,
-                api: Api::GitHub,
-                base: GITHUB_API.to_owned(),
-                login: opened.github.as_ref().map(|github| github.login.as_str()),
-            }
-        }
+    let opened = repo.credential(credentials)?;
+    Some(match &repo.host {
+        Host::GitHub => Target {
+            opened,
+            api: Api::GitHub,
+            base: GITHUB_API.to_owned(),
+            login: opened.github.as_ref().map(|github| github.login.as_str()),
+        },
         Host::Forgejo(url) => {
-            let opened = credentials
-                .iter()
-                .find(|opened| matches!(&opened.slot, Slot::Forgejo(saved) if saved == url))?;
             if !url.is_public().await {
                 return None;
             }
@@ -63,8 +57,7 @@ async fn target<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<Target<
                 login: None,
             }
         }
-    };
-    (!target.opened.secret.expose_secret().is_empty()).then_some(target)
+    })
 }
 
 /// The user's fork of `repo`, read with their token for its host. `None`

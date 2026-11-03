@@ -10,15 +10,17 @@
 //! read it all again. Sessions are reported whole from the start of the
 //! window on, so a session read again replaces itself on the server
 //! rather than adding to it. Tokens are priced with `super::prices` unless
-//! the log has the cost.
+//! the log has the cost. Each request is marked metered or covered by a
+//! subscription where the machine can tell (`billing`).
 
-use beep_proto::node::usage::SessionSpend;
+use beep_proto::node::usage::{Billing, SessionSpend};
 use ledger::{Ledger, SessionKey};
 use std::{
     path::PathBuf,
     sync::{Mutex, PoisonError},
 };
 
+mod billing;
 mod claude;
 mod codex;
 mod databases;
@@ -38,8 +40,13 @@ const MAX_REPORTS: usize = 500;
 /// What one log line said.
 #[derive(Debug)]
 pub(super) enum Line {
-    /// The session the log is of, from its header.
-    Session { id: String, cwd: String },
+    /// The session the log is of, from its header, and the provider it
+    /// runs on when the header names one.
+    Session {
+        id: String,
+        cwd: String,
+        provider: Option<String>,
+    },
     /// The model the next requests run on.
     Model(String),
     /// One request to the model.
@@ -62,6 +69,10 @@ pub(super) struct Request {
     key: Option<u64>,
     /// A running total that a repeated count repeats.
     total: Option<u64>,
+    /// The provider it went to, when the line names it.
+    provider: Option<String>,
+    /// How it was paid for, when the line itself tells.
+    billing: Billing,
 }
 
 /// The logs and what was read of them.

@@ -17,7 +17,8 @@
 use crate::{
     app::{App, UserNotice},
     apps::mcp::FASTMAIL,
-    feeds::mail::{Mailbox, clip},
+    feeds::mail::Mailbox,
+    memories::clip,
     protocol::{MemoryRead, MemorySource, Notice},
     starters::{Generator, unfence},
     store::{Fact, MemoryRow, Origin, ProfileNote, Scope, Validity},

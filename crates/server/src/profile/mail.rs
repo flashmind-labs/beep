@@ -3,9 +3,8 @@
 use super::{CONCURRENCY, Source, Summary, address, extract, top};
 use crate::{
     decision::DecisionTool,
-    feeds::mail::{
-        Email, Mailbox, Source as MailSource, Window, clip, worth_learning, worth_reading,
-    },
+    feeds::mail::{Email, Mailbox, Source as MailSource, Window, worth_learning, worth_reading},
+    memories::clip,
     starters::Generator,
     store::ProfileNote,
     user::User,

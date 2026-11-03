@@ -4,7 +4,10 @@
 //! says which task or terminal on which node. `attach` follows an
 //! interactive one live.
 
-use super::{Reply, agent_sessions::linked_keys};
+use super::{
+    Reply,
+    own_nodes::{linked_keys, machine_names, online},
+};
 use crate::{
     nodes::Online,
     protocol::{
@@ -294,24 +297,6 @@ fn optional<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
 }
 
 /// The caller's machine `endpoint` when it is online now.
-pub(super) fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
-    cx.app
-        .nodes
-        .online(endpoint)
-        .filter(|node| node.user == cx.user.id())
-}
-
-/// The caller's machines' names, by key.
-async fn machine_names(cx: &Cx) -> Result<HashMap<String, String>, ApiError> {
-    Ok(cx
-        .user
-        .nodes()
-        .await?
-        .into_iter()
-        .map(|node| (node.endpoint, node.name))
-        .collect())
-}
-
 /// How the row's task stands among those its node lists. A task with the
 /// same number but another command is a new one after a restart.
 fn state_of(row: &TerminalRow, tasks: &[Task]) -> TerminalState {
