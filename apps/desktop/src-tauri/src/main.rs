@@ -60,6 +60,7 @@ mod view_cache;
 mod voice;
 mod waiting;
 mod work;
+mod work_diff;
 mod work_files;
 
 use anyhow::Context;
@@ -199,6 +200,8 @@ fn main() {
             work_files::agent_tree_text,
             work_files::agent_tree_save,
             work_files::agent_tree_upload,
+            work_diff::work_diff,
+            work_diff::branch_diff,
             artifacts::agent_artifact,
             custom_agents::custom_agents,
             agents::agent_steer,
