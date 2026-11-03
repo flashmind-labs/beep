@@ -9,7 +9,10 @@
 use crate::{
     AsyncMutex,
     app::{App, UserNotice},
-    apps::{Composio, mcp::KEEP_ALIVE},
+    apps::{
+        Composio,
+        mcp::{KEEP_ALIVE, McpSlot},
+    },
     credentials::Opened,
     decision::DecisionTool,
     feeds::{self, SYNC_SWEEP, mail::Mailbox},
@@ -107,7 +110,7 @@ pub struct User {
     /// Files memories under a category; without it they stay unfiled.
     decision: Option<Arc<DecisionTool>>,
     /// MCP servers the user connected, such as Fastmail, made on first use.
-    pub(crate) mcp: OnceCell<McpRegistry>,
+    pub(crate) mcp: Arc<McpSlot>,
     /// The servers the user added by URL, which connect only when called.
     pub(crate) custom_mcp: OnceCell<McpRegistry>,
     /// Sign-ins to added servers under way, by their OAuth `state`.
@@ -143,7 +146,7 @@ impl User {
             me: me.clone(),
             composio: shared.composio.clone(),
             decision: shared.decision.clone(),
-            mcp: OnceCell::new(),
+            mcp: Arc::default(),
             custom_mcp: OnceCell::new(),
             mcp_flows: Mutex::default(),
             notifications: shared.notifications.clone(),

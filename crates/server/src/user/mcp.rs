@@ -11,9 +11,9 @@ use crate::{
         },
         internal,
         mcp::{
-            FASTMAIL, FastmailAccount, MAX_FASTMAIL_ACCOUNTS, StoreProvider, app_tools,
-            check_redirect, display_name, fastmail_name, identity_address, is_fastmail, lost_login,
-            pick_account, preset,
+            FASTMAIL, FastmailAccount, MAX_FASTMAIL_ACCOUNTS, app_tools, check_redirect,
+            display_name, fastmail_name, identity_address, is_fastmail, lost_login, pick_account,
+            preset,
         },
     },
     protocol::{ApiError, McpConnect, McpServer, McpTools, Notice, mcp_callback_url},
@@ -83,17 +83,8 @@ impl User {
         let _ = self.notifications.send(notice);
     }
 
-    pub(super) async fn mcp_registry(&self) -> &McpRegistry {
-        self.mcp
-            .get_or_init(|| async {
-                let provider = Arc::new(StoreProvider {
-                    user: self.me.clone(),
-                });
-                let registry = McpRegistry::new(provider, None);
-                registry.load_saved().await;
-                registry
-            })
-            .await
+    pub(super) async fn mcp_registry(&self) -> Arc<McpRegistry> {
+        self.mcp.get(&self.me).await
     }
 
     /// The registry of the servers the user added by URL. It starts empty
@@ -199,12 +190,34 @@ impl User {
         }
     }
 
-    /// The Fastmail accounts as the app lists them, reading any address
-    /// not known yet.
+    /// The Fastmail accounts as the app lists them. Addresses not known yet
+    /// are read in the background, so the list never waits on Fastmail.
     pub(crate) async fn list_fastmail_accounts(&self) -> Result<Vec<FastmailAccount>> {
-        let mut accounts = self.fastmail_accounts().await?;
-        self.learn_addresses(&mut accounts).await;
+        let accounts = self.fastmail_accounts().await?;
+        self.learn_addresses_later(&accounts);
         Ok(accounts)
+    }
+
+    /// Reads the addresses `accounts` lack in a background task, one at a
+    /// time and only one task at once. Each read is bounded by the call
+    /// timeout, so the task ends; what it learns shows in the next listing.
+    fn learn_addresses_later(&self, accounts: &[FastmailAccount]) {
+        if accounts.iter().all(|account| account.address.is_some()) {
+            return;
+        }
+        let Some(user) = self.me.upgrade() else {
+            return;
+        };
+        if !self.mcp.start_learning() {
+            return;
+        }
+        tokio::spawn(async move {
+            match user.fastmail_accounts().await {
+                Ok(mut accounts) => user.learn_addresses(&mut accounts).await,
+                Err(error) => log::warn!("mcp: unable to list accounts to learn: {error:#}"),
+            }
+            user.mcp.done_learning();
+        });
     }
 
     /// Agent tools for the servers the user has connected, one per remote
@@ -218,18 +231,19 @@ impl User {
                 return Vec::new();
             }
         };
-        let mut accounts = fastmail_rows(&rows);
+        let accounts = fastmail_rows(&rows);
         let mut tools = Vec::new();
         if !accounts.is_empty() {
             if accounts.len() > 1 {
-                // The agent picks an account by address, so learn any missing.
-                self.learn_addresses(&mut accounts).await;
+                // The agent picks an account by address, so learn any missing
+                // for the next run. This one names them by id meanwhile.
+                self.learn_addresses_later(&accounts);
             }
             let registry = self.mcp_registry().await;
             // The tools are made from `current_mcp_tools` on every run, so the
             // queued register and unregister ops are not needed.
             registry.drain_pending_ops();
-            tools = app_tools(registry, &accounts);
+            tools = app_tools(&self.mcp, &registry, &accounts);
         }
         if rows.iter().any(ready) {
             let registry = self.custom_registry().await;
@@ -526,8 +540,7 @@ impl User {
     /// result, parsed as JSON when the server answered with JSON text.
     pub async fn call_mcp(&self, server: &str, tool: &str, arguments: Value) -> Result<Value> {
         let registry = self.mcp_registry().await;
-        let result = registry.call_tool(server, tool, arguments).await;
-        registry.drain_pending_ops();
+        let result = self.mcp.call(&registry, server, tool, arguments).await;
         let result = match result {
             Ok(result) => result,
             Err(error) => {
@@ -579,12 +592,13 @@ impl User {
         };
         let config = preset(&name).ok_or(ApiError::Internal {})?;
         let registry = self.mcp_registry().await;
-        registry
-            .add(config)
-            .await
-            .map_err(internal("add MCP server"))?;
-        let auth_url = registry
-            .start_auth(&name, redirect_uri)
+        let started = async {
+            registry.add(config).await?;
+            registry.start_auth(&name, redirect_uri).await
+        };
+        let auth_url = self
+            .mcp
+            .bounded(&registry, &name, started)
             .await
             .map_err(internal("start MCP OAuth"))?;
         if let Some(state) = state_of(&auth_url)
@@ -619,7 +633,8 @@ impl User {
             .filter(|flow| is_fastmail(&flow.server));
         let name = flow.map_or_else(|| FASTMAIL.to_owned(), |flow| flow.server);
         let registry = self.mcp_registry().await;
-        registry.complete_auth(&name, code, state, issuer).await?;
+        let completed = registry.complete_auth(&name, code, state, issuer);
+        self.mcp.bounded(&registry, &name, completed).await?;
         // The login may be another account's than the slot had before.
         let address = self.read_address(&name).await;
         self.store
@@ -681,9 +696,22 @@ impl User {
             .iter()
             .any(|server| server == name);
         let registry = self.mcp_registry().await;
+        let mut forgotten = false;
         if registry.get_config(name).await.is_some() {
-            registry.remove(name).await?;
-        } else {
+            // Closing waits on the connection, which a stuck call holds; the
+            // row goes either way.
+            match self
+                .mcp
+                .bounded(&registry, name, registry.remove(name))
+                .await
+            {
+                Ok(()) => forgotten = true,
+                Err(error) => {
+                    log::warn!("mcp: unable to close {name}, forgetting it anyway: {error:#}");
+                }
+            }
+        }
+        if !forgotten {
             self.delete_mcp_server(name).await?;
         }
         registry.drain_pending_ops();
@@ -701,16 +729,21 @@ impl User {
                 return;
             }
         };
-        let registry = self.mcp_registry().await;
         for name in connected {
-            if let Err(error) = registry.reconnect(&name).await {
+            // Asked again each time: one that runs out of time is replaced.
+            let registry = self.mcp_registry().await;
+            let reconnected = self
+                .mcp
+                .bounded(&registry, &name, registry.reconnect(&name))
+                .await;
+            registry.drain_pending_ops();
+            if let Err(error) = reconnected {
                 log::warn!("mcp: keep-alive reconnect failed; server={name} error={error:#}");
                 if lost_login(&error) {
                     self.drop_lost_mcp_login(&name).await;
                 }
             }
         }
-        registry.drain_pending_ops();
     }
 }
 
@@ -744,10 +777,12 @@ fn server_info(row: &McpServerRow) -> Option<McpServer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::apps::mcp::{CALL_TIMEOUT, NoAnswer};
     use crate::store::TestDb;
     use flashmind::core::CancellationToken;
     use flashmind::types::tool::ToolContext;
     use serde_json::json;
+    use tokio::{net::TcpListener, sync::mpsc};
 
     #[tokio::test]
     async fn fastmail_accounts_are_listed_picked_and_removed() {
@@ -923,5 +958,81 @@ mod tests {
         user.remove_custom_mcp(&open.server.id).await.unwrap();
         user.remove_custom_mcp(&oauth.server.id).await.unwrap();
         assert!(user.list_custom_mcp().await.unwrap().is_empty());
+    }
+
+    /// A Fastmail that takes connections and never answers on them. Each
+    /// connection it takes is reported on the channel.
+    async fn silent_fastmail() -> (String, mpsc::UnboundedReceiver<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let (reached, reaching) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                held.push(stream);
+                if reached.send(()).is_err() {
+                    break;
+                }
+            }
+        });
+        (url, reaching)
+    }
+
+    #[tokio::test]
+    async fn a_silent_fastmail_holds_up_nothing_else() {
+        // The server's endpoint installs it on startup; a test has none. A
+        // provider another test installed first is just as good.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let db = TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let (url, mut reaching) = silent_fastmail().await;
+        user.mcp.point_at(&url);
+        user.save_mcp_credentials(FASTMAIL, json!({"client_id": "c"}))
+            .await
+            .unwrap();
+        user.store
+            .set_mcp_address(&user.key, FASTMAIL, Some("me@example.com"))
+            .await
+            .unwrap();
+        // The second account's address is not known yet, which used to be
+        // read inline on every listing and every run.
+        user.save_mcp_credentials("fastmail-2", json!({"client_id": "c"}))
+            .await
+            .unwrap();
+
+        // The call starts its timeout before anything reaches Fastmail.
+        let call = tokio::spawn({
+            let user = user.clone();
+            async move { user.call_fastmail(None, "search_email", json!({})).await }
+        });
+        reaching.recv().await.unwrap();
+        let stuck = user.mcp_registry().await;
+
+        // What the Fastmail page and a run ask for answers meanwhile.
+        let accounts = user.app_accounts(FASTMAIL).await.unwrap();
+        assert_eq!(accounts.len(), 2);
+        let app = crate::apps::catalog_app(FASTMAIL).unwrap();
+        let page = crate::permissions::app_permissions(app, &user.app_rules().await.unwrap());
+        assert!(page.actions.iter().any(|a| a.tool == "FASTMAIL_SEND_EMAIL"));
+        assert!(
+            user.apps()
+                .await
+                .unwrap()
+                .iter()
+                .any(|a| a.slug == FASTMAIL && a.connected)
+        );
+        user.mcp_tools().await;
+        assert!(!call.is_finished(), "Fastmail answered after all");
+
+        // The stuck call gives up on its own, and the next one starts afresh.
+        tokio::time::pause();
+        tokio::time::advance(CALL_TIMEOUT).await;
+        let error = call.await.unwrap().unwrap_err();
+        tokio::time::resume();
+        assert!(error.downcast_ref::<NoAnswer>().is_some(), "{error:#}");
+        assert!(!Arc::ptr_eq(&stuck, &user.mcp_registry().await));
+        // Disconnecting does not wait on it either.
+        user.disconnect_app(FASTMAIL).await.unwrap();
+        assert!(user.app_accounts(FASTMAIL).await.unwrap().is_empty());
     }
 }
