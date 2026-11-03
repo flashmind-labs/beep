@@ -33,6 +33,7 @@ mod login_path;
 mod machine;
 mod machines;
 mod markdown;
+mod mcp_command;
 mod news;
 mod notify;
 mod orb;
@@ -42,6 +43,7 @@ mod pasted_image;
 mod presence;
 mod products;
 mod project_groups;
+mod project_live;
 mod projects;
 mod research;
 mod reviews;
@@ -100,6 +102,10 @@ const CHAT_ITEM: &str = "chat:";
 struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
+    // An agent running the app as its Beep MCP server: no window, no log.
+    if let Some(status) = mcp_command::run(std::env::args_os().skip(1)) {
+        std::process::exit(status);
+    }
     logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
@@ -114,8 +120,29 @@ fn main() {
             Some(vec![LOGIN_ARG]),
         ))
         .manage(artifacts::Pages::default())
-        .register_uri_scheme_protocol(artifacts::SCHEME, |ctx, request| {
-            artifacts::serve(&ctx.app_handle().state::<artifacts::Pages>(), &request)
+        .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
+            let app = ctx.app_handle();
+            match artifacts::route(&app.state::<artifacts::Pages>(), &request) {
+                artifacts::Route::Done(response) => responder.respond(response),
+                // A file beside a page is read from its machine first.
+                artifacts::Route::Read(file) => {
+                    let beep = app
+                        .try_state::<Arc<Beep>>()
+                        .map(|beep| beep.inner().clone());
+                    tauri::async_runtime::spawn(async move {
+                        let response = match beep {
+                            Some(beep) => {
+                                file.serve(
+                                    |at| async move { artifacts::read_sibling(&beep, at).await },
+                                )
+                                .await
+                            }
+                            None => artifacts::unavailable(),
+                        };
+                        responder.respond(response);
+                    });
+                }
+            }
         })
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
@@ -301,6 +328,8 @@ fn main() {
             runs::center_project_lists,
             runs::center_project_runs,
             runs::center_project_run,
+            project_live::follow_project,
+            project_live::unfollow_project,
             reviews::project_branches,
             branches::preview_import,
             branches::find_import_fork,
@@ -470,6 +499,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
     app.manage(Recent::default());
+    app.manage(project_live::Followed::default());
     app.manage(research::Pending::default());
     app.manage(research::Cache::default());
     app.manage(apps::SignIn::default());

@@ -287,16 +287,16 @@ impl RepoWatch {
 }
 
 /// The background sync's read of the run list, unless an ask read it
-/// meanwhile or the token's rate limit runs low.
+/// meanwhile or the token's rate limit runs low; whether it read.
 pub(super) async fn sync_in_background(
     app: &Arc<App>,
     user: &Arc<User>,
     project: &ProjectRow,
     entry: &Entry,
-) {
+) -> bool {
     let mut copy = entry.runs.copy.lock().await;
     if !entry.runs.stale() || copy.limited(&app.repo_watch).is_some() {
-        return;
+        return false;
     }
     match reach(app, user, project).await {
         Ok(reach) => {
@@ -310,4 +310,5 @@ pub(super) async fn sync_in_background(
             entry.runs.timing().synced(Instant::now(), false);
         }
     }
+    true
 }

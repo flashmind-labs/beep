@@ -33,6 +33,7 @@ pub mod terminal;
 pub mod tools;
 pub mod transfer;
 pub mod usage;
+pub mod webhook;
 
 pub const NODE_ALPN: &[u8] = b"beep-node/1";
 

@@ -2,7 +2,7 @@
 // (src/bar, loaded with this module) for chats, memories and routines.
 import { harnessEl } from "./harnessicon.ts";
 import { ago, plural, since } from "./components/format.ts";
-import { dbtn as button, emptyPanel, errorNote, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, fitRows, freshNote, note, segmented, stateChip, svgEl as icon } from "./components/parts.ts";
 import { PageCache, backgroundTick, freshness, type PageSection, type SectionStore } from "./pagecache.ts";
 import { invoke, Channel, listen } from "./tauri.ts";
 import { splitPinned } from "./pinned.ts";
@@ -21,6 +21,7 @@ import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectS
 import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderUnder, reason, el as h } from "./projects-state.ts";
 import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectRow, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
+import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
@@ -47,6 +48,7 @@ import type { IssueRow, PullRequestHead, PullRequestRow, RepoActs, ThreadChatRow
 import { fixPrompt, makeRuns, runTarget } from "./runs.ts";
 import type { RunDetail } from "./runs.ts";
 import { openLabel, runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
+import { windowTakes } from "./windowkeys.ts";
 import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, withoutResearch, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./bar/researches.ts";
 import type { GitItemRow, GitItemsView } from "./openitems.ts";
@@ -2257,6 +2259,18 @@ const revs = makeReviews({
   kept: keptSection("branches"),
 });
 
+/// Whether the project shown is live or polling; what its host changed is
+/// read again as the server says.
+const liveMode = makeProjectLive({
+  invoke, h,
+  redraw: () => redrawProjects(),
+  reload: (id: string, lists: boolean, ran: boolean) => {
+    if (lists) thr.load(id);
+    if (ran) runs.load(id);
+  },
+});
+listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
+
 /// The project's open issues and the user's threads there; the Issues
 /// tile, the rows of the Pull requests tile and their full lists.
 const thr = makeThreads({
@@ -2266,6 +2280,7 @@ const thr = makeThreads({
   openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
+  mode: liveMode.chip,
 });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
@@ -2274,6 +2289,7 @@ const runs = makeRuns({
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+  mode: liveMode.chip,
 });
 
 /// Every 10 seconds while a project page shows: the runs move on, but only
@@ -2830,6 +2846,9 @@ async function loadWhere(name: string) {
 
 /// The sessions your coding agents ran in the project's folders, newest
 /// first, each resumable; those running now are under Agents.
+/// The sessions the Sessions section shows before it scrolls.
+const SESSIONS_SHOWN = 5;
+
 function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
@@ -2839,7 +2858,7 @@ function sessionsSection(p: Project, running: RunningAgent[]) {
   else {
     const past = pastSessions(sessions, running);
     body = past.length
-      ? h("div", "cc-panel pv-scroll", ...past.map(sessionRow))
+      ? h("div", "cc-panel", fitRows(past.map(sessionRow), SESSIONS_SHOWN))
       : emptyPanel(h("span", "", "No sessions from Claude Code, Codex, pi, flsh or OpenCode in these folders yet."));
   }
   const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
@@ -2950,6 +2969,7 @@ function drawProjects(el: HTMLElement) {
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
+    liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
     if (one) view.append(...projectDetail(one));
     else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
@@ -3421,11 +3441,16 @@ document.addEventListener("keydown", e => {
   // ⌘W closes this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
   if (key === "w" && !e.shiftKey) { e.preventDefault(); invoke("center_close_window").catch(() => window.close()); return; }
-  if (key === "k") { e.preventDefault(); return openPalette(); }
-  if (key === ",") { e.preventDefault(); return openSettings(); }
-  const to = PANE_KEYS[key];
-  // ⌘M on the start form picks the model there.
-  if (to && !(key === "m" && shown === "pane" && paneOn().view === "agentnew")) { e.preventDefault(); return go("pane", to); }
+  // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
+  if (windowTakes(key, shown === "pane" ? paneOn().view : undefined)) {
+    e.preventDefault();
+    if (key === "k") return openPalette();
+    if (key === ",") return openSettings();
+    // ⌘R opens the window's Research page, not the bar's list.
+    if (key === "r") return go("research");
+    const to = PANE_KEYS[key];
+    if (to) return go("pane", to);
+  }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
 });
@@ -3554,7 +3579,7 @@ let windowHidden = false;
 const BACKGROUND_MS = 4 * 60_000;
 let lastBackground = Date.now();
 function onScreen() { return !windowHidden && document.visibilityState === "visible"; }
-listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); });
+listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); liveMode.follow(null); });
 listen("center-shown", () => { windowHidden = false; refresh(); });
 setInterval(() => {
   const now = Date.now(), last = lastBackground;
