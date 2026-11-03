@@ -13,8 +13,8 @@ use beep_proto::AgentAccount;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        self, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL, SessionFolder,
-        SessionInfo, SessionsReply, SessionsRequest, State, Status,
+        self, CheckoutPlan, Event, ExternalSession, ModelList, Request, SESSIONS_PROTOCOL,
+        SessionFolder, SessionInfo, SessionsReply, SessionsRequest, State, Status,
     },
     harness::{AgentSettings, HarnessReport},
     usage::{PlanUsage, SessionSpend},
@@ -601,6 +601,31 @@ impl Agents {
         sessions
     }
 
+    /// Starts a session in the branch or worktree `checkout` makes in
+    /// `cwd`, or in `cwd` itself without one. A start that would be refused
+    /// is refused before anything is made.
+    async fn start_in(
+        &self,
+        kind: &AgentKind,
+        cwd: Option<&str>,
+        checkout: Option<CheckoutPlan>,
+        mut begin: Begin,
+    ) -> Result<Arc<Session>> {
+        let Some(plan) = checkout else {
+            return self.start(kind, cwd, begin);
+        };
+        self.settings.configured(kind)?;
+        ensure_room(&self.lock())?;
+        let prompt = begin.prompt.as_deref().unwrap_or_default();
+        let made = checkout::make_checkout(cwd, plan, prompt).await?;
+        let folder = made
+            .folder
+            .to_str()
+            .context("the new folder is not UTF-8")?;
+        begin.note = Some(made.note());
+        self.start(kind, Some(folder), begin)
+    }
+
     fn start(&self, kind: &AgentKind, cwd: Option<&str>, begin: Begin) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         let cwd = folder(cwd)?;
@@ -615,14 +640,7 @@ impl Agents {
         {
             anyhow::bail!("session {resume} already runs here as {}", running.id);
         }
-        let running = sessions
-            .values()
-            .filter(|session| session.live.borrow().status() != Status::Ended)
-            .count();
-        anyhow::ensure!(
-            running < MAX_RUNNING,
-            "{MAX_RUNNING} sessions already run here; close one first"
-        );
+        ensure_room(&sessions)?;
         if sessions.len() >= MAX_KEPT {
             let oldest = sessions
                 .values()
@@ -657,6 +675,19 @@ impl Agents {
         sessions.insert(id, session.clone());
         Ok(session)
     }
+}
+
+/// Refuses a start once `MAX_RUNNING` of `sessions` run.
+fn ensure_room(sessions: &HashMap<String, Arc<Session>>) -> Result<()> {
+    let running = sessions
+        .values()
+        .filter(|session| session.live.borrow().status() != Status::Ended)
+        .count();
+    anyhow::ensure!(
+        running < MAX_RUNNING,
+        "{MAX_RUNNING} sessions already run here; close one first"
+    );
+    Ok(())
 }
 
 /// How a session begins: on a prompt, and as a new session (on a model
@@ -755,36 +786,17 @@ pub async fn serve_session(
             effort,
             checkout,
         } => {
-            // The branch or worktree comes first; the agent starts in it.
-            let made = match checkout {
-                Some(plan) => checkout::make_checkout(cwd.as_deref(), plan, &prompt)
-                    .await
-                    .map(Some),
-                None => Ok(None),
+            let begin = Begin {
+                prompt: Some(prompt),
+                resume: None,
+                model,
+                effort,
+                note: None,
             };
-            made.and_then(|made| {
-                let folder = match &made {
-                    Some(made) => Some(
-                        made.folder
-                            .to_str()
-                            .context("the new folder is not UTF-8")?
-                            .to_owned(),
-                    ),
-                    None => cwd,
-                };
-                agents.start(
-                    &kind,
-                    folder.as_deref(),
-                    Begin {
-                        prompt: Some(prompt),
-                        resume: None,
-                        model,
-                        effort,
-                        note: made.as_ref().map(checkout::Made::note),
-                    },
-                )
-            })
-            .map_err(|e| format!("{e:#}"))
+            agents
+                .start_in(&kind, cwd.as_deref(), checkout, begin)
+                .await
+                .map_err(|e| format!("{e:#}"))
         }
         Request::Resume { session, prompt } => agents
             .resume(&kind, &session, prompt)
@@ -1562,6 +1574,39 @@ while read -r line; do reply '{}'; done
         // agent's id that the node looks for, not its own.
         let err = agents.resume(&kind, &first.id, None).await.err().unwrap();
         assert!(err.to_string().contains(id), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_refused_start_makes_no_branch() {
+        let (_dir, work) = checkout::tests::repo("refused");
+        let kind = AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), "cat > /dev/null".into()],
+            env: BTreeMap::new(),
+        };
+        let agents = Agents::new(vec![kind.clone()]);
+        agents.set_settings(AgentSettings {
+            harnesses: vec![beep_proto::node::harness::HarnessConfig {
+                enabled: false,
+                ..beep_proto::node::harness::HarnessConfig::new("codex")
+            }],
+        });
+        let begin = Begin {
+            prompt: Some("Fix the login bug".into()),
+            resume: None,
+            model: None,
+            effort: None,
+            note: None,
+        };
+        let plan = CheckoutPlan::NewBranch { base: None };
+        let refused = agents
+            .start_in(&kind, work.to_str(), Some(plan), begin)
+            .await
+            .err();
+        assert!(refused.is_some_and(|e| e.to_string().contains("turned off")));
+        assert_eq!(checkout::tests::current(&work), "main");
     }
 
     #[cfg(unix)]
