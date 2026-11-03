@@ -1,5 +1,4 @@
-//! The keys that sign into an account: the phone that made it, and the
-//! computers it linked.
+//! Keys that sign into an account: the phone that made it and linked computers.
 
 use super::Store;
 use crate::{
@@ -15,8 +14,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
     pub id: String,
-    /// The Composio entity and sandbox folder. The old key id for accounts
-    /// made before ids were their own, else the same as `id`.
+    /// The Composio entity and sandbox folder: the old key id for old accounts, else `id`.
     pub external_id: String,
 }
 
@@ -92,8 +90,7 @@ fn account_key((endpoint_id, name, kind, primary, created_at): KeyRow) -> Accoun
 type SignInRow = (String, String, String, bool, bool);
 
 impl Store {
-    /// The account `endpoint` signs in as. A key nobody linked makes its own
-    /// account on its first connection, as that account's primary key.
+    /// The account `endpoint` signs in as; an unlinked key makes its own account as primary key.
     pub async fn sign_in(&self, endpoint: &EndpointId) -> Result<SignIn> {
         let id = endpoint.to_string();
         // A second try covers a first connection racing another one.
@@ -112,8 +109,7 @@ impl Store {
         bail!("signing in {id} kept racing another connection")
     }
 
-    /// The account `endpoint` signs in as, or `None` for a key nobody
-    /// linked. Unlike `sign_in` it never makes an account.
+    /// The account `endpoint` signs in as, or `None`; never creates one.
     pub async fn linked_sign_in(&self, endpoint: &EndpointId) -> Result<Option<SignIn>> {
         Ok(self
             .key_account(&endpoint.to_string())
@@ -173,8 +169,7 @@ impl Store {
         Ok(rows.into_iter().map(account_key).collect())
     }
 
-    /// Stops a linked key signing in and drops its push tokens. False if
-    /// the account has no such key. The primary key cannot be revoked.
+    /// Revokes a linked key and its push tokens; false if missing. The primary key cannot be revoked.
     pub(crate) async fn revoke_key(&self, user: &UserKey, endpoint_id: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let revoked = sqlx::query(
@@ -221,8 +216,7 @@ impl Store {
         Ok(())
     }
 
-    /// Every key that signs into account `user` and the device it is, for
-    /// pushing notices.
+    /// Every key of account `user` with its device, for push.
     pub async fn live_keys(&self, user: &str) -> Result<Vec<LiveKey>> {
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT endpoint_id, kind FROM user_keys WHERE user_id=$1 AND revoked_at IS NULL
@@ -241,8 +235,7 @@ impl Store {
     }
 }
 
-/// Makes account `user` with `endpoint` as its primary key, unless the key
-/// already signs into one: false then, and the transaction must roll back.
+/// Makes account `user` with primary key `endpoint`; false (roll back) if the key already has an account.
 pub(super) async fn insert_account(
     tx: &mut sqlx::PgConnection,
     user: &str,

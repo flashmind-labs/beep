@@ -1,10 +1,6 @@
-//! Copies of the pictures coding agent sessions show, by the `image_key` of
-//! their bytes, so `GetAgentImage` answers while the machine is offline.
-//! Each is a file without a chat (see `files`): it expires after
-//! `FILE_KEEP`, and a user's copies stay under `MAX_USER_BYTES`, the oldest
-//! going first.
+//! Copies of agent session pictures by `image_key`, so `GetAgentImage` works while the machine is offline.
 
-use super::{Store, files::FILE_KEEP, seconds};
+use super::{Store, files::FILE_KEEP};
 use crate::{protocol::image_key, user::UserKey};
 use anyhow::{Result, bail};
 use sqlx::Row;
@@ -31,8 +27,7 @@ pub(crate) struct AgentImageBytes {
 }
 
 impl Store {
-    /// Keeps a copy of `image` for `user`, unless one with the same bytes
-    /// is kept already.
+    /// Keeps a copy of `image` for `user`, unless one with the same bytes exists.
     pub(crate) async fn save_agent_image(
         &self,
         user: &UserKey,
@@ -94,7 +89,7 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(key)
-        .bind(seconds(FILE_KEEP))
+        .bind(FILE_KEEP.as_secs_f64())
         .fetch_optional(&self.pool)
         .await?;
         let Some(row) = row else {

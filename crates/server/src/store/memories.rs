@@ -1,10 +1,4 @@
-//! Memories live in a flashmind `MemoryStore`, in the same database.
-//! Every memory carries its owner in the `user` metadata key, and every call
-//! here filters on it, so one user's memories never reach another's.
-//!
-//! The user's memory is shared by every agent that works for them, so each
-//! memory also says what it is about: its `Scope`, the user, a machine, a
-//! project or an account.
+//! Memories in a flashmind `MemoryStore`, filtered by the `user` metadata key on every call, each with a `Scope`.
 
 mod curation;
 mod history;
@@ -50,14 +44,12 @@ const CLOSEST_CANDIDATES: usize = 8;
 /// Longest project or account name in a scope.
 const MAX_SCOPE_NAME: usize = 100;
 
-/// What a memory is about. Memories from before scopes have none and are
-/// about the user.
+/// What a memory is about; pre-scope memories are about the user.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum Scope {
     #[default]
     User,
-    /// A machine running beep-node, by its key, so renaming it keeps its
-    /// memories.
+    /// A beep-node machine by key, so renaming keeps its memories.
     Machine(EndpointId),
     /// A project, such as a repository, by the name Beep knows it by.
     Project(String),
@@ -95,8 +87,7 @@ impl Scope {
         }
     }
 
-    /// A stored scope. One this server cannot read counts as the user's, the
-    /// widest it can show.
+    /// A stored scope; an unreadable one counts as the user's, the widest.
     fn from_stored(text: Option<&str>) -> Self {
         let Some((kind, name)) = text.and_then(|text| text.split_once(':')) else {
             return Self::User;
@@ -130,8 +121,7 @@ pub struct Fact<'a> {
     pub valid: Option<Validity>,
     /// `None` keeps the current origin on an update.
     pub origin: Option<Origin>,
-    /// `None` keeps the current scope on an update, or makes a new memory
-    /// about the user.
+    /// `None` keeps the scope on update, or means the user on create.
     pub scope: Option<Scope>,
 }
 
@@ -273,8 +263,7 @@ fn owned_by(record: &MemoryRecord, user: &UserKey) -> bool {
     meta_map(&record.meta).get(USER) == Some(&user.as_str())
 }
 
-/// Embeds a text as the words it contains, hashed into a few dimensions, so
-/// tests get meaning-like closeness without a network call.
+/// Hashed bag-of-words embedder so tests get meaning-like closeness offline.
 #[doc(hidden)]
 pub struct WordEmbedder;
 
@@ -342,8 +331,7 @@ impl Store {
             .filter(|record| owned_by(record, user)))
     }
 
-    /// Rewrites a memory the user owns. Returns it as it was, `None` when
-    /// there is none.
+    /// Rewrites a memory the user owns; returns it as it was, `None` when missing.
     async fn rewrite(
         &self,
         user: &UserKey,
@@ -372,8 +360,7 @@ impl Store {
         Ok(Some(before))
     }
 
-    /// Replaces a memory's text, and its days when given. A memory the user
-    /// stated stays stated. Returns whether it exists.
+    /// Replaces a memory's text (and days when given); a stated memory stays stated. Returns whether it exists.
     pub(crate) async fn update_memory(
         &self,
         user: &UserKey,
@@ -409,9 +396,7 @@ impl Store {
         .await
     }
 
-    /// Replaces a memory's text, and its category when given, as the user
-    /// does from the Memories screen; it then counts as stated by the user.
-    /// The text it had is kept as history.
+    /// The user's edit from Memories: replaces text (and category), marks it stated, and keeps the old text as history.
     pub(crate) async fn edit_memory(
         &self,
         user: &UserKey,
@@ -450,9 +435,8 @@ impl Store {
         Ok(rows)
     }
 
-    /// The user's memories that best match `query`, by meaning and words,
-    /// in `scope` when given. Memories about the user carry no scope key to
-    /// filter on, so for those more are read and the rest dropped.
+    /// The user's memories best matching `query` by meaning and words, in `scope` when given.
+    /// User-scoped memories have no scope key, so extra rows are read and filtered.
     pub(crate) async fn search_memories(
         &self,
         user: &UserKey,
@@ -507,9 +491,7 @@ impl Store {
             .collect())
     }
 
-    /// The user's memory in `scope` closest in meaning to `text`, with its
-    /// score, if it scores at least `threshold`. The same words about two
-    /// machines are two memories.
+    /// The user's memory in `scope` closest to `text` scoring at least `threshold`, with its score.
     pub(crate) async fn closest_memory(
         &self,
         user: &UserKey,
@@ -534,14 +516,12 @@ impl Store {
             .find(|found| found.row.scope == *scope))
     }
 
-    /// Puts a memory in the profile or takes it out, keeping its last change
-    /// date. Returns whether it changed.
+    /// Puts a memory in or out of the profile, keeping its change date; returns whether it changed.
     pub(crate) async fn set_core(&self, user: &UserKey, id: &str, core: bool) -> Result<bool> {
         self.retag(user, id, |row| row.core = core).await
     }
 
-    /// Files a memory under another category, keeping its last change date.
-    /// Returns whether it changed.
+    /// Recategorizes a memory, keeping its change date; returns whether it changed.
     pub(crate) async fn set_category(
         &self,
         user: &UserKey,
@@ -552,8 +532,7 @@ impl Store {
         self.retag(user, id, |row| row.category = category).await
     }
 
-    /// Changes a memory's metadata but not its text or last change date.
-    /// Returns whether anything changed.
+    /// Changes a memory's metadata only; returns whether anything changed.
     async fn retag(
         &self,
         user: &UserKey,
@@ -587,8 +566,7 @@ impl Store {
         Ok(true)
     }
 
-    /// Deletes every memory of a user, with their history, and returns how
-    /// many memories there were.
+    /// Deletes all of a user's memories and history; returns the memory count.
     pub(crate) async fn forget_all(&self, user: &UserKey) -> Result<u64> {
         let deleted = self
             .memories

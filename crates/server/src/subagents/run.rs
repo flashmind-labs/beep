@@ -1,5 +1,4 @@
-//! Runs one sub-agent through flashmind's `AgentManager` until it decides,
-//! runs out of turns, tokens or time, or stops without deciding.
+//! Runs one sub-agent until it decides, runs out of turns, tokens or time, or stops.
 
 use super::{
     Kind, Spec, Subagents,
@@ -13,7 +12,7 @@ use flashmind::{
     core::{AgentHandle, AgentManager, AgentStatus, CancellationToken, SpawnBuilder},
     types::{AgentEvent, ToolRegistry},
 };
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use tokio::{sync::mpsc, time::sleep};
 
 /// Why a run ended without a decision.
@@ -34,25 +33,10 @@ pub enum Failure {
     Failed(String),
 }
 
-/// How a caller follows a run: its last step, and a way to stop it.
+/// A way for the caller to stop a run.
 #[derive(Clone, Default)]
 pub struct Watch {
     pub cancel: CancellationToken,
-    step: Arc<Mutex<String>>,
-}
-
-impl Watch {
-    /// What the run did last, such as the tool it called.
-    pub fn last_step(&self) -> String {
-        self.step
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
-    pub(crate) fn set_step(&self, step: String) {
-        *self.step.lock().unwrap_or_else(PoisonError::into_inner) = step;
-    }
 }
 
 /// How a run that did not fail ended.
@@ -63,8 +47,7 @@ pub enum Ended<D> {
     Replied(String),
 }
 
-/// A sub-agent's conversation while it runs. Its manager owns the agent
-/// loop and goes with it.
+/// A running sub-agent's conversation; its manager owns the agent loop.
 struct Session<D> {
     /// Held so the agent loop lives as long as the session.
     _manager: AgentManager,
@@ -85,9 +68,7 @@ impl<D> Session<D> {
 }
 
 impl Subagents {
-    /// Runs `spec` for user `user` and returns the decision it called. A run
-    /// that ends with text and no decision fails with
-    /// [`Failure::NoDecision`]; [`Self::run_or_reply`] keeps the text.
+    /// Runs `spec` and returns its decision, failing with [`Failure::NoDecision`] without one.
     pub async fn run<D: Send + 'static>(&self, user: &str, spec: Spec<D>) -> Result<D, Failure> {
         match self.run_or_reply(user, spec).await? {
             Ended::Decided(decided) => Ok(decided),
@@ -95,8 +76,7 @@ impl Subagents {
         }
     }
 
-    /// Runs `spec` and returns its decision, or its last reply when it ended
-    /// without one.
+    /// Runs `spec` and returns its decision, or its last reply.
     pub async fn run_or_reply<D: Send + 'static>(
         &self,
         user: &str,
@@ -181,10 +161,7 @@ impl Subagents {
         })
     }
 
-    /// Watches `session` until it is idle again: its decision, or its last
-    /// reply when it ended without one. A decision stops the response it
-    /// came in; a follow-up queued meanwhile still runs, and its decision
-    /// replaces the earlier one. Limits count from this call.
+    /// Watches `session` until idle: its latest decision, or its last reply. Limits count from this call.
     async fn follow<D: Send + 'static>(
         &self,
         session: &Session<D>,
@@ -224,9 +201,6 @@ impl Subagents {
                             if used > kind.max_tokens {
                                 break Err(Failure::OverBudget { used, budget: kind.max_tokens });
                             }
-                        }
-                        AgentEvent::ToolStart { name, humanized, .. } => {
-                            watch.set_step(if humanized.is_empty() { name } else { humanized });
                         }
                         AgentEvent::ToolResult { name, .. } => {
                             if names.contains(&name.as_str())

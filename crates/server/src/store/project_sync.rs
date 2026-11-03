@@ -1,5 +1,4 @@
-//! Which machines sync which projects, and the projects pinned to the
-//! machines they are on.
+//! Which machines sync which projects, and pinned projects.
 
 use super::Store;
 use crate::user::UserKey;
@@ -124,8 +123,7 @@ impl Store {
         )
     }
 
-    /// Pauses `project`'s sync on every machine, or resumes it; `false`
-    /// when it already was.
+    /// Pauses or resumes `project`'s sync everywhere; false when unchanged.
     pub(crate) async fn pause_sync(
         &self,
         user: &UserKey,
@@ -156,8 +154,7 @@ impl Store {
         .await?)
     }
 
-    /// Pins `project` to the top of the sidebar, or unpins it. Pinning it
-    /// again keeps its place.
+    /// Pins or unpins `project` at the top of the sidebar; repinning keeps its place.
     pub(crate) async fn pin_project_to_top(
         &self,
         user: &UserKey,

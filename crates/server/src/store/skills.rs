@@ -1,5 +1,4 @@
-//! Skills: ways of doing things Beep learned, with their earlier versions,
-//! and how far each chat is from its next skill review.
+//! Skills Beep learned with earlier versions, and each chat's skill review progress.
 
 use super::Store;
 use crate::user::UserKey;
@@ -84,8 +83,7 @@ impl SkillPatch<'_> {
 pub struct Review {
     /// Turns since the last review, this one included.
     pub turns: i32,
-    /// When the last review was; the next reads what came after. `None`
-    /// before the first.
+    /// When the last review was; `None` before the first.
     pub since: Option<DateTime<Utc>>,
 }
 
@@ -147,8 +145,7 @@ async fn skill_by_id(tx: &mut PgConnection, id: Uuid) -> Result<Option<SkillRow>
         .transpose()
 }
 
-/// Applies `patch` to skill `id`, keeping the old text first when the text
-/// changes. `edited` says whether the user made the change.
+/// Applies `patch` to skill `id`, saving the old text when it changes; `edited` marks a user change.
 async fn patch(
     tx: &mut PgConnection,
     id: Uuid,
@@ -184,8 +181,7 @@ async fn patch(
 }
 
 impl Store {
-    /// The user's own skills, then their groups', each most recently used
-    /// first.
+    /// The user's own skills then their groups', each most recently used first.
     pub(crate) async fn visible_skills(&self, user: &UserKey) -> Result<Vec<SkillRow>> {
         sqlx::query(&format!(
             "SELECT {COLUMNS} FROM {FROM} WHERE {VISIBLE}
@@ -215,8 +211,7 @@ impl Store {
         .collect()
     }
 
-    /// Adds a skill Beep learned. `None` when the owner already has one by
-    /// that name or is at `SKILL_LIMIT`.
+    /// Adds a learned skill; `None` when the name is taken or at `SKILL_LIMIT`.
     pub async fn create_skill(
         &self,
         owner: &SkillOwner,
@@ -276,8 +271,7 @@ impl Store {
         Ok(changed)
     }
 
-    /// Changes a skill the user can see, as the user. `None` when there is
-    /// no such skill for them.
+    /// Edits a skill visible to the user; `None` when missing.
     pub(crate) async fn edit_skill(
         &self,
         user: &UserKey,
@@ -311,8 +305,7 @@ impl Store {
         Ok(done.rows_affected() == 1)
     }
 
-    /// Puts back the newest earlier version of a skill the user can see.
-    /// `None` when there is no such skill or no earlier version.
+    /// Restores a visible skill's newest earlier version; `None` when there is none.
     pub(crate) async fn undo_skill(&self, user: &UserKey, id: Uuid) -> Result<Option<SkillRow>> {
         let mut tx = self.pool.begin().await?;
         let restored = sqlx::query(&format!(
@@ -336,8 +329,7 @@ impl Store {
         Ok(skill)
     }
 
-    /// The owner's enabled skill called `name`, ignoring case, counted as
-    /// used.
+    /// The owner's enabled skill `name` (case-insensitive), counted as used.
     pub(crate) async fn use_skill(
         &self,
         owner: &SkillOwner,

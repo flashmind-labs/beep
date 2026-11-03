@@ -1,13 +1,11 @@
-//! Which device started each coding-agent session, so its alerts go to
-//! that device only.
+//! Which device started each coding-agent session, so its alerts go to that device only.
 
 use super::Store;
 use crate::user::UserKey;
 use anyhow::{Context, Result};
 use iroh::EndpointId;
 
-/// A session on a machine: the node's key, the agent, and the agent's own
-/// id for the session.
+/// A session on a machine: node key, agent, and the agent's session id.
 #[derive(Clone, Copy)]
 pub(crate) struct SessionOn<'a> {
     pub machine: &'a EndpointId,
@@ -16,8 +14,7 @@ pub(crate) struct SessionOn<'a> {
 }
 
 impl Store {
-    /// Remembers that `device` started `on`. Starting it again, as a resume
-    /// does, makes the newer device the one told.
+    /// Remembers that `device` started `on`; a resume makes the newer device the one told.
     pub(crate) async fn record_agent_start(
         &self,
         user: &UserKey,
@@ -41,8 +38,7 @@ impl Store {
         Ok(())
     }
 
-    /// The device that started `on` for `user`; `None` for a session no
-    /// device started through Beep.
+    /// The device that started `on` for `user`, if one did through Beep.
     pub(crate) async fn agent_starter(
         &self,
         user: &UserKey,
