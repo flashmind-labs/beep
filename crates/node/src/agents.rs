@@ -111,6 +111,8 @@ const SPEND_EVERY: Duration = Duration::from_secs(60);
 const AGENT_ID_WAIT: Duration = Duration::from_secs(6);
 /// How long the folders found in the agents' logs are kept.
 const SIGHTED_FOR: Duration = Duration::from_secs(60);
+/// How long the checkouts found on disk are kept.
+const ON_DISK_FOR: Duration = Duration::from_secs(10 * 60);
 /// How long a file request may wait for a look in the agents' logs.
 const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
@@ -361,12 +363,21 @@ pub struct Agents {
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
+    /// The checkouts found on disk under home, with when; one walk at a
+    /// time.
+    on_disk: AsyncMutex<Option<OnDisk>>,
 }
 
 /// The folders found in the agents' logs, and when.
 struct Sighted {
     at: Instant,
     folders: Arc<Vec<PathBuf>>,
+}
+
+/// The checkouts found on disk, and when.
+struct OnDisk {
+    at: Instant,
+    checkouts: Arc<Vec<found::Checkout>>,
 }
 
 impl Agents {
@@ -387,15 +398,41 @@ impl Agents {
             mcp: OnceLock::new(),
             stopping: Arc::default(),
             sighted: AsyncMutex::default(),
+            on_disk: AsyncMutex::default(),
         }
     }
 
-    /// Reads the agents' logs once ahead of the first file request, which
-    /// then finds them read.
+    /// Reads the agents' logs and walks home once ahead of the first
+    /// requests, which then find them read.
     pub async fn warm(&self) {
         if let Err(e) = self.sighted_folders().await {
             log::debug!("the agents' logs were not read ahead: {e:#}");
         }
+        self.disk_checkouts().await;
+    }
+
+    /// The checkouts under home, walked at most `ON_DISK_FOR` ago.
+    /// Requests that come during a walk wait for it rather than walk again.
+    async fn disk_checkouts(&self) -> Arc<Vec<found::Checkout>> {
+        let mut on_disk = self.on_disk.lock().await;
+        if let Some(fresh) = on_disk.as_ref().filter(|d| d.at.elapsed() < ON_DISK_FOR) {
+            return fresh.checkouts.clone();
+        }
+        let walked = match dirs::home_dir() {
+            Some(home) => spawn_blocking(move || found::checkouts(&home))
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("home not walked for checkouts: {e}");
+                    Vec::new()
+                }),
+            None => Vec::new(),
+        };
+        let checkouts = Arc::new(walked);
+        *on_disk = Some(OnDisk {
+            at: Instant::now(),
+            checkouts: checkouts.clone(),
+        });
+        checkouts
     }
 
     /// The folders sessions started outside Beep worked in, read from the
@@ -585,17 +622,23 @@ impl Agents {
         Ok(seen)
     }
 
-    /// The checkouts coding agents worked in, newest activity first.
+    /// The checkouts coding agents worked in, newest activity first, then
+    /// the other checkouts found on disk.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = match usize::try_from(limit).unwrap_or(MAX_FOLDERS) {
             0 => DEFAULT_FOLDERS,
             limit => limit.min(MAX_FOLDERS),
         };
-        let seen = self.sightings().await?;
+        let (seen, on_disk) = tokio::join!(self.sightings(), self.disk_checkouts());
+        let seen = seen?;
         let home = dirs::home_dir();
-        spawn_blocking(move || found::folders(&seen, home.as_deref(), limit, found::checkout))
-            .await
-            .context("looking up the folders' checkouts")
+        spawn_blocking(move || {
+            let mut out = found::folders(&seen, home.as_deref(), limit, found::checkout);
+            found::add_checkouts(&mut out, &on_disk, home.as_deref(), limit);
+            out
+        })
+        .await
+        .context("looking up the folders' checkouts")
     }
 
     /// The sessions that ran in `folders` or below, newest first.
