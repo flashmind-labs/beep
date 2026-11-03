@@ -3,6 +3,8 @@
 //! Read and written: the node's workspace and shared folders, and the
 //! folders coding agent sessions work in. Only read: the harnesses' session
 //! logs and Claude Code's temp folder, where it keeps the files it makes.
+//! The custom agents list (`SessionsRequest::CustomAgents`) reads only in
+//! the work folders.
 //! Every path is checked with its links and `..` resolved.
 
 use super::{Agents, media_file::resolve};
@@ -20,6 +22,8 @@ use tokio::task::spawn_blocking;
 pub(super) enum Access {
     Read,
     Write,
+    /// Read, but only in a work folder: a project folder asked for.
+    Work,
 }
 
 /// The folders a request may reach, as they were named.
@@ -48,6 +52,7 @@ impl Reach {
         match access {
             Access::Read => inside(&self.work) || inside(&self.read),
             Access::Write => inside(&self.work) && !inside(&self.no_write),
+            Access::Work => inside(&self.work),
         }
     }
 }
@@ -57,6 +62,7 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
     let what = match access {
         Access::Read => "read",
         Access::Write => "write",
+        Access::Work => "list custom agents in",
     };
     anyhow::anyhow!(
         "{asked} is outside the folders Beep may {what} on this node: its workspace, \
@@ -360,6 +366,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(real, fs::canonicalize(&asked).unwrap());
+    }
+
+    #[test]
+    fn custom_agents_are_listed_only_in_a_work_folder() {
+        let project = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let logs = TempDir::new().unwrap();
+        fs::create_dir_all(project.path().join(".claude/agents")).unwrap();
+        fs::write(
+            project.path().join(".claude/agents/reviewer.md"),
+            "---\nname: reviewer\n---\nReview.",
+        )
+        .unwrap();
+        fs::create_dir_all(outside.path().join(".claude/agents")).unwrap();
+        let reach = Reach {
+            work: vec![project.path().to_owned()],
+            read: vec![logs.path().to_owned()],
+            no_write: Vec::new(),
+        };
+        let real = check(&reach, project.path(), Access::Work).unwrap();
+        let agents = super::super::custom_agents::list(&real, None).unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "reviewer");
+        for refused_folder in [outside.path(), logs.path(), Path::new("/etc")] {
+            let e = check(&reach, refused_folder, Access::Work).unwrap_err();
+            assert!(e.to_string().contains("outside the folders"), "{e:#}");
+        }
+        assert!(check(&reach, Path::new("relative/path"), Access::Work).is_err());
     }
 
     #[test]
