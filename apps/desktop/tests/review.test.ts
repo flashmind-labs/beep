@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ReviewDeps, ReviewView } from "../src/review.ts";
+import type { KeptBranches, ReviewDeps, ReviewView } from "../src/review.ts";
+import { PageCache } from "../src/pagecache.ts";
 import { makeReviews, openFindings, reviewState, mergeBlock, staleText, reviewFacts, findingPlace, shardLine, shardChip, findingsSub, readySummary, branchTile } from "../src/review.ts";
 
 const ago = () => "12 min";
@@ -123,4 +124,21 @@ test("a second load while branches first load asks the server once", async () =>
   assert.equal(asked.filter(c => c === "project_branches").length, 1);
   await revs.load("acme");
   assert.equal(asked.filter(c => c === "project_branches").length, 2, "a later load reads again");
+});
+
+test("kept branches show at once and a read replaces them in the cache", async () => {
+  const asked: string[] = [];
+  const invoke = (async (cmd: string) => {
+    asked.push(cmd);
+    return cmd === "project_branches" ? { default_branch: "main", branches: [{ name: "new" }] } : [];
+  }) as unknown as ReviewDeps["invoke"];
+  const cache = new PageCache("acct");
+  cache.put("branches", "acme", { branches: { default_branch: "main", branches: [{ name: "old" }] }, reviews: [] });
+  const kept = cache.section<KeptBranches>("branches");
+  const revs = makeReviews({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openTile() {}, kept });
+  assert.deepEqual(revs.branches("acme")?.branches.map(b => b.name), ["old"]);
+  revs.ensure("acme");
+  assert.equal(asked.length, 0, "a fresh cache is not read again");
+  await revs.load("acme");
+  assert.deepEqual(kept.get("acme")?.branches?.branches.map(b => b.name), ["new"]);
 });
