@@ -4,6 +4,7 @@ mod add_machine;
 mod agent_accounts;
 mod agents;
 mod apps;
+mod artifacts;
 mod audio;
 mod bar;
 mod beep;
@@ -112,6 +113,10 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec![LOGIN_ARG]),
         ))
+        .manage(artifacts::Pages::default())
+        .register_uri_scheme_protocol(artifacts::SCHEME, |ctx, request| {
+            artifacts::serve(&ctx.app_handle().state::<artifacts::Pages>(), &request)
+        })
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
             // Only the bar is a popover; research windows stay put. Live
@@ -166,6 +171,7 @@ fn main() {
             work_files::agent_tree_text,
             work_files::agent_tree_save,
             work_files::agent_tree_upload,
+            artifacts::agent_artifact,
             custom_agents::custom_agents,
             agents::agent_steer,
             center::open_center,
