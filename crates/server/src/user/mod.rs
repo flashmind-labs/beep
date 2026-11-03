@@ -1045,6 +1045,25 @@ impl User {
         self.store.save_flsh_settings(&self.key, settings).await
     }
 
+    /// Remembers that the device with key `device` started `on`, so its
+    /// alerts go there.
+    pub(crate) async fn record_agent_start(
+        &self,
+        on: crate::store::SessionOn<'_>,
+        device: &EndpointId,
+    ) -> Result<()> {
+        self.store.record_agent_start(&self.key, on, device).await
+    }
+
+    /// The device that started `on`; `None` when no device started it
+    /// through Beep.
+    pub(crate) async fn agent_starter(
+        &self,
+        on: crate::store::SessionOn<'_>,
+    ) -> Result<Option<EndpointId>> {
+        self.store.agent_starter(&self.key, on).await
+    }
+
     /// The harnesses the user turned off, on any machine.
     pub(crate) async fn off_harnesses(&self) -> Result<Vec<crate::store::OffHarness>> {
         self.store.off_harnesses(&self.key).await
@@ -1466,6 +1485,12 @@ impl User {
         agent: crate::protocol::AgentAccount,
     ) -> Result<bool> {
         self.store.remove_agent_token(&self.key, agent).await
+    }
+
+    /// Keeps `account` as who the Forgejo credential `id` signs in as;
+    /// `false` when the user has no such one.
+    pub(crate) async fn set_forgejo_account(&self, id: &str, account: &str) -> Result<bool> {
+        self.store.set_forgejo_account(&self.key, id, account).await
     }
 
     /// `false` when the user has no credential `id`.

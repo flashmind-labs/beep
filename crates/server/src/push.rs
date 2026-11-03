@@ -239,9 +239,9 @@ impl Pusher {
                 return;
             }
         };
-        let sends = keys.into_iter().map(|key| {
-            let sent = notice.for_device(&key.kind).clone();
-            self.clone().deliver(key.id, sent)
+        let sends = keys.into_iter().filter_map(|key| {
+            let sent = notice.for_device(&key.id, &key.kind)?.clone();
+            Some(self.clone().deliver(key.id, sent))
         });
         futures::future::join_all(sends).await;
     }

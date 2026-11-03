@@ -56,6 +56,14 @@ export interface GhFlow {
   copied?: boolean;
 }
 
+/// Checking a saved Forgejo token (CheckView): from the server, else from
+/// a machine with teacli. `checking` while it runs.
+export type CredCheck =
+  | { state: "checking" }
+  | { state: "valid"; account: string; machine?: string | null }
+  | { state: "refused"; machine?: string | null; message: string }
+  | { state: "unreachable"; message: string };
+
 /// The row whose token is being typed, as a `data-cred-edit` value names it.
 export type CredEdit =
   | { kind: "github"; id?: string }
@@ -86,6 +94,8 @@ export interface CredState {
   cliError?: { key: string; message: string } | null;
   ghFlow?: GhFlow | null;
   ghAdd?: boolean;
+  /// Checks of Forgejo tokens the server could not check when saved, by id.
+  checks?: Record<string, CredCheck>;
 }
 
 /// A machine as far as the tools it reports.
@@ -347,23 +357,43 @@ interface HostRow extends Partial<RowState> {
   editKey: string;
   offer?: Offer;
   cliKey?: string;
+  check?: CredCheck;
 }
 
 /// One git host: icon, name and login, then where its CLI is.
-function hostRow(esc: Esc, { icon, name, cred, cli, machines, editKey, offer, cliKey, busy, error }: HostRow) {
+function hostRow(esc: Esc, { icon, name, cred, cli, machines, editKey, offer, cliKey, busy, error, check }: HostRow) {
   const usable = !!cred && !cred.unreadable;
-  const unchecked = usable && !cred.account;
-  const account = usable ? (cred.account ? `@${cred.account}` : "") : offer?.account ?? "";
+  const login = cred?.account || (check?.state === "valid" ? check.account : "");
+  const account = usable ? (login ? `@${login}` : "") : offer?.account ?? "";
   const use = cliKey && !usable ? useButton(esc, cliKey, `Use ${cli} sign-in`, !!busy) : "";
   const acts = cred
     ? use + editRemove(esc, name, editKey, cred.id)
     : offer?.acts ?? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
   const chips = (cred?.unreadable ? chip(esc, "Re-enter this token", "", "err") : "")
-    + (unchecked ? chip(esc, "not checked: the server could not reach it", "", "warn") : "")
+    + (usable ? checkChip(esc, name, !!cred.account, check) : "")
     + cliChip(esc, cli, machines);
   const help = !usable && offer?.help ? note(offer.help) : "";
   const body = !usable && offer?.body ? offer.body : "";
+  if (usable && check?.state === "refused") error = error || check.message;
   return gitRow(esc, { icon, name, account, usable, acts, chips, more: help + body + rowError(esc, error) });
+}
+
+/// What a saved Forgejo token's check says, as one chip: where it was
+/// checked from, that it is being checked, or why it could not be. A token
+/// with an account and no check of its own needs none.
+export function checkChip(esc: Esc, host: string, known: boolean, check: CredCheck | undefined) {
+  switch (check?.state) {
+    case "checking":
+      return chip(esc, "checking from your machines…");
+    case "valid":
+      return check.machine ? chip(esc, `checked from ${check.machine}`, `The server cannot reach ${host}; ${check.machine} can`) : "";
+    case "refused":
+      return chip(esc, "token refused", check.message, "err");
+    case "unreachable":
+      return chip(esc, "not reachable from the server or your machines", check.message, "warn");
+    default:
+      return known ? "" : chip(esc, "not checked: the server could not reach it", "", "warn");
+  }
 }
 
 /// One provider's API key row.
@@ -502,7 +532,7 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
     const key = `forgejo:${c.url}`;
     html += e?.kind === "forgejo" && e.id === c.id
       ? form(state, esc, { title: hostOf(c.url), url: "Replace the token", noteHtml: page ? `Make one at ${link(esc, page, hostOf(page))}, with repository and issue access.` : undefined })
-      : hostRow(esc, { icon: FORGEJO_ICON, name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}`, cliKey: teaHas(cli, c.url) ? key : "", ...rowState(key) });
+      : hostRow(esc, { icon: FORGEJO_ICON, name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}`, cliKey: teaHas(cli, c.url) ? key : "", check: state.checks?.[c.id], ...rowState(key) });
   }
   // Servers teacli here has a token for that Beep does not have yet.
   for (const s of teaOffers(cli, list)) {

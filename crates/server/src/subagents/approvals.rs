@@ -6,7 +6,7 @@
 //! waiting.
 
 use crate::{
-    app::UserNotice,
+    app::{Reach, UserNotice},
     permissions,
     protocol::{Approval, ApprovalDecision, Notice, PendingApproval},
     store::ChatAllow,
@@ -75,6 +75,7 @@ impl Approvals {
             user: asked.user,
             notice: Notice::resolved(asked.chat.to_string(), question),
             desktop: None,
+            to: Reach::Everyone,
         });
     }
 
@@ -165,6 +166,7 @@ impl Approvals {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         });
         let asked = Asked {
             approvals: self.clone(),

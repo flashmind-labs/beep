@@ -94,6 +94,7 @@ const MOVED: &[(&str, &[&str])] = &[
     ("harness_settings", &["machine_id", "agent"]),
     ("plan_usage", &["agent"]),
     ("agent_images", &["key"]),
+    ("agent_session_starts", &[]),
     ("researches", &[]),
     ("chat_allows", &[]),
     ("finding_sightings", &[]),

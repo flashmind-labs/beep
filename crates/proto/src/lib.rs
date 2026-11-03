@@ -1348,6 +1348,13 @@ requests! {
     /// such project; `BadRequest` saying why when no machine with a
     /// checkout is online or the node refuses.
     381 GetBranchDiff { project: String, branch: String, only: Vec<String>, lockfiles: bool } => Call<WorkDiff>
+    /// Checks the caller's saved Forgejo or Gitea token `id` (a
+    /// `Credential::id`) from where its server can be reached: Beep's
+    /// server when it can reach it, else the caller's online machines with
+    /// teacli, which hold the token in teacli's config. A login found is
+    /// kept as the credential's `account`. `NotFound` when the caller has
+    /// no such Forgejo credential.
+    382 CheckCredential { id: String } => Call<CredentialCheck>
 }
 
 /// One machine's settings for a harness (`ListHarnessSettings`).
@@ -2900,6 +2907,19 @@ pub struct Credential {
     /// The server can no longer open it; the user has to enter it again.
     /// Machines do not get it.
     pub unreadable: bool,
+}
+
+wire_enum! {
+    /// What `CheckCredential` found. `machine` is the name of the machine
+    /// that reached the server, `None` when Beep's server did. `message`
+    /// says what happened, for the user.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum CredentialCheck {
+        0 Valid { account: String, machine: Option<String> }
+        1 Refused { machine: Option<String>, message: String }
+        2 Unreachable { message: String }
+    }
 }
 
 wire_enum! {

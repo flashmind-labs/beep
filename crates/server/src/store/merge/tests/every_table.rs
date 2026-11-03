@@ -87,6 +87,8 @@ const BOTH: &[&str] = &[
      VALUES ('file-{t}', $1, 'a.png', 'image/png', decode('00', 'hex'))",
     "INSERT INTO agent_images (user_id, key, file_id, machine_id, session)
      VALUES ($1, 'same', 'file-{t}', 'm', 's')",
+    "INSERT INTO agent_session_starts (user_id, machine, agent, session, device)
+     VALUES ($1, 'm', 'claude', 's-{t}', 'd-{t}')",
     "INSERT INTO agent_model_usage (user_id, day, agent, model, tokens)
      VALUES ($1, '2026-01-01', 'claude', 'opus', 5)",
     "INSERT INTO agent_session_usage

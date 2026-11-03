@@ -4,6 +4,7 @@
 use crate::app::App;
 use std::sync::Arc;
 
+pub(crate) use commands::{CommandOutput, Shell, parse_login, quote};
 pub(crate) use lifecycle::finish_task;
 pub(crate) use service::Handled;
 pub use service::Projects;

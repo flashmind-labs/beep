@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use beep_server::{
-    app::{App, ServerTools, UserNotice},
+    app::{App, Reach, ServerTools, UserNotice},
     client::{Client, Node, OnNotice, Replies},
     cron,
     models::ModelChoices,
@@ -250,6 +250,7 @@ impl Harness {
                 group: false,
             },
             desktop: None,
+            to: Reach::Everyone,
         };
         self.app.notifications.send(notice).unwrap();
     }
@@ -1254,6 +1255,7 @@ async fn a_computer_gets_the_notice_meant_for_computers() {
                 session_id: key.into(),
                 ..plain.clone()
             }),
+            to: Reach::Everyone,
         })
         .unwrap();
     assert_eq!(next_titled(&mut phone_notices, title).await, plain);
@@ -1262,6 +1264,22 @@ async fn a_computer_gets_the_notice_meant_for_computers() {
         key,
         "the computer can open the session"
     );
+
+    // One meant for the computer alone reaches it.
+    let only = "Claude Code on build-box asks";
+    h.app
+        .notifications
+        .send(UserNotice {
+            user: h.alice_id.clone(),
+            notice: Notice {
+                title: only.into(),
+                ..plain.clone()
+            },
+            desktop: None,
+            to: Reach::Device(macbook().public()),
+        })
+        .unwrap();
+    assert_eq!(next_titled(&mut desk_notices, only).await.title, only);
 }
 
 #[tokio::test]
