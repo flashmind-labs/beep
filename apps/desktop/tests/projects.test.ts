@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/home.ts";
 import type { ProjectRow } from "../src/projects-state.ts";
-import { START, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderOn, withSyncthing } from "../src/projects-state.ts";
+import { START, importRoot, folderUnder, next, looksLikeRepo, machineChips, mergeProjects, filterProjects, progressText, doneText, cleanError, present, repoFromRemote, defaultFolder, folderNote, folderHelp, agentLabel, foundSessions, importPlan, lookingText, runningIn, pastSessions, nextSessions, openOnLabel, whereRows, whereCount, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupPath, inGroupPath, groupOf, addGroupFolder, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderOn, withSyncthing } from "../src/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -374,4 +374,12 @@ test("Where it lives keeps the same order whatever order machines arrive in", ()
   const names = (rows: { name: string }[]) => rows.map(r => r.name);
   assert.deepEqual(names(whereRows({ machines: [] }, a as any, null)), ["build-box", "devbox", "Laptop"]);
   assert.deepEqual(names(whereRows({ machines: [] }, [...a].reverse() as any, null)), ["build-box", "devbox", "Laptop"]);
+});
+
+test("the next import goes under the folder the last one went under", () => {
+  assert.equal(importRoot("/srv/projects/acme/widget", "acme/widget"), "/srv/projects");
+  assert.equal(importRoot("/srv/code/widget/", "acme/widget"), "/srv/code");
+  assert.equal(folderUnder("/srv/projects/", "n0-computer/iroh"), "/srv/projects/n0-computer/iroh");
+  assert.equal(folderUnder("/srv/projects", "https://git.example.com/acme/relay.git"), "/srv/projects/acme/relay");
+  assert.equal(folderUnder("/srv/projects", "nope"), null);
 });
