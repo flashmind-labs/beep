@@ -465,7 +465,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
     assert_eq!(sessions[0].agent, "fake");
-    let (entries, earlier) = live.transcript(&id, 100).await.unwrap();
+    let (entries, earlier) = live.transcript(&id, 100, false).await.unwrap();
     assert_eq!(earlier, 0);
     assert_eq!(entries[0].kind, EntryKind::User);
     assert_eq!(entries[0].text, "please pick the notes");
@@ -482,7 +482,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
                 && entry.text == "Allowed: Edit notes.txt"),
         "{entries:?}"
     );
-    let (last, earlier) = live.transcript(&id, 2).await.unwrap();
+    let (last, earlier) = live.transcript(&id, 2, false).await.unwrap();
     assert_eq!(last.len(), 2);
     assert_eq!(earlier as usize, entries.len() - 2);
 
@@ -1268,13 +1268,15 @@ impl Protocol for FakeSessions {
                 (SessionsRequest::List {}, _) => SessionsReply::Sessions {
                     sessions: fake.sessions.clone(),
                 },
-                (SessionsRequest::Transcript { session, last }, _) => SessionsReply::Transcript {
-                    entries: vec![Entry {
-                        kind: EntryKind::Agent,
-                        text: format!("{session}: the last {last}"),
-                    }],
-                    earlier: 4,
-                },
+                (SessionsRequest::Transcript { session, last, .. }, _) => {
+                    SessionsReply::Transcript {
+                        entries: vec![Entry::new(
+                            EntryKind::Agent,
+                            format!("{session}: the last {last}"),
+                        )],
+                        earlier: 4,
+                    }
+                }
                 (SessionsRequest::External { agent, .. }, Some(external)) => {
                     SessionsReply::External {
                         sessions: external

@@ -2,7 +2,7 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { closedPicker, drawPicker, type Picked, pillInner, preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, duration, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, type Turn, type TurnState } from "../agentturns.ts";
+import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, thoughtTail, toolKind, type ToolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "../agentturns.ts";
 import { fileBase64 } from "./attach.ts";
 import { renderChat } from "./chat.ts";
 import { composeField, composeMessage } from "./compose.ts";
@@ -65,11 +65,13 @@ export interface AgentHost {
   capabilities: string[];
 }
 
-/// One line of a session's log. Only the agent's own have `html`.
+/// One line of a session's log. Only the agent's own and its thoughts
+/// have `html`; a thought that ended has `ms`.
 export interface AgentEntry {
   kind: string;
   text: string;
   html?: string;
+  ms?: number | null;
 }
 
 /// One session in full, as `agent_view` returns it.
@@ -545,7 +547,7 @@ export function drawAgentFrame() {
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
   b.stuck = true;
-  b.onscroll = () => { b.stuck = atBottom(b); };
+  b.onscroll = () => { b.stuck = atBottom(b); syncJump(b); };
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;
@@ -572,6 +574,33 @@ function agentClick(e: MouseEvent) {
     return drawAgentBody(clickedRow(all));
   }
   if (target.closest("#agbody pre.out.all")) return;
+  // A run of calls opens and folds in place, like a thought.
+  const runBtn = target.closest<HTMLElement>("#agbody [data-run]");
+  if (runBtn && AG.open) {
+    const opened = turnsOf(AG.open.session).runs, at = Number(runBtn.dataset.run);
+    const open = !opened.delete(at);
+    if (open) opened.add(at);
+    runBtn.parentElement?.classList.toggle("open", open);
+    runBtn.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  const copy = target.closest<HTMLElement>("#agbody [data-copy]");
+  if (copy) {
+    const code = copy.parentElement?.querySelector("code")?.textContent ?? "";
+    navigator.clipboard.writeText(code).then(() => { copy.textContent = "Copied"; setTimeout(() => { copy.textContent = "Copy"; }, 1200); }).catch(console.warn);
+    return;
+  }
+  if (target.closest("#agjump")) { jumpToLatest(); return; }
+  // A thought opens and folds in place, so only it animates.
+  const thought = target.closest<HTMLElement>("#agbody [data-thought]");
+  if (thought && AG.open) {
+    const opened = turnsOf(AG.open.session).thoughts, at = Number(thought.dataset.thought);
+    const open = !opened.delete(at);
+    if (open) opened.add(at);
+    thought.parentElement?.classList.toggle("open", open);
+    thought.setAttribute("aria-expanded", String(open));
+    return;
+  }
   // A finished turn's heading or folded line opens its steps; the heading folds them again.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
   if (turn && AG.open) {
@@ -603,7 +632,7 @@ function agentClick(e: MouseEvent) {
   const art = target.closest<HTMLElement>("#agbody [data-artifact]");
   if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
-  if (tool && !getSelection()!.toString()) {
+  if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd")) {
     const at = Number(tool.dataset.at);
     if (!AG.opened.delete(at)) AG.opened.add(at);
     return drawAgentBody(clickedRow(tool));
@@ -674,12 +703,47 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
   const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
-  const head = beep ? beepHead(beep, title, state, live)
-    : `<code class="tt" title="${esc(commandOf(title))}">${esc(label)}</code>`
-      + (failed ? `<span class="exit">${exit != null ? `exit ${exit}` : "failed"}</span>` : "");
-  return `<div class="dcoderen tool${beep ? " beep" : ""}${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-    + `<span class="mk">${stepMark(status)}</span>${head}`
-    + mediaButtons(title) + body + pics + "</div>";
+  if (beep) {
+    return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
+      + `<span class="mk">${stepMark(status)}</span>${beepHead(beep, title, state, live)}`
+      + mediaButtons(title) + body + pics + "</div>";
+  }
+  const parts = rowParts(en.text, live);
+  const rowBody = !open ? "" : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "") + toolBody(output);
+  const tip = esc(commandOf(title));
+  return `<div class="dcoderen tool row${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
+    + `<span class="ki">${KIND_ICONS[parts.kind]}</span><span class="vb">${esc(parts.verb)}</span>`
+    + `<code class="tt" title="${tip}">${esc(open && long ? label : parts.target)}</code>`
+    + `<span class="rm${parts.bad ? " bad" : ""}">${detailHtml(parts.detail)}</span><span class="mk">${stepMark(status)}</span>`
+    + mediaButtons(title) + rowBody + pics + "</div>";
+}
+
+/// An icon for each kind of call, in the row before its verb.
+const KIND_ICONS: Record<ToolKind, string> = {
+  read: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h4"/></svg>',
+  edit: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  command: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l5 5-5 5M12 17h7"/></svg>',
+  search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>',
+  web: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>',
+  mcp: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"/></svg>',
+  beep: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>',
+  other: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>',
+};
+
+/// The right side of a row: an edit's counts in green and red.
+function detailHtml(detail: string) {
+  const counts = /^\+(\d+) -(\d+)$/.exec(detail);
+  return counts ? `<span class="pl">+${counts[1]}</span><span class="mi">-${counts[2]}</span>` : esc(detail);
+}
+
+/// What an opened call shows: each diff as its changed lines, then the
+/// rest of its output in a mono box that scrolls.
+function toolBody(output: string) {
+  const diffs = diffBlocks(output).map(d => `<div class="ddiff"><div class="dh">${esc(d.path)}</div>`
+    + d.lines.map(l => `<div class="${l.mark === "+" ? "da" : l.mark === "-" ? "dr" : "dc"}">${esc(l.mark + l.text) || " "}</div>`).join("")
+    + (d.more ? `<div class="dm">${d.more} more lines</div>` : "") + "</div>").join("");
+  const rest = diffs ? withoutDiffs(output) : output;
+  return diffs + (rest ? `<pre class="out box">${esc(rest)}</pre>` : "");
 }
 
 const BEEP_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>';
@@ -781,8 +845,37 @@ function entryPic(n: string) {
   return gonePic(label);
 }
 
+/// A reply's code blocks, each with a button that copies it.
+function withCopy(html: string) {
+  return html.replace(/<pre(\s[^>]*)?>/g, (m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
+}
+
+/// The thought still arriving, by its place, which shows "Thinking" with
+/// its newest line; set by each draw of the turns.
+let liveAt: number | null = null;
+
+/// How long the "Thinking" sweep takes, as in the CSS.
+const SWEEP_MS = 1800;
+
+/// A thought as one line that opens to its text. The sweep keeps its
+/// phase across redraws, so a poll does not restart it, and an opened
+/// thought stays open, by its place in the session.
+function thoughtRow(en: AgentEntry, at: number) {
+  const live = at === liveAt;
+  const open = !!AG.open && turnsOf(AG.open.session).thoughts.has(at);
+  const label = live ? "Thinking" : thoughtLabel(en.ms);
+  const tail = live ? thoughtTail(en.text) : "";
+  const phase = live ? ` style="animation-delay:-${Date.now() % SWEEP_MS}ms"` : "";
+  const body = en.html ?? esc(en.text).replace(/\n/g, "<br>");
+  return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}">`
+    + `<button data-thought="${at}" aria-expanded="${open}"><span class="lb"${phase}>${label}</span>`
+    + (tail ? `<span class="ln">${esc(tail)}</span>` : "") + `<span class="cv">${ICON.chev}</span></button>`
+    + `<div class="bd"><div><div class="tx md">${body}</div></div></div></div>`;
+}
+
 export function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
+  if (en.kind === "thought") return thoughtRow(en, at);
   // Codex echoes answered questions as a message: show them as answered.
   const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
@@ -799,7 +892,7 @@ export function entryRow(en: AgentEntry, at: number) {
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
   // Image files the reply names link to its pictures, shown in a strip.
   const linked = (html: string) => AG.log ? AG.log.linkImagePaths(html).html : html;
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${linked(en.html)}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${withCopy(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
 }
@@ -814,13 +907,17 @@ interface TurnMemory {
   ends: Map<number, number>;
   running: number | null;
   opened: Set<number>;
+  /// The thoughts opened to their text.
+  thoughts: Set<number>;
+  /// The runs of calls opened, by their first call.
+  runs: Set<number>;
 }
 
 const turnMemory = new Map<string, TurnMemory>();
 
 function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), runs: new Set() });
   return m;
 }
 
@@ -845,7 +942,9 @@ let newestStep: number | null = null;
 /// worked it out; for the Artifacts tab.
 const turnStarts = new Map<number, number>();
 
-/// Rows for `ats` in order, subagents started one after another as one card.
+/// Rows for `ats` in order: subagents started one after another as one
+/// card, and finished calls of one kind in a row as one line that opens
+/// to them ("Read 6 files").
 function rowsOf(p: AgentPage, ats: number[]) {
   const out: string[] = [];
   let run: number[] = [];
@@ -854,13 +953,28 @@ function rowsOf(p: AgentPage, ats: number[]) {
     return en.kind === "tool" && !!AG.log?.subagent(AG.log.parseTool(en.text).output);
   };
   const flush = () => { if (run.length) out.push(subCard(run)); run = []; };
-  for (const at of ats) {
+  for (const group of AG.log ? toolRuns(p.entries, ats, p.earlier) : ats.map(at => [at])) {
+    if (group.length > 1) { flush(); out.push(runRow(p, group)); continue; }
+    const at = group[0];
     if (isSub(at)) { run.push(at); continue; }
     flush();
     out.push(entryRow(p.entries[at - p.earlier], at));
   }
   flush();
   return out.join("");
+}
+
+/// Calls of one kind in a row as one line, the first few targets beside
+/// it; it opens in place, and stays open across redraws.
+function runRow(p: AgentPage, ats: number[]) {
+  const en = (at: number) => p.entries[at - p.earlier];
+  const kind = toolKind(en(ats[0]).text);
+  const names = ats.map(at => rowParts(en(at).text).target.split("/").pop() || "").filter(Boolean);
+  const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
+  const open = !!AG.open && turnsOf(AG.open.session).runs.has(ats[0]);
+  return `<div class="dtrun${open ? " open" : ""}" data-row="${ats[0]}"><button data-run="${ats[0]}" aria-expanded="${open}">`
+    + `<span class="ki">${KIND_ICONS[kind]}</span><span class="vb">${esc(runLabel(kind, ats.length))}</span><span class="sm">${esc(shown)}</span><span class="cv">${ICON.chev}</span></button>`
+    + `<div class="bd"><div><div class="in">${ats.map(at => entryRow(en(at), at)).join("")}</div></div></div></div>`;
 }
 
 /// The log in turns: each message, then a heading with how long the agent
@@ -877,6 +991,7 @@ function turnsHtml(p: AgentPage) {
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
+  liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   return turns.map(t => {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
@@ -892,7 +1007,9 @@ function turnsHtml(p: AgentPage) {
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
     const opened = m.opened.has(t.key);
-    const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`;
+    const stats = turnStats(p.entries, t, p.earlier);
+    const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`
+      + (stats ? `<span class="stats">· ${esc(stats)}</span>` : "");
     const head = `<div class="dcoderturn">`
       + (!t.steps.length ? `<span class="hd">${label}</span>`
         : `<button class="hd${opened ? " open" : ""}" data-turn="${t.key}" aria-expanded="${opened}">${label}${ICON.chev}</button>`)
@@ -905,6 +1022,9 @@ function turnsHtml(p: AgentPage) {
     else {
       const kept = new Set(keptSteps(p.entries, t, p.earlier));
       if (newest != null) kept.add(newest);
+      // While it runs, the thoughts since the newest step stay in view.
+      if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
+      keptThoughts(p.entries, t, kept, p.earlier);
       const folding = t.steps.filter(at => !kept.has(at));
       // Pictures the folded steps looked at show small under the line.
       const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
@@ -917,8 +1037,12 @@ function turnsHtml(p: AgentPage) {
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
     const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
-    const thought = running && state === "working" && doing && doing !== shownTitle
-      ? `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing === "Thinking" ? "Thinking…" : doing)}</div>` : "";
+    const thought = running && state === "working" && doing && doing !== shownTitle && liveAt == null
+      // A thought without text yet (or one the agent keeps to itself) sweeps
+      // like one that has it, with nothing to open.
+      ? doing === "Thinking"
+        ? `<div class="dthink live"><span class="lb" style="animation-delay:-${Date.now() % SWEEP_MS}ms">Thinking</span></div>`
+        : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
     return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
 }
@@ -1011,13 +1135,14 @@ export function drawAgentBody(keep?: string) {
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
   const entries = child != null ? childHtml(p, child) : p.entries.length && AG.log ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
-  const err = p.error ? `<div class="derr">${esc(p.error)}</div>` : "";
+  const err = p.error ? `<div class="derrcard"><b>The turn did not finish</b><span>${esc(p.error)}</span></div>` : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? subagentsShown(p) : [];
-  b.innerHTML = `<div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>`;
+  b.innerHTML = `<div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>`
+    + `<button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);
@@ -1038,6 +1163,24 @@ export function drawAgentBody(keep?: string) {
   // A row opened at the bottom pushes the bottom away: the log follows
   // new entries again once the reader scrolls back down.
   if (keep != null) b.stuck = atBottom(b);
+  syncJump(b);
+}
+
+const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
+
+/// Shows "Jump to latest" while the log is scrolled up from the bottom.
+function syncJump(b: ChatBody) {
+  const jump = b.querySelector<HTMLElement>("#agjump");
+  if (jump) jump.hidden = b.stuck !== false || atBottom(b);
+}
+
+/// Scrolls the log to its newest entry, which it follows again from there.
+function jumpToLatest() {
+  const b = $<ChatBody>("#agbody");
+  if (!b) return;
+  b.stuck = true;
+  b.scrollTo({ top: b.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  syncJump(b);
 }
 
 // ----- Model and thinking -----

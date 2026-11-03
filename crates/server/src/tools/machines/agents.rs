@@ -136,7 +136,7 @@ pub(crate) async fn run(
         Order::Close { id } => call.stop(&id, false).await,
         Order::Transcript { id, last } => {
             let (entries, earlier) = online
-                .transcript(&id, last)
+                .transcript(&id, last, false)
                 .await
                 .map_err(|e| format!("Could not read the transcript: {e:#}"))?;
             let mut out = String::new();

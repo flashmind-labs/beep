@@ -478,11 +478,17 @@ impl Online {
     }
 
     /// The last `last` transcript entries of `session` and how many came
-    /// before them.
-    pub async fn transcript(&self, session: &str, last: u32) -> Result<(Vec<Entry>, u32)> {
+    /// before them; the agent's thoughts among them only when `thoughts`.
+    pub async fn transcript(
+        &self,
+        session: &str,
+        last: u32,
+        thoughts: bool,
+    ) -> Result<(Vec<Entry>, u32)> {
         let request = SessionsRequest::Transcript {
             session: session.to_owned(),
             last,
+            thoughts,
         };
         match self.sessions_request(request).await? {
             SessionsReply::Transcript { entries, earlier } => Ok((entries, earlier)),

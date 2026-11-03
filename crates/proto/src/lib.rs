@@ -3534,8 +3534,10 @@ pub struct AgentEntry {
 }
 
 wire_enum! {
-    /// Who an entry is from: a prompt, the agent's text, a tool call, or a
-    /// permission question and its answer.
+    /// Who an entry is from: a prompt, the agent's text, a tool call, a
+    /// permission question and its answer, or what the agent thought and
+    /// for how many milliseconds (`None` while it still thinks, or when
+    /// that is not known).
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "lowercase")]
     #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
@@ -3545,6 +3547,7 @@ wire_enum! {
         2 Tool {}
         3 Question {}
         4 Other {}
+        5 Thought { ms: Option<u64> } since THOUGHTS
     }
 }
 
