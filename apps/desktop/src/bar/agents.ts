@@ -882,7 +882,7 @@ let liveAt: number | null = null;
 let thinking = false;
 
 /// How long one pass of the "Thinking" letters takes, as in the CSS.
-const SWEEP_MS = 2400;
+const SWEEP_MS = 1500;
 
 /// "Thinking", its letters lit one after another in a loop that keeps
 /// its phase across redraws, so a poll does not restart it.
