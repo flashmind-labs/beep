@@ -1,38 +1,50 @@
-// The thought a coding agent streams, shown open with a karaoke band on its
-// newest words. The log is drawn again on every read of the session, so
-// what was revealed is kept here, by session and entry, and put back on
-// each draw; between reads, one animation frame loop reveals the rest.
+// The thought a coding agent streams, shown open with a karaoke band
+// reading it letter by letter. The log is drawn again on every read of the
+// session, so how far the band read is kept here, by session and entry,
+// and put back on each draw; between reads, one animation frame loop
+// moves it on.
 
-import { BAND, firstShown, keptShown, liveText, reveal, splitBand } from "../karaoke.ts";
+import { BAND, keptShown, liveText, reveal, splitBand } from "../karaoke.ts";
 import { esc } from "./core.ts";
 
 interface Shown {
   text: string;
-  /// Characters revealed, fractional between frames.
+  /// Characters read, fractional between frames.
   shown: number;
+  /// The thought ended: once read through, it folds.
+  ended: boolean;
   /// It follows the newest text, until the reader scrolls it.
   follow: boolean;
 }
 
 const shown = new Map<string, Shown>();
 let frame = 0, last = 0;
+/// Draws the session again, for an ended thought read through.
+let readThrough = () => {};
 
 function still() {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/// The live thought `key`'s text: the muted part and the band. `md` is all
-/// it has so far.
-export function karaokeHtml(key: string, md: string) {
+/// The live thought `key`'s text: what was read, the band and the rest.
+/// `md` is all it has so far, all of it once it `ended`.
+export function karaokeHtml(key: string, md: string, ended: boolean) {
   const text = liveText(md);
   let s = shown.get(key);
-  if (!s) shown.set(key, s = { text, shown: still() ? text.length : firstShown(text.length), follow: true });
+  if (!s) shown.set(key, s = { text, shown: still() ? text.length : 0, ended, follow: true });
   else {
     s.shown = keptShown(s.text, text, s.shown);
     s.text = text;
+    s.ended = ended;
   }
-  const { old, lit } = splitBand(s.text, s.shown, still() ? 0 : BAND);
-  return `<div class="kk" data-kk="${esc(key)}"><span class="o">${esc(old)}</span><span class="n">${esc(lit)}</span></div>`;
+  const { old, lit, rest } = splitBand(s.text, s.shown, still() ? 0 : BAND);
+  return `<div class="kk" data-kk="${esc(key)}"><span class="o">${esc(old)}</span><span class="n">${esc(lit)}</span><span class="u">${esc(rest)}</span></div>`;
+}
+
+/// Whether thought `key` is still to be read: not read through yet.
+export function reading(key: string) {
+  const s = shown.get(key);
+  return !still() && (!s || s.shown < s.text.length);
 }
 
 /// A thought that just ended, as its live view last was, all of it shown,
@@ -51,8 +63,10 @@ function fit(el: HTMLElement, follow: boolean) {
 
 /// Wires the live thoughts just drawn under `root`: each follows its
 /// newest line until the reader scrolls it, which `touched` hears of; a
-/// thought that ended folds now. Forgets thoughts no longer drawn.
-export function attachKaraoke(root: HTMLElement, touched: (key: string) => void) {
+/// thought that ended folds now, and `done` draws again once an ended
+/// one is read through. Forgets thoughts no longer drawn.
+export function attachKaraoke(root: HTMLElement, touched: (key: string) => void, done: () => void) {
+  readThrough = done;
   const drawn = new Set<string>();
   for (const el of root.querySelectorAll<HTMLElement>(".kk[data-kk]")) {
     const key = el.dataset.kk ?? "", s = shown.get(key);
@@ -82,7 +96,7 @@ export function attachKaraoke(root: HTMLElement, touched: (key: string) => void)
   }
 }
 
-/// Reveals the live thoughts a frame further; stops once none is drawn.
+/// Reads the live thoughts a frame further; stops once none is drawn.
 function tick(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
@@ -90,17 +104,21 @@ function tick(now: number) {
   frame = 0;
   if (!els.length) return;
   const calm = still();
+  let through = false;
   for (const el of els) {
     const s = shown.get(el.dataset.kk ?? "");
     if (!s || s.shown >= s.text.length) continue;
     const before = Math.floor(s.shown);
     s.shown = reveal(s.shown, s.text.length, dt, calm);
     if (Math.floor(s.shown) === before) continue;
-    const { old, lit } = splitBand(s.text, s.shown, calm ? 0 : BAND);
-    const [o, n] = el.children;
+    const { old, lit, rest } = splitBand(s.text, s.shown, calm ? 0 : BAND);
+    const [o, n, u] = el.children;
     if (o) o.textContent = old;
     if (n) n.textContent = lit;
+    if (u) u.textContent = rest;
     fit(el, s.follow);
+    if (s.ended && s.shown >= s.text.length) through = true;
   }
   frame = requestAnimationFrame(tick);
+  if (through) readThrough();
 }

@@ -16,7 +16,7 @@ import { collectArtifacts, toolArtifacts } from "../artifacts-state.ts";
 import { cap } from "./tools.ts";
 import { withMentions } from "../files-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "../logscroll.ts";
-import { attachKaraoke, endedHtml, karaokeHtml } from "./thoughtlive.ts";
+import { attachKaraoke, endedHtml, karaokeHtml, reading } from "./thoughtlive.ts";
 import { MN, mentionChips, resetMentions, takeMentions, wireMentionChips } from "./workdrop.ts";
 
 // ---------- Coding agents ----------
@@ -227,6 +227,8 @@ export const agentImages = new Map<string, Promise<string | null> | string | nul
 let pastedCount = 0;
 /// How often the session view asks for its session while on screen.
 export const AGENT_POLL_MS = 1500;
+/// How often while a thought streams, so its letters arrive nearly live.
+export const AGENT_THINK_POLL_MS = 300;
 /// How often while a stopped turn has not ended yet.
 export const AGENT_STOP_POLL_MS = 400;
 /// A quiet session (idle, or started outside Beep) unchanged this long is
@@ -316,6 +318,7 @@ export const agentOnScreen = () => document.visibilityState === "visible" && !AG
 export function agentDelay() {
   const s = AG.page?.session;
   if (!s || s.status === "ended") return null;
+  if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
   // Once stopped, the turn ending shows as soon as it does.
   if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
   const still = Date.now() - AG.changed;
@@ -873,9 +876,12 @@ function withCopy(html: string) {
   return html.replace(/<pre(\s[^>]*)?>/g, (m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
 }
 
-/// The thought still arriving, by its place, which shows "Thinking" with
-/// its newest line; set by each draw of the turns.
+/// The thought still arriving, or one that ended still being read, by its
+/// place, which shows "Thinking" with its karaoke band; set by each draw
+/// of the turns.
 let liveAt: number | null = null;
+/// The running turn thinks: a thought streams or is about to.
+let thinking = false;
 
 /// How long the "Thinking" sweep takes, as in the CSS.
 const SWEEP_MS = 1800;
@@ -894,7 +900,7 @@ function thoughtRow(en: AgentEntry, at: number) {
   const label = live ? "Thinking" : thoughtLabel(en.ms);
   const phase = live ? ` style="animation-delay:-${Date.now() % SWEEP_MS}ms"` : "";
   const key = `${session}:${at}`;
-  const body = live ? `<div class="tx">${karaokeHtml(key, en.text)}</div>`
+  const body = live ? `<div class="tx">${karaokeHtml(key, en.text, en.ms != null)}</div>`
     : folding ? `<div class="tx">${endedHtml(key, en.text)}</div>`
     : `<div class="tx md">${en.html ?? esc(en.text).replace(/\n/g, "<br>")}</div>`;
   return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}"${folding ? " data-folding" : ""}>`
@@ -943,6 +949,9 @@ interface TurnMemory {
   touched: Set<number>;
   /// The thought streaming at the last draw.
   wasLive: number | null;
+  /// How many entries the last draw had, so a thought that came whole
+  /// since is read before it folds.
+  seen: number | null;
   /// The runs of calls opened, by their first call.
   runs: Set<number>;
 }
@@ -951,7 +960,7 @@ const turnMemory = new Map<string, TurnMemory>();
 
 function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, runs: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, seen: null, runs: new Set() });
   return m;
 }
 
@@ -1017,13 +1026,21 @@ function runRow(p: AgentPage, ats: number[]) {
 function turnsHtml(p: AgentPage) {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   newestStep = null;
+  thinking = false;
   turnStarts.clear();
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
-  liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
+  // The thought streaming, else the newest one that came since the last
+  // draw, while the band has not read it through.
+  const open = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
+  const steps = active && lastTurn ? lastTurn.steps : [];
+  const newThought = steps.findLast(at => at >= (m.seen ?? Infinity) && entry(at).kind === "thought");
+  const at = open ?? newThought ?? m.wasLive;
+  liveAt = at != null && steps.includes(at) && (at === open || reading(`${AG.open?.session ?? ""}:${at}`)) ? at : null;
+  m.seen = p.earlier + p.entries.length;
   const html = turns.map(t => {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
@@ -1049,6 +1066,7 @@ function turnsHtml(p: AgentPage) {
       if (newest != null) kept.add(newest);
       // While it runs, the thoughts since the newest step stay in view.
       if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
+      if (running && liveAt != null) kept.add(liveAt);
       // So do the thoughts just before it: one that ended folds to its
       // line in place instead of going into the heading.
       if (running && newest != null) {
@@ -1072,6 +1090,7 @@ function turnsHtml(p: AgentPage) {
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
+    if (running) thinking = liveAt != null || doing === "Thinking";
     const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
     const thought = running && state === "working" && doing && doing !== shownTitle && liveAt == null
       // A thought without text yet (or one the agent keeps to itself) sweeps
@@ -1186,7 +1205,7 @@ export function drawAgentBody(keep?: string) {
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);
-  attachKaraoke(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
+  attachKaraoke(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); }, () => drawAgentBody());
   drawModelPill();
   drawQueue();
   tickTurns();
