@@ -146,7 +146,7 @@ type SentImage = { name: string; mime: string; data: string };
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
 type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
-  | { cancel: null } | { close: null } | { configure: { model: string | null; effort: string | null } };
+  | { cancel: null } | { configure: { model: string | null; effort: string | null } };
 
 interface AgentState {
   readError: string;
@@ -555,7 +555,7 @@ export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${STOP_MARK}Stop</button><button class="dbtn quiet" id="agclose">Close</button></div><div id="agpickm"></div>`;
+    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${STOP_MARK}Stop</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
@@ -675,7 +675,6 @@ function agentClick(e: MouseEvent) {
   if (target.closest("#agparent2")) return closeChild();
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return void interruptAgent();
-  if (target.closest("#agclose")) return steerAgent({ close: null });
 }
 
 /// A user entry's text and the images it carried: the node writes each
@@ -1213,8 +1212,6 @@ export function drawAgentBody(keep?: string) {
   // An ended session goes on from the field: the next message resumes it.
   const msg = $<HTMLTextAreaElement>("#agmsg"), k = agentKind(s.agent);
   if (msg) msg.placeholder = s.status === "ended" ? `Message ${k.name} to continue` : `Message ${k.name}`;
-  const close = $("#agclose");
-  if (close) close.style.display = s.status === "ended" ? "none" : "";
   // Only a turn that runs can be stopped.
   const stop = $<HTMLButtonElement>("#agstop");
   if (stop) {

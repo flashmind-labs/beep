@@ -126,6 +126,23 @@ pub(super) async fn live_host(cx: &Cx, machine_id: &str) -> Result<Live, ApiErro
         .ok_or(ApiError::NotFound {})
 }
 
+/// `live_host`, waiting up to `RECONNECT_WAIT` for a machine that dropped
+/// its connection lately, as one restarting after an update has.
+pub(super) async fn live_host_back(cx: &Cx, machine_id: &str) -> Result<Live, ApiError> {
+    match live_host(cx, machine_id).await {
+        Err(ApiError::NotFound {}) => {
+            if own_nodes::online(cx, machine_id).is_none()
+                && cx.app.nodes.back_online(machine_id).await.is_some()
+            {
+                live_host(cx, machine_id).await
+            } else {
+                Err(ApiError::NotFound {})
+            }
+        }
+        other => other,
+    }
+}
+
 /// The caller's own machines, like `ListMachines`.
 pub(super) async fn list_agent_hosts(cx: Cx, _: ListAgentHosts) -> Reply<Vec<AgentHost>> {
     Ok(live_hosts(&cx)

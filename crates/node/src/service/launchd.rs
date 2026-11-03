@@ -75,7 +75,7 @@ fn runs(plist: &str, exe: &Path) -> bool {
     plist.contains(&program)
 }
 
-fn plist_path() -> Result<PathBuf> {
+pub(super) fn plist_path() -> Result<PathBuf> {
     Ok(home()?
         .join("Library/LaunchAgents")
         .join(format!("{LABEL}.plist")))
