@@ -235,6 +235,8 @@ sample_struct! {
     GitItems { items, hosts }
     GitHost { host, kind, account, error }
     UsageView { limits, today, harnesses, week }
+    UsageReport { limits, today, week, month }
+    PeriodSpend { total, tokens, projects, harnesses }
     HarnessSpend { agent, cost_usd, tokens, models }
     ModelSpend { model, tokens }
     PlanLimits { agent, plan, machine_name, as_of, windows }
