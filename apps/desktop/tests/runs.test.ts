@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checksText, failedAt, fixPrompt, going, progressText, runChip, runSpan, runTarget, runsCount, span, type RunDetail, type RunJobRow, type RunRow } from "../src/runs.ts";
+import { checksText, failedAt, fixPrompt, going, hostCounts, hostLabel, progressText, runChip, runKey, runSpan, runTarget, runsCount, span, type HostRow, type RunDetail, type RunJobRow, type RunRow } from "../src/runs.ts";
 import { targetCheckout, targetPlan } from "../src/projectbar.ts";
 
 const NOW = 1_800_000_000_000;
@@ -89,4 +89,39 @@ test("Fix this starts on the run's branch, or a new one from the default branch"
   const onMain = runTarget(run({ branch: "main" }), "main");
   assert.deepEqual(onMain, { kind: "issue", number: 409, branch: "fix-run-409", base: "main" });
   assert.deepEqual(targetPlan(onMain), { named_worktree: { base: "main", branch: "fix-run-409" } });
+});
+
+function hostRow(over: Partial<HostRow> = {}): HostRow {
+  return { host: "github.com", kind: "github", repo: "acme/widget", primary: true, synced_at: NOW, error: null, rate_limited_until: null, ...over };
+}
+
+test("runs from two hosts count apart in the heading, a failing host with its error", () => {
+  const hosts = [hostRow(), hostRow({ host: "forge.example.com", kind: "forgejo", repo: "mirrors/widget", primary: false })];
+  const runs = [
+    run({ host: "forge.example.com", id: 77, state: "running" }),
+    run({ host: "github.com", id: 9001, state: "failed" }),
+    run({ host: "github.com", id: 9000, state: "passed" }),
+  ];
+  assert.deepEqual(hostCounts({ runs, hosts }).map(c => c.text), ["GitHub: 1 failed", "Forgejo: 1 running"]);
+  const down = [hosts[0], { ...hosts[1], error: "The server answered 502." }];
+  const counts = hostCounts({ runs: runs.slice(1), hosts: down });
+  assert.deepEqual(counts.map(c => [c.text, c.error]), [["GitHub: 1 failed", false], ["Forgejo: The server answered 502.", true]]);
+  // One host, or a server that reads one: the plain count says it.
+  assert.deepEqual(hostCounts({ runs, hosts: [hosts[0]] }), []);
+  assert.deepEqual(hostCounts({ runs }), []);
+});
+
+test("a run is known by its host and id, as ids repeat across hosts", () => {
+  assert.notEqual(runKey({ id: 77, host: "github.com" }), runKey({ id: 77, host: "forge.example.com" }));
+  assert.equal(runKey({ id: 77 }), runKey({ id: 77, host: null }));
+  assert.equal(hostLabel("github.com"), "GitHub");
+  assert.equal(hostLabel("forge.example.com"), "Forgejo");
+});
+
+test("Fix this on a mirror's run names its host and the tool to read it with", () => {
+  const r = run({ host: "forge.example.com", url: "https://forge.example.com/mirrors/widget/actions/runs/4" });
+  const prompt = fixPrompt({ run: r, jobs: [], log: null });
+  assert.match(prompt, /forge\.example\.com\/mirrors\/widget\/actions\/runs\/4/);
+  assert.match(prompt, /It ran on Forgejo Actions; read it with teacli\./);
+  assert.doesNotMatch(fixPrompt({ run: run(), jobs: [], log: null }), /It ran on/);
 });

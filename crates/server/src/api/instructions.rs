@@ -18,7 +18,8 @@ use std::time::Duration;
 const MAX_TEXT: usize = 16 * 1024;
 /// The longest note.
 const MAX_NOTE: usize = 200;
-/// The most bytes of one agent file read back.
+/// The most bytes of one agent file read back. A longer file is refused,
+/// not cut, so a sync never writes back a shortened copy of it.
 const MAX_FILE: usize = 256 * 1024;
 /// How long reading or writing a machine's files may take.
 const NODE_LIMIT: Duration = Duration::from_secs(20);
@@ -223,13 +224,15 @@ async fn read_files(node: &Online) -> Result<Vec<ReadFile>> {
 /// 0 the agent's folder without it, and `-` neither.
 fn read_script() -> String {
     let files: Vec<&str> = AGENT_FILES.iter().map(|(_, rel)| *rel).collect();
+    let files = files.join(" ");
+    // One byte past the limit, so a longer file shows as one.
+    let limit = MAX_FILE + 1;
     format!(
-        "for f in {}; do \
-           if [ -f \"$HOME/$f\" ]; then printf '@@ %s 1 ' \"$f\"; head -c {MAX_FILE} \"$HOME/$f\" | base64 | tr -d '\\n'; echo; \
+        "for f in {files}; do \
+           if [ -f \"$HOME/$f\" ]; then printf '@@ %s 1 ' \"$f\"; head -c {limit} \"$HOME/$f\" | base64 | tr -d '\\n'; echo; \
            elif [ -d \"$HOME/$(dirname \"$f\")\" ]; then printf '@@ %s 0\\n' \"$f\"; \
            else printf '@@ %s -\\n' \"$f\"; fi; \
-         done",
-        files.join(" ")
+         done"
     )
 }
 
@@ -251,6 +254,13 @@ fn parse_read(output: &str) -> Result<Vec<ReadFile>> {
                 let bytes = STANDARD
                     .decode(parts.next().unwrap_or_default())
                     .with_context(|| format!("~/{rel} came back garbled"))?;
+                if bytes.len() > MAX_FILE {
+                    bail!(
+                        "~/{rel} is over {} KB, more than Beep reads. Shorten it to read or \
+                         write this machine's agent files.",
+                        MAX_FILE / 1024
+                    );
+                }
                 Some(String::from_utf8_lossy(&bytes).into_owned())
             }
             "0" => None,
@@ -364,6 +374,26 @@ mod tests {
         );
         assert!(parse_read("command not found").is_err());
         assert!(parse_read("@@ .claude/CLAUDE.md 1 !!!").is_err());
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_refused_not_cut() {
+        let full = format!(
+            "@@ .claude/CLAUDE.md 1 {}\n",
+            STANDARD.encode("x".repeat(MAX_FILE))
+        );
+        assert!(parse_read(&full).is_ok());
+        let over = format!(
+            "@@ .claude/CLAUDE.md 1 {}\n",
+            STANDARD.encode("x".repeat(MAX_FILE + 1))
+        );
+        let error = parse_read(&over).expect_err("it is refused");
+        assert!(
+            error
+                .to_string()
+                .contains("~/.claude/CLAUDE.md is over 256 KB")
+        );
+        assert!(read_script().contains(&format!("head -c {}", MAX_FILE + 1)));
     }
 
     #[test]

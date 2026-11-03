@@ -22,11 +22,12 @@ use iroh::EndpointId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The longest project name.
-const MAX_NAME: usize = 200;
+pub(crate) const MAX_NAME: usize = 200;
 /// How many machines are asked how they stand at once.
 const ASKING: usize = 8;
 
-fn project_name(name: &str) -> Result<&str, ApiError> {
+/// `name` trimmed, once it is a name a project may have.
+pub(crate) fn project_name(name: &str) -> Result<&str, ApiError> {
     let name = name.trim();
     if name.is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
         return Err(ApiError::bad_request(format!(
