@@ -1,5 +1,4 @@
-//! Grants: standing permissions for one routine, and the calls they let
-//! through (see `crate::grants`).
+//! Grants: standing permissions for one routine and the calls they allowed (see `crate::grants`).
 
 use super::Store;
 use crate::user::UserKey;
@@ -24,8 +23,7 @@ pub(crate) struct NewGrant<'a> {
     pub(crate) expires_at: DateTime<Utc>,
 }
 
-/// A grant still in force: not revoked, not expired, its routine still
-/// there.
+/// A grant in force: not revoked, not expired, routine still there.
 #[derive(Debug, Clone)]
 pub(crate) struct GrantRow {
     pub(crate) id: Uuid,
@@ -65,8 +63,7 @@ fn grant_from(row: &PgRow) -> Result<GrantRow> {
 }
 
 impl Store {
-    /// Saves an approved grant and returns its id. Saving the same call's
-    /// grant again returns the first one's id and changes nothing.
+    /// Saves an approved grant and returns its id; saving the same call's grant again is a no-op returning the first id.
     pub(crate) async fn create_grant(&self, user: &UserKey, grant: NewGrant<'_>) -> Result<Uuid> {
         let per_run = i32::try_from(grant.per_run)?;
         let inserted: Option<Uuid> = sqlx::query_scalar(
@@ -125,9 +122,8 @@ impl Store {
         rows.iter().map(grant_from).collect()
     }
 
-    /// Records call `call_id` of run `run` as a use of grant `id`, if the
-    /// grant is still in force and the run has not used its share. Locks
-    /// the grant, so calls made side by side cannot both take the last use.
+    /// Records call `call_id` of `run` as a use of grant `id` if still in force and within the run's share.
+    /// Locks the grant so concurrent calls cannot both take the last use.
     pub(crate) async fn use_grant(
         &self,
         user: &UserKey,
@@ -176,9 +172,7 @@ impl Store {
         Ok(inserted > 0)
     }
 
-    /// Drops grants that ended more than `GRANT_KEEP` ago, with their uses,
-    /// and of a live grant the uses older than that but its last, which
-    /// the grant list shows. Returns how many rows went.
+    /// Prunes grants ended over `GRANT_KEEP` ago and old uses of live grants (but their last); returns rows removed.
     pub(crate) async fn prune_grants(&self) -> Result<u64> {
         let keep = GRANT_KEEP.as_secs_f64();
         let grants = sqlx::query(
@@ -203,8 +197,7 @@ impl Store {
         Ok(grants + uses)
     }
 
-    /// Ends grant `id` of `user`; false when they have no such grant or
-    /// already revoked it.
+    /// Revokes grant `id`; false when missing or already revoked.
     pub(crate) async fn revoke_grant(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let revoked = sqlx::query(
             "UPDATE grants SET revoked_at = now()
@@ -218,8 +211,7 @@ impl Store {
         Ok(revoked > 0)
     }
 
-    /// Makes grant `id` and its uses older than `GRANT_KEEP`, for tests of
-    /// pruning.
+    /// Ages grant `id` and its uses past `GRANT_KEEP`, for pruning tests.
     #[cfg(test)]
     pub(crate) async fn age_grant(&self, id: Uuid) -> Result<()> {
         let past = "now() - interval '40 days'";

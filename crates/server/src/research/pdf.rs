@@ -1,7 +1,4 @@
-//! A research's paper as a PDF. The writer's Markdown becomes Typst markup,
-//! its `[n]` citations links to a numbered list of the sources, its LaTeX
-//! math Typst's (through mitex), and Typst typesets it with the fonts it
-//! bundles. Nothing is read from disk or the network.
+//! A research paper as a PDF: Markdown to Typst (math through mitex), typeset with bundled fonts only.
 
 use crate::store::SourceRow;
 use anyhow::{Context, Result, bail};
@@ -103,8 +100,7 @@ struct Markup {
     has_math: bool,
 }
 
-/// Helpers mitex's output calls, as Typst functions. Anything else it
-/// writes is plain Typst math.
+/// Typst helpers that mitex's output calls.
 const MITEX: &str = r#"#let mitexdisplay(it) = math.display(it)
 #let mitexinline(it) = math.inline(it)
 #let mitexbold(it) = math.bold(it)
@@ -468,8 +464,7 @@ impl<'a> Writer<'a> {
         self.out.push_str(&escape(rest));
     }
 
-    /// `3` or `2, 5` as superscript links to those sources, when each is
-    /// one.
+    /// `3` or `2, 5` as superscript source links, when each is one.
     fn citation(&self, inside: &str) -> Option<String> {
         let numbers: Vec<u32> = inside
             .split(',')

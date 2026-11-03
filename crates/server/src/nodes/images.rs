@@ -1,6 +1,4 @@
-//! The pictures a node's coding agent sessions show, kept as the node sends
-//! them on one `FollowImages` stream per connection (see
-//! `beep_proto::node::agent`), so they show while the machine is offline.
+//! Pictures a node's agent sessions show, kept so they show while the machine is offline.
 
 use super::Online;
 use crate::{
@@ -11,9 +9,7 @@ use crate::{
 use anyhow::{Result, bail};
 
 impl Online {
-    /// Keeps each picture the node sends until the stream or the
-    /// connection ends. A node from before `FollowImages` closes the
-    /// stream at once.
+    /// Keeps each picture the node sends until the stream or connection ends.
     pub(super) async fn keep_images(&self, user: &User) -> Result<()> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::FollowImages {}).await?;

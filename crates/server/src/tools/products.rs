@@ -10,8 +10,7 @@ const MAX_PRODUCTS: usize = 6;
 const MAX_TITLE: usize = 200;
 const MAX_NOTE: usize = 120;
 
-/// Shows products as cards under the reply. Each one is checked here, so the
-/// apps get only real links, a price with its currency and images that load.
+/// Shows products as cards under the reply, each checked here.
 pub(crate) struct ShowProductsTool;
 
 #[derive(Debug, Deserialize)]
@@ -42,8 +41,7 @@ struct Requested {
     note: Option<String>,
 }
 
-/// A product as the apps draw it. `currency` is set whenever `price` is,
-/// and `was` only when it is above `price`.
+/// A product card; `currency` is set with `price`, and `was` only when above it.
 #[derive(Debug, PartialEq, Serialize)]
 struct Card {
     title: String,
@@ -169,8 +167,7 @@ impl Tool for ShowProductsTool {
                 card.image = None;
             }
         }
-        // A card without a picture gets the one its page names for link
-        // previews, so the user sees what the product looks like.
+        // A card without a picture gets its page's link preview image.
         let previews = cards.iter().map(|card| async move {
             match card.image {
                 Some(_) => None,
@@ -195,8 +192,7 @@ impl Tool for ShowProductsTool {
     }
 }
 
-/// The card for `requested`, or why it cannot be shown. Fields that do not
-/// hold up are left out and noted in `dropped`.
+/// The card for `requested`, or why not; bad fields are noted in `dropped`.
 fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String> {
     let title = clip(&requested.title, MAX_TITLE);
     if title.is_empty() {

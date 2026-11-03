@@ -1,17 +1,5 @@
-//! Notices for what a node's coding-agent sessions did: a question they
-//! ask, a turn that ended, a session that failed. The node sends them on
-//! one `FollowAlerts` stream per connection (see `beep_proto::node::agent`)
-//! and each goes to the user's devices as a `Notice`.
-//!
-//! It goes only to the device that started the session through Beep. A
-//! session no device started (one run in a terminal, or by a routine or a
-//! project agent) tells the user's computers, never a phone.
-//!
-//! A phone gets it with no chat, so it opens Beep. A computer gets the same
-//! text with an `AgentNoticeKey` as its `session_id`, so a click opens the
-//! session and a question has Allow and Deny. A session that reports to a
-//! chat or works for a project is left out: the chat or project already
-//! tells the user.
+//! Notices for what a node's agent sessions did, sent to the device that started them.
+//! Sessions no device started go to computers only; chat or project sessions are left out.
 
 use super::Online;
 use crate::{
@@ -34,9 +22,7 @@ use std::path::Path;
 const MAX_BODY: usize = 240;
 
 impl Online {
-    /// Tells the user what the node's sessions did until the stream or the
-    /// connection ends. A node from before `FollowAlerts` closes the stream
-    /// at once.
+    /// Tells the user what the node's sessions did until the stream or the connection ends.
     pub(super) async fn keep_alerts(&self, user: &User) -> Result<()> {
         let (mut tx, mut rx) = self.open_stream(SESSIONS_PROTOCOL).await?;
         tx.send(&SessionsRequest::FollowAlerts {}).await?;
@@ -98,8 +84,7 @@ struct Host {
     name: String,
 }
 
-/// `alert` as a notice for `user`'s devices in `to`: without a chat for
-/// phones, with the session's key for computers.
+/// `alert` as a notice for `user`'s devices in `to`.
 fn user_notice(user: &str, host: &Host, alert: &Alert, to: Reach) -> UserNotice {
     let notice = Notice {
         title: title(host, alert),
@@ -189,8 +174,7 @@ fn about(alert: &Alert) -> String {
         .to_owned()
 }
 
-/// `text` on one line without emphasis or code marks, which a
-/// notification shows literally, cut to `MAX_BODY` characters.
+/// `text` on one line without markdown marks, cut to `MAX_BODY` characters.
 fn clip(text: &str) -> String {
     let plain = text.replace("**", "").replace('`', "");
     let line = plain.split_whitespace().collect::<Vec<_>>().join(" ");

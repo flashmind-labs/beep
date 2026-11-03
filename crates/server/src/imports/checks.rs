@@ -1,12 +1,6 @@
-//! Finding an imported project on the user's other machines: a machine is
-//! looked through when a project is imported and when it connects, and a
-//! checkout whose `origin` remote is a project's is recorded as that
-//! project's folder there, in place. The look is the found-folders scan
-//! (`SessionsRequest::Folders`), so it finds the checkouts coding agents
-//! worked in.
-//!
-//! Looks run in the background, owned by [`Checkouts`]: one per machine at a
-//! time, a few at once server-wide, and a bounded number waiting.
+//! Finds an imported project's checkouts on the user's other machines, by `origin` remote, through
+//! the found-folders scan. Looks run in the background under [`Checkouts`], bounded per machine,
+//! server-wide and in queue.
 
 use super::{remove, repo::same_repo};
 use crate::{
@@ -33,13 +27,11 @@ use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
 const FOLDERS_PER_MACHINE: u32 = 200;
 /// The longest one machine's look may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(60);
-/// How long a look at a machine that has a project's folder stands before
-/// the project's page asks for another.
+/// How long a look at a machine with a project folder stands before the page asks again.
 const RECHECK: TimeDelta = TimeDelta::minutes(10);
 /// Machines looked through at once, server-wide.
 const AT_ONCE: usize = 4;
-/// Machines looked through or waiting their turn; past it, a look is
-/// dropped, and the project's page asks again.
+/// Machines running or queued; past it a look is dropped and the page asks again.
 const MAX_PENDING: usize = 64;
 
 /// One machine of one user.
@@ -47,8 +39,7 @@ type MachineKey = (String, String);
 
 /// The looks in flight, and the machines they are for.
 pub struct Checkouts {
-    /// Machines being looked through, with whether another look was asked
-    /// for meanwhile, so one asked after a look started is not lost.
+    /// Machines being looked through, and whether another look was asked for meanwhile.
     running: Arc<Mutex<HashMap<MachineKey, bool>>>,
     permits: Arc<Semaphore>,
     tasks: Mutex<JoinSet<()>>,
@@ -64,8 +55,7 @@ impl Default for Checkouts {
     }
 }
 
-/// Takes a machine off the running list when its task ends, even by a
-/// panic or an abort.
+/// Takes a machine off the running list when its task ends, even by panic or abort.
 struct Running {
     running: Arc<Mutex<HashMap<MachineKey, bool>>>,
     key: MachineKey,
@@ -74,9 +64,7 @@ struct Running {
 }
 
 impl Running {
-    /// Whether another look was asked for while this one ran; when not, the
-    /// machine leaves the list in the same step, so a look asked for after
-    /// it starts a task of its own.
+    /// Whether another look was asked for; if not, the machine leaves the list in the same step.
     fn again(&mut self) -> bool {
         let mut running = lock(&self.running);
         if let Some(again) = running.get_mut(&self.key)
@@ -105,9 +93,7 @@ impl Checkouts {
         lock(&self.running).contains_key(&(user.to_owned(), endpoint.to_owned()))
     }
 
-    /// Looks through the user's machine `endpoint` in the background. One
-    /// already under way looks again once it ends. Says whether it was
-    /// taken: with too many waiting it is dropped.
+    /// Looks through machine `endpoint` in the background, again after a running look; `false` when dropped.
     pub(crate) fn check(&self, app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> bool {
         let key = (user.id().to_owned(), endpoint.to_owned());
         {
@@ -168,8 +154,7 @@ impl Checkouts {
     }
 }
 
-/// One look, its failure logged: nothing is recorded, and the machine is
-/// looked through again when it next connects or the page asks.
+/// One look, its failure logged; the machine is looked through again later.
 async fn look(app: &Weak<App>, user: &Arc<User>, endpoint: &str) {
     let Some(app) = app.upgrade() else {
         return;
@@ -184,9 +169,7 @@ async fn look(app: &Weak<App>, user: &Arc<User>, endpoint: &str) {
     }
 }
 
-/// Drops the machine from projects whose folder it no longer has, then
-/// asks it for its checkouts and records those of the user's projects.
-/// Gives how many it recorded.
+/// Drops the machine from projects whose folder is gone, records its checkouts, and returns the count.
 async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyhow::Result<usize> {
     let Some(online) = app
         .nodes
@@ -218,17 +201,14 @@ async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyho
     record(user, endpoint, &folders, &servers, started).await
 }
 
-/// The Forgejo servers the user has a token for, which name a remote's
-/// repository.
+/// The Forgejo servers the user has a token for.
 pub(super) async fn forgejo_servers(app: &App, user: &User) -> anyhow::Result<Vec<ForgejoUrl>> {
     Ok(super::service::forgejo_of(
         &user.git_credentials(&app.credential_key).await?,
     ))
 }
 
-/// Records what a look at `endpoint` that started at `started` found: each
-/// of `folders` that is a checkout of one of the user's projects not on
-/// that machine yet becomes its folder there. Gives how many it recorded.
+/// Records `folders` found on `endpoint` as new project folders there; returns how many.
 pub(crate) async fn record(
     user: &User,
     endpoint: &str,
@@ -264,9 +244,7 @@ pub(crate) struct Link {
     pub(crate) folder: String,
 }
 
-/// The checkouts among `folders`, found on `endpoint`, of projects in
-/// `imports` that have no folder on that machine: one per project, the one
-/// agents worked in last.
+/// One checkout per project in `imports` without a folder on `endpoint`, the one used last.
 pub(crate) fn links(
     imports: &[ImportRow],
     endpoint: &str,
@@ -316,13 +294,11 @@ pub(crate) struct Machine<'a> {
 /// A project's page: its machines, and those to look through now.
 pub(crate) struct Page {
     pub(crate) machines: Vec<ProjectMachine>,
-    /// Online machines without a checkout not looked through since the
-    /// project was imported, by key.
+    /// Online machines without a checkout not looked through since the import, by key.
     pub(crate) to_check: Vec<String>,
 }
 
-/// What a project's page lists for each machine. `rows` are the project's
-/// imports; a look before the first of them does not count.
+/// What a project's page lists per machine; looks before the first import do not count.
 pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
     let since = rows.iter().map(|row| row.imported_at).min();
     let mut listed = Vec::new();
@@ -364,9 +340,7 @@ pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
     }
 }
 
-/// Online machines that have a folder of the project and were not looked
-/// through for `RECHECK`, by key: looking again finds a folder deleted
-/// since.
+/// Online machines with a project folder not looked through for `RECHECK`, by key.
 pub(crate) fn stale(
     rows: &[ImportRow],
     machines: &[Machine<'_>],

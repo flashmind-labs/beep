@@ -1,5 +1,4 @@
-//! The phones registered for push. A token belongs to the key that
-//! registered it, since each notice is sealed to that key.
+//! Phones registered for push; a token belongs to the key that registered it, since notices are sealed to that key.
 
 use super::Store;
 use crate::user::UserKey;

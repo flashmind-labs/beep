@@ -1,16 +1,9 @@
-//! Live updates for the project page. While someone follows a project
-//! (`WatchProject`), one of the user's online nodes forwards its
-//! repository's webhook (`webhook/1`): `gh webhook forward` for GitHub, a
-//! repository webhook pointing at the node for Forgejo and Gitea. Each
-//! delivery reads the project's copies again within seconds, and the
-//! pages following it redraw. A repository the user is not an admin of,
-//! or one no node can forward, keeps the few-minutes reads as before; the
-//! page says which.
+//! Live updates for the project page: while someone follows a project, one online node forwards its
+//! repository's webhook (`webhook/1`), and each delivery rereads the project's copies. Without
+//! admin rights or a capable node, the page keeps polling.
 //!
-//! One supervisor per followed project picks the node and keeps a session
-//! with it. It ends a few minutes after the last page left, or when the
-//! project is removed; ending the session has the node remove what it
-//! made.
+//! One supervisor per followed project holds the node session; it ends a few minutes after the
+//! last page leaves or when the project is removed, and the node then removes what it made.
 
 mod owner;
 mod session;
@@ -42,16 +35,13 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// How long the forward stays after the last page following the project
-/// left, so going back and forth between pages does not churn webhooks.
+/// How long forwarding stays after the last follower left, so page hopping does not churn webhooks.
 const GRACE: Duration = Duration::from_secs(5 * 60);
-/// How long after a forward stopped (its node went offline) another is
-/// started.
+/// How long after a forward stopped another is started.
 const RESTART: Duration = Duration::from_secs(15);
 /// How long to wait when no node could forward.
 const RETRY: Duration = Duration::from_secs(60);
-/// How long a repository the user is not an admin of polls before its
-/// rights are checked again.
+/// How long a non-admin repository polls before its rights are checked again.
 const NOT_ADMIN_RETRY: Duration = Duration::from_secs(30 * 60);
 
 /// Which copies an event has read again.
@@ -67,10 +57,7 @@ impl Refresh {
         runs: true,
     };
 
-    /// What a GitHub, Forgejo or Gitea event changes on the project page:
-    /// pull requests and issues change the lists, CI changes the runs, a
-    /// push both (a pull request's head, and the runs it starts). Anything
-    /// else, such as `ping`, changes nothing shown.
+    /// What a host event changes on the page: PRs and issues the lists, CI the runs, a push both.
     pub(crate) fn of_event(event: &str) -> Self {
         let (lists, runs) = match event {
             "push" => (true, true),
@@ -145,8 +132,7 @@ fn why_polling(reason: PollReason, host: &IssueHost) -> String {
 /// What the supervisor does after a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Next {
-    /// Poll, and look again after this long: every node would answer the
-    /// same.
+    /// Poll, and check again after this long: every node would answer the same.
     Poll(Duration),
     /// Pass over this node a while and try another now.
     TryAnother,
@@ -244,8 +230,7 @@ pub(crate) struct Forwards {
 }
 
 impl Forwards {
-    /// The project's slot, made when nobody follows it yet, with one more
-    /// follower; whether its supervisor must start.
+    /// The project's slot with one more follower, and whether its supervisor must start.
     fn join(&self, key: Key) -> (Arc<Slot>, bool) {
         let mut slots = lock(&self.slots);
         let slot = slots.entry(key).or_default().clone();
@@ -257,8 +242,7 @@ impl Forwards {
         (slot, idle)
     }
 
-    /// Follows `project` for a page: the first page to follow it starts
-    /// forwarding its webhook; later ones share that.
+    /// Follows `project` for a page; the first follower starts forwarding, later ones share it.
     pub(crate) fn follow(&self, app: &Arc<App>, user: &str, project: ProjectId) -> Following {
         let key = Key {
             user: user.to_owned(),
@@ -275,9 +259,7 @@ impl Forwards {
         }
     }
 
-    /// Forgets `slot` when nobody follows it, under the map's lock, so a
-    /// page following meanwhile either keeps it or makes a new one.
-    /// Whether it went.
+    /// Forgets `slot` under the map's lock when nobody follows it; whether it went.
     fn leave(&self, key: &Key, slot: &Arc<Slot>, always: bool) -> bool {
         let mut slots = lock(&self.slots);
         if !always && slot.followers.load(Ordering::Relaxed) > 0 {

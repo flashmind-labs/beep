@@ -1,5 +1,4 @@
-//! Chats about one pull request or issue of a project, and the replies Beep
-//! posted on threads someone else opened.
+//! Chats about one pull request or issue of a project, and Beep's replies on others' threads.
 
 use super::{
     Store,
@@ -51,8 +50,7 @@ fn row_from(row: &PgRow) -> Result<ThreadChatRow> {
 }
 
 impl Store {
-    /// The chat about thread `new` of `project`, made and titled on the
-    /// first ask. Two callers at once get the same chat.
+    /// The chat about thread `new` of `project`, created on first ask; concurrent callers get the same chat.
     pub(crate) async fn open_thread_chat(
         &self,
         user: &UserKey,
@@ -95,8 +93,7 @@ impl Store {
         row.as_ref().map(row_from).transpose()
     }
 
-    /// Notes that Beep replied on a thread someone else opened; false when
-    /// it already had, so it never replies there twice.
+    /// Notes Beep replied on someone else's thread; false if it already had.
     pub(crate) async fn note_thread_reply(
         &self,
         project: ProjectId,

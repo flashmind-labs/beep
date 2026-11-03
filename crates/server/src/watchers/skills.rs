@@ -1,5 +1,4 @@
-//! The skills watcher: the skill review of `crate::skills`, run on a
-//! finished conversation instead of every few turns.
+//! The skills watcher: `crate::skills`'s review, run on a finished conversation.
 
 use super::{
     WatcherKind, gate,

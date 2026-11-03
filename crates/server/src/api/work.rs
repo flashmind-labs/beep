@@ -1,6 +1,4 @@
-//! A chat's background work and the questions it waits on. The main agent no
-//! longer starts background work, so `ListWork` is always empty and
-//! `CancelWork` finds nothing; both stay for the apps that still ask.
+//! A chat's background work; now always empty, kept for apps that still ask.
 
 use super::Reply;
 use crate::{

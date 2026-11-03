@@ -1,7 +1,4 @@
-//! `AttachTerminal`: the app follows an interactive terminal live. The
-//! server relays the node's output to the app and the app's keys and size
-//! to the node, holding nothing itself: QUIC flow control on both streams
-//! bounds what is in flight.
+//! `AttachTerminal`: relays a live terminal between node and app; QUIC flow control bounds it.
 
 use super::{state, state_of};
 use crate::api::own_nodes::online;
@@ -37,8 +34,7 @@ pub(in crate::api) async fn attach_terminal(
     let Some(node) = online(&cx, &row.endpoint) else {
         return ended(&sink, TerminalState::Offline {}).await;
     };
-    // The number must still be this terminal's: a restarted node hands
-    // numbers out again.
+    // A restarted node hands numbers out again.
     let listed = match node.terminals(&PtyRequest::List {}).await {
         Ok(PtyReply::Terminals { terminals }) => terminals,
         Ok(_) | Err(_) => return ended(&sink, TerminalState::Offline {}).await,
@@ -104,9 +100,7 @@ impl Screen for Sink<TerminalEvent> {
     }
 }
 
-/// Relays until the terminal ends, the node goes away or the app
-/// finishes its side. Both reads are cancel-safe, so `select!` drops
-/// nothing half read.
+/// Relays until either side ends; both reads are cancel-safe for `select!`.
 pub(super) async fn relay(
     to_node: &mut impl ToNode,
     from_node: &mut impl FromNode,
@@ -164,8 +158,7 @@ mod tests {
     };
     use tokio::sync::mpsc;
 
-    /// The node's side as channels: what the server told it, and what it
-    /// sends back.
+    /// The node's side as channels.
     struct Node {
         told: mpsc::UnboundedSender<PtyRequest>,
     }
@@ -279,9 +272,7 @@ mod tests {
         drop(keys_tx);
     }
 
-    // A shell at its prompt sends nothing for as long as nobody types. The
-    // relay must not end then: an ended stream reads as a dropped one and
-    // the app reattaches.
+    // A shell at its prompt sends nothing; the relay must not end then.
     #[tokio::test(start_paused = true)]
     async fn an_idle_terminal_stays_attached() {
         let (told_tx, _told) = mpsc::unbounded_channel();

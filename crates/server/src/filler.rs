@@ -1,6 +1,4 @@
-//! Short lines live mode says while a tool runs and the reply has been
-//! quiet, such as "Let me check build-box". Picked from templates by the
-//! kind of step, in the language the user spoke; no model call.
+//! Short template lines live mode says while a tool runs, in the user's language; no model call.
 
 /// The languages the lines come in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,8 +23,7 @@ enum Kind {
     Other,
 }
 
-/// Common short words of each language. The one with most hits in the
-/// user's message wins; English when none does.
+/// Common short words of each language; the most hits wins, else English.
 const WORDS: &[(Lang, &[&str])] = &[
     (
         Lang::En,
@@ -127,8 +124,7 @@ fn kind(step: &str) -> Kind {
     }
 }
 
-/// The line to say for tool step `step`, in the language of `said`.
-/// `still` gives the line for a long wait instead.
+/// The line for tool step `step` in the language of `said`; `still` for a long wait.
 pub fn line(step: &str, said: &str, still: bool) -> String {
     let lang = language(said);
     if still {

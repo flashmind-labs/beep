@@ -10,9 +10,7 @@ use crate::{
 use chrono::Utc;
 
 impl App {
-    /// Conversation starters for the empty chat, personalized and cached
-    /// until they go stale, unless `refresh` and the user has refreshes left.
-    /// Never fails: falls back to fixed starters.
+    /// Personalized starters for the empty chat, cached until stale; falls back to fixed ones.
     pub async fn suggest_prompts(&self, user: &User, refresh: bool) -> PromptSuggestions {
         let here = user.get_location().await.ok().flatten();
         // Past the limit a refresh gets the cached set.

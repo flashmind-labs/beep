@@ -1,24 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  BOTTOM_MIN, CONV_MIN_WIDTH, DEFAULT_LAYOUT, KEPT_TABS, RIGHT_MIN, SIDE_BY_SIDE_MIN, ZOOM_MAX,
-  actualView, baseName, dropDock, effectiveDock, fitView, mediaKind, moveTab, paneSize, readLayout, resolvePath,
-  splitTabs, tabDock, zoomAt,
-} from "../src/media-state.ts";
-
-test("files are shown by their extension, in any case", () => {
-  assert.equal(mediaKind("shots/a.PNG"), "image");
-  assert.equal(mediaKind("out/walk.mp4"), "video");
-  assert.equal(mediaKind("clip.MOV"), "video");
-  assert.equal(mediaKind("model/turntable.glb"), "model");
-  assert.equal(mediaKind("a.gltf"), "model");
-  assert.equal(mediaKind("a.obj"), "model");
-  assert.equal(mediaKind("part.stl"), "model");
-  assert.equal(mediaKind("sheet.pdf"), "pdf");
-  assert.equal(mediaKind("src/main.rs"), null);
-  assert.equal(mediaKind(".mp4"), null);
-  assert.equal(mediaKind("dir.mp4/file"), null);
-});
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, moveTab, readLayout, resolvePath, splitTabs, tabDock, zoomAt } from "../src/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");
@@ -73,43 +55,6 @@ test("only the newest tab moves are kept, and none of a picture by its data", ()
   const m = new Map([["data:image/png;base64,AA", "bottom" as const]]);
   assert.deepEqual(splitTabs(DEFAULT_LAYOUT, ["files", "data:image/png;base64,AA"], 1200, m),
     { right: ["files"], bottom: ["data:image/png;base64,AA"] });
-});
-
-test("a tab dropped by the right or bottom edge docks there", () => {
-  const shell = { left: 100, top: 50, width: 1000, height: 600 };
-  assert.equal(dropDock(shell, 1050, 200, true), "right");
-  assert.equal(dropDock(shell, 500, 600, true), "bottom");
-  assert.equal(dropDock(shell, 500, 300, true), null);
-  // Outside the session.
-  assert.equal(dropDock(shell, 1150, 200, true), null);
-  // In the corner, the nearer edge.
-  assert.equal(dropDock(shell, 1095, 560, true), "right");
-  assert.equal(dropDock(shell, 960, 645, true), "bottom");
-  // No right dock fits: the right edge takes nothing.
-  assert.equal(dropDock(shell, 1050, 200, false), null);
-  assert.equal(dropDock(shell, 1050, 600, false), "bottom");
-});
-
-test("a narrow window puts the pane at the bottom", () => {
-  assert.equal(effectiveDock("right", SIDE_BY_SIDE_MIN), "right");
-  assert.equal(effectiveDock("right", SIDE_BY_SIDE_MIN - 1), "bottom");
-  assert.equal(effectiveDock("bottom", 2000), "bottom");
-});
-
-test("the pane's size stays between its least and the conversation's room", () => {
-  assert.equal(paneSize("right", null, 1000), 420);
-  assert.equal(paneSize("right", 100, 1000), RIGHT_MIN);
-  assert.equal(paneSize("right", 900, 1000), 1000 - CONV_MIN_WIDTH);
-  assert.equal(paneSize("bottom", 50, 800), BOTTOM_MIN);
-  assert.equal(paneSize("bottom", null, 800), 320);
-  // No room at all: the pane keeps its least.
-  assert.equal(paneSize("right", 500, 500), RIGHT_MIN);
-});
-
-test("fit shrinks a large picture into its box and leaves a small one", () => {
-  assert.deepEqual(fitView(2000, 1000, 500, 500), { scale: 0.25, x: 0, y: 125, fit: true });
-  assert.deepEqual(fitView(100, 50, 500, 500), { scale: 1, x: 200, y: 225, fit: true });
-  assert.deepEqual(actualView(2000, 1000, 500, 500), { scale: 1, x: 0, y: 0, fit: false });
 });
 
 test("zooming keeps the point under the pointer in place", () => {

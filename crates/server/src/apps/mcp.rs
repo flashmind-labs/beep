@@ -1,12 +1,5 @@
 //! Remote MCP servers each user connects with OAuth, starting with Fastmail.
-//!
-//! The phone only catches the OAuth redirect on a localhost port and hands the
-//! code to the server. Tokens live in `mcp_servers` and never reach the phone.
-//! Each Fastmail account is its own server and row: the first is `fastmail`,
-//! the others `fastmail-2`, `fastmail-3` and so on.
-//! Each user gets one long-lived `McpRegistry`, and a keep-alive task
-//! reconnects every few hours so access tokens refresh and rotated refresh
-//! tokens are saved before they lapse.
+//! Tokens live in `mcp_servers` and never reach the phone.
 
 use crate::{AsyncMutex, permissions::Acts, user::User};
 use anyhow::{Result, bail};
@@ -34,8 +27,7 @@ pub const FASTMAIL: &str = "fastmail";
 /// Most Fastmail accounts one user may connect.
 pub(crate) const MAX_FASTMAIL_ACCOUNTS: usize = 5;
 
-/// The argument a Fastmail tool takes to pick the account, once the user
-/// has more than one.
+/// The argument that picks the Fastmail account when there are several.
 const ACCOUNT: &str = "account";
 
 /// Whether `name` is the server of a Fastmail account.
@@ -65,15 +57,13 @@ pub(crate) struct FastmailAccount {
 }
 
 impl FastmailAccount {
-    /// How the agent and the user see it: its address, or its server name
-    /// until the address is known.
+    /// Its address, or its server name until the address is known.
     fn label(&self) -> &str {
         self.address.as_deref().unwrap_or(&self.name)
     }
 }
 
-/// The account `wanted` names, by address or server name, ignoring case;
-/// the first account when it names none. The error says which there are.
+/// The account `wanted` names by address or server name, else the first.
 pub(crate) fn pick_account<'a>(
     accounts: &'a [FastmailAccount],
     wanted: Option<&str>,
@@ -102,8 +92,7 @@ pub(crate) fn pick_account<'a>(
     })
 }
 
-/// The sending address in a `list_identities` result: the first `email`
-/// it holds.
+/// The first `email` in a `list_identities` result.
 pub(crate) fn identity_address(value: &Value) -> Option<String> {
     match value {
         Value::Object(map) => map
@@ -120,10 +109,7 @@ pub(crate) fn identity_address(value: &Value) -> Option<String> {
 
 pub(crate) const KEEP_ALIVE: Duration = Duration::from_secs(6 * 60 * 60);
 
-/// How long one request to a Fastmail server may take, connecting included.
-/// It is under flashmind's 30 second connect timeout, which reports a slow
-/// server as a lost login, and leaves a request handler that waits on it
-/// time to answer before the apps give up on the server.
+/// Timeout for one Fastmail request, under flashmind's 30 second connect timeout.
 pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// A request to a Fastmail server that ran out of time.
@@ -134,13 +120,7 @@ pub(crate) struct NoAnswer {
 }
 
 /// One user's registry of Fastmail servers.
-///
-/// flashmind holds one lock over all of a registry's connections while a
-/// call runs, and lists a server's tools without a timeout, so one server
-/// that stops answering stalls every request queued behind it. Each request
-/// here gives up after `CALL_TIMEOUT`, which drops what it held, and one
-/// that runs out of time discards the registry, so the next request starts
-/// on a fresh one instead of waiting behind the stuck connection.
+/// flashmind holds one lock over all connections during a call, so a stuck request discards the registry.
 #[derive(Default)]
 pub(crate) struct McpSlot {
     current: AsyncMutex<Option<Arc<McpRegistry>>>,
@@ -151,9 +131,7 @@ pub(crate) struct McpSlot {
 }
 
 impl McpSlot {
-    /// The registry, made on first use from the servers `user` saved. The
-    /// lock is held while `load_saved` reads the store, which only spawns
-    /// the connections, so no server is waited on under it.
+    /// The registry, made on first use from the servers `user` saved.
     pub(crate) async fn get(&self, user: &Weak<User>) -> Arc<McpRegistry> {
         let mut current = self.current.lock().await;
         if let Some(registry) = current.as_ref() {
@@ -169,8 +147,7 @@ impl McpSlot {
         registry
     }
 
-    /// Forgets `stale`, so the next request makes a new registry. A newer
-    /// registry already in its place stays.
+    /// Forgets `stale` unless a newer registry already replaced it.
     pub(crate) async fn discard(&self, stale: &Arc<McpRegistry>) {
         let mut current = self.current.lock().await;
         if current
@@ -181,8 +158,7 @@ impl McpSlot {
         }
     }
 
-    /// Runs `request` against `registry`, giving up after `CALL_TIMEOUT`.
-    /// One that runs out of time discards the registry.
+    /// Runs `request` with `CALL_TIMEOUT`, discarding the registry on timeout.
     pub(crate) async fn bounded<T>(
         &self,
         registry: &Arc<McpRegistry>,
@@ -223,8 +199,7 @@ impl McpSlot {
         result
     }
 
-    /// Marks a background read of account addresses as started. False when
-    /// one already runs.
+    /// Marks a background read of addresses as started; false when one runs.
     pub(crate) fn start_learning(&self) -> bool {
         !self.learning.swap(true, Ordering::AcqRel)
     }
@@ -242,8 +217,7 @@ impl McpSlot {
     }
 }
 
-/// The fixed part of a known server's config. Stored rows only add cached
-/// tools and credentials, so a row can never point the server at another URL.
+/// The fixed part of a known server's config, so a row can never change its URL.
 pub(crate) fn preset(name: &str) -> Option<McpServerConfig> {
     is_fastmail(name).then(|| McpServerConfig {
         name: name.to_owned(),
@@ -252,8 +226,7 @@ pub(crate) fn preset(name: &str) -> Option<McpServerConfig> {
     })
 }
 
-/// Accepts only `http://localhost:<port>/...` style loopback redirects, the
-/// only kind Fastmail allows and the only kind the phone listens on.
+/// Accepts only `http://localhost:<port>/...` loopback redirects.
 pub fn check_redirect(redirect_uri: &str) -> Result<()> {
     let url = Url::parse(redirect_uri)?;
     let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
@@ -263,8 +236,7 @@ pub fn check_redirect(redirect_uri: &str) -> Result<()> {
     Ok(())
 }
 
-/// Reads and writes one user's rows in `mcp_servers`. Weak, since the
-/// user owns the registry that owns this.
+/// Reads and writes one user's `mcp_servers` rows. Weak, since the user owns the registry.
 pub(crate) struct StoreProvider {
     pub(crate) user: Weak<User>,
     /// Replaces the preset's URL; only tests set it.
@@ -300,8 +272,7 @@ impl McpConfigProvider for StoreProvider {
         Ok(configs)
     }
 
-    /// Flashmind calls this with in-memory copies whose credentials may be
-    /// stale, so they are dropped here and only `save_credentials` writes them.
+    /// Credentials here may be stale, so only `save_credentials` writes them.
     async fn save_config(&self, config: &McpServerConfig) -> Result<()> {
         if preset(&config.name).is_none() {
             bail!("unknown MCP server");
@@ -340,19 +311,12 @@ pub(crate) fn display_name(name: &str) -> &str {
     if is_fastmail(name) { "Fastmail" } else { name }
 }
 
-/// True when `error` means the server rejected the saved login, so only
-/// connecting again from the phone can fix it.
+/// True when the server rejected the saved login.
 pub(crate) fn lost_login(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| cause.is::<McpAuthRequired>())
 }
 
-/// The Fastmail tools the agent gets, each as its own tool with a flat schema.
-/// Weaker models leave out the nested `params` a generic `mcp` tool needs. The
-/// rest are left out to keep the prompt smaller: `compose_event` only stages a
-/// widget in Fastmail's own UI, and Beep keeps its own notes as memories.
-/// Whether each acts decides if it falls under the app's permission level;
-/// events act because Fastmail mails the invites. Drafts and uploads stay in
-/// the account, so they do not act.
+/// The Fastmail tools the agent gets, each with a flat schema, and whether each acts.
 pub(crate) const FASTMAIL_TOOLS: &[(&str, Acts)] = &[
     ("search_email", Acts::Never),
     ("read_email", Acts::Never),
@@ -378,9 +342,7 @@ pub(crate) const FASTMAIL_TOOLS: &[(&str, Acts)] = &[
     ("delete_contact", Acts::Always),
 ];
 
-/// One remote tool, named like Composio's (`FASTMAIL_READ_EMAIL`) so the
-/// phone labels it "Fastmail: read email". With several accounts it takes
-/// an `account` argument and calls that account's server.
+/// One remote tool named like Composio's (`FASTMAIL_READ_EMAIL`), with `account` when there are several.
 pub(crate) struct AppTool {
     slot: Arc<McpSlot>,
     registry: Arc<McpRegistry>,
@@ -391,9 +353,7 @@ pub(crate) struct AppTool {
     schema: Value,
 }
 
-/// The agent tools for the Fastmail `accounts`, first one the default.
-/// Every account runs the same server, so the first account that has
-/// connected gives the schemas.
+/// The agent tools for the Fastmail `accounts`, the first being the default.
 pub(crate) fn app_tools(
     slot: &Arc<McpSlot>,
     registry: &Arc<McpRegistry>,
@@ -547,9 +507,7 @@ for a company or newsletter that is not a contact, search its name or domain as 
     }
 }
 
-/// Rewrites the Gmail qualifiers Fastmail's search refuses: `newer_than:7d`
-/// becomes `after:7d`, `older_than:` becomes `before:`, and `in:anywhere`
-/// goes, since leaving out `in:` already searches every mailbox.
+/// Rewrites Gmail qualifiers Fastmail refuses (`newer_than:`, `older_than:`, `in:anywhere`).
 fn fix_query(args: &mut Value) {
     let Some(Value::String(query)) = args.get_mut("query") else {
         return;
@@ -571,9 +529,7 @@ fn fix_query(args: &mut Value) {
     *query = fixed.join(" ");
 }
 
-/// Leaves out arguments the model filled with nothing. Weaker models send
-/// every field in the schema, and Fastmail rejects a null or "None" `cursor`
-/// as an invalid page.
+/// Drops empty arguments; Fastmail rejects a null or "None" `cursor`.
 fn drop_empty(args: Value) -> Value {
     let Value::Object(mut args) = args else {
         return json!({});

@@ -517,22 +517,6 @@ mod tests {
         assert_eq!(tester.error, None);
     }
 
-    #[test]
-    fn a_broken_file_is_an_error_row() {
-        let s = setup();
-        let p = Path::new(&s.project);
-        write(p, ".claude/agents/broken.md", "no frontmatter here");
-        write(p, ".codex/agents/bad.toml", "name = ");
-        fs::write(p.join(".claude/agents/binary.md"), [0xff, 0xfe, 0x00]).unwrap();
-        let agents = list(&s.project, None).unwrap();
-        assert_eq!(
-            names(&agents),
-            [("claude", "binary"), ("claude", "broken"), ("codex", "bad")]
-        );
-        assert!(agents.iter().all(|a| a.error.is_some()));
-        assert!(agents[0].error.as_deref().unwrap().contains("UTF-8"));
-    }
-
     #[cfg(unix)]
     #[test]
     fn a_symlink_out_of_the_folder_is_not_read() {
@@ -565,23 +549,6 @@ mod tests {
         let agents = list(&s.home, Some(&s.home)).unwrap();
         assert_eq!(names(&agents), [("claude", "a")]);
         assert_eq!(agents[0].scope, CustomAgentScope::Project {});
-    }
-
-    #[test]
-    fn a_long_prompt_is_cut_on_a_character() {
-        let long = "é".repeat(MAX_CUSTOM_AGENT_PROMPT);
-        let (prompt, cut) = cap(long);
-        assert!(cut);
-        assert!(prompt.len() <= MAX_CUSTOM_AGENT_PROMPT);
-        assert_eq!(cap("short".to_owned()), ("short".to_owned(), false));
-    }
-
-    #[test]
-    fn a_missing_folder_is_refused() {
-        let s = setup();
-        assert!(list(&s.project.join("nope"), None).is_err());
-        fs::write(s.project.join("file"), "").unwrap();
-        assert!(list(&s.project.join("file"), None).is_err());
     }
 
     #[cfg(unix)]

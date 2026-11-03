@@ -21,9 +21,7 @@ const MAX_KIND: usize = 20;
 /// A location older than this says nothing about how far a place is.
 const FRESH_LOCATION_HOURS: i64 = 3;
 
-/// Shows recommendations as cards under the reply: places, films and shows,
-/// events, or any other kind. Every card has the same base, and the kinds the
-/// apps know add their own part. Links, images and times are checked here.
+/// Shows recommendations as cards under the reply; links, images and times are checked here.
 pub(crate) struct ShowCardsTool {
     pub user: Arc<User>,
 }
@@ -100,8 +98,7 @@ struct RequestedEvent {
     tickets_url: Option<String>,
 }
 
-/// The kinds the apps draw their own part for. Any other kind gets the base
-/// card alone.
+/// The kinds the apps draw their own part for; others get the base card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 enum KnownKind {
@@ -357,8 +354,7 @@ impl Tool for ShowCardsTool {
     }
 }
 
-/// The card for `requested`, or why it cannot be shown. Fields that do not
-/// hold up are left out and noted in `dropped`.
+/// The card for `requested`, or why not; bad fields are noted in `dropped`.
 fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String> {
     let title = clip(&requested.title, MAX_TITLE);
     if title.is_empty() {
@@ -420,8 +416,7 @@ fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String>
     })
 }
 
-/// Whether a card of `kind` takes the `part` the model gave; otherwise noted
-/// in `dropped`.
+/// Whether a card of `kind` takes `part`; otherwise noted in `dropped`.
 fn fits(kind: &Kind, part: KnownKind, title: &str, dropped: &mut Vec<String>) -> bool {
     let fits = kind.known() == Some(part);
     if !fits {
@@ -474,8 +469,7 @@ fn media_part(m: RequestedMedia, title: &str, dropped: &mut Vec<String>) -> Medi
     }
 }
 
-/// The event part, or `None` when its start is not a time the apps can use,
-/// which leaves the card without it.
+/// The event part, or `None` when its start is not a usable time.
 fn event_part(e: RequestedEvent, title: &str, dropped: &mut Vec<String>) -> Option<EventPart> {
     let Ok(start) = DateTime::parse_from_rfc3339(e.start.trim()) else {
         dropped.push(format!(
@@ -519,8 +513,7 @@ fn text(value: Option<&str>, max: usize) -> Option<String> {
     value.map(|v| clip(v, max)).filter(|v| !v.is_empty())
 }
 
-/// A phone number an app can dial: digits with an optional leading `+`, and
-/// spaces, dashes, dots or brackets between them.
+/// A dialable phone number: digits, an optional leading `+`, and separators.
 fn phone_number(phone: &str) -> Option<String> {
     let phone = phone.trim();
     let digits = phone.bytes().filter(u8::is_ascii_digit).count();

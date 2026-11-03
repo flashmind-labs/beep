@@ -1,5 +1,4 @@
-//! Files on a node (`files/1`), inside the folders it shares. Each call
-//! opens its own stream: requests are few and do not depend on each other.
+//! Files in a node's shared folders (`files/1`), one stream per call.
 
 use super::Online;
 use crate::protocol::node::files::{PROTOCOL, Reply, Request};

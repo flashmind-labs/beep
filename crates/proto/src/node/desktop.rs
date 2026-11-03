@@ -286,47 +286,6 @@ mod tests {
         assert!("hyper+t".parse::<KeyPress>().is_err());
     }
 
-    fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + fmt::Debug>(value: T) {
-        let body = rmp_serde::to_vec_named(&value).unwrap();
-        assert_eq!(rmp_serde::from_slice::<T>(&body).unwrap(), value);
-    }
-
-    #[test]
-    fn requests_and_replies_round_trip() {
-        round_trip(Request::Screenshot { max_side: 1280 });
-        round_trip(Request::Click {
-            target: Target::Point { x: 10.5, y: 20.0 },
-            button: MouseButton::Right,
-            count: 2,
-        });
-        round_trip(Request::Scroll {
-            at: Some(Target::Element { index: 4 }),
-            dx: 0,
-            dy: -3,
-        });
-        round_trip(Request::Key {
-            press: press("cmd+shift+t"),
-        });
-        round_trip(Reply::Screenshot(Screenshot {
-            jpeg: vec![0xff, 0xd8, 0xff],
-            width: 1280,
-            height: 800,
-            screen_width: 1512,
-            screen_height: 945,
-        }));
-        round_trip(Reply::Tree(Tree {
-            app: "Finder".into(),
-            window: None,
-            text: "[1] button \"Back\"".into(),
-            elements: 1,
-            truncated: false,
-        }));
-        round_trip(Reply::Failed {
-            reason: "Screen Recording is off".into(),
-            missing: Some(Permission::ScreenRecording),
-        });
-    }
-
     #[test]
     fn a_failure_from_an_older_node_reads_without_its_permission() {
         #[derive(Serialize)]

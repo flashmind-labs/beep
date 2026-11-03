@@ -1,7 +1,4 @@
-//! Project sync (`sync/1`): the server tells each of a user's nodes which
-//! projects to keep in step, in which folder and with which other nodes.
-//! The nodes keep that list and sync node to node, so the server going
-//! away stops nothing; it only reads back how each one stands.
+//! Project sync (`sync/1`): the server tells each node what to sync where; nodes sync directly.
 
 use super::{Nodes, Online};
 use crate::{
@@ -24,8 +21,7 @@ use tokio::time::timeout;
 
 /// How long a node may take to start or stop its projects.
 const CONFIGURE_LIMIT: Duration = Duration::from_secs(30);
-/// How long a node may take to say how its projects stand, or to list
-/// what one leaves out.
+/// How long a node may take to report its projects' status.
 const STATUS_LIMIT: Duration = Duration::from_secs(5);
 const SKIPPED_LIMIT: Duration = Duration::from_secs(30);
 /// How long a node may take to scan a project when asked.
@@ -56,8 +52,7 @@ impl SyncState {
             .clone()
     }
 
-    /// How `node` is reached: what it last said, or its key alone, which
-    /// discovery resolves.
+    /// How `node` is reached: what it last said, or its key alone for discovery.
     fn addr(&self, node: EndpointId) -> EndpointAddr {
         self.addrs()
             .get(&node)
@@ -89,8 +84,7 @@ impl Online {
         self.syncs() && self.offers(RESCAN)
     }
 
-    /// Has this node scan `project` now and bring it in line; gives how
-    /// it stands after.
+    /// Has this node rescan `project` now; gives how it stands after.
     pub async fn sync_rescan(&self, project: &str) -> Result<ProjectStatus> {
         let request = Request::Rescan {
             project: project.to_owned(),
@@ -150,8 +144,7 @@ impl Online {
         }
     }
 
-    /// Sets the projects this node syncs; gives how it is reached and
-    /// what it refused.
+    /// Sets the projects this node syncs; gives how it is reached and what it refused.
     async fn configure_sync(&self, projects: Vec<Project>) -> Result<Configured> {
         match self
             .sync_call(&Request::Configure { projects }, CONFIGURE_LIMIT)
@@ -188,9 +181,7 @@ struct ForNode<'a> {
     controls: bool,
 }
 
-/// The projects `node` syncs, each with the other nodes that sync it. A
-/// paused project goes as paused to a node that pauses, and is left out
-/// for one that does not, which stops it.
+/// The projects `node` syncs with their peers; a paused one is left out for nodes that cannot pause.
 fn projects_for(rows: &[SyncRow], node: &ForNode, state: &SyncState) -> Vec<Project> {
     let id = node.node.to_string();
     rows.iter()
@@ -210,10 +201,7 @@ fn projects_for(rows: &[SyncRow], node: &ForNode, state: &SyncState) -> Vec<Proj
         .collect()
 }
 
-/// Tells each of `user`'s online nodes that can sync which projects to
-/// sync, where, and with whom. `first` goes first, so the others get how
-/// it is reached now. A node that fails is skipped: it gets its list when
-/// it connects again.
+/// Tells each of `user`'s online nodes what to sync; `first` goes first so others learn its address.
 pub async fn push_sync(
     nodes: &Nodes,
     user: &User,

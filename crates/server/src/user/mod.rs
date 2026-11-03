@@ -1,10 +1,5 @@
-//! One configured user and everything the server keeps for them: their rows,
-//! memories, MCP connections, apps, starters and feed syncs. Everything
-//! reached through a `User` is scoped to that user, so callers never pass a
-//! user id, and the user's background work is spawned here too.
-//!
-//! Per-user store methods take a `UserKey`, and only this module can make
-//! one, so no code outside a `User` can read or change a user's rows.
+//! One user and everything the server keeps for them, scoped so callers never pass a user id.
+//! Only this module makes a `UserKey`, so no code outside a `User` can reach a user's rows.
 
 use crate::{
     AsyncMutex,
@@ -120,8 +115,7 @@ pub struct User {
     pub(crate) starters: AsyncMutex<Option<Cached>>,
     /// When the user last asked for new starters, oldest first.
     starter_refreshes: Mutex<VecDeque<Instant>>,
-    /// Feeds being synced, so the hourly sweep and a new connection never
-    /// read the same feed at once.
+    /// Feeds being synced, so two syncs never read the same feed at once.
     syncing: Mutex<HashSet<Feed>>,
     /// Ends the background loops `start` began, once the account is gone.
     stopped: CancellationToken,
@@ -177,8 +171,7 @@ impl User {
         &self.id
     }
 
-    /// The id outside services, such as Composio and the sandbox, know the
-    /// user by.
+    /// The id outside services, such as Composio, know the user by.
     pub fn external_id(&self) -> &str {
         &self.external_id
     }
@@ -203,8 +196,7 @@ impl User {
         }
     }
 
-    /// Starts the user's background work: the MCP keep-alive, the hourly
-    /// feed sync and the memory curation.
+    /// Starts the MCP keep-alive, the hourly feed sync and memory curation.
     pub fn start(self: &Arc<Self>, app: &Arc<App>) {
         let user = self.clone();
         tokio::spawn(async move {
@@ -264,8 +256,7 @@ impl User {
         inserted.then(|| FeedClaim { user: self, feed })
     }
 
-    /// Starts a run for `message` in `session`. A repeated `request` returns
-    /// its existing run.
+    /// Starts a run for `message` in `session`; a repeated `request` returns its existing run.
     pub async fn create_run(
         &self,
         session: Uuid,
@@ -306,8 +297,7 @@ impl User {
             .await
     }
 
-    /// The run already started for `request` in `session`, whatever its
-    /// message, for a spoken message not yet transcribed.
+    /// The run already started for `request` in `session`, whatever its message.
     pub(crate) async fn run_for_spoken(
         &self,
         session: Uuid,
@@ -328,8 +318,7 @@ impl User {
         self.store.list_researches(&self.key).await
     }
 
-    /// The paper of the research `chat` runs, typeset as a PDF. `None` when
-    /// the chat is not a research or its paper is not written yet.
+    /// The research paper of `chat` as a PDF; `None` when there is none yet.
     pub(crate) async fn research_pdf(&self, chat: Uuid) -> Result<Option<Pdf>> {
         let Some(research) = self.research_in(chat).await? else {
             return Ok(None);
@@ -384,8 +373,7 @@ impl User {
         Ok(deleted)
     }
 
-    /// Deletes a session only while it shows nothing and no run is going on
-    /// in it; `false` when it was kept.
+    /// Deletes a session only while it is empty and idle; `false` when it was kept.
     pub(crate) async fn delete_empty_session(&self, session_id: Uuid) -> Result<bool> {
         let deleted = self
             .store
@@ -404,9 +392,7 @@ impl User {
         Ok(deleted)
     }
 
-    /// Removes one turn of a session, starting at the user message sent at
-    /// `timestamp` in milliseconds since the epoch, or that turn and the
-    /// ones after it.
+    /// Removes the turn whose user message was sent at `timestamp` (ms), or it and those after.
     pub async fn delete_turn(
         &self,
         session_id: Uuid,
@@ -455,8 +441,7 @@ impl User {
         self.store.save_file(&self.key, file).await
     }
 
-    /// Keeps a copy of a picture a coding agent session of the user's
-    /// showed, unless one is kept already.
+    /// Keeps a copy of a picture a coding agent session showed, unless one is kept.
     pub(crate) async fn save_agent_image(
         &self,
         of: AgentImageOf<'_>,
@@ -535,8 +520,7 @@ impl User {
         self.store.route_card(&self.key, call_id).await
     }
 
-    /// Up to `len` bytes of a sent file or picture from `offset` on, or
-    /// `None` when it is gone or not the user's to read.
+    /// Up to `len` bytes of a sent file from `offset`; `None` when gone or not the user's.
     pub(crate) async fn file_part(
         &self,
         id: &str,
@@ -546,8 +530,7 @@ impl User {
         self.store.file_part(&self.key, id, offset, len).await
     }
 
-    /// Shares `session_id` as `conversation`; `None` when the user has no
-    /// such session.
+    /// Shares `session_id` as `conversation`; `None` when the user has no such session.
     pub async fn share_session(
         &self,
         session_id: Uuid,
@@ -609,8 +592,7 @@ impl User {
         self.store.pin_group(&self.key, id, pinned).await
     }
 
-    /// Lets Beep use the user's apps in a group when others ask, or stops
-    /// it; `false` when the user is not in it.
+    /// Lets Beep use the user's apps in a group when others ask; `false` when not a member.
     pub async fn share_group_apps(&self, id: Uuid, shared: bool) -> Result<bool> {
         self.store.share_group_apps(&self.key, id, shared).await
     }
@@ -620,8 +602,7 @@ impl User {
         self.store.leave_group(&self.key, id).await
     }
 
-    /// Tells the user's phones that `session_id` changed, or the chat list
-    /// when it is empty.
+    /// Tells the user's phones `session_id` changed, or the chat list when it is empty.
     pub fn changed(&self, session_id: &str) {
         // Nobody listening just means no phone is online; it syncs on connect.
         let _ = self
@@ -634,8 +615,7 @@ impl User {
         self.store.owns_session(&self.key, session).await
     }
 
-    /// The messages of a session the user owns, oldest first. `None` when
-    /// they have no such session.
+    /// The messages of the user's session, oldest first; `None` for no such session.
     pub async fn session_messages(&self, session: Uuid) -> Result<Option<Vec<StoredMessage>>> {
         if !self.store.owns_session(&self.key, session).await? {
             return Ok(None);
@@ -643,8 +623,7 @@ impl User {
         Ok(Some(self.store.chat_messages(session).await?))
     }
 
-    /// What each tool step of a session the user owns showed while it ran,
-    /// oldest first. `None` when they have no such session.
+    /// What each tool step of the user's session showed, oldest first; `None` for no such session.
     pub async fn tool_labels(&self, session: Uuid) -> Result<Option<Vec<ToolLabel>>> {
         if !self.store.owns_session(&self.key, session).await? {
             return Ok(None);
@@ -652,8 +631,7 @@ impl User {
         Ok(Some(self.store.tool_labels(session).await?))
     }
 
-    /// Keeps the web pages the reply of the turn opened by message `turn`
-    /// used, after any it has.
+    /// Adds the web pages the reply to message `turn` used.
     pub(crate) async fn save_sources(
         &self,
         session: Uuid,
@@ -663,8 +641,7 @@ impl User {
         self.store.save_sources(session, turn, sources).await
     }
 
-    /// The web pages each turn of a session the user owns used. `None` when
-    /// they have no such session.
+    /// The web pages each turn of the user's session used; `None` for no such session.
     pub async fn session_sources(&self, session: Uuid) -> Result<Option<Vec<TurnSources>>> {
         if !self.store.owns_session(&self.key, session).await? {
             return Ok(None);
@@ -682,11 +659,6 @@ impl User {
         self.store.context(&self.key, session).await
     }
 
-    /// Whether the user is in chat `id`.
-    pub async fn in_chat(&self, id: Uuid) -> Result<bool> {
-        self.store.in_chat(&self.key, id).await
-    }
-
     /// The user's updates after `after`, a page at a time.
     pub async fn updates_page(&self, after: i64) -> Result<UpdatePage> {
         self.store.updates_page(&self.key, after).await
@@ -697,8 +669,7 @@ impl User {
         self.store.watch_updates(self.key.as_str()).await
     }
 
-    /// Ends a run with `status`, saving its turn when there is one. `None`
-    /// when no turn was saved.
+    /// Ends a run with `status`, saving its turn if any; `None` when none was saved.
     pub async fn finish(
         &self,
         run: &Run,
@@ -712,8 +683,7 @@ impl User {
         Ok(saved)
     }
 
-    /// Stores a new memory, filed by Jev unless it comes with a category,
-    /// and returns its id.
+    /// Stores a new memory, filed by Jev unless it has a category, and returns its id.
     pub async fn add_memory(&self, fact: Fact<'_>) -> Result<String> {
         let fact = Fact {
             category: self.category_of(&fact).await,
@@ -722,9 +692,7 @@ impl User {
         self.store.add_memory(&self.key, fact).await
     }
 
-    /// Replaces a memory's text, and its days when given, and files it again
-    /// unless it comes with a category. A memory the user stated stays
-    /// stated. Returns whether it exists.
+    /// Replaces a memory's text and refiles it; a stated memory stays stated. Whether it exists.
     pub async fn update_memory(&self, id: &str, fact: Fact<'_>) -> Result<bool> {
         let fact = Fact {
             category: self.category_of(&fact).await,
@@ -733,8 +701,7 @@ impl User {
         self.store.update_memory(&self.key, id, fact).await
     }
 
-    /// Replaces only a memory's text, as the user does from the Memories
-    /// screen, and files it again; it then counts as stated by the user.
+    /// Replaces a memory's text from the Memories screen; it then counts as stated by the user.
     pub async fn edit_memory(&self, id: &str, content: &str) -> Result<bool> {
         let category = self.file(content).await;
         self.store
@@ -750,8 +717,7 @@ impl User {
         }
     }
 
-    /// Jev's category for each of `contents`, asked in one request. `None`
-    /// for each when Jev is not set up or failed.
+    /// Jev's category for each of `contents` in one request; `None` when Jev is off or failed.
     async fn file_each(&self, contents: &[&str]) -> Vec<Option<&'static str>> {
         let Some(decision) = self.decision.as_ref() else {
             return vec![None; contents.len()];
@@ -793,8 +759,7 @@ impl User {
         }
     }
 
-    /// Files the memories that are unfiled or under a category no longer
-    /// used, a few at a time. Returns how many it filed.
+    /// Files unfiled or stale-category memories a few at a time; returns how many.
     pub(crate) async fn file_memories(&self) -> Result<usize> {
         if self.decision.is_none() {
             return Ok(0);
@@ -855,8 +820,7 @@ impl User {
         self.store.visible_skills(&self.key).await
     }
 
-    /// Changes one of the skills the user can see; `None` when there is no
-    /// such skill for them.
+    /// Changes one of the user's skills; `None` when there is no such skill.
     pub async fn edit_skill(&self, id: Uuid, change: SkillPatch<'_>) -> Result<Option<SkillRow>> {
         self.store.edit_skill(&self.key, id, change).await
     }
@@ -930,8 +894,7 @@ impl User {
         self.store.routine_grants(&self.key, routine, tool).await
     }
 
-    /// Records a call of run `run` as a use of grant `id`; false when the
-    /// grant is no longer in force or the run used its share.
+    /// Records a call of `run` as a use of grant `id`; false when the grant is spent.
     pub(crate) async fn use_grant(&self, id: Uuid, run: &str, call_id: &str) -> Result<bool> {
         self.store.use_grant(&self.key, id, run, call_id).await
     }
@@ -968,14 +931,12 @@ impl User {
             .await
     }
 
-    /// The key that claimed this user's setup token `hash`: `None` for no
-    /// such token, `Some(None)` while unused.
+    /// The key that claimed setup token `hash`: `None` for no token, `Some(None)` while unused.
     pub async fn node_token_claimer(&self, hash: &str) -> Result<Option<Option<String>>> {
         self.store.node_token_claimer(&self.key, hash).await
     }
 
-    /// Stops this user's unused setup token `hash` from working; false
-    /// when there is none.
+    /// Revokes the user's unused setup token `hash`; false when there is none.
     pub async fn revoke_node_token(&self, hash: &str) -> Result<bool> {
         self.store.revoke_node_token(&self.key, hash).await
     }
@@ -1002,8 +963,7 @@ impl User {
         self.store.harness_settings(&self.key, machine_id).await
     }
 
-    /// The user's settings for the harness `agent` on each machine that has
-    /// some saved.
+    /// The user's saved settings for harness `agent`, per machine.
     pub(crate) async fn harness_settings_of(
         &self,
         agent: &str,
@@ -1045,8 +1005,7 @@ impl User {
         self.store.save_flsh_settings(&self.key, settings).await
     }
 
-    /// Remembers that the device with key `device` started `on`, so its
-    /// alerts go there.
+    /// Remembers that `device` started `on`, so its alerts go there.
     pub(crate) async fn record_agent_start(
         &self,
         on: crate::store::SessionOn<'_>,
@@ -1055,8 +1014,7 @@ impl User {
         self.store.record_agent_start(&self.key, on, device).await
     }
 
-    /// The device that started `on`; `None` when no device started it
-    /// through Beep.
+    /// The device that started `on` through Beep, if any.
     pub(crate) async fn agent_starter(
         &self,
         on: crate::store::SessionOn<'_>,
@@ -1069,9 +1027,7 @@ impl User {
         self.store.off_harnesses(&self.key).await
     }
 
-    /// The user's settings for the harnesses on `machine_id`, as the node
-    /// takes them. A harness whose env vars no longer open goes without
-    /// them.
+    /// The harness settings for `machine_id` as the node takes them, without vars that fail to open.
     pub(crate) async fn agent_settings(
         &self,
         key: &crate::credentials::CredentialKey,
@@ -1141,8 +1097,7 @@ impl User {
         self.store.save_import(&self.key, import).await
     }
 
-    /// Notes the fork the import of `project` on `endpoint` cloned, or
-    /// none.
+    /// Notes the fork the import of `project` on `endpoint` cloned, or none.
     pub(crate) async fn set_import_fork(
         &self,
         project: &str,
@@ -1179,9 +1134,7 @@ impl User {
             .await
     }
 
-    /// Deletes every row of the project `name`, the user's chats about it
-    /// included; `None` when the user has no such project. See
-    /// `crate::imports::remove_project`, which also stops what runs.
+    /// Deletes every row of project `name`, chats included; `None` for no such project.
     pub(crate) async fn remove_project_rows(
         &self,
         name: &str,
@@ -1205,8 +1158,7 @@ impl User {
             .await
     }
 
-    /// Records a checkout found on a machine as the project's folder there,
-    /// unless the project has one there already; `true` when recorded.
+    /// Records a found checkout as the project's folder there unless it has one.
     pub(crate) async fn link_import(&self, import: crate::store::NewImport<'_>) -> Result<bool> {
         self.store.link_import(&self.key, import).await
     }
@@ -1372,8 +1324,7 @@ impl User {
             .await
     }
 
-    /// The newest `limit` versions of the user's instructions, newest
-    /// first.
+    /// The newest `limit` versions of the user's instructions, newest first.
     pub(crate) async fn instructions_versions(
         &self,
         limit: i64,
@@ -1410,8 +1361,7 @@ impl User {
         self.store.project_groups(&self.key).await
     }
 
-    /// Makes a project group, or changes the user's group `group.id`.
-    /// `None` when there is no such group.
+    /// Makes a project group, or changes group `group.id`; `None` when there is no such group.
     pub(crate) async fn save_project_group(
         &self,
         group: SaveGroup<'_>,
@@ -1487,8 +1437,7 @@ impl User {
         self.store.remove_agent_token(&self.key, agent).await
     }
 
-    /// Keeps `account` as who the Forgejo credential `id` signs in as;
-    /// `false` when the user has no such one.
+    /// Keeps `account` as who Forgejo credential `id` signs in as; `false` for no such one.
     pub(crate) async fn set_forgejo_account(&self, id: &str, account: &str) -> Result<bool> {
         self.store.set_forgejo_account(&self.key, id, account).await
     }
@@ -1520,8 +1469,7 @@ impl User {
         self.store.account_keys(&self.key).await
     }
 
-    /// A code another device joins this account with, shown by `endpoint`
-    /// under `name`.
+    /// A code another device joins this account with, shown by `endpoint` under `name`.
     pub async fn create_invite(
         &self,
         endpoint: &EndpointId,
@@ -1661,9 +1609,7 @@ impl User {
         self.store.clear_attention(&self.key, mailbox, ids).await
     }
 
-    /// Saves a server's config. Credentials are untouched: they change only
-    /// through `save_mcp_credentials`, so a stale config cannot roll back a
-    /// rotated refresh token.
+    /// Saves a server's config; credentials are untouched, so it cannot roll back a rotated token.
     pub async fn save_mcp_config(&self, name: &str, config: Value) -> Result<()> {
         self.store.save_mcp_config(&self.key, name, config).await
     }
@@ -1763,14 +1709,12 @@ impl User {
         self.store.delete_place(&self.key, id).await
     }
 
-    /// Records which places `fix` is at, and returns the ones it arrived at
-    /// or left.
+    /// Records which places `fix` is at and returns those arrived at or left.
     pub async fn cross_places(&self, fix: &Location) -> Result<Vec<Crossed>> {
         self.store.cross_places(&self.key, fix).await
     }
 
-    /// Records that the phone saw itself arrive at or leave place `id`, and
-    /// returns the crossing when that changed where it was.
+    /// Records the phone arriving at or leaving place `id`; the crossing when it changed anything.
     pub async fn cross_place(&self, id: Uuid, event: PlaceEvent) -> Result<Option<Crossed>> {
         self.store
             .cross_place(&self.key, id, event, Utc::now())
@@ -1882,8 +1826,7 @@ impl User {
         self.store.ensure_project_agent(&self.key, project).await
     }
 
-    /// How many of the project's tasks are open and workers live.
-    /// Every project summed up for the Projects overview, by name.
+    /// Every project's open tasks and live workers for the Projects overview, by name.
     pub(crate) async fn project_overviews(&self) -> Result<Vec<crate::store::OverviewRow>> {
         self.store.project_overviews(&self.key).await
     }

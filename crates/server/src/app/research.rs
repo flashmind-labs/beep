@@ -1,8 +1,5 @@
-//! Runs a research's team in the background, one round at a time: the
-//! round's scouts in parallel, then the critic's review, then the lead, who
-//! may add scouts for the gaps and briefs the writer, then the writer's
-//! draft (or revision, after the first round) and one round of fixes. When
-//! it ends, the lead tells the user in the research chat.
+//! Runs a research's team in the background, round by round: scouts in parallel, the critic,
+//! the lead, then the writer's draft and fixes. The lead reports the end in the research chat.
 
 use super::{App, Draws, Message, run::register_web_tools};
 use crate::{
@@ -89,8 +86,7 @@ impl<'a> Turn<'a> {
     }
 }
 
-/// Gives the lead's turn its tools: starting and stopping the team, and
-/// reading what it found.
+/// Gives the lead's turn its tools: starting and stopping the team, and reading its findings.
 pub(super) fn register_lead(
     registry: &mut ToolRegistry,
     app: &Arc<App>,
@@ -188,8 +184,7 @@ impl App {
         Ok(ctx)
     }
 
-    /// Starts the team on `plan`'s newest round. `false` when the team is
-    /// working already.
+    /// Starts the team on `plan`'s newest round; `false` when it is working already.
     pub async fn start_team(
         self: &Arc<Self>,
         user: &Arc<User>,
@@ -229,8 +224,7 @@ impl App {
         Ok(stopped)
     }
 
-    /// Stops every team, as the server shuts down. Their researches stay
-    /// running in the store, so the next start marks them interrupted.
+    /// Stops every team at shutdown; the next start marks their researches interrupted.
     pub(super) async fn stop_teams(&self) {
         for cancel in self.teams.lock().await.values() {
             cancel.cancel();
@@ -494,8 +488,7 @@ impl App {
         Ok(entries.last().map_or(0, |row| row.seq))
     }
 
-    /// What the critic said to each member since entry `since`, one
-    /// message per line.
+    /// What the critic said to each member since entry `since`, one message per line.
     async fn challenges(&self, id: Uuid, since: i64) -> Result<HashMap<Member, String>> {
         let mut out: HashMap<Member, String> = HashMap::new();
         for row in self.store.research_entries(id, since).await? {
@@ -512,8 +505,7 @@ impl App {
         Ok(out)
     }
 
-    /// Runs one member's turn and returns its conversation. Its tool calls
-    /// go to its thread as steps and its final reply to the room.
+    /// Runs one member's turn: tool calls go to its thread, the final reply to the room.
     async fn run_member(
         &self,
         user: &User,
@@ -667,8 +659,7 @@ impl App {
         ctx
     }
 
-    /// Says how a team ended: the lead writes the result in the chat when
-    /// it finished, or a line on why it did not.
+    /// Says how a team ended: the lead writes the result, or a line on why it did not finish.
     async fn team_ended(self: &Arc<Self>, user: &Arc<User>, id: Uuid, ended: Result<Status>) {
         if self.shutting_down.load(Ordering::Relaxed) {
             return;

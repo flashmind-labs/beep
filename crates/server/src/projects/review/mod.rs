@@ -1,8 +1,4 @@
-//! Reviewing a project's branch before a merge: git on a machine with a
-//! checkout reads the diff, read-only coding-agent sessions each review a
-//! shard of it in a detached worktree, and a verifier on the cheapest
-//! offered model checks each finding. [`drive`] moves reviews on in the
-//! background.
+//! Branch review before a merge: sharded read-only reviewers, then a verifier per finding.
 
 pub(crate) mod drive;
 pub(crate) mod git;

@@ -1,6 +1,4 @@
-//! OpenAI image generation (`POST /v1/images/generations`). GPT image
-//! models always answer in base64 and refuse `response_format`, which
-//! flashmind's generic request sends, so this one leaves it out.
+//! OpenAI image generation, without the `response_format` GPT image models refuse.
 
 use super::{call::Call, job::Produced};
 use anyhow::{Context, Result};
@@ -91,8 +89,7 @@ pub(super) fn parse(body: &[u8]) -> Result<Produced> {
     })
 }
 
-/// Asks OpenAI at `base` (its `/v1` root) for the image in `body`, as a
-/// stream of the one file.
+/// Asks OpenAI at `base` (its `/v1` root) for the image in `body`.
 pub(super) fn generate(base: &Url, key: SecretString, body: ImageBody) -> CompletionStream {
     let url = format!("{}/images/generations", base.as_str().trim_end_matches('/'));
     Box::pin(stream::once(async move {

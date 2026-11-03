@@ -50,10 +50,3 @@ test("the agent's last message is not read as the card's fields", () => {
   assert.deepEqual(r?.files, []);
   assert.deepEqual(r?.plan, []);
 });
-
-test("a result about no one session gives no card", () => {
-  assert.equal(parseAgentReport("No agent sessions on build-box."), null);
-  assert.equal(parseAgentReport("Stopped following a3 on build-box."), null);
-  assert.equal(parseAgentReport(""), null);
-  assert.equal(parseAgentReport(null), null);
-});

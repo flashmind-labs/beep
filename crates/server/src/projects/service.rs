@@ -1,7 +1,5 @@
-//! What the server keeps in memory about projects: which node session is
-//! which worker, which workers edited a build file since a build was last
-//! allowed, the issue mirroring running for each project, the lifecycle's
-//! schedule and the jobs that carry out what workers report.
+//! In-memory project state: sessions to workers, build-edit flags, issue mirroring, the
+//! lifecycle schedule and its jobs.
 
 use super::{
     lifecycle,
@@ -36,9 +34,8 @@ use tokio::{
 use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
-/// Lifecycle jobs running at once, and waiting to run. One that finds the
-/// queue full is dropped, and what is due is armed again [`DROPPED_RETRY`]
-/// later.
+/// Lifecycle jobs running at once, and waiting; past that a job is dropped and re-armed
+/// [`DROPPED_RETRY`] later.
 const JOBS_RUNNING: usize = 16;
 const JOBS_QUEUED: usize = 64;
 const DROPPED_RETRY: TimeDelta = TimeDelta::seconds(30);
@@ -101,8 +98,7 @@ pub struct Projects {
     build_edited: Mutex<HashSet<WorkerId>>,
     /// The issue mirroring of each project, the last one started.
     mirrors: Mutex<HashMap<ProjectId, Mirror>>,
-    /// The last turn and question of each worker's that was handled, so a
-    /// report seen twice (live and on re-attach) is handled once.
+    /// Each worker's last handled turn and question, so a report seen twice is handled once.
     seen: Mutex<HashMap<WorkerId, Seen>>,
     schedule: Mutex<Schedule>,
     /// Wakes the schedule's runner when something is armed.
@@ -110,16 +106,14 @@ pub struct Projects {
     /// Runs the schedule; set by [`super::start`].
     timer: Mutex<Option<AbortOnDropHandle<()>>>,
     jobs: Mutex<Option<Jobs>>,
-    /// The jobs of each worker's, run one at a time in order. A worker is
-    /// here while a run of its jobs is queued, running or armed.
+    /// Each worker's jobs, run in order; present while a run is queued, running or armed.
     worker_jobs: Mutex<HashMap<WorkerId, VecDeque<Job>>>,
     /// What [`Self::post`] posted, for the tests to wait on.
     #[cfg(test)]
     posted: Mutex<Vec<Post>>,
     #[cfg(test)]
     posted_signal: Notify,
-    /// Shell text run before each node shell command, such as a `PATH`
-    /// with stand-ins for `gh`.
+    /// Shell text run before each node command, such as a `PATH` with a fake `gh`.
     #[cfg(test)]
     shell_prefix: Mutex<Option<String>>,
 }
@@ -153,8 +147,7 @@ impl Projects {
         lock(&self.sessions).insert((machine, session.to_owned()), worker);
     }
 
-    /// Forgets `worker`: its session, whether it edited a build file, what
-    /// of it was handled and its idle close.
+    /// Forgets everything kept about `worker`, including its idle close.
     pub(crate) fn untrack(&self, worker: WorkerId) {
         lock(&self.sessions).retain(|_, tracked| *tracked != worker);
         lock(&self.build_edited).remove(&worker);
@@ -162,16 +155,14 @@ impl Projects {
         self.disarm(&Due::Idle(worker));
     }
 
-    /// Forgets a removed project: its pending check, and its issue
-    /// mirroring once that finished. One still running is left to end, as
-    /// cutting it off could leave an issue half made.
+    /// Forgets a removed project's check, and its issue mirroring once finished (cutting it off
+    /// could leave an issue half made).
     pub(crate) fn forget_project(&self, project: ProjectId) {
         self.disarm(&Due::Check(project));
         lock(&self.mirrors).retain(|id, mirror| *id != project || !*mirror.done.borrow());
     }
 
-    /// Whether `turn` of `worker`'s is new, noting it handled when it is.
-    /// `stored` is how many the store says were heard about.
+    /// Whether `turn` of `worker` is new, marking it handled; `stored` is the store's count.
     pub(crate) fn take_turn(&self, worker: WorkerId, turn: u32, stored: u32) -> bool {
         let mut seen = lock(&self.seen);
         let seen = seen.entry(worker).or_insert(Seen {
@@ -195,8 +186,7 @@ impl Projects {
         new
     }
 
-    /// Forgets that question `id` of `worker`'s was handled, so it is
-    /// handled again when it next shows up.
+    /// Unmarks question `id` of `worker` so it is handled again next time.
     pub(crate) fn forget_question(&self, worker: WorkerId, id: u32) {
         if let Some(seen) = lock(&self.seen).get_mut(&worker)
             && seen.question == Some(id)
@@ -236,10 +226,8 @@ impl Projects {
         }
     }
 
-    /// Runs `job` in the background, a bounded number at a time, logging
-    /// its error. It gets the app when it starts, so a waiting job does not
-    /// keep the app alive. Says whether it was queued: with the queue full
-    /// it is dropped.
+    /// Runs `job` in the background, bounded, logging its error; false when the queue was full.
+    /// It gets the app only when it starts, so a waiting job does not keep the app alive.
     pub(crate) fn spawn(&self, app: &Arc<App>, job: Job) -> bool {
         let mut jobs = lock(&self.jobs);
         let jobs = jobs.get_or_insert_with(|| {
@@ -260,8 +248,7 @@ impl Projects {
         }
     }
 
-    /// Runs what is due, arming it again a little later when the queue is
-    /// full.
+    /// Runs what is due, re-arming it a little later when the queue is full.
     pub(crate) fn run_due(&self, app: &Arc<App>, due: Due, now: DateTime<Utc>) {
         let queued = match due {
             Due::Worker(worker) => self.spawn_worker(app, worker),
@@ -420,9 +407,7 @@ impl Projects {
         }
     }
 
-    /// Judges what `worker` asks to do, as [`policy::judge`] does, holding
-    /// its builds and tests back from the moment it edits a build file
-    /// until the user allows one (see [`Self::allowed`]).
+    /// [`policy::judge`], holding builds back after a build file edit until [`Self::allowed`].
     pub(crate) fn judge(
         &self,
         worker: WorkerId,
@@ -443,19 +428,15 @@ impl Projects {
         verdict
     }
 
-    /// The user allowed `question` of `worker`'s: a build or test lets the
-    /// next ones run as before.
+    /// The user allowed `question`: an allowed build or test lets the next ones run again.
     pub(crate) fn allowed(&self, worker: WorkerId, question: &Question) {
         if policy::runs_build(question) {
             lock(&self.build_edited).remove(&worker);
         }
     }
 
-    /// Runs `work`, the issue mirroring of `project`, in the background,
-    /// unless an earlier one still runs, and waits at most `budget` for
-    /// whichever runs. Past the budget it keeps going: an issue create cut
-    /// off half way may leave an issue nobody saved. Says whether it
-    /// finished in time.
+    /// Runs `project`'s issue mirroring unless one already runs, waiting at most `budget`; true if
+    /// it finished in time. Past the budget it keeps going so no issue is left half made.
     pub(crate) async fn mirror(
         &self,
         project: ProjectId,
@@ -500,8 +481,7 @@ impl Projects {
     }
 }
 
-/// Runs `worker`'s jobs one at a time until none waits. A job that fails
-/// or panics does not stop the ones after it.
+/// Runs `worker`'s jobs in order until none waits; a failed or panicked job does not stop the rest.
 async fn run_worker(app: &Arc<App>, worker: WorkerId) {
     while let Some(job) = app.projects.next_for(worker) {
         let kind = job.kind;

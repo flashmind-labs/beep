@@ -5,7 +5,7 @@
 // as a mention; files dropped on a folder upload there; right-click has
 // the rest.
 
-import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, mergeTree, parentPath, treeRows } from "../files-state.ts";
+import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, failedListing, mergeTree, parentPath, treeRows } from "../files-state.ts";
 import { resolvePath } from "../media-state.ts";
 import { esc, h, invoke } from "./core.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./mediapane.ts";
@@ -137,8 +137,7 @@ async function load(dir: string) {
     F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
   } catch (e) {
     if (F.key !== key) return;
-    const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
-    F.listings.set(dir, { entries: had?.entries ?? null, more: 0, error: /unknown op|not serve|update/i.test(text) ? "Update Beep's server and beep-node on that machine to browse its files." : text });
+    F.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
   } finally {
     if (F.key === key) F.reading.delete(dir);
   }

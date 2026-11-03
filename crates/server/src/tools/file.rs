@@ -1,6 +1,4 @@
-//! Sends the user a file in the chat, such as a mail attachment or a file
-//! a command made, instead of mailing it to them; or copies a file from one
-//! of the user's machines to another.
+//! Sends the user a file in the chat, or copies a file between the user's machines.
 
 use super::{
     args::text,
@@ -26,13 +24,11 @@ pub(crate) struct SendFileTool {
     pub(crate) machines: Option<Machines>,
     /// The chat is a research, so its paper can be sent as a PDF.
     pub(crate) paper: bool,
-    /// In a project chat, the project's checkouts by machine: a copy to a
-    /// machine must land inside one of them.
+    /// In a project chat, the checkouts by machine that a copy must land inside.
     pub(crate) copy_into: Option<Vec<(EndpointId, MachinePath)>>,
 }
 
-/// Refuses a copy into `folder` on `target` unless it is inside one of the
-/// checkouts `copy_into` lists for that machine.
+/// Refuses a copy into `folder` on `target` outside the checkouts `copy_into` lists.
 fn copy_reaches(
     copy_into: Option<&[(EndpointId, MachinePath)]>,
     target: &EndpointId,
@@ -101,8 +97,7 @@ impl Tool for SendFileTool {
         schema
     }
     fn timeout_secs(&self) -> Option<u64> {
-        // A folder sent between machines may be many gigabytes, and some
-        // machines are capped at 1 MiB/s.
+        // A folder may be many gigabytes, and some machines are capped at 1 MiB/s.
         Some(6 * 60 * 60)
     }
     fn humanize(&self, args: &Value) -> String {
@@ -359,9 +354,7 @@ pub(super) struct UserFile {
     pub(super) data: Vec<u8>,
 }
 
-/// Reads `path` from the machine `from` names, or from the user's home
-/// folder when `from` is `None`. A file over `fetch::MAX_DOWNLOAD` is
-/// refused before it is read.
+/// Reads `path` from machine `from`, or the user's home folder; refuses files over `MAX_DOWNLOAD`.
 pub(super) async fn read_user_file(
     files: UserFiles<'_>,
     from: Option<&str>,
@@ -392,8 +385,7 @@ pub(super) async fn read_user_file(
     })
 }
 
-/// Refuses the arguments sending to a machine used to take, so a call
-/// written for them does not quietly do something else.
+/// Refuses the old send-to-machine arguments, so a call using them does not do something else.
 fn no_old_args(args: &Value) -> Result<()> {
     for old in ["dst_path", "overwrite"] {
         if args.get(old).is_some_and(|value| !value.is_null()) {
@@ -414,9 +406,7 @@ fn to_machine(args: &Value) -> Option<&str> {
         .filter(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user"))
 }
 
-/// The Fastmail attachment `blob_id` of `email_id`, in `account` or the
-/// first account, as the file itself rather than the text `read_attachment`
-/// gives by default.
+/// The Fastmail attachment `blob_id` of `email_id` as the file itself, not its text.
 pub(crate) async fn fastmail_attachment(
     user: &User,
     account: Option<&str>,
@@ -441,9 +431,7 @@ pub(crate) struct Attachment {
     pub(crate) data: Vec<u8>,
 }
 
-/// The file in Fastmail's `read_attachment` result. The MCP client hands
-/// image and resource blocks over only as their Debug text, so the base64
-/// is read out of that; JSON with a `data` or `blob` field works as well.
+/// The file in Fastmail's `read_attachment` result, read out of the blocks' Debug text or JSON.
 fn attachment_in(result: &Value) -> Option<Attachment> {
     match result {
         Value::String(text) => {
@@ -475,8 +463,7 @@ fn attachment_in(result: &Value) -> Option<Attachment> {
     }
 }
 
-/// The text between `prefix` and the next quote. Base64 and MIME types
-/// hold no quotes or escapes, so Debug quoting leaves them as they are.
+/// The text between `prefix` and the next quote (safe for base64 and MIME types).
 fn quoted_after<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let start = text.find(prefix)? + prefix.len();
     let rest = &text[start..];
@@ -495,8 +482,7 @@ pub(super) fn clean_name(name: &str) -> String {
     }
 }
 
-/// The MIME type for a file with no usable one, from its extension or, for
-/// a PDF, its first bytes.
+/// The MIME type for a file with no usable one, from its extension or PDF magic bytes.
 fn mime_for(name: &str, data: &[u8]) -> &'static str {
     if data.starts_with(b"%PDF") {
         return "application/pdf";

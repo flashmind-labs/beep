@@ -25,8 +25,7 @@ use std::{sync::Arc, time::Duration};
 use strum::VariantNames;
 
 pub(crate) const WORKER: &str = "project_worker";
-/// The gate's name for a start card. Every start asks, so "Always" on it
-/// saves nothing: the agents run without permission prompts.
+/// The gate's name for a start card; every start asks, so "Always" saves nothing.
 pub(super) const START_SLUG: &str = "PROJECT_WORKER_START";
 
 pub(super) struct WorkerTool {
@@ -70,9 +69,7 @@ struct WorkerArgs {
     prompt: Option<String>,
 }
 
-/// The start card for `task` placed as `placement`. It asks every time:
-/// the node starts each agent with its permission prompts off, so nothing
-/// the worker does is put to Beep first.
+/// The start card for `task` at `placement`. Always asks: agents run with permission prompts off.
 pub(crate) fn start_card(
     task: &TaskRow,
     machine: &str,

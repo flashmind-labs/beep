@@ -1,6 +1,4 @@
-//! A checkout already on the machine, of the repository or of the user's
-//! fork, linked rather than cloned again: it gets the remote it lacks and
-//! the user's pull request branches.
+//! Links an existing checkout of the repo or fork instead of cloning: adds missing remotes and PR branches.
 
 use super::{
     clone::{self, Link, NewRemote},
@@ -21,8 +19,7 @@ const LINK_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// The most output kept while linking; the end explains a failure.
 const MAX_OUTPUT: usize = 64 * 1024;
 
-/// What the checkout lacks: its remote for the repository and for the
-/// fork, by name, and the ones to add.
+/// The checkout's remote names for the repo and fork, and the ones to add.
 #[derive(Debug, PartialEq, Eq)]
 struct Plan {
     upstream_remote: String,
@@ -30,9 +27,7 @@ struct Plan {
     add: Vec<NewRemote>,
 }
 
-/// The remotes `folder` needs for `repo` and `fork`: those it has, else
-/// `upstream` and `fork` added. `None` when a name to add is taken by
-/// another remote.
+/// The remotes `folder` needs for `repo` and `fork`; `None` when a name to add is taken.
 fn plan(folder: &FolderRemotes, repo: &RepoRef, fork: &RepoRef) -> Option<Plan> {
     let mut add = Vec::new();
     let mut remote_for = |target: &RepoRef, name: &str| match repo_remote(folder, target) {
@@ -55,9 +50,7 @@ fn plan(folder: &FolderRemotes, repo: &RepoRef, fork: &RepoRef) -> Option<Plan> 
     })
 }
 
-/// Links the checkout at `folder` to `fork`. A failure is logged and the
-/// import goes on: the checkout is the project's either way, and the user
-/// can add the remote themselves.
+/// Links the checkout at `folder` to `fork`; a failure is logged and the import goes on.
 pub(super) async fn link_fork(
     node: &Online,
     row: &NodeRow,

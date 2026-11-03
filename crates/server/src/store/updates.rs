@@ -1,9 +1,7 @@
-//! Each user's log of update ids over their messages and chats. Every write
-//! takes the next ids from `sync_counters` in the same statement, under that
-//! row's lock, so a user's updates commit in id order and a client asking
-//! for everything after the last id it holds misses none.
+//! Each user's update log.
+//! Writes take ids from `sync_counters` under its row lock, so updates commit in id order and none are missed.
 
-use super::{Store, seconds};
+use super::Store;
 use anyhow::Result;
 use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::{
@@ -14,8 +12,7 @@ use std::{
 use tokio::sync::watch;
 use uuid::Uuid;
 
-/// How long a tombstone stays before a client that missed it has to start
-/// over.
+/// How long a tombstone stays before a client that missed it must start over.
 const TOMBSTONE_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// How often old tombstones are dropped.
@@ -77,9 +74,7 @@ pub enum Readers<'a> {
 }
 
 impl<'a> Readers<'a> {
-    /// The readers of the chat bound as `$1`, as a query taking the user,
-    /// if any, as parameter `user`. Ordered so concurrent writes lock
-    /// counters in the same order and cannot deadlock.
+    /// The readers of chat `$1` as a query with the user as parameter `user`, ordered so counter locks cannot deadlock.
     fn query(self, user: usize) -> String {
         match self {
             Self::Members => {
@@ -97,9 +92,7 @@ impl<'a> Readers<'a> {
     }
 }
 
-/// Writes `op` for `messages` of `chat` to the log of each reader, each
-/// message under its own new id, in order. A message already in a reader's
-/// log moves to the new id.
+/// Logs `op` for `messages` of `chat` to each reader under new ids in order; existing entries move to the new id.
 pub(super) async fn log_messages(
     tx: &mut PgConnection,
     chat: Uuid,
@@ -188,8 +181,7 @@ fn bumped(rows: &[PgRow]) -> Result<Vec<Bumped>> {
         .collect()
 }
 
-/// The newest update id of each user with a stream open, so those streams
-/// wake when it moves.
+/// The newest update id of each user with an open stream, to wake them.
 #[derive(Default)]
 pub struct UpdateHub {
     users: Mutex<HashMap<String, watch::Sender<i64>>>,
@@ -249,9 +241,7 @@ impl Store {
         Ok(last.unwrap_or(0))
     }
 
-    /// Drops tombstones older than `TOMBSTONE_KEEP`. A client whose last
-    /// update id is below what was dropped starts over. Returns how many
-    /// users' logs lost some.
+    /// Drops tombstones older than `TOMBSTONE_KEEP`; returns how many users' logs lost some.
     pub async fn prune_updates(&self) -> Result<u64> {
         let pruned = sqlx::query(
             "WITH gone AS (
@@ -265,7 +255,7 @@ impl Store {
              UPDATE sync_counters c SET pruned_below = GREATEST(c.pruned_below, p.below)
              FROM per_user p WHERE c.user_id = p.user_id",
         )
-        .bind(seconds(TOMBSTONE_KEEP))
+        .bind(TOMBSTONE_KEEP.as_secs_f64())
         .execute(&self.pool)
         .await?
         .rows_affected();

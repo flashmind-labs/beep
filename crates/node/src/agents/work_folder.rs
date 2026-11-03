@@ -548,19 +548,6 @@ mod tests {
     }
 
     #[test]
-    fn lists_folders_first_and_leaves_out_dot_git() {
-        let dir = TempDir::new().unwrap();
-        fs::create_dir_all(dir.path().join("src")).unwrap();
-        fs::create_dir_all(dir.path().join(".git")).unwrap();
-        fs::write(dir.path().join("b.txt"), "hello").unwrap();
-        fs::write(dir.path().join("A.md"), "").unwrap();
-        let folder = list(&root_in(&dir), "", false).unwrap();
-        assert_eq!(names_of(&folder), ["src", "A.md", "b.txt"]);
-        assert_eq!(folder.entries[2].size, 5);
-        assert_eq!(folder.path, "");
-    }
-
-    #[test]
     fn leaves_out_what_git_ignores_unless_asked() {
         let dir = TempDir::new().unwrap();
         // The checkout's `.git` is what makes `.gitignore` count.

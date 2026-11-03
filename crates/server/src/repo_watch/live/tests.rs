@@ -66,8 +66,7 @@ const READ: Plan = Plan {
     poll: false,
 };
 
-/// GitHub and Forgejo hosts for tests, the Forgejo one answering with
-/// `forgejo`.
+/// GitHub and Forgejo test hosts, the Forgejo one answering with `forgejo`.
 async fn hosts(forgejo: fn(&str) -> Reply) -> (TestHost, TestHost) {
     let gh = TestHost::start(|seen| match seen.path.as_str() {
         "/repos/acme/widget/actions/runs?per_page=20" => Reply::ok(GITHUB_RUNS),

@@ -1,5 +1,4 @@
-//! Which repository the user means: `org/repo`, a GitHub URL, or a URL on a
-//! Forgejo or Gitea server they saved a token for.
+//! Which repository the user means: `org/repo`, a GitHub URL, or a URL on a saved Forgejo server.
 
 use super::ImportError;
 use crate::{
@@ -29,8 +28,7 @@ pub(crate) struct RepoRef {
 }
 
 impl RepoRef {
-    /// The repository `input` names. A URL on a host other than GitHub
-    /// must be on one of `forgejo`, the servers the user has a token for.
+    /// The repository `input` names; a non-GitHub URL must be on one of `forgejo`.
     pub(crate) fn parse(input: &str, forgejo: &[ForgejoUrl]) -> Result<Self, ImportError> {
         let input = input.trim();
         if input.is_empty() {
@@ -65,8 +63,7 @@ impl RepoRef {
         }
     }
 
-    /// The repository at `path` on `host`, given with `web_port` when an
-    /// http URL named one.
+    /// The repository at `path` on `host`, with `web_port` when an http URL named one.
     fn on_host(
         host: &str,
         web_port: Option<u16>,
@@ -105,9 +102,7 @@ impl RepoRef {
         Self::new(Host::Forgejo(server), org, name)
     }
 
-    /// The user's saved token for this repository's host: their GitHub
-    /// account for its owner, or the one saved for its Forgejo server.
-    /// `None` when there is none or it is empty.
+    /// The user's non-empty token for this repository's host (on GitHub, the owner's account).
     pub(crate) fn credential<'a>(&self, credentials: &'a [Opened]) -> Option<&'a Opened> {
         match &self.host {
             Host::GitHub => github_for(credentials, &self.org),
@@ -198,9 +193,7 @@ impl RepoRef {
     }
 }
 
-/// What two remotes of one repository share, https or ssh: the host and
-/// path, lowercased, without `.git`, such as `github.com/org/repo`. `None`
-/// for a remote that is not a URL, such as a local path.
+/// A remote's host and path, lowercased without `.git` (`github.com/org/repo`); `None` for non-URLs.
 pub(crate) fn remote_key(remote: &str) -> Option<String> {
     let (host, path) = remote_parts(remote.trim())?;
     let path = path.trim_matches('/');
@@ -209,10 +202,7 @@ pub(crate) fn remote_key(remote: &str) -> Option<String> {
         .then(|| format!("{host}/{path}").to_ascii_lowercase())
 }
 
-/// Whether a checkout's `origin` remote is the repository an import
-/// records as `url`, its web page: the same host and path in https or ssh,
-/// with or without `.git`, in any case, or the same repository on one of
-/// `servers` reached over ssh without the server's sub-path.
+/// Whether `origin` is the repository at `url`, over https or ssh, ignoring case, `.git` and server sub-paths.
 pub(crate) fn same_repo(url: &str, origin: &str, servers: &[ForgejoUrl]) -> bool {
     let Some(key) = remote_key(origin) else {
         return false;
@@ -221,8 +211,7 @@ pub(crate) fn same_repo(url: &str, origin: &str, servers: &[ForgejoUrl]) -> bool
         || RepoRef::parse(url, servers).is_ok_and(|repo| repo.matches_remote(origin))
 }
 
-/// The first two segments of `path`: the rest, such as `/tree/main`, is a
-/// page of the repository.
+/// The first two segments of `path`; the rest, such as `/tree/main`, is a page.
 fn org_and_name(path: &str) -> Result<(&str, &str), ImportError> {
     let mut parts = path.split('/').filter(|part| !part.is_empty());
     match (parts.next(), parts.next()) {
@@ -231,8 +220,7 @@ fn org_and_name(path: &str) -> Result<(&str, &str), ImportError> {
     }
 }
 
-/// Letters, digits, `-`, `_` and `.`, not starting with a dot or a dash:
-/// what both hosts allow, and safe as a folder name.
+/// Letters, digits, `-`, `_` and `.`, not starting with a dot or dash: valid on hosts and as folders.
 fn valid_part(part: &str) -> bool {
     !part.is_empty()
         && part.len() <= MAX_PART
