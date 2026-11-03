@@ -501,6 +501,8 @@ dependencies = [
  "dirs",
  "flate2",
  "futures",
+ "hex",
+ "hmac",
  "ignore",
  "iroh",
  "iroh-blobs",

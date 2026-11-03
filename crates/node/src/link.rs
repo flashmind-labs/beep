@@ -10,6 +10,7 @@ use crate::{
     state::State,
     stats, tasks, terminal,
     transfer::Transfers,
+    webhook::Webhooks,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -95,6 +96,12 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision);
+    // Live project updates: GitHub through `gh webhook forward`, Forgejo
+    // and Gitea on the private-network address the settings name.
+    match Webhooks::new(state.webhook_listen) {
+        Ok(webhooks) => offers.extra.push(Arc::new(webhooks)),
+        Err(e) => log::warn!("not taking webhooks: {e:#}"),
+    }
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
     let shared: Vec<_> = workspace

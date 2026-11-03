@@ -21,6 +21,7 @@ import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectS
 import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderUnder, reason, el as h } from "./projects-state.ts";
 import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectRow, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
+import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
@@ -2087,6 +2088,18 @@ const revs = makeReviews({
   kept: keptSection("branches"),
 });
 
+/// Whether the project shown is live or polling; what its host changed is
+/// read again as the server says.
+const liveMode = makeProjectLive({
+  invoke, h,
+  redraw: () => redrawProjects(),
+  reload: (id: string, lists: boolean, ran: boolean) => {
+    if (lists) thr.load(id);
+    if (ran) runs.load(id);
+  },
+});
+listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
+
 /// The project's open issues and the user's threads there; the Issues
 /// tile, the rows of the Pull requests tile and their full lists.
 const thr = makeThreads({
@@ -2096,6 +2109,7 @@ const thr = makeThreads({
   openChat: (chat: string) => { go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
+  mode: liveMode.chip,
 });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
@@ -2104,6 +2118,7 @@ const runs = makeRuns({
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
+  mode: liveMode.chip,
 });
 
 /// Every 10 seconds while a project page shows: the runs move on, but only
@@ -2780,6 +2795,7 @@ function drawProjects(el: HTMLElement) {
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
+    liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
     if (one) view.append(...projectDetail(one));
     else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
@@ -3383,7 +3399,7 @@ let windowHidden = false;
 const BACKGROUND_MS = 4 * 60_000;
 let lastBackground = Date.now();
 function onScreen() { return !windowHidden && document.visibilityState === "visible"; }
-listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); });
+listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); liveMode.follow(null); });
 listen("center-shown", () => { windowHidden = false; refresh(); });
 setInterval(() => {
   const now = Date.now(), last = lastBackground;

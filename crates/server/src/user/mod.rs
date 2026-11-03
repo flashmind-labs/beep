@@ -1106,6 +1106,26 @@ impl User {
         self.store.imports(&self.key).await
     }
 
+    /// See `Store::begin_webhook`.
+    pub(crate) async fn begin_webhook(
+        &self,
+        new: &crate::store::NewWebhook<'_>,
+    ) -> Result<Vec<u64>> {
+        self.store.begin_webhook(&self.key, new).await
+    }
+
+    /// See `Store::webhook_made`.
+    pub(crate) async fn webhook_made(&self, id: Uuid, hook: u64) -> Result<()> {
+        self.store.webhook_made(&self.key, id, hook).await
+    }
+
+    /// See `Store::webhook_removed`.
+    pub(crate) async fn webhook_removed(&self, host: &str, repo: &str, hook: u64) -> Result<()> {
+        self.store
+            .webhook_removed(&self.key, host, repo, hook)
+            .await
+    }
+
     /// Deletes every row of the project `name`, the user's chats about it
     /// included; `None` when the user has no such project. See
     /// `crate::imports::remove_project`, which also stops what runs.
