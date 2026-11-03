@@ -4,9 +4,13 @@
 //! row of its own account moves to the other, its keys become the other's
 //! linked keys, and its account goes. Where both accounts hold the same
 //! thing, such as a place called Home or a setting, the account joined
-//! keeps its own.
+//! keeps its own. Usage counts add up, and a project both have keeps both,
+//! the moved one renamed (see `projects`).
 
-use super::{Account, Bumped, NewKey, Store, credentials::reseal_for, groups::new_token};
+use super::{
+    Account, Bumped, NewKey, Store, credentials::reseal_for, groups::new_token,
+    harness_settings::reseal_harnesses_for,
+};
 use crate::{credentials::CredentialKey, protocol::DeviceKind, user::UserKey};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -56,6 +60,9 @@ pub struct MergeInto<'a> {
     pub credential_key: &'a CredentialKey,
 }
 
+mod projects;
+mod summed;
+
 /// Tables whose rows simply change owner. Where both accounts have a row
 /// with the same `key` columns, the joined account's row stays and the
 /// other goes.
@@ -80,11 +87,38 @@ const MOVED: &[(&str, &[&str])] = &[
     ("event_triggers", &["slug", "account_id"]),
     ("event_polls", &["source"]),
     ("nodes", &[]),
-    ("project_sync", &["project", "endpoint_id"]),
-    ("pinned_projects", &["project"]),
-    ("paused_syncs", &["project"]),
+    ("node_tokens", &[]),
     ("project_groups", &[]),
+    ("checkout_checks", &["endpoint_id"]),
     ("credentials", &["kind", "provider", "host_url"]),
+    ("harness_settings", &["machine_id", "agent"]),
+    ("plan_usage", &["agent"]),
+    ("agent_images", &["key"]),
+    ("researches", &[]),
+    ("chat_allows", &[]),
+    ("finding_sightings", &[]),
+];
+
+/// Tables with an owner that `merge_into` handles in its own way. With
+/// `MOVED`, `projects::NAMED`, `projects::OTHERS` and `summed::SUMMED`,
+/// every table that names a user; a test holds the schema to it.
+#[cfg(test)]
+const OWN: &[&str] = &[
+    // Its codes go with the account.
+    "account_invites",
+    "chat_members",
+    "messages",
+    "updates",
+    "sync_counters",
+    "user_keys",
+    "habits",
+    "habit_logs",
+    "skills",
+    "locations",
+    "places",
+    "crons",
+    "grants",
+    "instructions_versions",
 ];
 
 impl Store {
@@ -221,6 +255,7 @@ impl Store {
         move_chats(&mut tx, source, &target).await?;
         let bumped = move_updates(&mut tx, source, &target).await?;
         reseal_for(&mut tx, into.credential_key, source, &target).await?;
+        reseal_harnesses_for(&mut tx, into.credential_key, source, &target).await?;
         // The joined account keeps its default GitHub account.
         sqlx::query(
             "UPDATE credentials SET is_default=false WHERE user_id=$1 AND kind='github'
@@ -233,6 +268,9 @@ impl Store {
         for (table, key) in MOVED {
             move_rows(&mut tx, table, key, source, &target).await?;
         }
+        projects::move_projects(&mut tx, source, &target).await?;
+        summed::move_usage(&mut tx, source, &target).await?;
+        move_instructions(&mut tx, source, &target).await?;
         move_settings(&mut tx, source, &target).await?;
         move_places(&mut tx, source, &target).await?;
 
@@ -379,8 +417,8 @@ async fn move_rows(
     Ok(())
 }
 
-/// Habits, skills, token use and the last location, which each merge in
-/// their own way.
+/// Habits, skills and the last location, which each merge in their own
+/// way.
 async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     // A habit both track keeps the target's, with the source's logs.
     sqlx::query(
@@ -403,29 +441,6 @@ async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Res
     .execute(&mut *tx)
     .await?;
     move_rows(tx, "skills", &[], source, target).await?;
-
-    sqlx::query(
-        "INSERT INTO token_usage (user_id, day, model, agent, calls, prompt_tokens,
-             cached_tokens, cache_write_tokens, completion_tokens, cost)
-         SELECT $2, day, model, agent, calls, prompt_tokens, cached_tokens, cache_write_tokens,
-             completion_tokens, cost
-         FROM token_usage WHERE user_id=$1
-         ON CONFLICT (user_id, day, model, agent) DO UPDATE SET
-             calls = token_usage.calls + excluded.calls,
-             prompt_tokens = token_usage.prompt_tokens + excluded.prompt_tokens,
-             cached_tokens = token_usage.cached_tokens + excluded.cached_tokens,
-             cache_write_tokens = token_usage.cache_write_tokens + excluded.cache_write_tokens,
-             completion_tokens = token_usage.completion_tokens + excluded.completion_tokens,
-             cost = token_usage.cost + excluded.cost",
-    )
-    .bind(source)
-    .bind(target)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query("DELETE FROM token_usage WHERE user_id=$1")
-        .bind(source)
-        .execute(&mut *tx)
-        .await?;
 
     // The newer fix wins, which is usually the phone's.
     sqlx::query(
@@ -457,6 +472,16 @@ async fn move_settings(tx: &mut PgConnection, source: &str, target: &str) -> Res
 /// Moves places and routines. A place both saved, by name, keeps the
 /// target's, and the source's routines there point at it.
 async fn move_places(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
+    // A routine's grants follow it by their foreign key, so a grant whose
+    // call the target granted too goes first: the target's stays.
+    sqlx::query(
+        "DELETE FROM grants s WHERE s.user_id=$1
+         AND EXISTS (SELECT 1 FROM grants t WHERE t.user_id=$2 AND t.call_id=s.call_id)",
+    )
+    .bind(source)
+    .bind(target)
+    .execute(&mut *tx)
+    .await?;
     // Copies first: a routine's place is a foreign key, so the place it
     // moves to must exist when the routine moves.
     sqlx::query(
@@ -486,318 +511,58 @@ async fn move_places(tx: &mut PgConnection, source: &str, target: &str) -> Resul
         .bind(source)
         .execute(&mut *tx)
         .await?;
+    // Grants of no routine.
+    move_rows(tx, "grants", &[], source, target).await
+}
+
+/// Appends the source's saved instructions to the target's history, before
+/// the target's own, so the target's newest stays the one in use and every
+/// version is kept, numbered again from 1.
+async fn move_instructions(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
+    // Out of the way of the numbers the source's take.
+    sqlx::query("UPDATE instructions_versions SET version = -version WHERE user_id=$1")
+        .bind(target)
+        .execute(&mut *tx)
+        .await?;
+    let moved: Option<i64> = sqlx::query_scalar(
+        "WITH n AS (
+             SELECT version, row_number() OVER (ORDER BY version) AS to_version
+             FROM instructions_versions WHERE user_id=$1)
+         UPDATE instructions_versions v SET user_id=$2, version = n.to_version
+         FROM n WHERE v.user_id=$1 AND v.version = n.version
+         RETURNING v.version::bigint",
+    )
+    .bind(source)
+    .bind(target)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .max();
+    sqlx::query(
+        "WITH n AS (
+             SELECT version, row_number() OVER (ORDER BY version DESC) AS to_version
+             FROM instructions_versions WHERE user_id=$1 AND version < 0)
+         UPDATE instructions_versions v SET version = $2 + n.to_version
+         FROM n WHERE v.user_id=$1 AND v.version = n.version",
+    )
+    .bind(target)
+    .bind(moved.unwrap_or(0))
+    .execute(&mut *tx)
+    .await?;
     Ok(())
 }
 
+/// Every table `merge_into` handles, for the test that holds the schema
+/// to it.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::{NewGitHubAccount, SignIn, TestDb, test_chat, test_turn};
-    use iroh::SecretKey;
-    use secrecy::{ExposeSecret, SecretString};
-
-    fn key(seed: u8) -> EndpointId {
-        SecretKey::from_bytes(&[seed; 32]).public()
-    }
-
-    async fn account(store: &Store, endpoint: &EndpointId) -> String {
-        match store.sign_in(endpoint).await.unwrap() {
-            SignIn::Account { account, .. } => account.id,
-            SignIn::Revoked => panic!("a new key makes an account"),
-        }
-    }
-
-    #[tokio::test]
-    async fn a_phone_joins_a_computers_account_with_its_data() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("test store");
-        let credential_key = CredentialKey::random();
-        let (mac, phone) = (key(11), key(12));
-        let target = account(&store, &mac).await;
-        let source = account(&store, &phone).await;
-        let (target_key, source_key) = (UserKey::for_test(&target), UserKey::for_test(&source));
-        let pool = &store.pool;
-
-        // Both saved Home; only the phone saved Gym, with a routine at each.
-        for (user, id, name) in [
-            (&target, "t-home", "Home"),
-            (&source, "s-home", "home"),
-            (&source, "s-gym", "Gym"),
-        ] {
-            sqlx::query(
-                "INSERT INTO places (user_id, id, name, latitude, longitude, radius)
-                 VALUES ($1, $2, $3, 1, 1, 100)",
-            )
-            .bind(user)
-            .bind(id)
-            .bind(name)
-            .execute(pool)
-            .await
-            .unwrap();
-        }
-        for (id, schedule) in [
-            ("c1", "arrive:s-home"),
-            ("c2", "leave:s-gym:once"),
-            ("c3", "0 9 * * *"),
-        ] {
-            sqlx::query(
-                "INSERT INTO crons (user_id, id, label, prompt, schedule) VALUES ($1, $2, '', '', $3)",
-            )
-            .bind(&source)
-            .bind(id)
-            .bind(schedule)
-            .execute(pool)
-            .await
-            .unwrap();
-        }
-        let chat = test_chat("phone chat");
-        test_turn(&store, &source_key, chat, "from the phone", 1000)
-            .await
-            .unwrap();
-        test_turn(
-            &store,
-            &target_key,
-            test_chat("mac chat"),
-            "from the mac",
-            2000,
-        )
-        .await
-        .unwrap();
-
-        let invite = store
-            .create_invite(&target_key, &mac, "MacBook", Duration::from_secs(600))
-            .await
-            .unwrap();
-        let inviter = store.peek_invite(&invite.code).await.unwrap().unwrap();
-        assert_eq!(inviter.account.id, target);
-        assert_eq!(inviter.name, "MacBook");
-
-        let into = MergeInto {
-            code: &invite.code,
-            target: &target,
-            adopt_external_id: false,
-            credential_key: &credential_key,
-        };
-        assert_eq!(
-            store.merge_into(&target_key, into).await.unwrap(),
-            Merge::SameAccount
-        );
-        let into = MergeInto {
-            code: &invite.code,
-            target: &target,
-            adopt_external_id: true,
-            credential_key: &credential_key,
-        };
-        let Merge::Merged {
-            target: merged,
-            keys,
-        } = store.merge_into(&source_key, into).await.unwrap()
-        else {
-            panic!("the phone joins");
-        };
-        assert_eq!(merged, target);
-        assert_eq!(keys, vec![phone.to_string()]);
-
-        // The phone signs into the computer's account, as a linked key.
-        assert_eq!(
-            store.sign_in(&phone).await.unwrap(),
-            SignIn::Account {
-                account: Account {
-                    id: target.clone(),
-                    external_id: source.clone(),
-                },
-                device: DeviceKind::Phone {},
-                primary: false,
-            }
-        );
-        assert!(store.account(&source).await.unwrap().is_none());
-
-        // The chat moved, and the target's log holds it.
-        let members: Vec<String> =
-            sqlx::query_scalar("SELECT user_id FROM chat_members WHERE chat_id=$1")
-                .bind(chat)
-                .fetch_all(pool)
-                .await
-                .unwrap();
-        assert_eq!(members, vec![target.clone()]);
-        let logged: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM updates WHERE user_id=$1 AND chat_id=$2")
-                .bind(&target)
-                .bind(chat)
-                .fetch_one(pool)
-                .await
-                .unwrap();
-        assert!(logged > 0);
-        let page = store.updates_page(&target_key, 1).await.unwrap();
-        assert!(page.reset, "clients of either account start over");
-        assert_eq!(page.updates.len(), 6, "both chats, each with a turn");
-        let again = store.updates_page(&target_key, page.last).await.unwrap();
-        assert!(!again.reset && again.updates.is_empty());
-
-        // Routines point at the target's Home and the moved Gym.
-        let schedules: Vec<String> =
-            sqlx::query_scalar("SELECT schedule FROM crons WHERE user_id=$1 ORDER BY id")
-                .bind(&target)
-                .fetch_all(pool)
-                .await
-                .unwrap();
-        assert_eq!(
-            schedules,
-            ["arrive:t-home", "leave:s-gym:once", "0 9 * * *"]
-        );
-        let places: Vec<String> =
-            sqlx::query_scalar("SELECT id FROM places WHERE user_id=$1 ORDER BY id")
-                .bind(&target)
-                .fetch_all(pool)
-                .await
-                .unwrap();
-        assert_eq!(places, ["s-gym", "t-home"]);
-
-        // The code works once.
-        let into = MergeInto {
-            code: &invite.code,
-            target: &target,
-            adopt_external_id: false,
-            credential_key: &credential_key,
-        };
-        assert_eq!(
-            store.merge_into(&source_key, into).await.unwrap(),
-            Merge::NoInvite
-        );
-    }
-
-    #[tokio::test]
-    async fn events_and_machines_move_with_the_account() {
-        let db = TestDb::new().await.expect("test database");
-        let store = db.store().await.expect("test store");
-        let credential_key = CredentialKey::random();
-        let (mac, phone, node) = (key(21), key(22), key(23));
-        let target = account(&store, &mac).await;
-        let source = account(&store, &phone).await;
-        let target_key = UserKey::for_test(&target);
-        let source_key = UserKey::for_test(&source);
-        let pool = &store.pool;
-        for (user, dedupe) in [(&source, "a"), (&source, "b"), (&target, "a")] {
-            sqlx::query(
-                "INSERT INTO app_events (user_id, app, kind, dedupe_key, summary, ids, raw, source, occurred_at)
-                 VALUES ($1, 'gmail', 'new_mail', $2, '', '{}', '{}', 'poll', now())",
-            )
-            .bind(user)
-            .bind(dedupe)
-            .execute(pool)
-            .await
-            .unwrap();
-        }
-        for query in [
-            "INSERT INTO event_triage (user_id, decision, reason) VALUES ($1, 'ignore', '')",
-            "INSERT INTO event_topics (user_id, topic, enabled) VALUES ($1, 'github_ci', false)",
-            "INSERT INTO event_triggers (user_id, slug, account_id, trigger_id) VALUES ($1, 's', 'a', 't')",
-            "INSERT INTO event_polls (user_id, source, polled_at) VALUES ($1, 'github', now())",
-        ] {
-            sqlx::query(query)
-                .bind(&source)
-                .execute(pool)
-                .await
-                .unwrap();
-        }
-        store
-            .node_connected(
-                &source_key,
-                crate::store::NewNode {
-                    endpoint: node,
-                    name: "build box",
-                    version: "0.1.0",
-                },
-            )
-            .await
-            .unwrap();
-
-        let token = SecretString::from("ghp_moved0000");
-        store
-            .save_github_account(
-                &source_key,
-                &credential_key,
-                NewGitHubAccount {
-                    secret: &token,
-                    last4: "0000",
-                    login: "octo-one",
-                    orgs: &[],
-                    replace_default: false,
-                },
-            )
-            .await
-            .unwrap();
-
-        // Both have a default GitHub account; the joined one keeps its own.
-        let kept = SecretString::from("ghp_kept00001111");
-        store
-            .save_github_account(
-                &target_key,
-                &credential_key,
-                NewGitHubAccount {
-                    secret: &kept,
-                    last4: "1111",
-                    login: "octo-two",
-                    orgs: &[],
-                    replace_default: false,
-                },
-            )
-            .await
-            .unwrap();
-
-        let invite = store
-            .create_invite(&target_key, &mac, "MacBook", Duration::from_secs(600))
-            .await
-            .unwrap();
-        let into = MergeInto {
-            code: &invite.code,
-            target: &target,
-            adopt_external_id: false,
-            credential_key: &credential_key,
-        };
-        assert!(matches!(
-            store.merge_into(&source_key, into).await.unwrap(),
-            Merge::Merged { .. }
-        ));
-
-        for (table, rows) in [
-            ("app_events", 2),
-            ("event_triage", 1),
-            ("event_topics", 1),
-            ("event_triggers", 1),
-            ("event_polls", 1),
-            ("nodes", 1),
-            ("credentials", 2),
-        ] {
-            let query = format!("SELECT count(*) FROM {table} WHERE user_id=$1");
-            for (user, expected) in [(&source, 0), (&target, rows)] {
-                let count: i64 = sqlx::query_scalar(&query)
-                    .bind(user)
-                    .fetch_one(pool)
-                    .await
-                    .unwrap();
-                assert_eq!(count, expected, "{table} for {user}");
-            }
-        }
-        // The GitHub token moved sealed for the account joined, and opens.
-        let listed = store
-            .credentials(&target_key, &credential_key)
-            .await
-            .unwrap();
-        assert!(!listed[0].unreadable);
-        let accounts = store
-            .github_accounts(&target_key, &credential_key)
-            .await
-            .unwrap();
-        let logins: Vec<(&str, bool)> = accounts
-            .iter()
-            .map(|a| (a.login.as_str(), a.default))
-            .collect();
-        assert_eq!(logins, [("octo-two", true), ("octo-one", false)]);
-        let opened = store
-            .machine_credentials(&target_key, &credential_key)
-            .await
-            .unwrap();
-        assert_eq!(opened[1].secret.expose_secret(), "ghp_moved0000");
-    }
+fn handled() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = MOVED.iter().map(|(table, _)| *table).collect();
+    all.extend(projects::NAMED.iter().map(|(table, _)| *table));
+    all.extend(projects::OTHERS);
+    all.extend(summed::SUMMED.iter().map(|summed| summed.table));
+    all.extend(OWN);
+    all
 }
+
+#[cfg(test)]
+mod tests;
