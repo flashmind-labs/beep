@@ -10,8 +10,8 @@ use beep_server::{
     models::ModelChoices,
     nodes,
     protocol::{
-        AttachTerminal, CloseTerminal, DeviceKind, ListTerminals, OpenTerminal, TerminalEvent,
-        TerminalInput, TerminalState,
+        AttachTerminal, DeviceKind, ListTerminals, OpenTerminal, TerminalEvent, TerminalInput,
+        TerminalState,
     },
     push::Pusher,
     store::{NewKey, TestDb},
@@ -209,12 +209,7 @@ async fn a_shell_takes_keys_and_answers_through_the_server() {
         })
         .await
         .unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].state, TerminalState::Exited { code: Some(0) });
-    setup
-        .client
-        .call(&CloseTerminal { id: terminal.id })
-        .await
-        .expect("it closes");
+    // An ended shell leaves the list on its own.
+    assert!(listed.is_empty(), "still listed: {listed:?}");
     setup.router.shutdown().await.unwrap();
 }

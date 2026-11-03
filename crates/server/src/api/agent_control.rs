@@ -12,7 +12,7 @@ use super::{
     machines::machine_capability,
 };
 use crate::{
-    nodes::{Follower, Online, StartOn, agent_name},
+    nodes::{Follower, NodeFile, Online, StartOn, agent_name},
     protocol::{
         node::agent::{self, PlanStatus, Request, SessionInfo},
         *,
@@ -653,6 +653,36 @@ pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentIm
     })
 }
 
+/// Part of a media file on one of the caller's machines, read from its
+/// node on each call; nothing is kept.
+pub(super) async fn get_agent_file(cx: Cx, get: GetAgentFile) -> Reply<AgentFileChunk> {
+    if media_mime(&get.path).is_none() {
+        return Err(ApiError::bad_request(
+            "Only pictures, videos, 3D models and PDFs can be shown.",
+        ));
+    }
+    let live = live_host(&cx, &get.machine_id).await?;
+    let read = live
+        .online
+        .agent_file(&get.path, get.offset)
+        .await
+        .map_err(|e| {
+            // A node from before `File` closes the stream.
+            ApiError::bad_request(format!(
+                "Could not read the file from {}: {e:#}. Updating beep-node there may help.",
+                live.host.machine_name
+            ))
+        })?;
+    match read {
+        NodeFile::Chunk { size, mime, data } => Ok(AgentFileChunk { size, mime, data }),
+        NodeFile::Missing => Err(ApiError::NotFound {}),
+        NodeFile::Refused(message) => Err(ApiError::bad_request(format!(
+            "{} could not read the file: {message}",
+            live.host.machine_name
+        ))),
+    }
+}
+
 /// The models `list.agent` can run on `list.machine_id`, as its node finds
 /// them. A node too old to say gives `Fixed`, so the form hides the field.
 pub(super) async fn list_agent_models(cx: Cx, list: ListAgentModels) -> Reply<AgentModels> {
@@ -741,13 +771,25 @@ fn picked_checkout(
     node: &Online,
     checkout: Option<AgentCheckoutPlan>,
 ) -> Result<Option<agent::CheckoutPlan>, ApiError> {
-    checkout_for(node.checkouts, &node.name, checkout)
+    let makes = Makes {
+        checkouts: node.checkouts,
+        branches: node.branch_checkouts,
+    };
+    checkout_for(makes, &node.name, checkout)
 }
 
-/// `picked_checkout` for a node named `name` that makes checkouts when
-/// `checkouts` is set.
-fn checkout_for(
+/// Which checkout plans a node makes.
+#[derive(Debug, Clone, Copy)]
+struct Makes {
+    /// A new branch or worktree named from the prompt.
     checkouts: bool,
+    /// A worktree on a branch named by the start, new or existing.
+    branches: bool,
+}
+
+/// `picked_checkout` for a node named `name` that makes what `makes` says.
+fn checkout_for(
+    makes: Makes,
     name: &str,
     checkout: Option<AgentCheckoutPlan>,
 ) -> Result<Option<agent::CheckoutPlan>, ApiError> {
@@ -761,7 +803,19 @@ fn checkout_for(
             "{base:?} is not a branch or commit name."
         )));
     }
-    if !checkouts {
+    if let Some(branch) = plan.branch() {
+        if !agent::valid_branch(branch) {
+            return Err(ApiError::bad_request(format!(
+                "{branch:?} is not a branch name git takes."
+            )));
+        }
+        if !makes.branches {
+            return Err(ApiError::bad_request(format!(
+                "beep-node on {name} is too old to start on a named branch. Update it, or start on a new worktree."
+            )));
+        }
+    }
+    if !makes.checkouts {
         return Err(ApiError::bad_request(format!(
             "beep-node on {name} is too old to make a branch or worktree. Update it, or start in the checkout as it is."
         )));
@@ -796,7 +850,11 @@ fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
             effort: None,
         } => return Err(ApiError::bad_request("Nothing to switch.")),
         AgentSteer::Configure { model, effort } => Request::Configure {
-            model: model.map(|m| m.trim().to_owned()).filter(|m| !m.is_empty()),
+            model: model
+                .as_ref()
+                .map(|m| m.as_str().trim())
+                .filter(|m| !m.is_empty())
+                .map(ModelId::from),
             effort: effort.map(Into::into),
         },
     })
@@ -813,23 +871,81 @@ mod tests {
                 base: base.map(str::to_owned),
             })
         };
-        assert_eq!(checkout_for(false, "old-box", None).unwrap(), None);
+        let old = Makes {
+            checkouts: false,
+            branches: false,
+        };
+        let new = Makes {
+            checkouts: true,
+            branches: true,
+        };
+        assert_eq!(checkout_for(old, "old-box", None).unwrap(), None);
         assert_eq!(
-            checkout_for(true, "box", worktree(Some("main"))).unwrap(),
+            checkout_for(new, "box", worktree(Some("main"))).unwrap(),
             Some(agent::CheckoutPlan::NewWorktree {
                 base: Some("main".into())
             })
         );
         let ApiError::BadRequest { message } =
-            checkout_for(false, "old-box", worktree(None)).unwrap_err()
+            checkout_for(old, "old-box", worktree(None)).unwrap_err()
         else {
             panic!("a bad request");
         };
         assert!(message.contains("old-box is too old"), "{message}");
         assert!(matches!(
-            checkout_for(true, "box", worktree(Some("--orphan"))),
+            checkout_for(new, "box", worktree(Some("--orphan"))),
             Err(ApiError::BadRequest { .. })
         ));
+    }
+
+    #[test]
+    fn a_named_branch_needs_a_branch_name_and_a_node_that_makes_it() {
+        let named = |branch: &str| {
+            Some(AgentCheckoutPlan::NamedWorktree {
+                base: Some("main".into()),
+                branch: branch.into(),
+            })
+        };
+        let continued = Some(AgentCheckoutPlan::BranchWorktree {
+            branch: "login-copy".into(),
+        });
+        let new = Makes {
+            checkouts: true,
+            branches: true,
+        };
+        let plain = Makes {
+            checkouts: true,
+            branches: false,
+        };
+        assert_eq!(
+            checkout_for(new, "box", named("issue-52-crash")).unwrap(),
+            Some(agent::CheckoutPlan::NamedWorktree {
+                base: Some("main".into()),
+                branch: "issue-52-crash".into(),
+            })
+        );
+        assert_eq!(
+            checkout_for(new, "box", continued.clone()).unwrap(),
+            Some(agent::CheckoutPlan::BranchWorktree {
+                branch: "login-copy".into(),
+            })
+        );
+        for bad in [
+            "", "-b", "a..b", "HEAD", "x~1", "a/.b", "a.lock", "a//b", "a b",
+        ] {
+            assert!(
+                matches!(
+                    checkout_for(new, "box", named(bad)),
+                    Err(ApiError::BadRequest { .. })
+                ),
+                "{bad:?} is refused"
+            );
+        }
+        let Err(ApiError::BadRequest { message }) = checkout_for(plain, "old-box", continued)
+        else {
+            panic!("a bad request");
+        };
+        assert!(message.contains("old-box is too old"), "{message}");
     }
 
     fn png(name: &str, size: usize) -> Upload {

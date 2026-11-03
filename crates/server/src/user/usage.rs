@@ -7,16 +7,25 @@ use crate::{
     store::{ModelRow, PlanRow, SpendRow},
 };
 use anyhow::Result;
+use iroh::EndpointId;
 
 impl User {
     /// Adds a finished turn of a session on the machine `endpoint`.
-    pub(crate) async fn add_turn_usage(&self, endpoint: &str, turn: &TurnUsage) -> Result<()> {
+    pub(crate) async fn add_turn_usage(
+        &self,
+        endpoint: &EndpointId,
+        turn: &TurnUsage,
+    ) -> Result<()> {
         self.store.add_turn_usage(&self.key, endpoint, turn).await
     }
 
     /// Keeps a plan's usage as `endpoint` read it, unless a fresher one is
     /// kept.
-    pub(crate) async fn save_plan_usage(&self, endpoint: &str, plan: &PlanUsage) -> Result<bool> {
+    pub(crate) async fn save_plan_usage(
+        &self,
+        endpoint: &EndpointId,
+        plan: &PlanUsage,
+    ) -> Result<bool> {
         self.store.save_plan_usage(&self.key, endpoint, plan).await
     }
 

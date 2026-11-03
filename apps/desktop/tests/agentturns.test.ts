@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clock, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, summary, toolKind } from "../src/agentturns.ts";
+import { clock, commandDetail, commandOf, duration, folded, heading, keptSteps, onlyNotes, span, splitTurns, stepLabel, stepOpen, summary, toolKind } from "../src/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -49,7 +49,7 @@ test("tools are counted by kind", () => {
 
 test("the folded line counts each kind, with plurals", () => {
   const log = [u("go"), t("cargo test [failed]"), t("Edit `src/login.rs` [completed]"), t("Edit `tests/login.rs` [completed]"), a("Done.")];
-  assert.equal(summary(log, splitTurns(log)[0]), "Ran 1 command, edited 2 files");
+  assert.equal(summary(log, splitTurns(log)[0]), "Ran 1 command (1 failed), edited 2 files");
   const more = [u("go"), t("Bash: ls"), t("Bash: make"), t("Read: a.rs"), t("Read: a.rs"), t("Grep: x"), t("WebFetch: https://example.com"), t("Task: x"), t("Task: y")];
   assert.equal(summary(more, splitTurns(more)[0]), "Ran 2 commands, read 1 file, performed 4 other actions");
   const twice = [u("go"), t("Grep: x"), t("Glob: *.rs"), t("WebSearch: y"), t("WebSearch: z")];
@@ -101,11 +101,11 @@ test("a step reads as one short line", () => {
   assert.equal(stepLabel("TodoWrite: plan"), "TodoWrite: plan");
 });
 
-test("notes, failures and subagents stay out of the fold; a tool's pictures fold, counted", () => {
+test("notes and subagents stay out of the fold; a tool's pictures fold, counted", () => {
   const log = [u("go"), t("ls [completed]"), t("cargo test [failed]\nexit code: 101"), { kind: "other", text: "Switched to deep from the next turn" },
     t("Explore [completed]\n[steps] 1\n[step completed] Read a.rs\nFound it"), t("Screenshot [completed]\n[image: image-0123456789abcdef]"), a("Done.")];
-  assert.deepEqual(keptSteps(log, splitTurns(log)[0]), [2, 3, 4]);
-  assert.equal(summary(log, splitTurns(log)[0]), "Ran 3 commands, searched once, viewed 1 image");
+  assert.deepEqual(keptSteps(log, splitTurns(log)[0]), [3, 4]);
+  assert.equal(summary(log, splitTurns(log)[0]), "Ran 3 commands (1 failed), searched once, viewed 1 image");
 });
 
 test("notes before the first message are not a turn of work", () => {
@@ -113,4 +113,39 @@ test("notes before the first message are not a turn of work", () => {
   const turns = splitTurns(log);
   assert.equal(onlyNotes(log, turns[0]), true);
   assert.equal(onlyNotes(log, turns[1]), false);
+});
+
+test("failed steps fold with the rest; the summary counts them with their kind", () => {
+  const log = [u("go"), t("git ls-files | grep foo [failed]\nexit code: 1"), t("cargo test [completed]"),
+    t("exec: grep -rn bar src [failed]\nexit 1"), t("Edit `a.rs` [completed]"), t("Grep: fn main (failed)"),
+    t("TodoWrite: plan [completed]"), t("WebFetch: docs [failed]"), a("Done.")];
+  const turn = splitTurns(log)[0];
+  assert.deepEqual(keptSteps(log, turn), []);
+  assert.equal(summary(log, turn), "Ran 3 commands (2 failed), edited 1 file, performed 3 other actions (2 failed)");
+  const ok = [u("go"), t("make [completed]"), a("ok")];
+  assert.equal(summary(ok, splitTurns(ok)[0]), "Ran 1 command");
+});
+
+test("an opened step does not print its command twice", () => {
+  const title = "exec: cd /srv/project;\n  git ls-files | grep widget";
+  const whole = stepLabel(`${title} [failed]\nexit 1`, false, true);
+  assert.equal(whole, "Ran cd /srv/project;\n  git ls-files | grep widget");
+  assert.equal(commandDetail(title, whole), "");
+  assert.equal(commandDetail("exec:  make   test", "Ran make test"), "");
+  assert.equal(commandDetail("Bash: make", "Ran make"), "");
+  assert.equal(commandDetail("TodoWrite: plan", "TodoWrite: plan"), "");
+  // Closed, the label is the first line; the rest of the command is new.
+  const closed = stepLabel(`${title} [failed]`);
+  assert.equal(closed, "Ran cd /srv/project; …");
+  assert.equal(commandDetail(title, closed), "cd /srv/project;\n  git ls-files | grep widget");
+  assert.equal(commandOf("exec: make"), "make");
+  assert.equal(commandOf("make"), "make");
+});
+
+test("only the newest step of a running turn starts open when it failed", () => {
+  assert.equal(stepOpen(true, true, false), true);
+  assert.equal(stepOpen(true, true, true), false);
+  assert.equal(stepOpen(true, false, false), false);
+  assert.equal(stepOpen(true, false, true), true);
+  assert.equal(stepOpen(false, true, false), false);
 });
