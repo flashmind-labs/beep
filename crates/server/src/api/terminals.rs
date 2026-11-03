@@ -1,6 +1,6 @@
-//! A project's terminals: commands a node keeps running in the background
+//! Terminals: commands a node keeps running in the background
 //! (`process/1`) or in a pseudo-terminal (`terminal/1`), named and listed
-//! per project. The node owns the command and its output; the store only
+//! per project, or on their own with no project. The node owns the command and its output; the store only
 //! says which task or terminal on which node. `attach` follows an
 //! interactive one live.
 
@@ -26,15 +26,27 @@ pub(super) mod attach;
 
 /// The longest name, command or folder.
 const MAX_FIELD: usize = 1000;
+/// The folder shown for a terminal started in its node's home folder.
+const HOME: &str = "~";
 
 pub(super) async fn list_terminals(cx: Cx, request: ListTerminals) -> Reply<Vec<Terminal>> {
     let rows = cx.user.terminals(&request.project).await?;
-    let names = machine_names(&cx).await?;
+    with_states(&cx, rows).await
+}
+
+pub(super) async fn list_all_terminals(cx: Cx, _: ListAllTerminals) -> Reply<Vec<Terminal>> {
+    let rows = cx.user.all_terminals().await?;
+    with_states(&cx, rows).await
+}
+
+/// `rows` with how each stands on its machine now.
+async fn with_states(cx: &Cx, rows: Vec<TerminalRow>) -> Reply<Vec<Terminal>> {
+    let names = machine_names(cx).await?;
     // Each machine is asked once for all its tasks, and once for all its
     // interactive terminals.
     let mut tasks: HashMap<Place, Option<Vec<Task>>> = HashMap::new();
     for place in rows.iter().map(Place::of).collect::<HashSet<_>>() {
-        let listed = match online(&cx, &place.endpoint) {
+        let listed = match online(cx, &place.endpoint) {
             Some(node) => listed(&node, place.pty).await,
             None => None,
         };
@@ -97,8 +109,7 @@ pub(super) async fn open_terminal(cx: Cx, request: OpenTerminal) -> Reply<Termin
         "" => None,
         command => Some(field("command", command)?),
     };
-    let cwd = field("folder", &request.cwd)?;
-    let project = field("project", &request.project)?;
+    let project = optional("project", &request.project)?;
     let name = match request.name.trim() {
         "" => command.unwrap_or("shell").to_owned(),
         name => field("name", name)?.to_owned(),
@@ -107,10 +118,15 @@ pub(super) async fn open_terminal(cx: Cx, request: OpenTerminal) -> Reply<Termin
         return Err(ApiError::NotFound {});
     }
     let node = online(&cx, &request.machine_id).ok_or(ApiError::NotFound {})?;
+    // No folder: the machine's workspace, else the node's home folder.
+    let cwd = match optional("folder", &request.cwd)? {
+        "" => node.workspace.clone(),
+        cwd => Some(cwd.to_owned()),
+    };
     let started = node
         .terminals(&PtyRequest::Start {
             command: command.map(str::to_owned),
-            cwd: Some(cwd.to_owned()),
+            cwd: cwd.clone(),
             size: Size::clamped(request.cols, request.rows),
         })
         .await
@@ -130,7 +146,7 @@ pub(super) async fn open_terminal(cx: Cx, request: OpenTerminal) -> Reply<Termin
         // What the node calls it, such as the shell's name, so a restarted
         // node's terminal under the same number is told apart.
         command: started.command,
-        cwd: cwd.to_owned(),
+        cwd: cwd.unwrap_or_else(|| HOME.to_owned()),
         started_at: Utc::now(),
     };
     if let Err(e) = cx.user.add_terminal(&row).await {
@@ -254,6 +270,14 @@ fn field<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
     Ok(text)
 }
 
+/// `text` trimmed, which may be empty; else as `field` takes it.
+fn optional<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
+    match text.trim() {
+        "" => Ok(""),
+        text => field(what, text),
+    }
+}
+
 /// The caller's machine `endpoint` when it is online now.
 pub(super) fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
     cx.app
@@ -359,5 +383,8 @@ mod tests {
         assert!(field("command", "").is_err());
         assert!(field("command", "a\nb").is_err());
         assert!(field("folder", &"x".repeat(MAX_FIELD + 1)).is_err());
+        assert_eq!(optional("project", "  ").unwrap(), "");
+        assert_eq!(optional("project", " acme/widget ").unwrap(), "acme/widget");
+        assert!(optional("folder", "a\nb").is_err());
     }
 }

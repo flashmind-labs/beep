@@ -1,4 +1,5 @@
-//! A project's terminals: which background command on which node.
+//! Terminals, of a project or of none: which background command or
+//! pseudo-terminal on which node.
 
 use super::Store;
 use crate::user::UserKey;
@@ -11,6 +12,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TerminalRow {
     pub(crate) id: Uuid,
+    /// `org/repo`, or empty for a terminal of no project.
     pub(crate) project: String,
     /// The node's key.
     pub(crate) endpoint: String,
@@ -75,6 +77,17 @@ impl Store {
         ))
         .bind(user.as_str())
         .bind(project)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_from).collect()
+    }
+
+    /// Every terminal of `user`, of any project or none, oldest first.
+    pub(crate) async fn all_terminals(&self, user: &UserKey) -> Result<Vec<TerminalRow>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM terminals WHERE user_id=$1 ORDER BY started_at, id"
+        ))
+        .bind(user.as_str())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_from).collect()
@@ -145,6 +158,18 @@ mod tests {
         store.add_terminal(&user, &shell).await.unwrap();
         let read = store.terminal(&user, shell.id).await.unwrap();
         assert_eq!(read.map(|row| (row.task, row.pty)), Some((7, true)));
+        let anywhere = TerminalRow {
+            pty: true,
+            ..terminal("", 8)
+        };
+        store.add_terminal(&user, &anywhere).await.unwrap();
+        let all = store.all_terminals(&user).await.unwrap();
+        assert_eq!(
+            all.iter().map(|row| row.task).collect::<Vec<_>>(),
+            vec![3, 4, 7, 8]
+        );
+        assert!(store.all_terminals(&bob).await.unwrap().is_empty());
+        assert!(store.remove_terminal(&user, anywhere.id).await.unwrap());
         assert!(store.remove_terminal(&user, shell.id).await.unwrap());
         assert!(store.terminal(&bob, one.id).await.unwrap().is_none());
         assert!(!store.remove_terminal(&bob, one.id).await.unwrap());
