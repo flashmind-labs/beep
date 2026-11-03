@@ -3,17 +3,21 @@
 
 use super::Reply;
 use crate::{
-    credentials::{Checked, Checker, Slot, last4},
+    credentials::{
+        Checked, Checker, Slot, last4,
+        machines::{MAX_MACHINES, Reach, check_from},
+    },
+    nodes::SHELL,
     protocol::{
-        ApiError, ApiProvider, Credential, CredentialKind, GITHUB_ENV_VAR, GitHubAccount,
-        ListCredentials, ListGitHubAccounts, RemoveCredential, SaveCredential, SaveGitHubAccount,
-        SecretText, SetDefaultGitHubAccount,
+        ApiError, ApiProvider, CheckCredential, Credential, CredentialCheck, CredentialKind,
+        GITHUB_ENV_VAR, GitHubAccount, ListCredentials, ListGitHubAccounts, RemoveCredential,
+        SaveCredential, SaveGitHubAccount, SecretText, SetDefaultGitHubAccount,
     },
     router::Cx,
     store::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount},
 };
 use secrecy::{ExposeSecret, SecretString};
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 /// The longest secret taken.
 const MAX_SECRET: usize = 4096;
@@ -72,6 +76,85 @@ pub(super) async fn remove_credential(
     }
     cx.app.nodes.credentials_changed(cx.user.id());
     Ok(())
+}
+
+pub(super) async fn check_credential(
+    cx: Cx,
+    CheckCredential { id }: CheckCredential,
+) -> Reply<CredentialCheck> {
+    let login = cx
+        .user
+        .git_logins(&cx.app.credential_key)
+        .await?
+        .into_iter()
+        .find(|login| login.id == id);
+    let Some(login) = login else {
+        return Err(ApiError::NotFound {});
+    };
+    let Slot::Forgejo(url) = &login.slot else {
+        return Err(ApiError::NotFound {});
+    };
+    let from_server = if url.is_public().await {
+        Checker::new()?.forgejo(url, &login.secret).await
+    } else {
+        Checked::Unreachable
+    };
+    let checked = match from_server {
+        Checked::Valid {
+            login: Some(account),
+        } => CredentialCheck::Valid {
+            account,
+            machine: None,
+        },
+        // A host that answers without a login says nothing more from a machine.
+        Checked::Valid { login: None } => {
+            return Ok(CredentialCheck::Unreachable {
+                message: format!("{} did not say who the token signs in as.", url.host()),
+            });
+        }
+        Checked::Refused(message) => CredentialCheck::Refused {
+            machine: None,
+            message,
+        },
+        Checked::Unreachable => check_from(&reaches(&cx).await?, url).await,
+    };
+    if let CredentialCheck::Valid { account, .. } = &checked
+        && login.account.as_deref() != Some(account.as_str())
+    {
+        cx.user.set_forgejo_account(&id, account).await?;
+    }
+    Ok(checked)
+}
+
+/// The caller's online machines that run commands and report teacli,
+/// at most [`MAX_MACHINES`].
+async fn reaches(cx: &Cx) -> Reply<Vec<Reach>> {
+    let mut out = Vec::new();
+    for row in cx.user.nodes().await? {
+        let has_teacli = row
+            .env
+            .as_ref()
+            .is_some_and(|env| env.tools.iter().any(|tool| tool.name == "teacli"));
+        if !has_teacli {
+            continue;
+        }
+        let Some(online) = cx
+            .app
+            .nodes
+            .online(&row.endpoint)
+            .filter(|online| online.user == cx.user.id() && online.offers(SHELL))
+        else {
+            continue;
+        };
+        out.push(Reach {
+            name: row.name,
+            shell: Arc::new(online),
+        });
+        if out.len() == MAX_MACHINES {
+            break;
+        }
+    }
+    Ok(out)
 }
 
 pub(super) async fn list_github_accounts(

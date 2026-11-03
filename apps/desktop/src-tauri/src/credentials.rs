@@ -7,9 +7,9 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    ApiError, ApiProvider, Credential, CredentialKind, GITHUB_ENV_VAR, GitHubAccount,
-    ListCredentials, ListGitHubAccounts, RemoveCredential, SaveCredential, SaveGitHubAccount,
-    SecretText, SetDefaultGitHubAccount,
+    ApiError, ApiProvider, CheckCredential, Credential, CredentialCheck, CredentialKind,
+    GITHUB_ENV_VAR, GitHubAccount, ListCredentials, ListGitHubAccounts, RemoveCredential,
+    SaveCredential, SaveGitHubAccount, SecretText, SetDefaultGitHubAccount,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -193,6 +193,40 @@ pub(crate) async fn save(
         .await
         .map_err(plain)?;
     Ok(saved.into())
+}
+
+/// What checking a Forgejo token found, as the bar shows it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CheckView {
+    Valid {
+        account: String,
+        machine: Option<String>,
+    },
+    Refused {
+        machine: Option<String>,
+        message: String,
+    },
+    Unreachable {
+        message: String,
+    },
+}
+
+impl From<CredentialCheck> for CheckView {
+    fn from(check: CredentialCheck) -> Self {
+        match check {
+            CredentialCheck::Valid { account, machine } => Self::Valid { account, machine },
+            CredentialCheck::Refused { machine, message } => Self::Refused { machine, message },
+            CredentialCheck::Unreachable { message } => Self::Unreachable { message },
+        }
+    }
+}
+
+/// Checks a saved Forgejo token from the server, else from the account's
+/// machines with teacli.
+#[tauri::command]
+pub async fn check_credential(beep: Service<'_>, id: String) -> Result<CheckView> {
+    Ok(beep.call(CheckCredential { id }).await?.into())
 }
 
 #[tauri::command]

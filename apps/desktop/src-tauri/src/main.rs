@@ -267,6 +267,7 @@ fn main() {
             credentials::list_credentials,
             credentials::save_credential,
             credentials::remove_credential,
+            credentials::check_credential,
             credentials::list_github_accounts,
             credentials::set_default_github_account,
             cli_login::cli_logins,

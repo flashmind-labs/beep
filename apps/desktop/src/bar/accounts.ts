@@ -1,7 +1,7 @@
 import type * as AgentAccountsModule from "../agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "../agentaccounts.ts";
 import type * as CredentialsModule from "../credentials.ts";
-import type { CliLogins, Credential, CredState, GhFlow, GitHubAccount, Provider } from "../credentials.ts";
+import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount, Provider } from "../credentials.ts";
 import { copy, when } from "./chats.ts";
 import { Channel, esc, invoke, S } from "./core.ts";
 import type { Machine } from "./machines.ts";
@@ -11,7 +11,7 @@ import { fillSection, SET, setAccountHtml, setRoot, setShown, setSkeleton } from
 /// into `mod`). `list` is undefined until the server answers and null when
 /// it failed; `edit` is the row whose token is being typed. The rest is as
 /// `CredState` says.
-export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false };
+export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
 const credModule = () => import("../credentials.ts").then(m => (CRED.mod = m));
 
 /// Finds a control inside `el`, the section or page being bound.
@@ -43,6 +43,22 @@ async function loadCliLogins() {
   if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml());
 }
 
+/// Checks each saved Forgejo token the server could not check when it was
+/// saved, once per token: from the server, else from a machine with
+/// teacli. A server from before the check leaves the row as it was.
+function checkForgejo(list: Credential[]) {
+  const checks = (CRED.checks ??= {});
+  const redraw = () => { if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml()); };
+  for (const c of list) {
+    if (c.kind !== "forgejo" || c.unreadable || c.account || checks[c.id]) continue;
+    checks[c.id] = { state: "checking" };
+    invoke<CredCheck>("check_credential", { id: c.id })
+      .then(check => { checks[c.id] = check; })
+      .catch(e => { console.warn(e); delete checks[c.id]; })
+      .finally(redraw);
+  }
+}
+
 /// Lists the credentials again and redraws their section.
 export async function loadCreds() {
   loadCliLogins();
@@ -54,6 +70,7 @@ export async function loadCreds() {
     CRED.list = list;
     CRED.github = github;
     CRED.providers = providers;
+    checkForgejo(list);
   } catch (e) {
     console.warn(e);
     CRED.list ??= null;
