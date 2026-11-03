@@ -120,6 +120,7 @@ sample_struct! {
     AgentImage { name, file_id, mime, key }
     ProjectGroup { id, name, paths }
     AgentImageData { key, mime, data }
+    AgentFileChunk { size, mime, data }
     ProjectWorker { id, task_id, machine_id, machine_name, agent, session, folder, state, last_output, persona, started_at, ended_at }
     AppUpdate { id, summary, app, app_name, at }
     Credential { id, kind, last4, account, env_var, to_machines, created_at, unreadable }

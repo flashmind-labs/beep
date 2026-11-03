@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, linkImagePaths, parseTool, subagent, tailLines, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkImagePaths, mediaPaths, parseTool, subagent, tailLines, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -109,8 +109,24 @@ test("Codex's echo of answered questions reads as questions and answers", () => 
 test("image files a reply names become links, numbered as first named", () => {
   const { html, paths } = linkImagePaths("<p>Before <code>shots/a.png</code> and /srv/project/b.JPG, then shots/a.png again.</p><pre>x.png</pre>");
   assert.deepEqual(paths, ["shots/a.png", "/srv/project/b.JPG"]);
-  assert.match(html, /<code><a class="imgl" data-img="0" title="shots\/a.png">shots\/a.png<\/a><\/code>/);
+  assert.match(html, /<code><a class="imgl" data-img="0" data-path="shots\/a.png" title="shots\/a.png">shots\/a.png<\/a><\/code>/);
   assert.match(html, /<a class="imgl" data-img="1"[^>]*>\/srv\/project\/b.JPG<\/a>,/);
   assert.match(html, /<pre>x.png<\/pre>/, "code blocks stay as they are");
   assert.equal(linkImagePaths("no pictures here.").paths.length, 0);
+});
+
+test("video, model and PDF files a reply names link to the pane, unnumbered", () => {
+  const { html, paths } = linkImagePaths("<p>See out/walk.mp4, ~/r/turntable.GLB and shots/a.png (sheet.pdf).</p>");
+  assert.deepEqual(paths, ["shots/a.png"], "only pictures are numbered");
+  assert.match(html, /<a class="imgl" data-path="out\/walk.mp4" title="out\/walk.mp4">out\/walk.mp4<\/a>,/);
+  assert.match(html, /<a class="imgl" data-path="~\/r\/turntable.GLB"/);
+  assert.match(html, /<a class="imgl" data-img="0" data-path="shots\/a.png"/);
+  assert.match(html, /\(<a class="imgl" data-path="sheet.pdf"[^>]*>sheet.pdf<\/a>\)/);
+  assert.doesNotMatch(linkImagePaths("<p>src/main.rs and notes.txt</p>").html, /imgl/);
+});
+
+test("a tool's title names its media files once each", () => {
+  assert.deepEqual(mediaPaths("Write out/model.stl"), ["out/model.stl"]);
+  assert.deepEqual(mediaPaths("ffmpeg -i a.mov -o b.webm && cp b.webm /tmp/b.webm"), ["a.mov", "b.webm", "/tmp/b.webm"]);
+  assert.deepEqual(mediaPaths("cargo test"), []);
 });

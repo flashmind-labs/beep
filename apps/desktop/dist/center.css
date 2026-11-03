@@ -104,8 +104,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-tag.pj-scope:hover { color: var(--fg) }
 .cc-tag .cc-pdot { width: 6px; height: 6px; border-radius: 2px; background: var(--dim) }
 #pane-box > .dbar { flex: 1; min-height: 0; height: auto }
-/* The bar's lists, widened into a panel in the pane, as in the mock. */
-#pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) { flex: none; align-self: center; width: calc(100% - 32px); max-width: 960px; height: calc(100% - 30px);
+/* The bar's lists, widened into a panel in the pane, as in the mock. A coding agent
+   session is not one: it fills the pane, with its media pane beside it. */
+#pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]):not([data-view="agent"]) { flex: none; align-self: center; width: calc(100% - 32px); max-width: 960px; height: calc(100% - 30px);
   margin: 14px auto 16px; border: 1px solid var(--border); border-radius: 11px; background: rgba(18,25,22,.82) }
 #pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) .dinput { font-size: 15px; padding: 10px 14px }
 
