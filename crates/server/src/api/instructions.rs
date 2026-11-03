@@ -29,6 +29,10 @@ const IN_FLIGHT: usize = 4;
 const START: &str = "<!-- beep:start -->";
 const END: &str = "<!-- beep:end -->";
 
+/// Beep's own rules for coding agents, written after the user's text.
+const BEEP_RULES: &str =
+    "- Unless told otherwise, work on a new branch in a git worktree, not in the main checkout.";
+
 /// Each coding agent and its file under the home folder.
 const AGENT_FILES: [(&str, &str); 4] = [
     ("claude", ".claude/CLAUDE.md"),
@@ -265,8 +269,14 @@ fn holds(file: &str, text: &str) -> bool {
     file.contains(&block(text))
 }
 
+/// The marked block: the user's `text`, then Beep's rules.
 fn block(text: &str) -> String {
-    format!("{START}\n{}\n{END}", text.trim_end())
+    let text = text.trim_end();
+    if text.is_empty() {
+        format!("{START}\n{BEEP_RULES}\n{END}")
+    } else {
+        format!("{START}\n{text}\n\n{BEEP_RULES}\n{END}")
+    }
 }
 
 /// `file` with `text` between the markers: in place of what they held, or
@@ -315,13 +325,17 @@ mod tests {
         let file = format!("# Mine\n\n{START}\nold\n{END}\n\n## After\n");
         assert_eq!(
             merged(Some(&file), "- new\n"),
-            format!("# Mine\n\n{START}\n- new\n{END}\n\n## After\n")
+            format!("# Mine\n\n{START}\n- new\n\n{BEEP_RULES}\n{END}\n\n## After\n")
         );
         assert_eq!(
             merged(Some("# Mine\n"), "rules"),
-            format!("# Mine\n\n{START}\nrules\n{END}\n")
+            format!("# Mine\n\n{START}\nrules\n\n{BEEP_RULES}\n{END}\n")
         );
-        assert_eq!(merged(None, "rules"), format!("{START}\nrules\n{END}\n"));
+        assert_eq!(
+            merged(None, "rules"),
+            format!("{START}\nrules\n\n{BEEP_RULES}\n{END}\n")
+        );
+        assert_eq!(merged(None, ""), format!("{START}\n{BEEP_RULES}\n{END}\n"));
         assert!(holds(&merged(Some(&file), "x"), "x\n"));
         assert!(!holds(&file, "x"));
     }
