@@ -4,6 +4,7 @@
 
 use super::Reply;
 use crate::{
+    credentials::CredentialKey,
     nodes::{Online, agent_name},
     protocol::{
         node::{
@@ -14,7 +15,9 @@ use crate::{
     },
     router::Cx,
     store::{AgentTokenRow, HarnessRow, SaveHarness},
+    user::User,
 };
+use anyhow::Context;
 use std::{
     collections::HashSet,
     time::{Duration, UNIX_EPOCH},
@@ -64,18 +67,7 @@ pub(super) async fn save_harness_settings(
     checked_agent(&agent)?;
     let settings = checked(settings)?;
     let key = &cx.app.credential_key;
-    let kept = if settings.env.iter().any(|var| var.value.is_none()) {
-        match cx.user.harness_env(key, &machine_id, &agent).await {
-            Ok(env) => env,
-            Err(e) => {
-                log::warn!("harness env vars not opened; agent={agent} error={e:#}");
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
-    let env = merged_env(kept, settings.env);
+    let env = env_to_save(&cx.user, key, &machine_id, &agent, settings.env).await?;
     cx.user
         .save_harness_settings(
             key,
@@ -311,6 +303,26 @@ fn checked(settings: HarnessSettings) -> Reply<HarnessSettings> {
     })
 }
 
+/// The env vars to save for `agent` on `machine_id`. A var sent without a
+/// value keeps the saved one, so saved vars that do not open stop the save
+/// rather than being dropped.
+async fn env_to_save(
+    user: &User,
+    key: &CredentialKey,
+    machine_id: &str,
+    agent: &str,
+    wanted: Vec<HarnessEnv>,
+) -> anyhow::Result<Vec<EnvSecret>> {
+    let kept = if wanted.iter().any(|var| var.value.is_none()) {
+        user.harness_env(key, machine_id, agent)
+            .await
+            .with_context(|| format!("the saved {agent} env vars do not open"))?
+    } else {
+        Vec::new()
+    };
+    Ok(merged_env(kept, wanted))
+}
+
 /// The env vars to save: each of `wanted` with its new value, or with the
 /// value `kept` had for that name; one with neither is dropped.
 fn merged_env(kept: Vec<EnvSecret>, wanted: Vec<HarnessEnv>) -> Vec<EnvSecret> {
@@ -404,6 +416,42 @@ mod tests {
             .map(|var| (var.name.as_str(), var.value.expose()))
             .collect();
         assert_eq!(pairs, [("HTTPS_PROXY", "old"), ("NEW", "fresh")]);
+    }
+
+    #[tokio::test]
+    async fn saved_vars_that_do_not_open_stop_the_save() {
+        let db = crate::store::TestDb::new().await.unwrap();
+        let user = User::for_test(db.store().await.unwrap(), "alice");
+        let key = CredentialKey::random();
+        let saved = vec![EnvSecret {
+            name: "HTTPS_PROXY".into(),
+            value: SecretText::new("old"),
+        }];
+        user.save_harness_settings(
+            &key,
+            SaveHarness {
+                machine_id: "m1",
+                agent: "codex",
+                enabled: true,
+                program: "",
+                home: "",
+                args: &[],
+                env: &saved,
+            },
+        )
+        .await
+        .unwrap();
+        let wanted = || vec![var("HTTPS_PROXY", None)];
+        let kept = env_to_save(&user, &key, "m1", "codex", wanted())
+            .await
+            .unwrap();
+        assert_eq!(kept, saved);
+        let other = CredentialKey::random();
+        assert!(
+            env_to_save(&user, &other, "m1", "codex", wanted())
+                .await
+                .is_err()
+        );
     }
 
     #[test]
