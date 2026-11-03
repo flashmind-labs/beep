@@ -6,8 +6,9 @@ use super::{
     AgentKind,
     acp::{self, Line, LineReader, Offered, Prompt, ResumeMethod},
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, Compactor, Policy, TurnEnd},
-    images::Images,
-    live::{Live, cut},
+    image_files,
+    images::{Images, Picture},
+    live::{Live, TurnFiles, cut},
 };
 use crate::{
     process::{GroupLeader, STOP_GRACE, command, own_group},
@@ -40,6 +41,7 @@ use tokio::{
     io::BufReader,
     process::{Child, ChildStderr},
     sync::{mpsc, oneshot, watch},
+    task::spawn_blocking,
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -247,6 +249,12 @@ enum Reply {
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
     /// The answer to the `/compact` the node sent.
     Compacted(Result<PromptResponse, agent_client_protocol::Error>),
+    /// The image files a finished turn named, read, for the agent message
+    /// `entry`.
+    FilesRead {
+        entry: Option<u64>,
+        pictures: Vec<Picture>,
+    },
 }
 
 /// A permission question waiting for its answer.
@@ -551,6 +559,12 @@ impl Actor {
                 self.turn_done(cx, stop, error);
             }
             Reply::Compacted(result) => self.compacted(cx, result),
+            Reply::FilesRead { entry, pictures } => {
+                if !pictures.is_empty() {
+                    self.live
+                        .send_modify(|live| live.show_files(entry, pictures));
+                }
+            }
         }
         Ok(None)
     }
@@ -864,6 +878,7 @@ impl Actor {
     fn turn_done(&mut self, cx: &ConnectionTo<Agent>, stop: StopReason, error: Option<String>) {
         // A turn that ends leaves no question open.
         self.asked.clear();
+        let mut files = None;
         self.live.send_modify(|live| {
             live.info.turns += 1;
             live.last_stop = Some(stop);
@@ -872,7 +887,11 @@ impl Actor {
             state.status = Status::Idle;
             state.summary.clear();
             state.error = error;
+            files = live.turn_files();
         });
+        if let Some(files) = files {
+            self.read_files(files);
+        }
         let live = self.live.borrow();
         self.compactor.turn_ended(TurnEnd {
             usage: live.usage,
@@ -880,6 +899,23 @@ impl Actor {
         });
         drop(live);
         self.next_prompt(cx);
+    }
+
+    /// Reads the image files a turn named off the async workers; they show
+    /// once read.
+    fn read_files(&mut self, files: TurnFiles) {
+        let TurnFiles { cwd, paths, entry } = files;
+        let read = spawn_blocking(move || image_files::read(&cwd, &paths));
+        self.replies.push(
+            async move {
+                let pictures = read.await.unwrap_or_else(|e| {
+                    log::warn!("reading a turn's image files failed: {e}");
+                    Vec::new()
+                });
+                Reply::FilesRead { entry, pictures }
+            }
+            .boxed(),
+        );
     }
 
     /// Sends `/compact` ahead of the waiting prompts.
@@ -1398,6 +1434,38 @@ while :; do sleep 1; done
         assert_eq!(session.info().state.status, Status::Ended);
         assert_eq!(session.info().state.error, None, "closed, not failed");
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "bye\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_image_file_the_agent_names_shows_once_the_turn_ends() {
+        let dir = temp("named-image");
+        let png = b"\x89PNG\r\n\x1a\nchart".to_vec();
+        std::fs::write(dir.join("chart.png"), &png).unwrap();
+        let body = format!(
+            r#"
+echo '{UPDATE}{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"Saved chart.png"}}}}}}}}'
+reply '{{"stopReason":"end_turn"}}'
+cat > /dev/null
+"#
+        );
+        let session = started(&dir, &body);
+        let shown = format!(
+            "Saved chart.png\n[image: image-{}]",
+            beep_proto::image_key(&png)
+        );
+        until(&session, |live| {
+            live.transcript(10)
+                .0
+                .iter()
+                .any(|entry| entry.text == shown)
+                || live.status() == Status::Ended
+        })
+        .await;
+        assert_eq!(session.info().state.error, None);
+        let kept = session.live.borrow().picture(&beep_proto::image_key(&png));
+        assert_eq!(kept.map(|picture| picture.data.clone()), Some(png));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

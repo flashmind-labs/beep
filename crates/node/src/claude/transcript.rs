@@ -135,10 +135,12 @@ impl Digest {
         let text = match content {
             Value::String(text) => Some(text.clone()),
             Value::Array(blocks) => {
-                for block in blocks {
-                    if block["type"] == "tool_result" && block["is_error"].as_bool() == Some(true) {
-                        self.tool_failed(block["tool_use_id"].as_str().unwrap_or(""));
+                for block in blocks.iter().filter(|block| block["type"] == "tool_result") {
+                    let id = block["tool_use_id"].as_str().unwrap_or("");
+                    if block["is_error"].as_bool() == Some(true) {
+                        self.tool_failed(id);
                     }
+                    self.tool_pictures(id, &block["content"]);
                 }
                 if let Some(pictures) = &mut self.pictures {
                     for picture in blocks.iter().filter_map(block_picture) {
@@ -208,6 +210,26 @@ impl Digest {
             .and_then(|&index| self.entries.get_mut(index))
         {
             entry.text.push_str(" (failed)");
+        }
+    }
+
+    /// Shows the pictures a tool's result held as image lines after the
+    /// tool's entry, when pictures are read.
+    fn tool_pictures(&mut self, id: &str, content: &Value) {
+        let (Some(pictures), Value::Array(blocks)) = (&mut self.pictures, content) else {
+            return;
+        };
+        let Some(entry) = self
+            .tools
+            .get(id)
+            .and_then(|&index| self.entries.get_mut(index))
+        else {
+            return;
+        };
+        for picture in blocks.iter().filter_map(block_picture) {
+            entry.text.push('\n');
+            entry.text.push_str(&picture.line());
+            pictures.push(picture);
         }
     }
 
@@ -532,5 +554,30 @@ pub(super) mod tests {
         let listed = Digest::read(&text);
         assert_eq!(listed.entries.len(), 1);
         assert_eq!(listed.entries[0].text, "what is this [Image #1]");
+    }
+
+    #[test]
+    fn a_tool_result_with_an_image_shows_its_image_line_on_the_tool() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let png = b"\x89PNG\r\n\x1a\nscreen".to_vec();
+        let used = serde_json::json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/srv/project/shot.png"}}
+        ]}});
+        let result = serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                    "data": STANDARD.encode(&png)}}
+            ]}
+        ]}});
+        let text = format!("{used}\n{result}\n");
+        let digest = Digest::with_pictures(&text);
+        let shown = format!("[image: image-{}]", beep_proto::image_key(&png));
+        assert_eq!(digest.entries.len(), 1);
+        assert!(
+            digest.entries[0].text.ends_with(&format!("\n{shown}")),
+            "{}",
+            digest.entries[0].text
+        );
+        assert_eq!(digest.pictures.unwrap()[0].data, png);
     }
 }

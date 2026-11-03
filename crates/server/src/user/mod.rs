@@ -32,15 +32,16 @@ use crate::{
     research::pdf::{self, Paper, Pdf},
     starters::Cached,
     store::{
-        Account, AccountKey, ActionRow, AppPermissionRow, AttentionItem, CheckoutRow, CopiedShare,
-        CreateRun, Crossed, DeletedTurn, Fact, Feed, FinishedTurn, FoundSession, GrantRow, Invite,
-        IssueAuthor, Join, JoinedGroup, LinkKey, ListedResearch, Location, MEMORY_CATEGORIES,
-        McpServerRow, MemoryRow, Merge, MergeInto, NewAttachment, NewFile, NewGrant, NewKey,
-        NewMessage, NewNode, NewPicture, NewPlace, NewPlaceRoutine, NewTask, NewThreadChat,
-        NewWorker, NodeRow, OpenCounts, PicturesOf, PlaceRoutine, Posted, ProfileNote, ProfileRead,
-        ProjectRow, PushDevice, ResearchRow, RunStatus, SaveGroup, SavedPlace, SavedTurn, Share,
-        SkillOwner, SkillPatch, SkillRow, StartRefused, Store, StoredContext, StoredMessage,
-        SyncRow, TaskRow, ThreadChatRow, TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
+        Account, AccountKey, ActionRow, AgentImageBytes, AgentImageOf, AppPermissionRow,
+        AttentionItem, CheckoutRow, CopiedShare, CreateRun, Crossed, DeletedTurn, Fact, Feed,
+        FinishedTurn, FoundSession, GrantRow, Invite, IssueAuthor, Join, JoinedGroup, LinkKey,
+        ListedResearch, Location, MEMORY_CATEGORIES, McpServerRow, MemoryRow, Merge, MergeInto,
+        NewAttachment, NewFile, NewGrant, NewKey, NewMessage, NewNode, NewPicture, NewPlace,
+        NewPlaceRoutine, NewTask, NewThreadChat, NewWorker, NodeRow, OpenCounts, PicturesOf,
+        PlaceRoutine, Posted, ProfileNote, ProfileRead, ProjectRow, PushDevice, ResearchRow,
+        RunStatus, SaveGroup, SavedPlace, SavedTurn, Share, SkillOwner, SkillPatch, SkillRow,
+        StartRefused, Store, StoredContext, StoredMessage, SyncRow, TaskRow, ThreadChatRow,
+        TrackedIssue, TurnRecord, TurnsToDelete, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -437,6 +438,21 @@ impl User {
             data,
         };
         self.store.save_file(&self.key, file).await
+    }
+
+    /// Keeps a copy of a picture a coding agent session of the user's
+    /// showed, unless one is kept already.
+    pub(crate) async fn save_agent_image(
+        &self,
+        of: AgentImageOf<'_>,
+        image: &AgentImageBytes,
+    ) -> Result<()> {
+        self.store.save_agent_image(&self.key, of, image).await
+    }
+
+    /// The kept copy of the user's agent session picture `key`.
+    pub(crate) async fn agent_image(&self, key: &str) -> Result<Option<AgentImageBytes>> {
+        self.store.agent_image(&self.key, key).await
     }
 
     /// Keeps the pictures the user sent with a message.

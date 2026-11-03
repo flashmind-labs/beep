@@ -2,6 +2,9 @@
 //! can ask for one by its `[image: image-<key>]` line. Kept in memory,
 //! bounded per session and overall; one evicted, or lost when the node
 //! restarted, is found again in the agent's own session file.
+//!
+//! A picture a running session shows for the first time also waits in an
+//! outbox for the server's `FollowImages` stream, which keeps a copy.
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::image_key;
@@ -13,6 +16,7 @@ use std::{
     path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
+use tokio::sync::Notify;
 
 /// The most pictures and bytes kept for one session...
 const SESSION_IMAGES: usize = 16;
@@ -22,6 +26,9 @@ const MAX_IMAGES: usize = 64;
 const MAX_BYTES: usize = 128 * 1024 * 1024;
 /// The longest session file line read when looking for a picture.
 const MAX_LINE: usize = 64 * 1024 * 1024;
+/// The most pictures and bytes waiting for the server; the oldest go.
+const MAX_UNSENT: usize = 32;
+const MAX_UNSENT_BYTES: usize = 64 * 1024 * 1024;
 
 /// An image's bytes and type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +54,23 @@ pub(crate) fn image_line(data: &[u8]) -> String {
 #[derive(Debug, Default)]
 pub(crate) struct Images {
     kept: Mutex<Kept>,
+    unsent: Mutex<Outbox>,
+    /// Woken when a picture joins `unsent`.
+    arrived: Notify,
+}
+
+/// A picture of `session` for the server to keep.
+#[derive(Debug, Clone)]
+pub(crate) struct Unsent {
+    pub(crate) session: String,
+    pub(crate) picture: Arc<Picture>,
+}
+
+/// The pictures waiting for the server, oldest first, and their bytes.
+#[derive(Debug, Default)]
+struct Outbox {
+    waiting: VecDeque<Unsent>,
+    bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -66,17 +90,64 @@ impl Images {
     /// Keeps `picture` for `session`, dropping the oldest past the limits.
     /// One larger than a session's room is not kept.
     pub(crate) fn keep(&self, session: &str, picture: Picture) {
-        if picture.data.len() > SESSION_BYTES {
+        self.hold(session, picture);
+    }
+
+    /// Keeps `picture` as `keep` does and, when `session` did not have it
+    /// yet, has it wait for the server.
+    pub(crate) fn keep_and_send(&self, session: &str, picture: Picture) {
+        let Some(picture) = self.hold(session, picture) else {
             return;
+        };
+        let mut outbox = self.outbox();
+        outbox.bytes += picture.data.len();
+        outbox.waiting.push_back(Unsent {
+            session: session.to_owned(),
+            picture,
+        });
+        while outbox.waiting.len() > MAX_UNSENT || outbox.bytes > MAX_UNSENT_BYTES {
+            let Some(dropped) = outbox.waiting.pop_front() else {
+                break;
+            };
+            outbox.bytes -= dropped.picture.data.len();
+        }
+        drop(outbox);
+        self.arrived.notify_one();
+    }
+
+    /// The oldest picture waiting for the server, once there is one.
+    pub(crate) async fn next_unsent(&self) -> Unsent {
+        loop {
+            let arrived = self.arrived.notified();
+            let next = {
+                let mut outbox = self.outbox();
+                let next = outbox.waiting.pop_front();
+                if let Some(next) = &next {
+                    outbox.bytes -= next.picture.data.len();
+                }
+                next
+            };
+            if let Some(next) = next {
+                return next;
+            }
+            arrived.await;
+        }
+    }
+
+    /// Keeps `picture`; gives it when `session` did not have it before.
+    fn hold(&self, session: &str, picture: Picture) -> Option<Arc<Picture>> {
+        if picture.data.len() > SESSION_BYTES {
+            return None;
         }
         let key = image_key(&picture.data);
+        let picture = Arc::new(picture);
         let mut kept = self.lock();
-        kept.take(session, &key);
+        let had = kept.take(session, &key).is_some();
         kept.bytes += picture.data.len();
         kept.held.push_back(Held {
             session: session.to_owned(),
             key,
-            picture: Arc::new(picture),
+            picture: picture.clone(),
         });
         loop {
             let (count, bytes) = kept.of(session);
@@ -88,6 +159,7 @@ impl Images {
         while kept.held.len() > MAX_IMAGES || kept.bytes > MAX_BYTES {
             kept.drop_oldest(None);
         }
+        (!had).then_some(picture)
     }
 
     /// The picture `key` of `session`, when kept; it is then the newest.
@@ -102,6 +174,10 @@ impl Images {
 
     fn lock(&self) -> MutexGuard<'_, Kept> {
         self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn outbox(&self) -> MutexGuard<'_, Outbox> {
+        self.unsent.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -287,6 +363,26 @@ mod tests {
         let big = png(2, SESSION_BYTES + 1);
         images.keep("s0", big.clone());
         assert_eq!(images.get("s0", &image_key(&big.data)), None, "too big");
+    }
+
+    #[test]
+    fn new_pictures_wait_for_the_server_a_bounded_few() {
+        use futures::FutureExt;
+        let images = Images::default();
+        images.keep_and_send("a1", png(0, 64));
+        images.keep_and_send("a1", png(0, 64));
+        images.keep("a1", png(1, 64));
+        let first = images.next_unsent().now_or_never().expect("waiting");
+        assert_eq!(first.picture.data, png(0, 64).data);
+        assert!(
+            images.next_unsent().now_or_never().is_none(),
+            "a picture the session had, or one only kept, is not sent"
+        );
+        for n in 0..MAX_UNSENT + 2 {
+            images.keep_and_send(&format!("s{n}"), png(2, 64 + n));
+        }
+        let oldest = images.next_unsent().now_or_never().expect("waiting");
+        assert_eq!(oldest.session, "s2", "the oldest went");
     }
 
     #[test]
