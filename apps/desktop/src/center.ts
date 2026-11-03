@@ -13,10 +13,10 @@ import { seed, type CachedViews } from "./cached.ts";
 import { WIDE_HOME_PX, base, homeColumns, homeRows, machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, needsLine, runningLine, thisMacRow } from "./home.ts";
 import type { HomeSection, HomeView, MacControl, MachineCard, MacRow, MachineSyncing, NeedsYou, RunningAgent, RunningRow, SyncRow, UpdateRow, CronRow } from "./home.ts";
 import { openAddMachine as openAddMachineSheet } from "./addmachine.ts";
-import { openImportProject } from "./importproject.ts";
+import { keepLastImport, lastImport, openImportProject } from "./importproject.ts";
 import { openAddProject, foundRow, importFound, injectStyle as injectAddProjectStyle } from "./addproject.ts";
-import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, el as h } from "./projects-state.ts";
-import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
+import { withSyncthing, mergeProjects, filterProjects, agentLabel, pastSessions, nextSessions, whereRows, whereCount, repoFromRemote, openOnLabel, projectLine, sideProjects, splitOnTop, overviewGroups, barSegments, countsLine, latestLine, workersLabel, overviewSub, groupMatches, removeProjectSheet, REMOVE_PROJECT, folderUnder, reason, el as h } from "./projects-state.ts";
+import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Placed, Project, ProjectGroup, ProjectRow, ProjectMachineRow, SessionRow, SyncthingPlace, WhereRow } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { NEW_WINDOW, opensNewWindow, startView, windowTitle } from "./projectwindow.ts";
@@ -655,7 +655,14 @@ function openProjectRows(p: OpenRepo, i: number) {
     .filter(Boolean).map(t => h("span", "", t));
   const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
   const sub = p.project ? p.host : `${p.host} · not imported`;
+  if (!p.project) right.push(rowImportButton(p));
   const head = repoLine(i, p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
+  if (!p.project) {
+    head.addEventListener("contextmenu", e => openMenu(e, p.repo, [
+      { label: "Import…", on: () => quickImport(p) },
+      { label: "Import with settings…", on: () => importWithSettings(p) },
+    ]));
+  }
   const all = state.gitAll.has(p.key);
   const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project))];
   if (p.items.length > ITEMS_SHOWN) {
@@ -666,6 +673,80 @@ function openProjectRows(p: OpenRepo, i: number) {
     rows.push(h("div", "cc-gr it more", more));
   }
   return rows;
+}
+
+/// Repositories being imported from their row, by key, and why one failed.
+const rowImports = new Map<string, "busy" | { error: string }>();
+
+/// What `import_project` takes for an open-items repository: `org/repo`
+/// on GitHub, its URL elsewhere.
+function importRepo(p: OpenRepo) {
+  return p.host === "github.com" ? p.repo : p.url;
+}
+
+/// The row's Import button, or how its import stands.
+function rowImportButton(p: OpenRepo): HTMLElement {
+  const now = rowImports.get(p.key);
+  if (now === "busy") return h("span", "age", h("span", "dspin"), " Importing…");
+  const b = rowButton("Import", "small", () => quickImport(p));
+  b.title = importTitle(p);
+  if (now) {
+    const failed = tag("bad", "Import failed");
+    failed.title = now.error;
+    return h("span", "", failed, " ", b);
+  }
+  return b;
+}
+
+/// Where Import puts it: the last machine and folder used, else the server's
+/// default on the first online machine.
+function importPlace(p: OpenRepo) {
+  const machines = (state.home?.machines || []).filter(m => m.online);
+  const last = lastImport();
+  const machine = machines.find(m => m.id === last?.machine) || machines[0] || null;
+  const folder = machine && last?.root && machine.id === last.machine ? folderUnder(last.root, importRepo(p)) : null;
+  return { machine, folder };
+}
+
+function importTitle(p: OpenRepo) {
+  const { machine, folder } = importPlace(p);
+  if (!machine) return "No machine is online; Import opens the sheet";
+  return `Imports on ${machine.name}${folder ? `, into ${folder}` : ""}. Right-click for Import with settings…`;
+}
+
+/// Imports from the row with the last machine and folder; the row turns
+/// into the project once it is in. With no machine online, the sheet.
+async function quickImport(p: OpenRepo) {
+  if (rowImports.get(p.key) === "busy") return;
+  const { machine, folder } = importPlace(p);
+  if (!machine) return importWithSettings(p);
+  rowImports.set(p.key, "busy");
+  draw();
+  try {
+    const project = await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder, worktrees: [] });
+    keepLastImport(project);
+    rowImports.delete(p.key);
+    await refresh();
+  } catch (e) {
+    const error = reason(e);
+    rowImports.set(p.key, { error });
+    console.warn(`importing ${p.repo}:`, error);
+  }
+  draw();
+}
+
+/// The Import a project sheet for the row's repository, on the last
+/// machine and folder used.
+function importWithSettings(p: OpenRepo) {
+  const { machine, folder } = importPlace(p);
+  openImportProject({
+    machines: state.home?.machines || [],
+    macId: state.mac?.id || null,
+    repo: importRepo(p),
+    machine: machine?.id ?? null,
+    folder,
+    onDone: () => refresh(),
+  });
 }
 
 /// Open PRs and issues on the user's git hosts, one row per project with
