@@ -506,6 +506,16 @@ function agentClick(e: MouseEvent) {
     if (!opened.delete(key)) opened.add(key);
     return drawAgentBody();
   }
+  // A picture opens full size, also one inside a tool row. One still
+  // loading opens once it is here.
+  const pic = target.closest<HTMLImageElement>("#agbody img.pic");
+  if (pic) {
+    if (!pic.getAttribute("src")) return;
+    const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic[src]")];
+    // Each opens by its data URL, which can be saved or copied.
+    const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
+    return openViewer(shown, all.indexOf(pic));
+  }
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
   if (tool && !getSelection()!.toString()) {
     const at = Number(tool.dataset.at);
@@ -518,13 +528,6 @@ function agentClick(e: MouseEvent) {
     const key = `${paste.closest<HTMLElement>("[data-at]")!.dataset.at}:${paste.parentElement!.dataset.paste}`;
     if (!AG.opened.delete(key)) AG.opened.add(key);
     return;
-  }
-  const pic = target.closest<HTMLImageElement>("#agbody img.pic");
-  if (pic) {
-    const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic")];
-    // Each opens by its data URL, which can be saved or copied.
-    const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
-    return openViewer(shown, all.indexOf(pic));
   }
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return steerAgent({ cancel: null });
@@ -546,8 +549,9 @@ export function userImages(text: string) {
 
 /// A tool entry as a row: a mark for how it went, its title in mono and
 /// the first lines of its output. `at` is its place in the session, which
-/// keeps it open across redraws.
-export function toolRow(en: AgentEntry, at: number) {
+/// keeps it open across redraws. `pics` are the pictures it showed, drawn
+/// last.
+export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(en.text);
   const open = AG.opened.has(at), { shown, more } = log.toolLines(output, open);
@@ -562,7 +566,7 @@ export function toolRow(en: AgentEntry, at: number) {
     : open && (output.includes("\n") || long) ? '<span class="more">Show less</span>' : "";
   return `<div class="dcoderen tool${status === "failed" ? " failed" : ""}${open ? " open" : ""}"${opens ? ` data-at="${at}"` : ""}>`
     + `<span class="mk">${mark}</span><code class="tt">${esc(title)}</code>`
-    + (shown ? `<pre class="out">${esc(shown)}</pre>` : "") + toggle + "</div>";
+    + (shown ? `<pre class="out">${esc(shown)}</pre>` : "") + toggle + pics + "</div>";
 }
 
 /// An image a user entry carried: the one sent from here, the one read
@@ -586,9 +590,13 @@ export function entryRow(en: AgentEntry, at: number) {
     if (!names.length) return `<div class="dcoderen user" data-at="${at}"><b>You</b><span>${user(en.text)}</span></div>`;
     return `<div class="dcoderen user" data-at="${at}"><b>You</b>${said ? `<span>${user(said)}</span>` : ""}<span class="pics">${names.map(entryPic).join("")}</span></div>`;
   }
+  // The pictures the agent or a tool showed go after the text, as a
+  // user's do. The HTML is already without their lines.
+  const { text: said, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
+  const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}</div>` : `<div class="dcoderen agent">${text}</div>`;
-  if (en.kind === "tool") return AG.log ? toolRow(en, at) : `<div class="dcoderen tool">${text}</div>`;
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md">${en.html}${pics}</div>` : `<div class="dcoderen agent">${esc(said)}${pics}</div>`;
+  if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other">${text}</div>`;
 }
 
