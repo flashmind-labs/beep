@@ -25,6 +25,15 @@ export type SettingsSub =
   | { kind: "machine"; id: string }
   | { kind: "agent"; id: string };
 
+/// The coding agents Settings lists under Agent accounts, in order. Each
+/// opens its own subpage, nested in the left pane like Apps and Machines.
+export const CODING_AGENTS = ["claude", "codex", "gemini", "pi", "opencode", "flsh"] as const;
+
+/// The subpages Agent accounts nests: one per coding agent.
+export function agentSubs(): SettingsSub[] {
+  return CODING_AGENTS.map(id => ({ kind: "agent", id }));
+}
+
 /// Which page each kind of subpage sits under.
 const SUB_PAGE: Record<SettingsSub["kind"], SettingsPage> = { app: "apps", mcp: "apps", machine: "machines", agent: "agents" };
 
@@ -131,4 +140,24 @@ export function rememberPath(store: Store | null | undefined, path: SettingsPath
 export function crumbs(path: SettingsPath, subLabel: (sub: SettingsSub) => string): string[] {
   const page = pageLabel(path.page);
   return path.sub ? [page, subLabel(path.sub)] : [page];
+}
+
+/// One entry of the left pane: a page, or a subpage nested under it.
+export interface NavEntry {
+  page: SettingsPage;
+  sub: SettingsSub | null;
+  /// The entry open in the right pane.
+  current: boolean;
+}
+
+/// The left pane: each page shown, and under the page picked the subpages
+/// `subs` lists for it, such as each coding agent under Agent accounts.
+export function navEntries(shown: readonly SettingsPage[], path: SettingsPath, subs: (page: SettingsPage) => readonly SettingsSub[]): NavEntry[] {
+  return shown.flatMap(page => {
+    const here = path.page === page;
+    const own: NavEntry = { page, sub: null, current: here && !path.sub };
+    if (!here) return [own];
+    const kids = subs(page).map(sub => ({ page, sub, current: !!path.sub && path.sub.kind === sub.kind && path.sub.id === sub.id }));
+    return [own, ...kids];
+  });
 }

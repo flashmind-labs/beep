@@ -1310,6 +1310,28 @@ requests! {
     /// flsh's config before it starts flsh. `BadRequest` saying why for a
     /// value flsh would not take (`FlshSettings::check`).
     371 SaveFlshSettings { settings: FlshSettings } => Call<()>
+    /// The caller's settings for the harness `agent` on each of their
+    /// machines, online or not, so the Coding agents page can say which
+    /// fields differ between them. A machine with none saved gives the
+    /// defaults. Env var values never come back.
+    372 ListHarnessSettings { agent: String } => Call<Vec<MachineHarnessSettings>>
+    /// Saves `settings` for the harness `agent` on every machine of the
+    /// caller's, online or not: online ones get them now, the others when
+    /// they next connect. Each machine keeps whether the harness is on, and
+    /// its own binary path unless `include_program`. An env var whose
+    /// `value` is `None` takes the value saved on `from_machine`; each
+    /// machine's copy is sealed for that machine. Replies how many machines
+    /// were saved. `NotFound` when `from_machine` is not one of the
+    /// caller's; `BadRequest` as `SaveHarnessSettings`.
+    373 SaveHarnessSettingsAll { from_machine: String, agent: String, settings: HarnessSettings, include_program: bool } => Call<u32>
+}
+
+/// One machine's settings for a harness (`ListHarnessSettings`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineHarnessSettings {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub settings: HarnessSettings,
 }
 
 /// What `ListProjectRunsAll` gives.

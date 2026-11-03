@@ -30,7 +30,8 @@ html, body.cbody { background: var(--ink) }
 .cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size }
 .cc-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border) }
 .cc-top h2 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; line-height: 1 }
-.cc-top small { font-size: 12px; color: var(--muted) }
+.cc-top small { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-top h2 { white-space: nowrap }
 .cc-view { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
 .cc-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px }
 .cc-sec h4 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--dim) }
@@ -73,6 +74,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-pjc { flex: none; margin: 0 16px 14px; display: grid; gap: 6px }
+/* Home's input and the project agent's bar stay at most 760px wide, centered; a narrow window
+   keeps the 16px gutter. */
+.cc-comp, .cc-pjc { margin-inline: max(16px, calc((100% - 760px) / 2)) }
 .cc-pjc .box { border: 1px solid var(--border); border-radius: 12px; background: rgba(26,35,30,.92); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: rgba(59,155,122,.6) }
 .cc-pjc input { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--emerald); padding: 0; min-width: 0; user-select: text }
@@ -99,7 +103,8 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 /* Views: one box each under the top bar; only the shown one is visible. */
 .cc-box { flex: 1; min-height: 0; display: flex; flex-direction: column }
 .cc-box[hidden] { display: none }
-.cc-top .tools { margin-left: auto; display: flex; gap: 6px }
+.cc-top .tools { margin-left: auto; display: flex; gap: 6px; flex: none }
+.cc-top .tools .dbtn { white-space: nowrap }
 /* A chat's scope beside its title: General, or its project. */
 #scope { display: flex }
 #scope:empty { display: none }
@@ -210,7 +215,8 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-set .dset-crumb:hover, .cc-set .dset-crumb:focus-visible { color: var(--fg) }
 .cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted) }
 .cc-set .dset-back:hover, .cc-set .dset-back:focus-visible { color: var(--fg) }
-.cc-set .dset-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; min-width: 0 }
+.cc-set .dset-top kbd { margin-left: auto; flex: none }
+.cc-set .dset-crumbs b { overflow: hidden; text-overflow: ellipsis }
 .cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
 .cc-set .dset-page > section { max-width: 780px }
 /* The breadcrumb names the page, so its section title does not repeat it. */
@@ -218,8 +224,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-set .dset-host > .cc-view { padding: 0; overflow: visible }
 .cc-set .dset-host > .dhead { padding: 0 0 12px; border-bottom: 0 }
 .cc-set .dset-host > .dlist { padding: 0; overflow: visible }
-.cc-set .hv { grid-template-columns: 230px minmax(0, 1fr) }
-.cc-set .hv-f { grid-template-columns: minmax(0, 1fr) 260px }
 .cc-set .dset-h { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 16px 0 6px }
 .cc-set .dset-box { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 0 0 14px }
 .cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; outline: none }
@@ -304,6 +308,10 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-mt.cc-pt .nm b button { padding: 0; font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left }
 .cc-mt.cc-pt .nm b button:hover { color: var(--emerald) }
 .cc-mt.cc-pt .nm .os b { font-weight: 500; color: var(--fg); font-size: 10.5px }
+/* Where it lives sits at half width: names and folders stay on one line and shorten. */
+.cc-mt.pj-where .nm > b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cc-mt.pj-where .nm.wide { grid-column: span 2 }
+.cc-mt.pj-where > .acts { flex-wrap: nowrap }
 
 /* One project: where it lives, its agents and its sessions. */
 .pv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px }
@@ -322,7 +330,7 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 /* A project's agent: Tasks beside Workers, then the cards its chat waits on. */
 .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
 .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
-@container (max-width: 640px) { .pj-cols { grid-template-columns: minmax(0, 1fr) } }
+@container (max-width: 640px) { .pj-cols, .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) } }
 /* Custom agents: under Agents in the same column, a row per agent with its harness, colour and scope. */
 .ca-col > div + div { margin-top: 14px }
 .ca-row { cursor: pointer }
@@ -380,6 +388,9 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-plan .ok { font-size: 12px; color: var(--emerald) }
 /* Project board: two tiles a row, each a count and the rows that matter now. */
 .pb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px }
+/* A group of three tiles sits three a row, so none is left alone; one column on a narrow window. */
+.pb-grid.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)) }
+@container (max-width: 700px) { .pb-grid.n3 { grid-template-columns: minmax(0, 1fr) } }
 .pb-sec + .pb-sec { margin-top: 20px }
 .pb-sec h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted) }
 .pb-tile { min-height: 236px; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--border); background: var(--elev); overflow: hidden }
@@ -621,45 +632,83 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
 .th-card > .dbtn { justify-self: start }
 
-/* Coding agents: each machine's harnesses on the left, the picked one's settings on the right. */
+/* Coding agents: each machine's harnesses on the left, the picked one's settings on the right.
+   In Settings the left pane lists the agents, so the page shows one under a toolbar. */
 .hv-view { display: grid; gap: 12px; align-content: start }
 .hv { display: grid; grid-template-columns: 300px minmax(0, 1fr); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; min-height: 0 }
 .hv-list { border-right: 1px solid var(--border); display: grid; align-content: start; background: rgba(255,255,255,.015) }
-.hv-it { cursor: pointer; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 14px; border-bottom: 1px solid var(--border); outline: none }
+.hv-it { cursor: pointer; display: grid; grid-template-columns: 28px minmax(0, 1fr) 36px; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); outline: none }
 .hv-it:focus-visible { box-shadow: inset 0 0 0 2px var(--emerald) }
 .hv-it[aria-current="true"] { background: rgba(52,211,153,.07) }
-.hv-it .dswitch { margin-top: 5px }
+.hv-it .dswitch, .hv-sum .dswitch { justify-self: end }
 .hv-it b { font-weight: 500; font-size: 13.5px }
-.hv-it .ver { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-left: 6px }
-.hv-it .up { color: #E9B949; font-size: 11px; margin-left: 6px }
-.hv-it small { display: block; margin-top: 3px; font-size: 12px; line-height: 17px; color: var(--muted) }
-.hv-it small.bad { color: var(--coral) }
-.hv-it.off b, .hv-it.off .cc-ag { opacity: .45 }
+.hv-it.off b, .hv-it.off .cc-ag, .hv-sum.off b, .hv-sum.off .cc-ag { opacity: .45 }
 .hv-name { min-width: 0 }
-.hv-d { padding: 16px 20px; overflow-y: auto; scrollbar-width: thin; min-width: 0 }
+.hv-name small { display: block; margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.hv-name small.bad { color: var(--coral) }
+/* Name, version and update chip on one line; the version gives way first. */
+.hv-nm { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap }
+.hv-nm b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.hv-nm .ver { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
+.hv-up { flex: none; align-self: center; font-size: 10.5px; line-height: 15px; padding: 0 6px; border-radius: 999px; color: #E9B949; border: 1px solid rgba(233,185,73,.45); background: rgba(233,185,73,.08) }
+.hv-d { padding: 16px 20px; overflow-y: auto; scrollbar-width: thin; min-width: 0; container-type: inline-size }
 .hv-d h3 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600 }
 .hv-d h3 .ver { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400 }
 .hv-d h4 { margin: 20px 0 4px; font-size: 13.5px; font-weight: 600 }
-.hv-f { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border) }
-.hv-f b { font-weight: 500; font-size: 13px }
+/* Each setting: what it is on the left at a fixed width, its control on the right. */
+.hv-f { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; padding: 11px 0; border-bottom: 1px solid var(--border) }
+.hv-f > :last-child { min-width: 0; align-self: center }
+.hv-f b { font-weight: 500; font-size: 13px; overflow-wrap: anywhere }
 .hv-f small { display: block; margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--muted) }
+@container (max-width: 540px) { .hv-f { grid-template-columns: minmax(0, 1fr); gap: 8px } }
 .hv-in { height: 32px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--ink); font-family: var(--mono); font-size: 12.5px; color: var(--fg); min-width: 0; width: 100%; box-sizing: border-box; user-select: text }
 .hv-in::placeholder { color: var(--dim) }
-.hv-env { display: grid; grid-template-columns: 160px minmax(0, 1fr) 24px; gap: 8px; align-items: center; margin-top: 6px }
+.hv-envs { display: grid; gap: 6px }
+.hv-env { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 24px; gap: 8px; align-items: center }
 .hv-env .dbtn { padding: 0; min-width: 24px; color: var(--muted) }
-.hv-mach { display: flex; gap: 6px; align-items: center }
 .hv-stat { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); padding: 6px 0 }
-.hv-acts { display: flex; gap: 8px; align-items: center; margin-top: 6px }
+.hv-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px }
 .hv-note { font-size: 12px; line-height: 17px; color: var(--muted); margin-top: 8px }
+/* A field not the same on every machine, and the save bar: this machine or every machine. */
+.hv-diff { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 10.5px; line-height: 15px; font-weight: 400; color: var(--muted); cursor: help; vertical-align: 1px }
+.hv-save { margin-top: 12px }
+.hv-incl { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap }
+.hv-ok { font-size: 12px; color: var(--emerald) }
+.hv-acts [hidden] { display: none }
+/* The machine picker: a segmented control whose names never wrap, or a select when they do not fit. */
+.hv-pick { display: inline-flex; min-width: 0 }
+.hv-seg { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.02) }
+.hv-seg button { all: unset; cursor: pointer; height: 24px; line-height: 24px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; min-width: 0 }
+.hv-seg button:hover:not(:disabled) { color: var(--fg) }
+.hv-seg button[aria-pressed="true"] { background: rgba(59,155,122,.28); color: var(--fg) }
+.hv-seg button:disabled { opacity: .45; cursor: default }
+.hv-seg button:focus-visible { box-shadow: inset 0 0 0 2px var(--emerald) }
+.hv-sel { display: none; height: 28px; max-width: 220px; min-width: 0; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px }
+.hv-pick.crowded .hv-seg { display: none }
+.hv-pick.crowded .hv-sel { display: block }
+/* In Settings: the toolbar row, then the agent's summary box, then its settings at full width. */
+.hv-bar { container: hvbar / inline-size; display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--border); min-width: 0 }
+.hv-bar .lbl { flex: none; font-size: 12px; color: var(--muted) }
+.hv-bar .sp { flex: 1 }
+.hv-bar .dbtn { flex: none; white-space: nowrap }
+@container hvbar (max-width: 600px) { .hv-pick .hv-seg { display: none } .hv-pick .hv-sel { display: block } }
+.hv-sum { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 36px; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px }
+.hv-sum b { font-size: 15px; font-weight: 600 }
+.hv-sum .on { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
+@container hvset (max-width: 560px) { .hv-sum .on { display: none } }
+.hv-view.in-set { container: hvset / inline-size }
+.hv-view.in-set > .hv-d { padding: 0; overflow: visible }
+.hv-view.in-set > .hv-d > .hv-acts:first-child, .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
 /* flsh's own settings under its runtime ones. */
 .fl-seg, .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
 .fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
 .fl-row { display: flex; gap: 8px; align-items: center }
-.fl-tbl { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px }
+.fl-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px }
 .fl-tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border) }
 .fl-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle }
-.fl-tbl td:first-child { width: 50% }
-.fl-tbl td:last-child { text-align: right; width: 1% ; white-space: nowrap }
+.fl-tbl th:nth-child(2) { width: 52px } .fl-tbl th:nth-child(3) { width: 32% } .fl-tbl th:nth-child(4) { width: 96px }
+.fl-tbl th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.fl-tbl td:last-child { text-align: right; white-space: nowrap }
 .cc-ag.pi { color: #B18CE0 } .cc-ag.gemini { color: #6FA8DC } .cc-ag.flsh { color: #3B9B7A } .cc-ag.opencode { color: #E9B949 }
 /* Terminals on every machine: Home's panel per machine, and the page's
    machine list beside the open terminal. */
@@ -701,11 +750,21 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: 6px; cursor: pointer }
 .us-seg button.on { background: var(--border); color: var(--fg) }
 .us-pop h5.us-sub { margin-top: 8px }
-/* When the server last read a section's list; the Actions section across the page under PRs and Issues. */
+/* When the server last read a section's list; the Actions section beside Where it lives. */
 .cc-sec small.sw-age { color: var(--dim); margin-left: auto }
 .cc-sec small.sw-mode { font-size: 11px; font-weight: 500; white-space: nowrap; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; cursor: default }
 .cc-sec small.sw-mode.live { color: var(--emerald); border-color: rgba(59,155,122,.45) }
-.pj-actions { margin-top: 14px }
+.pj-actions { min-width: 0 }
+/* A workflow run in two lines at half width: title and chip, then the meta on one line (the
+   branch shortens most) beside Details and Open. Below 420px the meta and buttons take a line each. */
+.pj-runbox { container-type: inline-size }
+.pj-task.pj-runrow .m { grid-column: 1; flex-wrap: nowrap; white-space: nowrap; overflow: hidden }
+.pj-task.pj-runrow .m > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.pj-task.pj-runrow .m > span:first-child { flex: 0 0 auto; max-width: 40% }
+.pj-task.pj-runrow > .pj-st { justify-self: end }
+.pj-task.pj-runrow > .acts { grid-column: 2; flex-wrap: nowrap; justify-content: flex-end }
+@container (max-width: 520px) { .pj-task.pj-runrow .m > .ev { display: none } }
+@container (max-width: 420px) { .pj-task.pj-runrow .m, .pj-task.pj-runrow > .acts { grid-column: 1 / -1 } }
 .pj-chk { color: var(--muted) }
 .pj-chk.run { color: var(--emerald); display: inline-flex; gap: 5px; align-items: center }
 .pj-chk.bad, .pj-task .m a.pj-chk.bad { color: #E9B949 }
@@ -754,3 +813,14 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pw-tabs button:hover, .pw-tabs button:focus-visible { color: var(--fg) }
 .pw-tabs button[aria-current="true"] { color: var(--fg); border-bottom-color: var(--emerald) }
 .pw .pb-back { display: none }
+/* A failed action's banner: one line, the output under Details, a dismiss. */
+.fb-err { min-width: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--err) 8%, transparent); font-size: 12.5px }
+.fb-line { display: flex; gap: 10px; align-items: flex-start; color: var(--err); line-height: 18px }
+.fb-line span { flex: 1; min-width: 0; overflow-wrap: anywhere }
+.fb-x { all: unset; flex: none; cursor: pointer; padding: 0 4px; color: var(--muted); font-size: 15px; line-height: 18px }
+.fb-x:hover { color: var(--fg, inherit) }
+.fb-more summary { margin-top: 6px; cursor: pointer; color: var(--muted); font-size: 12px }
+.fb-more pre { margin: 6px 0 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: var(--ink); border: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere }
+button.cc-note.in-go { width: 100%; text-align: left; font: inherit; font-size: 12.5px; cursor: pointer }
+button.cc-note.in-go:hover { border-color: #3A4A41 }
+.cc-note.in-go .go { margin-left: auto; color: var(--emerald); white-space: nowrap }

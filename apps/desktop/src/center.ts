@@ -2097,10 +2097,15 @@ function projectDetail(p: Project) {
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (boardOn(p)) return projectBoard(p, rows, !!machines, running);
   const agent = p.imported ? agentFor(state.agents, p.name) : null;
+  const where = whereSection(p, rows, !!machines);
+  // Two columns all the way down: Actions beside the machines, Sessions beside
+  // the agents. Without a project agent there are no runs, so the machines
+  // sit above the agents beside Sessions.
+  if (!agent) return [...agentTop(p), h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", where, agentsSection(running), customAgentsSection(rows)))];
   return [
     ...agentTop(p), ...repoSections(p),
-    h("div", "pj-cols pj-half", agent ? runs.section(agent) : sessionsSection(p, running), whereSection(p, rows, !!machines)),
-    h("div", "pj-cols pj-half", ...(agent ? [sessionsSection(p, running)] : []), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))),
+    h("div", "pj-cols pj-half", runs.section(agent), where),
+    h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", agentsSection(running), customAgentsSection(rows))),
   ];
 }
 
@@ -2131,8 +2136,8 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
 /// "Where it lives": every machine with the project's folder there, or why
 /// there is none.
 function whereSection(p: Project, rows: WhereRow[], known: boolean) {
-  const where = h("div", "cc-mt cc-pt", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
-  where.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,2fr) auto";
+  const where = h("div", "cc-mt cc-pt pj-where", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
+  where.style.gridTemplateColumns = "fit-content(40%) minmax(0,1fr) auto";
   for (const m of rows) {
     const cells = whereRow(p, m);
     where.append(...cells);
@@ -2223,8 +2228,9 @@ function projectBoard(p: Project, rows: WhereRow[], known: boolean, running: Run
   thr.ensure(agent.project_id);
   const now = Date.now(), pid = agent.project_id;
   const hostFresh = freshness(thr.at(pid), thr.loading(pid), now);
-  // Tiles in sections, two a row: the work, the code host, the machines.
-  const tileGroup = (title: string, ...tiles: Node[]) => h("div", "pb-sec", h("h4", "", title), h("div", "pb-grid", ...tiles));
+  // Tiles in sections: the work, the code host, the machines. Two a row,
+  // or three when the group has three, so no tile is left alone.
+  const tileGroup = (title: string, ...tiles: Node[]) => h("div", "pb-sec", h("h4", "", title), h("div", tiles.length === 3 ? "pb-grid n3" : "pb-grid", ...tiles));
   out.push(
     tileGroup("Work",
       tile("tasks", "Tasks", taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)), openTile, { open: r => openTask(r.id!), fresh: pageFresh("view", p.name, viewReads.loading(p.name)) }),
@@ -2932,7 +2938,10 @@ function whereRow(p: Project, m: WhereRow) {
   if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
   const what = h("span", "nm", said);
   const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(false, repoFromRemote(p.url), m.id)) : null;
-  return [name, what, h("span", "acts", clone)];
+  if (clone) return [name, what, h("span", "acts", clone)];
+  // Nothing to do there, so the note takes the buttons' room too.
+  what.classList.add("wide");
+  return [name, what];
 }
 
 /// Asks the server where `name` lives on each machine; while it looks
@@ -3175,14 +3184,21 @@ registerView("projects", {
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
     if (p?.url) {
       const url = p.url, label = openOnLabel(url);
-      if (label) tools.push(button(label, "small", () => openUrl(url)));
+      if (label) tools.push(button(label.replace(/^Open on /, ""), "small", () => openUrl(url)));
     }
     if (p) {
-      const on = state.top.includes(p.name);
-      tools.push(button(on ? "Unpin" : "Pin", "quiet small", () => setProjectOnTop(p.name, !on)));
-      if (p.imported) tools.push(button(REMOVE_PROJECT, "quiet small", () => removeProject(p.name)));
+      // The rest goes in one menu, so the header keeps to a line.
+      const more = button("⋯", "quiet small", e => {
+        const on = state.top.includes(p.name);
+        const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(p.name, !on) }];
+        if (!windowProject) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(p.name) }, { label: "All projects", on: () => openProjects() });
+        if (p.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(p.name) });
+        openMenu(e, p.name, items);
+      });
+      more.title = "More";
+      more.setAttribute("aria-label", "More");
+      tools.push(more);
     }
-    if (!windowProject) tools.push(button("All projects", "quiet small", () => openProjects()));
     return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
   mount(el, arg) {
