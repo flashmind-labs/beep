@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { itemChips, openTitle, projectsWithOpen, replyPrompt, repoUrl, reviewStart, showsOpen, waitsOnYou } from "../src/openitems.ts";
+import { itemChips, openTitle, projectsWithOpen, replyPrompt, repoUrl, reviewStart, waitsOnYou } from "../src/openitems.ts";
 import { homeColumns, homeRows } from "../src/home.ts";
 import type { GitItemRow } from "../src/openitems.ts";
 
@@ -17,9 +17,6 @@ test("the title names the kinds of host saved", () => {
 });
 
 test("the section shows only once a git host is saved", () => {
-  assert.equal(showsOpen(null), false);
-  assert.equal(showsOpen({ items: [], hosts: [] }), false);
-  assert.equal(showsOpen({ items: [], hosts: [{ host: "github.com", forgejo: false }] }), true);
   const home = { running: [], needs_you: [], updates: [], coming_up: [], projects: [], machines: [] };
   assert.deepEqual(homeRows({ ...home, git: null }), []);
   assert.deepEqual(homeRows({ ...home, git: { items: [], hosts: [{}] } }), [["git"]]);

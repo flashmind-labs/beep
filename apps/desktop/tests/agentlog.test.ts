@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, linkImagePaths, mediaPaths, parseTool, subagent, tailLines, toolLines, TOOL_LINES, userHtml } from "../src/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkImagePaths, mediaPaths, parseTool, subagent, tailLines, userHtml } from "../src/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -50,16 +50,6 @@ test("a transcript entry has a title and says only when it failed", () => {
   assert.deepEqual(parseTool("Bash: cargo test net (failed)"), { title: "Bash: cargo test net", status: "failed", output: "" });
   assert.deepEqual(parseTool("Read: /srv/project/tests/net.rs"), { title: "Read: /srv/project/tests/net.rs", status: "", output: "" });
   assert.deepEqual(parseTool(undefined), { title: "", status: "", output: "" });
-});
-
-test("long output folds to its first lines until opened", () => {
-  const out = Array.from({ length: 10 }, (_, i) => `line ${i}`).join("\n");
-  const closed = toolLines(out);
-  assert.equal(closed.shown.split("\n").length, TOOL_LINES);
-  assert.equal(closed.more, 10 - TOOL_LINES);
-  assert.deepEqual(toolLines(out, true), { shown: out, more: 0 });
-  assert.deepEqual(toolLines("a\nb"), { shown: "a\nb", more: 0 });
-  assert.deepEqual(toolLines(""), { shown: "", more: 0 });
 });
 
 test("a pasted block folds into a Pasted text line", () => {

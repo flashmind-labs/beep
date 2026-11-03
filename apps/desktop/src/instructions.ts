@@ -169,14 +169,13 @@ export function registerInstructions(deps: InstructionsDeps) {
     const ver = h("div", "in-ver", h("span", "", h("b", "", versionLine(st.newest && { ...st.newest, note: "" })), when, st.note ? ` · ${st.note}` : ""), status);
     const acts = h("div", "in-acts", saveBtn,
       button("History", "", () => setTab("history")),
-      button("Import from machines", "", () => setTab("import")),
-      h("small", "", "Sync writes it into each agent's file"));
+      button("Import from machines", "", () => setTab("import")));
     if (dirty()) acts.insertBefore(button("Discard", "", () => { st.draft = null; st.note = ""; draw(); }), acts.children[1]);
     const err = st.error ? h("div", "cc-err", st.error) : null;
     const summary = st.files ? syncSummary(st.files) : null;
     const files = h("div", "cc-panel cc-row in-side",
       h("span", "t", h("b", "", summary ? `Synced to ${summary.synced} of ${plural(summary.machines, "machine", "machines")}` : "Agent files"),
-        h("span", "", summary ? "Machines with Claude Code, Codex, Gemini CLI or pi" : "Write your rules into each agent's own file")),
+        summary ? null : h("span", "", "Write your rules into each agent's own file")),
       button("Sync", "", () => setTab("sync")));
     return h("div", "in-cols",
       sec("For all agents", sizeLabel(text()), h("div", "cc-panel in-ed", ver, area, acts, err)),
@@ -190,11 +189,10 @@ export function registerInstructions(deps: InstructionsDeps) {
     return sec("How agents see it", "first to last", h("div", "cc-panel",
       h("ol", "in-layers",
         li("The agent's own rules", "Built into Claude Code, Codex, Gemini CLI or pi"),
-        li("Your text in its file", "What else is in ~/.claude/CLAUDE.md and the like. Beep leaves it as it is"),
+        li("Your text in its file", "The rest of ~/.claude/CLAUDE.md and the like"),
         li("Your instructions", mineLayer(st.newest, summary), true),
-        li("Project", "The repository's own CLAUDE.md or AGENTS.md, when the agent works in one"),
-        li("Task", "The prompt Beep starts the agent with, from the chat or PR")),
-      h("div", "in-foot", "Agents read these in order, so later layers can narrow earlier ones. Beep's own chat does not read this text.")));
+        li("Project", "The repository's CLAUDE.md or AGENTS.md"),
+        li("Task", "The prompt Beep starts the agent with"))));
   }
 
   function fileRow(f: AgentFile, acts: Kid[]) {
@@ -244,7 +242,6 @@ export function registerInstructions(deps: InstructionsDeps) {
       }).concat(m.files.filter(f => st.shown === `${m.machine_id}${f.path}`).map(f => h("pre", "in-pre", withoutBeepBlock(f.text))))
         : [missRow("No coding agent here")]));
     return [
-      note("", "Nothing on the machines changes. Add a file's rules to yours, then save them as a new version."),
       sec("Found on your machines", st.reading ? "reading…" : "read just now", machinesPanel(machines)),
       h("div", "in-acts", button("Read again", "", readFiles)),
     ];
@@ -276,7 +273,7 @@ export function registerInstructions(deps: InstructionsDeps) {
       return machineBlock(m, write, rows);
     });
     const lead = saved
-      ? note("", "Beep writes your rules between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file, so sessions started outside Beep follow them too. Text outside the markers is never touched.")
+      ? note("", "Written between ", h("code", "", "<!-- beep:start -->"), " and ", h("code", "", "<!-- beep:end -->"), " in each agent's file. Text outside them is never touched.")
       : nothingSaved();
     const acts = h("div", "in-acts", button("Read again", "", readFiles));
     const todo = saved ? behind(st.files) : [];

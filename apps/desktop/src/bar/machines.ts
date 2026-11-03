@@ -229,7 +229,7 @@ function drawMachines() {
     const head = at ? `<div class="dmc-head"><span class="dmuted">${say}</span>${addButton}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span>${addButton}</div>`;
     const columns = coderColumns(list.map(m => m.env?.tools ?? []));
     el.innerHTML = head + errLine(MC.error) + (MC.list && !list.length
-      ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it, or turn on Let Beep use this Mac in Settings.")
+      ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it.")
       : `<div class="dlist${at ? " dset-box" : ""}"><div class="dmt" style="--ag:${columns.length}">${list.map(m => machineCard(m, columns)).join("")}</div></div>`)
       + (at ? "" : hints([["esc", "back"]]));
   }

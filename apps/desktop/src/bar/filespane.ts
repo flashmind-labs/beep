@@ -113,7 +113,7 @@ async function load(dir: string) {
   } catch (e) {
     if (F.key !== key) return;
     const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
-    F.listings.set(dir, { entries: had?.entries ?? null, more: 0, error: /unknown op|not serve|update/i.test(text) ? "Update Beep's server and beep-node on that machine to browse its files." : text });
+    F.listings.set(dir, { entries: had?.entries ?? null, more: 0, error: /unknown op|not serve|update/i.test(text) ? "beep-node there is too old. Update it." : text });
   }
   draw();
 }

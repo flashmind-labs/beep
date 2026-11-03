@@ -711,8 +711,7 @@ export function makeThreads(deps: ThreadDeps) {
     const body: HTMLElement[] = [];
     if (s.issuesError) body.push(h("div", "cc-err", s.issuesError));
     body.push(h("div", "cc-panel", ...(bar ? [bar] : []), fitRows(shown.map(draw), ISSUES_SHOWN)));
-    return section(agent, "sec-issues", title, issueCount(lines), body,
-      h("small", "dmuted", "Issue text is the author's, and the agent treats it as data."));
+    return section(agent, "sec-issues", title, issueCount(lines), body);
   }
 
   /// The user's pull requests and issues, with replies and chats.
@@ -744,7 +743,6 @@ export function makeThreads(deps: ThreadDeps) {
         row.append(acts);
         return row;
       })));
-      out.push(h("small", "dmuted", "The agent drafts the reply and nothing posts until you approve its card."));
     }
     if (s.chats?.length) {
       out.push(h("div", "cc-sec", h("h4", "", "Chats about one thread")),

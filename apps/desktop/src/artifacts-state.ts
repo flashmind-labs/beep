@@ -25,9 +25,6 @@ const KINDS: Record<string, ArtifactKind> = {
 /// What a kind is called in the list.
 export const KIND_NAMES: Record<ArtifactKind, string> = { html: "HTML", md: "Markdown", svg: "SVG", image: "Image" };
 
-/// The largest artifact the tab reads.
-export const MAX_ARTIFACT = 5 * 1024 * 1024;
-
 /// What the frame of an HTML artifact may do: run its scripts, nothing
 /// more. Without `allow-same-origin` it has an origin of its own, so it
 /// cannot reach the window, its storage or Beep's calls; without

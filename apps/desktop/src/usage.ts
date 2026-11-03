@@ -272,8 +272,8 @@ function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void
   blocks.push(
     periodBlock(view, key, pick),
     h("div", "us-note", view.metered
-      ? "Dollars are API spend: API keys, OpenRouter, Bedrock and the like. Use a Claude, ChatGPT or Copilot plan covers shows as tokens. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."
-      : "Plans are flat rate: the dollars are what the same work would cost at API prices. Sessions started outside Beep count too, read from each machine's Claude Code, Codex, flsh, pi and OpenCode logs."),
+      ? "Dollars are API spend. Plan use shows as tokens."
+      : "Dollars are what the same work would cost at API prices."),
   );
   const pop = h("div", "us-pop", ...blocks);
   pop.setAttribute("role", "dialog");

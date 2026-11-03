@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, folded, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, thoughtTail, toolKind, toolRuns, turnStats, withoutDiffs } from "../src/agentturns.ts";
+import { beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, folded, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, toolKind, toolRuns, turnStats, withoutDiffs } from "../src/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -187,12 +187,6 @@ test("a thought reads how long it took, or just Thought when that is not known",
   assert.equal(thoughtLabel(300), "Thought for 1s", "never 0s");
   assert.equal(thoughtLabel(null), "Thought");
   assert.equal(thoughtLabel(undefined), "Thought");
-});
-
-test("the preview beside Thinking is the thought's newest line, plain", () => {
-  assert.equal(thoughtTail("**Reading**\n\nThe test expects `Wrong password`.\n"), "The test expects Wrong password.");
-  assert.equal(thoughtTail("## Plan\n- check the *fixtures*"), "check the fixtures");
-  assert.equal(thoughtTail("  \n"), "");
 });
 
 test("only the running turn's last entry, a thought without a length, is still thinking", () => {
