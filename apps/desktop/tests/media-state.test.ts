@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   BOTTOM_MIN, CONV_MIN_WIDTH, DEFAULT_LAYOUT, KEPT_TABS, RIGHT_MIN, SIDE_BY_SIDE_MIN, ZOOM_MAX,
-  actualView, baseName, dropDock, effectiveDock, fitView, mediaKind, moveTab, paneSize, readLayout, resolvePath,
+  actualView, baseName, clipName, clipTime, dropDock, effectiveDock, fitView, mediaKind, moveTab, paneSize, readLayout, resolvePath,
   splitTabs, tabDock, zoomAt,
 } from "../src/media-state.ts";
 
@@ -118,4 +118,17 @@ test("zooming keeps the point under the pointer in place", () => {
   // The picture point under (100, 50) is the same before and after.
   assert.equal((100 - v.x) / v.scale, 100);
   assert.equal(zoomAt({ scale: ZOOM_MAX, x: 0, y: 0, fit: false }, 2, 0, 0).scale, ZOOM_MAX);
+});
+
+test("a clip without a name is named by its place", () => {
+  assert.deepEqual(["Walk", "", "  "].map(clipName), ["Walk", "Clip 2", "Clip 3"]);
+});
+
+test("clip times read minutes, seconds and tenths", () => {
+  assert.equal(clipTime(0), "0:00.0");
+  assert.equal(clipTime(1.25), "0:01.2");
+  assert.equal(clipTime(0.3), "0:00.3");
+  assert.equal(clipTime(59.99), "0:59.9");
+  assert.equal(clipTime(125.5), "2:05.5");
+  assert.equal(clipTime(-1), "0:00.0");
 });
