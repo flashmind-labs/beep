@@ -1,6 +1,5 @@
-// Settings, Credentials: git hosts (GitHub, one row per Forgejo server)
-// then one API key per provider. Secrets are typed here, sent once and
-// never shown again: the server gives back only their last 4 characters.
+// Settings, Credentials: git hosts (GitHub, one row per Forgejo server) then
+// one API key per provider.
 
 type Esc = (s: unknown) => string;
 /// "today", "3 days ago": how long ago a time in milliseconds was.
@@ -76,12 +75,7 @@ export type NewCredential =
   | { kind: "forgejo"; url: string; secret: string; to_machines: boolean }
   | { kind: "api_key"; provider: string; secret: string; to_machines: boolean };
 
-/// The section's state. `github` is the GitHub accounts (undefined when the
-/// server could not list them) and `ghAdd` whether "Add another GitHub
-/// account" is open. `cli` is what gh and teacli on this Mac are signed in
-/// to (undefined until checked, null when the check failed); `cliBusy` the
-/// `data-cred-cli` key being saved and `cliError` its refusal; `ghFlow`
-/// gh's browser sign-in under way.
+/// The section's state.
 export interface CredState {
   list?: Credential[] | null;
   github?: GitHubAccount[];
@@ -116,9 +110,8 @@ export function machinesWith(machines: ToolMachine[] | null, tool: string) {
   return machines.filter(m => m.env?.tools?.some(t => t.name === tool)).map(m => m.name);
 }
 
-/// Where a CLI is, as one short chip: "gh on build-box" or "gh on 3
-/// machines" with their names as `title`, or null when the machines are
-/// not known.
+/// Where a CLI is, as one short chip: "gh on build-box" or "gh on 3 machines"
+/// with their names as `title`, or null when the machines are not known.
 export function toolChip(cli: string, machines: ToolMachine[] | null) {
   const on = machinesWith(machines, cli);
   if (on === null) return null;
@@ -276,9 +269,7 @@ function ghWaiting(esc: Esc, flow: GhFlow) {
     <span style="display:flex;gap:6px;align-items:center;color:var(--muted)"><span class="dspin"></span>${flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>`;
 }
 
-/// One git host's row. Line 1: icon, name, the account (a login or what
-/// stands for one), a tag and the buttons. Under it the chips, then any
-/// help, body and error.
+/// One git host's row.
 interface GitRow {
   icon: string;
   name: string;
@@ -310,10 +301,8 @@ export interface Offer {
   body?: string;
 }
 
-/// What the GitHub row offers when no usable token is saved, from this
-/// Mac's gh: its sign-in, signing it in, or a link to make a token.
-/// `gh` is undefined until checked and null when the check failed; `flow`
-/// is gh's browser sign-in under way, if any.
+/// What the GitHub row offers when no usable token is saved, from this Mac's
+/// gh: its sign-in, signing it in, or a link to make a token.
 export function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow: GhFlow | null | undefined): Offer {
   const paste = (quiet: boolean) => `<button class="dbtn${quiet ? " quiet" : ""}" ${sm} data-cred-edit="github">Paste a token</button>`;
   if (flow) return { acts: `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>`, help: "", body: ghWaiting(esc, flow) };
@@ -345,9 +334,7 @@ interface RowState {
   error: string;
 }
 
-/// One git host row. `offer` takes the place of Add when nothing usable is
-/// saved; `cliKey` adds "Use <cli> sign-in" to a saved row the server can
-/// no longer open.
+/// One git host row.
 interface HostRow extends Partial<RowState> {
   icon: string;
   name: string;
@@ -378,9 +365,8 @@ function hostRow(esc: Esc, { icon, name, cred, cli, machines, editKey, offer, cl
   return gitRow(esc, { icon, name, account, usable, acts, chips, more: help + body + rowError(esc, error) });
 }
 
-/// What a saved Forgejo token's check says, as one chip: where it was
-/// checked from, that it is being checked, or why it could not be. A token
-/// with an account and no check of its own needs none.
+/// What a saved Forgejo token's check says, as one chip: where it was checked
+/// from, that it is being checked, or why it could not be.
 export function checkChip(esc: Esc, host: string, known: boolean, check: CredCheck | undefined) {
   switch (check?.state) {
     case "checking":
@@ -481,10 +467,9 @@ function addAccount(esc: Esc, state: CredState, accounts: GitHubAccount[]) {
     ${help ? note(help) : ""}${err}`);
 }
 
-/// The GitHub part of Git hosts: `rows` for each saved account (or, with
-/// none saved, what this Mac's gh offers), `adding` for the add panel or
-/// paste form when open, and `canAdd` whether "+ Add another GitHub
-/// account" shows.
+/// The GitHub part of Git hosts: `rows` for each saved account (or, with none
+/// saved, what this Mac's gh offers), `adding` for the add panel or paste form
+/// when open, and `canAdd` whether "+ Add another GitHub account" shows.
 function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, rowState: (key: string) => RowState) {
   const e = state.edit;
   const cli = state.cli;

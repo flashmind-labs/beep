@@ -1,6 +1,5 @@
-// A coding agent's log in turns: each message from the user and what the
-// agent did after it, up to the next message. A finished turn folds its
-// steps into one line and keeps only its answer in view.
+// A coding agent's log in turns: each message from the user and what the agent
+// did after it, up to the next message.
 
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { plural } from "./components/format.ts";
@@ -114,9 +113,7 @@ const NAMED: Record<string, ToolKind> = {
   webfetch: "web", websearch: "web", fetch: "web",
 };
 
-/// What kind of tool an entry's text names. A transcript entry names its
-/// tool (`Bash: cargo test`); a live one has a title, which starts with a
-/// verb (`Read src/main.rs`) or is the command itself (`cargo test`).
+/// What kind of tool an entry's text names.
 export function toolKind(text: string): ToolKind {
   const title = parseTool(text).title.trim();
   if (MCP.test(title)) return "mcp";
@@ -223,8 +220,7 @@ export function withoutDiffs(output: string) {
 }
 
 /// Steps in order, a run of two or more finished calls of one kind as one
-/// group. A failed or running call, a subagent, a Beep call and one that
-/// showed pictures stand alone, and so does everything that is not a call.
+/// group.
 export function toolRuns(entries: LogEntry[], ats: number[], offset = 0): number[][] {
   const out: number[][] = [];
   const kindOf = (at: number): ToolKind | null => {
@@ -273,10 +269,9 @@ function target(text: string) {
 }
 
 
-/// A turn's steps as one line, naming at most two kinds, commands and
-/// edits first, and counting the rest: "Ran 3 commands (1 failed), edited
-/// 2 files, performed 4 other actions". Failures count with their kind.
-/// `steps` limits it to some of the turn's.
+/// A turn's steps as one line, naming at most two kinds, commands and edits
+/// first, and counting the rest: "Ran 3 commands (1 failed), edited 2 files,
+/// performed 4 other actions".
 export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.steps) {
   const tools = steps.map(at => entries[at - offset]).filter(en => en.kind === "tool");
   const of = (k: ToolKind) => tools.filter(en => toolKind(en.text) === k);
@@ -304,9 +299,8 @@ export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.step
   return line[0].toUpperCase() + line.slice(1);
 }
 
-/// A step as one short line: "Ran cargo test", "Read src/x.rs",
-/// "Running cargo test" while it runs. A title of several lines shows its
-/// first and "…", unless `whole` asks for all of it.
+/// A step as one short line: "Ran cargo test", "Read src/x.rs", "Running cargo
+/// test" while it runs.
 export function stepLabel(text: string, running = false, whole = false) {
   const { title } = parseTool(text);
   const beep = beepLine(title, running);
@@ -346,17 +340,14 @@ export function commandDetail(title: string, label: string) {
   return commandOf(title);
 }
 
-/// Whether a step's row starts open: a failed step only while it is the
-/// newest of a running turn, so earlier failures stay one line. `toggled`
-/// says the user clicked it.
+/// Whether a step's row starts open: a failed step only while it is the newest
+/// of a running turn, so earlier failures stay one line.
 export function stepOpen(failed: boolean, newest: boolean, toggled: boolean) {
   return toggled !== (failed && newest);
 }
 
-/// The steps of a turn that stay in view when it folds: notes (a model
-/// switch, a compaction), subagents and the agent's own words that showed
-/// pictures. Failed steps fold with the rest and the summary counts them.
-/// Pictures a tool showed fold with it.
+/// The steps of a turn that stay in view when it folds: notes (a model switch,
+/// a compaction), subagents and the agent's own words that showed pictures.
 export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
   return t.steps.filter(at => {
     const en = entries[at - offset];
@@ -421,10 +412,7 @@ export function heading(state: TurnState, ms: number | null) {
   return d ? `Worked for ${d}` : "Worked";
 }
 
-/// What is known of when a session's turns ran. Entries carry no times,
-/// so a turn's start and end come from the session (its first turn starts
-/// with it, its last ends at its last activity) or from when this window
-/// saw the turn begin or end.
+/// What is known of when a session's turns ran.
 export interface TurnTimes {
   /// The turn opens the session.
   first: boolean;

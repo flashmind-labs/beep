@@ -68,9 +68,7 @@ export type Dock = "right" | "bottom";
 
 export const DOCKS: readonly Dock[] = ["right", "bottom"];
 
-/// The pane's place in one window. Each tab sits in a dock, right of the
-/// conversation or under it: the one it was dragged to, else `dock`. A
-/// size of null is the default for the space there is.
+/// The pane's place in one window.
 export interface PaneLayout {
   dock: Dock;
   right: number | null;
@@ -144,9 +142,8 @@ export function moveTab(l: PaneLayout, id: string, to: Dock): PaneLayout {
   return out;
 }
 
-/// The tabs `ids` split between the docks in a shell `width` wide: where
-/// each sits, or all at the bottom when a right dock does not fit.
-/// `moved` are tabs moved here whose dock is not kept.
+/// The tabs `ids` split between the docks in a shell `width` wide: where each
+/// sits, or all at the bottom when a right dock does not fit.
 export function splitTabs(l: PaneLayout, ids: readonly string[], width: number, moved: ReadonlyMap<string, Dock> = new Map()): Record<Dock, string[]> {
   const out: Record<Dock, string[]> = { right: [], bottom: [] };
   for (const id of ids) out[effectiveDock(moved.get(id) ?? tabDock(l, id), width)].push(id);

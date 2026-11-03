@@ -24,10 +24,8 @@ export function splitTyped(text: string): TypedFolder | null {
   return { dir, prefix: text.slice(cut + 1) };
 }
 
-/// The folders of `folders` that start with `prefix`, ignoring case, by
-/// name and at most `cap` of them. Hidden ones only when `prefix` starts
-/// with `.`. Nothing when the one match is `prefix` itself, so Enter on a
-/// complete path goes to Import.
+/// The folders of `folders` that start with `prefix`, ignoring case, by name
+/// and at most `cap` of them.
 export function suggest(folders: readonly string[], prefix: string, cap = MAX_SUGGESTIONS): string[] {
   const start = prefix.toLowerCase();
   const hidden = prefix.startsWith(".");

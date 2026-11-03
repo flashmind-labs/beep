@@ -39,11 +39,9 @@ export function openLabel(url: string) {
   return "Open in browser";
 }
 
-/// The thread chats each project lists under it in the sidebar, by
-/// project name: the open one and the running ones always, then the most
-/// recent, up to `limit` in all unless more are open or running. `recent`
-/// is the chat list's ids, newest first; a thread chat not in it comes
-/// after those that are.
+/// The thread chats each project lists under it in the sidebar, by project
+/// name: the open one and the running ones always, then the most recent, up to
+/// `limit` in all unless more are open or running.
 export function sideThreads(
   chats: Iterable<ThreadChatEntry>,
   recent: readonly string[],

@@ -98,8 +98,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cc-pjc [hidden] { display: none }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
-.cc-link { cursor: pointer }
-.cc-link:hover { text-decoration: underline }
 
 /* Views: one box each under the top bar; only the shown one is visible. */
 .cc-box { flex: 1; min-height: 0; display: flex; flex-direction: column }
@@ -187,7 +185,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .cwin.resizing { cursor: col-resize; user-select: none }
 
 /* Adding machines and projects: the empty groups' rows, the + buttons. */
-.cc-sec-r { display: flex; align-items: center; gap: 10px }
 .dbtn.small { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .cc-foot { display: flex; align-items: center; gap: 6px }
 .cc-foot > button { margin-left: auto; min-height: 22px; padding: 0 5px; display: grid; place-items: center }
@@ -507,7 +504,6 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .in-layers li small { grid-column: 2; font-size: 11.5px; color: var(--muted) }
 .in-layers li.me { background: rgba(59,155,122,.14) }
 .in-layers b { font-weight: 500; color: var(--fg) }
-.in-foot { padding: 8px 11px; border-top: 1px solid var(--border); font-size: 11.5px; line-height: 16px; color: var(--muted) }
 .in-mach { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 12px; border-bottom: 1px solid var(--border) }
 .in-mach:last-child { border-bottom: 0 }
 .in-mach > b { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600 }
@@ -613,16 +609,12 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-st.done { color: var(--emerald); border-color: rgba(59,155,122,.45) }
 .pj-st.bad { color: var(--err); border-color: rgba(232,104,90,.5) }
 .pj-task .acts.rv-acts .dbtn { margin-left: 0 }
-.rv-hint { font-size: 11.5px; color: var(--muted); padding: 7px 2px 0; line-height: 16px }
 .rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--border); background: var(--ink) }
 .rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--muted) }
 
 /* An open issue being started: the agent and machine to pick. */
 .pj-task.ask { background: rgba(233,185,73,.05) }
 .pj-task .t a { color: #9DC3F0; text-decoration: none; font-weight: 600 }
-.pj-start { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding-top: 4px }
-.pj-start .lbl { font-size: 11.5px; color: var(--muted) }
-.pj-start .acts { display: flex; gap: 6px; flex-basis: 100% }
 /* Harness badges show each agent's own logo; OpenCode keeps letters. */
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }

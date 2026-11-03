@@ -1,7 +1,4 @@
 // A coding agent's tool entries, read back from the text the node writes.
-// A live session writes `title [status]` and then the output's lines; a
-// session Beep follows from Claude Code's transcript writes `Name: detail`,
-// with ` (failed)` after one that failed.
 
 import { MEDIA_EXTENSIONS } from "./media-state.ts";
 
@@ -41,9 +38,8 @@ function unfence(output: string) {
 const PASTE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
 
 /// A user message as HTML, with each block a terminal pasted in
-/// (`<pasted_content id="…">…</pasted_content id="…">`) folded into
-/// "Pasted text · 8 lines", opened on click. `esc` escapes text; `open(i)`
-/// says whether the i-th block was left open, so a redraw keeps it.
+/// (`<pasted_content id="…">…</pasted_content id="…">`) folded into "Pasted
+/// text · 8 lines", opened on click.
 export function userHtml(text: string, esc: (s: string) => string, open: (i: number) => boolean = () => false) {
   let html = "", last = 0, i = 0;
   for (const m of text.matchAll(PASTE)) {
@@ -80,10 +76,8 @@ export const WRAP_AT = 100;
 /// The visual lines a line of output takes when it wraps at `WRAP_AT`.
 const rows = (line: string) => Math.max(1, Math.ceil(line.length / WRAP_AT));
 
-/// The end of a step's output as it shows when opened: its last
-/// `TAIL_LINES` lines as they wrap, so one long line of JSON counts as the
-/// many it shows as. `total` is the output's lines, for "Show all N lines";
-/// `cut` whether anything is left out.
+/// The end of a step's output as it shows when opened: its last `TAIL_LINES`
+/// lines as they wrap, so one long line of JSON counts as the many it shows as.
 export function tailLines(output: string, keep = TAIL_LINES) {
   if (!output) return { shown: "", total: 0, cut: false };
   const lines = output.split("\n"), shown: string[] = [];
@@ -170,11 +164,8 @@ const MEDIA_PATH = new RegExp(`(^|[\\s(])((?:~|\\.{1,2})?\\/?[\\w@%+-][\\w@%+.\\
 
 const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-/// The agent's reply as HTML with each media file it names (relative to
-/// its folder or absolute) as a link. Pictures are numbered in the order
-/// first named, as the node shows those files as the reply's pictures in
-/// that order; every link carries its path, for the media pane. Text
-/// inside links and code blocks is left alone.
+/// The agent's reply as HTML with each media file it names (relative to its
+/// folder or absolute) as a link.
 export function linkImagePaths(html: string) {
   const paths: string[] = [];
   let skip = 0;

@@ -1,6 +1,5 @@
-// What Home's rows say and how its sections are laid out, apart from the
-// DOM so it can be tested. The types are Home's view as `center_home` and
-// `mac_control` give it.
+// What Home's rows say and how its sections are laid out, apart from the DOM
+// so it can be tested.
 import type { ApprovalField } from "./bar/chat.ts";
 import type { ProjectRow } from "./projects-state.ts";
 
@@ -296,10 +295,8 @@ export const runningKey = (r: Pick<RunningAgent, "kind" | "machine_id" | "id"> |
 /// An imported project's folder on one machine.
 type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder"> & { url?: ProjectRow["url"] };
 
-/// The repo's path on its host from a remote, groups and all, without
-/// `.git`: `org/repo`, or `group/sub/repo` on GitLab. Takes
-/// `https://host/org/repo.git`, `ssh://git@host:22/org/repo` and
-/// `git@host:org/repo.git`. Null when `url` is none of those.
+/// The repo's path on its host from a remote, groups and all, without `.git`:
+/// `org/repo`, or `group/sub/repo` on GitLab.
 export function remotePath(url: string | null | undefined) {
   const u = String(url || "").trim();
   const m = /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/(.+)$/i.exec(u) ?? /^[^/\s:@]+@[^/\s:]+:(.+)$/.exec(u);
@@ -334,8 +331,6 @@ export function needsLine(n:
 export type HomeSection = "running" | "needs" | "terminals" | "updates" | "coming" | "projects" | "git" | "machines";
 
 /// The lists Home's layout looks at, only for whether they have rows.
-/// `git` is what `git_items` gave, once the window has it, and `terminals`
-/// what `terminals_all` gave (null from a server too old to list them).
 export type HomeLists = Partial<Record<"machines" | "running" | "needs_you" | "updates" | "coming_up" | "projects" | "terminals", readonly unknown[] | null>>
   & { git?: { items?: unknown; hosts?: readonly unknown[] | null } | null };
 
@@ -345,10 +340,9 @@ const keep = (list: (HomeSection | false)[]) => list.filter((s): s is HomeSectio
 /// there is a machine to open one on.
 const terms = (home: HomeLists) => Array.isArray(home.terminals) && has(home.machines);
 
-/// Home's rows of sections under Machines, each one or two wide, with
-/// Terminals on its own row after Running now, imported projects, then open PRs and issues by project (`home.git`, shown once a
-/// git host is saved), last. A section
-/// with nothing in it is left out, and a row left empty goes too.
+/// Home's rows of sections under Machines, each one or two wide, with Terminals
+/// on its own row after Running now, imported projects, then open PRs and
+/// issues by project (`home.git`, shown once a git host is saved), last.
 export function homeRows(home: HomeLists) {
   const pairs = [
     [has(home.running) && "running", has(home.needs_you) && "needs"],
@@ -363,11 +357,9 @@ export function homeRows(home: HomeLists) {
 /// How wide Home's view must be, in CSS pixels, to split into two columns.
 export const WIDE_HOME_PX = 1280;
 
-/// Home's two columns on a wide window: what to act on at the left (Needs
-/// you, Running now, Terminals, Updates, open PRs and issues), Machines, Projects and
-/// Coming up at the right. Machines
-/// counts whenever the server lists them, empty or not, as it offers Add a
-/// machine. Null when a side would be empty, so Home keeps one column.
+/// Home's two columns on a wide window: what to act on at the left (Needs you,
+/// Running now, Terminals, Updates, open PRs and issues), Machines, Projects
+/// and Coming up at the right.
 export function homeColumns(home: HomeLists) {
   const left = keep([has(home.needs_you) && "needs", has(home.running) && "running", terms(home) && "terminals", has(home.updates) && "updates", has(home.git?.hosts) && "git"]);
   const right = keep([Array.isArray(home.machines) && "machines", has(home.projects) && "projects", has(home.coming_up) && "coming"]);
@@ -385,9 +377,7 @@ export interface MacRow {
 }
 
 /// Home's "This Mac" row while this Mac is not one of `machines`: its state
-/// and, while it is off, the button that turns it on. `mac` is the app's
-/// mac_control view. Null once the server lists this Mac, or when there is
-/// nothing to say (no list, or the app is not linked to an account).
+/// and, while it is off, the button that turns it on.
 export function thisMacRow(mac: Pick<MacControl, "id" | "name" | "enabled" | "status" | "error"> | null | undefined, machines: readonly { id: string }[] | null | undefined): MacRow | null {
   if (!mac || !Array.isArray(machines) || mac.status === "unlinked") return null;
   if (machines.some(m => m.id === mac.id)) return null;

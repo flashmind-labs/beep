@@ -176,8 +176,7 @@ export function drawLatest() {
 export const MAP_QUIET_AFTER = 12;
 
 /// A tick per prompt on the right edge once the chat scrolls: hover one to read
-/// the prompt, click it to jump there. Ticks are only rebuilt when the prompts
-/// change, since fit() calls this from the bar's MutationObserver.
+/// the prompt, click it to jump there.
 export function drawMap() {
   const b = body();
   const turns = b && S.view === "chat" ? ([...b.children] as HTMLElement[]).filter(t => t.querySelector(":scope > .ask")) : [];
@@ -229,9 +228,7 @@ export function makeTurn(question: string, images?: PicRef[], files?: AskFile[])
   return turn;
 }
 
-/// The model and thinking a prompt ran on, under it. Everyone but an admin
-/// is on Auto for thinking only, so they see just the level Jev picked. A
-/// later line, such as Jev's pick, replaces it.
+/// The model and thinking a prompt ran on, under it.
 export function ranOn(turn: Turn, model: string, thinking: string) {
   if (!model) return;
   const line = canPickModel()
@@ -315,9 +312,7 @@ export function toolOutput(turn: Turn, x: ToolOutput, route: string | null) {
 /// its card has no Always, and the Always key allows it.
 export const forRoutine = (action: string | null | undefined) => /for a routine$/.test(action ?? "");
 
-/// Turn approvals answered in this window. A chat redrawn from the server
-/// before the resumed run saved its result still lists the approval, and a
-/// replayed run streams it again; neither brings the card back.
+/// Turn approvals answered in this window.
 export const answeredTurns = new AnsweredIds();
 
 export function approvalCard(id: string | null, turn: Turn, { query_id, app, action, fields }: Asking) {

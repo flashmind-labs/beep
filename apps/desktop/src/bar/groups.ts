@@ -420,8 +420,8 @@ function drawGroupInfo() {
     ${groupReminders(g)}
     <div class="dsec flat">Your apps</div>
     <div class="dtoggle"><span><b>Share my apps with Beep here</b><small>${g.apps_shared
-      ? "Beep can read your calendar, mail, files and tasks to plan for the group, and never shows them here. Creating or sending anything asks you first."
-      : "Beep uses your apps here only when you ask it yourself."}</small></span>
+      ? "Beep reads them to plan for the group and never shows them here. Sending anything asks you first."
+      : "Only when you ask"}</small></span>
       <button class="dswitch" id="gapps" role="switch" aria-checked="${g.apps_shared}" aria-label="Share my apps with Beep here"></button></div>
     <div class="dsec flat">Privacy</div>
     <div class="dinfo" style="color:var(--muted)"><div>Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.</div><div>Beep's thinking and tool calls are hidden in groups. Members only see its replies.</div></div>

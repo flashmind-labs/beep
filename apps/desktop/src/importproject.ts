@@ -1,11 +1,6 @@
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
 // online machine (Auto lets the server pick), the folder it goes in, then
-// Import. Choose… opens the macOS folder picker on this Mac and a folder
-// browser on another machine; a checkout picked there fills the field and
-// is imported in place. It shows the clone's progress and closes onto the
-// new project. Esc or Cancel closes it, except while cloning, when the
-// clone goes on and the project shows up once it is in. The Folder field
-// takes a typed path too, offering the machine's folders as it is typed.
+// Import.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
@@ -63,10 +58,8 @@ export function keepLastImport(project: ProjectRow) {
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
 let macId: string | null = null, back: Element | null = null, onDone: ((project: ProjectRow) => void) | null = null;
-/// The repository's checkouts and branches with work, once read: for the
-/// repo text `previewFor`, null from a server too old to say. `picks` is
-/// where each branch gets a worktree, by name: a machine id, `""` for
-/// where the project lands, or absent to skip.
+/// The repository's checkouts and branches with work, once read: for the repo
+/// text `previewFor`, null from a server too old to say.
 let preview: PreviewView | null | undefined = undefined, previewFor = "", previewError = "", picks: BranchPicks = {};
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
 /// The user's fork the import would clone, for the repo text `previewFor`:
@@ -361,9 +354,8 @@ function forkLine() {
   return note ? el("div", "ip-found ip-fork", el("span", "ddot"), note) : null;
 }
 
-/// The checkouts found and the branches with work, each with where its
-/// worktree goes or Skip. Nothing before a repository is typed, or from a
-/// server too old to look.
+/// The checkouts found and the branches with work, each with where its worktree
+/// goes or Skip.
 function branchesBlock() {
   if (!previewFor || previewFor !== state.repo.trim()) return [];
   const label = el("div", "am-label", "Branches");
@@ -452,9 +444,8 @@ function acceptFolder(field: HTMLInputElement, text: string) {
   lookFolders();
 }
 
-/// Offers the folders matching what the Folder field holds, once typing
-/// pauses; a folder read before answers at once. A failure or an offline
-/// machine just offers nothing.
+/// Offers the folders matching what the Folder field holds, once typing pauses;
+/// a folder read before answers at once.
 function lookFolders() {
   clearTimeout(lookupTimer);
   const ask = ++lookup;

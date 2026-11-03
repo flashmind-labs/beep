@@ -1,13 +1,8 @@
-// The orb window: live mode while the bar is hidden. It follows the same
-// `live` events as the bar. A click brings the bar back; × cancels the
-// reply, or leaves. When the reply, background work or another chat waits
-// for an OK, a card under the orb asks, one at a time; clicking the card,
-// not a button, opens the bar on that chat.
-// Outside live mode, a new notice can show here too, when Voice notes asks
-// first: a card with Play, Open and ×, which goes after 20 seconds alone.
+// The orb window: live mode while the bar is hidden.
 import { invoke, Channel, listen } from "./tauri.ts";
 import { OrbAsks } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
+import { esc } from "./components/format.ts";
 
 /// A field of an approval card.
 interface Field {
@@ -76,8 +71,6 @@ const TOAST_MS = 1600;
 /// Fields the card shows; the rest are in the chat.
 const FIELDS = 3;
 
-const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESC[c]);
 const clip = (s: string, n: number) => s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
 /// A routine asking for a grant: no Always, as in the bar.
 const forRoutine = (action: string | undefined) => /for a routine$/.test(action ?? "");
@@ -197,9 +190,7 @@ function ask(w: Waiting) {
   drawAsk();
 }
 
-/// Answers the card from the orb. The run it resumes shows in the chat when
-/// it is opened, so nothing here follows it. The bar hears of the answer
-/// from Rust.
+/// Answers the card from the orb.
 async function answer(decision: string) {
   const asked = asks.answer();
   if (!asked) return;

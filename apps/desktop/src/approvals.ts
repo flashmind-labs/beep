@@ -1,11 +1,8 @@
 // What approval cards show, kept apart from the DOM so it can be tested:
 // which approvals still wait, and the logo of the app that asks.
 
-/// Approvals answered here that the server may still list, by the chat
-/// they are in. A list fetched before the answer landed, or read before the
-/// resumed run saved the tool's result, would bring the card back; `keep`
-/// leaves those out. An id is forgotten once its chat's list leaves it
-/// out, which says the server has the answer.
+/// Approvals answered here that the server may still list, by the chat they are
+/// in.
 export class AnsweredIds {
   /// Query id to chat.
   private ids = new Map<string, string>();
@@ -29,9 +26,8 @@ export interface Asked {
   approval: { query_id: string };
 }
 
-/// The approvals the orb shows while live mode is on, oldest first; the
-/// first is on the card. One answered here never comes back, however late
-/// an event or a list repeats it.
+/// The approvals the orb shows while live mode is on, oldest first; the first
+/// is on the card.
 export class OrbAsks<W extends Asked> {
   private list: W[] = [];
   private answered = new AnsweredIds();

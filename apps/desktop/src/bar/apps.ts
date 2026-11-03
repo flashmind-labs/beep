@@ -74,9 +74,8 @@ interface AppsState {
   tools: McpTools | null;
   asking: string | null;
   unadd: boolean;
-  /// Fastmail's accounts by app slug, the agent's default first; missing
-  /// when the server is too old to list them. `removing` is the account
-  /// whose Remove waits for a second click.
+  /// Fastmail's accounts by app slug, the agent's default first; missing when
+  /// the server is too old to list them.
   accounts: Record<string, AppAccount[]>;
   removing: string | null;
   /// Why the open app's accounts did not load.

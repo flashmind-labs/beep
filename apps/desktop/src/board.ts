@@ -1,8 +1,5 @@
 // A project's board: one square tile per kind of thing in the project, each
-// with its count and the few rows that matter now. A tile's header opens its
-// full list in place of the board. center.ts owns the page and decides when
-// the board shows; this file holds the tiles' rows, as pure functions the
-// tests check, and draws the grid.
+// with its count and the few rows that matter now.
 import { prLabel } from "./project.ts";
 import type { TaskRow, WorkerRow } from "./project.ts";
 import { machineSync } from "./home.ts";
@@ -76,10 +73,7 @@ export function askingSessions(
 type TileTask = Pick<TaskRow, "title" | "state"> & Partial<Pick<TaskRow, "id" | "worker">>;
 type TileWorker = Pick<WorkerRow, "id" | "machine_id" | "session">;
 
-/// The Tasks tile: open tasks, running ones first. A chip marks only what
-/// waits on the user: a worker that asks (its session is in `asking`, from
-/// `askingSessions`), a task in review or a blocked one. A row's `id` is
-/// its task's.
+/// The Tasks tile: open tasks, running ones first.
 export function taskTile(tasks: readonly TileTask[] | null | undefined, workers?: readonly TileWorker[] | null, asking?: ReadonlySet<string> | null): TileData {
   const list = tasks || [];
   const open = list.filter(t => t.state in OPEN).sort((a, b) => OPEN[a.state] - OPEN[b.state]);
@@ -117,8 +111,6 @@ export function prTile(tasks: readonly (Partial<Pick<TaskRow, "pr_url">> & Pick<
 type Where = Pick<WhereRow, "kind" | "name"> & Partial<Pick<WhereRow, "id" | "folder" | "text">>;
 
 /// The Machines tile: every machine with where the project is there.
-/// `rows` is `whereRows`; `sync`, the project's `project_sync` rows, marks
-/// a machine still fetching it.
 export function machineTile(rows: readonly Where[] | null | undefined, sync?: readonly Pick<SyncRow, "project" | "machine_id" | "status" | "files" | "pending">[] | null): TileData {
   const list = rows || [];
   const here = list.filter(r => r.kind === "here").length;

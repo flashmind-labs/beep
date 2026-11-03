@@ -108,10 +108,8 @@ export interface MacOption {
   busy?: boolean;
 }
 
-/// The sheet's "Use this Mac" option from the app's mac_control view: a
-/// line saying where this Mac stands, and a button while it is off. Null
-/// when there is nothing to offer: no view, the app is not linked, or the
-/// Mac was already a machine when the sheet opened (`asked` is false).
+/// The sheet's "Use this Mac" option from the app's mac_control view: a line
+/// saying where this Mac stands, and a button while it is off.
 export function macOption(mac: MacSeen | null | undefined, asked: boolean): MacOption | null {
   if (!mac || mac.status === "unlinked") return null;
   const name = mac.name || "This Mac";

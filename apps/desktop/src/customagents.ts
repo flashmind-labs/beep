@@ -1,7 +1,6 @@
-// The Custom agents list of a project page: the named agents the coding
-// agent harnesses define in the project's folder on one machine, and the
-// user's own there. A row opens its prompt read-only in a sheet; Start
-// fills the project's bar to start a session with it.
+// The Custom agents list of a project page: the named agents the coding agent
+// harnesses define in the project's folder on one machine, and the user's own
+// there.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { harnessEl } from "./harnessicon.ts";

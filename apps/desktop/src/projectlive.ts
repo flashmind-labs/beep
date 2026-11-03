@@ -1,7 +1,5 @@
-// Whether the project page shown updates live (the host's webhook reaches
-// Beep through one of the user's machines) or by polling, and the reads it
-// starts. The window follows the project it shows; the server tells it
-// when the project's lists or runs were read again.
+// Whether the project page shown updates live (the host's webhook reaches Beep
+// through one of the user's machines) or by polling, and the reads it starts.
 import type { invoke as Invoke } from "./tauri.ts";
 import type { MakeEl } from "./projects-state.ts";
 
@@ -29,8 +27,8 @@ export interface LiveDeps {
   reload: (id: string, lists: boolean, runs: boolean) => void;
 }
 
-const LIVE_TIP = "Live: the host tells Beep about changes as they happen, through a webhook on one of your machines";
-const POLLING_TIP = "Polling: Beep reads the host every few minutes. Live updates need admin rights on the repository.";
+const LIVE_TIP = "Live: updates through a webhook";
+const POLLING_TIP = "Polling every few minutes. Live needs admin rights on the repository.";
 
 /// The chip next to a section's synced time; null while unknown.
 export function modeChip(h: MakeEl, mode: LiveMode | undefined) {
