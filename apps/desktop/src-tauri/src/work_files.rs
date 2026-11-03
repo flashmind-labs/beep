@@ -61,7 +61,7 @@ pub struct TreeText {
 }
 
 /// One `ReadWorkFile`, with a file the machine no longer has as `GONE`.
-async fn read_part(beep: &Beep, read: ReadWorkFile) -> Result<AgentFileChunk> {
+pub(crate) async fn read_part(beep: &Beep, read: ReadWorkFile) -> Result<AgentFileChunk> {
     match beep.call(read).await {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
