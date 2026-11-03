@@ -27,10 +27,11 @@ use beep_server::{
         GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
         GetUsageReport, GetWorkDiff, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
         ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
-        ListMachines, ListMemoryScopes, ListWorkFolder, MAX_WORK_UPLOAD, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
-        WorkDiff, WorkEntry, WorkFolder, WriteWorkFile, image_key,
+        ListMachines, ListMemoryScopes, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
+        MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile,
+        RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings, StartAgentSession,
+        SteerAgentSession, Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile,
+        image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -1466,6 +1467,25 @@ impl Protocol for FakeSessions {
                         more: 0,
                     },
                 },
+                // A tree from the top; below it, a folder alone, as a node
+                // from before trees answers.
+                (SessionsRequest::Folder { path, depth, .. }, _)
+                    if depth > 0 && path.is_empty() =>
+                {
+                    SessionsReply::Tree {
+                        tree: WorkTree {
+                            folders: ["", "src"]
+                                .map(|path| WorkFolder {
+                                    path: path.into(),
+                                    entries: Vec::new(),
+                                    more: 0,
+                                    git: true,
+                                })
+                                .to_vec(),
+                            truncated: true,
+                        },
+                    }
+                }
                 (SessionsRequest::Folder { path, ignored, .. }, _) => SessionsReply::Folder {
                     folder: WorkFolder {
                         path,
@@ -2234,6 +2254,19 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
     assert_eq!(folder.path, "src");
     assert_eq!(folder.entries[0].change, Some(GitChange::Modified {}));
     assert!(folder.entries[0].ignored);
+    let tree = |path: &str| ListWorkTree {
+        machine_id: build.clone(),
+        root: "/srv/project".into(),
+        path: path.into(),
+        ignored: true,
+        depth: 3,
+    };
+    let top = client.call(&tree("")).await.unwrap();
+    let paths: Vec<_> = top.folders.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!((paths, top.truncated), (vec!["", "src"], true));
+    let alone = client.call(&tree("src")).await.unwrap();
+    assert_eq!(alone.folders, [folder]);
+    assert!(!alone.truncated);
     let read = |path: &str, offset: u64, len: u32| ReadWorkFile {
         machine_id: build.clone(),
         root: "/srv/project".into(),

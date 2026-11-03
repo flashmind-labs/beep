@@ -1355,6 +1355,13 @@ requests! {
     /// kept as the credential's `account`. `NotFound` when the caller has
     /// no such Forgejo credential.
     382 CheckCredential { id: String } => Call<CredentialCheck>
+    /// `path` inside the working folder `root` and the folders under it,
+    /// `depth` levels down in all (1 is `path` alone, at most
+    /// [`MAX_TREE_DEPTH`]), as `ListWorkFolder` lists each, in one ask.
+    /// Folders git ignores are listed but not read into, and the walk stops
+    /// past [`MAX_TREE_ENTRIES`] entries. A node from before it gives
+    /// `path` alone. Errors as for `ListWorkFolder`.
+    383 ListWorkTree { machine_id: String, root: String, path: String, ignored: bool, depth: u32 } => Call<WorkTree>
 }
 
 /// One machine's settings for a harness (`ListHarnessSettings`).
@@ -3168,6 +3175,24 @@ pub const MAX_WORK_UPLOAD: u64 = 64 * 1024 * 1024;
 
 /// The most entries one `ListWorkFolder` gives.
 pub const MAX_WORK_ENTRIES: usize = 2000;
+
+/// The most levels one `ListWorkTree` reads.
+pub const MAX_TREE_DEPTH: u32 = 6;
+
+/// About the most entries one `ListWorkTree` gives: it stops reading
+/// folders past it.
+pub const MAX_TREE_ENTRIES: usize = 5000;
+
+/// Folders of a session's working folder, as `ListWorkTree` reads them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkTree {
+    /// The folder asked first, then those under it, each in full. A folder
+    /// not here is not read yet.
+    pub folders: Vec<WorkFolder>,
+    /// It stopped at [`MAX_TREE_ENTRIES`] before `depth`.
+    pub truncated: bool,
+}
 
 /// One folder of a session's working folder, as `ListWorkFolder` reads it.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

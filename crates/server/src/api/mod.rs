@@ -310,6 +310,7 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_image)
         .call(agent_control::get_agent_file)
         .call(work_files::list_work_folder)
+        .call(work_files::list_work_tree)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
         .call(work_diff::get_work_diff)
