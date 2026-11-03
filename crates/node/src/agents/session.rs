@@ -25,11 +25,11 @@ use agent_client_protocol::{
     },
 };
 use anyhow::{Context, Result};
-use beep_proto::AgentAccount;
 use beep_proto::node::agent::{
     AnswerOption, Effort, EntryKind, OptionKind, Question, SessionInfo, State, Status, StopReason,
 };
 use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
+use beep_proto::{AgentAccount, ModelId};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use serde_json::Value;
 use std::{
@@ -72,7 +72,7 @@ pub(super) enum Command {
     Close,
     /// Switches the model or thinking level from the next turn.
     Configure {
-        model: Option<String>,
+        model: Option<ModelId>,
         effort: Option<Effort>,
     },
 }
@@ -784,7 +784,7 @@ impl Actor {
     fn configure(
         &mut self,
         cx: &ConnectionTo<Agent>,
-        model: Option<String>,
+        model: Option<ModelId>,
         effort: Option<Effort>,
     ) -> Result<(), String> {
         let Some(session) = self.acp_session.clone() else {
@@ -798,9 +798,9 @@ impl Actor {
                     "{title} here cannot switch models in a running session"
                 ));
             };
-            let request = acp::switch_model(&session, switch, &model)
+            let request = acp::switch_model(&session, switch, model.as_str())
                 .map_err(|e| format!("{title} could not switch to {model}: {e}"))?;
-            requests.push((request, model));
+            requests.push((request, model.to_string()));
         }
         if let Some(effort) = effort {
             let Some(id) = &self.thinking else {
@@ -1085,7 +1085,7 @@ fn turn_tokens(done: &PromptResponse) -> TurnTokens {
         .flatten()
         .filter_map(|row| {
             Some(ModelTokens {
-                model: cut(row.get("model")?.as_str()?, MAX_MODEL_NAME),
+                model: ModelId::new(cut(row.get("model")?.as_str()?, MAX_MODEL_NAME)),
                 tokens: total(row.get("token_count")?)?,
             })
         })

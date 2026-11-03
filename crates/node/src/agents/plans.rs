@@ -10,7 +10,10 @@ use super::{
 };
 use crate::process::{GroupLeader, STOP_GRACE, own_group};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage};
+use beep_proto::{
+    AgentSlug,
+    node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage},
+};
 use serde_json::{Value, json};
 use std::{
     process::Stdio,
@@ -196,7 +199,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
     }
     windows.sort_by_key(|window| window.minutes);
     Some(PlanUsage {
-        agent: "claude".into(),
+        agent: AgentSlug::CLAUDE,
         plan: usage["subscription_type"].as_str().map(str::to_owned),
         windows,
         at,
@@ -227,7 +230,7 @@ fn codex_plan(result: &Value, at: u64) -> Option<PlanUsage> {
     let mut windows = windows;
     windows.sort_by_key(|window| window.minutes);
     Some(PlanUsage {
-        agent: "codex".into(),
+        agent: AgentSlug::CODEX,
         plan: limits["planType"].as_str().map(str::to_owned),
         windows,
         at,
