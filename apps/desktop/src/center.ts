@@ -3088,14 +3088,21 @@ registerView("projects", {
     if (p?.imported && agentFor(state.agents, p.name)) tools.push(layoutSwitch());
     if (p?.url) {
       const url = p.url, label = openOnLabel(url);
-      if (label) tools.push(button(label, "small", () => openUrl(url)));
+      if (label) tools.push(button(label.replace(/^Open on /, ""), "small", () => openUrl(url)));
     }
     if (p) {
-      const on = state.top.includes(p.name);
-      tools.push(button(on ? "Unpin" : "Pin", "quiet small", () => setProjectOnTop(p.name, !on)));
-      if (p.imported) tools.push(button(REMOVE_PROJECT, "quiet small", () => removeProject(p.name)));
+      // The rest goes in one menu, so the header keeps to a line.
+      const more = button("⋯", "quiet small", e => {
+        const on = state.top.includes(p.name);
+        const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(p.name, !on) }];
+        if (!windowProject) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(p.name) }, { label: "All projects", on: () => openProjects() });
+        if (p.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(p.name) });
+        openMenu(e, p.name, items);
+      });
+      more.title = "More";
+      more.setAttribute("aria-label", "More");
+      tools.push(more);
     }
-    if (!windowProject) tools.push(button("All projects", "quiet small", () => openProjects()));
     return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
   },
   mount(el, arg) {
