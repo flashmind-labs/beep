@@ -85,6 +85,11 @@ impl ForgejoUrl {
         net::resolves_public(&self.0).await
     }
 
+    /// Its host name alone, without the port.
+    pub fn hostname(&self) -> &str {
+        self.0.host_str().unwrap_or_default()
+    }
+
     /// Its host, with the port when it has one, such as `git.example.com`.
     pub fn host(&self) -> String {
         let host = self.0.host_str().unwrap_or_default();
