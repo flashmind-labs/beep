@@ -721,8 +721,8 @@ struct Lookup {
 }
 
 /// Every acting tool that names a record a tool can read back. Fastmail has
-/// no tool that reads one event or contact, and Slack, Teams and SharePoint
-/// calls name channels and lists rather than one record.
+/// no tool that reads one event or contact, and Slack and Teams calls name
+/// channels rather than one record.
 const LOOKUPS: &[Lookup] = &[
     Lookup {
         tools: &[
@@ -784,16 +784,6 @@ const LOOKUPS: &[Lookup] = &[
         args: &[("parent_block_id", "page_id")],
     },
     Lookup {
-        tools: &["LINEAR_UPDATE_ISSUE", "LINEAR_CREATE_LINEAR_COMMENT"],
-        read: "LINEAR_GET_LINEAR_ISSUE",
-        args: &[("issueId", "issue_id"), ("issue_id", "issue_id")],
-    },
-    Lookup {
-        tools: &["TODOIST_UPDATE_TASK", "TODOIST_CLOSE_TASK"],
-        read: "TODOIST_GET_TASK",
-        args: &[("task_id", "task_id")],
-    },
-    Lookup {
         tools: &["ONE_DRIVE_MOVE_ITEM"],
         read: "ONE_DRIVE_GET_ITEM",
         args: &[("itemId", "item_id"), ("driveId", "drive_id")],
@@ -802,15 +792,6 @@ const LOOKUPS: &[Lookup] = &[
         tools: &["ONE_DRIVE_CREATE_LINK"],
         read: "ONE_DRIVE_GET_ITEM",
         args: &[("item_id", "item_id"), ("drive_id", "drive_id")],
-    },
-    Lookup {
-        tools: &["GITHUB_CREATE_AN_ISSUE_COMMENT"],
-        read: "GITHUB_GET_AN_ISSUE",
-        args: &[
-            ("owner", "owner"),
-            ("repo", "repo"),
-            ("issue_number", "issue_number"),
-        ],
     },
 ];
 
@@ -1953,14 +1934,14 @@ mod tests {
             json!({"event_id": "e1", "calendar_id": "primary"})
         );
         let reads = read_args(
-            lookup("GITHUB_CREATE_AN_ISSUE_COMMENT"),
-            &json!({"owner": "o", "repo": "r", "issue_number": 7, "body": "hi"}),
+            lookup("ONE_DRIVE_MOVE_ITEM"),
+            &json!({"itemId": "i1", "driveId": "d1", "parentReference": {"id": "p"}}),
         );
         assert_eq!(
             Value::Object(reads[0].clone()),
-            json!({"owner": "o", "repo": "r", "issue_number": 7})
+            json!({"item_id": "i1", "drive_id": "d1"})
         );
-        assert!(read_args(lookup("TODOIST_CLOSE_TASK"), &json!({})).is_empty());
+        assert!(read_args(lookup("NOTION_UPDATE_PAGE"), &json!({})).is_empty());
         // Every tool listed is one that asks, so a renamed slug fails here.
         for tool in LOOKUPS.iter().flat_map(|l| l.tools) {
             let acts = call_acts(tool, &json!({"folder": "x"})).is_some_and(|(_, acts)| acts);
