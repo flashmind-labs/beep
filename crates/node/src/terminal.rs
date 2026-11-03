@@ -821,5 +821,4 @@ mod tests {
         assert!(after.reopen(&open[0]).is_err(), "one runs under that id");
         after.kill_all();
     }
-
 }
