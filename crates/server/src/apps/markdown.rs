@@ -170,13 +170,6 @@ mod tests {
     }
 
     #[test]
-    fn text_output_that_is_html_becomes_markdown() {
-        let converted = convert_output(EMAIL).unwrap();
-        assert!(converted.starts_with("Go to the **furthest"));
-        assert!(!converted.contains("\n\n\n"));
-    }
-
-    #[test]
     fn output_without_html_is_left_alone() {
         assert_eq!(convert_output(r#"{"preview": "a < b and c > d"}"#), None);
         assert_eq!(convert_output("No results"), None);

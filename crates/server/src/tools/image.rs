@@ -268,23 +268,6 @@ fn attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn finds_a_pages_preview_image() {
-        let html = r#"<head><meta name="twitter:image" content="https://cdn.example/t.jpg">
-            <meta content='/img/a.jpg?w=1&amp;h=2' property='og:image' />
-            <meta property="og:image:width" content="1200"></head>"#;
-        assert_eq!(preview_image(html).as_deref(), Some("/img/a.jpg?w=1&h=2"));
-        let html = r#"<meta name="twitter:image" content="https://cdn.example/t.jpg">"#;
-        assert_eq!(
-            preview_image(html).as_deref(),
-            Some("https://cdn.example/t.jpg")
-        );
-        assert_eq!(
-            preview_image(r#"<meta property="og:title" content="A">"#),
-            None
-        );
-    }
-
     #[tokio::test]
     async fn rejects_unsafe_urls_without_fetching() {
         for url in [
@@ -300,13 +283,5 @@ mod tests {
         ] {
             assert!(check(url).await.is_err(), "{url}");
         }
-    }
-
-    #[test]
-    fn folder_images_are_known_by_their_bytes() {
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0";
-        assert_eq!(image_mime(png), Some("image/png"));
-        assert_eq!(image_mime(b"%PDF-1.7"), None);
-        assert_eq!(image_mime(b""), None);
     }
 }

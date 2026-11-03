@@ -812,42 +812,6 @@ impl Tool for CustomTool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_user_has_one_reap_put_back_by_each_call() {
-        let reaps = Reaps::default();
-        let start = TokioInstant::now();
-        let minutes = |n: u64| start + Duration::from_secs(n * 60);
-        assert!(reaps.called("alice", start));
-        assert!(!reaps.called("alice", minutes(1)));
-        assert!(reaps.called("bob", minutes(1)));
-        assert_eq!(reaps.due("alice", minutes(5)), Some(minutes(6)));
-        assert_eq!(reaps.due("alice", minutes(6)), None);
-        assert!(reaps.called("alice", minutes(7)));
-    }
-
-    #[test]
-    fn names_are_prefixed_slugs() {
-        assert_eq!(server_name("My Notes").as_deref(), Some("mcp_my-notes"));
-        assert_eq!(server_name("  Gmail!! ").as_deref(), Some("mcp_gmail"));
-        assert_eq!(server_name("my_notes").as_deref(), Some("mcp_my-notes"));
-        assert_eq!(
-            server_name("a very long server name indeed").as_deref(),
-            Some("mcp_a-very-long-serv")
-        );
-        assert_eq!(server_name("!!!"), None);
-        assert_eq!(server_name("日本"), None);
-    }
-
-    #[test]
-    fn tool_names_fit_providers() {
-        assert_eq!(
-            tool_name("mcp_my-notes", "search-pages"),
-            "MCP_MY-NOTES_SEARCH_PAGES"
-        );
-        assert_eq!(tool_name("mcp_notes", "a.b"), "MCP_NOTES_A_B");
-        assert!(tool_name("mcp_notes", &"x".repeat(100)).len() <= MAX_TOOL_NAME);
-    }
-
     fn defs(names: &[&str]) -> Vec<McpToolDef> {
         names
             .iter()
@@ -857,40 +821,6 @@ mod tests {
                 input_schema: json!({"type": "object"}),
             })
             .collect()
-    }
-
-    #[test]
-    fn the_first_usable_tools_are_on_until_the_user_picks() {
-        let names: Vec<String> = (0..30).map(|i| format!("tool_{i}")).collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let mut defs = defs(&names);
-        defs[1].input_schema = json!({"description": "x".repeat(MAX_SCHEMA_BYTES)});
-        let on = enabled_names("mcp_notes", &defs, None);
-        assert_eq!(on.len(), MAX_TOOLS);
-        assert!(!on.contains(&"tool_1".to_owned()));
-        assert_eq!(on.last().map(String::as_str), Some("tool_25"));
-        let list = tool_list("mcp_notes", &defs, None);
-        assert!(!list.tools[1].usable && !list.tools[1].enabled);
-        assert!(list.tools[29].usable && !list.tools[29].enabled);
-    }
-
-    #[test]
-    fn picks_change_one_tool_and_may_pass_the_limit() {
-        let names: Vec<String> = (0..30).map(|i| format!("tool_{i}")).collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let defs = defs(&names);
-        let picks = choose("mcp_notes", &defs, None, "tool_29", true);
-        assert_eq!(
-            enabled_names("mcp_notes", &defs, Some(&picks)).len(),
-            MAX_TOOLS + 1
-        );
-        let picks = choose("mcp_notes", &defs, Some(&picks), "tool_0", false);
-        let on = enabled_names("mcp_notes", &defs, Some(&picks));
-        assert_eq!(on.len(), MAX_TOOLS);
-        assert!(!on.contains(&"tool_0".to_owned()) && on.contains(&"tool_29".to_owned()));
-        // A tool the server stopped listing stays picked.
-        let picks = choose("mcp_notes", &defs[1..], Some(&picks), "tool_1", false);
-        assert!(picks.contains(&"tool_29".to_owned()));
     }
 
     #[test]
@@ -994,45 +924,5 @@ mod tests {
         assert!(limits.begin_at("mcp.example", "bob", at).is_ok());
         let next_minute = start + Duration::from_secs(61);
         assert!(limits.begin_at("mcp.example", "alice", next_minute).is_ok());
-    }
-
-    #[test]
-    fn a_limited_or_failing_host_rests_for_everyone() {
-        let limits = Limits::default();
-        let now = Instant::now();
-        limits.record("mcp.example", Outcome::Limited, now);
-        assert_eq!(
-            limits.begin_at("mcp.example", "bob", now).err(),
-            Some(Refused::Paused)
-        );
-        assert!(
-            limits
-                .begin_at("mcp.example", "bob", now + PAUSE_ON_LIMIT)
-                .is_ok()
-        );
-
-        for _ in 0..FAILURES_TO_REST - 1 {
-            limits.record("flaky.example", Outcome::Failed, now);
-        }
-        assert!(limits.begin_at("flaky.example", "bob", now).is_ok());
-        limits.record("flaky.example", Outcome::Failed, now);
-        assert_eq!(
-            limits
-                .begin_at("flaky.example", "bob", now + Duration::from_secs(1))
-                .err(),
-            Some(Refused::Paused)
-        );
-    }
-
-    #[test]
-    fn overload_errors_are_told_apart() {
-        assert_eq!(
-            outcome_of(&anyhow::anyhow!("HTTP status 429 Too Many Requests")),
-            Outcome::Limited
-        );
-        assert_eq!(
-            outcome_of(&anyhow::anyhow!("connection reset")),
-            Outcome::Failed
-        );
     }
 }

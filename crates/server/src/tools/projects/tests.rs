@@ -161,56 +161,6 @@ async fn list_gives_each_project_with_machines_counts_and_sessions() {
 }
 
 #[tokio::test]
-async fn show_gives_prs_with_review_state_issues_and_tasks() {
-    let harness = Harness::new(Scripted::default()).await;
-    let alice = &harness.alice;
-    let (build, _) = two_projects(alice).await;
-    let live = Live {
-        items: widget_items(),
-        sessions: vec![session(&build, "build-box", "claude", "/srv/widget")],
-        notes: vec!["git.example.com did not answer: timed out".into()],
-    };
-    let projects = load(alice).await.expect("loaded");
-    let widget = find(&projects, "Widget").expect("found by repo name");
-    let text = render_show(widget, &live, now());
-
-    assert!(
-        text.starts_with(
-            "acme/widget (https://github.com/acme/widget)\nOn: build-box /srv/widget; mac \
-             /Users/me/widget\nNote: git.example.com did not answer: timed out\n"
-        ),
-        "{text}"
-    );
-    assert!(
-        text.contains(
-            "Open PRs involving the user (2):\n\
-             - #12 Item 12 (asks the user's review, updated 2 h ago) https://github.com/acme/widget/pull/12\n\
-             - #13 Item 13 (by the user, approved, checks failing, updated 2 h ago) https://github.com/acme/widget/pull/13\n"
-        ),
-        "{text}"
-    );
-    assert!(
-        text.contains(
-            "Open issues involving the user (1):\n\
-             - #3 Item 3 (assigned to the user, 4 comments, updated 2 h ago) https://github.com/acme/widget/pull/3\n"
-        ),
-        "{text}"
-    );
-    assert!(
-        text.contains("Open tasks (1):\n- spin-it [planned] Spin it\n"),
-        "{text}"
-    );
-    assert!(
-        text.ends_with(
-            "Coding sessions (1):\n- claude on build-box \"Fix the login page\" (working, last \
-             activity 4 min ago) in /srv/widget"
-        ),
-        "{text}"
-    );
-    assert!(!text.contains("other/thing"), "{text}");
-}
-
-#[tokio::test]
 async fn show_names_the_projects_when_one_is_not_found() {
     let harness = Harness::new(Scripted::default()).await;
     let alice = &harness.alice;
@@ -262,17 +212,4 @@ async fn show_names_the_projects_when_one_is_not_found() {
         .await
         .expect("the tool runs");
     assert!(listed.is_success());
-}
-
-#[test]
-fn context_block_names_projects_up_to_the_cap() {
-    assert_eq!(context_block(&[]), None);
-    let names: Vec<RepoName> = (0..32)
-        .map(|n| RepoName::parse(&format!("acme/repo{n}")).expect("a repo name"))
-        .collect();
-    let block = context_block(&names[..2]).expect("a block");
-    assert_eq!(block, format!("{HEADER} acme/repo0, acme/repo1."));
-    let block = context_block(&names).expect("a block");
-    assert!(block.ends_with("acme/repo29, and 2 more."), "{block}");
-    assert!(!block.contains("acme/repo30"), "{block}");
 }

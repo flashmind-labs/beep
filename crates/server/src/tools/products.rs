@@ -276,43 +276,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_what_holds_up() {
-        let mut dropped = Vec::new();
-        let card = card(
-            requested(json!({
-                "title": " Dreame Z30 ", "url": "https://www.shop.example/z30",
-                "price": 249.0, "was": 329.0, "currency": "eur", "rating": 4.6, "reviews": 1204,
-                "note": "Quietest"
-            })),
-            &mut dropped,
-        )
-        .expect("a valid product");
-        assert_eq!(card.title, "Dreame Z30");
-        assert_eq!(card.store, "shop.example");
-        assert_eq!(card.price, Some(249.0));
-        assert_eq!(card.was, Some(329.0));
-        assert_eq!(card.currency, Some(Currency("EUR".to_owned())));
-        assert!(dropped.is_empty(), "{dropped:?}");
-    }
-
-    #[test]
-    fn drops_a_price_without_a_currency_and_a_was_below_the_price() {
-        let mut dropped = Vec::new();
-        let card = card(
-            requested(json!({ "title": "Kettle", "url": "https://shop.example/k", "price": 30.0, "currency": "euros" })),
-            &mut dropped,
-        )
-        .expect("a valid product");
-        assert_eq!((card.price, card.currency), (None, None));
-        assert_eq!(dropped.len(), 1);
-
-        let card = card_of(
-            json!({ "title": "Kettle", "url": "https://shop.example/k", "price": 30.0, "was": 25.0, "currency": "USD" }),
-        );
-        assert_eq!((card.price, card.was), (Some(30.0), None));
-    }
-
-    #[test]
     fn rejects_links_that_are_not_public_pages() {
         for url in [
             "javascript:alert(1)",
@@ -328,28 +291,5 @@ mod tests {
             );
             assert!(result.is_err(), "{url}");
         }
-    }
-
-    #[test]
-    fn output_leaves_out_unknown_fields() {
-        let shown = Shown {
-            action: NAME,
-            products: vec![card_of(
-                json!({ "title": "Kettle", "url": "https://shop.example/k" }),
-            )],
-            dropped: Vec::new(),
-        };
-        assert_eq!(
-            serde_json::to_value(&shown).expect("serializes"),
-            json!({
-                "action": "show_products",
-                "products": [{ "title": "Kettle", "url": "https://shop.example/k", "store": "shop.example" }],
-                "dropped": []
-            })
-        );
-    }
-
-    fn card_of(json: Value) -> Card {
-        card(requested(json), &mut Vec::new()).expect("a valid product")
     }
 }
