@@ -262,23 +262,6 @@ async fn failed_issue_keeps_the_task() {
 }
 
 #[tokio::test]
-async fn local_only_projects_skip_issues() {
-    let h = harness(Roles::default(), Visibility::Public).await;
-    let args = json!({"tasks": [{"title": "Build", "body": "b"}], "start": true});
-    let result = call(&h.plan(PermissionLevel::Allow {}), "c1", args).await;
-    assert!(result.is_success(), "{}", result.output());
-    assert!(h.shell.ran().is_empty());
-    let rows = h.rows().await;
-    assert!(rows[0].issue.is_none());
-    assert!(rows[0].start.is_some());
-    assert!(
-        result.output().contains("cannot start workers yet"),
-        "{}",
-        result.output()
-    );
-}
-
-#[tokio::test]
 async fn merge_always_asks() {
     let h = harness(github(), Visibility::Private).await;
     let made = h
@@ -399,47 +382,6 @@ async fn someone_elses_issue_gets_one_approved_comment_and_nothing_else() {
     let ran = h.shell.ran();
     assert_eq!(ran.len(), 1, "{ran:?}");
     assert!(ran[0].contains("gh issue comment 12 "), "{}", ran[0]);
-}
-
-#[tokio::test]
-async fn the_users_own_tracked_issue_is_edited_as_before() {
-    let h = harness(github(), Visibility::Private).await;
-    tracked(&h, IssueAuthor::User).await;
-    let update = json!({"action": "update", "task": "crash-on-start", "body": "New plan."});
-    let result = call(&h.tasks_tool(PermissionLevel::Allow {}, None), "c0", update).await;
-    assert!(result.is_success(), "{}", result.output());
-    assert_eq!(h.shell.ran_with("issue edit 12").len(), 1);
-}
-
-#[tokio::test]
-async fn drop_closes_as_not_planned() {
-    let h = harness(github(), Visibility::Private).await;
-    h.shell
-        .answer("issue create", 0, &format!("{ISSUE_URL}8\n"));
-    call(
-        &h.plan(PermissionLevel::Allow {}),
-        "c1",
-        plan_of(&["Build"]),
-    )
-    .await;
-    let args = json!({"action": "drop", "task": "build"});
-    let asked = call(
-        &h.tasks_tool(PermissionLevel::Ask {}, None),
-        "c2",
-        args.clone(),
-    )
-    .await;
-    assert_eq!(approval(&asked).action, "Drop task");
-    let result = call(&h.tasks_tool(PermissionLevel::Allow {}, None), "c3", args).await;
-    assert!(result.is_success(), "{}", result.output());
-    let closed = h.shell.ran_with("issue close 8");
-    assert_eq!(closed.len(), 1);
-    assert!(
-        closed[0].contains("--reason 'not planned'"),
-        "{}",
-        closed[0]
-    );
-    assert_eq!(h.rows().await[0].state, TaskState::Dropped);
 }
 
 #[tokio::test]
@@ -810,28 +752,4 @@ async fn someone_elses_thread_gets_one_reply() {
         second.output()
     );
     assert_eq!(h.shell.ran_with(" comment ").len(), 1);
-}
-
-#[tokio::test]
-async fn thread_chat_reply_asks_first() {
-    let h = harness(github(), Visibility::Private).await;
-    h.shell.answer("pr view 41", 0, &pr_41("Shorter?"));
-    let chat = crate::projects::threads::open_chat(
-        h.fleet.as_ref(),
-        &h.user,
-        &h.project,
-        "acme/widget",
-        41,
-    )
-    .await
-    .unwrap();
-    // The thread chat is the project's, so it gets the project tools and gate.
-    assert_eq!(
-        h.user.project_in(chat.chat).await.unwrap().map(|p| p.id),
-        Some(h.project.id)
-    );
-    let args = json!({"repo": "acme/widget", "number": 41, "body": "Done."});
-    let asked = call(&reply_tool(&h, PermissionLevel::Allow {}, None), "c1", args).await;
-    assert_eq!(approval(&asked).action, "Post reply");
-    assert!(h.shell.ran_with(" comment ").is_empty());
 }

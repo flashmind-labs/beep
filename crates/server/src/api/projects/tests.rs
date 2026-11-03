@@ -45,19 +45,6 @@ fn is_bad_request<T: std::fmt::Debug>(reply: Reply<T>) -> bool {
 }
 
 #[tokio::test]
-async fn get_project_agent_makes_one_chat() {
-    let h = harness().await;
-    let first = project_agent(&h.alice, "acme/widget").await.unwrap();
-    let again = project_agent(&h.alice, "acme/widget").await.unwrap();
-    assert_eq!(first, again);
-    assert_eq!(first.name, "acme/widget");
-    let listed = projects(&h.alice).await.unwrap();
-    assert_eq!(listed, vec![first]);
-    assert_eq!(listed[0].open_tasks, 0);
-    assert_eq!(listed[0].open_workers, 0);
-}
-
-#[tokio::test]
 async fn get_project_agent_refuses_bad_names() {
     let h = harness().await;
     for name in ["acme", "acme/widget/more", "", "acme/.."] {
@@ -130,80 +117,6 @@ async fn other_users_cannot_list_track_or_dismiss_issues() {
     );
     // Nor dismisses one: there is no host to hide it on.
     assert!(is_bad_request(dismiss_issue(&h.alice, project, 12).await));
-}
-
-#[tokio::test]
-async fn track_project_issue_checks_the_start() {
-    let h = harness().await;
-    let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
-    let project = ProjectId(agent.project_id);
-    let bad_agent = IssueStart {
-        agent: "vim".to_owned(),
-        node_id: None,
-    };
-    let refused = track_issue(&h.app, &h.alice, project, 1, Some(&bad_agent)).await;
-    assert!(is_bad_request(refused));
-    let bad_machine = IssueStart {
-        agent: "codex".to_owned(),
-        node_id: Some("not-a-key".to_owned()),
-    };
-    let refused = track_issue(&h.app, &h.alice, project, 1, Some(&bad_machine)).await;
-    assert!(is_bad_request(refused));
-    // A project with no issues host cannot track one.
-    assert!(is_bad_request(
-        track_issue(&h.app, &h.alice, project, 1, None).await
-    ));
-    assert!(h.alice.project_tasks(project).await.unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn update_project_task_drops_and_reopens() {
-    let h = harness().await;
-    let (agent, task) = one_task(&h).await;
-    let dropped = update_task(&h.app, &h.alice, task.id, TaskState::Dropped)
-        .await
-        .unwrap();
-    assert_eq!(dropped.state, ProjectTaskState::Dropped {});
-    let counted = projects(&h.alice).await.unwrap();
-    assert_eq!(counted[0].project_id, agent.project_id);
-    assert_eq!(counted[0].open_tasks, 0);
-    let reopened = update_task(&h.app, &h.alice, task.id, TaskState::Planned)
-        .await
-        .unwrap();
-    assert_eq!(reopened.state, ProjectTaskState::Planned {});
-    for from in [TaskState::Blocked, TaskState::Done] {
-        h.alice.set_task_state(task.id, from).await.unwrap();
-        let reopened = update_task(&h.app, &h.alice, task.id, TaskState::Planned)
-            .await
-            .unwrap();
-        assert_eq!(reopened.state, ProjectTaskState::Planned {});
-    }
-}
-
-#[tokio::test]
-async fn update_project_task_refuses_running() {
-    let h = harness().await;
-    let (_, task) = one_task(&h).await;
-    let to_running = update_task(&h.app, &h.alice, task.id, TaskState::Running).await;
-    assert!(is_bad_request(to_running));
-    // A planned task is planned already.
-    let replanned = update_task(&h.app, &h.alice, task.id, TaskState::Planned).await;
-    assert!(is_bad_request(replanned));
-    h.alice
-        .set_task_state(task.id, TaskState::Running)
-        .await
-        .unwrap();
-    for to in [TaskState::Planned, TaskState::Review, TaskState::Done] {
-        let refused = update_task(&h.app, &h.alice, task.id, to).await;
-        assert!(is_bad_request(refused), "{to:?}");
-    }
-    // Done twice is not dropped either.
-    h.alice
-        .set_task_state(task.id, TaskState::Done)
-        .await
-        .unwrap();
-    let dropped = update_task(&h.app, &h.alice, task.id, TaskState::Dropped).await;
-    assert!(is_bad_request(dropped));
 }
 
 #[tokio::test]

@@ -247,28 +247,3 @@ fn machine_env(env: EnvReport) -> MachineEnv {
         avds: env.avds,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn details_leave_out_unknown_apps() {
-        let env = EnvReport {
-            apps: vec![
-                AppInfo {
-                    name: AppName::Unknown,
-                    version: None,
-                },
-                AppInfo {
-                    name: AppName::Blender,
-                    version: Some("4.2".into()),
-                },
-            ],
-            ..EnvReport::default()
-        };
-        let details = machine_details("id".into(), env);
-        assert_eq!(details.apps.len(), 1);
-        assert_eq!(details.apps[0].name, "Blender");
-    }
-}

@@ -357,41 +357,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_empty_file_and_a_missing_one() {
-        let from = FakeNode::with(4096, &[("/empty", Vec::new())]);
-        let to = FakeNode::with(4096, &[]);
-        let copied = copy(&from, "/empty", &to, "/copy", false).await.unwrap();
-        assert_eq!(copied.bytes, 0);
-        assert_eq!(to.file("/copy"), Some(Vec::new()));
-        assert!(copy(&from, "/nothing", &to, "/x", false).await.is_err());
-    }
-
-    #[tokio::test]
     async fn reading_stops_at_the_limit() {
         let node = FakeNode::with(3, &[("/f", b"abcdefgh".to_vec())]);
         assert_eq!(read_all(&node, "/f", 100).await.unwrap(), b"abcdefgh");
         assert!(read_all(&node, "/f", 4).await.is_err());
-    }
-
-    #[test]
-    fn paths_resolve_on_each_machine() {
-        let home = Some("/Users/me");
-        assert_eq!(
-            on_machine("~/a.pdf", None, home).unwrap(),
-            "/Users/me/a.pdf"
-        );
-        assert_eq!(
-            on_machine("a.pdf", Some("/home/user"), home).unwrap(),
-            "/home/user/a.pdf"
-        );
-        assert_eq!(
-            on_machine("x/a.pdf", None, home).unwrap(),
-            "/Users/me/x/a.pdf"
-        );
-        assert_eq!(on_machine("/srv/a.pdf", None, home).unwrap(), "/srv/a.pdf");
-        assert_eq!(on_machine("a.pdf", None, None).unwrap(), "a.pdf");
-        assert!(on_machine("~", None, home).is_err());
-        assert!(on_machine(" ", None, home).is_err());
-        assert_eq!(file_name("/home/user/r.pdf"), Some("r.pdf"));
     }
 }

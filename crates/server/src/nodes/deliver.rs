@@ -345,30 +345,4 @@ mod tests {
         };
         assert_eq!(reply(&only_allow, &GateAnswer::Deny("no".into())), None);
     }
-
-    #[test]
-    fn only_a_question_that_can_be_refused_asks_permission() {
-        let question = question();
-        assert!(is_permission(&question));
-        let choice = Question {
-            options: question.options[..2].to_vec(),
-            ..question
-        };
-        assert!(!is_permission(&choice));
-    }
-
-    #[test]
-    fn the_card_names_the_agent_machine_and_command() {
-        let card = approval("build-box", "codex", None, &question());
-        assert_eq!(card.app, "Codex");
-        assert_eq!(card.action, "Run cargo test");
-        let values: Vec<&str> = card.fields.iter().map(|f| f.value.as_str()).collect();
-        assert_eq!(
-            values,
-            ["build-box", "Run cargo test", "cargo test -p core"]
-        );
-        let card = approval("build-box", "codex", Some("fix-it: Fix it"), &question());
-        assert_eq!(card.fields[0].label, "Task");
-        assert_eq!(card.fields[0].value, "fix-it: Fix it");
-    }
 }

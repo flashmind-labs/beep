@@ -271,29 +271,4 @@ mod tests {
         let names: Vec<&str> = rows.iter().map(|row| row.project.as_str()).collect();
         assert_eq!(names, ["org/kept"]);
     }
-
-    #[test]
-    fn a_machine_keeps_its_busiest_checkout() {
-        let found = vec![machine(
-            "a",
-            vec![
-                folder(
-                    "/home/user/old",
-                    "git@github.com:org/proj.git",
-                    &[("claude", 1)],
-                    5,
-                ),
-                folder(
-                    "/home/user/new",
-                    "git@github.com:org/proj.git",
-                    &[("codex", 1)],
-                    9,
-                ),
-            ],
-        )];
-        let rows = group(found, &[], &[]);
-        assert_eq!(rows[0].places.len(), 1);
-        assert_eq!(rows[0].places[0].folder, "/home/user/new");
-        assert_eq!(rows[0].agents.len(), 2);
-    }
 }

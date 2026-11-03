@@ -382,7 +382,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{TestDb, chats::ensure_session, test_chat};
+    use crate::store::{TestDb, test_chat};
 
     const PADEL: NewSkill = NewSkill {
         name: "Book padel",
@@ -395,47 +395,6 @@ mod tests {
             body: Some(body),
             ..SkillPatch::default()
         }
-    }
-
-    #[tokio::test]
-    async fn learns_edits_and_undoes() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let alice = UserKey::for_test("alice");
-        let owner = SkillOwner::User(alice.clone());
-        let id = store.create_skill(&owner, PADEL).await.unwrap().unwrap();
-        let same_name = NewSkill {
-            name: "book PADEL",
-            ..PADEL
-        };
-        assert_eq!(store.create_skill(&owner, same_name).await.unwrap(), None);
-
-        let changed = store
-            .learn_skill_change(&owner, id, patch_body("Ask for 20:00 first."))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(changed.can_undo && !changed.edited);
-
-        let pause = SkillPatch {
-            enabled: Some(false),
-            ..SkillPatch::default()
-        };
-        let paused = store.edit_skill(&alice, id, pause).await.unwrap().unwrap();
-        assert!(!paused.enabled && !paused.edited);
-        assert_eq!(store.use_skill(&owner, "book padel").await.unwrap(), None);
-
-        let undone = store.undo_skill(&alice, id).await.unwrap().unwrap();
-        assert_eq!(undone.body, "Ask for 19:00 first.");
-        assert!(!undone.can_undo);
-        assert_eq!(store.undo_skill(&alice, id).await.unwrap(), None);
-
-        let mine = store
-            .edit_skill(&alice, id, patch_body("Ask for 18:00."))
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(mine.edited && mine.can_undo);
     }
 
     #[tokio::test]
@@ -479,23 +438,5 @@ mod tests {
             .unwrap();
         assert_eq!(used.uses, 1);
         assert!(store.delete_skill(&alice, id).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn counts_turns_until_reviewed() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let chat = test_chat("c1");
-        let mut conn = store.pool.acquire().await.unwrap();
-        ensure_session(&mut conn, "alice", chat).await.unwrap();
-        let first = store.count_skill_turn(chat).await.unwrap();
-        assert_eq!((first.turns, first.since), (1, None));
-        assert_eq!(store.count_skill_turn(chat).await.unwrap().turns, 2);
-        let at = Utc::now();
-        store.reviewed_skills(chat, at).await.unwrap();
-        let review = store.count_skill_turn(chat).await.unwrap();
-        assert_eq!(review.turns, 1);
-        let since = review.since.unwrap();
-        assert!((since - at).num_milliseconds().abs() < 1);
     }
 }

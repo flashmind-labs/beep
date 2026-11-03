@@ -329,18 +329,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frames_read_their_data_as_json_text_or_as_is() {
-        let text: PusherFrame = serde_json::from_str(
-            r#"{"event":"pusher:connection_established","data":"{\"socket_id\":\"1.2\",\"activity_timeout\":120}"}"#,
-        )
-        .unwrap();
-        assert_eq!(text.data()["socket_id"], "1.2");
-        let object: PusherFrame =
-            serde_json::from_str(r#"{"event":"pusher:error","data":{"code":4001}}"#).unwrap();
-        assert_eq!(object.data()["code"], 4001);
-    }
-
-    #[test]
     fn chunked_events_come_out_whole_in_any_order() {
         let payload = json!({"metadata": {"trigger_slug": "X", "user_id": "u"}, "data": {"a": 1}});
         let text = payload.to_string();

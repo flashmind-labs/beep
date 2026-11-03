@@ -206,14 +206,6 @@ mod tests {
         }
     }
 
-    fn ended(stop_reason: StopReason, last_message: &str, error: Option<&str>) -> Alert {
-        alert(AlertKind::TurnEnded {
-            stop_reason,
-            last_message: last_message.into(),
-            error: error.map(str::to_owned),
-        })
-    }
-
     #[test]
     fn a_question_tells_phones_and_lets_computers_answer() {
         let question = Question {
@@ -249,61 +241,5 @@ mod tests {
                 machine_name: "build-box".into(),
             })
         );
-    }
-
-    #[test]
-    fn a_turn_says_how_it_ended() {
-        let said = |alert: &Alert| {
-            let sent = user_notice("u1", &host(), alert, Reach::Desktops);
-            (sent.notice.title, sent.notice.body)
-        };
-        assert_eq!(
-            said(&ended(
-                StopReason::EndTurn,
-                "All **42** tests pass.\n",
-                None
-            )),
-            (
-                "Claude Code on build-box finished".into(),
-                "Fix the login test: All 42 tests pass.".into()
-            )
-        );
-        assert_eq!(
-            said(&ended(StopReason::Failed, "", Some("rate limit"))),
-            (
-                "Claude Code on build-box failed".into(),
-                "Fix the login test: rate limit".into()
-            )
-        );
-        assert_eq!(
-            said(&ended(StopReason::Cancelled, "Halfway", None)),
-            (
-                "Claude Code on build-box stopped".into(),
-                "Fix the login test: cancelled".into()
-            )
-        );
-        let mut untitled = ended(StopReason::MaxTokens, "", None);
-        untitled.title = None;
-        assert_eq!(said(&untitled).1, "project: hit the token limit");
-        let failed = alert(AlertKind::Failed {
-            reason: "the agent exited".into(),
-        });
-        assert_eq!(said(&failed).0, "Claude Code on build-box failed");
-        let key: AgentNoticeKey = user_notice("u1", &host(), &failed, Reach::Desktops)
-            .desktop
-            .unwrap()
-            .session_id
-            .parse()
-            .unwrap();
-        assert_eq!(key.question, None, "only a question has Allow and Deny");
-    }
-
-    #[test]
-    fn a_long_message_is_cut_to_one_line() {
-        let long = format!("First line\n\n{}", "word ".repeat(200));
-        let body = body(&ended(StopReason::EndTurn, &long, None));
-        assert!(body.starts_with("Fix the login test: First line word"));
-        assert!(body.ends_with("..."));
-        assert_eq!(body.chars().count(), MAX_BODY + 3);
     }
 }

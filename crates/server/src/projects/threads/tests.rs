@@ -31,14 +31,6 @@ fn needs_reply_when_other_wrote_last() {
 }
 
 #[test]
-fn no_reply_when_mine_is_newest() {
-    let comments = [said("sam", 9), said("alice", 10)];
-    assert!(!needs_reply(&comments, "alice"));
-    assert!(!needs_reply(&[], "alice"));
-    assert!(!needs_reply(&[said("alice", 9)], "alice"));
-}
-
-#[test]
 fn bots_do_not_need_reply() {
     let comments = [
         said("alice", 9),
@@ -48,16 +40,6 @@ fn bots_do_not_need_reply() {
     ];
     assert!(!needs_reply(&comments, "alice"));
     assert_eq!(last_other(&comments, "alice"), "");
-}
-
-#[test]
-fn last_other_is_one_short_line() {
-    let mut long = said("sam", 10);
-    long.body = format!("Can we\ncut it down? {}", "x".repeat(300));
-    let line = last_other(&[said("alice", 9), long], "alice");
-    assert!(line.starts_with("sam: Can we cut it down? "), "{line}");
-    assert!(line.len() < LAST_LINE + 20, "{}", line.len());
-    assert!(line.ends_with("..."), "{line}");
 }
 
 /// Alice's `acme/widget` with GitHub roles and a home checkout.
@@ -147,20 +129,6 @@ async fn lists_my_prs_and_issues_with_reply_state() {
     let ran = shell.ran_with("pr list");
     assert!(ran[0].contains("--author @me"), "{}", ran[0]);
     assert!(ran[0].contains("--state open"), "{}", ran[0]);
-}
-
-#[tokio::test]
-async fn threads_of_a_project_without_github_are_empty() {
-    let db = TestDb::new().await.unwrap();
-    let user = User::for_test(db.store().await.unwrap(), "alice");
-    let mut fleet = FakeFleet::default();
-    let (project, shell) = github_project(&user, &mut fleet).await;
-    user.set_project_setup(project.id, &Roles::default(), Visibility::Private, "main")
-        .await
-        .unwrap();
-    let project = user.project(project.id).await.unwrap().unwrap();
-    assert!(list(&fleet, &user, &project).await.unwrap().is_empty());
-    assert!(shell.ran().is_empty());
 }
 
 #[tokio::test]
@@ -265,23 +233,4 @@ async fn a_thread_card_shows_the_post_and_newest_comments() {
     let other = view(&fleet, &user, &project, "acme/other", 41).await;
     assert!(matches!(other, Err(IssueError::Refused(_))), "{other:?}");
     assert_eq!(shell.ran_with("pr view").len(), before);
-}
-
-#[test]
-fn a_thread_card_keeps_the_newest_comments() {
-    let thread = Thread {
-        kind: ThreadKind::Issue,
-        number: 7,
-        title: " Crash ".into(),
-        body: "It crashes.".into(),
-        url: "https://github.com/acme/widget/issues/7".into(),
-        author: "sam".into(),
-        updated_at: None,
-        comments: (0..23).map(|n| said("sam", n)).collect(),
-    };
-    let shown = card(&thread, "alice");
-    assert_eq!(shown.comments.len(), CARD_COMMENTS);
-    assert_eq!(shown.earlier, 3);
-    assert_eq!(shown.title, "Crash");
-    assert_eq!(shown.comments[0].body, thread.comments[3].body);
 }

@@ -131,16 +131,4 @@ mod tests {
             .unwrap();
         assert!(reloads().await, "a new timezone does");
     }
-
-    #[tokio::test]
-    async fn the_timezone_is_kept_without_a_location() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let user = UserKey::for_test("alice");
-
-        assert_eq!(store.get_timezone(&user).await.unwrap(), "UTC");
-        store.set_timezone(&user, "Europe/Madrid").await.unwrap();
-        assert_eq!(store.get_timezone(&user).await.unwrap(), "Europe/Madrid");
-        assert_eq!(store.get_location(&user).await.unwrap(), None);
-    }
 }

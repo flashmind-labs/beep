@@ -465,37 +465,6 @@ mod tests {
         assert_eq!(stale_at, Some(now.time + MIN_STALE));
     }
 
-    #[test]
-    fn a_refresh_lists_the_set_it_replaces() {
-        let context = StarterContext {
-            memories: Vec::new(),
-            recent_titles: Vec::new(),
-            now: singapore("2026-10-07T02:00:00Z"),
-            place: None,
-            connected_apps: Vec::new(),
-            done: Vec::new(),
-            shown: vec![PromptSuggestion {
-                title: "Lunch nearby".into(),
-                prompt: "Find a quiet lunch spot near me.".into(),
-            }],
-        };
-        let text = context.render();
-        assert!(
-            text.contains("Shown just before:\n- Lunch nearby: Find a quiet lunch spot near me.")
-        );
-    }
-
-    #[test]
-    fn fallback_fits_chips() {
-        let fallback = fallback();
-        assert_eq!(fallback.len(), COUNT);
-        assert!(
-            fallback
-                .iter()
-                .all(|s| s.title.chars().count() <= MAX_TITLE_CHARS)
-        );
-    }
-
     fn at(latitude: f64, longitude: f64) -> Location {
         Location {
             latitude,

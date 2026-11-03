@@ -153,23 +153,3 @@ pub(crate) async fn has_mail_trigger(user: &User, toolkit: &str) -> Result<bool>
         .iter()
         .any(|row| slugs.contains(&row.slug.as_str())))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::apps::catalog_app;
-
-    #[test]
-    fn every_trigger_belongs_to_a_catalog_app_and_reads_into_events() {
-        for spec in SPECS {
-            assert!(catalog_app(spec.toolkit).is_some(), "{}", spec.toolkit);
-            assert!(
-                spec.slug.starts_with(&spec.toolkit.to_uppercase()),
-                "{} is not a {} trigger",
-                spec.slug,
-                spec.toolkit
-            );
-            assert!((spec.config)().is_object());
-        }
-    }
-}

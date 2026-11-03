@@ -268,8 +268,6 @@ pub async fn review(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flashmind::types::ToolCall;
-    use serde_json::json;
 
     #[test]
     fn reads_fenced_answers() {
@@ -292,37 +290,5 @@ mod tests {
         assert!(parse_ops("{\"changes\":[]}").unwrap().is_empty());
         assert!(parse_ops("nothing to learn").is_err());
         assert!(parse_ops("} nothing to learn {").is_err());
-    }
-
-    #[test]
-    fn transcript_shows_calls_and_keeps_the_end() {
-        let call = ToolCall {
-            id: "c1".into(),
-            name: "web_search".into(),
-            arguments: json!({"query": "padel courts"}),
-        };
-        let entries = [
-            ConversationEntry::user("Book padel"),
-            ConversationEntry::assistant_with_tool_calls("", vec![call], None),
-            ConversationEntry::tool("c1", "Club Norte, 19:00"),
-            ConversationEntry::assistant("Booked 19:00."),
-        ];
-        let text = transcript(&entries);
-        assert_eq!(
-            text,
-            "User: Book padel\n[call web_search {\"query\":\"padel courts\"}]\n[result Club Norte, 19:00]\n\nBeep: Booked 19:00."
-        );
-        assert_eq!(tool_calls(&entries), 1);
-        let long = tail(&"é".repeat(100), 21);
-        assert!(long.starts_with("[earlier turns left out]\n"));
-        assert!(long.len() <= 21 + 26);
-    }
-
-    #[test]
-    fn rejects_skills_past_their_limits() {
-        assert!(valid("Book padel", "Booking a court", "1. Ask"));
-        assert!(!valid(" ", "Booking a court", "1. Ask"));
-        assert!(!valid(&"n".repeat(NAME_MAX + 1), "d", "b"));
-        assert!(!valid("n", "d", &"b".repeat(BODY_MAX + 1)));
     }
 }

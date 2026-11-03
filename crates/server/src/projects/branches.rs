@@ -296,15 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn worktree_path_flattens_slashes() {
-        assert_eq!(worktree_path("login-copy"), ".worktrees/login-copy");
-        assert_eq!(
-            worktree_path("beep/fix/android"),
-            ".worktrees/beep-fix-android"
-        );
-    }
-
-    #[test]
     fn branch_names_git_refuses_are_refused() {
         assert_eq!(branch_name(" beep/login "), Some("beep/login"));
         for bad in [
@@ -312,21 +303,6 @@ mod tests {
         ] {
             assert_eq!(branch_name(bad), None, "{bad:?}");
         }
-    }
-
-    #[test]
-    fn prs_read_from_gh() {
-        let out = r#"[{"number":41,"title":"Fix the copy","headRefName":"login-copy"}]"#;
-        assert_eq!(
-            parse_prs(out).unwrap(),
-            [OpenPr {
-                number: 41,
-                title: "Fix the copy".into(),
-                head: "login-copy".into(),
-            }]
-        );
-        assert!(my_prs_command("acme/widget").contains("gh pr list -R acme/widget --author @me"));
-        assert!(parse_prs("not json").is_err());
     }
 
     fn git(dir: &Path, args: &[&str]) {

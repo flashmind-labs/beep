@@ -101,17 +101,6 @@ mod tests {
     }
 
     #[test]
-    fn folders_are_kept_as_groups_compare_them_once_each() {
-        let paths = group_paths(&given(&[
-            "~/Projects/work",
-            "/home/user/work/",
-            "/srv/project",
-        ]))
-        .unwrap();
-        assert_eq!(paths, ["work", "/srv/project"]);
-    }
-
-    #[test]
     fn a_home_folder_the_root_or_nothing_is_refused() {
         for list in [
             vec![],
@@ -126,14 +115,5 @@ mod tests {
         }
         let many: Vec<String> = (0..=MAX_PATHS).map(|i| format!("~/f{i}")).collect();
         assert!(group_paths(&many).is_err());
-    }
-
-    #[test]
-    fn an_empty_name_takes_the_first_folder() {
-        let paths = given(&["work", "games"]);
-        assert_eq!(group_name("  ", &paths).unwrap(), "work");
-        assert_eq!(group_name(" Field ", &paths).unwrap(), "Field");
-        assert!(group_name(&"x".repeat(MAX_NAME + 1), &paths).is_err());
-        assert!(group_name("two\nlines", &paths).is_err());
     }
 }

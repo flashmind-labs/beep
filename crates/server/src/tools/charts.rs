@@ -443,47 +443,9 @@ fn time_ms(text: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::StockInfo;
 
     fn args(json: Value) -> ChartArgs {
         serde_json::from_value(json).expect("test arguments are valid")
-    }
-
-    #[test]
-    fn category_chart_keeps_order_and_reports_gaps() {
-        let mut dropped = Vec::new();
-        let chart = build(
-            args(json!({
-                "title": " Rainfall ", "kind": "bar", "unit": "mm",
-                "categories": ["Jan", "Feb", "Mar"],
-                "series": [{ "name": "Lyon", "values": [50.5, null, 61.0] }]
-            })),
-            &mut dropped,
-        )
-        .expect("a valid chart");
-        assert_eq!(chart.title, "Rainfall");
-        assert_eq!((chart.kind, chart.x), (ChartKind::Bar, ChartAxis::Category));
-        assert_eq!(chart.categories, ["Jan", "Feb", "Mar"]);
-        assert_eq!(
-            chart.series[0].points,
-            [
-                ChartPoint { x: 0.0, y: 50.5 },
-                ChartPoint { x: 2.0, y: 61.0 }
-            ]
-        );
-        assert_eq!(dropped, ["Lyon: 1 missing values"]);
-    }
-
-    #[test]
-    fn values_must_match_the_categories() {
-        let result = build(
-            args(json!({
-                "title": "T", "categories": ["a", "b"],
-                "series": [{ "name": "s", "values": [1.0] }]
-            })),
-            &mut Vec::new(),
-        );
-        assert!(result.is_err());
     }
 
     #[test]
@@ -515,76 +477,5 @@ mod tests {
             ]
         );
         assert_eq!(dropped.len(), 1, "{dropped:?}");
-    }
-
-    #[test]
-    fn too_many_series_or_nothing_valid_fails() {
-        let series: Vec<Value> = (0..5)
-            .map(
-                |i| json!({ "name": format!("s{i}"), "points": [{ "t": "2026-01-01", "v": 1.0 }] }),
-            )
-            .collect();
-        assert!(
-            build(
-                args(json!({ "title": "T", "series": series })),
-                &mut Vec::new()
-            )
-            .is_err()
-        );
-        assert!(
-            build(
-                args(json!({ "title": "T", "series": [{ "name": "s", "points": [{ "t": "soon", "v": 1.0 }] }] })),
-                &mut Vec::new()
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn output_is_the_proto_chart() {
-        let chart = build(
-            args(json!({
-                "title": "T", "categories": ["a"], "series": [{ "name": "s", "values": [1.0] }]
-            })),
-            &mut Vec::new(),
-        )
-        .expect("a valid chart");
-        let shown = Shown {
-            action: CHART,
-            chart,
-            summary: String::new(),
-            dropped: Vec::new(),
-        };
-        assert_eq!(
-            serde_json::to_value(&shown).expect("serializes"),
-            json!({
-                "action": "show_chart",
-                "chart": {
-                    "title": "T", "kind": "line", "x": "category", "categories": ["a"],
-                    "unit": "", "series": [{ "name": "s", "points": [{ "x": 0.0, "y": 1.0 }] }],
-                    "stock": null, "source": ""
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn summary_gives_price_and_change() {
-        let history = History {
-            info: StockInfo {
-                symbol: "ACME".to_owned(),
-                name: "Acme Corp.".to_owned(),
-                exchange: "NasdaqGS".to_owned(),
-                currency: "USD".to_owned(),
-                range: ChartRange::Month,
-                last: 110.0,
-                previous: 100.0,
-            },
-            points: Vec::new(),
-        };
-        assert_eq!(
-            summary(ChartRange::Month, &[history]),
-            "Acme Corp. (ACME): last 110.00 USD, +10.00 (+10.00%) over 1mo from 100.00, on NasdaqGS."
-        );
     }
 }

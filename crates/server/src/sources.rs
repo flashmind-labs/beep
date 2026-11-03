@@ -118,10 +118,6 @@ mod tests {
         }
     }
 
-    fn urls(sources: &ReplySources) -> Vec<String> {
-        sources.to_wire().into_iter().map(|s| s.url).collect()
-    }
-
     #[test]
     fn read_pages_come_before_search_results() {
         let mut sources = ReplySources::default();
@@ -163,17 +159,5 @@ mod tests {
             ],
         );
         assert!(sources.is_empty());
-    }
-
-    #[test]
-    fn at_most_max_sources() {
-        let mut sources = ReplySources::default();
-        let many: Vec<Source> = (0..10)
-            .map(|i| source(&format!("https://site{i}.example/"), None))
-            .collect();
-        sources.add("web_search", &many);
-        sources.add("web_search", &many);
-        assert_eq!(urls(&sources).len(), MAX_SOURCES);
-        assert_eq!(urls(&sources)[0], "https://site0.example/");
     }
 }

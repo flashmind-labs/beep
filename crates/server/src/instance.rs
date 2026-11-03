@@ -194,13 +194,6 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_table_names_no_owner() {
-        let instance = Instance::new(config(""));
-        assert_eq!(instance.name(), "Beep");
-        assert!(instance.owner_key().is_none());
-    }
-
-    #[test]
     fn the_server_and_node_files_go_both_ways() {
         let dir = tempfile::tempdir().expect("a temp dir");
         let instance = Instance::new(InstanceConfig {

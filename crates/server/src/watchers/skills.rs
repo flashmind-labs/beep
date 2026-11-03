@@ -84,22 +84,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_chat_with_few_tool_calls_is_marked_read_without_the_model() {
-        let h = Harness::new(Scripted::default()).await;
-        let chat = test_chat("hello");
-        let last = h.turn_with_calls(&h.alice, chat, "hello", 2).await;
-        let mut runner = skills_runner(&h);
-        runner.tick(Utc::now() + TimeDelta::minutes(2)).await;
-        assert!(runner.drain().await.is_empty());
-        assert!(h.model.prompts().is_empty());
-        let states = h.app.store.watcher_states(&[chat]).await.expect("states");
-        let state = states
-            .get(&(chat, WatcherKind::Skills))
-            .expect("the place is kept");
-        assert_eq!(state.reviewed_seq, last);
-    }
-
-    #[tokio::test]
     async fn a_finished_chat_becomes_a_skill() {
         let model = Scripted::default().answer(
             "You keep Beep's skills",

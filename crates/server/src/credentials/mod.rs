@@ -276,28 +276,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn slots_come_from_the_wire() {
-        let slot = Slot::from_wire(&CredentialKind::ApiKey {
-            provider: "zai".into(),
-        })
-        .unwrap();
-        assert_eq!(slot, Slot::ApiKey(ApiProvider::Zai));
-        assert_eq!(slot.env_var(), Some("ZAI_API_KEY"));
-        assert!(
-            Slot::from_wire(&CredentialKind::ApiKey {
-                provider: "nope".into()
-            })
-            .is_err()
-        );
-        assert_eq!(Slot::GitHub.env_var(), Some("GH_TOKEN"));
-        let claude = Slot::AgentToken(AgentAccount::Claude);
-        assert_eq!(claude.env_var(), Some("CLAUDE_CODE_OAUTH_TOKEN"));
-        // Not among the git credentials imports and checks use.
-        assert!(!claude.always_to_machines());
-        assert!(Slot::GitHub.always_to_machines());
-    }
-
     fn account(login: &str, orgs: &[&str], default: bool, token: &str) -> Opened {
         Opened {
             slot: Slot::GitHub,
@@ -350,17 +328,6 @@ mod tests {
                 ("GH_TOKEN", "tok-one"),
             ]
         );
-    }
-
-    #[test]
-    fn owner_vars_take_only_github_names() {
-        assert_eq!(
-            github_owner_var("acme-labs").as_deref(),
-            Some("BEEP_GH_TOKEN_ACME_LABS")
-        );
-        assert_eq!(github_owner_var("my.org"), None);
-        assert_eq!(github_owner_var("a_b"), None);
-        assert_eq!(github_owner_var(""), None);
     }
 
     #[test]

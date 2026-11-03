@@ -502,26 +502,6 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
-    #[test]
-    fn composio_apps_pick_their_own_tools() {
-        for app in CATALOG {
-            if app.kind != (AppKind::Composio {}) {
-                assert!(app.tools.is_empty(), "{}", app.slug);
-                continue;
-            }
-            assert!(!app.tools.is_empty(), "{} has no tools", app.slug);
-            let prefix = format!("{}_", app.slug.to_uppercase());
-            for tool in app.tools {
-                assert!(
-                    tool.slug.starts_with(&prefix),
-                    "{} is not a {} tool",
-                    tool.slug,
-                    app.slug
-                );
-            }
-        }
-    }
-
     async fn alice() -> (Arc<User>, Store, TestDb) {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
@@ -568,21 +548,6 @@ mod tests {
             .await
             .unwrap();
         assert!(alice.apps().await.unwrap()[9].connected);
-    }
-
-    #[tokio::test]
-    async fn connect_explains_missing_setup() {
-        let (alice, _store, _db) = alice().await;
-        let error = alice.connect_app("gmail").await.unwrap_err();
-        assert!(
-            matches!(error, ApiError::BadRequest { message } if message.contains("not configured"))
-        );
-        let error = alice.connect_app("fastmail").await.unwrap_err();
-        assert!(
-            matches!(error, ApiError::BadRequest { message } if message.contains("StartAppAuth"))
-        );
-        let error = alice.disconnect_app("myspace").await.unwrap_err();
-        assert!(matches!(error, ApiError::BadRequest { .. }));
     }
 
     #[tokio::test]

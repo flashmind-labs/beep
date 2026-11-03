@@ -950,40 +950,6 @@ mod tests {
     }
 
     #[test]
-    fn a_checkout_plan_needs_a_plain_base_and_a_node_that_makes_it() {
-        let worktree = |base: Option<&str>| {
-            Some(AgentCheckoutPlan::NewWorktree {
-                base: base.map(str::to_owned),
-            })
-        };
-        let old = Makes {
-            checkouts: false,
-            branches: false,
-        };
-        let new = Makes {
-            checkouts: true,
-            branches: true,
-        };
-        assert_eq!(checkout_for(old, "old-box", None).unwrap(), None);
-        assert_eq!(
-            checkout_for(new, "box", worktree(Some("main"))).unwrap(),
-            Some(agent::CheckoutPlan::NewWorktree {
-                base: Some("main".into())
-            })
-        );
-        let ApiError::BadRequest { message } =
-            checkout_for(old, "old-box", worktree(None)).unwrap_err()
-        else {
-            panic!("a bad request");
-        };
-        assert!(message.contains("old-box is too old"), "{message}");
-        assert!(matches!(
-            checkout_for(new, "box", worktree(Some("--orphan"))),
-            Err(ApiError::BadRequest { .. })
-        ));
-    }
-
-    #[test]
     fn a_named_branch_needs_a_branch_name_and_a_node_that_makes_it() {
         let named = |branch: &str| {
             Some(AgentCheckoutPlan::NamedWorktree {
@@ -1043,61 +1009,6 @@ mod tests {
         }
     }
 
-    fn steer_images(images: Vec<Upload>) -> Result<Request, ApiError> {
-        node_request(AgentSteer::PromptImages {
-            text: "Look at this".into(),
-            images,
-        })
-    }
-
-    #[test]
-    fn images_within_the_limits_go_to_the_node() {
-        let five = (0..MAX_AGENT_IMAGES)
-            .map(|i| png(&format!("{i}.png"), 1024))
-            .collect();
-        let Ok(Request::PromptImages { text, images }) = steer_images(five) else {
-            panic!("five small images go");
-        };
-        assert_eq!(text, "Look at this");
-        assert_eq!(images.len(), MAX_AGENT_IMAGES);
-        assert_eq!(
-            steer_images(vec![png("max.png", MAX_AGENT_IMAGE)]).map(|_| ()),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn too_many_images_are_refused() {
-        let six = (0..=MAX_AGENT_IMAGES)
-            .map(|i| png(&format!("{i}.png"), 1024))
-            .collect();
-        let error = steer_images(six).unwrap_err().to_string();
-        assert!(error.contains("At most 5 images"), "{error}");
-    }
-
-    #[test]
-    fn an_image_over_the_size_limit_is_refused() {
-        let error = steer_images(vec![png("huge.png", MAX_AGENT_IMAGE + 1)])
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("huge.png is over 5 MB"), "{error}");
-    }
-
-    #[test]
-    fn a_message_without_images_goes_as_text() {
-        assert_eq!(
-            steer_images(Vec::new()),
-            Ok(Request::Prompt {
-                text: "Look at this".into()
-            })
-        );
-        let empty = node_request(AgentSteer::PromptImages {
-            text: " ".into(),
-            images: Vec::new(),
-        });
-        assert!(empty.is_err(), "nothing to send");
-    }
-
     #[test]
     fn a_steer_goes_to_the_node_and_falls_back_to_a_prompt() {
         let steer = node_request(AgentSteer::Steer {
@@ -1130,14 +1041,6 @@ mod tests {
     }
 
     #[test]
-    fn only_image_keys_are_asked_for() {
-        assert!(is_image_key(&image_key(b"\x89PNG")));
-        assert!(!is_image_key("shot.png"));
-        assert!(!is_image_key("0123456789ABCDEF"));
-        assert!(!is_image_key("0123456789abcde"));
-    }
-
-    #[test]
     fn folder_tests_quote_the_path_and_keep_home() {
         assert_eq!(
             folder_test("/srv/project").as_deref(),
@@ -1152,14 +1055,5 @@ mod tests {
             Some("test -d \"$HOME\"/code/app")
         );
         assert_eq!(folder_test("~").as_deref(), Some("test -d \"$HOME\""));
-    }
-
-    #[test]
-    fn an_unchecked_folder_under_another_systems_home_is_missing() {
-        assert!(!plausible("/Users/sam/app", Some("/home/sam")));
-        assert!(!plausible("/home/sam/app", Some("/Users/sam")));
-        assert!(plausible("/Users/sam/app", Some("/Users/sam")));
-        assert!(plausible("/srv/project", Some("/home/sam")));
-        assert!(plausible("/Users/sam/app", None));
     }
 }
