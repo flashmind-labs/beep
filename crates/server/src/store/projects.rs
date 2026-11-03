@@ -64,8 +64,7 @@ pub(crate) struct TaskRow {
     pub(crate) pr_seen: Option<String>,
     pub(crate) created_at: DateTime<Utc>,
     pub(crate) updated_at: DateTime<Utc>,
-    /// Its issue was opened by someone else: Beep never closes, relabels or
-    /// edits it, and comments on it at most once, after asking.
+    /// Someone else opened the issue: Beep never closes, relabels or edits it, and comments at most once after asking.
     pub(crate) issue_foreign: bool,
     /// Beep commented on its issue.
     pub(crate) issue_commented: bool,
@@ -74,8 +73,7 @@ pub(crate) struct TaskRow {
 /// Who opened the issue a task tracks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IssueAuthor {
-    /// The user's own account on the host: Beep keeps it in step as it
-    /// does the issues it files.
+    /// The user's own host account, kept in step like the issues Beep files.
     User,
     /// Anyone else: Beep leaves it as it is.
     Other,
@@ -319,11 +317,8 @@ fn lock_refusal(error: &sqlx::Error) -> Option<StartRefused> {
     }
 }
 
-/// Commits `tx` when `keep`, else rolls it back, and returns `done`.
-/// Transactions end here rather than on drop: a dropped one rolls back only
-/// when its connection is next used, and holds its locks until then. When
-/// `done` already failed, a failed rollback is logged and `done`'s error
-/// returned.
+/// Commits `tx` when `keep`, else rolls back, returning `done`.
+/// A dropped transaction holds its locks until the connection is reused, so end them here.
 pub(super) async fn end<T>(
     tx: Transaction<'_, Postgres>,
     keep: bool,
@@ -645,8 +640,7 @@ impl Store {
         row.as_ref().map(project_from).transpose()
     }
 
-    /// The project whose agent talks in `chat`, if it is one: its own chat
-    /// or a chat about one of its pull requests or issues.
+    /// The project whose agent talks in `chat`: its own chat or a thread chat.
     pub(crate) async fn project_in(
         &self,
         user: &UserKey,
@@ -666,8 +660,7 @@ impl Store {
         row.as_ref().map(project_from).transpose()
     }
 
-    /// The chat of the project's agent, made and titled with the project's
-    /// name on first use.
+    /// The project agent's chat, created and titled on first use.
     pub(crate) async fn ensure_project_agent(
         &self,
         user: &UserKey,
@@ -762,8 +755,7 @@ impl Store {
         end(tx, keep, done).await
     }
 
-    /// Makes `tasks` in `project`, in order. A slug the project already
-    /// has gets `-2`, `-3` and so on.
+    /// Creates `tasks` in `project` in order; clashing slugs get `-2`, `-3` and so on.
     pub(crate) async fn create_tasks(
         &self,
         project: ProjectId,
@@ -823,8 +815,7 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the task from `from` to `to`, unless something moved it since
-    /// it was read. Says whether it moved.
+    /// Moves the task from `from` to `to` unless it moved since read; says whether it did.
     pub(crate) async fn move_task_state(
         &self,
         id: TaskId,
@@ -862,9 +853,7 @@ impl Store {
         Ok(())
     }
 
-    /// Makes `task` tracking the existing `issue` on `host`, unless a task
-    /// of the project tracks it already. Nothing is made when any step
-    /// fails, so no task is left without its issue.
+    /// Makes `task` tracking existing `issue` on `host` unless already tracked; all or nothing.
     pub(crate) async fn track_issue(
         &self,
         project: ProjectId,
@@ -879,8 +868,7 @@ impl Store {
         end(tx, keep, done).await
     }
 
-    /// Notes that Beep commented on the task's issue. With `once`, only
-    /// when it had not yet; says whether it noted it.
+    /// Notes Beep commented on the task's issue (only the first time with `once`); says whether noted.
     pub(crate) async fn note_issue_comment(&self, id: TaskId, once: bool) -> Result<bool> {
         let noted = sqlx::query(
             "UPDATE project_tasks SET issue_commented=true, updated_at=now()
@@ -984,9 +972,7 @@ impl Store {
         rows.iter().map(task_from).collect()
     }
 
-    /// Starts a worker on the task if the caps and locks allow it. Starts
-    /// for one user run one at a time, so two cannot both take the last
-    /// slot.
+    /// Starts a worker if caps and locks allow; serialized per user so two cannot take the last slot.
     pub(crate) async fn start_worker(
         &self,
         user: &UserKey,
@@ -1018,9 +1004,7 @@ impl Store {
         Ok(())
     }
 
-    /// Moves the worker to `state`, noting when it ended. An ended or failed
-    /// worker never comes back to life, so a live `state` only moves a live
-    /// worker. Says whether it moved.
+    /// Moves the worker to `state`, noting the end; ended or failed workers never revive. Says whether it moved.
     pub(crate) async fn set_worker_state(&self, id: WorkerId, state: WorkerState) -> Result<bool> {
         let moved = sqlx::query(
             "UPDATE project_workers SET state=$2,
@@ -1037,10 +1021,7 @@ impl Store {
         Ok(moved == 1)
     }
 
-    /// Notes a finished turn: the worker waits, not asking anything, with
-    /// `turns` of its session's turns heard about. An ended worker stays
-    /// ended, and a turn no later than one already noted changes nothing, so
-    /// a late report cannot undo newer news. Says whether it was noted.
+    /// Notes a finished turn (worker waits, `turns` heard); ignored for ended workers or stale turns. Says whether noted.
     pub(crate) async fn worker_turn(
         &self,
         id: WorkerId,
@@ -1105,8 +1086,7 @@ impl Store {
         rows.iter().map(worker_from).collect()
     }
 
-    /// The project's live workers and those that ended since `since`,
-    /// oldest first.
+    /// The project's live workers plus those ended since `since`, oldest first.
     pub(crate) async fn workers(
         &self,
         project: ProjectId,
@@ -1136,8 +1116,7 @@ impl Store {
         row.as_ref().map(worker_from).transpose()
     }
 
-    /// Fails every worker still starting, at startup: the server that was
-    /// starting them is gone, so they never got a session.
+    /// Fails every still-starting worker at startup, since the server starting them is gone.
     pub(crate) async fn fail_starting_workers(&self) -> Result<Vec<WorkerRow>> {
         let rows = sqlx::query(&format!(
             "UPDATE project_workers AS w SET state=$2, ended_at=now() WHERE state=$1
@@ -1198,9 +1177,7 @@ impl Store {
         rows.iter().map(worker_from).collect()
     }
 
-    /// Every project of `user`'s summed up, by name: its tasks per state,
-    /// its live workers and the task that changed last. Dropped tasks are
-    /// left out. Two queries, whatever the number of projects.
+    /// Overview of every project of `user` by name, dropped tasks left out, in two queries.
     pub(crate) async fn project_overviews(&self, user: &UserKey) -> Result<Vec<OverviewRow>> {
         let rows = sqlx::query(
             "SELECT p.id, p.name,

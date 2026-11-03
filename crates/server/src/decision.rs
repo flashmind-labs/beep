@@ -98,9 +98,7 @@ impl DecisionTool {
         self.judge(state, instructions, Some(criteria)).await
     }
 
-    /// Jev's probability of yes for each of `questions`, asked together in
-    /// one request and keyed as given. A question Jev left unanswered is
-    /// missing from the result.
+    /// Jev's probability of yes for each of `questions`, in one request; unanswered ones are missing.
     pub async fn probabilities(
         &self,
         state: &str,
@@ -127,8 +125,7 @@ impl DecisionTool {
             .collect())
     }
 
-    /// Jev's pick of one of `options`, each named with what it fits, for
-    /// `instructions` about `state`.
+    /// Jev's pick of one of `options` for `instructions` about `state`.
     pub async fn choose(
         &self,
         state: &str,
@@ -153,9 +150,7 @@ impl DecisionTool {
             .ok_or_else(|| anyhow::anyhow!("Jev chose an unknown option: {picked}"))
     }
 
-    /// Jev's pick of one of `options` for each of `questions`, asked together
-    /// in one request about `state` and keyed as given. A question Jev left
-    /// unanswered, or answered with an unknown option, is missing.
+    /// Jev's pick for each of `questions`, in one request; unanswered or unknown picks are missing.
     pub async fn choose_each(
         &self,
         state: &str,
@@ -190,8 +185,7 @@ impl DecisionTool {
             .collect())
     }
 
-    /// Jev's pick of one of `models` and a thinking level for the prompt in
-    /// `state`. With a single model only the thinking is asked.
+    /// Jev's pick of a model and thinking level; with one model only the thinking is asked.
     pub async fn route<'a>(&self, state: &str, models: &'a [AutoModel]) -> Result<Routed<'a>> {
         let mut questions = BTreeMap::from([("thinking".to_owned(), thinking_question())]);
         if models.len() > 1 {
@@ -279,8 +273,7 @@ fn choice<'a>(response: &'a JevResponse, key: &str) -> Option<&'a str> {
         .and_then(|answer| answer["choice"].as_str())
 }
 
-/// Turns a provider error into a client-safe message. The provider already
-/// leaves upstream bodies out of its errors; transport errors are not echoed.
+/// Turns a provider error into a client-safe message; transport errors are not echoed.
 fn describe(error: anyhow::Error) -> String {
     match error.downcast_ref::<LlmError>() {
         Some(error) if error.kind == LlmErrorKind::RateLimited => {

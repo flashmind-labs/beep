@@ -75,8 +75,7 @@ fn session(endpoint: &str, machine: &str, agent: &str, cwd: &str) -> MachineSess
     }
 }
 
-/// Alice's two projects: acme/widget on both machines with a task, and
-/// acme/gadget on the mac only. Gives the build box's and the mac's keys.
+/// Alice's two projects on two machines; gives the build box's and the mac's keys.
 async fn two_projects(alice: &User) -> (String, String) {
     let build = machine(alice, 1, "build-box").await;
     let mac = machine(alice, 2, "mac").await;

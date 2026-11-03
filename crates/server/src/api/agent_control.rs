@@ -1,6 +1,4 @@
-//! Starting and steering coding-agent sessions from the app: the machines
-//! that can run one, starting one (on a named machine or by Auto), reading
-//! one in full and sending it a message, a stop or a close.
+//! Starting, reading and steering coding-agent sessions from the app.
 
 use super::{
     Reply,
@@ -26,8 +24,7 @@ use tokio::time::timeout;
 
 /// The most transcript entries one view reads.
 const MAX_ENTRIES: u32 = 200;
-/// The agent Auto starts when the request names none, in this order of
-/// preference among those the machine offers.
+/// The agent Auto starts when the request names none, most preferred first.
 const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
 /// An online machine of the caller's that offers a coding agent.
@@ -75,9 +72,7 @@ impl Live {
     }
 }
 
-/// The caller's online machines that offer an agent, in the order the
-/// store lists them. A machine whose key was unlinked is left out, and so
-/// is an agent the caller turned off on a machine (Coding agents).
+/// The caller's linked online machines that offer an agent, without agents turned off there.
 pub(super) async fn live_hosts(cx: &Cx) -> Result<Vec<Live>, ApiError> {
     let keys = linked_keys(cx).await?;
     let off = cx.user.off_harnesses().await?;
@@ -152,8 +147,7 @@ pub(super) async fn list_agent_hosts(cx: Cx, _: ListAgentHosts) -> Reply<Vec<Age
         .collect())
 }
 
-/// Takes over the session on its machine; the node refuses one that
-/// still runs in a terminal or whose folder is gone.
+/// Takes over the session; the node refuses one still in a terminal or whose folder is gone.
 pub(super) async fn resume_agent_session(
     cx: Cx,
     resume: ResumeAgentSession,
@@ -187,8 +181,7 @@ pub(super) async fn resume_agent_session(
     })
 }
 
-/// Auto reads what the prompt and folder call for and picks among the
-/// machines that have it.
+/// Auto picks among the machines that have what the prompt and folder call for.
 pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Reply<StartedAgent> {
     let prompt = start.prompt.trim().to_owned();
     if prompt.is_empty() {
@@ -254,10 +247,7 @@ pub(super) async fn start_agent_session(cx: Cx, start: StartAgentSession) -> Rep
     })
 }
 
-/// Remembers that the caller's device started `session`, so what it asks
-/// and when it finishes go to that device alone. The session runs either
-/// way: a start that was not saved only sends its alerts to the user's
-/// computers, as for a session started outside Beep.
+/// Remembers that the caller's device started `session`, so its alerts go to that device alone.
 async fn started_here(cx: &Cx, live: &Live, agent: &str, session: &str) {
     let on = SessionOn {
         machine: &live.online.connection.remote_id(),
@@ -336,9 +326,7 @@ async fn auto(
         })
         .collect();
     if let Some(folder) = folder {
-        // Only machines that could run it are asked; the futures are made
-        // up front, since a closure inside the stream would keep the reply
-        // future from being `Send`.
+        // Futures made up front: a closure inside the stream would make the reply not `Send`.
         let asks: Vec<_> = (0..hosts.len())
             .filter(|&at| candidates[at].offers && candidates[at].has(&start.needs))
             .map(|at| {
@@ -389,10 +377,7 @@ async fn auto(
     Ok((live, choice.why))
 }
 
-/// Whether `folder` is on `online`, asked with `test -d`. When the node
-/// cannot be asked, a folder under another system's home root (`/Users`
-/// on a Linux machine, `/home` on a Mac) counts as missing and anything
-/// else as there, so the start can still try.
+/// Whether `folder` is on `online`. Unasked, a folder under another system's home root is missing.
 async fn probed(at: usize, online: Online, home: Option<String>, folder: &str) -> (usize, bool) {
     let asked = match folder_test(folder) {
         Some(command) => timeout(NODE_LIMIT, online.exec(&command, NODE_LIMIT, &mut |_| {})).await,
@@ -444,8 +429,7 @@ async fn counted(at: usize, online: Online) -> (usize, u32) {
     (at, running(&online).await)
 }
 
-/// Sessions that have not ended on `online`; a node that does not answer
-/// counts as busy, so Auto goes elsewhere.
+/// Sessions running on `online`; a node that does not answer counts as busy.
 async fn running(online: &Online) -> u32 {
     match limited(online.agent_sessions()).await {
         Ok(sessions) => {
@@ -462,8 +446,7 @@ async fn running(online: &Online) -> u32 {
     }
 }
 
-/// A transcript that cannot be read leaves `entries` empty, so the rest
-/// still shows.
+/// A transcript that cannot be read leaves `entries` empty.
 pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<AgentSessionView> {
     let started = Instant::now();
     let live = live_host(&cx, &get.machine_id).await?;
@@ -477,8 +460,7 @@ pub(super) async fn get_agent_session(cx: Cx, get: GetAgentSession) -> Reply<Age
     {
         Some(info) => beep_view(&host, info),
         None => {
-            // A node that cannot list outside sessions (an older one, or
-            // one without the agent) has none to find.
+            // A node that cannot list outside sessions has none to find.
             let outside = limited(live.online.external_sessions(
                 &get.agent,
                 1,
@@ -597,11 +579,9 @@ fn entry(entry: agent::Entry) -> AgentEntry {
     }
 }
 
-/// Only sessions Beep runs take orders; one started outside Beep is not
-/// found.
+/// Only sessions Beep runs take orders; one started outside Beep is not found.
 pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Reply<()> {
-    // Refused before the machine is looked up, so an oversized message
-    // costs nothing more.
+    // Refused before the machine is looked up.
     let request = node_request(steer.steer)?;
     let images = matches!(request, Request::PromptImages { .. });
     let configure = matches!(request, Request::Configure { .. });
@@ -619,8 +599,7 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
         .agent_session(&steer.agent, &steer.session)
         .await
         .map_err(|e| ApiError::bad_request(format!("Could not reach the session: {e:#}")))?;
-    // A node from before steering takes the message as one for after the
-    // turn, which is the nearest it can do.
+    // A node from before steering takes the message for after the turn.
     let fallback = queued_instead(&request);
     let sent = match (link.send(request).await, fallback) {
         (Err(e), Some(prompt)) if format!("{e:#}").contains("unknown request") => {
@@ -650,14 +629,12 @@ pub(super) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Rep
     Ok(())
 }
 
-/// The apps read each picture of a session by its key with
-/// `GetAgentImage`; there is nothing to list.
+/// The apps read each picture by key with `GetAgentImage`; there is nothing to list.
 pub(super) async fn list_agent_images(_: Cx, _: ListAgentImages) -> Reply<Vec<AgentImage>> {
     Ok(Vec::new())
 }
 
-/// The kept copy of the picture, or else the node's, of which a copy is
-/// then kept so it shows while the machine is offline.
+/// The kept copy of the picture, or else the node's, which is then kept.
 pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentImageData> {
     if !is_image_key(&get.key) {
         return Err(ApiError::bad_request("That is not an image key."));
@@ -713,8 +690,7 @@ pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentIm
     })
 }
 
-/// Part of a media file on one of the caller's machines, read from its
-/// node on each call; nothing is kept.
+/// Part of a media file on one of the caller's machines; nothing is kept.
 pub(super) async fn get_agent_file(cx: Cx, get: GetAgentFile) -> Reply<AgentFileChunk> {
     if media_mime(&get.path).is_none() {
         return Err(ApiError::bad_request(
@@ -743,8 +719,7 @@ pub(super) async fn get_agent_file(cx: Cx, get: GetAgentFile) -> Reply<AgentFile
     }
 }
 
-/// The models `list.agent` can run on `list.machine_id`, as its node finds
-/// them. A node too old to say gives `Fixed`, so the form hides the field.
+/// The models `list.agent` can run on `list.machine_id`; a node too old to say gives `Fixed`.
 pub(super) async fn list_agent_models(cx: Cx, list: ListAgentModels) -> Reply<AgentModels> {
     let live = live_host(&cx, &list.machine_id).await?;
     if !live.offers(&list.agent) {
@@ -793,8 +768,7 @@ fn agent_models(list: agent::ModelList) -> AgentModels {
     }
 }
 
-/// The model a start asks for: `None` for the agent's own, and refused
-/// when it cannot be a model's name.
+/// The model a start asks for: `None` for the agent's own.
 fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
     let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
         return Ok(None);
@@ -805,8 +779,7 @@ fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
     Ok(Some(model.to_owned()))
 }
 
-/// The thinking level a start asks of `agent`: `None` for the agent's
-/// own, and refused when the agent cannot be set to it.
+/// The thinking level a start asks of `agent`: `None` for the agent's own.
 fn picked_effort(
     agent: &str,
     effort: Option<AgentEffort>,
@@ -824,9 +797,7 @@ fn picked_effort(
     Ok(Some(effort))
 }
 
-/// The branch or worktree a start asks `node` to make first: refused when
-/// its base cannot name a ref, or the node is too old to make it (it would
-/// start in the checkout as it is).
+/// The branch or worktree a start asks `node` to make; refused when the node is too old to make it.
 fn picked_checkout(
     node: &Online,
     checkout: Option<AgentCheckoutPlan>,
@@ -888,8 +859,7 @@ fn is_image_key(key: &str) -> bool {
     key.len() == 16 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The prompt a node from before `Request::Steer` gets for one: the same
-/// message, sent after the running turn.
+/// The prompt a node from before `Request::Steer` gets for one, sent after the running turn.
 fn queued_instead(request: &Request) -> Option<Request> {
     let Request::Steer { text, images } = request else {
         return None;
@@ -904,8 +874,7 @@ fn queued_instead(request: &Request) -> Option<Request> {
     })
 }
 
-/// What the node is asked for `steer`; an empty message or images over the
-/// limits are refused.
+/// What the node is asked for `steer`; an empty message or images over the limits are refused.
 fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
     Ok(match steer {
         AgentSteer::Prompt { text } if text.trim().is_empty() => {

@@ -42,8 +42,7 @@ impl Store {
         Ok(())
     }
 
-    /// Whether Jev picks the user's thinking per prompt: on until the user
-    /// turns it off.
+    /// Whether Jev picks thinking per prompt; on until the user turns it off.
     pub(crate) async fn user_auto_model(&self, user: &UserKey) -> Result<bool> {
         let auto =
             sqlx::query_scalar("SELECT auto_model OR NOT auto_model_set FROM users WHERE id=$1")

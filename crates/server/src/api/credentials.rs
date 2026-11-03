@@ -1,5 +1,4 @@
-//! The caller's credentials, for the Credentials section of Settings. Every
-//! call reads and changes only the caller's own; secrets never come back.
+//! The caller's credentials in Settings; secrets never come back.
 
 use super::Reply;
 use crate::{
@@ -43,8 +42,7 @@ pub(super) async fn save_credential(
     let slot = Slot::from_wire(&kind).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let secret = trimmed(&secret)?;
     if slot == Slot::GitHub {
-        // An app from before several accounts: its one GitHub token
-        // replaces the default account.
+        // An app from before several accounts replaces the default one.
         let saved = save_github(&cx, &secret, true).await?;
         return Ok(github_credential(saved));
     }
@@ -126,8 +124,7 @@ pub(super) async fn check_credential(
     Ok(checked)
 }
 
-/// The caller's online machines that run commands and report teacli,
-/// at most [`MAX_MACHINES`].
+/// The caller's online machines that run commands and report teacli, at most [`MAX_MACHINES`].
 async fn reaches(cx: &Cx) -> Reply<Vec<Reach>> {
     let mut out = Vec::new();
     for row in cx.user.nodes().await? {
@@ -189,8 +186,7 @@ pub(super) async fn set_default_github_account(
     Ok(())
 }
 
-/// `secret` without the spaces around it, refused when it is empty or
-/// does not look like a token.
+/// `secret` trimmed, refused when it does not look like a token.
 pub(super) fn trimmed(secret: &SecretText) -> Reply<SecretString> {
     let secret = SecretString::from(secret.expose().trim());
     let text = secret.expose_secret();
@@ -205,8 +201,7 @@ pub(super) fn trimmed(secret: &SecretText) -> Reply<SecretString> {
     Ok(secret)
 }
 
-/// Checks a GitHub token, reads the orgs it sees and saves it as its
-/// account.
+/// Checks a GitHub token, reads its orgs and saves it as its account.
 async fn save_github(
     cx: &Cx,
     secret: &SecretString,
@@ -240,10 +235,8 @@ async fn save_github(
     Ok(saved)
 }
 
-/// Asks the host whether `secret` works, and who it signs in as. A Forgejo
-/// server on a private address, or a Forgejo server or OpenRouter the server cannot
-/// reach, is saved unchecked: a Forgejo server is often on the user's own
-/// network, and the server must not probe its own.
+/// Asks the host whether `secret` works and who it signs in as. A private or unreachable
+/// Forgejo, or unreachable OpenRouter, is saved unchecked: the server must not probe its network.
 async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
     let checked = match slot {
         Slot::GitHub => Checker::new()?.github(secret).await,

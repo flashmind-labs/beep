@@ -1,5 +1,4 @@
-//! Questions for the phone: device queries a tool waits on, and the
-//! approvals a run stops on.
+//! Questions for the phone: device queries a tool waits on, and approvals a run stops on.
 
 use super::{App, Reach, UserNotice};
 use crate::{
@@ -36,11 +35,7 @@ impl Parked {
 }
 
 impl App {
-    /// Send a query to the connected device and wait for its response.
-    ///
-    /// Emits a `device_query` event on the run's event stream so the client
-    /// picks it up, then waits until the device sends the answer back (or the
-    /// timeout expires).
+    /// Sends a `device_query` event to the connected device and waits for its answer or the timeout.
     pub async fn device_query(
         &self,
         run_id: &str,
@@ -53,9 +48,7 @@ impl App {
         ask(&self.device_queries, &live, query, timeout_secs).await
     }
 
-    /// Asks the user about the call the run stopped on: the chat shows a
-    /// card and the phone a notification. Nothing waits; the answer starts a
-    /// new run that resumes the session.
+    /// Shows the call the run stopped on as a card and notification; the answer starts a new run.
     pub(super) fn park(&self, user: &User, run: &Run, live: &LiveRun, parked: Parked) {
         let Parked { call_id, approval } = parked;
         live.push(RunEvent::DeviceQuery {
@@ -90,8 +83,7 @@ impl App {
         });
     }
 
-    /// Called by the device-result endpoint to deliver a response for a pending
-    /// device query. Returns `true` if the query_id was found and resolved.
+    /// Delivers a device's answer to a pending query; `false` when `query_id` is unknown.
     pub async fn resolve_device_query(&self, query_id: &str, answer: DeviceAnswer) -> bool {
         match pending(&self.device_queries).remove(query_id) {
             Some(tx) => tx.send(answer).is_ok(),

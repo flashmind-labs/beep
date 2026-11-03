@@ -8,8 +8,7 @@ use crate::{
 
 pub(super) async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {
     let apps = cx.user.apps().await?;
-    // OAuth ends in the browser and the phone lists apps again on return,
-    // so this is the first moment the server sees a new mailbox or Slack.
+    // The first moment the server sees a mailbox or Slack connected through OAuth.
     let feeds: Vec<Feed> = apps
         .iter()
         .filter(|app| app.connected)

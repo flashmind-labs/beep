@@ -1,8 +1,4 @@
-//! A project's branches, and reviews of one before a merge. Git runs on a
-//! machine with a checkout; each shard of the diff gets a read-only
-//! coding-agent session there, in a detached worktree at the head. The
-//! server moves reviews on in the background (`projects::review::drive`);
-//! these requests start, read and act on them.
+//! A project's branches, and reviews of one before a merge (driven by `projects::review::drive`).
 
 use super::{
     Reply,
@@ -108,8 +104,7 @@ pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> R
             facts.default
         )));
     }
-    // The review goes on without the pull request when the host cannot be
-    // read; the screen then shows none.
+    // The review goes on without the pull request when the host cannot be read.
     let pr = match find_pr(node, &cx.user, &project, branch, &facts.default).await {
         Ok(pr) => pr,
         Err(e) => {
@@ -188,9 +183,7 @@ pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> R
     Ok(view(review, &names, rows, Vec::new(), &HashMap::new()))
 }
 
-/// Makes the detached worktree a review's reviewers read, at
-/// `.worktrees/review-<id>` in the checkout; `None`, so they read the
-/// checkout itself, when git refuses.
+/// Makes the review's detached worktree at `.worktrees/review-<id>`; `None` when git refuses.
 async fn review_worktree(node: &Online, folder: &str, id: Uuid, head: &str) -> Option<String> {
     let simple = id.simple().to_string();
     let path = format!(
@@ -352,8 +345,7 @@ pub(super) async fn merge_reviewed_branch(cx: Cx, request: MergeReviewedBranch) 
     ask_project_agent(&cx, &review, text).await
 }
 
-/// Posts `text` in the review's project chat for the project agent, and
-/// gives the chat's id.
+/// Posts `text` in the review's project chat and gives the chat's id.
 async fn ask_project_agent(cx: &Cx, review: &ReviewRow, text: String) -> Reply<Uuid> {
     let project = project_row(cx, &review.project).await?;
     let chat = cx.user.ensure_project_agent(project.id).await?;
@@ -450,8 +442,7 @@ async fn shown(cx: &Cx, review: ReviewRow, doing: &HashMap<u32, String>) -> Repl
     Ok(view(review, &names, shards, findings, doing))
 }
 
-/// The caller's project named `name`: one they made, or imported on a
-/// machine.
+/// The caller's project named `name`, made or imported.
 pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiError> {
     let name = RepoName::parse(name.trim()).map_err(|_| ApiError::NotFound {})?;
     let text = name.to_string();
@@ -483,8 +474,7 @@ pub(super) struct Place {
     pub(super) folder: String,
 }
 
-/// Where the project is: the home checkout first, then its other
-/// checkouts, then the folders it was imported into; one per machine.
+/// Where the project is, one per machine: home checkout, other checkouts, then imports.
 pub(super) async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, ApiError> {
     let mut checkouts = cx.user.checkouts(project.id).await?;
     checkouts.sort_by_key(|checkout| !checkout.home);
@@ -512,8 +502,7 @@ pub(super) async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, 
     Ok(out)
 }
 
-/// The first online machine with the project that offers a coding agent,
-/// and the project's folder there.
+/// The first online machine with the project that offers a coding agent, and its folder.
 async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), ApiError> {
     let places = places(cx, project).await?;
     let mut hosts = live_hosts(cx).await?;
@@ -530,9 +519,7 @@ async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), 
     ))
 }
 
-/// The caller's machine `endpoint` when it is online now.
-/// Runs `script` in a shell of its own on `node` and gives what it
-/// printed, failing unless it exits 0.
+/// Runs `script` in its own shell on `node` and gives its output, failing unless it exits 0.
 async fn run(node: &Online, script: &str, limit: Duration) -> Result<String> {
     let mut out = String::new();
     let ran = node
@@ -571,8 +558,7 @@ fn verdict(finding: &ReviewFindingRow) -> ReviewVerdict {
     }
 }
 
-/// Open findings by severity, verified before unchecked before waiting;
-/// then dismissed, then dropped ones.
+/// Open findings by severity and check, then dismissed, then dropped ones.
 fn rank(findings: &mut [ReviewFinding]) {
     findings.sort_by_key(|finding| {
         let bucket = match (&finding.verdict, finding.dismissed) {

@@ -1,5 +1,4 @@
-//! What the watchers know about each chat: how far along it is, and how far
-//! each watcher has read it.
+//! What watchers know about each chat: its progress and how far each watcher read.
 
 use super::Store;
 use crate::watchers::{ChatActivity, WatcherKind, WatcherState};
@@ -25,8 +24,7 @@ fn activity(row: &PgRow) -> Result<ChatActivity> {
 }
 
 impl Store {
-    /// Every user's sessions whose messages changed since `since`, each
-    /// with the user it belongs to.
+    /// Every user's sessions whose messages changed since `since`, with their user.
     pub(crate) async fn watched_chats(&self, since: DateTime<Utc>) -> Result<Vec<ChatActivity>> {
         let rows = sqlx::query(&format!(
             "SELECT {ACTIVITY} FROM chats c JOIN chat_members m ON m.chat_id = c.id
@@ -56,8 +54,7 @@ impl Store {
         row.as_ref().map(activity).transpose()
     }
 
-    /// How far each watcher has read each of `chats`. A watcher missing for
-    /// a chat has read none of it.
+    /// How far each watcher read each of `chats`; missing means none.
     pub(crate) async fn watcher_states(
         &self,
         chats: &[Uuid],
@@ -88,8 +85,7 @@ impl Store {
         Ok(states)
     }
 
-    /// Records that `watcher` read `chat` up to the message `seq` at `at`,
-    /// and clears its failures. Never moves it back.
+    /// Records `watcher` read `chat` up to `seq` at `at` and clears failures; never moves back.
     pub(crate) async fn mark_watched(
         &self,
         chat: Uuid,
@@ -114,8 +110,7 @@ impl Store {
         Ok(())
     }
 
-    /// Counts a failed review of `chat` by `watcher` at `at`, keeping its
-    /// place. Returns the failures in a row.
+    /// Counts a failed review of `chat` by `watcher` at `at`; returns consecutive failures.
     pub(crate) async fn watch_failed(
         &self,
         chat: Uuid,

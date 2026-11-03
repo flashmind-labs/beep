@@ -1,5 +1,4 @@
-//! `code_agent`: coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) running in
-//! sessions on the user's machines.
+//! `code_agent`: coding agent sessions on the user's machines.
 
 use super::{
     Machines, Need,

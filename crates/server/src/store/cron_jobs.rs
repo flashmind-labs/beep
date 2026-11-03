@@ -1,7 +1,4 @@
-//! The `crons` table as flashmind cron jobs, for the scheduler and the
-//! cron tools. `user` limits a call to one user's own jobs; `None` sees
-//! all the scheduler runs, group reminders too but not routines that start
-//! at a place.
+//! The `crons` table as flashmind cron jobs; `user: None` sees all scheduled jobs except place-started routines.
 
 use super::Store;
 use anyhow::Result;
@@ -14,8 +11,7 @@ use uuid::Uuid;
 pub(super) const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
     last_run_at, chat_id::text AS session_id, kind, group_id::text AS group_id";
 
-/// A routine that wakes the agent with its prompt; the other kind is
-/// [`crate::digest::DIGEST_KIND`]. A routine's kind never changes.
+/// A routine that wakes the agent with its prompt; the other kind is [`crate::digest::DIGEST_KIND`].
 const PROMPT_KIND: &str = "prompt";
 
 pub(super) fn job_from(row: &PgRow) -> Result<CronJob> {
@@ -116,8 +112,7 @@ impl Store {
         Ok(())
     }
 
-    /// Records that job `id` last ran at `at`, and nothing else. `false` when
-    /// the job is gone, which this never brings back.
+    /// Records that job `id` ran at `at`; false when the job is gone (never recreated).
     pub(crate) async fn record_cron_run(
         &self,
         id: Uuid,
@@ -132,8 +127,7 @@ impl Store {
         Ok(updated > 0)
     }
 
-    /// The chat `id`'s runs reply in: the one it already has, or `session`,
-    /// which it keeps from then on. `None` when the job is gone.
+    /// The chat job `id` replies in: its existing one, or `session` from now on. `None` when the job is gone.
     pub(crate) async fn claim_cron_session(&self, id: Uuid, session: Uuid) -> Result<Option<Uuid>> {
         Ok(sqlx::query_scalar(
             "UPDATE crons SET chat_id=COALESCE(chat_id, $2) WHERE id=$1 RETURNING chat_id",

@@ -1,11 +1,5 @@
-//! Following coding-agent sessions the user started on a node outside
-//! Beep, such as Claude Code in a terminal. Each node with followed sessions
-//! gets one `Watch` stream (see `beep_proto::node::agent`), read by a task
-//! that posts what the sessions do in the chat that asked to follow, as a
-//! turn of its own (see `deliver`).
-//!
-//! Follows live in memory: a server restart forgets them. A node that
-//! reconnects gets its stream back (`Follows::reconnected`).
+//! Following agent sessions started outside Beep, posting what they do to the chat that follows.
+//! Follows live in memory: a server restart forgets them.
 
 use super::{Online, Post};
 use crate::{
@@ -48,8 +42,7 @@ pub struct Follows(Mutex<HashMap<String, NodeFollows>>);
 #[derive(Default)]
 struct NodeFollows {
     sessions: HashMap<String, Follower>,
-    /// Reads the node's `Watch` stream and posts what comes; replaced
-    /// whenever the followed sessions change.
+    /// Reads the node's `Watch` stream; replaced whenever the followed sessions change.
     watch: Option<AbortOnDropHandle<()>>,
 }
 
@@ -58,8 +51,7 @@ impl Follows {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Follows `session` on the node with key `node` for `follower`; a
-    /// session followed already moves to this follower.
+    /// Follows `session` on `node` for `follower`, moving it from any earlier follower.
     pub fn follow(
         &self,
         app: &Arc<App>,
@@ -117,8 +109,7 @@ impl Follows {
     }
 }
 
-/// Replaces the node's task with one for its sessions now. The task holds
-/// the app weakly: the app owns it.
+/// Replaces the node's task with one for its sessions now; it holds the app weakly.
 fn restart(app: &Arc<App>, node: &str, follows: &mut NodeFollows) {
     let sessions: Vec<String> = follows.sessions.keys().cloned().collect();
     let watch = tokio::spawn(watch(Arc::downgrade(app), node.to_owned(), sessions));

@@ -419,8 +419,7 @@ impl Call<'_> {
     }
 }
 
-/// A session's state for the model. `waited` is how long the call waited for
-/// the turn, if it did.
+/// A session's state for the model, with how long the call `waited` for the turn.
 fn describe(node: &str, agent: &str, watched: &Watched, waited: Option<Duration>) -> String {
     let info = &watched.info;
     let state = &info.state;

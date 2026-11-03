@@ -1,22 +1,5 @@
-//! Learns about users from their email.
-//!
-//! Once a day each connected mailbox is read back to a day before the last
-//! finished run, or a month back until one finishes; the profile pass (see
-//! `crate::profile`) reads the rest once. Emails are scored
-//! page by page as they are listed, newest first where the mailbox lists them
-//! that way, several at once; nothing waits for the whole listing. Jev scores
-//! each one for whether it says something lasting about the user, and the
-//! likely ones go to the memory learner one at a time, at most
-//! `SCORES_PER_WINDOW` emails every `SCORE_WINDOW`. No agent decides what to read.
-//!
-//! Each processed email is recorded as seen, and a run skips those, so a run
-//! that stops halfway resumes where it was. An email Jev fails to score stays
-//! unseen and the run does not count as finished, so the next one tries it
-//! again from the same point. Email content is never logged.
-//!
-//! While the user has the evening digest on, each recent email they did not
-//! send also gets a second question: does it need their attention? Those
-//! are kept for the digest (see `crate::digest`).
+//! Learns about users from their email: Jev scores each new email, and likely ones go to the memory learner.
+//! Seen emails are recorded so a stopped run resumes; email content is never logged.
 
 use crate::{
     app::App,
@@ -318,8 +301,7 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// Replaces a Fastmail preview with the whole body. On failure the
-    /// preview stays and is scored as it is.
+    /// Replaces a Fastmail preview with the whole body, keeping the preview on failure.
     pub(crate) async fn fill_body(&self, email: &mut Email) {
         let Source::Fastmail(user) = self else {
             return;
@@ -335,8 +317,7 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// Pages of the emails received after `after`, in the mailbox's order,
-    /// each fetched only when the one before it has been taken.
+    /// Pages of emails received after `after`, each fetched once the previous is taken.
     fn pages(
         &self,
         window: Window,
@@ -374,15 +355,13 @@ impl<'a> Source<'a> {
         self.pages(window, listing).try_concat().await
     }
 
-    /// Pages of every email in `window`, newest first where the mailbox
-    /// lists them that way.
+    /// Pages of every email in `window`.
     pub(crate) fn history(&self, window: Window) -> impl Stream<Item = Result<Vec<Email>>> + '_ {
         self.pages(window, Listing::All)
     }
 }
 
-/// Whether Composio refused a tool response for its size. Its client only
-/// gives the status in the message.
+/// Whether Composio refused a response for its size (only the message says so).
 fn too_large(error: &anyhow::Error) -> bool {
     error.to_string().contains(" returned 413")
 }
@@ -515,9 +494,7 @@ struct Scores {
     attention: Option<f64>,
 }
 
-/// How likely Jev finds `email` worth the learner's time. The bar is low on
-/// purpose: it only drops mail that is plainly not about the user, and the
-/// model that reads it next decides what to keep.
+/// How likely Jev finds `email` worth the learner's time; the bar is low on purpose.
 pub(crate) async fn worth_reading(
     decision: &DecisionTool,
     today: &str,
@@ -542,8 +519,7 @@ pub(crate) fn worth_learning(probability: f64) -> bool {
     probability >= MEMORY_THRESHOLD
 }
 
-/// Fetches the body and asks Jev how likely the email is to teach a lasting
-/// fact and, for the digest, whether it needs the user's attention.
+/// Fetches the body and asks Jev whether it teaches a lasting fact and needs attention.
 async fn score(
     decision: &DecisionTool,
     source: &Source<'_>,
@@ -569,8 +545,7 @@ async fn score(
     (email, Scores { memory, attention })
 }
 
-/// The unread emails of `mailbox` received after `after`, leaving out mail
-/// the user sent.
+/// Unread emails of `mailbox` received after `after`, not sent by the user.
 pub(crate) async fn unread_after(
     user: &User,
     mailbox: Mailbox,
@@ -655,8 +630,7 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
     Ok(Page { emails, next })
 }
 
-/// The id of the Sent Items folder, read from the newest sent message. Without
-/// it Outlook mail is still read, only not marked as sent by the user.
+/// The Sent Items folder id, from the newest sent message.
 async fn outlook_sent_folder(client: &ComposioClient) -> Option<String> {
     let arguments = json!({"folder": "sentitems", "top": 1, "select": ["parentFolderId"]});
     match client
@@ -770,8 +744,7 @@ pub(crate) fn text(value: &Value) -> String {
     value.as_str().unwrap_or_default().to_owned()
 }
 
-/// `Name <address>` for each entry of a JMAP-style address list, or the
-/// value itself when it is already text.
+/// `Name <address>` for each entry of a JMAP-style address list, or the text itself.
 fn addresses(value: &Value) -> String {
     let Some(list) = value.as_array() else {
         return text(value);

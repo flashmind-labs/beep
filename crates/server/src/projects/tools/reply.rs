@@ -1,5 +1,4 @@
-//! `project_reply`: post a reply on a pull request or issue of the project,
-//! always after the user approves its card.
+//! `project_reply`: post a reply on a project PR or issue after the user approves its card.
 
 use super::{ProjectTools, card, field, leaked};
 use crate::projects::{

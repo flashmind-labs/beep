@@ -1,6 +1,4 @@
-//! The machine tools against real nodes in throwaway containers. Ignored by
-//! default: it needs Docker, a node image and a built `beep-node`. Run it
-//! with
+//! The machine tools against real nodes in containers (ignored; needs Docker). Run with
 //!
 //!     BEEP_LIVE_NODE_IMAGE=beep-node:test BEEP_LIVE_NODE_BIN=target/debug/beep-node \
 //!     cargo test -p beep-server live_tests -- --ignored --nocapture
@@ -30,8 +28,7 @@ impl Drop for Container {
     }
 }
 
-/// Starts a node in a container named `name`, signed in to `server` with
-/// a fresh key linked to the user. `workspace` makes it their environment.
+/// Starts a node in container `name` with a fresh key linked to the user.
 async fn start_node(
     harness: &Harness,
     server: &str,

@@ -130,8 +130,7 @@ pub struct LiveTranscription {
 }
 
 impl App {
-    /// Starts a live transcription for `user`, when the server has one and
-    /// both the server and the user have a slot free.
+    /// Starts a live transcription for `user` when the server has one and a slot is free.
     pub async fn transcribe_live(&self, user: &str) -> Result<LiveTranscription, SttError> {
         let slot = self.live_transcriptions.take(user).ok_or(SttError::Busy)?;
         let session = self.realtime.open().await?;

@@ -1,5 +1,4 @@
-//! Copying a file from one machine to another over their `files/1`, a
-//! chunk at a time, so a large file is never held whole.
+//! Copying a file between machines over `files/1`, a chunk at a time.
 
 use super::Picked;
 use crate::{
@@ -63,10 +62,7 @@ pub(crate) struct Copied {
     pub(crate) bytes: u64,
 }
 
-/// `path` on a machine: `~` is its home, a relative path starts in `base`
-/// (the folder commands start in), and an absolute one stays. Without a
-/// home or base, the path is left for the node, which starts relative
-/// paths in its first shared folder.
+/// `path` on a machine, resolved against `~` or `base`; without either it is left for the node.
 pub(crate) fn on_machine(path: &str, base: Option<&str>, home: Option<&str>) -> Result<String> {
     let path = path.trim();
     ensure!(!path.is_empty(), "the path is empty");
@@ -105,8 +101,7 @@ async fn stat(node: &impl FileNode, path: &str) -> Result<Option<(String, u64, F
     }
 }
 
-/// Copies the file `src` on `from` to `dst` on `to`, making `dst`'s folder.
-/// An existing `dst` is replaced only with `overwrite`.
+/// Copies `src` on `from` to `dst` on `to`; an existing `dst` is replaced only with `overwrite`.
 pub(crate) async fn copy<N: FileNode>(
     from: &N,
     src: &str,
@@ -158,8 +153,7 @@ pub(crate) async fn copy<N: FileNode>(
             other => bail!("the node answered {other:?}"),
         };
         let last = data.is_empty() || offset + data.len() as u64 >= size;
-        // The first write replaces the file, even with nothing; the rest
-        // append.
+        // The first write replaces the file, even with nothing; the rest append.
         if !data.is_empty() || written.is_none() {
             let length = data.len() as u64;
             match to
@@ -227,8 +221,7 @@ mod tests {
     use crate::protocol::node::files::FileEntry;
     use std::{collections::HashMap, sync::Mutex};
 
-    /// A machine whose files are in memory. It records the largest chunk
-    /// it was sent and the folders made.
+    /// A machine whose files are in memory, recording the largest chunk and folders made.
     #[derive(Default)]
     struct FakeNode {
         files: Mutex<HashMap<String, Vec<u8>>>,

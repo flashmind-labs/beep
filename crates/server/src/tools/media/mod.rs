@@ -1,7 +1,4 @@
-//! Making images, videos and 3D models with the user's own API keys
-//! (OpenRouter, OpenAI, Venice, Meshy). Each tool is offered only when a
-//! key the user saved makes it, and every call asks first, as it spends
-//! the user's money (see `crate::permissions`).
+//! Making images, videos and 3D models with the user's own API keys; every call asks first.
 
 mod call;
 mod job;

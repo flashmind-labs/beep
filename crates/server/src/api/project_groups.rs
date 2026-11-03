@@ -1,5 +1,4 @@
-//! Project groups: folders the apps list projects under, in place of their
-//! org. The server keeps them per user; the apps match projects to them.
+//! Project groups: folders the apps list projects under, kept per user.
 
 use super::Reply;
 use crate::{

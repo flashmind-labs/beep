@@ -126,8 +126,7 @@ pub(crate) enum PathError {
     TrailingSlash,
 }
 
-/// An absolute path on a machine, with no `.`, `..` or empty part and no
-/// trailing `/`.
+/// An absolute machine path with no `.`, `..` or empty part and no trailing `/`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct MachinePath(String);
 
@@ -143,8 +142,7 @@ impl MachinePath {
         Ok(Self(text.to_owned()))
     }
 
-    /// `rel` under this path. Empty, `.` and `..` parts of `rel` are
-    /// dropped, so the result stays inside.
+    /// `rel` under this path; empty, `.` and `..` parts are dropped so it stays inside.
     pub(crate) fn join(&self, rel: &str) -> MachinePath {
         let mut joined = self.0.clone();
         for part in rel
@@ -176,14 +174,12 @@ impl fmt::Display for MachinePath {
     }
 }
 
-/// A task's short name in its project, used in its branch and folders:
-/// lowercase ASCII letters, digits and `-`.
+/// A task's short name for its branch and folders: lowercase ASCII letters, digits and `-`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TaskSlug(String);
 
 impl TaskSlug {
-    /// The slug of `title`, as `agent::slug` makes one (a coding agent's
-    /// new branch is named the same way); `task` when it makes none.
+    /// The slug of `title` as `agent::slug` makes it; `task` when that is empty.
     pub(crate) fn from_title(title: &str) -> TaskSlug {
         let slug = agent::slug(title);
         if slug.is_empty() {
@@ -316,8 +312,7 @@ impl From<WorkerState> for ProjectWorkerState {
     }
 }
 
-/// Whether a project's repository is public, which decides what its issue
-/// and PR text may say.
+/// Whether a project's repository is public, which limits what its issues and PRs may say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum Visibility {
@@ -362,8 +357,7 @@ impl IssueHost {
         }
     }
 
-    /// The host a remote or web page on `hostname` is on: GitHub for
-    /// `github.com` or `www.github.com`, else a Forgejo server.
+    /// GitHub for `github.com` or `www.github.com`, else Forgejo.
     pub(crate) fn of_hostname(hostname: &str) -> Option<IssueHost> {
         let hostname = hostname.to_ascii_lowercase();
         if is_github(&hostname) {
@@ -413,8 +407,7 @@ pub(crate) fn is_github(hostname: &str) -> bool {
     matches!(hostname, "github.com" | "www.github.com")
 }
 
-/// Which hosts a project files its issues and opens its PRs on. `None` keeps
-/// that part in Beep only.
+/// Where a project files issues and opens PRs; `None` keeps that part in Beep only.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Roles {
     pub(crate) issues: Option<IssueHost>,
@@ -440,8 +433,7 @@ pub(crate) struct StartRequest {
     pub(crate) persona: Option<String>,
     #[serde(default)]
     pub(crate) inputs: Vec<InputFile>,
-    /// The branch the worktree starts from, in place of the default
-    /// branch, such as a reviewed branch whose findings it fixes.
+    /// The branch the worktree starts from instead of the default, such as a reviewed branch.
     #[serde(default)]
     pub(crate) base: Option<String>,
 }

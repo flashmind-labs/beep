@@ -1,14 +1,8 @@
-//! The shell script that clones a repository on a node, and what its
-//! output means.
+//! The shell script that clones a repository on a node, and what its output means.
 //!
-//! The clone goes to a hidden folder beside the checkout and is renamed
-//! into place once complete, so an interrupted clone never looks like a
-//! checkout. A token travels as a shell variable git's credential helper
-//! reads: never in a command line or in the saved remote URL.
-//!
-//! When the user has a fork, the fork is cloned as `origin` and the
-//! repository added as `upstream`; a checkout already there gets the
-//! remote it lacks (see [`link_script`]).
+//! The clone lands in a hidden folder and is renamed into place, so an interrupted clone never
+//! looks like a checkout. The token reaches git's credential helper as a shell variable, never in
+//! a command line or saved remote. With a fork, the fork is `origin` and the repo `upstream`.
 
 use super::ImportError;
 use secrecy::{ExposeSecret, SecretString};
@@ -37,11 +31,9 @@ pub(crate) struct Job<'a> {
 pub(crate) struct ForkSetup<'a> {
     /// What git fetches the repository itself from, as `upstream`.
     pub(crate) upstream_url: &'a str,
-    /// The repository's default branch: the local one tracks
-    /// `upstream/<it>`. Empty to leave the fork's default branch as cloned.
+    /// The default branch the local one tracks as `upstream/<it>`; empty keeps the fork's.
     pub(crate) default_branch: &'a str,
-    /// The heads of the user's pull requests from the fork, made local
-    /// branches tracking `origin`.
+    /// The user's pull request heads from the fork, made local branches tracking `origin`.
     pub(crate) branches: &'a [String],
 }
 
@@ -50,14 +42,11 @@ pub(super) fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// The git helper that answers with `$BEEP_GIT_TOKEN`, and nothing when it
-/// is empty, so git goes on without credentials.
+/// The git helper that answers with `$BEEP_GIT_TOKEN`, and nothing when it is empty.
 const HELPER: &str = r#"!f() { test "$1" = get && test -n "$BEEP_GIT_TOKEN" || return 0; echo username=x-access-token; echo "password=$BEEP_GIT_TOKEN"; }; f"#;
 
-/// git with the user's token for the host. With a token from Beep, only its
-/// helper answers, so a keychain helper neither shadows it nor stores it.
-/// Without one, the user's own helpers stay, with `$GH_TOKEN` after them on
-/// GitHub. Secret: it holds the token.
+/// git with the user's token: only Beep's helper when given one, else the user's own (plus `$GH_TOKEN` on GitHub).
+/// Secret: it holds the token.
 fn git_with_token(token: Option<&SecretString>, github: bool) -> String {
     match (token, github) {
         (Some(token), _) => format!(
@@ -73,8 +62,7 @@ fn git_with_token(token: Option<&SecretString>, github: bool) -> String {
     }
 }
 
-/// Makes each of `branches` a local branch tracking `<remote>/<branch>`,
-/// in the checkout `$dir`, unless it is one already or the remote lacks it.
+/// Makes each of `branches` a local branch in `$dir` tracking `<remote>/<branch>`, if missing.
 fn track_branches(dir: &str, remote: &str, branches: &[String]) -> String {
     if branches.is_empty() {
         return String::new();
@@ -87,9 +75,7 @@ fn track_branches(dir: &str, remote: &str, branches: &[String]) -> String {
     )
 }
 
-/// What a clone of a fork runs in the new checkout `$t`, chained after
-/// the clone: add and fetch `upstream`, point the default branch at it,
-/// then the pull request branches.
+/// Steps after cloning a fork into `$t`: fetch `upstream`, point the default branch at it, add PR branches.
 fn fork_steps(git: &str, fork: &ForkSetup<'_>) -> String {
     let mut steps = format!(
         " && git -C \"$t\" remote add upstream {up} && {git} -C \"$t\" fetch --quiet upstream",
@@ -161,10 +147,8 @@ pub(crate) struct Link<'a> {
     pub(crate) branches: &'a [String],
 }
 
-/// Adds the remotes `link` names to a checkout already there, fetches the
-/// fork and the repository, and makes the pull request branches local.
-/// The checkout's own branches are left as they are. Prints `linked` once
-/// done. Secret: it holds the token.
+/// Adds `link`'s remotes to an existing checkout, fetches, and makes PR branches local; prints `linked`.
+/// Secret: it holds the token.
 pub(crate) fn link_script(link: &Link<'_>) -> SecretString {
     let git = git_with_token(link.token, link.github);
     let mut script = format!(
@@ -417,8 +401,7 @@ mod tests {
         assert!(text.contains("t='/w/projects/o/.r.importing'"));
     }
 
-    /// The script against a real git, as a node's shell runs it: `exec
-    /// 2>&1`, then the script through `eval`.
+    /// Runs the script against real git as a node's shell does: `exec 2>&1`, then `eval`.
     fn run(script: &SecretString, home: &Path) -> (String, Option<i32>) {
         let out = Command::new("bash")
             .arg("-c")
@@ -477,8 +460,7 @@ mod tests {
         );
     }
 
-    /// A bare upstream with `main`, and a bare fork of it with its own
-    /// `main` behind it and a pull request branch `fix-retry`.
+    /// A bare upstream with `main`, and a bare fork behind it with a PR branch `fix-retry`.
     fn upstream_and_fork(root: &Path) -> (String, String) {
         let work = root.join("work");
         std::fs::create_dir(&work).unwrap();

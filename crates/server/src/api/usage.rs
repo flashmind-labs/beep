@@ -1,5 +1,4 @@
-//! What the caller's coding agents cost and how much of their plans is
-//! left, for the pill atop the command center.
+//! What the caller's coding agents cost and how much of their plans is left.
 
 use super::Reply;
 use crate::{
@@ -34,8 +33,7 @@ pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<U
         cx.user.imports(),
         cx.user.nodes(),
     )?;
-    // A node whose stored key does not parse has no name to show; its
-    // plan still shows, without the machine.
+    // A node whose key does not parse shows its plan without a machine.
     let names: HashMap<EndpointId, String> = nodes
         .into_iter()
         .filter_map(|node| Some((node.endpoint.parse().ok()?, node.name)))
@@ -107,8 +105,7 @@ fn period_spend(
     }
 }
 
-/// The tokens by agent and model from the day `from` on, the most first:
-/// from the logs where an agent has any, else from the turns Beep watched.
+/// Tokens by agent and model since `from`, most first: from logs, else turns Beep watched.
 fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
     let models: Vec<&DayModelRow> = models.iter().filter(|row| row.day >= from).collect();
     let logged: HashSet<&AgentSlug> = models
@@ -227,8 +224,7 @@ fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
     }
 }
 
-/// Today's spending by harness, only those that spent anything, the most
-/// expensive first: dollars where the harness reports them, tokens always.
+/// Today's spending by harness that spent anything, most expensive first.
 fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
     let mut by_agent: BTreeMap<&AgentSlug, HarnessSpend> = BTreeMap::new();
     for row in spend.iter().filter(|row| row.today) {
@@ -266,9 +262,7 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
     harnesses
 }
 
-/// The project a session in `cwd` on the machine `endpoint` belongs to:
-/// the imported project whose folder there holds it, the innermost when
-/// they nest, else the folder's own name.
+/// The innermost imported project holding `cwd` on `endpoint`, else the folder's own name.
 pub(super) fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
     let endpoint = endpoint.to_string();
     let separator = |c: char| c == '/' || c == '\\';
