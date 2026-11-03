@@ -10,7 +10,6 @@
 
 use super::{Ask, Follower, Online};
 use crate::{
-    protocol::WorkFolder,
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
@@ -19,6 +18,7 @@ use crate::{
         },
         link,
     },
+    protocol::{CustomAgent, WorkFolder},
     transport::READ_TIMEOUT,
 };
 use anyhow::{Context, Result, bail};
@@ -571,6 +571,20 @@ impl Online {
         };
         match self.sessions_request(request).await? {
             SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
+            SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+            _ => bail!("the node answered something else"),
+        }
+    }
+
+    /// The custom agents the harnesses define for the project folder
+    /// `folder` on the node and in its home. An error when the node could
+    /// not be asked, as one from before `CustomAgents` cannot.
+    pub(crate) async fn custom_agents(&self, folder: &str) -> Result<NodeWork<Vec<CustomAgent>>> {
+        let request = SessionsRequest::CustomAgents {
+            folder: folder.to_owned(),
+        };
+        match self.sessions_request(request).await? {
+            SessionsReply::CustomAgents { agents } => Ok(NodeWork::Done(agents)),
             SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
             _ => bail!("the node answered something else"),
         }

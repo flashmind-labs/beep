@@ -276,6 +276,19 @@ button.cc-row:hover { background: rgba(228,238,232,.04) }
 .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
 .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
 @container (max-width: 640px) { .pj-cols { grid-template-columns: minmax(0, 1fr) } }
+/* Custom agents: under Agents in the same column, a row per agent with its harness, colour and scope. */
+.ca-col > div + div { margin-top: 14px }
+.ca-row { cursor: pointer }
+.ca-row:hover, .ca-row:focus-visible { background: var(--elev); outline: none }
+.ca-row.bad { cursor: default; background: none }
+.ca-row .t { display: flex; align-items: center; gap: 6px }
+.ca-row .t b { font-weight: 500; flex: none }
+.ca-ic.cc-ag { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; flex: none; display: inline-grid }
+.ca-dot { flex: none }
+.ca-desc { color: var(--muted); font-weight: 400; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.ca-sheet .am-head b { display: flex; align-items: center; gap: 8px }
+.ca-about { font-size: 13px; margin: 0 0 10px }
+.ca-prompt { margin: 0 0 12px; padding: 10px 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; line-height: 18px; background: var(--elev); border: 1px solid var(--border); border-radius: 8px }
 .pj-issue .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; align-items: center }
 .pj-task + .pj-task { border-top: 1px solid var(--border) }
