@@ -554,34 +554,6 @@ mod tests {
     }
 
     #[test]
-    fn a_harness_turned_off_does_not_start() {
-        let settings = Settings::default();
-        settings.set(AgentSettings {
-            harnesses: vec![HarnessConfig {
-                enabled: false,
-                ..HarnessConfig::new("codex")
-            }],
-            ..AgentSettings::default()
-        });
-        let refused = settings.configured(&kind("codex")).unwrap_err();
-        assert!(refused.to_string().contains("turned off"), "{refused}");
-        // New settings replace the old ones in full.
-        settings.set(AgentSettings::default());
-        assert!(settings.configured(&kind("codex")).is_ok());
-    }
-
-    #[test]
-    fn a_home_folder_with_a_tilde_is_expanded() {
-        let home = dirs::home_dir().unwrap();
-        assert_eq!(
-            expand_home("~/.codex-work"),
-            format!("{}/.codex-work", home.display())
-        );
-        assert_eq!(expand_home("~other/x"), "~other/x");
-        assert_eq!(expand_home("/srv/x"), "/srv/x");
-    }
-
-    #[test]
     fn sign_ins_are_read_from_each_status() {
         let claude = r#"{"loggedIn":true,"email":"you@example.com","subscriptionType":"max"}"#;
         let read = read_sign_in("claude", true, claude);

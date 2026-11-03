@@ -1,12 +1,8 @@
-//! What Beep can reach from a group beyond the chat: the web, and the
-//! members' apps. Each app tool takes a `member` argument naming whose
-//! account the call runs as. Reading runs straight away; anything that acts
-//! asks that member on their phone and runs once they allow it.
+//! What Beep reaches from a group: the web, and members' apps by a `member` argument. Acting calls
+//! ask that member first.
 //!
-//! The run holds members' private memories and other members' mail, and
-//! the leak gate only reads the reply. So text a call would send out, a URL
-//! or an email, goes through the same gate first, and what another member's
-//! app returns joins the secrets the reply is checked against.
+//! Text a call sends out goes through the leak gate, and other members' app results join the
+//! secrets the reply is checked against.
 
 use super::{App, Reach, UserNotice, group::said, run::web_tools};
 use crate::{
@@ -37,8 +33,7 @@ use std::{
 };
 use uuid::Uuid;
 
-/// The app tools a group may use. Mail and files are read only; creating an
-/// event or a page and sending an email ask the owner first.
+/// The app tools a group may use. Mail and files are read only; acting ones ask the owner.
 const GROUP_TOOLS: &[&str] = &[
     "GMAIL_FETCH_EMAILS",
     "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
@@ -94,8 +89,7 @@ pub(super) struct GroupRun {
 }
 
 impl GroupRun {
-    /// Whether `text`, about to leave the run in a tool call, reveals a
-    /// member's memory.
+    /// Whether `text`, about to leave the run in a tool call, reveals a member's memory.
     pub(super) async fn leaks(&self, text: &str) -> bool {
         let secrets = self
             .secrets
@@ -409,8 +403,7 @@ impl App {
         });
     }
 
-    /// Runs or drops the action `query_id` that `user` was asked about, and
-    /// tells the group. `false` when nothing of theirs waits under it.
+    /// Runs or drops `user`'s pending group action `query_id`; `false` when none waits.
     pub(crate) async fn answer_group_action(
         &self,
         user: &User,

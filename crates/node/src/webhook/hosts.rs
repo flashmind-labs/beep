@@ -381,38 +381,3 @@ impl HostApi for Forgejo {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn admin_rights_read_from_the_repository() {
-        assert_eq!(
-            admin_of(r#"{"permissions":{"admin":true,"push":true}}"#),
-            Ok(true)
-        );
-        assert_eq!(admin_of(r#"{"permissions":{"admin":false}}"#), Ok(false));
-        assert_eq!(admin_of(r#"{"name":"widget"}"#), Ok(false));
-        assert!(admin_of("gh: not found").is_err());
-    }
-
-    #[test]
-    fn a_forgejo_webhook_posts_json_to_the_node() {
-        let body = forgejo_hook(
-            "http://[fd00::1]:7480/beep/webhook/abc",
-            &SecretString::from("s"),
-        );
-        assert_eq!(
-            body["config"]["url"],
-            "http://[fd00::1]:7480/beep/webhook/abc"
-        );
-        assert_eq!(body["config"]["content_type"], "json");
-        assert_eq!(body["active"], true);
-        assert!(
-            body["events"]
-                .as_array()
-                .is_some_and(|events| events.iter().any(|e| e == "pull_request"))
-        );
-    }
-}

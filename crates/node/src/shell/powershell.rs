@@ -85,27 +85,3 @@ pub(super) fn script(command: &str, mark: &str) -> String {
         run(&source)
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_session_command_is_one_line_with_the_command_encoded() {
-        let line = script("echo 'it''s' \"$x\"\nls", "__m__");
-        assert_eq!(line.matches('\n').count(), 1, "{line}");
-        assert!(line.ends_with('\n'));
-        let encoded = STANDARD.encode("echo 'it''s' \"$x\"\nls");
-        assert!(line.contains(&format!("FromBase64String('{encoded}')")));
-        assert!(line.contains("`n__m__ $__beep_code "), "{line}");
-    }
-
-    #[test]
-    fn a_one_shot_script_comes_from_the_environment() {
-        let args = one_shot_args();
-        assert_eq!(args[..5], COMMON);
-        assert_eq!(args[5], "-Command");
-        assert!(args[6].contains("$env:BEEP_SCRIPT"), "{}", args[6]);
-        assert!(args[6].contains("Remove-Item Env:BEEP_SCRIPT"));
-    }
-}

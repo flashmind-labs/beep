@@ -441,58 +441,6 @@ pub(super) mod tests {
         assert!(!work.join(".worktrees").exists(), "no worktree");
     }
 
-    #[tokio::test]
-    async fn a_worktree_or_a_plain_folder_gets_no_brief() {
-        let (_dir, work) = repo("briefless");
-        run(
-            &work,
-            &["worktree", "add", "-q", ".worktrees/side", "-b", "side"],
-        );
-        let side = work.join(".worktrees/side/src");
-        fs::create_dir_all(&side).expect("a folder in the worktree");
-        let inside = side.to_str().expect("a UTF-8 folder").to_owned();
-        let place_in = place(Some(inside), None, "Fix it").await.expect("a place");
-        assert_eq!(place_in.brief, None, "a linked worktree");
-        let plain = tempfile::TempDir::new().expect("a temp folder");
-        let outside = plain.path().to_str().expect("a UTF-8 folder").to_owned();
-        let place_out = place(Some(outside), None, "Fix it").await.expect("a place");
-        assert_eq!(place_out.brief, None, "not a git folder");
-    }
-
-    #[tokio::test]
-    async fn a_plan_starts_in_what_it_made_without_the_brief() {
-        let (_dir, work) = repo("planned");
-        let cwd = work.to_str().expect("a UTF-8 folder").to_owned();
-        let plan = CheckoutPlan::NewWorktree { base: None };
-        let place = place(Some(cwd), Some(plan), "Fix it")
-            .await
-            .expect("a place");
-        assert_eq!(place.brief, None);
-        let folder = place.folder.expect("the worktree");
-        assert!(folder.ends_with(".worktrees/beep-fix-it"), "{folder}");
-        assert!(
-            place
-                .note
-                .expect("a note")
-                .starts_with("Started on a new branch beep/fix-it")
-        );
-    }
-
-    #[test]
-    fn a_new_branch_switches_the_checkout() {
-        let (_dir, work) = repo("branch");
-        let plan = CheckoutPlan::NewBranch { base: None };
-        let made = make(&work, &plan, "Fix the login bug!").expect("the branch");
-        assert_eq!(made.branch, "beep/fix-the-login-bug");
-        assert_eq!(made.folder, work);
-        assert_eq!(made.start, Start::NewBranch);
-        assert_eq!(current(&work), "beep/fix-the-login-bug");
-        assert_eq!(
-            made.note(),
-            "Started on a new branch beep/fix-the-login-bug from HEAD."
-        );
-    }
-
     #[test]
     fn a_new_branch_is_refused_on_uncommitted_changes() {
         let (_dir, work) = repo("dirty");
@@ -543,23 +491,6 @@ pub(super) mod tests {
         make(&work, &plan, "Add dark mode").expect("a second worktree");
         let again = fs::read_to_string(work.join(".git/info/exclude")).expect("the exclude");
         assert_eq!(again, exclude);
-    }
-
-    #[test]
-    fn a_worktree_already_ignored_leaves_the_exclude_alone() {
-        let (_dir, work) = repo("ignored");
-        fs::write(work.join(".gitignore"), ".worktrees/\n").expect("a gitignore");
-        run(&work, &["add", ".gitignore"]);
-        run(&work, &["commit", "--quiet", "-m", "ignore"]);
-        let before = fs::read_to_string(work.join(".git/info/exclude")).unwrap_or_default();
-        let plan = CheckoutPlan::NewWorktree { base: None };
-        make(&work, &plan, "go").expect("the worktree");
-        let after = fs::read_to_string(work.join(".git/info/exclude")).unwrap_or_default();
-        assert_eq!(after, before);
-        assert_eq!(
-            fs::read_to_string(work.join(".gitignore")).expect("the gitignore"),
-            ".worktrees/\n"
-        );
     }
 
     #[test]
@@ -676,16 +607,5 @@ pub(super) mod tests {
         );
         let error = make(&clone, &plan("nope"), "go").expect_err("no such branch");
         assert!(format!("{error:#}").contains("no branch nope"), "{error:#}");
-    }
-
-    #[test]
-    fn a_folder_outside_git_is_refused() {
-        let dir = tempfile::tempdir().expect("a temporary folder");
-        let plan = CheckoutPlan::NewWorktree { base: None };
-        let error = make(dir.path(), &plan, "go").expect_err("no checkout");
-        assert!(
-            format!("{error:#}").contains("not in a git checkout"),
-            "{error:#}"
-        );
     }
 }

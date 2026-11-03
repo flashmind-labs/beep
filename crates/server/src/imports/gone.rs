@@ -1,10 +1,6 @@
-//! Telling a deleted project folder from one that is only out of reach.
-//! A machine's folder of a project counts as gone only when the machine
-//! answers, in time, that nothing is at its path while the folder above it
-//! is there and holds other things. An offline machine, a look that timed
-//! out, a disk that is not mounted (its mount point is empty, missing, or
-//! sits right under `/Volumes`, `/mnt` or `/media`) or a folder it cannot
-//! read all leave the project as it is.
+//! Telling a deleted project folder from an unreachable one. A folder is gone only when the machine
+//! answers in time that its path is empty while the parent exists and holds other things;
+//! an unmounted disk (empty, missing, or right under `/Volumes`, `/mnt` or `/media`) never counts.
 
 use super::clone::quote;
 use crate::store::{ImportRow, SyncRow};
@@ -20,9 +16,7 @@ pub(crate) struct Place {
     pub(crate) folder: String,
 }
 
-/// The project folders `endpoint` has, imported or synced, each once.
-/// Folders that are not absolute POSIX paths are left out: the script
-/// cannot read them.
+/// The project folders on `endpoint`, imported or synced, each once; non-absolute paths are skipped.
 pub(crate) fn places(imports: &[ImportRow], syncs: &[SyncRow], endpoint: &str) -> Vec<Place> {
     let imported = imports
         .iter()
@@ -44,8 +38,7 @@ pub(crate) fn places(imports: &[ImportRow], syncs: &[SyncRow], endpoint: &str) -
         .collect()
 }
 
-/// The script that looks for each of `places` and prints, by its number,
-/// `there`, `missing` or `unsure`.
+/// The script printing `there`, `missing` or `unsure` for each of `places` by number.
 pub(crate) fn script(places: &[Place]) -> String {
     let mut out = format!(
         "look() {{\n\
@@ -66,8 +59,7 @@ pub(crate) fn script(places: &[Place]) -> String {
     out
 }
 
-/// The numbers of the places the script found missing, from its output.
-/// Nothing counts unless the script ran to the end in time.
+/// The numbers of the places found missing; nothing counts unless the script finished in time.
 pub(crate) fn missing(output: &str, finished: bool, count: usize) -> Vec<usize> {
     if !finished {
         return Vec::new();

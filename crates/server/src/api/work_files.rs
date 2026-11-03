@@ -1,7 +1,4 @@
-//! A coding agent session's working folder on its machine, for the apps'
-//! Files tab: listing it, reading any file in it and writing files dropped
-//! on the session. The node checks every path stays inside the folder;
-//! the server passes the parts through and keeps nothing.
+//! A session's working folder for the Files tab; the node checks paths, the server keeps nothing.
 
 use super::{Reply, agent_control::live_host_back};
 use crate::{
@@ -13,8 +10,7 @@ use crate::{
     router::Cx,
 };
 
-/// What the caller sees when the node could not be asked: one from before
-/// these requests closes the stream.
+/// What the caller sees when the node could not be asked.
 fn unreachable_node(machine: &str, e: &anyhow::Error) -> ApiError {
     ApiError::bad_request(format!(
         "Could not reach the session's folder on {machine}: {e:#}. Updating beep-node there may help."

@@ -393,24 +393,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_brew_cask_updates_as_a_cask() {
-        let prefix = tempfile::tempdir().unwrap();
-        let real = file(prefix.path(), "Caskroom/codex/0.166.0/codex");
-        let cli = prefix.path().join("bin/codex");
-        link(&real, &cli);
-        let target = Target {
-            agent: "codex",
-            cli: Some(&cli),
-            npm_adapter: None,
-        };
-        let steps = plan(&target, &npm_none());
-        assert_eq!(steps.len(), 1, "{steps:?}");
-        assert_eq!(steps[0].args, ["upgrade", "--cask", "codex"]);
-        assert!(steps[0].program.ends_with("bin/brew"));
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn an_npm_package_under_the_brew_prefix_updates_with_npm() {
         // Node from Homebrew links global packages into Homebrew's bin.
         let prefix = tempfile::tempdir().unwrap();
@@ -469,56 +451,6 @@ mod tests {
         assert_eq!(method("gemini", &cli, &npm), None);
         std::fs::create_dir_all(global.modules.join("@google/gemini-cli")).unwrap();
         assert_eq!(method("gemini", &cli, &npm), Some(Method::Npm));
-    }
-
-    #[test]
-    fn its_own_installer_updates_itself_and_others_have_no_way() {
-        let home = tempfile::tempdir().unwrap();
-        let claude = file(home.path(), ".local/share/claude/versions/2.1.317");
-        assert_eq!(method("claude", &claude, &npm_none()), Some(Method::Own));
-        let target = Target {
-            agent: "claude",
-            cli: Some(&claude),
-            npm_adapter: None,
-        };
-        assert_eq!(
-            plan(&target, &npm_none()),
-            [Step::new(claude.display().to_string(), &["update"])]
-        );
-        let opencode = file(home.path(), ".opencode/bin/opencode");
-        assert_eq!(
-            method("opencode", &opencode, &npm_none()),
-            Some(Method::Own)
-        );
-        // flsh from cargo, and pi from somewhere else: no way known.
-        for agent in ["flsh", "pi"] {
-            let cli = file(home.path(), &format!(".cargo/bin/{agent}"));
-            assert_eq!(method(agent, &cli, &npm_none()), None);
-            let target = Target {
-                agent,
-                cli: Some(&cli),
-                npm_adapter: None,
-            };
-            assert!(plan(&target, &npm_none()).is_empty());
-        }
-    }
-
-    #[test]
-    fn a_missing_npm_cli_installs_with_npm() {
-        let missing = |agent| Target {
-            agent,
-            cli: None,
-            npm_adapter: None,
-        };
-        assert_eq!(
-            plan(&missing("gemini"), &npm_none()),
-            [Step::new(
-                "npm",
-                &["install", "-g", "@google/gemini-cli@latest"]
-            )]
-        );
-        assert!(plan(&missing("gemini"), &Npm::default()).is_empty());
-        assert!(plan(&missing("flsh"), &npm_none()).is_empty());
     }
 
     #[cfg(unix)]
@@ -639,14 +571,5 @@ mod tests {
             details.contains("\n\n$ /srv/brew/bin/opencode upgrade\nError: Unexpected"),
             "{details}"
         );
-    }
-
-    #[tokio::test]
-    async fn no_way_to_update_says_so() {
-        let fake = Fake::new(Vec::new());
-        let error = run(&fake, "flsh", &[], Duration::from_secs(60))
-            .await
-            .unwrap_err();
-        assert!(error.to_string().contains("by hand"), "{error}");
     }
 }

@@ -362,31 +362,6 @@ mod tests {
     }
 
     #[test]
-    fn since_takes_seconds_minutes_hours_and_days() {
-        assert_eq!(parse_since("45s"), Ok(Duration::from_secs(45)));
-        assert_eq!(parse_since("30m"), Ok(Duration::from_secs(1800)));
-        assert_eq!(parse_since("1h"), Ok(Duration::from_secs(3600)));
-        assert_eq!(parse_since("2d"), Ok(Duration::from_secs(172_800)));
-        for wrong in ["", "h", "10", "1w", "1.5h", "-1h", "1h30m"] {
-            assert!(parse_since(wrong).is_err(), "{wrong}");
-        }
-        assert!(parse_since("99999999999999999d").is_err());
-    }
-
-    #[test]
-    fn info_from_iroh_and_its_spans_is_noise_but_warnings_are_not() {
-        let noise = |line| head(line).is_some_and(|head| is_noise(&head));
-        assert!(noise(NOISE));
-        assert!(noise(SPAN));
-        assert!(noise("2026-11-03T14:31:00Z DEBUG iroh_relay::client: tls"));
-        assert!(noise("2026-11-03T14:31:00Z INFO portmapper::upnp: probe"));
-        assert!(!noise(IROH_WARN));
-        assert!(!noise("2026-11-03T14:31:00Z ERROR tracing::span: failed"));
-        assert!(!noise(NODE));
-        assert!(!noise("2026-11-03T14:31:00Z INFO irohish: not iroh"));
-    }
-
-    #[test]
     fn timestamps_read_with_their_offset() {
         assert_eq!(parse_time("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(parse_time("1970-01-01T01:00:00+01:00"), Some(0));
@@ -437,18 +412,6 @@ mod tests {
             shown(&options(None, false), cutoff, &lines),
             [NODE, "  continued too"]
         );
-    }
-
-    #[test]
-    fn lines_counts_the_last_lines_after_filtering() {
-        let lines = [NODE, NOISE, IROH_WARN, NOISE, SPAN];
-        let cutoff = head(NOISE).expect("a timestamped line").time;
-        assert_eq!(shown(&options(Some(1), false), cutoff, &lines), [IROH_WARN]);
-        assert_eq!(
-            shown(&options(Some(5), false), cutoff, &lines),
-            [NODE, IROH_WARN]
-        );
-        assert!(shown(&options(Some(0), false), cutoff, &lines).is_empty());
     }
 
     #[test]

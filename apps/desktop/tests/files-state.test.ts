@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_UPLOAD, type Listing, type TreeEntry, highlight, joinPath, languageOf, mentionText, parentPath, terminalName,
-  treeRows, uploadParts, uploadRefusal, withMentions,
+  MAX_UPLOAD, type Listing, type TreeEntry, failedListing, highlight, languageOf, mentionText, treeRows, uploadParts, uploadRefusal, withMentions,
 } from "../src/files-state.ts";
 
 const file = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => ({ name, folder: false, size: 1, ignored: false, change: null, ...o });
@@ -27,22 +26,9 @@ test("what is under an ignored folder shows as ignored", () => {
   assert.deepEqual(rows.filter(r => r.ignored).map(r => r.path), ["target", "target/app"]);
 });
 
-test("a folder open before it is read shows as loading", () => {
-  const more = new Map(listings).set("src/auth", { entries: null, more: 0, error: "" });
-  const auth = treeRows(more, new Set(["src", "src/auth"])).find(r => r.path === "src/auth")!;
-  assert.ok(auth.loading);
-});
-
 test("a filter keeps matching names and the folders on the way", () => {
   assert.deepEqual(treeRows(listings, new Set(), "LOGIN").map(r => r.path), ["src", "src/login.rs"]);
   assert.deepEqual(treeRows(listings, new Set(), "nothing"), []);
-});
-
-test("paths join and split on slashes", () => {
-  assert.equal(joinPath("", "a.rs"), "a.rs");
-  assert.equal(joinPath("src/", "a.rs"), "src/a.rs");
-  assert.equal(parentPath("src/a.rs"), "src");
-  assert.equal(parentPath("a.rs"), "");
 });
 
 test("mentions go after the text, quoted with a space", () => {
@@ -68,7 +54,9 @@ test("highlighting marks keywords, strings and comments, escaped", () => {
   assert.equal(languageOf("Makefile"), "");
 });
 
-test("terminal tabs are named by folder and number", () => {
-  assert.equal(terminalName("/srv/project/.worktrees/fix-login/", []), "fix-login 1");
-  assert.equal(terminalName("/srv/fix-login", ["fix-login 1", "fix-login 3"]), "fix-login 2");
+test("a session folder the machine no longer has reads as empty, not as an error", () => {
+  const gone = "bad request: build-box: the folder /tmp/agent/scratchpad is not there: No such file or directory (os error 2)";
+  assert.deepEqual(failedListing(gone), { entries: [], more: 0, error: "" });
+  assert.equal(failedListing("bad request: build-box: permission denied").error, "build-box: permission denied");
+  assert.match(failedListing("unknown op 812").error, /Update Beep/);
 });

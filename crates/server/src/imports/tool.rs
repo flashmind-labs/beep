@@ -1,5 +1,4 @@
-//! `import_project`: clones a repository onto one of the user's machines and
-//! lists it as a project, as the Import a project sheet does.
+//! `import_project`: clones a repository onto a user's machine and lists it, like the import sheet.
 
 use super::{
     ImportError,

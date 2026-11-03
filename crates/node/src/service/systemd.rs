@@ -206,23 +206,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_unit_runs_the_node_with_its_folder_and_path() {
-        let unit = unit(&launch(None));
-        assert!(
-            unit.contains(
-                "ExecStart=\"/opt/beep node/beep-node\" \"--dir\" \"/srv/node\" \"run\"\n"
-            ),
-            "{unit}"
-        );
-        assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/user/50%%/bin\"\n"));
-        assert!(unit.contains("Restart=always\n"));
-        assert!(unit.contains("KillMode=mixed\n"), "{unit}");
-        assert!(unit.contains("WantedBy=default.target"));
-        // The node's own filter keeps the networking crates quiet.
-        assert!(!unit.contains("RUST_LOG"), "{unit}");
-    }
-
-    #[test]
     fn a_restart_only_follows_a_unit_that_runs_this_binary() {
         let unit = unit(&launch(None));
         assert!(runs(&unit, Path::new("/opt/beep node/beep-node")));

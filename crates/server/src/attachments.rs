@@ -1,9 +1,4 @@
-//! Files the user hands Beep, sent with a message or read from their Mac.
-//!
-//! Each one is saved in the user's home folder, when they have an
-//! environment online, so `exec` can open it and `send_file` can
-//! pass it on. The model sees a text file's contents inline; anything else
-//! it opens with a command.
+//! Files the user hands Beep, saved in their home folder when an environment is online.
 
 use crate::workspace::Workspace;
 use flashmind::types::ContentPart;
@@ -48,8 +43,7 @@ impl Handed<'_> {
     }
 }
 
-/// Saves `file` in the user's home folder, when there is one, and returns
-/// where.
+/// Saves `file` in the user's home folder, when there is one, and returns where.
 pub async fn save(workspace: Option<&Workspace>, file: &Handed<'_>) -> Option<String> {
     let workspace = workspace?;
     match workspace.save(file.name, file.data).await {

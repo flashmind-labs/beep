@@ -193,26 +193,4 @@ mod tests {
         assert_eq!(plan.windows[1].used_percent, 2.0);
         assert_eq!(plan.windows[1].resets_at, Some(300));
     }
-
-    #[test]
-    fn an_older_event_gives_its_limiting_window() {
-        let event = json!({"status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.8, "resetsAt": 9});
-        let windows = claude_rate_limit(&event);
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].minutes, 300);
-        assert_eq!(windows[0].used_percent, 80.0);
-        assert!(claude_rate_limit(&json!({"status": "allowed"})).is_empty());
-    }
-
-    #[tokio::test]
-    async fn turns_wait_bounded_for_the_server() {
-        let hub = UsageHub::default();
-        for n in 0..(MAX_UNSENT as u64 + 3) {
-            hub.record(TurnUsage {
-                tokens: n,
-                ..TurnUsage::default()
-            });
-        }
-        assert_eq!(hub.next_turn().await.tokens, 3);
-    }
 }

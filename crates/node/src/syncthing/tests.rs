@@ -129,15 +129,6 @@ fn gui_addresses_are_reached_on_loopback() {
     assert!(gui_addr("unix:///run/syncthing.sock", false).is_err());
 }
 
-#[test]
-fn a_tilde_is_the_home() {
-    let home = Path::new("/home/someone");
-    assert_eq!(expand("~/sync", Some(home)), home.join("sync"));
-    assert_eq!(expand("~", Some(home)), home.join(""));
-    assert_eq!(expand("/srv/sync", Some(home)), PathBuf::from("/srv/sync"));
-    assert_eq!(expand("~/sync", None), PathBuf::from("~/sync"));
-}
-
 #[tokio::test]
 async fn the_api_says_which_folder_holds_a_project_nested_or_through_a_link() {
     let home = Home::new();

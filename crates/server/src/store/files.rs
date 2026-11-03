@@ -1,10 +1,7 @@
-//! Files kept for a chat: ones Beep sent the user, kept until the session is
-//! deleted or `FILE_KEEP` passes, and pictures and other files users sent,
-//! kept as long as their message. The rows hold what each file is; `Blobs`
-//! holds the bytes.
+//! Files kept for a chat: ones Beep sent (until deletion or `FILE_KEEP`) and ones users sent (as long as their message).
 
 use super::{
-    Store, seconds,
+    Store,
     updates::{Readers, UpdateOp, log_messages},
 };
 use crate::{
@@ -50,9 +47,7 @@ pub struct PicturesOf {
 }
 
 impl Store {
-    /// Keeps `file` and returns its id. Drops the user's files older than
-    /// `FILE_KEEP` on the way, so nothing else has to sweep them; pictures
-    /// stay with their chat.
+    /// Keeps `file` and returns its id, pruning the user's sent files older than `FILE_KEEP` on the way.
     pub(crate) async fn save_file(&self, user: &UserKey, file: NewFile<'_>) -> Result<String> {
         self.drop_expired_files(user).await?;
         let id = Uuid::new_v4().simple().to_string();
@@ -78,15 +73,13 @@ impl Store {
              AND created_at < now() - make_interval(secs => $2) RETURNING id",
         )
         .bind(user.as_str())
-        .bind(seconds(FILE_KEEP))
+        .bind(FILE_KEEP.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
         self.blobs.delete(&expired).await
     }
 
-    /// Keeps the pictures `user` sent with a message, in order, and returns
-    /// what clients see of them. The message goes out again with them. All
-    /// are kept or, on an error, none.
+    /// Keeps the pictures `user` sent with a message, in order, all or none; returns what clients see.
     pub(crate) async fn save_pictures(
         &self,
         user: &UserKey,
@@ -135,9 +128,7 @@ impl Store {
         Ok(saved)
     }
 
-    /// Keeps the files `user` sent with a message, in order. The message goes
-    /// out again, so other devices fetch them. All are kept or, on an error,
-    /// none.
+    /// Keeps the files `user` sent with a message, in order, all or none.
     pub(crate) async fn save_attachments(
         &self,
         user: &UserKey,
@@ -178,10 +169,7 @@ impl Store {
         Ok(())
     }
 
-    /// Gives the `staged` files, rows without a message so far, to message
-    /// `of` in one transaction, once `kept` says all were written. On an
-    /// error they are dropped instead. One left by a crash has no message,
-    /// so it expires like a sent file.
+    /// Attaches `staged` rows to message `of` once `kept` succeeds, else drops them; crash leftovers expire like sent files.
     async fn attach_staged<T>(
         &self,
         of: PicturesOf,
@@ -246,8 +234,7 @@ impl Store {
         Ok(())
     }
 
-    /// When each spoken prompt of `user`'s session `chat` was sent, in
-    /// milliseconds, oldest first.
+    /// Send times in ms of each spoken prompt in `user`'s session `chat`, oldest first.
     pub(crate) async fn spoken_turns(&self, user: &UserKey, chat: Uuid) -> Result<Vec<i64>> {
         Ok(sqlx::query_scalar(
             "SELECT floor(extract(epoch FROM sent_at) * 1000)::bigint
@@ -261,8 +248,7 @@ impl Store {
         .await?)
     }
 
-    /// The files other than pictures `user` sent in session `chat`, by the
-    /// time of the message they came with in milliseconds.
+    /// Non-picture files `user` sent in session `chat`, by message time in ms.
     pub(crate) async fn session_files(&self, user: &UserKey, chat: Uuid) -> Result<Vec<SentFiles>> {
         let rows = sqlx::query(
             "SELECT floor(extract(epoch FROM m.sent_at) * 1000)::bigint AS message,
@@ -296,8 +282,7 @@ impl Store {
         Ok(sent)
     }
 
-    /// Stores the bytes of file `id`, dropping its row when that fails so
-    /// no file is listed without them.
+    /// Stores file `id`'s bytes, dropping its row on failure so no file is listed without them.
     pub(super) async fn put_blob(&self, id: &str, data: &[u8]) -> Result<()> {
         if let Err(error) = self.blobs.put(id, data).await {
             sqlx::query("DELETE FROM files WHERE id=$1")
@@ -309,8 +294,7 @@ impl Store {
         Ok(())
     }
 
-    /// The pictures `user` sent in session `chat`, by the time of the
-    /// message they came with in milliseconds.
+    /// Pictures `user` sent in session `chat`, by message time in ms.
     pub(crate) async fn session_pictures(
         &self,
         user: &UserKey,
@@ -330,8 +314,7 @@ impl Store {
         by_message(&rows)
     }
 
-    /// The pictures sent in group `chat`, by message id. The caller checks
-    /// membership.
+    /// Pictures sent in group `chat`, by message id; the caller checks membership.
     pub(crate) async fn group_pictures(&self, chat: Uuid) -> Result<Vec<SentImages>> {
         let rows = sqlx::query(
             "SELECT message_id AS message, id, mime, width, height FROM files
@@ -344,9 +327,7 @@ impl Store {
         by_message(&rows)
     }
 
-    /// Up to `len` bytes of file `id` from `offset` on. `None` when there is
-    /// no such file, it has expired, or `user` may not read it: a file is
-    /// its owner's, and a group's pictures are its members'.
+    /// Up to `len` bytes of file `id` from `offset`; `None` if missing, expired, or not readable by `user` (owner, or group members for group pictures).
     pub(crate) async fn file_part(
         &self,
         user: &UserKey,
@@ -364,7 +345,7 @@ impl Store {
         )
         .bind(user.as_str())
         .bind(id)
-        .bind(seconds(FILE_KEEP))
+        .bind(FILE_KEEP.as_secs_f64())
         .fetch_one(&self.pool)
         .await?;
         if !readable {

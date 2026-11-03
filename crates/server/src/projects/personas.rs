@@ -1,5 +1,4 @@
-//! Project persona files: Markdown with YAML frontmatter, as Claude agent
-//! files are, plus the Beep keys `engine`, `needs` and `mcp`.
+//! Project persona files: Markdown with YAML frontmatter plus Beep's `engine`, `needs` and `mcp`.
 
 use super::model::WorkerAgent;
 use beep_proto::node::Capability;
@@ -74,8 +73,7 @@ pub(crate) fn parse(file: &str, text: &str) -> Result<ProjectPersona, PersonaFil
     })
 }
 
-/// The frontmatter mapping and the text after it, or `None` when `text`
-/// has no complete, mapping-shaped frontmatter block.
+/// The frontmatter mapping and the body, or `None` without a complete mapping block.
 fn split(text: &str) -> Option<(Mapping, String)> {
     let mut lines = text.trim_start_matches('\u{feff}').lines();
     if lines.next()?.trim() != "---" {

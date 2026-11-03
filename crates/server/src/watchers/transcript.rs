@@ -1,6 +1,4 @@
-//! A stretch of a chat as the watchers read it: each message numbered by
-//! its id, the tool calls Beep made with what they were given and what came
-//! back, and how long slow turns took.
+//! A stretch of a chat as the watchers read it.
 
 use crate::{
     memories::clip,
@@ -44,9 +42,7 @@ fn close_turn(text: &mut String, turn: Option<OpenTurn>) {
     }
 }
 
-/// Writes out `messages` in order until `budget` bytes are used, always
-/// taking the first. `arguments` holds tool calls' arguments by call id,
-/// as far as the chat's context still has them.
+/// Writes out `messages` until `budget` bytes are used, always taking the first.
 pub(crate) fn transcript(
     messages: &[StoredMessage],
     arguments: &HashMap<String, String>,

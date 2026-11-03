@@ -1,6 +1,4 @@
-//! Voice notes: a notice rewritten for listening and spoken, and a spoken
-//! reply turned into text, through the provider's speech and transcription
-//! endpoints. The key and upstream error bodies never reach clients.
+//! Voice notes: notices spoken and spoken replies transcribed. Keys and upstream bodies never reach clients.
 
 use crate::{
     protocol::{MAX_VOICE, Upload, VOICE_TYPES},
@@ -25,13 +23,11 @@ const MAX_CALLS: usize = 8;
 const QUEUE_WAIT: Duration = Duration::from_secs(10);
 /// How long the provider may take to speak a note or transcribe a reply.
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
-/// How long the rewrite for listening may take before the plain text is
-/// spoken instead.
+/// How long the rewrite may take before the plain text is spoken.
 const REWRITE_TIMEOUT: Duration = Duration::from_secs(12);
 /// Calls one user may make within `RATE_WINDOW`.
 const RATE_CALLS: usize = 40;
-/// Live mode's lines one user may have spoken within `RATE_WINDOW`: a
-/// reply is read sentence by sentence. Lines said before are free.
+/// Live lines one user may speak within `RATE_WINDOW`; cached lines are free.
 const LIVE_CALLS: usize = 400;
 /// Lines kept spoken, so a repeated one costs nothing.
 const CACHE_LINES: usize = 256;
@@ -105,8 +101,7 @@ pub enum VoiceError {
     Provider,
 }
 
-/// Speaks and transcribes through the provider, a bounded number of calls
-/// at a time.
+/// Speaks and transcribes through the provider, a bounded number of calls at a time.
 pub struct Voice {
     provider: Arc<dyn LlmProvider>,
     /// Mistral, which transcribes in place of `provider` when set.
@@ -175,8 +170,7 @@ impl Voice {
         self.synthesize(text).await
     }
 
-    /// A line of live mode spoken, as MP3. Lines said before come from the
-    /// cache and count against nothing.
+    /// A live mode line as MP3; cached lines count against nothing.
     pub async fn say(&self, user: &str, text: &str) -> Result<Arc<Vec<u8>>, VoiceError> {
         let cached = self
             .said
@@ -289,8 +283,7 @@ impl Voice {
     }
 }
 
-/// Counts a call against `user` in `calls`, refusing one past `limit`
-/// within `RATE_WINDOW`.
+/// Counts a call against `user`, refusing one past `limit` within `RATE_WINDOW`.
 fn count(
     calls: &Mutex<HashMap<String, VecDeque<Instant>>>,
     user: &str,
@@ -328,9 +321,7 @@ fn provider_failed(what: &str, error: &anyhow::Error) -> VoiceError {
     VoiceError::Provider
 }
 
-/// The type to send `audio` as, or `BadAudio` for an empty, oversized or
-/// unknown recording. The provider client names the upload after the
-/// subtype, so aliases become their usual name.
+/// The upload type for `audio`, with aliases normalized; `BadAudio` when empty, too big or unknown.
 fn voice_type(audio: &Upload) -> Result<&'static str, VoiceError> {
     if audio.data.is_empty() || audio.data.len() > MAX_VOICE {
         return Err(VoiceError::BadAudio);
@@ -353,8 +344,7 @@ fn voice_type(audio: &Upload) -> Result<&'static str, VoiceError> {
     })
 }
 
-/// The words a voice note says for a notice: the model's rewrite for
-/// listening, or the notice made plain when the model fails.
+/// The model's listening rewrite of a notice, or the notice made plain on failure.
 pub async fn spoken_text(generator: &Generator<'_>, title: &str, body: &str) -> String {
     let message = cut(&plain(body), MAX_INPUT_CHARS);
     let prompt = if title.trim().is_empty() {
@@ -400,8 +390,7 @@ fn fallback(title: &str, body: &str) -> String {
     }
 }
 
-/// Text with markdown marks, links and line breaks taken out, which a
-/// voice would read out literally.
+/// Text without markdown marks, links and line breaks.
 fn plain(text: &str) -> String {
     let mut out = Vec::new();
     for word in text.split_whitespace() {
@@ -425,8 +414,7 @@ fn plain(text: &str) -> String {
     out.join(" ")
 }
 
-/// `text` cut to at most `max` characters, at the end of a sentence when
-/// one ends in the last third.
+/// `text` cut to `max` characters, at a sentence end in the last third when there is one.
 fn cut(text: &str, max: usize) -> String {
     let Some((end, _)) = text.char_indices().nth(max) else {
         return text.to_owned();

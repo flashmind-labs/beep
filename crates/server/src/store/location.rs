@@ -41,8 +41,7 @@ impl Store {
         self.set_timezone(user, &fix.timezone).await
     }
 
-    /// Saves the user's timezone. A new one reloads the scheduler, since
-    /// recurring jobs run in the user's local time.
+    /// Saves the user's timezone; a change reloads the scheduler since jobs run in local time.
     pub(crate) async fn set_timezone(&self, user: &UserKey, timezone: &str) -> Result<()> {
         let changed = sqlx::query(
             "UPDATE users SET timezone=$2 WHERE id=$1 AND timezone IS DISTINCT FROM $2",

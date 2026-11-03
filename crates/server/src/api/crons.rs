@@ -1,7 +1,7 @@
 //! Routines.
 
-use super::{Reply, found, next_run_at};
-use crate::{cron, protocol::*, router::Cx};
+use super::{Reply, found, next_run};
+use crate::{cron, protocol::*, router::Cx, store::decode_schedule};
 
 pub(super) async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
     let tz = cx
@@ -9,10 +9,9 @@ pub(super) async fn list_crons(cx: Cx, _: ListCrons) -> Reply<Vec<Cron>> {
         .get_timezone()
         .await
         .unwrap_or_else(|_| "UTC".into());
-    // Recurring routines first, then one-off alerts, each soonest first. A
-    // routine with no next run (a bad expression) goes last in its group.
+    // Recurring first, then one-off, each soonest first; no next run goes last.
     let mut crons: Vec<_> = (cx.user.list_crons().await?.into_iter())
-        .map(|c| (next_run_at(&c.schedule, &tz), c))
+        .map(|c| (next_run(&decode_schedule(c.schedule.clone()), &tz), c))
         .collect();
     crons.sort_by_key(|(next, c)| (c.run_once, next.is_none(), *next));
     Ok(crons

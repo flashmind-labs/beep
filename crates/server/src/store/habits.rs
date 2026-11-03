@@ -185,8 +185,7 @@ impl Store {
     }
 }
 
-/// Consecutive days in `days` (distinct, newest first) ending today, or
-/// ending yesterday when nothing was logged today yet.
+/// Consecutive days in `days` (distinct, newest first) ending today, or yesterday if nothing logged today.
 fn streak(days: &[NaiveDate], today: NaiveDate) -> i64 {
     let Some(&newest) = days.first() else {
         return 0;

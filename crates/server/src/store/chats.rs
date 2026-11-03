@@ -1,5 +1,4 @@
-//! Sessions and groups as one kind of row, and the page of a user's log
-//! that `GetUpdates` sends.
+//! Sessions and groups as one kind of row, and the `GetUpdates` page.
 
 use super::{
     Store,
@@ -21,8 +20,7 @@ const PAGE_UPDATES: i64 = 500;
 /// About how many bytes of text a page holds before it stops early.
 const PAGE_BYTES: usize = 2 * 1024 * 1024;
 
-/// A session's title as the list shows it: the one it was given, else the
-/// start of its first message. Reads `chats c`.
+/// A session's list title: its given title, else the start of its first message. Reads `chats c`.
 pub(super) const SESSION_TITLE: &str = "COALESCE(c.title, (SELECT substr(r.message, 1, 80)
     FROM runs r WHERE r.chat_id = c.id ORDER BY r.seq LIMIT 1), 'Conversation')";
 
@@ -113,6 +111,7 @@ struct Logged {
 
 impl Store {
     /// Whether `user` is in `chat`, a session they own or a group they are in.
+    #[cfg(test)]
     pub(crate) async fn in_chat(&self, user: &UserKey, chat: Uuid) -> Result<bool> {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2)",
@@ -194,12 +193,8 @@ impl Store {
             .collect()
     }
 
-    /// `user`'s updates after `after`, oldest first, as many as fit a page.
-    /// A client behind the tombstones already dropped gets everything again
-    /// with `reset`, and so does one ahead of the log: its copy came from
-    /// another database, such as the server this one was moved from. A
-    /// negative cursor continues a rebuild below the reset threshold;
-    /// clients pass it back unchanged, just like any other cursor.
+    /// `user`'s updates after `after`, oldest first, one page.
+    /// A client behind dropped tombstones or ahead of the log gets `reset`; a negative cursor continues a rebuild.
     pub(crate) async fn updates_page(&self, user: &UserKey, after: i64) -> Result<UpdatePage> {
         let rebuilding = after < 0;
         let after = after.saturating_abs();

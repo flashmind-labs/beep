@@ -1,5 +1,4 @@
-//! Charts under a reply, which the macOS app draws: a stock's price from
-//! Yahoo Finance, or numbers the model already got from a tool or a page.
+//! Charts under a reply: a stock's price from Yahoo Finance, or numbers the model gives.
 
 use super::{
     products::clip,
@@ -184,8 +183,7 @@ fn default_kind() -> ChartKind {
     ChartKind::Line
 }
 
-/// A series as the model gives it: `values` against categories, or `points`
-/// against time.
+/// A series: `values` against categories, or `points` against time.
 #[derive(Debug, Deserialize)]
 struct RequestedSeries {
     name: String,
@@ -286,8 +284,7 @@ impl Tool for ShowChartTool {
     }
 }
 
-/// The chart for `args`, or why there is none. Points that do not hold up
-/// are left out and noted in `dropped`.
+/// The chart for `args`, or why there is none; bad points are noted in `dropped`.
 fn build(args: ChartArgs, dropped: &mut Vec<String>) -> Result<Chart, String> {
     if args.series.is_empty() || args.series.len() > MAX_SERIES {
         return Err(format!("Give between 1 and {MAX_SERIES} series."));
@@ -346,8 +343,7 @@ fn build(args: ChartArgs, dropped: &mut Vec<String>) -> Result<Chart, String> {
     })
 }
 
-/// `values` against the category at each index; a series that does not
-/// match the categories fails the whole chart, so the model fixes it.
+/// `values` against the categories; a length mismatch fails the whole chart.
 fn category_points(
     name: &str,
     requested: RequestedSeries,
@@ -383,8 +379,7 @@ fn category_points(
     Ok(points)
 }
 
-/// `points` against time, sorted; points with an unreadable time or value
-/// are left out.
+/// `points` against time, sorted; unreadable ones are left out.
 fn time_points(
     name: &str,
     requested: RequestedSeries,
@@ -423,8 +418,7 @@ fn time_points(
     Ok(points)
 }
 
-/// Unix milliseconds of a date or an ISO 8601 time. One without an offset
-/// is read as UTC.
+/// Unix milliseconds of a date or an ISO 8601 time, UTC without an offset.
 fn time_ms(text: &str) -> Option<f64> {
     let text = text.trim();
     if let Ok(time) = DateTime::parse_from_rfc3339(text) {

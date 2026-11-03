@@ -1,8 +1,4 @@
-//! Terminals: commands a node keeps running in the background
-//! (`process/1`) or in a pseudo-terminal (`terminal/1`), named and listed
-//! per project, or on their own with no project. The node owns the command and its output; the store only
-//! says which task or terminal on which node. `attach` follows an
-//! interactive one live.
+//! Terminals: node tasks or pseudo-terminals; the store only says which task on which node.
 
 use super::{
     Reply,
@@ -45,8 +41,7 @@ pub(super) async fn list_all_terminals(cx: Cx, _: ListAllTerminals) -> Reply<Vec
 /// `rows` with how each stands on its machine now.
 async fn with_states(cx: &Cx, rows: Vec<TerminalRow>) -> Reply<Vec<Terminal>> {
     let names = machine_names(cx).await?;
-    // Each machine is asked once for all its tasks, and once for all its
-    // interactive terminals.
+    // Each machine is asked once for its tasks and once for its terminals.
     let mut tasks: HashMap<Place, Option<Vec<Task>>> = HashMap::new();
     for place in rows.iter().map(Place::of).collect::<HashSet<_>>() {
         let listed = match online(cx, &place.endpoint) {
@@ -61,8 +56,7 @@ async fn with_states(cx: &Cx, rows: Vec<TerminalRow>) -> Reply<Vec<Terminal>> {
             Some(Some(listed)) => state_of(&row, listed),
             _ => TerminalState::Offline {},
         };
-        // An interactive terminal whose shell exited is done: its row goes,
-        // as the node drops it too.
+        // The node drops an exited interactive terminal, so its row goes too.
         if ended_for_good(&row, &state) {
             cx.user.remove_terminal(row.id).await?;
             continue;
@@ -72,8 +66,7 @@ async fn with_states(cx: &Cx, rows: Vec<TerminalRow>) -> Reply<Vec<Terminal>> {
     Ok(out)
 }
 
-/// Whether `row` is an interactive terminal that will never run again: it
-/// exited, was stopped, or its node no longer has it.
+/// Whether `row` is an interactive terminal that will never run again.
 fn ended_for_good(row: &TerminalRow, state: &TerminalState) -> bool {
     row.pty
         && matches!(
@@ -161,8 +154,7 @@ pub(super) async fn open_terminal(cx: Cx, request: OpenTerminal) -> Reply<Termin
         task: started.id.0,
         pty: true,
         name,
-        // What the node calls it, such as the shell's name, so a restarted
-        // node's terminal under the same number is told apart.
+        // Tells apart a restarted node's terminal under the same number.
         command: started.command,
         cwd: cwd.unwrap_or_else(|| HOME.to_owned()),
         started_at: Utc::now(),
@@ -193,8 +185,7 @@ pub(super) async fn get_terminal(cx: Cx, request: GetTerminal) -> Reply<Terminal
         });
     };
     if row.pty {
-        // Its output streams through `AttachTerminal`; this only says how
-        // it stands.
+        // Output streams through `AttachTerminal`; this only says how it stands.
         let state = match listed(&node, true).await {
             Some(tasks) => state_of(&row, &tasks),
             None => TerminalState::Offline {},
@@ -244,8 +235,7 @@ pub(super) async fn close_terminal(cx: Cx, request: CloseTerminal) -> Reply<()> 
     Ok(())
 }
 
-/// Which listing a terminal's state comes from: its node's background
-/// tasks, or its interactive terminals.
+/// Which listing a terminal's state comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Place {
     endpoint: String,
@@ -261,8 +251,7 @@ impl Place {
     }
 }
 
-/// `node`'s background tasks, or its interactive terminals when `pty`;
-/// `None` when it cannot list them, so its terminals show as offline.
+/// `node`'s background tasks, or terminals when `pty`; `None` shows them as offline.
 async fn listed(node: &Online, pty: bool) -> Option<Vec<Task>> {
     if pty {
         match node.terminals(&PtyRequest::List {}).await {
@@ -296,9 +285,7 @@ fn optional<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
     }
 }
 
-/// The caller's machine `endpoint` when it is online now.
-/// How the row's task stands among those its node lists. A task with the
-/// same number but another command is a new one after a restart.
+/// How the row's task stands; the same number with another command is a new task.
 fn state_of(row: &TerminalRow, tasks: &[Task]) -> TerminalState {
     tasks
         .iter()

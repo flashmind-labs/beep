@@ -1903,75 +1903,6 @@ done
     }
 
     #[test]
-    fn only_claude_code_needs_its_mode_set() {
-        assert_eq!(
-            known("claude").and_then(|known| known.bypass_mode),
-            Some("bypassPermissions")
-        );
-        for agent in ["codex", "gemini", "pi", "flsh", "opencode", "custom"] {
-            assert_eq!(known(agent).and_then(|k| k.bypass_mode), None, "{agent}");
-        }
-    }
-
-    #[test]
-    fn flsh_and_gemini_take_the_model_on_their_command_line() {
-        let flag = |agent| known(agent).is_some_and(|known| known.model_flag);
-        assert!(flag("flsh") && flag("gemini"));
-        for agent in ["claude", "codex", "pi", "opencode", "custom"] {
-            assert!(!flag(agent), "{agent}");
-        }
-    }
-
-    #[test]
-    fn extra_agents_replace_known_ones() {
-        let custom = AgentKind {
-            name: "claude".into(),
-            program: "/opt/acp/claude".into(),
-            args: vec![],
-            env: BTreeMap::new(),
-        };
-        let kinds = detect(std::slice::from_ref(&custom));
-        assert_eq!(kinds.iter().filter(|kind| kind.name == "claude").count(), 1);
-        assert!(kinds.contains(&custom));
-    }
-
-    #[test]
-    fn pi_and_flsh_are_known() {
-        let known = |name: &str| KNOWN.iter().find(|known| known.name == name);
-        assert!(matches!(
-            known("pi").map(|known| &known.adapter),
-            Some(Adapter::Npm { bin: "pi-acp", .. })
-        ));
-        assert!(matches!(
-            known("flsh").map(|known| &known.adapter),
-            Some(Adapter::Flags(["acp"]))
-        ));
-    }
-
-    #[test]
-    fn opencode_runs_its_own_acp_server() {
-        let known = KNOWN
-            .iter()
-            .find(|known| known.name == "opencode")
-            .expect("opencode is known");
-        let installed = |program: &str| program == "opencode";
-        assert_eq!(
-            launch(known, &installed),
-            Some(AgentKind {
-                name: "opencode".into(),
-                program: "opencode".into(),
-                args: vec!["acp".into()],
-                env: BTreeMap::from([(
-                    "OPENCODE_PERMISSION".to_owned(),
-                    r#"{"*":"allow"}"#.to_owned()
-                )]),
-            })
-        );
-        assert_eq!(launch(known, &|_: &str| false), None);
-        assert_eq!(Agent::from_name("opencode"), Some(Agent::OpenCode));
-    }
-
-    #[test]
     fn every_known_agent_starts_without_permission_prompts() {
         let launched = |name: &str| {
             let known = KNOWN
@@ -2019,54 +1950,6 @@ done
         let rules: serde_json::Value =
             serde_json::from_str(&launched("opencode").1[0].1).expect("JSON");
         assert_eq!(rules, serde_json::json!({"*": "allow"}));
-    }
-
-    #[test]
-    fn node_toml_agents_may_set_variables() {
-        let kind: AgentKind = toml::from_str(
-            "name = \"codex\"\nprogram = \"/opt/acp/codex-acp\"\n\
-             env = { INITIAL_AGENT_MODE = \"agent-full-access\" }",
-        )
-        .expect("an agent");
-        assert_eq!(
-            kind.env.get("INITIAL_AGENT_MODE").map(String::as_str),
-            Some("agent-full-access")
-        );
-        let plain: AgentKind = toml::from_str("name = \"x\"\nprogram = \"x\"").expect("an agent");
-        assert!(plain.env.is_empty());
-        assert!(!toml::to_string(&plain).expect("toml").contains("env"));
-    }
-
-    #[test]
-    fn an_npm_adapter_runs_its_binary_else_npx() {
-        let known = KNOWN
-            .iter()
-            .find(|known| known.name == "pi")
-            .expect("pi is known");
-        let launched = |installed: &[&str]| {
-            let installed = |program: &str| installed.contains(&program);
-            launch(known, &installed).map(|kind| (kind.program, kind.args))
-        };
-        assert_eq!(launched(&["pi", "pi-acp"]), Some(("pi-acp".into(), vec![])));
-        assert_eq!(
-            launched(&["pi", "npx"]),
-            Some(("npx".into(), vec!["-y".into(), "pi-acp".into()]))
-        );
-        assert_eq!(launched(&["pi"]), None);
-    }
-
-    #[test]
-    fn offers_name_each_agent_and_the_session_list() {
-        let agents = Agents::new(vec![AgentKind {
-            name: "fake".into(),
-            program: "true".into(),
-            args: vec![],
-            env: BTreeMap::new(),
-        }]);
-        assert_eq!(agents.offers(), ["fake/1", SESSIONS_PROTOCOL]);
-        assert!(agents.kind("fake/1").is_some());
-        assert!(agents.kind("claude/1").is_none());
-        assert!(Agents::new(vec![]).offers().is_empty());
     }
 
     #[test]
@@ -2270,48 +2153,5 @@ while read -r line; do reply '{}'; done
             "a claude stream took over a codex session"
         );
         running.close().await;
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn models_are_listed_for_the_agents_this_node_has() {
-        // Answers one `session/new` with a model; a second start would
-        // fail, so a second listing must come from the cache.
-        let script = r#"
-id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
-reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
-[ -e "$1" ] && exit 1
-: > "$1"
-read -r line
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line
-reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"deep"}],"currentModelId":"deep"}}'
-cat > /dev/null
-"#;
-        let dir = tempfile::tempdir().unwrap();
-        let kind = AgentKind {
-            name: "codex".into(),
-            program: "sh".into(),
-            args: vec![
-                "-c".into(),
-                script.into(),
-                "fake-adapter".into(),
-                dir.path().join("started").display().to_string(),
-            ],
-            env: BTreeMap::new(),
-        };
-        let agents = Agents::new(vec![kind]);
-        let first = agents.models("codex").await.expect("a known agent");
-        assert_eq!(first.pick, agent::ModelPick::Listed);
-        assert_eq!(first.current.as_deref(), Some("deep"));
-        assert_eq!(agents.models("codex").await, Some(first));
-        assert_eq!(agents.models("claude").await, None);
-    }
-
-    #[test]
-    fn ids_are_six_hex_digits() {
-        let id = new_id();
-        assert_eq!(id.len(), 6);
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

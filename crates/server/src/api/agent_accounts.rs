@@ -1,9 +1,5 @@
-//! Agent accounts in Settings: how the caller's coding agents sign in on
-//! their machines. Claude Code signs in once, with a long-lived token Beep
-//! keeps sealed and hands to the machines as `CLAUDE_CODE_OAUTH_TOKEN`.
-//! Codex signs in on each machine, with its device sign-in run there as a
-//! background task (`process/1`), or takes an API key Beep hands out the
-//! same way.
+//! Agent accounts: a sealed Claude Code token handed out as `CLAUDE_CODE_OAUTH_TOKEN`,
+//! and Codex's device sign-in run on each machine as a background task (or an API key).
 
 use super::{
     Reply,
@@ -58,8 +54,7 @@ pub(super) async fn get_agent_accounts(cx: Cx, _: GetAgentAccounts) -> Reply<Age
             .map(agent_token)
     };
     let keys = linked_keys(&cx).await?;
-    // The futures are made up front: a closure inside the stream would keep
-    // the reply future from being `Send`.
+    // Futures made up front: a closure inside the stream would make the reply not `Send`.
     let asks: Vec<_> = cx
         .user
         .nodes()
@@ -217,8 +212,7 @@ impl Tools {
     }
 }
 
-/// One machine's row: its Claude Code sessions and Codex sign-in asked of
-/// it when it is online. What it does not answer in time is left unknown.
+/// One machine's row; what it does not answer in time is left unknown.
 async fn machine(
     id: String,
     name: String,
@@ -266,8 +260,7 @@ async fn machine(
     }
 }
 
-/// Whether `codex login status` on the node says it is signed in; `None`
-/// when it could not be asked.
+/// Whether `codex login status` says signed in; `None` when it could not be asked.
 async fn codex_signed_in(node: &Online) -> Option<bool> {
     let mut output = String::new();
     let exited = node
@@ -319,7 +312,6 @@ fn refusal(agent: AgentAccount, secret: &str) -> Option<&'static str> {
     }
 }
 
-/// The caller's machine `endpoint` when it is online now.
 /// The caller's linked machine `endpoint`, online now; `NotFound` otherwise.
 async fn linked_online(cx: &Cx, endpoint: &str) -> Reply<Online> {
     if !linked_keys(cx).await?.contains(endpoint) {
@@ -328,8 +320,7 @@ async fn linked_online(cx: &Cx, endpoint: &str) -> Reply<Online> {
     online(cx, endpoint).ok_or(ApiError::NotFound {})
 }
 
-/// Reads the task's output until Codex printed its page and code. Fails
-/// with what it said when it ended first.
+/// Reads the task's output until Codex prints its page and code, or what it said if it ended first.
 async fn wait_for_code(node: &Online, id: TaskId) -> Result<Prompt, String> {
     loop {
         let reply = node
@@ -384,8 +375,7 @@ fn login_state(state: TaskState, lines: &[String]) -> CodexLoginState {
     }
 }
 
-/// What Codex printed of its device sign-in: the page, the code and how
-/// long the code lasts.
+/// What Codex printed of its device sign-in.
 #[derive(Debug, PartialEq)]
 struct Prompt {
     url: String,
@@ -427,8 +417,7 @@ impl Prompt {
     }
 }
 
-/// `word` when it is an https page of OpenAI's, the only pages passed on
-/// for the app to open.
+/// `word` when it is an https page of OpenAI's, the only pages passed on.
 fn device_page(word: &str) -> Option<String> {
     let word = word.trim_end_matches(['.', ',', ')', '"', '\'']);
     let url = Url::parse(word).ok()?;
@@ -439,8 +428,7 @@ fn device_page(word: &str) -> Option<String> {
     (url.scheme() == "https" && theirs).then(|| url.to_string())
 }
 
-/// A one-time code such as `ABCD-12345`: groups of capitals and digits
-/// joined by hyphens, with a digit or two groups at least.
+/// A one-time code such as `ABCD-12345`: hyphen-joined capitals and digits.
 fn is_code(word: &str) -> bool {
     let groups: Vec<&str> = word.split('-').collect();
     (4..=20).contains(&word.len())

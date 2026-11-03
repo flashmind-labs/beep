@@ -1,5 +1,4 @@
-//! A project's pull requests, issues and workflow runs from the server's
-//! copy (see `crate::repo_watch`), for the project page.
+//! A project's pull requests, issues and workflow runs from `crate::repo_watch`'s copy.
 
 use super::{
     Reply, SEND_TIMEOUT,
@@ -63,10 +62,7 @@ pub(super) async fn get_project_run_on(cx: Cx, req: GetProjectRunOn) -> Reply<Pr
         .map_err(ApiError::bad_request)
 }
 
-/// Follows a project for its page: whether it is live first, then each
-/// time that changes or its copies were read again, until the page closes
-/// the stream. While a page follows, one of the user's nodes forwards the
-/// repository's webhook (see `crate::repo_watch`).
+/// Follows a project for its page, sending each time it changes, until the page closes the stream.
 pub(super) async fn watch_project(
     cx: Cx,
     req: WatchProject,
@@ -154,8 +150,7 @@ async fn untracked(
     Ok(open.into_iter().map(issue_view).collect())
 }
 
-/// The open issues no task tracks, from the copy, for `ListProjectIssues`:
-/// the host's error when its last read failed, as before the copy.
+/// The open issues no task tracks, or the host's error when its last read failed.
 pub(super) async fn copied_issues(
     app: &Arc<App>,
     user: &Arc<User>,

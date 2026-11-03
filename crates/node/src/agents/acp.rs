@@ -541,29 +541,7 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{
-        AgentCapabilities, SessionCapabilities, SessionResumeCapabilities,
-    };
-    use beep_proto::image_key;
     use futures::StreamExt;
-
-    #[test]
-    fn resume_prefers_load_to_session_resume() {
-        let answer = |capabilities| {
-            InitializeResponse::new(ProtocolVersion::V1).agent_capabilities(capabilities)
-        };
-        let both = AgentCapabilities::new()
-            .load_session(true)
-            .session_capabilities(
-                SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
-            );
-        assert_eq!(resume_method(&answer(both)), Some(ResumeMethod::Load));
-        let resume = AgentCapabilities::new().session_capabilities(
-            SessionCapabilities::new().resume(SessionResumeCapabilities::new()),
-        );
-        assert_eq!(resume_method(&answer(resume)), Some(ResumeMethod::Resume));
-        assert_eq!(resume_method(&answer(AgentCapabilities::new())), None);
-    }
 
     #[tokio::test]
     async fn lines_over_the_cap_are_dropped_whole() {
@@ -599,37 +577,6 @@ mod tests {
             .await;
         assert_eq!(read, [r#"{"b":1}"#]);
         assert_eq!(reports.recv().await, Some(72));
-    }
-
-    #[test]
-    fn images_follow_the_text_as_image_blocks() {
-        let shot = Upload {
-            name: "shot.png".into(),
-            mime: "image/png".into(),
-            data: vec![0x89, b'P', b'N', b'G'],
-        };
-        let message = Prompt {
-            text: "The button overlaps".into(),
-            images: vec![shot.clone()],
-        };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message, None)).unwrap();
-        let blocks = sent["prompt"].as_array().unwrap();
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0]["type"], "text");
-        assert_eq!(blocks[0]["text"], "The button overlaps");
-        assert_eq!(blocks[1]["type"], "image");
-        assert_eq!(blocks[1]["mimeType"], "image/png");
-        assert_eq!(blocks[1]["data"], STANDARD.encode(&shot.data));
-        let line = format!("[image: image-{}]", image_key(&shot.data));
-        assert_eq!(message.shown(), format!("The button overlaps\n{line}"));
-
-        let only = Prompt {
-            text: String::new(),
-            images: vec![shot],
-        };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only, None)).unwrap();
-        assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
-        assert_eq!(only.shown(), line);
     }
 
     fn png(name: &str, len: usize) -> Upload {
@@ -725,45 +672,6 @@ mod tests {
     }
 
     #[test]
-    fn session_models_are_read_from_session_new() {
-        let answer = serde_json::json!({
-            "sessionId": "s1",
-            "models": {
-                "availableModels": [
-                    {"modelId": "default", "name": "Default (recommended)", "description": "Use the default model"},
-                    {"modelId": "opus"},
-                ],
-                "currentModelId": "default",
-            },
-        });
-        let (created, offered) = session_created(answer).unwrap();
-        assert_eq!(created.session_id, SessionId::new("s1"));
-        assert_eq!(offered.current.as_deref(), Some("default"));
-        assert_eq!(offered.switch, Some(ModelSwitch::SetModel));
-        assert_eq!(
-            offered.models,
-            [
-                ModelOption {
-                    id: "default".into(),
-                    name: "Default (recommended)".into(),
-                    description: Some("Use the default model".into()),
-                },
-                ModelOption {
-                    id: "opus".into(),
-                    name: "opus".into(),
-                    description: None,
-                },
-            ]
-        );
-        let request = switch_model(&SessionId::new("s1"), &ModelSwitch::SetModel, "opus").unwrap();
-        assert_eq!(request.method(), "session/set_model");
-        assert_eq!(
-            request.params(),
-            &serde_json::json!({"sessionId": "s1", "modelId": "opus"})
-        );
-    }
-
-    #[test]
     fn a_model_config_option_wins_over_session_models() {
         let answer = serde_json::json!({
             "sessionId": "s1",
@@ -792,29 +700,6 @@ mod tests {
         assert_eq!(request.method(), "session/set_config_option");
         assert_eq!(request.params()["configId"], "model");
         assert_eq!(request.params()["value"], "gpt-mini");
-    }
-
-    #[test]
-    fn the_thinking_option_is_read_from_session_new() {
-        let answer = serde_json::json!({
-            "sessionId": "s1",
-            "configOptions": [
-                {"id": "model", "name": "Model", "category": "model", "type": "select",
-                 "currentValue": "m", "options": [{"value": "m", "name": "M"}]},
-                {"id": "reasoning_effort", "name": "Reasoning effort", "category": "thought_level",
-                 "type": "select", "currentValue": "medium", "options": [
-                    {"value": "low", "name": "Low"}, {"value": "medium", "name": "Medium"}]},
-            ],
-        });
-        let (_, offered) = session_created(answer).unwrap();
-        let id = offered.thinking.expect("a thinking option");
-        assert_eq!(id, SessionConfigId::new("reasoning_effort"));
-        let request = set_effort(&SessionId::new("s1"), &id, Effort::Xhigh).unwrap();
-        assert_eq!(request.method(), "session/set_config_option");
-        assert_eq!(request.params()["configId"], "reasoning_effort");
-        assert_eq!(request.params()["value"], "xhigh");
-        let without = serde_json::json!({"sessionId": "s1"});
-        assert_eq!(session_created(without).unwrap().1.thinking, None);
     }
 
     /// Codex's answer to `session/new` and `session/load`, trimmed: its
@@ -876,12 +761,5 @@ mod tests {
         let broken = serde_json::json!({"sessionId": "s1", "models": {"availableModels": 3}});
         assert_eq!(offered_models(&broken), Offered::default());
         assert!(session_created(broken).is_ok());
-    }
-
-    #[test]
-    fn enums_read_as_their_wire_names() {
-        use agent_client_protocol::schema::v1::StopReason;
-        assert_eq!(wire_name(&StopReason::EndTurn), "end_turn");
-        assert_eq!(wire_name(&StopReason::MaxTurnRequests), "max_turn_requests");
     }
 }

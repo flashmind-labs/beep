@@ -1,5 +1,4 @@
-//! `image_gen`, `video_gen` and `3d_gen`: one tool per kind, offered only
-//! with a key that makes it.
+//! `image_gen`, `video_gen` and `3d_gen`, each offered only with a key for it.
 
 use super::{
     call::{Call, ImageSource, schema},
@@ -168,8 +167,7 @@ impl MediaTool {
         self.deliver(call, produced).await
     }
 
-    /// The input image as a service takes it: an https URL as it is, a
-    /// file in the home folder as a data URI.
+    /// The input image as an https URL, or a home folder file as a data URI.
     async fn image_input(&self, source: &ImageSource) -> Result<String> {
         match source {
             ImageSource::Url(url) => Ok(url.clone()),
@@ -190,8 +188,7 @@ impl MediaTool {
         }
     }
 
-    /// Keeps the file with the chat, where the apps show it, and saves it in
-    /// the home folder.
+    /// Keeps the file with the chat and saves it in the home folder.
     async fn deliver(&self, call: &Call, produced: Produced) -> Result<Value> {
         let Produced { media_type, data } = produced;
         ensure!(!data.is_empty(), "the service sent an empty file");
@@ -252,8 +249,7 @@ fn job_error(error: JobError) -> anyhow::Error {
     anyhow::Error::msg(error.to_string())
 }
 
-/// What the file is called: the call's `filename`, else the prompt's first
-/// words, with a short tag so another call does not replace it.
+/// The file name: `filename` or the prompt's first words, plus a short unique tag.
 pub(super) fn file_name(call: &Call, mime: &str) -> String {
     let extension = match mime {
         "image/png" => "png",

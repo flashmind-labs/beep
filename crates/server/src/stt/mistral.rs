@@ -1,5 +1,4 @@
-//! Live transcription through Mistral's realtime API, by way of flashmind's
-//! Mistral provider.
+//! Live transcription through Mistral's realtime API.
 
 use super::{AUDIO_QUEUE, HEARD_QUEUE, Heard, RealtimeStt, Session, SttError};
 use bytes::Bytes;
@@ -16,8 +15,7 @@ use tokio::{
 
 /// How long Mistral may take to open a session.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long Mistral gets to send the whole text once the audio ended. The
-/// provider has no watchdog of its own after `finish`.
+/// How long Mistral gets to send the text after the audio ends; the provider has no watchdog after `finish`.
 const DONE_WAIT: Duration = Duration::from_secs(10);
 
 pub struct MistralStt {
@@ -74,9 +72,7 @@ impl AudioOut for AudioSink {
     }
 }
 
-/// Moves audio to Mistral and its words back until the whole text came.
-/// Audio that ends before any of it was sent was silence: Mistral refuses to
-/// finish an empty session, so it is done with no text.
+/// Moves audio to Mistral and text back; audio that ends before any was sent is silence (Mistral refuses empty sessions).
 async fn pump(
     mut chunks: Receiver<Vec<u8>>,
     sink: impl AudioOut,
