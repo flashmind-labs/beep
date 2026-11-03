@@ -154,15 +154,12 @@ async fn compact(
         context.compact_with_llm_keeping_tokens(provider, model, KEEP_RECENT_TOKENS),
     )
     .await?;
-    if summary.is_none() {
-        // Nothing old enough to summarize. Saving still resets the token count,
-        // so the session is not picked again until a new turn measures it.
-        // Keeps whatever tool output was trimmed above.
-        store.save_compacted(session, &before, &context).await?;
-        return Ok(false);
-    }
-    // A run that started meanwhile changed the context; the next idle sweep retries.
-    store.save_compacted(session, &before, &context).await
+    // With nothing old enough to summarize, saving still resets the token
+    // count, so the session is not picked again until a new turn measures
+    // it, and keeps whatever tool output was trimmed above. A run that
+    // started meanwhile changed the context; the next idle sweep retries.
+    let saved = store.save_compacted(session, &before, &context).await?;
+    Ok(saved && summary.is_some())
 }
 
 /// Replaces long tool output older than the last `keep_recent_tokens` with a
