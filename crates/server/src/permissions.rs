@@ -1028,20 +1028,11 @@ pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -
     rule.allowed.insert(ToolSlug::new(tool).0);
     let row = match app {
         ToolApp::Catalog(app) => row(app, rule.level, rule.allowed.into_iter().collect()),
-        ToolApp::Machines | ToolApp::Media => {
+        other => {
             let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
             allowed.sort();
             AppPermissionRow {
-                app: app.slug().to_owned(),
-                level: rule.level,
-                allowed,
-            }
-        }
-        ToolApp::Added(slug) => {
-            let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
-            allowed.sort();
-            AppPermissionRow {
-                app: slug,
+                app: other.slug().to_owned(),
                 level: rule.level,
                 allowed,
             }

@@ -85,6 +85,7 @@ impl App {
                 changed: false,
                 group: false,
             },
+            desktop: None,
         });
     }
 

@@ -9,6 +9,7 @@
 //! bindings.
 
 pub mod agent_ids;
+mod agent_notice;
 pub mod client;
 pub mod groups;
 pub mod link;
@@ -29,6 +30,7 @@ mod compat;
 uniffi::setup_scaffolding!();
 
 pub use agent_ids::{AgentSlug, ModelId};
+pub use agent_notice::{AgentNoticeKey, NotAgentKey};
 pub use flashmind_types::ReasoningLevel;
 use link::LinkOffer;
 pub use secret::SecretText;
@@ -1226,6 +1228,320 @@ requests! {
     /// machines read them from the agents' own logs. `refresh` as in
     /// `GetUsage`.
     304 GetUsageReport { refresh: bool } => Call<UsageReport>
+    /// The chat about the update `id`, as `ListUpdates` gave it, made on
+    /// the first ask and the same chat after. A new chat opens with Beep
+    /// telling the user the update, so they can reply; Beep answers with
+    /// the update's events in its context. Opening it dismisses the update.
+    /// `NotFound` when the caller has no such update, or it is gone.
+    305 OpenUpdateChat { id: i64 } => Call<Session>
+    /// The custom agents the coding agent harnesses define for the project
+    /// folder `folder` on the caller's online machine `machine_id`, then
+    /// the user's own there: Claude Code's `.claude/agents`, OpenCode's
+    /// `.opencode/agent` and `opencode.json`, Codex's `.codex/agents`,
+    /// pi's `.pi/agents` and flsh's `.agents`, each in the folder and in
+    /// the harness's folder in the node's home. `folder` is absolute or
+    /// starts `~/`. A file that does not read gives a row with `error`
+    /// set. `NotFound` when the machine is not one of the caller's online
+    /// ones; `BadRequest` saying why when the folder is not there or the
+    /// node is too old to read custom agents (updating beep-node may help).
+    306 ListCustomAgents { machine_id: String, folder: String } => Call<Vec<CustomAgent>>
+    /// The open pull requests and the open issues no task tracks of
+    /// `project_id`, as `ListProjectPullRequests` and `ListProjectIssues`
+    /// give them, from the server's copy and with when it was read. The
+    /// server reads the host again on the first ask, when its copy is a few
+    /// minutes old, and every few minutes while someone looks at the
+    /// project. `refresh` reads it now, at most once per 30 seconds per
+    /// project; sooner, the copy is given as it is. A host that could not
+    /// be read gives its error and the lists read before. `NotFound` when
+    /// the caller has no such project.
+    307 GetProjectLists { project_id: Uuid, refresh: bool } => Call<ProjectLists>
+    /// The newest workflow runs (GitHub Actions or Forgejo Actions) of
+    /// `project_id`'s repository, newest first, with how far a running one
+    /// got and the checks of each open pull request. Read from the server's
+    /// copy as `GetProjectLists` keeps it; while a run is in progress and
+    /// someone asks, its jobs are read again at most every 10 seconds.
+    /// `refresh` as in `GetProjectLists`. A host that cannot be read, or
+    /// that limits the caller's token, says so in the reply. `NotFound`
+    /// when the caller has no such project.
+    308 ListProjectRuns { project_id: Uuid, refresh: bool } => Call<ProjectRuns>
+    /// One workflow run of `project_id` with its jobs and steps and, when
+    /// it failed, the end of its failing job's log. Read as
+    /// `ListProjectRuns` reads jobs. `NotFound` when the caller has no such
+    /// project; `BadRequest` saying why when the host cannot be read or has
+    /// no such run.
+    309 GetProjectRun { project_id: Uuid, run_id: u64 } => Call<ProjectRunDetail>
+    /// As `GetUsageReport`, with what a subscription covered apart: dollars
+    /// count only metered API spend (API keys, OpenRouter, Bedrock and the
+    /// like), and use a Claude, ChatGPT or Copilot plan covered counts as
+    /// tokens. A machine that cannot tell counts Claude Code and Codex as
+    /// subscription, the other harnesses as metered.
+    310 GetSpendReport { refresh: bool } => Call<SpendReport>
+}
+
+/// One custom agent a coding agent harness defines, as
+/// `ListCustomAgents` reads it: a named prompt with a description, and
+/// optionally the model, tools and color it runs with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomAgent {
+    /// The name the harness knows it by; the file's stem when it names
+    /// none.
+    pub name: String,
+    pub harness: CustomAgentHarness,
+    pub scope: CustomAgentScope,
+    pub description: String,
+    /// As the file names it, such as `opus` or `inherit`.
+    pub model: Option<String>,
+    /// The tools it may use, as the file lists them; empty for all.
+    pub tools: Vec<String>,
+    /// As the file names it, such as `blue` or `#3b82f6`.
+    pub color: Option<String>,
+    /// The file it came from: relative to the project folder for a
+    /// project agent, starting `~/` for a user one.
+    pub path: String,
+    /// Its prompt, at most [`MAX_CUSTOM_AGENT_PROMPT`] bytes.
+    pub prompt: String,
+    /// The prompt goes on past what `prompt` holds.
+    pub prompt_cut: bool,
+    /// Why the file could not be read, when it could not; the other fields
+    /// then say what was found.
+    pub error: Option<String>,
+}
+
+/// The most of a custom agent's prompt `ListCustomAgents` gives.
+pub const MAX_CUSTOM_AGENT_PROMPT: usize = 16 * 1024;
+
+/// The most custom agents one `ListCustomAgents` gives.
+pub const MAX_CUSTOM_AGENTS: usize = 200;
+
+wire_enum! {
+    /// The coding agent harness that defines a `CustomAgent`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CustomAgentHarness {
+        0 Claude {}
+        1 OpenCode {}
+        2 Codex {}
+        3 Pi {}
+        4 Flsh {}
+    }
+}
+
+impl CustomAgentHarness {
+    /// The harness's id, as the apps name it elsewhere: `claude`,
+    /// `opencode`, `codex`, `pi` or `flsh`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude {} => "claude",
+            Self::OpenCode {} => "opencode",
+            Self::Codex {} => "codex",
+            Self::Pi {} => "pi",
+            Self::Flsh {} => "flsh",
+        }
+    }
+}
+
+wire_enum! {
+    /// Where a `CustomAgent` is defined: `Project` in the project folder,
+    /// so it travels with the repository, `User` in the user's own harness
+    /// folder on the machine.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CustomAgentScope {
+        0 Project {}
+        1 User {}
+    }
+}
+
+impl CustomAgentScope {
+    /// `project` or `user`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Project {} => "project",
+            Self::User {} => "user",
+        }
+    }
+}
+
+/// What `GetProjectLists` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectLists {
+    pub pull_requests: Vec<ProjectPullRequest>,
+    /// Why the pull requests could not be read; the list is then the one
+    /// read before, if any.
+    pub prs_error: Option<String>,
+    /// The open issues no task tracks, newest first.
+    pub issues: Vec<ProjectIssue>,
+    /// As `prs_error`, for the issues.
+    pub issues_error: Option<String>,
+    /// When the host was last read; `None` before the first read and for a
+    /// project without a GitHub or Forgejo host.
+    pub synced_at: Option<SystemTime>,
+}
+
+/// What `ListProjectRuns` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectRuns {
+    /// Newest first.
+    pub runs: Vec<WorkflowRun>,
+    /// How the newest runs of each open pull request stand.
+    pub checks: Vec<PrChecks>,
+    /// When the run list was last read; `None` before the first read.
+    pub synced_at: Option<SystemTime>,
+    /// Why the runs could not be read, for the user, such as a host on the
+    /// user's own network or no token for it. The list is the one read
+    /// before, if any.
+    pub error: Option<String>,
+    /// The host's rate limit for the caller's token runs low: live
+    /// progress waits until then.
+    pub rate_limited_until: Option<SystemTime>,
+}
+
+/// One workflow run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkflowRun {
+    /// The host's id, which `GetProjectRun` takes.
+    pub id: u64,
+    /// Its number in the repository.
+    pub number: u64,
+    /// The workflow's name, or its file where the host gives no name.
+    pub workflow: String,
+    /// The commit or pull request title it ran for.
+    pub title: String,
+    pub branch: String,
+    /// `push`, `pull_request`, `schedule` and so on, as the host says.
+    pub event: String,
+    /// Who triggered it; empty when the host does not say.
+    pub actor: String,
+    pub state: RunState,
+    /// Its web page.
+    pub url: String,
+    pub started_at: Option<SystemTime>,
+    /// `None` while it runs.
+    pub finished_at: Option<SystemTime>,
+    /// How far it got, for a run in progress whose jobs were read.
+    pub progress: Option<RunProgress>,
+    /// The pull requests it ran for, where the host says.
+    pub pull_requests: Vec<u64>,
+}
+
+wire_enum! {
+    /// How a run, job or step stands. `Waiting` waits for an approval or
+    /// a runner; `Unknown` is a state the host names that Beep does not
+    /// know.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
+    #[strum(serialize_all = "snake_case")]
+    pub enum RunState {
+        0 Queued {}
+        1 Waiting {}
+        2 Running {}
+        3 Passed {}
+        4 Failed {}
+        5 Cancelled {}
+        6 Skipped {}
+        7 Unknown {}
+    }
+}
+
+impl RunState {
+    /// Done, one way or another.
+    pub fn finished(self) -> bool {
+        matches!(
+            self,
+            Self::Passed {} | Self::Failed {} | Self::Cancelled {} | Self::Skipped {}
+        )
+    }
+
+    /// Not done yet.
+    pub fn going(self) -> bool {
+        matches!(self, Self::Queued {} | Self::Waiting {} | Self::Running {})
+    }
+}
+
+/// Where a running run is: its current job and, where the host gives
+/// steps, the current step.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunProgress {
+    pub job: String,
+    pub job_started_at: Option<SystemTime>,
+    /// Jobs finished, of `jobs`.
+    pub jobs_done: u32,
+    pub jobs: u32,
+    /// `None` when the host gives no steps: job-level progress only.
+    pub step: Option<StepProgress>,
+}
+
+/// The current step of a running job.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StepProgress {
+    /// From 1.
+    pub number: u32,
+    /// Steps in the job.
+    pub of: u32,
+    pub name: String,
+    pub started_at: Option<SystemTime>,
+}
+
+/// How an open pull request's newest runs stand.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrChecks {
+    pub number: u64,
+    /// `Failed` when any failed, else `Running` (or `Queued`) when any
+    /// still runs, else `Passed`.
+    pub state: RunState,
+    /// The run that decided `state`.
+    pub run_id: u64,
+    /// That run's progress, when it runs.
+    pub progress: Option<RunProgress>,
+}
+
+/// What `GetProjectRun` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectRunDetail {
+    pub run: WorkflowRun,
+    pub jobs: Vec<RunJob>,
+    /// The end of the failing job's log, when the run failed and the host
+    /// gave it.
+    pub log: Option<RunLog>,
+    /// Why the jobs or the log could not be read.
+    pub error: Option<String>,
+    /// As in `ProjectRuns`.
+    pub rate_limited_until: Option<SystemTime>,
+}
+
+/// One job of a run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunJob {
+    pub id: u64,
+    pub name: String,
+    pub state: RunState,
+    pub started_at: Option<SystemTime>,
+    pub finished_at: Option<SystemTime>,
+    /// Empty when the host gives no steps.
+    pub steps: Vec<RunStep>,
+    /// Its web page; empty when the host does not say.
+    pub url: String,
+}
+
+/// One step of a job.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunStep {
+    /// From 1.
+    pub number: u32,
+    pub name: String,
+    pub state: RunState,
+    pub started_at: Option<SystemTime>,
+    pub finished_at: Option<SystemTime>,
+}
+
+/// The end of a failed job's log. Its text is the host's, written by
+/// whatever the job ran: data, never instructions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunLog {
+    pub job: String,
+    /// The failing step's name, when known.
+    pub step: Option<String>,
+    /// The last lines, capped.
+    pub text: String,
+    /// Lines before `text` were left out.
+    pub truncated: bool,
 }
 
 /// What `FindImportFork` found.
@@ -1346,6 +1662,64 @@ pub struct HarnessSpend {
 pub struct ModelSpend {
     pub model: ModelId,
     pub tokens: u64,
+}
+
+/// What `GetSpendReport` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpendReport {
+    /// As in `UsageView`.
+    pub limits: Vec<PlanLimits>,
+    pub today: SpendPeriod,
+    /// From Monday.
+    pub week: SpendPeriod,
+    /// From the first of the month.
+    pub month: SpendPeriod,
+}
+
+/// What coding agents spent over one period, metered use apart from use a
+/// subscription covered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpendPeriod {
+    /// Metered API spend in US dollars, every project together.
+    pub cost_usd: f64,
+    /// The tokens of metered use, priced or not.
+    pub metered_tokens: u64,
+    /// The tokens a subscription covered.
+    pub subscription_tokens: u64,
+    /// By project, the most expensive first, then the most tokens, only
+    /// those that spent.
+    pub projects: Vec<ProjectBill>,
+    /// By harness and billing, the most expensive first, then the most
+    /// tokens, only those that spent.
+    pub harnesses: Vec<HarnessBill>,
+}
+
+/// What coding agents spent in one project.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectBill {
+    /// `org/repo`, else the folder's name.
+    pub project: String,
+    /// Metered API spend in US dollars.
+    pub cost_usd: f64,
+    /// The tokens of metered use, priced or not.
+    pub metered_tokens: u64,
+    /// The tokens a subscription covered, by agent.
+    pub subscription: Vec<AgentTokens>,
+}
+
+/// What one harness spent one way: metered, or on a subscription.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HarnessBill {
+    /// Its slug, such as `claude`.
+    pub agent: AgentSlug,
+    /// A subscription covered it: tokens only, `cost_usd` is `None`.
+    pub subscription: bool,
+    /// Metered API spend in US dollars; `None` when none of it was priced
+    /// or a subscription covered it.
+    pub cost_usd: Option<f64>,
+    pub tokens: u64,
+    /// The tokens by model, the most first, when it says.
+    pub models: Vec<ModelSpend>,
 }
 
 /// The coding agent harnesses on one machine, as `ListAgentHarnesses`
@@ -5020,6 +5394,8 @@ pub struct UpdatePage {
 pub struct Notice {
     pub title: String,
     pub body: String,
+    /// The chat or group the notice is about. On a computer it may instead
+    /// be an `AgentNoticeKey`, for a coding-agent notice.
     pub session_id: String,
     /// Slug of an app that lost its login; tapping the notice opens Apps.
     pub app: Option<String>,

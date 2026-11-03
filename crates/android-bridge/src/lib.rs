@@ -23,9 +23,9 @@ use beep_proto::{
     ListGroupReminders, ListGroups, ListMachineStats, ListMachines, ListMcpServers, ListMcpTools,
     ListMemories, ListMemoryReads, ListMemoryScopes, ListPlaces, ListQuestions, ListResearches,
     ListSessions, ListSkills, ListUpdates, ListWork, Machine, MachineStats, McpCallback,
-    McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, PeekGroup, PeekInvite,
-    PendingApproval, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing, Platform,
-    PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
+    McpConnect, McpServer, McpTools, Memory, MemoryRead, Models, Notice, OpenUpdateChat, PeekGroup,
+    PeekInvite, PendingApproval, PermissionLevel, PinGroup, PinSession, Place, PlaceCrossing,
+    Platform, PromptSuggestions, ReasoningLevel, RegisterDevice, RemoveAppAccount, RemoveDevice,
     RemoveMcpServer, RenameSession, Research, ResearchSummary, RevokeGrant, RouteCard, Run,
     RunCron, Say, ScopedMemory, SearchSessions, SendToGroup, SentFiles, SentImages, Session,
     SessionMatch, SetAgents, SetAppPermissions, SetAutoModel, SetMcpTool, SetModel, SetThinking,
@@ -1061,6 +1061,13 @@ impl BeepClient {
     /// Dismisses updates by `AppUpdate::id`.
     pub async fn dismiss_updates(&self, ids: Vec<i64>) -> Result<(), BeepError> {
         self.call(DismissUpdates { ids }).await
+    }
+
+    /// The chat about an update, which opens with Beep telling it so the
+    /// user can reply; made on the first ask and the same chat after.
+    /// Servers from before it answer with an error.
+    pub async fn open_update_chat(&self, id: i64) -> Result<Session, BeepError> {
+        self.call(OpenUpdateChat { id }).await
     }
 
     /// Where Beep failed users, as the improvement watcher found it, most

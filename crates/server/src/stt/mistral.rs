@@ -102,6 +102,8 @@ async fn pump(
                         // Why it ended comes through `events`.
                         log::debug!("live transcription stopped taking audio: {error:#}");
                         sink = None;
+                        // No more audio goes, so the text is due as if it ended.
+                        ended_at = Some(Instant::now());
                     }
                 }
                 None if !sent_any => {
@@ -194,6 +196,33 @@ mod tests {
         assert!(matches!(heard.recv().await, Some(Ok(Heard::Done(text))) if text.is_empty()));
         assert!(!out.finished.load(Ordering::SeqCst));
         assert!(out.sent.lock().expect("not poisoned in tests").is_empty());
+    }
+
+    /// A provider that stopped taking audio.
+    struct Refusing;
+
+    impl AudioOut for Refusing {
+        async fn send(&self, _pcm: Bytes) -> anyhow::Result<()> {
+            anyhow::bail!("the socket closed")
+        }
+
+        async fn finish(self) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_provider_that_stops_taking_audio_fails_in_time() {
+        let (audio, chunks) = mpsc::channel(AUDIO_QUEUE);
+        let (said, mut heard) = mpsc::channel(HEARD_QUEUE);
+        audio.send(vec![0; 640]).await.expect("pump is reading");
+        // The caller keeps the audio open, and the provider never answers.
+        let pumped = pump(chunks, Refusing, stream::pending(), said);
+        tokio::time::timeout(DONE_WAIT * 2, pumped)
+            .await
+            .expect("the pump gives up");
+        assert!(matches!(heard.recv().await, Some(Err(SttError::Provider))));
+        drop(audio);
     }
 
     #[tokio::test]

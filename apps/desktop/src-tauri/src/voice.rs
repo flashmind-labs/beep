@@ -12,7 +12,7 @@
 use crate::{
     audio::{self, Audio, MicChunk, MicDenied, Played},
     bar,
-    beep::{Asking, Beep, Decision, Pick, RunNews, Sent},
+    beep::{Asking, Beep, Decision, Field, Pick, RunNews, Sent},
     error::DesktopError,
     hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
     news::{self, Heard, Teller},
@@ -45,8 +45,10 @@ use tokio::{
 };
 use uuid::Uuid;
 
+mod asks;
 mod card;
 
+use asks::Asks;
 pub use card::NoticeCard;
 
 /// How often live mode checks pauses and moves the orb.
@@ -85,6 +87,8 @@ const NO_ANSWER: &str = "Beep could not answer";
 const NOT_ALOUD: &str = "Could not read the reply aloud";
 const NOTHING_TO_REPEAT: &str = "Nothing to repeat";
 const QUIET: &str = "Live mode ended after 2 minutes quiet.";
+/// What a toast says when an approval comes while live mode is on.
+const NEEDS_OK: &str = "Beep needs your OK";
 
 /// What the bar hears about live mode, as the `live` event.
 #[derive(Debug, Clone, Serialize)]
@@ -137,6 +141,11 @@ enum LiveEvent {
     },
     /// The reply waits for the user to allow an action.
     Approval(Waiting),
+    /// An approval no longer waits: answered as background work, answered
+    /// elsewhere, or left unanswered by a new message.
+    Withdrawn {
+        query_id: String,
+    },
     /// An approval was answered, in the bar or the orb, resuming `run`.
     Answered {
         session: String,
@@ -154,11 +163,48 @@ pub struct Answered {
     pub decision: Decision,
 }
 
-/// An action the reply live mode sent waits on, and the chat it is in.
+/// An action waiting for the user's OK while live mode is on, and the chat
+/// it is in: the live reply's, or one from background work or another chat.
 #[derive(Debug, Clone, Serialize)]
 pub struct Waiting {
     session: String,
     approval: Asking,
+    /// Background work asked it: answered with `answer_work`, and no run
+    /// resumes.
+    work: bool,
+}
+
+impl Waiting {
+    /// The approval `notice` asks for, unless it asks none, is news that
+    /// one was resolved, or comes from a group.
+    fn from_notice(notice: &Notice) -> Option<Self> {
+        let pending = notice.approval.as_ref()?;
+        if notice.changed || notice.group {
+            return None;
+        }
+        Some(Self {
+            session: notice.session_id.clone(),
+            approval: Asking {
+                query_id: pending.query_id.clone(),
+                app: pending.approval.app.clone(),
+                action: pending.approval.action.clone(),
+                fields: pending
+                    .approval
+                    .fields
+                    .iter()
+                    .cloned()
+                    .map(Field::from)
+                    .collect(),
+            },
+            work: pending.run_id.is_empty(),
+        })
+    }
+
+    /// What live mode says when it asks.
+    fn spoken(&self) -> String {
+        let action = self.approval.action.trim().to_lowercase();
+        format!("I need your OK to {action} in {}.", self.approval.app)
+    }
 }
 
 /// How live mode starts.
@@ -269,9 +315,9 @@ struct Session {
     line: Option<String>,
     prev: Option<String>,
     step: Option<String>,
-    /// The approval the last reply waits on, for an orb opened after it
-    /// came.
-    waiting: Option<Waiting>,
+    /// The approvals waiting, for an orb opened after they came and for
+    /// their notifications if live mode ends first.
+    asks: Asks,
     /// The sheet of what to say is open.
     sheet: bool,
     tasks: Vec<AbortHandle>,
@@ -505,14 +551,99 @@ impl Voice {
         }
         // A new orb has seen nothing yet.
         self.show(id);
-        if let Some(waiting) = self.waiting() {
+        for waiting in self.waiting() {
             self.emit(LiveEvent::Approval(waiting));
         }
     }
 
-    /// The approval the reply live mode sent waits on, if any.
-    pub fn waiting(&self) -> Option<Waiting> {
-        self.state().live.as_ref()?.waiting.clone()
+    /// The approvals waiting while live mode is on, oldest first.
+    pub fn waiting(&self) -> Vec<Waiting> {
+        self.state()
+            .live
+            .as_ref()
+            .map(|s| s.asks.all())
+            .unwrap_or_default()
+    }
+
+    /// Shows the approval `notice` asks for in the orb while live mode is
+    /// on there, holding its notification back until live mode ends.
+    /// Gives the notice back when live mode does not take it: off, in the
+    /// bar, reading a voice note, or a notice that asks nothing.
+    pub fn approval_notice(self: &Arc<Self>, notice: Notice) -> Option<Notice> {
+        let Some(waiting) = Waiting::from_notice(&notice) else {
+            return Some(notice);
+        };
+        if self.bar_open() {
+            return Some(notice);
+        }
+        let (id, new) = {
+            let mut state = self.state();
+            let Some(s) = state.live.as_mut().filter(|s| !s.note) else {
+                return Some(notice);
+            };
+            (s.id, s.asks.add(waiting.clone(), Some(notice)))
+        };
+        if new {
+            self.emit(LiveEvent::Approval(waiting.clone()));
+            self.toast(NEEDS_OK);
+            self.cue(id, &waiting);
+        }
+        None
+    }
+
+    /// Approval `query_id` no longer waits: answered as background work or
+    /// elsewhere. The orb drops its card.
+    pub fn withdrawn(&self, query_id: &str) {
+        let removed = self
+            .state()
+            .live
+            .as_mut()
+            .and_then(|s| s.asks.remove(query_id));
+        if removed.is_some() {
+            self.emit(LiveEvent::Withdrawn {
+                query_id: query_id.to_owned(),
+            });
+        }
+    }
+
+    /// Says that `waiting` needs an OK, when nothing else is said or heard
+    /// right then: live mode listens, or waits on an approval, with no line
+    /// playing. The words stay on the orb's card either way.
+    fn cue(self: &Arc<Self>, id: u64, waiting: &Waiting) {
+        let text = waiting.spoken();
+        let mut state = self.state();
+        let Some(s) = state.live.as_mut().filter(|s| s.id == id) else {
+            return;
+        };
+        let quiet = matches!(s.live.phase(), Phase::Listening | Phase::Waiting);
+        if !quiet || s.playing.is_some() {
+            return;
+        }
+        let me = self.clone();
+        let task = tauri::async_runtime::spawn(async move {
+            if let Err(e) = me.say_once(id, text).await {
+                log::debug!("saying an approval waits: {e:#}");
+            }
+        });
+        s.tasks.push(task.inner().abort_handle());
+    }
+
+    /// Plays `text` once, outside the reader: nothing follows it.
+    async fn say_once(&self, id: u64, text: String) -> anyhow::Result<()> {
+        let note = self.beep.call(Say { text }).await?;
+        let audio = self.audio(id).await.context("live mode ended")?;
+        let path = self.line_path()?;
+        tokio::fs::write(&path, &note.audio.data)
+            .await
+            .with_context(|| format!("writing {}", path.display()))?;
+        let played = audio.play(&path).await;
+        if let Err(e) = tokio::fs::remove_file(&path).await {
+            log::debug!("removing {}: {e}", path.display());
+        }
+        let (_, done) = played?;
+        // Stopped playback ends it as well.
+        let _ = done.await;
+        Ok(())
     }
 
     /// The reply in live session `id` asks before acting: the orb shows a
@@ -529,8 +660,11 @@ impl Voice {
             let waiting = Waiting {
                 session: chat.to_string(),
                 approval,
+                work: false,
             };
-            s.waiting = Some(waiting.clone());
+            if !s.asks.add(waiting.clone(), None) {
+                return;
+            }
             waiting
         };
         self.emit(LiveEvent::Approval(waiting));
@@ -550,30 +684,27 @@ impl Voice {
         let (teller, heard) = news::channel();
         let follow = {
             let mut state = self.state();
-            match state.live.as_mut() {
-                Some(s)
-                    if s.waiting
-                        .as_ref()
-                        .is_some_and(|w| w.approval.query_id == query_id) =>
-                {
-                    s.waiting = None;
-                    let ours = s.chat.is_some_and(|c| c.to_string() == session);
-                    match s.live.phase() {
-                        Phase::Waiting if ours => {
-                            s.run = Some(run.clone());
-                            s.run_done = false;
-                            Some((s.id, Some(heard)))
-                        }
-                        // The approval came while what was before it is
-                        // still read out: the rest follows that.
-                        Phase::Thinking | Phase::Speaking if ours => {
-                            s.resume = Some(heard);
-                            Some((s.id, None))
-                        }
-                        _ => None,
+            if let Some(s) = state.live.as_mut()
+                && let Some(asked) = s.asks.remove(&query_id)
+            {
+                // Only the live reply's own approval resumes what it reads.
+                let ours = !asked.work && s.chat.is_some_and(|c| c.to_string() == session);
+                match s.live.phase() {
+                    Phase::Waiting if ours => {
+                        s.run = Some(run.clone());
+                        s.run_done = false;
+                        Some((s.id, Some(heard)))
                     }
+                    // The approval came while what was before it is
+                    // still read out: the rest follows that.
+                    Phase::Thinking | Phase::Speaking if ours => {
+                        s.resume = Some(heard);
+                        Some((s.id, None))
+                    }
+                    _ => None,
                 }
-                _ => None,
+            } else {
+                None
             }
         };
         self.emit(LiveEvent::Answered {
@@ -853,7 +984,7 @@ impl Voice {
                 line: None,
                 prev: None,
                 step: None,
-                waiting: None,
+                asks: Asks::default(),
                 sheet: false,
                 tasks,
             });
@@ -1330,8 +1461,17 @@ impl Voice {
             quiet: why == Leaving::Quiet,
             failure,
         });
+        // Approvals still waiting show as their notifications now, unless
+        // the bar stays up on their chat, whose card asks.
+        let asks = std::mem::take(&mut session.asks);
         // Dropping the session closes the microphone.
         drop(session);
+        let shown = reopen.then(|| self.beep.session()).flatten();
+        for notice in asks.into_notices() {
+            if shown.as_deref() != Some(notice.session_id.as_str()) {
+                crate::notify(&self.app, &notice);
+            }
+        }
         if reopen {
             bar::show(&self.app, None);
         }
@@ -1358,7 +1498,7 @@ impl Voice {
 
     /// Sends what was said, and reads the reply out as it streams.
     fn send(self: &Arc<Self>, id: u64, text: String, new_chat: bool) {
-        let (chat, reply) = {
+        let (chat, reply, dropped) = {
             let mut state = self.state();
             let Some(s) = state.live.as_mut().filter(|s| s.id == id) else {
                 return;
@@ -1381,11 +1521,16 @@ impl Voice {
             s.prev = None;
             s.line = None;
             s.step = None;
-            // A new message leaves the question unanswered on the server;
-            // the `sent` event takes the orb's card away.
-            s.waiting = None;
-            (chat, s.reply)
+            // A new message leaves the question unanswered on the server.
+            let dropped = s
+                .chat_before
+                .map(|c| s.asks.drop_turns_of(&c.to_string()))
+                .unwrap_or_default();
+            (chat, s.reply, dropped)
         };
+        for query_id in dropped {
+            self.emit(LiveEvent::Withdrawn { query_id });
+        }
         let (teller, heard) = news::channel();
         let beep = self.beep.clone();
         let me = self.clone();
@@ -1498,7 +1643,29 @@ impl Voice {
             self.toast(NOT_SENT);
             Input::NotSent
         };
+        let asked = matches!(input, Input::Approval);
         self.input(id, input);
+        if asked {
+            self.cue_reply(id);
+        }
+    }
+
+    /// The live reply stopped on an approval: says so once it is quiet.
+    fn cue_reply(self: &Arc<Self>, id: u64) {
+        let waiting = {
+            let state = self.state();
+            let Some(s) = state.live.as_ref().filter(|s| s.id == id) else {
+                return;
+            };
+            let chat = s.chat.map(|c| c.to_string());
+            s.asks
+                .all()
+                .into_iter()
+                .find(|w| !w.work && Some(&w.session) == chat.as_ref())
+        };
+        if let Some(waiting) = waiting {
+            self.cue(id, &waiting);
+        }
     }
 
     /// Reads the last reply again. False when there is nothing to read.
@@ -2027,6 +2194,7 @@ mod tests {
                     value: "Alex".into(),
                 }],
             },
+            work: false,
         };
         let asked = serde_json::to_value(LiveEvent::Approval(waiting)).expect("it serializes");
         assert_eq!(
@@ -2040,6 +2208,7 @@ mod tests {
                     "action": "Send email",
                     "fields": [{ "label": "To", "value": "Alex" }],
                 },
+                "work": false,
             })
         );
         let answered = LiveEvent::Answered {

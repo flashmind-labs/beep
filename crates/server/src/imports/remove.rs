@@ -46,10 +46,7 @@ pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str)
 
 /// Stops what ran for a removed project, each failure logged.
 async fn wind_down(app: &Arc<App>, user: &Arc<User>, removed: &RemovedProject) {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     for project in &removed.projects {
         app.projects.forget_project(*project);
     }

@@ -4,6 +4,7 @@
 use crate::{
     beep::{Beep, Decision, Field},
     error::{DesktopError, Result},
+    voice::Voice,
 };
 use beep_proto::{AnswerApproval, ApiError, ListQuestions, PendingApproval};
 use serde::Serialize;
@@ -94,11 +95,15 @@ pub async fn list_questions(beep: Service<'_>, session: String) -> Result<Vec<Wo
 #[tauri::command]
 pub async fn answer_work(
     beep: Service<'_>,
+    voice: State<'_, Arc<Voice>>,
     session: String,
     query_id: String,
     decision: Decision,
 ) -> Result<WorkAnswer> {
-    answer(&beep, &session, query_id, decision).await
+    let answered = answer(&beep, &session, query_id.clone(), decision).await?;
+    // Live mode's orb drops its card, however it was answered.
+    voice.withdrawn(&query_id);
+    Ok(answered)
 }
 
 /// Answers a question from background work in chat `session`, from its

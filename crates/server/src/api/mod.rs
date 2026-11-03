@@ -26,6 +26,7 @@ pub(crate) use agent_sessions::machine_sessions;
 mod branch_work;
 mod credentials;
 mod crons;
+mod custom_agents;
 mod devices;
 mod findings;
 mod git_items;
@@ -37,14 +38,17 @@ mod live;
 mod location;
 mod machines;
 mod memories;
+mod own_nodes;
 mod project_groups;
 mod project_import;
 mod project_sync;
+mod project_watch;
 mod projects;
 mod research;
 mod reviews;
 mod sessions;
 mod settings;
+mod spend_report;
 mod terminals;
 mod threads;
 mod transcribe;
@@ -244,6 +248,7 @@ pub fn router() -> Router {
         .call(terminals::list_all_terminals)
         .call(usage::get_usage)
         .call(usage::get_usage_report)
+        .call(spend_report::get_spend_report)
         .duplex(terminals::attach::attach_terminal)
         .call(reviews::list_project_branches)
         .call(reviews::start_branch_review)
@@ -274,6 +279,7 @@ pub fn router() -> Router {
         .call(project_groups::delete_project_group)
         .call(updates::list_updates)
         .call(updates::dismiss_updates)
+        .call(updates::open_update_chat)
         .call(create_node_token)
         .call(revoke_node_token)
         .call(remove_machine)
@@ -305,6 +311,7 @@ pub fn router() -> Router {
         .call(work_files::list_work_folder)
         .call(work_files::read_work_file)
         .call(work_files::write_work_file)
+        .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
         .call(project_sync::list_project_syncthing)
@@ -318,6 +325,9 @@ pub fn router() -> Router {
         .call(project_sync::get_project_sync_detail)
         .call(project_sync::pause_project_sync)
         .call(project_sync::resolve_sync_conflict)
+        .call(project_watch::get_project_lists)
+        .call(project_watch::list_project_runs)
+        .call(project_watch::get_project_run)
 }
 
 type Reply<T> = Result<T, ApiError>;
@@ -657,7 +667,8 @@ async fn stream_notifications(cx: Cx, _: StreamNotifications, sink: Sink<Notice>
             received = rx.recv() => match received {
                 Ok(event) if event.user == cx.user.id()
                     && (resolves || event.notice.resolved_question().is_none()) => {
-                    match timeout(SEND_TIMEOUT, sink.send(&event.notice)).await {
+                    let notice = event.for_device(&cx.device);
+                    match timeout(SEND_TIMEOUT, sink.send(notice)).await {
                         Ok(sent) => sent?,
                         Err(_) => return Ok(()),
                     }

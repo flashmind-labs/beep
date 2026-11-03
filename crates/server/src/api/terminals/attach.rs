@@ -3,7 +3,8 @@
 //! to the node, holding nothing itself: QUIC flow control on both streams
 //! bounds what is in flight.
 
-use super::{online, state, state_of};
+use super::{state, state_of};
+use crate::api::own_nodes::online;
 use crate::{
     api::Reply,
     protocol::{

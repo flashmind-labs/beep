@@ -1,4 +1,5 @@
 import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
+import { appTile, fillAppTiles } from "../applogo.ts";
 import { hints } from "./hints.ts";
 import { openSession } from "./history.ts";
 import { arrowKey, clampSel, CLOCK_ICON, confirmKey, confirmRow, dayDiff, dayMonth, emptyPage, errLine, type ListState, loadList, PLAY_ICON, PLUS_ICON } from "./memories.ts";
@@ -405,7 +406,7 @@ function grantRow(g: Grant, i: number, now: number) {
   const used = g.last_used_at ? `Last used ${span(now - g.last_used_at)} ago` : "Not used yet";
   const acts = on ? `<span class="acts"><button class="dbtn warn" data-g="revoke">Revoke<kbd>⌘⌫</kbd></button></span>` : "";
   const kv = on && g.fields.length ? `<span class="dgkv">${g.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</span>` : "";
-  return `<div class="drt" role="option" aria-selected="${on}" data-i="${i}" style="align-items:flex-start"><span class="dapp" style="margin-top:2px">${esc((g.app || "?")[0].toUpperCase())}</span>
+  return `<div class="drt" role="option" aria-selected="${on}" data-i="${i}" style="align-items:flex-start">${appTile(g.app).replace('class="dapp"', 'class="dapp" style="margin-top:2px"')}
         <span class="tt"><b>${esc(g.routine)}</b><span>${esc(`${g.app}: ${short}`)}, ${per}</span><small>${ends} · ${used}</small>${kv}</span>${acts}</div>`;
 }
 
@@ -419,6 +420,7 @@ export function drawGrants() {
     bar.innerHTML = head + errLine(GR.error) + `<div class="dlist" id="glist" role="listbox" aria-label="Routine grants" style="padding-top:8px">${GR.list.map((g, i) => grantRow(g, i, now)).join("")}</div>`
       + hints(GR.mode === "confirm" ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+    fillAppTiles(bar);
   }
   bar.onclick = grantClick;
 }

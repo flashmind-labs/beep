@@ -69,10 +69,7 @@ const MIRROR_BUDGET: Duration = Duration::from_secs(30);
 /// The start of each project turn: files the issues earlier tries missed,
 /// then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = Arc::new(NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    });
+    let fleet = Arc::new(NodeFleet::new(app, user));
     start_with(fleet, user, project, MIRROR_BUDGET).await
 }
 
@@ -112,28 +109,12 @@ pub(crate) async fn thread_context(
     project: &ProjectRow,
     chat: &ThreadChatRow,
 ) -> String {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
+    let fleet = NodeFleet::new(app, user);
     threads::chat_context(&fleet, user, project, chat).await
 }
 
-/// What the agent is told about its project each turn.
-pub(crate) async fn context(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = NodeFleet {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    context_with(&fleet, user, project).await
-}
-
 fn host_name(host: Option<&IssueHost>) -> String {
-    match host {
-        None => "none, kept in Beep".to_owned(),
-        Some(IssueHost::Github) => "GitHub".to_owned(),
-        Some(IssueHost::Forgejo(host)) => format!("Forgejo at {}", host.as_str()),
-    }
+    host.map_or_else(|| "none, kept in Beep".to_owned(), IssueHost::to_string)
 }
 
 pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &ProjectRow) -> String {
@@ -442,7 +423,6 @@ async fn owned_issues(
         let home = fleet::home_shell(fleet, user, project).await?;
         let command = HostCommand::ListOwnedIssues.render(host, &project.name);
         let out = home
-            .shell
             .run(&command, ISSUES_LIMIT)
             .await
             .map_err(|error| format!("{error:#}"))?;

@@ -5,6 +5,7 @@
 
 use crate::{
     beep::{Beep, epoch_ms},
+    center::AgentsShown,
     commands::{GONE, file_name, free_name, image_mime},
     error::{DesktopError, Result},
     markdown,
@@ -20,8 +21,8 @@ use beep_proto::{
     node::agent::{CheckoutPlan, Effort},
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, process::Command, sync::Arc};
-use tauri::{AppHandle, Manager, State};
+use std::{fs, path::PathBuf, process::Command, sync::Arc, time::Instant};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 type Service<'a> = State<'a, Arc<Beep>>;
@@ -416,14 +417,25 @@ pub async fn agent_resume(
     })
 }
 
+/// One session in full. The calling webview's session view shows it, so
+/// its notices stay quiet while the view keeps reading it.
 #[tauri::command]
 pub async fn agent_view(
+    window: WebviewWindow,
     beep: Service<'_>,
+    shown: State<'_, AgentsShown>,
     machine_id: String,
     agent: String,
     session: String,
     last: u32,
 ) -> Result<SessionPage> {
+    shown.read(
+        window.label(),
+        &machine_id,
+        &agent,
+        &session,
+        Instant::now(),
+    );
     let view = beep
         .call(GetAgentSession {
             machine_id,

@@ -7,7 +7,7 @@ export const calls: { cmd: string; args: unknown }[] = [];
 export const answers: Record<string, unknown> = {};
 
 const g = globalThis as Record<string, unknown>;
-export const bar = { dataset: {}, innerHTML: "", querySelector: () => null, addEventListener() {} };
+export const bar = { dataset: {}, innerHTML: "", querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
 g.document = { getElementById: () => bar, querySelector: () => null, addEventListener() {}, createElement: () => ({ style: {} }) };
 g.window = globalThis;
 g.addEventListener = () => {};

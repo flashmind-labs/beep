@@ -3,14 +3,14 @@
 //! changed since the server last heard of them. Kept in one JSON file so a
 //! restart reads only what was written since.
 
-use super::Line;
+use super::{Line, billing::Accounts};
 use crate::{
     agents::prices::{self, Tokens},
     found::Agent,
 };
 use beep_proto::{
     ModelId,
-    node::usage::{HourSpend, MAX_SESSION_HOURS, SessionSpend},
+    node::usage::{Billing, HourSpend, MAX_SESSION_HOURS, SessionSpend},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -25,6 +25,9 @@ use std::{
 const RECENT_KEYS: usize = 64;
 /// The model of a request whose log does not name one.
 pub(super) const UNKNOWN_MODEL: &str = "unknown";
+/// The ledger's shape: one saved in another is dropped and the logs read
+/// again. 1 marks each bucket's billing.
+const VERSION: u32 = 1;
 
 /// A session, by its agent and the agent's own id for it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -33,12 +36,14 @@ pub(super) struct SessionKey {
     pub(super) session: String,
 }
 
-/// One hour of one model.
+/// One hour of one model, paid for one way.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(super) struct BucketKey {
     /// Unix seconds at the start of the hour.
     pub(super) hour: u64,
     pub(super) model: ModelId,
+    #[serde(default)]
+    pub(super) billing: Billing,
 }
 
 /// What was spent in one bucket.
@@ -113,6 +118,9 @@ pub(super) struct LogFile {
     pub(super) cwd: Option<String>,
     /// The model the next requests run on, for Codex.
     pub(super) model: Option<String>,
+    /// The provider its header named, for Codex.
+    #[serde(default)]
+    pub(super) provider: Option<String>,
     /// Codex's running total, to drop a count it repeats.
     pub(super) total: Option<u64>,
     /// The latest message keys, to drop Claude Code's copies.
@@ -128,13 +136,17 @@ impl LogFile {
         }
     }
 
-    /// Takes one line in; the session it added to, if any.
-    pub(super) fn take(&mut self, line: Line) -> Option<String> {
+    /// Takes one line in, telling how its request was paid for by
+    /// `accounts`; the session it added to, if any.
+    pub(super) fn take(&mut self, line: Line, accounts: &mut Accounts) -> Option<String> {
         match line {
-            Line::Session { id, cwd } => {
+            Line::Session { id, cwd, provider } => {
                 self.session = Some(id);
                 if !cwd.is_empty() {
                     self.cwd = Some(cwd);
+                }
+                if provider.is_some() {
+                    self.provider = provider;
                 }
                 None
             }
@@ -163,15 +175,21 @@ impl LogFile {
                     .model
                     .or_else(|| self.model.clone())
                     .unwrap_or_else(|| UNKNOWN_MODEL.to_owned());
+                let cwd = request.cwd.or_else(|| self.cwd.clone());
+                let provider = request.provider.or_else(|| self.provider.clone());
+                let billing = self.agent.map_or(Billing::Unknown, |agent| {
+                    accounts.resolve(agent, request.billing, provider.as_deref(), cwd.as_deref())
+                });
                 let part = self.parts.entry(session.clone()).or_default();
                 if part.cwd.is_empty() {
-                    part.cwd = request.cwd.or_else(|| self.cwd.clone()).unwrap_or_default();
+                    part.cwd = cwd.unwrap_or_default();
                 }
                 let hour = request.at - request.at % 3600;
                 part.buckets
                     .entry(BucketKey {
                         hour,
                         model: ModelId::new(model.as_str()),
+                        billing,
                     })
                     .or_default()
                     .add(&model, &request.tokens, request.cost_usd);
@@ -192,6 +210,9 @@ pub(super) struct Database {
 /// Everything read so far.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(super) struct Ledger {
+    /// `VERSION` when saved; 0 from before it was kept.
+    #[serde(default)]
+    pub(super) version: u32,
     pub(super) logs: BTreeMap<PathBuf, LogFile>,
     pub(super) databases: BTreeMap<PathBuf, Database>,
     /// Sessions the server has not heard of as they stand.
@@ -208,7 +229,11 @@ impl Ledger {
         let read = fs::read(path)
             .and_then(|bytes| serde_json::from_slice::<Ledger>(&bytes).map_err(io::Error::other));
         match read {
-            Ok(ledger) => ledger,
+            Ok(ledger) if ledger.version == VERSION => ledger,
+            Ok(_) => {
+                log::info!("agent usage ledger from another version; reading the logs again");
+                Self::default()
+            }
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {
                     log::warn!(
@@ -229,6 +254,7 @@ impl Ledger {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
+        self.version = VERSION;
         let bytes = serde_json::to_vec(self).map_err(io::Error::other)?;
         let partial = path.with_extension("json.partial");
         fs::write(&partial, bytes)?;
@@ -283,6 +309,7 @@ impl Ledger {
                     .saturating_add(spent.tokens.cache_write_long),
                 cost_usd: spent.cost_usd,
                 unpriced_tokens: spent.unpriced,
+                billing: bucket.billing,
             })
             .collect();
         Some(SessionSpend {
@@ -355,19 +382,25 @@ mod tests {
             cost_usd: None,
             key,
             total: None,
+            provider: None,
+            billing: Billing::Unknown,
         })
     }
 
     #[test]
     fn copies_of_a_message_count_once_and_hours_split() {
+        let accounts = &mut Accounts::default();
         let mut log = LogFile::new(Agent::Claude);
         assert_eq!(
-            log.take(request("s1", 7_200, Some(1), 1_000_000))
+            log.take(request("s1", 7_200, Some(1), 1_000_000), accounts)
                 .as_deref(),
             Some("s1")
         );
-        assert_eq!(log.take(request("s1", 7_201, Some(1), 1_000_000)), None);
-        log.take(request("s1", 10_900, Some(2), 2_000_000));
+        assert_eq!(
+            log.take(request("s1", 7_201, Some(1), 1_000_000), accounts),
+            None
+        );
+        log.take(request("s1", 10_900, Some(2), 2_000_000), accounts);
         let part = &log.parts["s1"];
         assert_eq!(part.cwd, "/srv/project");
         let costs: Vec<(u64, f64)> = part
@@ -380,12 +413,17 @@ mod tests {
 
     #[test]
     fn a_repeated_running_total_counts_once() {
+        let accounts = &mut Accounts::default();
         let mut log = LogFile::new(Agent::Codex);
-        log.take(Line::Session {
-            id: "t1".into(),
-            cwd: "/srv/project".into(),
-        });
-        log.take(Line::Model("gpt-9-unknown".into()));
+        log.take(
+            Line::Session {
+                id: "t1".into(),
+                cwd: "/srv/project".into(),
+                provider: Some("openrouter".into()),
+            },
+            accounts,
+        );
+        log.take(Line::Model("gpt-9-unknown".into()), accounts);
         let count = |total| {
             Line::Request(Request {
                 at: 100,
@@ -397,12 +435,13 @@ mod tests {
                 ..Request::default()
             })
         };
-        log.take(count(10));
-        log.take(count(10));
-        log.take(count(20));
+        log.take(count(10), accounts);
+        log.take(count(10), accounts);
+        log.take(count(20), accounts);
         let bucket = &log.parts["t1"].buckets[&BucketKey {
             hour: 0,
             model: "gpt-9-unknown".into(),
+            billing: Billing::Metered,
         }];
         assert_eq!(bucket.tokens.input, 20);
         assert_eq!(bucket.unpriced, 20, "no price for it");
@@ -412,10 +451,11 @@ mod tests {
     #[test]
     fn a_report_joins_a_session_across_logs() {
         let mut ledger = Ledger::default();
+        let accounts = &mut Accounts::default();
         let mut main = LogFile::new(Agent::Claude);
-        main.take(request("s1", 3_600, Some(1), 100));
+        main.take(request("s1", 3_600, Some(1), 100), accounts);
         let mut sub = LogFile::new(Agent::Claude);
-        sub.take(request("s1", 3_700, Some(2), 50));
+        sub.take(request("s1", 3_700, Some(2), 50), accounts);
         ledger.logs.insert("/a.jsonl".into(), main);
         ledger.logs.insert("/b.jsonl".into(), sub);
         let key = SessionKey {

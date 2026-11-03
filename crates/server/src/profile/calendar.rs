@@ -2,10 +2,7 @@
 
 use super::{Calendar, Source, Summary, extract, rfc3339, top};
 use crate::{
-    feeds::mail::{Window, clip},
-    starters::Generator,
-    store::ProfileNote,
-    user::User,
+    feeds::mail::Window, memories::clip, starters::Generator, store::ProfileNote, user::User,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration as Days, NaiveDate, Utc};

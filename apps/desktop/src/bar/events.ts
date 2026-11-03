@@ -1,6 +1,6 @@
 import "./keys.ts";
 import { chartClick } from "./charts.ts";
-import { openInWindow, renderChat, watchRun } from "./chat.ts";
+import { answeredTurns, openInWindow, renderChat, watchRun } from "./chat.ts";
 import type { ApprovalField } from "./chat.ts";
 import { copy, loadChats } from "./chats.ts";
 import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState, PANE, S, type Turn } from "./core.ts";
@@ -113,6 +113,7 @@ bar.addEventListener("error", e => { if (isProductPic(e.target)) e.target.remove
 // from live mode's "answered" event, which comes first.
 listen<{ session: string; query_id: string } | null>("approval-answered", e => {
   const { session, query_id } = e.payload ?? {};
+  if (query_id) answeredTurns.mark(query_id, session ?? null);
   const en = live.get(session!), pending = en?.approval;
   if (!en || !pending || pending.queryId !== query_id) return;
   en.approval = null;

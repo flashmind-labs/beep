@@ -17,7 +17,8 @@
 use crate::{
     app::{App, UserNotice},
     apps::mcp::FASTMAIL,
-    feeds::mail::{Mailbox, clip},
+    feeds::mail::Mailbox,
+    memories::clip,
     protocol::{MemoryRead, MemorySource, Notice},
     starters::{Generator, unfence},
     store::{Fact, MemoryRow, Origin, ProfileNote, Scope, Validity},
@@ -315,6 +316,7 @@ fn notify(user: &User, source: Source, summary: &Summary, learned: usize) {
             changed: false,
             group: false,
         },
+        desktop: None,
     };
     // Nobody listening means the phone is offline; Memories still shows them.
     let _ = user.notifications.send(notice);

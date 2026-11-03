@@ -7,6 +7,7 @@
 
 use super::{Line, Request};
 use crate::{agents::prices::Tokens, claude::unix_seconds};
+use beep_proto::node::usage::Billing;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -44,6 +45,7 @@ pub(super) fn line(text: &str) -> Option<Line> {
         "session_meta" => Some(Line::Session {
             id: text_of("id")?,
             cwd: text_of("cwd").unwrap_or_default(),
+            provider: text_of("model_provider"),
         }),
         "turn_context" => text_of("model").map(Line::Model),
         "event_msg" if payload.get("type").and_then(Value::as_str) == Some("token_count") => {
@@ -68,10 +70,21 @@ pub(super) fn line(text: &str) -> Option<Line> {
             if tokens.total() == 0 {
                 return None;
             }
+            // Only a ChatGPT sign-in has plan limits.
+            let plan = payload
+                .get("rate_limits")
+                .and_then(|limits| limits.get("plan_type"))
+                .and_then(Value::as_str)
+                .is_some_and(|plan| !plan.is_empty());
             Some(Line::Request(Request {
                 at: entry.timestamp.as_deref().and_then(unix_seconds)?,
                 tokens,
                 total,
+                billing: if plan {
+                    Billing::Subscription
+                } else {
+                    Billing::Unknown
+                },
                 ..Request::default()
             }))
         }
@@ -85,11 +98,12 @@ mod tests {
 
     #[test]
     fn a_log_gives_its_session_model_and_counts() {
-        let meta = r#"{"timestamp":"2026-11-02T10:00:00.000Z","type":"session_meta","payload":{"id":"0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b","cwd":"/srv/project","source":"cli"}}"#;
+        let meta = r#"{"timestamp":"2026-11-02T10:00:00.000Z","type":"session_meta","payload":{"id":"0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b","cwd":"/srv/project","source":"cli","model_provider":"openai"}}"#;
         assert!(wanted(meta));
         assert!(matches!(
             line(meta),
-            Some(Line::Session { id, cwd }) if id.starts_with("0199") && cwd == "/srv/project"
+            Some(Line::Session { id, cwd, provider })
+                if id.starts_with("0199") && cwd == "/srv/project" && provider.as_deref() == Some("openai")
         ));
         let turn = r#"{"timestamp":"2026-11-02T10:00:01.000Z","type":"turn_context","payload":{"cwd":"/srv/project","model":"gpt-6.1-sol"}}"#;
         assert!(matches!(line(turn), Some(Line::Model(model)) if model == "gpt-6.1-sol"));
@@ -102,6 +116,15 @@ mod tests {
         assert_eq!(request.tokens.output, 99);
         assert_eq!(request.total, Some(29048));
         assert_eq!(request.at, 1_793_614_500);
+        assert_eq!(request.billing, Billing::Unknown);
+        let planned = count.replace(
+            r#""info":{"#,
+            r#""rate_limits":{"plan_type":"pro"},"info":{"#,
+        );
+        let Some(Line::Request(request)) = line(&planned) else {
+            panic!("a request");
+        };
+        assert_eq!(request.billing, Billing::Subscription);
     }
 
     #[test]

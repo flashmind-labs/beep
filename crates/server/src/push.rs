@@ -11,7 +11,7 @@
 use crate::{
     app::UserNotice,
     protocol::{
-        Notice,
+        DeviceKind, Notice,
         wire::{PUSH_ALPN, framed},
     },
     remote::Fallback,
@@ -54,27 +54,50 @@ const RETRY_FOR: Duration = Duration::from_secs(24 * 60 * 60);
 /// A phone woken this recently is not woken again: it is on its way.
 const WAKE_GAP: Duration = Duration::from_secs(20);
 
+/// A key a notice goes to, and what kind of device holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PushKey {
+    pub id: EndpointId,
+    pub kind: DeviceKind,
+}
+
 /// The keys a notice for an account goes to.
 #[async_trait::async_trait]
 pub trait Directory: Send + Sync {
-    async fn keys(&self, user: &str) -> Result<Vec<EndpointId>>;
+    async fn keys(&self, user: &str) -> Result<Vec<PushKey>>;
 }
 
 #[async_trait::async_trait]
 impl Directory for Store {
-    async fn keys(&self, user: &str) -> Result<Vec<EndpointId>> {
+    async fn keys(&self, user: &str) -> Result<Vec<PushKey>> {
         let keys = self.live_keys(user).await?;
-        Ok(keys.iter().filter_map(|key| key.parse().ok()).collect())
+        Ok(keys
+            .into_iter()
+            .filter_map(|key| {
+                Some(PushKey {
+                    id: key.endpoint_id.parse().ok()?,
+                    kind: key.kind,
+                })
+            })
+            .collect())
     }
 }
 
-/// Sends each account's notices to its own key only, for tests.
+/// Sends each account's notices to its own key only, as a phone's, for
+/// tests.
 pub struct OwnKey;
 
 #[async_trait::async_trait]
 impl Directory for OwnKey {
-    async fn keys(&self, user: &str) -> Result<Vec<EndpointId>> {
-        Ok(user.parse().into_iter().collect())
+    async fn keys(&self, user: &str) -> Result<Vec<PushKey>> {
+        Ok(user
+            .parse()
+            .into_iter()
+            .map(|id| PushKey {
+                id,
+                kind: DeviceKind::Phone {},
+            })
+            .collect())
     }
 }
 
@@ -131,9 +154,9 @@ impl Pusher {
         tokio::spawn(async move {
             loop {
                 match notices.recv().await {
-                    Ok(UserNotice { user, notice }) => {
+                    Ok(notice) => {
                         let pusher = pusher.clone();
-                        tokio::spawn(async move { pusher.fan_out(user, notice).await });
+                        tokio::spawn(async move { pusher.fan_out(notice).await });
                     }
                     Err(RecvError::Lagged(missed)) => log::warn!("push: missed {missed} notices"),
                     Err(RecvError::Closed) => return,
@@ -207,17 +230,19 @@ impl Pusher {
         }
     }
 
-    async fn fan_out(self: Arc<Self>, user: String, notice: Notice) {
-        let keys = match self.directory.keys(&user).await {
+    async fn fan_out(self: Arc<Self>, notice: UserNotice) {
+        let user = &notice.user;
+        let keys = match self.directory.keys(user).await {
             Ok(keys) => keys,
             Err(e) => {
                 log::warn!("push: keys lookup failed; user={user} error={e:#}");
                 return;
             }
         };
-        let sends = keys
-            .into_iter()
-            .map(|id| self.clone().deliver(id, notice.clone()));
+        let sends = keys.into_iter().map(|key| {
+            let sent = notice.for_device(&key.kind).clone();
+            self.clone().deliver(key.id, sent)
+        });
         futures::future::join_all(sends).await;
     }
 

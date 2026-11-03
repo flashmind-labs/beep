@@ -17,12 +17,17 @@ use std::{
 pub(super) fn locate() -> Option<PathBuf> {
     let sessions = match env::var_os("PI_CODING_AGENT_SESSION_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => match env::var_os("PI_CODING_AGENT_DIR") {
-            Some(dir) if !dir.is_empty() => PathBuf::from(dir).join("sessions"),
-            _ => dirs::home_dir()?.join(".pi/agent/sessions"),
-        },
+        _ => agent_dir()?.join("sessions"),
     };
     sessions.is_dir().then_some(sessions)
+}
+
+/// pi's agent dir, which holds its `auth.json`.
+pub(super) fn agent_dir() -> Option<PathBuf> {
+    match env::var_os("PI_CODING_AGENT_DIR") {
+        Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
+        _ => Some(dirs::home_dir()?.join(".pi/agent")),
+    }
 }
 
 /// The newest sessions in the sessions folder `root`.
