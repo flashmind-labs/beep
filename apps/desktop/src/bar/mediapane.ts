@@ -7,9 +7,13 @@ import {
   actualView, baseName, type Dock, effectiveDock, fitView, type ImageView, type MediaKind, mediaKind,
   type PaneLayout, paneSize, readLayout, resolvePath, zoomAt,
 } from "../media-state.ts";
+import { highlight, languageOf, MAX_LINES, shortSize, terminalName } from "../files-state.ts";
 import type { ModelView } from "../model3d.ts";
 import { changeListeners, esc, h, ICON, invoke, PANE, S } from "./core.ts";
+import { closeFilesMenu, filesView } from "./filespane.ts";
 import { fileSize, openViewer } from "./media.ts";
+import { attach, dropTerm, forgetTerm, killTerm, openTerm, type PaneTerm, termStatus } from "./paneterm.ts";
+import { addMention } from "./workdrop.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 interface FilePart {
@@ -19,11 +23,25 @@ interface FilePart {
   data: string;
 }
 
-/// One tab: a file of the session's machine, or a picture already here.
+/// The start of a file of the Files tab, as `agent_tree_text` reads it.
+interface TreeText {
+  size: number;
+  text: string;
+  cut: boolean;
+  binary: boolean;
+}
+
+/// What a tab shows: a media file, a file of the Files tab as text, or a
+/// terminal.
+type TabKind = MediaKind | "text" | "term";
+
+/// One tab: a file of the session's machine, a picture already here, or a
+/// terminal on the machine.
 interface MediaTab {
-  /// The path on the machine, or the picture's data URL.
+  /// The path on the machine, the picture's data URL, `text:` and the
+  /// path in the session's folder, or `term:` and its name.
   id: string;
-  kind: MediaKind;
+  kind: TabKind;
   name: string;
   /// Where the node reads it, for a file of the machine.
   path: string | null;
@@ -39,6 +57,11 @@ interface MediaTab {
   model?: ModelView | null;
   wire?: boolean;
   bytes?: ArrayBuffer;
+  /// A text tab's path in the session's folder, and what was read of it.
+  rel?: string;
+  text?: TreeText;
+  /// A terminal tab's terminal, once it started.
+  term?: PaneTerm;
 }
 
 /// The session the pane belongs to.
@@ -49,14 +72,15 @@ interface PaneSession {
 }
 
 const SUBS = "subagents";
+const FILES = "files";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 const ARROW_STEP = 24;
 
 const P = {
   session: null as PaneSession | null,
   tabs: [] as MediaTab[],
-  /// The tab on screen: a tab's id, or `SUBS`.
-  on: SUBS,
+  /// The tab on screen: a tab's id, `FILES` or `SUBS`.
+  on: FILES,
   /// The subagents' rows and how many, as the log last drew them.
   subs: "",
   subCount: 0,
@@ -72,7 +96,12 @@ function saveLayout() {
   try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
 }
 
-const ICONS: Record<MediaKind | "subagents", string> = {
+const ICONS: Record<TabKind | "subagents" | "files", string> = {
+  // filespane.ts imports this module, so its folder icon is repeated here
+  // rather than read before that module has run.
+  files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  text: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>',
+  term: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
   image: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-8 8"/></svg>',
   model: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/></svg>',
   video: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
@@ -93,15 +122,15 @@ const shell = () => document.getElementById("agshell");
 export function paneFrame() {
   return `<div class="agdiv" id="agdiv" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
     + `<aside class="agpane" id="agpane" hidden><div class="agphead"><div class="agtabs" id="agtabs" role="tablist"></div>`
-    + `<button class="agpbtn" id="agdock"></button><button class="agpbtn" id="agfold" title="Hide the pane"></button></div><div class="agpviews" id="agpviews"></div></aside>`
-    + `<button class="agpstrip" id="agpstrip" hidden title="Show the media pane"></button>`;
+    + `<button class="agpbtn agaddterm" id="agterm" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" id="agdock"></button><button class="agpbtn" id="agfold" title="Hide the pane"></button></div><div class="agpviews" id="agpviews"></div></aside>`
+    + `<button class="agpstrip" id="agpstrip" hidden title="Show the pane"></button>`;
 }
 
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closeAll();
   P.session = s;
-  P.on = SUBS;
+  P.on = FILES;
   P.subs = "";
   P.subCount = 0;
   const el = shell();
@@ -121,6 +150,8 @@ function closeAll() {
 }
 
 function dropTab(t: MediaTab) {
+  // A terminal keeps running on its machine; Home lists it.
+  if (t.term) dropTerm(t.term);
   t.model?.dispose();
   t.el?.querySelector("video")?.pause();
   if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);
@@ -134,7 +165,8 @@ changeListeners.push(() => { if (S.view !== "agent") { closeAll(); P.watch?.disc
 function place() {
   const el = shell(), pane = document.getElementById("agpane"), div = document.getElementById("agdiv"), strip = document.getElementById("agpstrip");
   if (!el || !pane || !div || !strip) return;
-  const has = P.tabs.length > 0 || P.subCount > 0;
+  // The Files tab is always there while a session shows.
+  const has = !!P.session;
   const dock = effectiveDock(P.layout.dock, el.clientWidth);
   el.classList.toggle("dock-bottom", dock === "bottom");
   el.classList.toggle("narrow", dock !== P.layout.dock);
@@ -202,11 +234,12 @@ export function drawPane(subs?: { html: string; count: number }) {
 function draw() {
   const tabs = document.getElementById("agtabs"), views = document.getElementById("agpviews");
   if (!tabs || !views) return;
-  // The tab on screen went: the newest file, else the subagents.
-  if (P.on === SUBS ? !P.subCount : !P.tabs.some(t => t.id === P.on)) P.on = P.tabs.at(-1)?.id ?? SUBS;
-  const tab = (id: string, kind: MediaKind | "subagents", name: string, extra: string) =>
+  // The tab on screen went: the newest file, else the files.
+  if (P.on === SUBS ? !P.subCount : P.on !== FILES && !P.tabs.some(t => t.id === P.on)) P.on = P.tabs.at(-1)?.id ?? FILES;
+  const tab = (id: string, kind: TabKind | "subagents" | "files", name: string, extra: string) =>
     `<button class="agtab${P.on === id ? " on" : ""}" role="tab" aria-selected="${P.on === id}" data-mtab="${esc(id)}" title="${esc(name)}">${ICONS[kind]}<span>${esc(name)}</span>${extra}</button>`;
-  tabs.innerHTML = (P.subCount ? tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`) : "")
+  tabs.innerHTML = tab(FILES, FILES, "Files", "")
+    + (P.subCount ? tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`) : "")
     + P.tabs.map(t => tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close">${ICON.x}</em>`)).join("");
   const box = shell();
   const bottom = (box ? effectiveDock(P.layout.dock, box.clientWidth) : P.layout.dock) === "bottom";
@@ -215,9 +248,15 @@ function draw() {
   dock.title = bottom ? "Dock on the right" : "Dock at the bottom";
   document.getElementById("agfold")!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
   const strip = document.getElementById("agpstrip")!;
-  const count = P.tabs.length + (P.subCount ? 1 : 0);
+  const count = P.tabs.length + (P.subCount ? 1 : 0) + 1;
   const shown = P.tabs.find(t => t.id === P.on);
-  strip.innerHTML = `${ICONS[shown?.kind ?? (P.tabs.length ? P.tabs[0].kind : SUBS)]}<span>${P.tabs.length ? "Media" : "Subagents"}</span><small>${count}</small>`;
+  const label = shown ? shown.name : P.on === SUBS ? "Subagents" : "Files";
+  strip.innerHTML = `${ICONS[shown?.kind ?? (P.on === SUBS ? SUBS : FILES)]}<span>${esc(label)}</span><small>${count}</small>`;
+  let filesEl = views.querySelector<HTMLElement>(":scope > .agpview.files");
+  const made = filesView();
+  if (filesEl !== made) { filesEl?.remove(); views.prepend(filesEl = made); }
+  filesEl.hidden = P.on !== FILES;
+  if (P.on !== FILES) closeFilesMenu();
   // Subagents redraw each time; a file's view is drawn once and kept.
   let subView = views.querySelector<HTMLElement>(":scope > .agpview.subs");
   if (P.subCount) {
@@ -231,6 +270,7 @@ function draw() {
     if (hide && !t.el.hidden) t.el.querySelector("video")?.pause();
     t.el.hidden = hide;
     if (!hide) t.model?.resize();
+    if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); t.term?.screen.focus(); });
   }
   place();
 }
@@ -247,6 +287,7 @@ function paneClick(e: MouseEvent) {
     return draw();
   }
   if (target.closest("#agfold")) { P.layout.hidden = true; saveLayout(); return draw(); }
+  if (target.closest("#agterm")) return newTerminal();
 }
 
 function closeTab(id: string) {
@@ -281,16 +322,50 @@ export function openPath(path: string) {
   return true;
 }
 
-function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url">) {
+function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   P.layout.hidden = false;
   saveLayout();
   if (!P.tabs.some(x => x.id === t.id)) {
     const tab: MediaTab = { ...t, size: 0, done: 0, error: "", el: null };
     P.tabs.push(tab);
-    if (!tab.url) load(tab);
+    if (tab.kind === "text") loadText(tab);
+    else if (tab.kind === "term") startTerminal(tab);
+    else if (!tab.url) load(tab);
   }
   P.on = t.id;
   draw();
+}
+
+/// The session the pane shows, while one does.
+export function paneSession(): Readonly<PaneSession> | null {
+  return P.session;
+}
+
+/// Opens `rel`, a file in the session's folder, from the Files tab: a
+/// picture, video, 3D model or PDF in its viewer, anything else as text.
+export function openWorkFile(rel: string) {
+  if (openPath(rel)) return;
+  open({ id: `text:${rel}`, kind: "text", name: baseName(rel), path: null, url: null, rel });
+}
+
+/// Saves `rel`, a file in the session's folder, to Downloads; `note`
+/// hears how it went.
+export function saveWorkFile(rel: string, note: (text: string) => void) {
+  const s = P.session;
+  if (!s) return;
+  note(`Saving ${baseName(rel)}…`);
+  invoke<string>("agent_tree_save", { machineId: s.machine_id, root: s.cwd, path: rel })
+    .then(to => { note(`Saved to Downloads as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
+    .catch(e => note(readError(e)));
+}
+
+/// Opens a terminal tab on the session's machine, in its folder (⌃`).
+export function newTerminal() {
+  const s = P.session;
+  if (!s) return;
+  const taken = P.tabs.filter(t => t.kind === "term").map(t => t.name);
+  const name = terminalName(s.cwd, taken);
+  open({ id: `term:${name}`, kind: "term", name, path: null, url: null });
 }
 
 // ----- Reading files from the machine -----
@@ -334,6 +409,53 @@ function readError(e: unknown) {
   return text;
 }
 
+/// Reads the start of a text tab's file.
+async function loadText(t: MediaTab) {
+  const s = P.session;
+  if (!s || !t.rel) return;
+  try {
+    t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: s.cwd, path: t.rel });
+    t.size = t.text.size;
+  } catch (e) {
+    t.error = readError(e);
+  }
+  if (!P.tabs.includes(t)) return;
+  t.el?.remove();
+  t.el = null;
+  draw();
+}
+
+/// Starts a terminal tab's shell; when it exits the tab goes.
+async function startTerminal(t: MediaTab) {
+  const s = P.session;
+  if (!s) return;
+  try {
+    const term = await openTerm({ machine_id: s.machine_id, cwd: s.cwd, name: t.name }, {
+      onEnd: () => {
+        if (t.term) forgetTerm(t.term);
+        t.term = undefined;
+        closeTab(t.id);
+      },
+      onLink: () => drawTermStatus(t),
+    });
+    if (!P.tabs.includes(t)) return dropTerm(term);
+    t.term = term;
+  } catch (e) {
+    if (!P.tabs.includes(t)) return;
+    t.error = readError(e);
+  }
+  t.el?.remove();
+  t.el = null;
+  draw();
+}
+
+function drawTermStatus(t: MediaTab) {
+  const meta = t.el?.querySelector(".agpacts .meta");
+  if (meta && t.term) meta.textContent = termStatus(t.term, P.session?.machine_name ?? "the machine");
+  const again = t.el?.querySelector<HTMLElement>("[data-tattach]");
+  if (again && t.term) again.hidden = t.term.link !== "detached";
+}
+
 async function load(t: MediaTab) {
   const s = P.session;
   if (!s || !t.path) return;
@@ -362,6 +484,8 @@ async function load(t: MediaTab) {
 
 function viewOf(t: MediaTab): HTMLElement {
   if (t.error) return h(`<div class="agpview"><div class="agpmsg derr">${esc(t.error)}</div></div>`);
+  if (t.kind === "text") return t.text ? textView(t, t.text) : waiting(t);
+  if (t.kind === "term") return t.term ? termView(t, t.term) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening a terminal on ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
   if (!t.url) {
     const where = P.session?.machine_name ?? "the machine";
     return h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Reading ${esc(t.name)} from ${esc(where)}…<span class="agpload"><i></i></span></div></div>`);
@@ -370,6 +494,49 @@ function viewOf(t: MediaTab): HTMLElement {
   if (t.kind === "video") return videoView(t);
   if (t.kind === "pdf") return pdfView(t);
   return modelView(t);
+}
+
+function waiting(t: MediaTab) {
+  return h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Reading ${esc(t.name)} from ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
+}
+
+/// A file of the Files tab as text: numbered lines, lightly highlighted,
+/// read only. Only its start shows when it is large.
+function textView(t: MediaTab, text: TreeText) {
+  const rel = t.rel!;
+  const lang = languageOf(rel);
+  let body: string;
+  let lines = 0;
+  if (text.binary) {
+    body = `<div class="agpmsg">${esc(t.name)} is not text (${esc(shortSize(text.size))}). Save it to open it on this Mac.</div>`;
+  } else {
+    const all = text.text.split("\n");
+    if (all.length > 1 && all.at(-1) === "") all.pop();
+    lines = all.length;
+    const shown = all.slice(0, MAX_LINES);
+    const width = String(shown.length).length;
+    body = `<div class="agcode" style="--lnw:${width}ch"><pre>${shown.map((l, i) => `<span class="ln">${i + 1}</span>${highlight(l, lang)}`).join("\n")}</pre></div>`;
+  }
+  const cut = text.cut || lines > MAX_LINES ? ` · the first ${lines > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
+  const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
+  const el = h(`<div class="agpview">${body}<div class="agpacts"><span class="meta mono" title="${esc(rel)}">${esc(about)}</span><span class="sp"></span><button class="dbtn" data-tment="1">Mention</button><button class="dbtn" data-tsave="1">Save</button></div></div>`);
+  const meta = el.querySelector(".meta")!;
+  el.querySelector("[data-tment]")!.addEventListener("click", () => addMention(rel));
+  el.querySelector("[data-tsave]")!.addEventListener("click", () => saveWorkFile(rel, note => { meta.textContent = note; }));
+  return el;
+}
+
+/// A terminal tab: its live screen, and a footer to attach again or stop it.
+function termView(t: MediaTab, term: PaneTerm) {
+  const el = h(`<div class="agpview term"><div class="agpacts"><span class="meta mono"></span><span class="sp"></span><button class="dbtn" data-tattach="1" hidden>Attach</button><button class="dbtn warn" data-tkill="1">Close</button></div></div>`);
+  el.prepend(term.screen.el);
+  el.querySelector("[data-tattach]")!.addEventListener("click", () => { term.tries = 0; attach(term); });
+  el.querySelector("[data-tkill]")!.addEventListener("click", () => {
+    if (term.row.state === "running" && term.link !== "ended" && !confirm(`Stop ${t.name} on ${P.session?.machine_name ?? "the machine"}?`)) return;
+    killTerm(term).then(() => { t.term = undefined; closeTab(t.id); }).catch(e => { el.querySelector(".meta")!.textContent = readError(e); });
+  });
+  queueMicrotask(() => drawTermStatus(t));
+  return el;
 }
 
 /// The buttons that act on a file of the machine: open it in the Mac's

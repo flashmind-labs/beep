@@ -54,6 +54,7 @@ mod view_cache;
 mod voice;
 mod waiting;
 mod work;
+mod work_files;
 
 use anyhow::Context;
 use beep::{Beep, Field, Notices};
@@ -149,6 +150,10 @@ fn main() {
             agents::agent_file,
             agents::agent_file_open,
             agents::agent_file_save,
+            work_files::agent_tree,
+            work_files::agent_tree_text,
+            work_files::agent_tree_save,
+            work_files::agent_tree_upload,
             agents::agent_steer,
             center::open_center,
             center::center_home,

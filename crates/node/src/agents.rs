@@ -47,6 +47,7 @@ mod models;
 mod plans;
 mod session;
 mod usage;
+mod work_folder;
 
 pub(crate) use images::{Picture, block_picture};
 pub(crate) use live::cut;
@@ -1015,6 +1016,51 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 },
             }
         }
+        SessionsRequest::Folder {
+            root,
+            path,
+            ignored,
+        } => {
+            work_request(move |home| {
+                let root = work_folder::WorkRoot::open(&root, home)?;
+                let folder = work_folder::list(&root, &path, ignored)?;
+                Ok(SessionsReply::Folder { folder })
+            })
+            .await
+        }
+        SessionsRequest::ReadFile {
+            root,
+            path,
+            offset,
+            len,
+        } => {
+            work_request(move |home| {
+                let root = work_folder::WorkRoot::open(&root, home)?;
+                Ok(match work_folder::read(&root, &path, offset, len)? {
+                    Some(chunk) => SessionsReply::File {
+                        size: chunk.size,
+                        mime: chunk.mime.to_owned(),
+                        data: chunk.data,
+                    },
+                    None => SessionsReply::NoFile {},
+                })
+            })
+            .await
+        }
+        SessionsRequest::WriteFile {
+            root,
+            path,
+            offset,
+            size,
+            data,
+        } => {
+            work_request(move |home| {
+                let root = work_folder::WorkRoot::open(&root, home)?;
+                let path = work_folder::write(&root, &path, offset, size, &data)?;
+                Ok(SessionsReply::Written { path })
+            })
+            .await
+        }
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
             None => SessionsReply::Error {
@@ -1039,6 +1085,23 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
         },
     };
     tx.send(&reply).await
+}
+
+/// Runs `job`, which blocks on a session's working folder, off the async
+/// workers with the node's home; its error becomes the `Error` reply.
+async fn work_request(
+    job: impl FnOnce(Option<&Path>) -> Result<SessionsReply> + Send + 'static,
+) -> SessionsReply {
+    let home = dirs::home_dir();
+    match spawn_blocking(move || job(home.as_deref())).await {
+        Ok(Ok(reply)) => reply,
+        Ok(Err(e)) => SessionsReply::Error {
+            message: format!("{e:#}"),
+        },
+        Err(e) => SessionsReply::Error {
+            message: format!("the folder work stopped: {e}"),
+        },
+    }
 }
 
 /// Sends the server each picture a running session newly shows, until it

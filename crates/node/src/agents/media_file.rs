@@ -59,7 +59,7 @@ pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result
 
 /// `path` as a full path: `~/` is `home`, and anything else must already
 /// be absolute.
-fn resolve(path: &str, home: Option<&Path>) -> Result<PathBuf> {
+pub(super) fn resolve(path: &str, home: Option<&Path>) -> Result<PathBuf> {
     if let Some(rest) = path.strip_prefix("~/") {
         let home = home.context("this node has no home folder to read ~/ in")?;
         return Ok(home.join(rest));

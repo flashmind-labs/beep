@@ -1191,6 +1191,34 @@ requests! {
     /// another type, a file too large, or a node too old to read files
     /// (updating beep-node may help).
     300 GetAgentFile { machine_id: String, path: String, offset: u64 } => Call<AgentFileChunk>
+    /// One folder of a coding agent session's working folder `root` on the
+    /// caller's online machine `machine_id`, for the session's Files tab.
+    /// `root` is absolute or starts `~/`; `path` is the folder inside it,
+    /// relative with `/` between names, `""` for `root` itself. Leaves out
+    /// what git ignores unless `ignored`, and `.git` always; marks what git
+    /// sees changed. `BadRequest` saying why for a path outside `root` (a
+    /// symlink out of it included), a folder that is not there, or a node
+    /// too old to list folders (updating beep-node may help); `NotFound`
+    /// when the machine is not one of the caller's online ones.
+    301 ListWorkFolder { machine_id: String, root: String, path: String, ignored: bool } => Call<WorkFolder>
+    /// Up to `len` bytes, at most [`AGENT_FILE_CHUNK`], of the file `path`
+    /// inside `root` from `offset`, as `ListWorkFolder` names them: any
+    /// kind of file, for the Files tab to show or save. `mime` is
+    /// [`media_mime`]'s, else `application/octet-stream`. `NotFound` when
+    /// the file or the machine is not there; `BadRequest` as for
+    /// `ListWorkFolder`.
+    302 ReadWorkFile { machine_id: String, root: String, path: String, offset: u64, len: u32 } => Call<AgentFileChunk>
+    /// Writes part of a file into `root`, for files dropped on a session.
+    /// `path` is where it goes inside `root`; the first part (`offset` 0)
+    /// makes the folders on the way and takes a free name beside the one
+    /// asked (`notes 2.txt`), and the reply is the path it took, which the
+    /// later parts send. Parts come in order, each at most
+    /// [`AGENT_FILE_CHUNK`], until `offset` plus the part is `size`, at
+    /// most [`MAX_WORK_UPLOAD`]; only then does the file show under its
+    /// name. Never replaces a file. `BadRequest` saying why for a path
+    /// outside `root`, a part out of order, a file too large, or a node too
+    /// old to take files.
+    303 WriteWorkFile { machine_id: String, root: String, path: String, offset: u64, size: u64, #[serde(with = "serde_bytes")] data: Vec<u8> } => Call<String>
 }
 
 /// What `FindImportFork` found.
@@ -2561,6 +2589,54 @@ pub const AGENT_FILE_CHUNK: usize = 4 * 1024 * 1024;
 
 /// The largest file `GetAgentFile` reads.
 pub const MAX_AGENT_FILE: u64 = 128 * 1024 * 1024;
+
+/// The largest file `WriteWorkFile` writes.
+pub const MAX_WORK_UPLOAD: u64 = 64 * 1024 * 1024;
+
+/// The most entries one `ListWorkFolder` gives.
+pub const MAX_WORK_ENTRIES: usize = 2000;
+
+/// One folder of a session's working folder, as `ListWorkFolder` reads it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkFolder {
+    /// The folder, relative to the root, `""` for the root.
+    pub path: String,
+    /// Folders first, then files, each by name.
+    pub entries: Vec<WorkEntry>,
+    /// Entries left out past [`MAX_WORK_ENTRIES`].
+    pub more: u32,
+    /// The folder is in a git checkout, so `ignored` and `change` mean
+    /// something.
+    pub git: bool,
+}
+
+/// A file or folder in a `WorkFolder`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkEntry {
+    pub name: String,
+    pub folder: bool,
+    /// A file's size in bytes; 0 for a folder.
+    pub size: u64,
+    /// Git ignores it.
+    pub ignored: bool,
+    /// What git sees changed in it, or anywhere under a folder.
+    pub change: Option<GitChange>,
+}
+
+wire_enum! {
+    /// How git sees a file changed, as `WorkEntry::change` marks it. A
+    /// folder takes the strongest of what is under it, the last here first.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+    pub enum GitChange {
+        0 Untracked {}
+        1 Added {}
+        2 Modified {}
+        3 Conflicted {}
+    }
+}
 
 /// The MIME type of a media file `GetAgentFile` reads, by the extension of
 /// `path`, any case; `None` for any other file.
