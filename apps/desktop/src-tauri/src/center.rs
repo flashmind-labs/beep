@@ -542,7 +542,7 @@ pub async fn center_home(
         updates,
         projects,
     })?;
-    remember(&cache, View::Home, &view);
+    cache_view(&cache, View::Home, &view);
     Ok(view)
 }
 
@@ -569,14 +569,14 @@ pub(crate) fn kept<T: Serialize>(
     result: Result<T>,
 ) -> Result<T> {
     if let Ok(value) = &result {
-        remember(cache, view, value);
+        cache_view(cache, view, value);
     }
     result
 }
 
 /// Keeps `value` as the latest `view` for the next window that opens. The
 /// file is written on a blocking thread, one write at a time.
-pub(crate) fn remember<T: Serialize>(cache: &Arc<ViewCache>, view: View, value: &T) {
+pub(crate) fn cache_view<T: Serialize>(cache: &Arc<ViewCache>, view: View, value: &T) {
     let value = match serde_json::to_value(value) {
         Ok(value) => value,
         Err(e) => {

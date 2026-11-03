@@ -5,7 +5,7 @@
 
 use crate::{
     beep::{AsyncMutex, Beep},
-    center::remember,
+    center::cache_view,
     error::{DesktopError, Result},
     view_cache::{View, ViewCache},
 };
@@ -95,7 +95,7 @@ impl AgentSessions {
             let listed = beep.call(ListAgentSessions {}).await;
             let answered = listed.is_ok();
             if let Ok(sessions) = &listed {
-                remember(&cache, View::AgentSessions, sessions);
+                cache_view(&cache, View::AgentSessions, sessions);
                 *me.last() = Some(Listed {
                     at: Some(Instant::now()),
                     sessions: sessions.clone(),
