@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/bar/agentmodels.ts";
-import { placeMenuAt, baseFor, baseRows, checkoutFor, checkoutLabel, effortNote, effortsOf, folderBusy, folderPill, folderRows, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, placePopover, projectAt, projectFolders, railOf, startPlace, tildePath } from "../src/bar/agentpick.ts";
+import { placeMenuAt, baseFor, baseRows, checkoutLabel, DEFAULT_CHECKOUT, effortNote, effortsOf, folderPill, folderRows, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, MAX_BASES, modelLabel, modelRows, pillDetail, placePopover, projectAt, projectFolders, railOf, startPlace, tildePath } from "../src/bar/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -101,19 +101,14 @@ test("the Machine menu lists machines with agents, then those that cannot run on
 const session = (machine_id: string, cwd: string, status = "working", external = false, last_activity = 0) =>
   ({ machine_id, cwd, status, external, last_activity });
 
-test("Auto starts in the checkout unless one of our sessions runs there", () => {
-  const sessions = [session("m1", "/srv/project/widget/"), session("m2", "/srv/project/other", "ended"), session("m3", "/srv/project/widget", "working", true)];
-  assert.equal(folderBusy(sessions, "m1", "/srv/project/widget"), true);
-  assert.equal(folderBusy(sessions, "m2", "/srv/project/other"), false, "an ended session");
-  assert.equal(folderBusy(sessions, "m3", "/srv/project/widget"), false, "one started outside Beep");
-  assert.equal(folderBusy(sessions, null, "/srv/project/widget"), false, "no machine yet");
-  assert.equal(checkoutFor("auto", true), "new");
-  assert.equal(checkoutFor("auto", false), "current");
-  assert.equal(checkoutFor("current", true), "current");
-  assert.deepEqual(checkoutFor({ worktree: "/w" }, false), { worktree: "/w" });
-  assert.equal(checkoutLabel("auto", true), "Auto: New worktree");
-  assert.equal(checkoutLabel("new", false), "New worktree");
-  assert.equal(checkoutLabel({ worktree: "/srv/project/widget/.worktrees/fix-it" }, false), "Worktree fix-it");
+test("a plain start goes to the checkout as it is and makes no branch", () => {
+  const cwd = "/srv/project/widget";
+  assert.equal(DEFAULT_CHECKOUT, "current");
+  assert.equal(checkoutLabel(DEFAULT_CHECKOUT), "Current checkout");
+  assert.equal(makesBranch(DEFAULT_CHECKOUT), false);
+  assert.deepEqual(startPlace(DEFAULT_CHECKOUT, cwd, "main"), { cwd, checkout: null });
+  assert.equal(checkoutLabel("new"), "New worktree");
+  assert.equal(checkoutLabel({ worktree: "/srv/project/widget/.worktrees/fix-it" }), "Worktree fix-it");
 });
 
 test("a checkout's worktrees come from where sessions ran, newest first", () => {
@@ -131,17 +126,14 @@ test("a checkout's worktrees come from where sessions ran, newest first", () => 
 
 test("New branch and New worktree send a plan; the checkout and a worktree send a folder", () => {
   const cwd = "/srv/project/widget";
-  assert.equal(checkoutLabel("branch", false), "New branch");
-  assert.equal(makesBranch("branch", false), true);
-  assert.equal(makesBranch("auto", true), true, "Auto on a busy checkout makes a worktree");
-  assert.equal(makesBranch("auto", false), false);
-  assert.equal(makesBranch({ worktree: `${cwd}/.worktrees/fix-it` }, true), false);
-  assert.deepEqual(startPlace("current", true, cwd, "main"), { cwd, checkout: null });
-  assert.deepEqual(startPlace("auto", false, cwd, "main"), { cwd, checkout: null });
-  assert.deepEqual(startPlace("auto", true, cwd, "main"), { cwd, checkout: { new_worktree: { base: "main" } } });
-  assert.deepEqual(startPlace("branch", false, cwd, " "), { cwd, checkout: { new_branch: { base: null } } });
-  assert.deepEqual(startPlace("new", false, cwd, null), { cwd, checkout: { new_worktree: { base: null } } });
-  assert.deepEqual(startPlace({ worktree: `${cwd}/.worktrees/fix-it` }, false, cwd, "main"), { cwd: `${cwd}/.worktrees/fix-it`, checkout: null });
+  assert.equal(checkoutLabel("branch"), "New branch");
+  assert.equal(makesBranch("branch"), true);
+  assert.equal(makesBranch("new"), true);
+  assert.equal(makesBranch({ worktree: `${cwd}/.worktrees/fix-it` }), false);
+  assert.deepEqual(startPlace("current", cwd, "main"), { cwd, checkout: null });
+  assert.deepEqual(startPlace("branch", cwd, " "), { cwd, checkout: { new_branch: { base: null } } });
+  assert.deepEqual(startPlace("new", cwd, null), { cwd, checkout: { new_worktree: { base: null } } });
+  assert.deepEqual(startPlace({ worktree: `${cwd}/.worktrees/fix-it` }, cwd, "main"), { cwd: `${cwd}/.worktrees/fix-it`, checkout: null });
 });
 
 test("the Base menu lists the default branch first, then the newest", () => {

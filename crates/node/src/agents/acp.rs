@@ -344,10 +344,14 @@ pub(super) fn takes_images(initialized: &InitializeResponse) -> bool {
     initialized.agent_capabilities.prompt_capabilities.image
 }
 
-/// `session/prompt` with the text first, then each image as an image block.
-/// Only images go when there is no text.
-pub(super) fn prompt(session: &SessionId, prompt: &Prompt) -> PromptRequest {
-    let mut blocks = Vec::with_capacity(1 + prompt.images.len());
+/// `session/prompt` with `brief` (Beep's word to the agent) and the text
+/// first, then each image as an image block. Only images go when there is
+/// no text.
+pub(super) fn prompt(session: &SessionId, prompt: &Prompt, brief: Option<&str>) -> PromptRequest {
+    let mut blocks = Vec::with_capacity(2 + prompt.images.len());
+    if let Some(brief) = brief {
+        blocks.push(ContentBlock::Text(TextContent::new(brief)));
+    }
     if !prompt.text.is_empty() || prompt.images.is_empty() {
         blocks.push(ContentBlock::Text(TextContent::new(prompt.text.as_str())));
     }
@@ -588,7 +592,7 @@ mod tests {
             text: "The button overlaps".into(),
             images: vec![shot.clone()],
         };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message)).unwrap();
+        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &message, None)).unwrap();
         let blocks = sent["prompt"].as_array().unwrap();
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0]["type"], "text");
@@ -603,7 +607,7 @@ mod tests {
             text: String::new(),
             images: vec![shot],
         };
-        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only)).unwrap();
+        let sent = serde_json::to_value(prompt(&SessionId::new("s"), &only, None)).unwrap();
         assert_eq!(sent["prompt"][0]["type"], "image", "no empty text block");
         assert_eq!(only.shown(), line);
     }
