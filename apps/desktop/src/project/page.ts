@@ -53,7 +53,7 @@ export function drawProjects(el: HTMLElement) {
     // Read before the swap: a detached element scrolls to 0.
     const top = old.scrollTop;
     const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
-    const cols = [".pj-list", ".pj-det"].map(c => [c, old.querySelector(c)?.scrollTop ?? 0] as const);
+    const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old.querySelector(c)?.scrollTop ?? 0] as const);
     old.replaceWith(view);
     view.scrollTop = top;
     for (const [c, at] of cols) { const col = view.querySelector(c); if (col) col.scrollTop = at; }

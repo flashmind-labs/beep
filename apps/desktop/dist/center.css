@@ -473,7 +473,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-ov .r { display: flex; gap: 4px; align-items: center }
 .pj-ov .r .pj-tag { margin-left: 0 }
 .pj-scroll { max-height: 62vh; overflow: auto; scrollbar-width: thin }
-.pj-scroll > .cc-row { content-visibility: auto; contain-intrinsic-size: auto 52px }
 @media (max-width: 1000px) { .pj-ov { grid-template-columns: minmax(0, 1fr) } }
 .pj-det > * { flex: none }
 /* A pull request or issue: its head, then the description and comments. */
