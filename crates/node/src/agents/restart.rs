@@ -26,6 +26,9 @@ pub(crate) struct OpenSession {
     cwd: PathBuf,
     /// Prompts that had not gone to the agent yet.
     held: Vec<Prompt>,
+    /// The session mode it was in.
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 /// Prompts wait instead of starting turns while this lives.
@@ -108,6 +111,7 @@ impl Agents {
                     session: live.agent_session.clone()?,
                     cwd: PathBuf::from(&live.info.cwd),
                     held: live.held.clone(),
+                    mode: live.info.mode.clone(),
                 })
             })
             .collect()
@@ -148,6 +152,7 @@ impl Agents {
             Some(&cwd),
             Begin {
                 resume: Some(open.session),
+                mode: open.mode,
                 note: Some(RESUMED.to_owned()),
                 ..Begin::default()
             },

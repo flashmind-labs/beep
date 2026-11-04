@@ -19,6 +19,7 @@ import { openAgent, turnRuns } from "./session.ts";
 import { closeChild } from "./logview.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
+import { cycleMode } from "./modepill.ts";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -92,6 +93,14 @@ export interface AgentUsage {
   cost_usd: number | null;
 }
 
+/// The modes of a session, as `agent_modes` returns them. `plan` is the plan
+/// waiting for approval, as HTML.
+export interface AgentModes {
+  current: string | null;
+  modes: { id: string; name: string }[];
+  plan: string | null;
+}
+
 /// "62% context · 184K tokens · $1.42", leaving out what is not known.
 export function usageLine(u: AgentUsage) {
   const parts: string[] = [];
@@ -156,7 +165,7 @@ type SentImage = { name: string; mime: string; data: string };
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
 export type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
-  | { cancel: null } | { configure: { model: string | null; effort: string | null } };
+  | { cancel: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } };
 
 interface AgentState {
   readError: string;
@@ -208,6 +217,8 @@ interface AgentState {
   stopping: string | null;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
+  /// The open session's modes, when the server says.
+  modes: AgentModes | null;
 }
 
 export const AG: AgentState = {
@@ -217,7 +228,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false,
+  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null,
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -352,6 +363,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
+    if (e.key === "Tab" && e.shiftKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();
       // While the turn runs, Enter steers it after its current tool call,

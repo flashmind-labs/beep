@@ -109,6 +109,7 @@ pub async fn serve_session(
                     }
                     Ok(Some(Request::DropSteers {})) => Command::DropSteers,
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
+                    Ok(Some(Request::SetMode { mode })) => Command::SetMode(mode),
                     Ok(Some(Request::Cancel {})) => Command::Cancel,
                     Ok(Some(Request::Close {})) => Command::Close,
                     Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },

@@ -12,17 +12,17 @@ use agent_client_protocol::{
             CompactionCapabilities, ContentBlock, ImageContent, Implementation, InitializeRequest,
             InitializeResponse, LoadSessionRequest, McpServer, NewSessionRequest,
             NewSessionResponse, PermissionOptionId, PromptRequest, RequestPermissionOutcome,
-            RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
-            SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-            SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
-            SetSessionConfigOptionRequest, TextContent,
+            RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest,
+            SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
+            SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
+            SessionId, SessionModeState, SetSessionConfigOptionRequest, TextContent,
         },
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     ApiError, Upload, check_agent_images,
-    node::agent::{AnswerOption, Effort, ModelOption, OptionKind},
+    node::agent::{AnswerOption, Effort, ModeOption, ModelOption, OptionKind},
 };
 use futures::{Sink, Stream, sink, stream};
 use serde::{Deserialize, Serialize};
@@ -73,6 +73,12 @@ pub(super) fn resume_method(initialized: &InitializeResponse) -> Option<ResumeMe
 /// The most models kept from one agent's list.
 pub(super) const MAX_MODELS: usize = 500;
 
+/// The most session modes kept from one agent's list.
+const MAX_MODES: usize = 32;
+
+/// The id of the mode where an agent plans and changes nothing.
+pub(super) const PLAN_MODE: &str = "plan";
+
 /// The models an agent offers in its answer to `session/new`, and how it
 /// switches between them.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -84,6 +90,15 @@ pub(super) struct Offered {
     /// Its config option of category `thought_level`, which sets how hard
     /// it thinks, when it has one.
     pub(super) thinking: Option<SessionConfigId>,
+    /// The session modes it offers and the one it is in, when it has any.
+    pub(super) modes: Option<Modes>,
+}
+
+/// The session modes an agent offers, in the order it lists them.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Modes {
+    pub(super) current: String,
+    pub(super) available: Vec<ModeOption>,
 }
 
 /// How an agent switches a session's model.
@@ -161,8 +176,27 @@ pub(super) fn session_created(
 pub(super) fn offers(answer: &Value) -> Offered {
     Offered {
         thinking: thinking_option(answer),
+        modes: session_modes(answer),
         ..offered_models(answer)
     }
+}
+
+/// `modes` in an answer; one that does not read is skipped, as a broken
+/// `models` is.
+fn session_modes(answer: &Value) -> Option<Modes> {
+    let modes = SessionModeState::deserialize(answer.get("modes")?).ok()?;
+    Some(Modes {
+        current: modes.current_mode_id.to_string(),
+        available: modes
+            .available_modes
+            .into_iter()
+            .take(MAX_MODES)
+            .map(|mode| ModeOption {
+                id: mode.id.to_string(),
+                name: mode.name,
+            })
+            .collect(),
+    })
 }
 
 /// The config options in an answer that offers them, skipping any that do
@@ -234,7 +268,7 @@ pub(super) fn offered_models(answer: &Value) -> Offered {
                 })
                 .collect(),
             switch: Some(ModelSwitch::ConfigOption(id)),
-            thinking: None,
+            ..Offered::default()
         };
     }
     let Some(models) = answer
@@ -256,7 +290,7 @@ pub(super) fn offered_models(answer: &Value) -> Offered {
             })
             .collect(),
         switch: Some(ModelSwitch::SetModel),
-        thinking: None,
+        ..Offered::default()
     }
 }
 
@@ -300,6 +334,24 @@ pub(super) fn allow_option(options: &[AnswerOption]) -> Option<&AnswerOption> {
                 .filter(keeps_context)
                 .find(|option| option.kind == OptionKind::AllowOnce)
         })
+}
+
+/// The plan a permission request asks to go ahead with, empty when it does
+/// not say: Claude Code's ExitPlanMode, which carries it as `plan` in its input
+/// and offers `exit-plan-*` options. `None` for any other request.
+pub(super) fn plan_of(request: &RequestPermissionRequest) -> Option<String> {
+    let plan = request
+        .tool_call
+        .fields
+        .raw_input
+        .as_ref()
+        .and_then(|input| input.get("plan"))
+        .and_then(Value::as_str);
+    let exits = request
+        .options
+        .iter()
+        .any(|option| option.option_id.0.starts_with("exit-plan"));
+    (plan.is_some() || exits).then(|| plan.unwrap_or_default().to_owned())
 }
 
 /// A message for the agent: its text, then any images.

@@ -219,7 +219,7 @@ export async function steerAgent(steer: Steer) {
   if (!o || AG.page?.session.external) return false;
   let ok = false;
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer ? steer : Object.keys(steer)[0] });
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer ? steer : Object.keys(steer)[0] });
     const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
     if (sent?.images) keepSentImages(keys, sent.images);
     AG.note = "";

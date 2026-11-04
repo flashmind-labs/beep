@@ -632,6 +632,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         resume: None,
         model: model.map(ModelId::new),
         effort: None,
+        mode: None,
         note: None,
         brief: None,
         mcp: None,
@@ -1091,4 +1092,116 @@ while read -r line; do log "$1"; done
         .filter(|line| line["method"] == "session/cancel")
         .count();
     assert_eq!(cancels, 1);
+}
+
+/// Claude Code with session modes: a turn in plan mode asks to run a command,
+/// which the node allows, then asks to go ahead with its plan. Keep planning
+/// ends the turn. Approval takes it to the mode the option names, `default`,
+/// and the session is switched from there.
+const PLAN_ADAPTER: &str = r#"
+exit_plan='{"sessionId":"s","toolCall":{"toolCallId":"exit","title":"Ready to code?","rawInput":{"plan":"1. Add a flag"}},"options":[{"optionId":"exit-plan-clear-bypass","name":"Clear","kind":"allow_always"},{"optionId":"exit-plan-default","name":"Manual","kind":"allow_once"},{"optionId":"reject","name":"No","kind":"reject_once"}]}'
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Manual"},{"id":"acceptEdits","name":"Accept edits"},{"id":"plan","name":"Plan"},{"id":"bypassPermissions","name":"Bypass permissions"}]}}'
+read -r line; log "$1"
+reply '{}'
+read -r line; log "$1"
+reply '{}'
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"run","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run ls"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":"no","method":"session/request_permission","params":%s}\n' "$exit_plan"
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r line; log "$1"
+prompt=$(id)
+printf '{"jsonrpc":"2.0","id":"yes","method":"session/request_permission","params":%s}\n' "$exit_plan"
+read -r line; log "$1"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"current_mode_update","currentModeId":"default"}}}'
+read -r line; log "$1"
+reply '{}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn plan_mode_waits_for_approval_and_goes_back_to_the_mode_before_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("claude", PLAN_ADAPTER, &log);
+    let session = Session::start(Start {
+        prompt: None,
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    until(&session, |live| live.status() == Status::Idle).await;
+    let info = session.info();
+    assert_eq!(info.mode.as_deref(), Some("bypassPermissions"));
+    let names: Vec<&str> = info.modes.iter().map(|mode| mode.name.as_str()).collect();
+    assert_eq!(names, ["Full access", "Plan", "Manual", "Accept edits"]);
+
+    let refused = session.order(Command::SetMode("yolo".into())).await;
+    assert!(refused.unwrap_err().contains("no mode yolo"));
+    session
+        .order(Command::SetMode("plan".into()))
+        .await
+        .unwrap();
+    assert_eq!(session.info().mode.as_deref(), Some("plan"));
+
+    // The command is allowed as ever; the plan waits for the user.
+    let prompt = |text: &str| Command::Prompt(Prompt::from(text.to_owned()));
+    let plan_ready = |live: &Live| live.info.question.is_some();
+    session.order(prompt("plan it")).await.unwrap();
+    until(&session, plan_ready).await;
+    let info = session.info();
+    assert_eq!(info.plan_ready.as_deref(), Some("1. Add a flag"));
+    let question = info.question.unwrap();
+    let names: Vec<&str> = question.options.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(names, ["Approve and start", "Keep planning"]);
+    let (entries, _) = session.live.borrow().transcript(10);
+    assert!(entries.iter().any(|entry| entry.text == "Allowed: Run ls"));
+
+    // Keep planning: the turn ends, still in plan mode.
+    let answer = |id, reply: &str| Command::Answer {
+        question: id,
+        reply: reply.to_owned(),
+    };
+    session
+        .order(answer(question.id, &question.options[1].id))
+        .await
+        .unwrap();
+    until(&session, |live| live.info.turns == 1).await;
+    let info = session.info();
+    assert_eq!(info.mode.as_deref(), Some("plan"));
+    assert_eq!(info.plan_ready, None);
+
+    // Approve and start: back to Full access, the mode before plan mode.
+    session.order(prompt("again")).await.unwrap();
+    until(&session, plan_ready).await;
+    let question = session.info().question.unwrap();
+    session
+        .order(answer(question.id, &question.options[0].id))
+        .await
+        .unwrap();
+    until(&session, |live| live.info.turns == 2).await;
+    assert_eq!(session.info().mode.as_deref(), Some("bypassPermissions"));
+
+    let sent = sent(&log);
+    let answered = |id: &str| {
+        let answer = sent.iter().find(|line| line["id"] == id).unwrap();
+        answer["result"]["outcome"]["optionId"].clone()
+    };
+    assert_eq!(answered("run"), "allow");
+    assert_eq!(answered("no"), "reject");
+    assert_eq!(answered("yes"), "exit-plan-default");
+    let modes: Vec<&Value> = sent
+        .iter()
+        .filter(|line| line["method"] == "session/set_mode")
+        .map(|line| &line["params"]["modeId"])
+        .collect();
+    assert_eq!(modes, ["bypassPermissions", "plan", "bypassPermissions"]);
 }

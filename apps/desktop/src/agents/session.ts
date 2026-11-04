@@ -13,6 +13,7 @@ import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usa
 import { agentAttachError, agentAttach, drawAgentAttached } from "./images.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
+import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
@@ -23,7 +24,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false,
+    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
   });
   drawAgentFrame();
   pollAgent();
@@ -57,8 +58,9 @@ export async function pollAgent() {
   AG.inflight = o;
   const read = ++AG.polls;
   try {
-    const page = await invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST });
+    const [page, modes] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }), readModes(o)]);
     if (isOpen(o)) {
+      AG.modes = modes;
       const sig = JSON.stringify(page);
       if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
       if (page.session.question?.id !== AG.answering) AG.answering = null;
@@ -126,6 +128,8 @@ export const stoppingNow = () => {
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
   const slim = (items: Parameters<typeof hints>[0]) => hints(items).replace('class="dhints"', 'class="dhints slim"');
+  const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
+  if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (AG.child != null) return slim([["esc", "parent session"]]);
   if (s?.external) return slim([["esc", "back"]]);
@@ -133,11 +137,11 @@ export function agentHints() {
   if (turnRuns()) {
     const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
     if (stoppingNow()) return slim(keys);
-    return slim([...keys, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
+    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ...mode, ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -188,7 +192,7 @@ export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
+    : `<div id="agplan"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button> · ` : ""}<span style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</span></small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span></div>
@@ -216,6 +220,7 @@ function agentClick(e: MouseEvent) {
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
   if (target.closest("#agmodelb")) return toggleModelPicker();
+  if (target.closest("#agmodeb")) { cycleMode(); $("#agmsg")?.focus(); return; }
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");

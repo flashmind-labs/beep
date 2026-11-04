@@ -52,6 +52,8 @@ const ORDERS: usize = 16;
 const EVENTS: usize = 64;
 /// The longest text of a question the node asks.
 const MAX_ASKED: usize = 2000;
+/// The longest plan shown for approval.
+const MAX_PLAN: usize = 32 * 1024;
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
@@ -81,6 +83,8 @@ pub(super) enum Command {
         model: Option<ModelId>,
         effort: Option<Effort>,
     },
+    /// Switches the session mode, at once.
+    SetMode(String),
     /// Puts a question of the node's own to the user, as the agent's are:
     /// `ask_user` or an approval for the Beep MCP server. The answer goes
     /// to `reply`; it is dropped when the session ends or the turn is
@@ -134,6 +138,9 @@ pub(super) struct Start<'a> {
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
     pub(super) effort: Option<Effort>,
+    /// The session mode it was in before the node restarted, rather than
+    /// the one that asks no permission.
+    pub(super) mode: Option<String>,
     /// A first line for its transcript, such as the branch it started on.
     pub(super) note: Option<String>,
     /// Beep's word to the agent, sent ahead of the first prompt and kept
@@ -188,6 +195,7 @@ impl Session {
             resume,
             model,
             effort,
+            mode,
             note,
             brief,
             mcp,
@@ -278,6 +286,9 @@ impl Session {
             thinking: None,
             switch: None,
             bypass_mode: known.and_then(|known| known.bypass_mode),
+            first_mode: mode,
+            left_plan_for: None,
+            returning: None,
             compactor: Compactor::new(known, policy),
             asked: VecDeque::new(),
             next_question: 1,
