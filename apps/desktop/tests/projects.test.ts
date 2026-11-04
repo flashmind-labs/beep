@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/center/home-state.ts";
 import type { ProjectRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { mergeProjects, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy } from "../src/project/projects-state.ts";
+import { awaitsView, foundFor, mergeProjects, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy } from "../src/project/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -193,4 +193,20 @@ test("a card names what keeps its project in step", () => {
   assert.equal(syncedBy("both", rows, [{ syncthing: "folder" }]), "Beep sync · Syncthing");
   assert.equal(syncedBy("none", rows, [{ syncthing: null }]), "");
   assert.equal(syncedBy("none", rows, undefined), "");
+});
+
+test("a project's page waits, not the agentless layout, until its agents are known", () => {
+  const p = { name: "org/app", imported: true };
+  assert.equal(awaitsView(p, undefined), true);
+  assert.equal(awaitsView(p, [{ name: "org/app" }]), true);
+  assert.equal(awaitsView(p, [{ name: "org/other" }]), false);
+  assert.equal(awaitsView(p, null), false);
+  assert.equal(awaitsView({ ...p, imported: false }, undefined), false);
+});
+
+test("a repository's found checkout matches whatever the case of its name", () => {
+  const row = { name: "Org/App", remote: "org/app", places: [], agents: [], last_activity: 0 };
+  assert.equal(foundFor([row], "org/app"), row);
+  assert.equal(foundFor([row], "org/other"), null);
+  assert.equal(foundFor(null, "org/app"), null);
 });

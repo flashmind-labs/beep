@@ -255,6 +255,18 @@ export function importedWhen(at: number, now: number) {
   return `${Math.round(days / 7)} weeks ago`;
 }
 
+/// What the machines found of repository `repo`, null when none has it.
+export function foundFor(found: readonly FoundRow[] | null | undefined, repo: string) {
+  const name = repo.toLowerCase();
+  return found?.find(f => f.name.toLowerCase() === name) ?? null;
+}
+
+/// Whether a project's page waits for its agent's view: the project has an
+/// agent, or `agents` (undefined until first read) cannot say yet.
+export function awaitsView(project: { name: string; imported: boolean }, agents: readonly { name: string }[] | null | undefined) {
+  return project.imported && (agents === undefined || !!agents?.some(a => a.name === project.name));
+}
+
 /// The line under a project's name: its host and when it was imported, or where
 /// it came from when it is not imported.
 export function projectLine(project: { name: string; imported: boolean; url?: string | null } | null | undefined, imported: readonly Pick<ProjectRow, "name" | "imported_at">[] | null | undefined, now: number) {

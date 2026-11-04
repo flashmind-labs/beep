@@ -7,7 +7,7 @@ import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectlo
 import { invoke } from "../ui/tauri.ts";
 import { base, machineSync, type RunningAgent } from "../center/home-state.ts";
 import { foundRow } from "../addproject/addproject.ts";
-import { withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { foundFor, withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
@@ -347,8 +347,13 @@ export function elsewhereSection(rows: Project[]) {
   const repos = outsideThreads(state.git, rows).slice(0, 8);
   if (!repos.length) return null;
   const body = repos.flatMap((r, i) => {
-    const imp = rowButton("Import project", i ? "small" : "pri small", () => importSheet(false, r.repo));
-    const head = repoLine(undefined, r.repo, r.host, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
+    // A checkout the machines found imports as it is; otherwise the sheet clones.
+    const here = foundFor(state.found, r.repo);
+    const imp = rowButton(here && state.importing === here.name ? "Importing…" : "Import project", i ? "small" : "pri small", () => here ? importFromPage(here) : importSheet(false, r.repo));
+    imp.disabled = !!here && state.importing != null;
+    const failed = here && state.foundError?.name === here.name ? state.foundError.message : null;
+    const sub = failed ?? (here ? `on ${here.places.map(p => p.machine_name).join(", ")}` : r.host);
+    const head = repoLine(undefined, r.repo, sub, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
     return [head, ...r.items.slice(0, ITEMS_SHOWN).map(item => openItemRow(item, null))];
   });
   return section("sec-elsewhere", "Your open PRs and issues in repos without a project", "", null,
