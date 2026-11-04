@@ -4,7 +4,8 @@ import { $, $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
-import type { ResearchRow, ResearchStatus } from "./research-list.ts";
+import { chipHtml, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
+import { plural } from "../ui/format.ts";
 
 // ---------- Research ----------
 
@@ -33,11 +34,6 @@ export async function research(topic: string) {
 /// The bar's Research view: every research on the account, newest first, from
 /// the server, so ones started on another computer show too.
 export const RL: { list: ResearchRow[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
-export const RSTATUS: Record<ResearchStatus, string> = {
-  planning: "Waiting for your go", researching: "Researching", reviewing: "Reviewing",
-  writing: "Writing", done: "Done", failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
-};
-export const RUNNING = new Set<ResearchStatus>(["researching", "reviewing", "writing"]);
 
 export function renderResearches(topic = "") {
   S.view = "research";
@@ -62,9 +58,8 @@ export async function loadResearchList() {
 }
 
 export function researchLine(r: ResearchRow) {
-  const parts = [RSTATUS[r.status] ?? r.status];
-  if (r.round > 1) parts.unshift(`Round ${r.round}`);
-  if (r.sources) parts.push(`${r.sources} source${r.sources === 1 ? "" : "s"}`);
+  const parts = [progressLine(r)];
+  if (r.sources) parts.push(plural(r.sources, "source", "sources"));
   parts.push(when(r.finished_at ?? r.started_at));
   return parts.join(" · ");
 }
@@ -73,10 +68,7 @@ export function drawResearches() {
   const typed = $<HTMLInputElement>("#rtopic")?.value ?? "";
   const focused = document.activeElement?.id === "rtopic";
   RL.sel = Math.max(0, Math.min(RL.sel, RL.list.length - 1));
-  const running = RL.list.filter(r => RUNNING.has(r.status)).length;
-  const waiting = RL.list.filter(r => r.status === "planning").length;
-  const sum = !RL.loaded ? "" : !RL.list.length ? "Nothing researched yet"
-    : [running && `${running} running`, waiting && `${waiting} waiting`].filter(Boolean).join(", ") || `${RL.list.length} researched`;
+  const sum = RL.loaded ? researchSummary(RL.list) : "";
   const head = `<div class="dhead"><span class="tt"><b>Research</b><small>${esc(sum)}</small></span></div>`;
   const field = `<div class="dinput"><input id="rtopic" placeholder="What should the team research?" autocomplete="off" spellcheck="false"><kbd>⌘R</kbd></div>`;
   const empty = RL.loaded && !RL.list.length;
@@ -88,13 +80,12 @@ export function drawResearches() {
   } else {
     const rows = RL.list.map((r, i) => {
       const cur = i === RL.sel && !typed.trim();
-      const ic = RUNNING.has(r.status) ? '<span class="dspin"></span>'
-        : r.status === "planning" ? '<span class="ddot hot"></span>'
-        : r.status === "done" ? `<span class="dok">${ICON.check}</span>` : ICON.doc;
+      const state = researchState(r.status);
+      // Export replaces the chip while the row's actions show.
       const tail = cur && RL.mode === "actions" && r.sources
-        ? '<span class="acts"><button class="dbtn" data-rl="pdf">Export PDF</button></span>' : "";
-      const off = ["failed", "stopped", "interrupted"].includes(r.status);
-      return `<div class="drt${off ? " off" : ""}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${ic}</span>
+        ? '<span class="acts"><button class="dbtn" data-rl="pdf">Export PDF</button></span>' : chipHtml(r.status, STATE_LABEL[state]);
+      const off = state === "failed" || state === "stopped";
+      return `<div class="drt${off ? " off" : ""}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${ICON.doc}</span>
         <span class="tt"><b>${esc(r.topic)}</b><small>${esc(researchLine(r))}</small></span>${tail}</div>`;
     }).join("");
     list = `<div class="dlist top" role="listbox" aria-label="Research">${rows}</div>`;

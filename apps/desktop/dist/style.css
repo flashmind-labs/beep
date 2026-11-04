@@ -1129,3 +1129,17 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcred-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px }
 .dflow { padding: 8px 10px; margin: 4px 0; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); font-size: 12.5px; display: grid; gap: 6px }
 .dflowcode { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: .1em; user-select: all; cursor: text }
+/* A state chip: neutral, or coloured by what it says. Built by stateChip. */
+.chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 17px; white-space: nowrap }
+.chip.running, .chip.run, .chip.done { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
+.chip.blocked, .chip.wait, .chip.medium { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
+.chip.bad, .chip.high { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
+.chip.review { color: var(--link); border-color: color-mix(in srgb, var(--link) 45%, transparent) }
+.chip.term { color: var(--fg) }
+.chip.dropped { color: var(--dim); text-decoration: line-through }
+.chip .dspin { width: 9px; height: 9px }
+/* A running research's steps. */
+.cc-rsteps { display: flex; gap: 3px; width: 54px; flex: none }
+.cc-rsteps i { flex: 1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent) }
+.cc-rsteps i.done { background: color-mix(in srgb, var(--ok) 70%, transparent) }
+.cc-rsteps i.now { background: var(--accent) }
