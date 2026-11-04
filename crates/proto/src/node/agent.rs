@@ -942,7 +942,9 @@ pub struct SessionFolder {
     pub origin: String,
     /// Sessions per agent, most first.
     pub agents: Vec<AgentSessions>,
-    /// When a session there last changed, Unix seconds.
+    /// When a session there last changed or its checked-out commit was
+    /// made, whichever is newer, Unix seconds. Nodes from before it give
+    /// only the session's.
     pub last_activity: u64,
 }
 

@@ -1411,7 +1411,7 @@ export function addProject() {
     machines: state.home?.machines || [],
     onImported: landed,
     onChoose: () => importSheet(true),
-    onClone: () => importSheet(false),
+    onClone: repo => importSheet(false, repo ?? null),
   });
 }
 

@@ -49,6 +49,8 @@ pub(crate) struct Import<'a> {
     pub(crate) machine_id: Option<&'a str>,
     /// Where it goes, absolute or `~/...`; `None` or blank for the machine's projects folder.
     pub(crate) folder: Option<&'a str>,
+    /// The folder it goes under as `<parent>/<org>/<repo>` when `folder` is not given.
+    pub(crate) parent: Option<&'a str>,
 }
 
 /// One of the user's machines, online and able to run commands.
@@ -120,6 +122,15 @@ pub(crate) async fn find_fork(
     })
 }
 
+/// `<parent>/<org>/<repo>`; blank when `parent` is, so the machine's projects folder is used.
+fn under_parent(parent: &str, repo: &RepoRef) -> String {
+    let parent = parent.trim().trim_end_matches('/');
+    if parent.is_empty() {
+        return String::new();
+    }
+    format!("{parent}/{}/{}", repo.org(), repo.name())
+}
+
 /// Imports `job.repo` onto its machine: clones (the fork, when any) or links an existing checkout,
 /// records it, then looks for checkouts on the user's other machines in the background.
 pub(crate) async fn import(
@@ -129,7 +140,11 @@ pub(crate) async fn import(
 ) -> Result<ImportedProject, ImportError> {
     let credentials = user.git_credentials(&app.credential_key).await?;
     let repo = RepoRef::parse(job.repo, &forgejo_of(&credentials))?;
-    let picked = match job.folder {
+    let folder = match job.folder.filter(|folder| !folder.trim().is_empty()) {
+        Some(folder) => Some(folder.to_owned()),
+        None => job.parent.map(|parent| under_parent(parent, &repo)),
+    };
+    let picked = match folder.as_deref() {
         Some(folder) => FolderPath::parse(folder)?,
         None => None,
     };
@@ -412,5 +427,17 @@ fn project(row: ImportRow, machine_name: String, cloned: bool) -> ImportedProjec
         folder: row.folder,
         cloned,
         imported_at: row.imported_at.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_parent_takes_the_owner_and_name() {
+        let repo = RepoRef::parse("acme/widget", &[]).expect("org/repo parses");
+        assert_eq!(under_parent("~/Projects/", &repo), "~/Projects/acme/widget");
+        assert_eq!(under_parent("  ", &repo), "");
     }
 }

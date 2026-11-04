@@ -1,7 +1,8 @@
 // The "Add a project" sheet: the git checkouts your coding agents worked in
 // (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds),
-// each with Import, then "Choose a folder…" and "Clone a repository…", which
-// open the Import a project sheet.
+// each with Import, then the user's repositories on GitHub and Forgejo that no
+// machine has, each with Clone, then "Choose a folder…" and "Clone a
+// repository…", which open the Import a project sheet.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
@@ -17,9 +18,20 @@ export interface AddProjectOptions {
   onImported?: (project: ProjectRow) => void;
   /// Opens the Import a project sheet for a folder.
   onChoose?: () => void;
-  /// Opens the Import a project sheet for a repository.
-  onClone?: () => void;
+  /// Opens the Import a project sheet, with `repo` filled in when given.
+  onClone?: (repo?: string) => void;
 }
+
+/// One git host's repositories to clone.
+interface HostRepos {
+  host: string;
+  github: boolean;
+  repos: { name: string; url: string; updated_at: number }[];
+  error: string | null;
+}
+
+/// The most repositories one host shows.
+const REPOS_SHOWN = 30;
 
 /// How a found row shows: `busy` names the row being imported (any non-null
 /// value disables Import), `error` is why this one failed, `quiet` drops the
@@ -35,6 +47,8 @@ export interface FoundRowState {
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, back: Element | null = null;
 /// null while the machines look, then the rows they found.
 let found: FoundRow[] | null = null;
+/// null until the server lists the repositories to clone.
+let hosts: HostRepos[] | null = null;
 let error: string | null = null;
 /// The row being imported by its own button, by name, and why one failed.
 let importing: string | null = null;
@@ -45,7 +59,7 @@ let picked = new Set<string>();
 const status = new Map<string, ImportState>();
 /// True while a batch imports.
 let batch = false;
-let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, listBox: HTMLDivElement | null = null;
+let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, listBox: HTMLDivElement | null = null, remoteBox: HTMLDivElement | null = null;
 
 /// Imports a found row in place on each machine that has it.
 export async function importFound(row: FoundRow) {
@@ -69,6 +83,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
   opts = options;
   back = document.activeElement;
   found = null;
+  hosts = null;
   error = null;
   importing = null;
   failed.clear();
@@ -87,13 +102,16 @@ export function openAddProject(options: AddProjectOptions = {}) {
     .then(rows => { found = rows; })
     .catch(e => { found = []; error = reason(e); })
     .finally(() => { if (root) draw(); });
+  invoke<HostRepos[]>("host_repos")
+    .then(got => { hosts = got; }, e => { console.warn("host repos:", e); hosts = []; })
+    .finally(() => { if (root) draw(); });
 }
 
 export function closeAddProject() {
   if (!root) return;
   document.removeEventListener("keydown", onKey, true);
   root.remove();
-  root = sheet = search = bar = listBox = null;
+  root = sheet = search = bar = listBox = remoteBox = null;
   focusBack(back);
 }
 
@@ -206,6 +224,7 @@ function build() {
   search.addEventListener("input", () => { query = search!.value; draw(); });
   bar = el("div", "ap-bar");
   listBox = el("div", "ap-box");
+  remoteBox = el("div", "ap-remote");
   const head = el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc"));
   const ways = el("div", "ap-ways",
     way("Choose a folder…", "Anywhere on this Mac, or browse another machine", () => { closeAddProject(); opts.onChoose?.(); }),
@@ -216,13 +235,16 @@ function build() {
     search,
     bar,
     listBox,
+    remoteBox,
     ways);
 }
 
 function draw() {
   if (!search || !bar || !listBox) return;
   const any = !!found?.length;
-  search.hidden = bar.hidden = !any;
+  const remote = drawRemote();
+  bar.hidden = !any;
+  search.hidden = !any && !remote;
   const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
   const keep = focused && listBox.contains(focused) ? focused.dataset.name : null;
   const shown = shownRows();
@@ -244,7 +266,7 @@ function draw() {
     listBox.querySelector<HTMLElement>(".ap-list")!.scrollTop = scrolled;
   }
   if (keep) rowEls().find(r => r.dataset.name === keep)?.focus({ preventScroll: true });
-  else if (any && !sheet?.contains(document.activeElement)) search.focus();
+  else if (!search.hidden && !sheet?.contains(document.activeElement)) search.focus();
   if (!any) return;
   const names = shown.map(row => row.name);
   const open = names.filter(name => tickable(status.get(name)));
@@ -259,6 +281,28 @@ function draw() {
   go.disabled = busy() || !ready;
   const count = query.trim() ? `${shown.length} of ${found!.length} shown` : `${found!.length} found`;
   bar.replaceChildren(el("label", "", all, "Select all shown"), el("span", "", count), go);
+}
+
+/// Fills the repositories to clone, per host, as the search shows them,
+/// leaving out those found on a machine; true when any host has one.
+function drawRemote() {
+  if (!remoteBox) return false;
+  const have = new Set((found || []).map(row => row.name.toLowerCase()));
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const sections = (hosts || []).flatMap(h => {
+    const repos = h.repos.filter(r => !have.has(r.name.toLowerCase()));
+    const shown = repos.filter(r => words.every(w => r.name.toLowerCase().includes(w))).slice(0, REPOS_SHOWN);
+    if (!h.error && !shown.length) return [];
+    return [
+      el("div", "am-label", `On ${h.github ? "GitHub" : h.host}`),
+      h.error ? el("div", "am-sub", h.error) : el("div", "ap-list", ...shown.map(r => el("div", "ap-rm",
+        el("span", "n", r.name),
+        el("span", "m", ago(r.updated_at)),
+        button("Clone", "dbtn small", () => { closeAddProject(); opts.onClone?.(r.url); })))),
+    ];
+  });
+  remoteBox.replaceChildren(...sections);
+  return (hosts || []).some(h => h.repos.length > 0);
 }
 
 function way(title: string, sub: string, onClick: () => void) {
@@ -349,6 +393,12 @@ export function injectStyle() {
     + " .ap-row:focus { outline: none } .ap-row:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 6px }"
     + " .ap-st { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center }"
     + " .ap-st.ok { color: var(--ok) }"
+    + " .ap-sheet { max-height: calc(100vh - 80px); overflow: auto }"
+    + " .ap-remote .ap-list { max-height: 180px }"
+    + " .ap-rm { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px }"
+    + " .ap-rm:first-child { border-top: 0 }"
+    + " .ap-rm .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
+    + " .ap-rm .m { font-size: 12px; color: var(--muted) }"
     + " .ap-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }"
     + " .ap-ways button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--fg); font: inherit; cursor: pointer }"
     + " .ap-ways button > span { display: grid; gap: 2px }"

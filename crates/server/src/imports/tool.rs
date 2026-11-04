@@ -100,6 +100,7 @@ impl Tool for ImportProjectTool {
                     repo: &args.repo,
                     machine_id: machine.as_deref(),
                     folder: args.folder.as_deref(),
+                    parent: None,
                 },
             )
             .await
