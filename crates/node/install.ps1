@@ -121,8 +121,10 @@
     }
 
     Write-Host ''
-    Write-Host 'Next, open Add a machine in Beep and run'
-    Write-Host '  beep-node setup <token>'
-    Write-Host 'with the token it shows. It links this machine and starts beep-node'
-    Write-Host 'in the background.'
+    Write-Host 'Next, start beep-node in the background:'
+    Write-Host '  beep-node service install'
+    Write-Host 'then open Add a machine in the Beep desktop app and run'
+    Write-Host '  beep-node mesh join <ticket>'
+    Write-Host 'with the ticket it shows. (beep-node setup <token> is the older way,'
+    Write-Host 'for linking to a server account.)'
 }

@@ -35,16 +35,31 @@ emulator (`./gradlew assembleDebug`).
 
 ## Servers and hosting
 
-One `beep-server` runs the agent and owns the database. Every user gets a
-`beep-node` started with `--workspace /home/user` (`BEEP_NODE_WORKSPACE`):
-`exec` and `process` run there by default, and uploads, downloads and app
-attachments are saved there. Other machines link as ordinary nodes. The
-server runs no user code. Per-user nodes are set up by hand for now.
+Desktops and `beep-node`s form a mesh and work with no server. Every order
+(agents, files, terminals, project sync, credentials, usage) goes directly
+peer to peer, signed by the device list. A desktop mints tickets and adds
+machines; a node can only join, and the server hands out no tickets. Project
+sync, groups, pins, credentials and settings are replicated state that only
+desktops may write.
+
+`beep-server` is optional and paid: memories, routines, app connections, the
+assistant, the project agent and reviews, and the phones (Android and iOS
+still talk only to the server). A node linked to a server keeps that link;
+once in a mesh it ignores what the server pushes for sync, credentials and
+agent settings. A desktop with a server mirrors imports and credential saves
+to it.
+
+The server runs no user code. A hosted user's `beep-node` starts with
+`--workspace /home/user` (`BEEP_NODE_WORKSPACE`): `exec` and `process` run
+there by default, and uploads, downloads and app attachments are saved there.
+Per-user nodes are set up by hand for now.
 
 The server is the production server on Neon, the target of
 `just deploy-server`. Desktop and iOS builds pass its node id in
 `BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
+
+Moving an account: credentials are entered again on the desktop.
 
 ### Code map
 
@@ -65,6 +80,12 @@ without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 - `store`: Postgres queries, one file per kind of row, `migrations`.
 - `tools`: the agent's tools, plus web `search` and `fetch`.
 - `voice`: voice notes, live transcription (`stt`), filler lines.
+
+### Code map: shared crates
+
+- `crates/mesh` (`beep-mesh`): the signed device list, tickets, replicated state, and the join and peer connections.
+- `crates/projects` (`beep-projects`): project shell commands, parsers and names shared by the server and the desktop.
+- `crates/fleet` (`beep-fleet`): the desktop side of projects, credentials, settings and usage over the mesh.
 
 ## Hosted login
 
@@ -211,6 +232,7 @@ and lists every Tauri command; each `mod.rs` only declares and re-exports.
 - `beep/`: the server connection (`Beep`), runs, saved state, chat sync, identity.
 - `bar/`: the bar window and its app-wide, live and window commands.
 - `chat/`: chats, groups, approvals, files, history and reply rendering.
+- `fleet/`: the mesh this Mac belongs to and the node in this process: agents, files, projects, terminals, alerts.
 - `voice/`: live mode, voice notes, audio, the Option hotkey, the orb.
 - `center/`: the command center window, Home, view cache, usage, what is shown.
 - `palette/`: the Cmd+K search.
@@ -234,7 +256,12 @@ https://releases.flashmind.com/beep/node/. Machines install it with:
 
     curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh
 
-then link with `beep-node setup <token>`. A node binds UDP port 47120 for
+then run `beep-node service install` and join the mesh with
+`beep-node mesh join <ticket>` (or `-` to read the ticket from stdin), with the
+ticket from the desktop's Add a machine. `--search <dir>` sets the folder to
+look for git checkouts in. `beep-node mesh devices` lists the devices and which
+are online. `beep-node setup <token>` is the older way: it links the node to a
+server account and installs the service. A node binds UDP port 47120 for
 iroh (`port` in `node.toml`; 0 is random), so a firewall can allow that one
 port; if it is taken the node warns and binds a random one. The server
 binds 47121 (`port` in its config). Rerunning the installer upgrades
