@@ -1,21 +1,21 @@
 //! Checkouts the user's coding agents worked in, one row per repository, excluding imported ones.
 
-use crate::{
-    protocol::{FoundAgent, FoundPlace, FoundProject, node::agent::SessionFolder},
-    store::ImportRow,
+use super::{
+    records::ImportRow,
+    repo::{RepoRef, remote_key},
 };
-use beep_projects::imports::repo::{RepoRef, remote_key};
-use beep_projects::model::ForgejoUrl;
+use crate::model::ForgejoUrl;
+use beep_proto::{FoundAgent, FoundPlace, FoundProject, node::agent::SessionFolder};
 use std::{
     cmp::Reverse,
     collections::HashMap,
     time::{Duration, UNIX_EPOCH},
 };
 
-pub(crate) struct MachineFound {
-    pub(crate) machine_id: String,
-    pub(crate) machine_name: String,
-    pub(crate) folders: Vec<SessionFolder>,
+pub struct MachineFound {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub folders: Vec<SessionFolder>,
 }
 
 /// One repository as it is being gathered.
@@ -28,7 +28,7 @@ struct Row {
 }
 
 /// One row per found repository, newest first, skipping remoteless and already imported checkouts.
-pub(crate) fn group(
+pub fn group(
     found: Vec<MachineFound>,
     imported: &[ImportRow],
     servers: &[ForgejoUrl],
@@ -136,7 +136,7 @@ fn project(key: &str, mut row: Row, servers: &[ForgejoUrl]) -> FoundProject {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::agent::AgentSessions;
+    use beep_proto::node::agent::AgentSessions;
     use chrono::Utc;
     use std::time::SystemTime;
 

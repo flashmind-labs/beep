@@ -5,14 +5,12 @@ use super::watch::Entry;
 use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
-    projects::{
-        fleet::{Fleet, NodeFleet},
-        imports::{parse_remotes, remotes_script},
-    },
+    projects::fleet::{Fleet, NodeFleet},
     protocol::GitHostKind,
     store::ProjectRow,
 };
 use beep_projects::credentials::{Opened, Slot};
+use beep_projects::imports::preview::{parse_remotes, remotes_script};
 use beep_projects::issues::issue_host;
 use beep_projects::model::{IssueHost, MachinePath, RepoName, remote_parts};
 use iroh::EndpointId;

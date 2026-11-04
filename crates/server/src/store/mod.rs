@@ -119,9 +119,7 @@ pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
 pub(crate) use project_groups::SaveGroup;
-pub use project_imports::{ImportRow, NewImport};
 pub(crate) use project_removal::{DroppedMachine, RemovedProject};
-pub use project_sync::SyncRow;
 pub(crate) use projects::{
     After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, OverviewRow, ProjectRow,
     StartRefused, TaskRow, TrackedIssue, WorkerRow,

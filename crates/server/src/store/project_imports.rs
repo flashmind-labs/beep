@@ -3,33 +3,12 @@
 use super::Store;
 use crate::account::user::UserKey;
 use anyhow::Result;
+use beep_projects::imports::records::{ImportRow, NewImport};
 use beep_projects::model::RepoName;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
 use std::collections::HashMap;
 use uuid::Uuid;
-
-/// One project imported onto one machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportRow {
-    /// `org/repo`.
-    pub project: String,
-    /// The node's key, as the store keeps it.
-    pub endpoint: String,
-    pub folder: String,
-    /// The repository's web page.
-    pub url: String,
-    pub imported_at: DateTime<Utc>,
-    /// The user's fork cloned as `origin`, `None` for the repository itself.
-    pub(crate) fork: Option<RepoName>,
-}
-
-pub struct NewImport<'a> {
-    pub project: &'a str,
-    pub endpoint: &'a str,
-    pub folder: &'a str,
-    pub url: &'a str,
-}
 
 impl Store {
     /// Records an import (or moves it to `folder`), making the project if new; returns the stored row.

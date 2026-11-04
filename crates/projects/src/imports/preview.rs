@@ -1,21 +1,19 @@
 //! What importing a repository would find: its checkouts on online machines and branches with work.
 
-use super::checks::forgejo_servers;
-use crate::{
-    account::user::User,
-    app::App,
-    nodes::{Online, SHELL},
-    protocol::{ImportCheckout, ImportPreview, node::agent::SESSIONS_PROTOCOL},
-    store::{NewImport, NodeRow},
-};
-use beep_projects::branches::{READ_LIMIT, branches_with_work, my_prs, read_branches, run_script};
-use beep_projects::imports::place;
-use beep_projects::imports::{
+use super::{
     ImportError,
-    place::Folders,
+    machine::Machine,
+    place,
+    records::{ImportRow, NewImport},
     repo::{Host, RepoRef},
+    store::ImportStore,
 };
-use beep_projects::quote;
+use crate::{
+    branches::{READ_LIMIT, branches_with_work, my_prs, read_branches, run_script},
+    model::ForgejoUrl,
+    quote,
+};
+use beep_proto::{ImportCheckout, ImportPreview};
 use futures::future::join_all;
 use std::{collections::HashSet, time::Duration};
 use tokio::time::timeout;
@@ -29,14 +27,14 @@ const MAX_CANDIDATES: usize = 20;
 
 /// A folder and its remotes, as the remotes script prints them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FolderRemotes {
-    pub(crate) folder: String,
+pub struct FolderRemotes {
+    pub folder: String,
     /// Name and URL, in the order git lists them.
-    pub(crate) remotes: Vec<(String, String)>,
+    pub remotes: Vec<(String, String)>,
 }
 
 /// Prints `@@dir <folder>` then `remote.<name>.url <url>` lines for each folder.
-pub(crate) fn remotes_script(folders: &[String]) -> String {
+pub fn remotes_script(folders: &[String]) -> String {
     let quoted: Vec<String> = folders.iter().map(|folder| quote(folder)).collect();
     format!(
         "for f in {}; do echo \"@@dir $f\"; git -C \"$f\" config --get-regexp '^remote\\..*\\.url$' 2>/dev/null; done; true",
@@ -44,7 +42,7 @@ pub(crate) fn remotes_script(folders: &[String]) -> String {
     )
 }
 
-pub(crate) fn parse_remotes(out: &str) -> Vec<FolderRemotes> {
+pub fn parse_remotes(out: &str) -> Vec<FolderRemotes> {
     let mut found: Vec<FolderRemotes> = Vec::new();
     for line in out.lines() {
         if let Some(folder) = line.strip_prefix("@@dir ") {
@@ -65,7 +63,7 @@ pub(crate) fn parse_remotes(out: &str) -> Vec<FolderRemotes> {
 }
 
 /// The remote of `folder` that is `repo`, `origin` first; `None` when none is.
-pub(crate) fn repo_remote(folder: &FolderRemotes, repo: &RepoRef) -> Option<String> {
+pub fn repo_remote(folder: &FolderRemotes, repo: &RepoRef) -> Option<String> {
     let mut remotes: Vec<&(String, String)> = folder.remotes.iter().collect();
     remotes.sort_by_key(|(name, _)| name != "origin");
     remotes
@@ -87,45 +85,17 @@ fn repo_name_of(remote: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// One online machine of the user's that runs commands.
-struct Machine {
-    row: NodeRow,
-    node: Online,
-}
-
-async fn machines(app: &App, user: &User) -> Result<Vec<Machine>, ImportError> {
-    Ok(user
-        .nodes()
-        .await?
-        .into_iter()
-        .filter_map(|row| {
-            let node = app
-                .nodes
-                .online(&row.endpoint)
-                .filter(|node| node.user == user.id() && node.offers(SHELL))?;
-            Some(Machine { row, node })
-        })
-        .collect())
-}
-
 /// Folders on one machine that may be checkouts of `repo` or `fork`, each with its remotes.
 async fn candidates_on(
-    row: &NodeRow,
-    node: &Online,
+    machine: &Machine,
     repo: &RepoRef,
     fork: Option<&RepoRef>,
     imported: &[String],
 ) -> Vec<FolderRemotes> {
     let mut candidates: Vec<String> = imported.to_vec();
-    let env = row.env.as_ref();
-    let folders = Folders {
-        os: env.map(|env| env.os.as_str()),
-        home: env.map(|env| env.home.as_str()),
-        workspace: node.workspace.as_deref(),
-    };
-    candidates.extend(place::checkout_folder(folders, repo));
-    if node.offers(SESSIONS_PROTOCOL) {
-        match timeout(FOUND_LIMIT, node.found_folders(FOUND_FOLDERS)).await {
+    candidates.extend(place::checkout_folder(machine.folders(), repo));
+    if let Some(sessions) = &machine.sessions {
+        match timeout(FOUND_LIMIT, sessions.found(FOUND_FOLDERS)).await {
             Ok(Ok(found)) => {
                 let names: Vec<String> = [Some(repo), fork]
                     .into_iter()
@@ -142,17 +112,20 @@ async fn candidates_on(
                         .map(|folder| folder.path),
                 );
             }
-            Ok(Err(e)) => log::info!("preview: no found folders on {}: {e:#}", row.name),
-            Err(_) => log::info!("preview: found folders not in time on {}", row.name),
+            Ok(Err(e)) => log::info!("preview: no found folders on {}: {e:#}", machine.name),
+            Err(_) => log::info!("preview: found folders not in time on {}", machine.name),
         }
     }
     let mut seen = HashSet::new();
     candidates.retain(|folder| seen.insert(folder.clone()));
     candidates.truncate(MAX_CANDIDATES);
-    match run_script(node, &remotes_script(&candidates), READ_LIMIT).await {
+    let Ok(shell) = machine.shell() else {
+        return Vec::new();
+    };
+    match run_script(shell, &remotes_script(&candidates), READ_LIMIT).await {
         Ok(out) => parse_remotes(&out),
         Err(e) => {
-            log::info!("preview: remotes not read on {}: {e:#}", row.name);
+            log::info!("preview: remotes not read on {}: {e:#}", machine.name);
             Vec::new()
         }
     }
@@ -164,13 +137,13 @@ async fn checkouts_on(
     repo: &RepoRef,
     imported: &[String],
 ) -> Vec<ImportCheckout> {
-    candidates_on(&machine.row, &machine.node, repo, None, imported)
+    candidates_on(machine, repo, None, imported)
         .await
         .iter()
         .filter_map(|folder| {
             Some(ImportCheckout {
-                machine_id: machine.row.endpoint.clone(),
-                machine_name: machine.row.name.clone(),
+                machine_id: machine.id.clone(),
+                machine_name: machine.name.clone(),
                 remote: repo_remote(folder, repo)?,
                 folder: folder.folder.clone(),
             })
@@ -179,13 +152,12 @@ async fn checkouts_on(
 }
 
 /// A checkout of `repo` or `fork` on machine `row` to link rather than clone, `origin` matches first.
-pub(super) async fn existing_checkout(
-    row: &NodeRow,
-    node: &Online,
+pub async fn existing_checkout(
+    machine: &Machine,
     repo: &RepoRef,
     fork: Option<&RepoRef>,
 ) -> Option<FolderRemotes> {
-    let found = candidates_on(row, node, repo, fork, &[]).await;
+    let found = candidates_on(machine, repo, fork, &[]).await;
     pick_existing(found, repo, fork)
 }
 
@@ -209,26 +181,23 @@ fn pick_existing(
     matching.into_iter().next().map(|(_, folder)| folder)
 }
 
-/// Where `repo` is checked out on online machines, and its branches with work in the first one.
-pub(crate) async fn preview(
-    app: &App,
-    user: &User,
+/// Where `repo` is checked out on `machines`, which are online with a shell, and its branches
+/// with work in the first one. `imports` and `servers` are the user's.
+pub async fn preview(
+    machines: &[Machine],
+    imports: &[ImportRow],
+    servers: &[ForgejoUrl],
     input: &str,
 ) -> Result<ImportPreview, ImportError> {
-    let servers = forgejo_servers(app, user).await?;
-    let repo = RepoRef::parse(input, &servers)?;
+    let repo = RepoRef::parse(input, servers)?;
     let project = repo.project();
-    let machines = machines(app, user).await?;
     if machines.is_empty() {
         return Err(ImportError::NoneOnline);
     }
-    let imports = user.imports().await?;
     let looks = machines.iter().map(|machine| {
         let imported: Vec<String> = imports
             .iter()
-            .filter(|row| {
-                row.endpoint == machine.row.endpoint && row.project.eq_ignore_ascii_case(&project)
-            })
+            .filter(|row| row.endpoint == machine.id && row.project.eq_ignore_ascii_case(&project))
             .map(|row| row.folder.clone())
             .collect();
         let repo = &repo;
@@ -243,16 +212,17 @@ pub(crate) async fn preview(
     if let Some(first) = checkouts.first()
         && let Some(machine) = machines
             .iter()
-            .find(|machine| machine.row.endpoint == first.machine_id)
+            .find(|machine| machine.id == first.machine_id)
+        && let Ok(shell) = machine.shell()
     {
-        match read_branches(&machine.node, &first.folder, "main").await {
+        match read_branches(shell, &first.folder, "main").await {
             Ok((default, read)) => {
                 default_branch = default;
                 branches = read;
             }
             Err(e) => notes.push(format!(
                 "The branches on {} were not read: {e:#}.",
-                machine.row.name
+                machine.name
             )),
         }
     }
@@ -262,18 +232,21 @@ pub(crate) async fn preview(
             .and_then(|first| {
                 machines
                     .iter()
-                    .find(|machine| machine.row.endpoint == first.machine_id)
+                    .find(|machine| machine.id == first.machine_id)
             })
             .unwrap_or(&machines[0]);
-        match my_prs(&at.node, &project).await {
-            Ok(prs) => prs,
-            Err(e) => {
-                notes.push(format!(
-                    "Your pull requests were not read on {}: {e:#}.",
-                    at.row.name
-                ));
-                Vec::new()
-            }
+        match at.shell() {
+            Ok(shell) => match my_prs(shell, &project).await {
+                Ok(prs) => prs,
+                Err(e) => {
+                    notes.push(format!(
+                        "Your pull requests were not read on {}: {e:#}.",
+                        at.name
+                    ));
+                    Vec::new()
+                }
+            },
+            Err(_) => Vec::new(),
         }
     } else {
         Vec::new()
@@ -287,40 +260,38 @@ pub(crate) async fn preview(
     })
 }
 
-/// The checkout of `input` on `endpoint`, recorded as the project's folder; `None` when offline or absent.
-pub(crate) async fn checkout_for_worktree(
-    app: &App,
-    user: &User,
+/// The checkout of `input` on `endpoint`, recorded as the project's folder; `None` when offline
+/// (not among `machines`, which are online with a shell) or absent.
+pub async fn checkout_for_worktree(
+    store: &dyn ImportStore,
+    machines: &[Machine],
+    servers: &[ForgejoUrl],
     input: &str,
     endpoint: &str,
 ) -> Result<Option<String>, ImportError> {
-    let servers = forgejo_servers(app, user).await?;
-    let repo = RepoRef::parse(input, &servers)?;
+    let repo = RepoRef::parse(input, servers)?;
     let project = repo.project();
-    let imports = user.imports().await?;
+    let imports = store.imports().await?;
     if let Some(row) = imports
         .iter()
         .find(|row| row.endpoint == endpoint && row.project.eq_ignore_ascii_case(&project))
     {
         return Ok(Some(row.folder.clone()));
     }
-    let Some(machine) = machines(app, user)
-        .await?
-        .into_iter()
-        .find(|machine| machine.row.endpoint == endpoint)
-    else {
+    let Some(machine) = machines.iter().find(|machine| machine.id == endpoint) else {
         return Ok(None);
     };
-    let Some(found) = checkouts_on(&machine, &repo, &[]).await.into_iter().next() else {
+    let Some(found) = checkouts_on(machine, &repo, &[]).await.into_iter().next() else {
         return Ok(None);
     };
-    user.link_import(NewImport {
-        project: &project,
-        endpoint,
-        folder: &found.folder,
-        url: &repo.web_url(),
-    })
-    .await?;
+    store
+        .link_import(NewImport {
+            project: &project,
+            endpoint,
+            folder: &found.folder,
+            url: &repo.web_url(),
+        })
+        .await?;
     Ok(Some(found.folder))
 }
 
@@ -360,7 +331,7 @@ mod tests {
     #[test]
     fn an_import_links_a_checkout_of_the_fork_or_the_repository() {
         let repo = RepoRef::parse("acme/widget", &[]).expect("a repo");
-        let name = crate::projects::model::RepoName::parse("octo/widget").expect("a name");
+        let name = crate::model::RepoName::parse("octo/widget").expect("a name");
         let fork = repo.sibling(&name).expect("a fork");
         let found = parse_remotes(
             "@@dir /srv/other\n\

@@ -3,7 +3,7 @@
 use super::{Reply, branch_work::add_import_worktrees};
 use crate::{
     api::router::Cx,
-    projects::imports::{self, Import},
+    projects::imports,
     protocol::{
         ApiError, CopyProject, CreateProject, CreatedProject, FindImportFork, HostRepos,
         ImportFork, ImportPreview, ImportProject, ImportedProject, ListHostRepos,
@@ -12,6 +12,7 @@ use crate::{
     },
 };
 use beep_projects::imports::ImportError;
+use beep_projects::imports::flow::Import;
 
 fn refusal(e: ImportError) -> ApiError {
     match e {

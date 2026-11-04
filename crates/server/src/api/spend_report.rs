@@ -10,8 +10,9 @@ use crate::{
         AgentSlug, AgentTokens, GetSpendReport, HarnessBill, ModelId, ModelSpend, ProjectBill,
         SpendPeriod, SpendReport, node::usage::Billing,
     },
-    store::{DayModelRow, DaySpendRow, ImportRow},
+    store::{DayModelRow, DaySpendRow},
 };
+use beep_projects::imports::records::ImportRow;
 use chrono::NaiveDate;
 use iroh::EndpointId;
 use std::{

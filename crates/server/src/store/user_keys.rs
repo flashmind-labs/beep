@@ -384,7 +384,7 @@ mod tests {
         store
             .set_project_sync(
                 &owner,
-                &crate::store::SyncRow {
+                &beep_projects::imports::records::SyncRow {
                     project: "game".into(),
                     endpoint: desktop.to_string(),
                     folder: "/srv/game".into(),

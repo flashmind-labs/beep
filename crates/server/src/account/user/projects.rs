@@ -1,12 +1,15 @@
 //! The user's projects as Settings shows them: syncs, imports, pins and project groups.
 
 use super::User;
-use crate::{
-    protocol::ProjectGroup,
-    store::{SaveGroup, SyncRow},
-};
+use crate::{protocol::ProjectGroup, store::SaveGroup};
 use anyhow::Result;
 use beep_projects::credentials::Opened;
+use beep_projects::imports::records::SyncRow;
+use beep_projects::imports::{
+    records::{ImportRow, NewImport},
+    store::ImportStore,
+};
+use beep_projects::model::RepoName;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -29,10 +32,7 @@ impl User {
     }
 
     /// Records a project imported onto a machine.
-    pub async fn save_import(
-        &self,
-        import: crate::store::NewImport<'_>,
-    ) -> Result<crate::store::ImportRow> {
+    pub async fn save_import(&self, import: NewImport<'_>) -> Result<ImportRow> {
         self.store.save_import(&self.key, import).await
     }
 
@@ -49,7 +49,7 @@ impl User {
     }
 
     /// The projects the user imported, by project, then machine.
-    pub async fn imports(&self) -> Result<Vec<crate::store::ImportRow>> {
+    pub async fn imports(&self) -> Result<Vec<ImportRow>> {
         self.store.imports(&self.key).await
     }
 
@@ -102,7 +102,7 @@ impl User {
     }
 
     /// Records a found checkout as the project's folder there unless it has one.
-    pub(crate) async fn link_import(&self, import: crate::store::NewImport<'_>) -> Result<bool> {
+    pub(crate) async fn link_import(&self, import: NewImport<'_>) -> Result<bool> {
         self.store.link_import(&self.key, import).await
     }
 
@@ -323,5 +323,31 @@ impl User {
         key: &crate::account::credentials::CredentialKey,
     ) -> Result<Vec<crate::store::ApiKey>> {
         self.store.api_keys(&self.key, key).await
+    }
+}
+
+#[async_trait::async_trait]
+impl ImportStore for User {
+    async fn imports(&self) -> Result<Vec<ImportRow>> {
+        self.store.imports(&self.key).await
+    }
+
+    async fn save_import(&self, import: NewImport<'_>) -> Result<ImportRow> {
+        self.store.save_import(&self.key, import).await
+    }
+
+    async fn link_import(&self, import: NewImport<'_>) -> Result<bool> {
+        self.store.link_import(&self.key, import).await
+    }
+
+    async fn set_import_fork(
+        &self,
+        project: &str,
+        endpoint: &str,
+        fork: Option<&RepoName>,
+    ) -> Result<()> {
+        self.store
+            .set_import_fork(&self.key, project, endpoint, fork)
+            .await
     }
 }

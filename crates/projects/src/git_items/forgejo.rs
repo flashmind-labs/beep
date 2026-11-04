@@ -67,7 +67,9 @@ struct Repository {
     full_name: String,
 }
 
-/// The user's open items on the server at `url` with `caller`'s token.
+/// The user's open items on the Forgejo server at `base` with `caller`'s token. Whether the
+/// server may be called from here (it is not on a private network) is the caller's check; this
+/// does not make it.
 pub async fn items(caller: &Caller<'_>, base: &str) -> Result<Vec<Found>, HostError> {
     let search = format!("{base}/api/v1/repos/issues/search");
     let asked = join_all(Query::ALL.map(|query| {

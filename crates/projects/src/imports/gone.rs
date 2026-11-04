@@ -2,8 +2,8 @@
 //! answers in time that its path is empty while the parent exists and holds other things;
 //! an unmounted disk (empty, missing, or right under `/Volumes`, `/mnt` or `/media`) never counts.
 
-use crate::store::{ImportRow, SyncRow};
-use beep_projects::quote;
+use super::records::{ImportRow, SyncRow};
+use crate::quote;
 use std::collections::BTreeSet;
 
 /// What the script prints before each line it means.
@@ -11,13 +11,13 @@ const MARK: &str = "BEEP_GONE:";
 
 /// One folder of a project on the machine being looked through.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Place {
-    pub(crate) project: String,
-    pub(crate) folder: String,
+pub struct Place {
+    pub project: String,
+    pub folder: String,
 }
 
 /// The project folders on `endpoint`, imported or synced, each once; non-absolute paths are skipped.
-pub(crate) fn places(imports: &[ImportRow], syncs: &[SyncRow], endpoint: &str) -> Vec<Place> {
+pub fn places(imports: &[ImportRow], syncs: &[SyncRow], endpoint: &str) -> Vec<Place> {
     let imported = imports
         .iter()
         .filter(|row| row.endpoint == endpoint)
@@ -39,7 +39,7 @@ pub(crate) fn places(imports: &[ImportRow], syncs: &[SyncRow], endpoint: &str) -
 }
 
 /// The script printing `there`, `missing` or `unsure` for each of `places` by number.
-pub(crate) fn script(places: &[Place]) -> String {
+pub fn script(places: &[Place]) -> String {
     let mut out = format!(
         "look() {{\n\
          \x20 if [ -e \"$1\" ] || [ -L \"$1\" ]; then printf '{MARK} there %s\\n' \"$2\"; return; fi\n\
@@ -60,7 +60,7 @@ pub(crate) fn script(places: &[Place]) -> String {
 }
 
 /// The numbers of the places found missing; nothing counts unless the script finished in time.
-pub(crate) fn missing(output: &str, finished: bool, count: usize) -> Vec<usize> {
+pub fn missing(output: &str, finished: bool, count: usize) -> Vec<usize> {
     if !finished {
         return Vec::new();
     }

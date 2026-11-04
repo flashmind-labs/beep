@@ -2,10 +2,7 @@
 //! the paths its folders on other machines suggest, then through the found-folders scan. Looks run
 //! in the background under [`Checkouts`], bounded per machine, server-wide and in queue.
 
-use super::{
-    preview::{parse_remotes, remotes_script},
-    remove,
-};
+use super::remove;
 use crate::{
     account::user::User,
     app::App,
@@ -15,10 +12,12 @@ use crate::{
         ProjectMachine,
         node::agent::{SESSIONS_PROTOCOL, SessionFolder},
     },
-    store::{ImportRow, NewImport, NodeRow},
+    store::NodeRow,
 };
 use anyhow::Context;
 use beep_projects::branches::run_script;
+use beep_projects::imports::preview::{parse_remotes, remotes_script};
+use beep_projects::imports::records::{ImportRow, NewImport};
 use beep_projects::imports::{folder::FolderPath, repo::same_repo};
 use beep_projects::{Shell, model::ForgejoUrl};
 use chrono::{DateTime, TimeDelta, Utc};
@@ -226,7 +225,7 @@ async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyho
 
 /// The Forgejo servers the user has a token for.
 pub(super) async fn forgejo_servers(app: &App, user: &User) -> anyhow::Result<Vec<ForgejoUrl>> {
-    Ok(super::service::forgejo_of(
+    Ok(beep_projects::imports::hosts::forgejo_of(
         &user.git_credentials(&app.credential_key).await?,
     ))
 }
