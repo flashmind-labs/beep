@@ -129,6 +129,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             task.save(false).await;
             if !*paused.borrow() {
                 while woken.try_recv().is_ok() {}
+                shared.listen_again();
                 task.scan().await;
                 last_scan = Instant::now();
                 task.apply().await;
@@ -195,7 +196,9 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                     break;
                 }
                 pulls = JoinSet::new();
+                shared.listen_again();
                 start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+                apply = true;
             }
             Some(ended) = pulls.join_next() => if let Err(e) = ended {
                 log::warn!("a pull of {} failed: {e}", shared.name);
@@ -342,7 +345,7 @@ impl Task {
             SyncState::Paused
         } else if self.scan_failed {
             SyncState::Failed
-        } else if self.pending > 0 {
+        } else if self.pending > 0 || !self.shared.heard_all() {
             SyncState::Syncing
         } else {
             SyncState::Idle

@@ -347,6 +347,11 @@ impl Map {
 
     /// The entries changed after `seq`, oldest change first, at most
     /// `limit`, and the sequence number of the last one given.
+    /// The sequence number of the last change still in the list.
+    pub(super) fn last_change(&self) -> u64 {
+        self.by_seq.last_key_value().map_or(0, |(&at, _)| at)
+    }
+
     pub(super) fn since(&self, seq: u64, limit: usize) -> Changes {
         let mut changes = Changes {
             entries: Vec::new(),
