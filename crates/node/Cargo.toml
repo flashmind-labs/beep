@@ -63,7 +63,7 @@ sha2 = "0.11"
 tar = { version = "0.4", default-features = false, optional = true }
 thiserror = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = { version = "0.7", features = ["codec", "rt"] }
 toml = "1"
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
 toml_edit = "0.25"
