@@ -1,29 +1,39 @@
-//! `terminal/1`: interactive terminals. Each runs in a pseudo-terminal the
-//! node owns, not the stream that started it, so it outlives the stream and
-//! can be attached to again. The node keeps at most `MAX_TERMINALS` and the
-//! last `MAX_SCROLLBACK` bytes of each.
+//! `terminal/1`: interactive terminals. Each runs in a pseudo-terminal
+//! that outlives the stream that started it, so it can be attached to
+//! again. At most `MAX_TERMINALS` run, each keeping the last
+//! `MAX_SCROLLBACK` lines of its output.
+//!
+//! On Unix the pseudo-terminals belong to a process of their own, the
+//! terminal host (`host`), so they outlive the node too: the node relays
+//! each stream to it. Elsewhere, and in a node an app embeds, the node
+//! keeps them itself.
 //!
 //! A terminal has three threads, each ending with it: one reads the
 //! pseudo-terminal into the scrollback, one writes typed keys to it, and
 //! one waits for the child to exit. The pseudo-terminal's calls block, so
 //! they stay off the async workers.
 
+#[cfg(all(unix, feature = "cli"))]
+pub(crate) mod host;
+
 use crate::provision::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    LinkRx, LinkTx,
+    EnvSecret, LinkRx, LinkTx,
     process::{Task, TaskId, TaskState},
     terminal::{MAX_INPUT, MAX_OUTPUT, MAX_SCROLLBACK, MAX_TERMINALS, Reply, Request, Size},
 };
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
+#[cfg(not(all(unix, feature = "cli")))]
+use std::sync::LazyLock;
 use std::{
     collections::VecDeque,
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
-        Arc, LazyLock, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
         mpsc as std_mpsc,
     },
@@ -31,7 +41,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Notify, mpsc, watch},
     time::timeout,
 };
 
@@ -47,12 +57,19 @@ const INPUT_QUEUE: usize = 64;
 const DRAIN_WAIT: Duration = Duration::from_millis(500);
 /// Bytes read from the pseudo-terminal at a time.
 const READ_SIZE: usize = 8 * 1024;
+/// The longest line the scrollback keeps whole, in bytes; a longer one is
+/// kept as several.
+const MAX_LINE: usize = 1024;
 
-/// The node's terminals: one set per process, like the background tasks.
+/// The node's terminals, when it keeps them itself: one set per process,
+/// like the background tasks.
+#[cfg(not(all(unix, feature = "cli")))]
 static TERMINALS: LazyLock<Terminals> = LazyLock::new(Terminals::default);
 
-/// Kills every terminal still running, at once, for a host about to exit.
+/// Kills every terminal the node keeps itself, at once, for a host about
+/// to exit. Those of a terminal host outlive the node.
 pub fn kill_all() {
+    #[cfg(not(all(unix, feature = "cli")))]
     TERMINALS.kill_all();
 }
 
@@ -67,16 +84,33 @@ pub(crate) struct OpenTerminal {
     command: String,
 }
 
-/// The terminals running now.
+/// The terminals the node keeps itself and that run now; none when a
+/// terminal host keeps them, which notes its own.
 pub(crate) fn running() -> Vec<OpenTerminal> {
+    #[cfg(all(unix, feature = "cli"))]
+    return Vec::new();
+    #[cfg(not(all(unix, feature = "cli")))]
     TERMINALS.running()
 }
 
-/// Opens `terminals` again, each a new shell in its folder that says so.
-pub(crate) fn reopen(terminals: Vec<OpenTerminal>) {
-    for open in terminals {
-        if let Err(e) = TERMINALS.reopen(&open) {
-            log::warn!("could not reopen terminal {}: {e:#}", open.id);
+/// Opens again what was open when the node in `dir` stopped. The terminal
+/// host still runs its terminals; one that died, as with the machine,
+/// opens those it noted again. Otherwise `terminals` open again, each a new
+/// shell in its folder that says so.
+pub(crate) async fn reopen(dir: &Path, terminals: Vec<OpenTerminal>) {
+    #[cfg(all(unix, feature = "cli"))]
+    {
+        // The host notes them; the node has none.
+        drop(terminals);
+        host::reopen(dir).await;
+    }
+    #[cfg(not(all(unix, feature = "cli")))]
+    {
+        let _ = dir;
+        for open in terminals {
+            if let Err(e) = TERMINALS.reopen(&open) {
+                log::warn!("could not reopen terminal {}: {e:#}", open.id);
+            }
         }
     }
 }
@@ -84,19 +118,45 @@ pub(crate) fn reopen(terminals: Vec<OpenTerminal>) {
 /// Serves one session stream until the server closes it. An `Attach`
 /// keeps the stream to itself until the terminal ends.
 pub async fn serve(tx: LinkTx, rx: LinkRx) -> Result<()> {
-    serve_with(&TERMINALS, tx, rx).await
+    let mut link = Link { tx, rx };
+    #[cfg(all(unix, feature = "cli"))]
+    return host::relay(&mut link).await;
+    #[cfg(not(all(unix, feature = "cli")))]
+    serve_with(&TERMINALS, &mut link).await
 }
 
-async fn serve_with(terminals: &Terminals, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
-    while let Some(request) = rx.recv::<Request>().await? {
+/// The far side of a `terminal/1` stream: the server, over the link, or
+/// the node, over the terminal host's socket.
+trait Peer {
+    async fn send(&mut self, reply: &Reply) -> Result<()>;
+    async fn recv(&mut self) -> Result<Option<Request>>;
+}
+
+struct Link {
+    tx: LinkTx,
+    rx: LinkRx,
+}
+
+impl Peer for Link {
+    async fn send(&mut self, reply: &Reply) -> Result<()> {
+        self.tx.send(reply).await
+    }
+
+    async fn recv(&mut self) -> Result<Option<Request>> {
+        self.rx.recv().await
+    }
+}
+
+async fn serve_with(terminals: &Terminals, peer: &mut impl Peer) -> Result<()> {
+    while let Some(request) = peer.recv().await? {
         if let Request::Attach { id, from } = request {
             return match terminals.live(id) {
-                Some(live) => attach(live, from, tx, rx).await,
-                None => tx.send(&unknown(id)).await,
+                Some(live) => attach(live, from, peer).await,
+                None => peer.send(&unknown(id)).await,
             };
         }
         let reply = terminals.answer(request).await;
-        tx.send(&reply).await?;
+        peer.send(&reply).await?;
     }
     Ok(())
 }
@@ -104,6 +164,11 @@ async fn serve_with(terminals: &Terminals, mut tx: LinkTx, mut rx: LinkRx) -> Re
 #[derive(Default)]
 struct Terminals {
     inner: Mutex<Inner>,
+    /// Woken when a terminal starts or ends.
+    changed: Arc<Notify>,
+    /// What terminals get on top of this process's environment, when not
+    /// the node's own: a terminal host gets the node's.
+    env: Mutex<Option<Vec<EnvSecret>>>,
 }
 
 struct Inner {
@@ -152,27 +217,63 @@ struct Live {
     master: Mutex<Box<dyn MasterPty + Send>>,
     /// Set by a stop, so the exit reads as stopped.
     stopping: AtomicBool,
+    /// Its set's `changed`.
+    started_or_ended: Arc<Notify>,
 }
 
 /// The kept output and how the terminal stands.
 struct Screen {
-    bytes: VecDeque<u8>,
-    /// The offset of `bytes[0]` in all the output so far.
+    /// The last lines, each ending with its newline but the last, which
+    /// may still grow.
+    lines: VecDeque<Vec<u8>>,
+    /// The offset of the first kept byte in all the output so far.
     start: u64,
+    /// The bytes in `lines`.
+    len: usize,
     state: TaskState,
 }
 
 impl Screen {
-    fn end(&self) -> u64 {
-        self.start + self.bytes.len() as u64
+    fn new() -> Self {
+        Self {
+            lines: VecDeque::new(),
+            start: 0,
+            len: 0,
+            state: TaskState::Running,
+        }
     }
 
-    fn push(&mut self, data: &[u8]) {
-        self.bytes.extend(data);
-        let over = self.bytes.len().saturating_sub(MAX_SCROLLBACK);
-        if over > 0 {
-            self.bytes.drain(..over);
-            self.start += over as u64;
+    fn end(&self) -> u64 {
+        self.start + self.len as u64
+    }
+
+    fn push(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            let open = self
+                .lines
+                .back()
+                .is_some_and(|line| line.len() < MAX_LINE && line.last() != Some(&b'\n'));
+            if !open {
+                self.lines.push_back(Vec::new());
+            }
+            let Some(line) = self.lines.back_mut() else {
+                return;
+            };
+            let room = MAX_LINE - line.len();
+            let take = data
+                .iter()
+                .take(room)
+                .position(|&byte| byte == b'\n')
+                .map_or(room.min(data.len()), |newline| newline + 1);
+            line.extend_from_slice(&data[..take]);
+            self.len += take;
+            data = &data[take..];
+        }
+        while self.lines.len() > MAX_SCROLLBACK {
+            if let Some(line) = self.lines.pop_front() {
+                self.start += line.len() as u64;
+                self.len -= line.len();
+            }
         }
     }
 
@@ -180,9 +281,21 @@ impl Screen {
     /// `from` is no longer kept, with where they start.
     fn read_from(&self, from: u64) -> Option<(u64, Vec<u8>)> {
         let at = from.clamp(self.start, self.end());
-        let skip = usize::try_from(at - self.start).ok()?;
-        let take = (self.bytes.len() - skip).min(MAX_OUTPUT);
-        (take > 0).then(|| (at, self.bytes.range(skip..skip + take).copied().collect()))
+        let mut skip = usize::try_from(at - self.start).ok()?;
+        let mut data = Vec::new();
+        for line in &self.lines {
+            if skip >= line.len() {
+                skip -= line.len();
+                continue;
+            }
+            let take = (line.len() - skip).min(MAX_OUTPUT - data.len());
+            data.extend_from_slice(&line[skip..skip + take]);
+            skip = 0;
+            if data.len() == MAX_OUTPUT {
+                break;
+            }
+        }
+        (!data.is_empty()).then_some((at, data))
     }
 }
 
@@ -201,6 +314,12 @@ impl Live {
 
     fn is_running(&self) -> bool {
         lock(&self.screen).state.is_running()
+    }
+
+    /// Says it started or ended, to the node's note and its set.
+    fn started_or_ended(&self) {
+        crate::restart::changed();
+        self.started_or_ended.notify_one();
     }
 
     /// Sizes the terminal to `size`, unless it already is: a resize makes
@@ -293,7 +412,7 @@ impl Terminals {
         }
         inner.last = inner.last.wrapping_add(1);
         let id = TaskId(inner.last);
-        match open(id, command.as_deref(), cwd, size, None) {
+        match self.open(id, command.as_deref(), cwd, size, None) {
             Ok(term) => {
                 let task = term.live.task();
                 inner.terms.push(term);
@@ -363,13 +482,15 @@ impl Terminals {
         let cwd = was.cwd.as_ref().filter(|cwd| cwd.is_dir());
         let banner = reopened_banner(was, cwd);
         let cwd = cwd.map(|cwd| cwd.to_string_lossy().into_owned());
-        let term = open(id, None, cwd, Size::DEFAULT, Some(&banner))?;
+        let term = self.open(id, None, cwd, Size::DEFAULT, Some(&banner))?;
         // Ids handed out later stay clear of it.
         inner.last = inner.last.max(was.id);
         inner.terms.push(term);
         Ok(())
     }
 
+    // A terminal host lets its terminals outlive it.
+    #[cfg_attr(all(unix, feature = "cli", not(test)), expect(dead_code))]
     fn kill_all(&self) {
         for term in &mut lock(&self.inner).terms {
             if term.live.is_running() {
@@ -468,90 +589,101 @@ fn current_dir(pid: u32) -> Option<PathBuf> {
     }
 }
 
-/// Opens a pseudo-terminal of `size` and starts the shell in it, its
-/// output starting with `banner` when given.
-fn open(
-    id: TaskId,
-    command: Option<&str>,
-    cwd: Option<String>,
-    size: Size,
-    banner: Option<&str>,
-) -> Result<Term> {
-    let command = command.map(str::trim).filter(|command| !command.is_empty());
-    let (program, mut builder) = shell_command(command);
-    let cwd = cwd.map(PathBuf::from).or_else(dirs::home_dir);
-    if let Some(cwd) = &cwd {
-        builder.cwd(cwd);
-    }
-    builder.env("TERM", "xterm-256color");
-    builder.env("COLORTERM", "truecolor");
-    for (name, value) in spawn_env::vars(Scope::Shell) {
-        builder.env(name, value);
-    }
-    let pair = native_pty_system()
-        .openpty(pty_size(size))
-        .context("opening a pseudo-terminal")?;
-    let child = pair
-        .slave
-        .spawn_command(builder)
-        .with_context(|| format!("starting {program}"))?;
-    // Only the child holds the terminal's other end now, so reading ends
-    // once it and what it started are gone.
-    drop(pair.slave);
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .context("reading the terminal")?;
-    let writer = pair
-        .master
-        .take_writer()
-        .context("writing to the terminal")?;
-    let killer = child.clone_killer();
-    let pid = child.process_id();
-    #[cfg(unix)]
-    let group = pid.and_then(crate::process::Group::led_by);
-    let name = match command {
-        Some(command) => command.to_owned(),
-        None => program
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(&program)
-            .to_owned(),
-    };
-    let (input_tx, input_rx) = mpsc::channel(INPUT_QUEUE);
-    let live = Arc::new(Live {
-        id,
-        command: name,
-        screen: Mutex::new(Screen {
-            bytes: banner.map(|b| b.bytes().collect()).unwrap_or_default(),
-            start: 0,
-            state: TaskState::Running,
-        }),
-        changed: watch::channel(0).0,
-        input: input_tx,
-        master: Mutex::new(pair.master),
-        stopping: AtomicBool::new(false),
-    });
-    let (drained_tx, drained_rx) = std_mpsc::sync_channel(1);
-    spawn_thread("terminal-read", {
-        let live = live.clone();
-        move || read_output(&live, reader, &drained_tx)
-    })?;
-    spawn_thread("terminal-write", move || write_input(input_rx, writer))?;
-    spawn_thread("terminal-wait", {
-        let live = live.clone();
-        move || wait_exit(&live, child, &drained_rx)
-    })?;
-    // Seen once the caller, which holds the terminals, kept it.
-    crate::restart::changed();
-    Ok(Term {
-        live,
-        killer,
+impl Terminals {
+    /// Opens a pseudo-terminal of `size` and starts the shell in it, its
+    /// output starting with `banner` when given.
+    fn open(
+        &self,
+        id: TaskId,
+        command: Option<&str>,
+        cwd: Option<String>,
+        size: Size,
+        banner: Option<&str>,
+    ) -> Result<Term> {
+        let command = command.map(str::trim).filter(|command| !command.is_empty());
+        let (program, mut builder) = shell_command(command);
+        let cwd = cwd.map(PathBuf::from).or_else(dirs::home_dir);
+        if let Some(cwd) = &cwd {
+            builder.cwd(cwd);
+        }
+        builder.env("TERM", "xterm-256color");
+        builder.env("COLORTERM", "truecolor");
+        match &*lock(&self.env) {
+            Some(env) => {
+                for var in env {
+                    builder.env(&var.name, var.value.expose());
+                }
+            }
+            None => {
+                for (name, value) in spawn_env::vars(Scope::Shell) {
+                    builder.env(name, value);
+                }
+            }
+        }
+        let pair = native_pty_system()
+            .openpty(pty_size(size))
+            .context("opening a pseudo-terminal")?;
+        let child = pair
+            .slave
+            .spawn_command(builder)
+            .with_context(|| format!("starting {program}"))?;
+        // Only the child holds the terminal's other end now, so reading ends
+        // once it and what it started are gone.
+        drop(pair.slave);
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .context("reading the terminal")?;
+        let writer = pair
+            .master
+            .take_writer()
+            .context("writing to the terminal")?;
+        let killer = child.clone_killer();
+        let pid = child.process_id();
         #[cfg(unix)]
-        group,
-        pid,
-        cwd,
-    })
+        let group = pid.and_then(crate::process::Group::led_by);
+        let name = match command {
+            Some(command) => command.to_owned(),
+            None => program
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&program)
+                .to_owned(),
+        };
+        let (input_tx, input_rx) = mpsc::channel(INPUT_QUEUE);
+        let mut screen = Screen::new();
+        screen.push(banner.unwrap_or_default().as_bytes());
+        let live = Arc::new(Live {
+            id,
+            command: name,
+            screen: Mutex::new(screen),
+            changed: watch::channel(0).0,
+            input: input_tx,
+            master: Mutex::new(pair.master),
+            stopping: AtomicBool::new(false),
+            started_or_ended: self.changed.clone(),
+        });
+        let (drained_tx, drained_rx) = std_mpsc::sync_channel(1);
+        spawn_thread("terminal-read", {
+            let live = live.clone();
+            move || read_output(&live, reader, &drained_tx)
+        })?;
+        spawn_thread("terminal-write", move || write_input(input_rx, writer))?;
+        spawn_thread("terminal-wait", {
+            let live = live.clone();
+            move || wait_exit(&live, child, &drained_rx)
+        })?;
+        // Seen once the caller, which holds the terminals, kept it.
+        live.started_or_ended();
+        Ok(Term {
+            live,
+            killer,
+            #[cfg(unix)]
+            group,
+            pid,
+            cwd,
+        })
+    }
 }
 
 fn spawn_thread(name: &str, run: impl FnOnce() + Send + 'static) -> Result<()> {
@@ -623,12 +755,12 @@ fn wait_exit(
     };
     lock(&live.screen).state = state;
     live.changed.send_modify(|n| *n += 1);
-    crate::restart::changed();
+    live.started_or_ended();
 }
 
-/// Streams terminal `live` from byte `from` and types what the server
-/// sends into it, until it ends or the server closes the stream.
-async fn attach(live: Arc<Live>, from: u64, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+/// Streams terminal `live` from byte `from` and types what the peer sends
+/// into it, until it ends or the peer closes the stream.
+async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> {
     let mut changed = live.changed.subscribe();
     let mut next = from;
     loop {
@@ -641,7 +773,7 @@ async fn attach(live: Arc<Live>, from: u64, mut tx: LinkTx, mut rx: LinkRx) -> R
         };
         if let Some((at, data)) = chunk {
             next = at + data.len() as u64;
-            tx.send(&Reply::Output {
+            peer.send(&Reply::Output {
                 at,
                 data: ByteBuf::from(data),
             })
@@ -649,13 +781,13 @@ async fn attach(live: Arc<Live>, from: u64, mut tx: LinkTx, mut rx: LinkRx) -> R
             continue;
         }
         if !state.is_running() {
-            return tx.send(&Reply::Ended { task: live.task() }).await;
+            return peer.send(&Reply::Ended { task: live.task() }).await;
         }
         tokio::select! {
             woke = changed.changed() => if woke.is_err() {
                 return Ok(());
             },
-            request = rx.recv::<Request>() => match request {
+            request = peer.recv() => match request {
                 Ok(Some(Request::Input { data })) if data.len() <= MAX_INPUT => {
                     live.type_keys(data.into_vec());
                 }
@@ -666,7 +798,7 @@ async fn attach(live: Arc<Live>, from: u64, mut tx: LinkTx, mut rx: LinkRx) -> R
                     live.resize(size);
                 }
                 Ok(Some(other)) => log::debug!("ignored {other:?} on an attached terminal"),
-                // The server detached.
+                // The peer detached.
                 Ok(None) | Err(_) => return Ok(()),
             },
         }
@@ -692,7 +824,7 @@ mod tests {
         timeout(Duration::from_secs(20), async {
             loop {
                 changed.borrow_and_update();
-                let bytes: Vec<u8> = lock(&live.screen).bytes.iter().copied().collect();
+                let bytes: Vec<u8> = lock(&live.screen).lines.iter().flatten().copied().collect();
                 let text = String::from_utf8_lossy(&bytes).into_owned();
                 if text.contains(needle) {
                     return text;
@@ -702,27 +834,6 @@ mod tests {
         })
         .await
         .unwrap_or_else(|_| panic!("no {needle:?} in the terminal"))
-    }
-
-    #[test]
-    fn the_screen_keeps_its_last_bytes_and_their_offsets() {
-        let mut screen = Screen {
-            bytes: VecDeque::new(),
-            start: 0,
-            state: TaskState::Running,
-        };
-        screen.push(&vec![b'a'; MAX_SCROLLBACK]);
-        screen.push(b"tail");
-        assert_eq!(screen.start, 4);
-        assert_eq!(screen.end(), MAX_SCROLLBACK as u64 + 4);
-        // From before what is kept: the oldest kept byte.
-        let (at, data) = screen.read_from(0).expect("bytes are kept");
-        assert_eq!(at, 4);
-        assert_eq!(data.len(), MAX_OUTPUT);
-        let (at, data) = screen.read_from(screen.end() - 4).expect("the tail");
-        assert_eq!((at, data.as_slice()), (MAX_SCROLLBACK as u64, &b"tail"[..]));
-        assert!(screen.read_from(screen.end()).is_none());
-        assert!(screen.read_from(screen.end() + 10).is_none());
     }
 
     // A pseudo-terminal round trip: keys typed reach the shell, and what it
