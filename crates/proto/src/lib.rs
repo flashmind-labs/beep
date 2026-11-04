@@ -1320,6 +1320,11 @@ requests! {
     406 GetLabeledProjectLists { project_id: Uuid, refresh: bool } => Call<LabeledProjectLists>
     /// `ListGitItems` with the labels of each item.
     407 ListLabeledGitItems {} => Call<LabeledGitItems>
+    /// What a session Beep runs has used: how full its context is, and the
+    /// tokens and cost of its finished turns. Empty from a node too old to
+    /// say. `NotFound` as for `GetAgentSession`, and for a session started
+    /// outside Beep.
+    408 GetAgentSessionUsage { machine_id: String, agent: String, session: String } => Call<AgentSessionUsage>
 }
 
 /// How long the model reasons before it answers. `Off` sends no reasoning
