@@ -48,6 +48,10 @@ enum Command {
         /// name given in Beep, else the host name.
         #[arg(long)]
         name: Option<String>,
+        /// The folder to look for git checkouts in, such as ~/Projects.
+        /// Defaults to home.
+        #[arg(long)]
+        search: Option<String>,
         /// Stops after linking instead of serving.
         #[arg(long, conflicts_with = "foreground")]
         no_run: bool,
@@ -235,10 +239,12 @@ async fn main() -> Result<()> {
         Command::Setup {
             token,
             name,
+            search,
             no_run,
             foreground,
         } => {
-            let (state, claimed) = setup::setup(&dir, &token, name.as_deref()).await?;
+            let search = search.as_deref().map(state::Search::parse);
+            let (state, claimed) = setup::setup(&dir, &token, name.as_deref(), search).await?;
             if no_run {
                 println!(
                     "Linked to {}. Start it with `beep-node service install`, or \

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next } from "../src/addmachine-state.ts";
+import { START, next, withSearch } from "../src/addmachine-state.ts";
 
 const created = { type: "created", token: "bk1-x", command: "beep-node setup bk1-x", expiresAt: 600_000 } as const;
 
@@ -22,4 +22,10 @@ test("a found machine links only while waiting", () => {
   assert.equal(next(s, { type: "tick", now: 10_000_000 }), s);
   assert.equal(next(s, created), s);
   assert.equal(next({ step: "expired" }, { type: "found", machine }).step, "expired");
+});
+
+test("the setup command names the search folder only when it is not home", () => {
+  for (const home of ["~/", " ~ ", ""]) assert.equal(withSearch("beep-node setup bk1-x", home), "beep-node setup bk1-x");
+  assert.equal(withSearch("beep-node setup bk1-x", "~/Projects"), "beep-node setup bk1-x --search ~/Projects");
+  assert.equal(withSearch("beep-node setup bk1-x", "~/My Code"), "beep-node setup bk1-x --search '~/My Code'");
 });

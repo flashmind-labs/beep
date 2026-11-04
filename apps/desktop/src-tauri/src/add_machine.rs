@@ -8,8 +8,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    AddMachineOverSsh, ApiError, CreateNodeToken, GetNodeToken, ListSshHosts, RevokeNodeToken,
-    SshAdd, setup::setup_command,
+    AddMachineOverSsh, ApiError, CreateNodeToken, GetMachineSearch, GetNodeToken, ListSshHosts,
+    RevokeNodeToken, SetMachineSearch, SshAdd, setup::setup_command,
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
@@ -70,16 +70,39 @@ pub async fn ssh_hosts(beep: Service<'_>, machine_id: String) -> Result<Vec<Stri
         .map_err(outdated)
 }
 
-/// Has `machine_id` install beep-node on `target` over ssh and link it.
+/// Has `machine_id` install beep-node on `target` over ssh and link it,
+/// looking for projects in `search` (empty for home).
 #[tauri::command]
 pub async fn add_machine_over_ssh(
     beep: Service<'_>,
     machine_id: String,
     target: String,
+    search: String,
 ) -> Result<SshAdd> {
-    beep.call_within(AddMachineOverSsh { machine_id, target }, SSH_ADD_TIMEOUT)
+    let add = AddMachineOverSsh {
+        machine_id,
+        target,
+        search,
+    };
+    beep.call_within(add, SSH_ADD_TIMEOUT)
         .await
         .map_err(outdated)
+}
+
+/// Where `machine_id` looks for git checkouts, `~/` for home.
+#[tauri::command]
+pub async fn machine_search(beep: Service<'_>, machine_id: String) -> Result<String> {
+    beep.call(GetMachineSearch { machine_id }).await
+}
+
+/// Has `machine_id` look for git checkouts in `search` and walk it again.
+#[tauri::command]
+pub async fn set_machine_search(
+    beep: Service<'_>,
+    machine_id: String,
+    search: String,
+) -> Result<String> {
+    beep.call(SetMachineSearch { machine_id, search }).await
 }
 
 /// An old server's refusal, in words the sheet shows.
