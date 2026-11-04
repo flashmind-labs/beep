@@ -67,7 +67,8 @@ pub(crate) async fn read_part(
     read: ReadWorkFile,
 ) -> Result<AgentFileChunk> {
     let full = work_copy::joined(&read.root, &read.path);
-    if let Some(part) = work_copy::read(beep, &read.machine_id, &full, read.offset, read.len).await
+    if let Some(part) =
+        work_copy::read(beep, fleet, &read.machine_id, &full, read.offset, read.len).await
     {
         return Ok(part);
     }
@@ -108,7 +109,7 @@ pub async fn agent_tree(
         ignored,
         depth: if deep { MAX_TREE_DEPTH } else { TREE_DEPTH },
     };
-    let tree = match work_copy::tree(&beep, &ask).await {
+    let tree = match work_copy::tree(&beep, &fleet, &ask).await {
         Some(tree) => tree,
         None => match fleet.member(&ask.machine_id) {
             Some(machine) => direct::tree(&fleet, machine, &ask).await?,

@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 beep-proto = { path = "../proto" }
 crc32fast = "1"
 fastrand = "2"

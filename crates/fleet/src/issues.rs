@@ -214,6 +214,19 @@ fn fresh(key: &[String]) -> Option<LabeledGitItems> {
     (kept.key == key && kept.at.elapsed() < ttl).then(|| kept.items.clone())
 }
 
+/// The names of the projects the mesh records.
+pub fn project_names(mesh: &beep_mesh::Mesh) -> Vec<String> {
+    crate::records::projects(mesh)
+        .into_iter()
+        .map(|stored| stored.name)
+        .collect()
+}
+
+/// Whether the mesh records `project`, which then has no server to ask about its places.
+pub fn has_project(mesh: &beep_mesh::Mesh, project: &str) -> bool {
+    crate::records::find_project(mesh, project).is_some()
+}
+
 /// Where `project` is checked out, by machine and folder, as the mesh records it.
 pub fn places(mesh: &beep_mesh::Mesh, project: &str) -> Vec<(iroh::EndpointId, String)> {
     crate::records::find_project(mesh, project)
