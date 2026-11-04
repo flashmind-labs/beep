@@ -1,19 +1,24 @@
-//! This Mac's own account, and the devices on the account: starting one
-//! here, joining another by its code, and showing a code a phone joins with.
+//! The devices: the desktops of the mesh, which any of them adds and removes,
+//! and the phones the server links. Starting an account here, joining
+//! another by its code and showing a code a phone joins with are the
+//! server's.
 
 use crate::{
     beep::state::LinkState,
     beep::{Beep, Service, qr_svg},
     error::{DesktopError, Result},
+    fleet::Fleet,
 };
+use beep_mesh::DeviceKind;
 use beep_proto::{
     DeviceInvite, InviteDevice, JoinAccount, JoinPreview, LinkedDevice, ListDevices, PeekInvite,
     RemoveDevice,
     link::{format_join_code, join_code},
 };
+use iroh::EndpointId;
 use serde::Serialize;
-use std::time::SystemTime;
-use tauri::AppHandle;
+use std::{sync::Arc, time::SystemTime};
+use tauri::{AppHandle, State};
 
 /// A join code for a phone to scan or type.
 #[derive(Serialize)]
@@ -50,7 +55,7 @@ pub struct DeviceView {
     name: String,
     /// `phone` or `desktop`.
     kind: &'static str,
-    /// The device that made the account, which links and removes others.
+    /// A desktop, which adds and removes other devices.
     primary: bool,
     this_device: bool,
 }
@@ -67,10 +72,38 @@ impl From<LinkedDevice> for DeviceView {
     }
 }
 
+/// The desktops of the mesh, then the phones the server links, when there
+/// is a server.
 #[tauri::command]
-pub async fn list_devices(beep: Service<'_>) -> Result<Vec<DeviceView>> {
-    let devices = beep.call(ListDevices {}).await?;
-    Ok(devices.into_iter().map(DeviceView::from).collect())
+pub async fn list_devices(
+    beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
+) -> Result<Vec<DeviceView>> {
+    let mut devices: Vec<DeviceView> = fleet
+        .machines()
+        .into_iter()
+        .map(|status| status.device)
+        .filter(|device| device.kind == DeviceKind::Desktop)
+        .map(|device| DeviceView {
+            this_device: device.id == fleet.id(),
+            id: device.id.to_string(),
+            name: device.name,
+            kind: "desktop",
+            primary: true,
+        })
+        .collect();
+    if beep.server().is_some() {
+        match beep.call(ListDevices {}).await {
+            Ok(linked) => devices.extend(
+                linked
+                    .into_iter()
+                    .filter(|device| device.kind.as_str() == "phone")
+                    .map(DeviceView::from),
+            ),
+            Err(e) => log::debug!("the server's devices are not listed: {e}"),
+        }
+    }
+    Ok(devices)
 }
 
 /// A code that moves the phone that scans it, with its chats, into this
@@ -94,8 +127,18 @@ pub async fn invite_phone(beep: Service<'_>) -> Result<PhoneInvite> {
     })
 }
 
+/// Removes a desktop from the mesh, or unlinks a phone from the server.
 #[tauri::command]
-pub async fn remove_device(beep: Service<'_>, id: String) -> Result<()> {
+pub async fn remove_device(
+    beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
+    id: String,
+) -> Result<()> {
+    if let Ok(device) = id.parse::<EndpointId>()
+        && fleet.machines().iter().any(|m| m.device.id == device)
+    {
+        return fleet.remove(device).await;
+    }
     beep.call(RemoveDevice { id }).await
 }
 

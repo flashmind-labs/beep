@@ -33,7 +33,7 @@ use beep_proto::{
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
         NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, harness::AgentSettings, link,
-        status, tool_update, tools,
+        status, tool_update, tools, version,
     },
 };
 use iroh::{
@@ -807,6 +807,13 @@ pub(crate) async fn serve_open(
         status::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             peers::status(tx, rx, offers).await
+        }
+        version::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            tx.send(&version::Version {
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+            })
+            .await
         }
         tools::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;

@@ -11,11 +11,13 @@ use crate::{
         section,
         view_cache::{View, ViewCache, cache_view},
     },
+    fleet::Fleet,
+    machines::list::{self as machine_list, Outside},
 };
 use beep_proto::{
     Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems, ListImportedProjects,
-    ListMachines, ListMemories, ListProjectBranches, ListProjects, ListSessions, Machine,
-    MachineSession, Memory, ProjectAgent, Session,
+    ListMemories, ListProjectBranches, ListProjects, ListSessions, Machine, MachineSession, Memory,
+    ProjectAgent, Session,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -243,16 +245,19 @@ async fn read_lists(app: &AppHandle, beep: &Arc<Beep>) {
 }
 
 async fn read_server_lists(app: &AppHandle, beep: &Beep) {
-    let (memories, routines, machines, projects, boards) = join!(
+    let (memories, routines, projects, boards) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
-        beep.call(ListMachines {}),
         beep.call(ListImportedProjects {}),
         beep.call(ListProjects {}),
     );
     let memories = section("memories", memories);
     let routines = section("routines", routines);
-    let machines = section("machines", machines);
+    let machines = Some(machine_list::machines(
+        app,
+        &app.state::<Arc<Fleet>>(),
+        &app.state::<Outside>(),
+    ));
     let projects = section("projects", projects);
     let boards = section("the projects board", boards);
     app.state::<PaletteCache>().update(app, |lists| {
