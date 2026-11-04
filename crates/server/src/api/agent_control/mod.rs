@@ -1,9 +1,11 @@
 //! Starting, reading and steering coding-agent sessions from the app.
 
 mod auto;
+mod pictures;
 mod steer;
 mod view;
 use auto::auto;
+pub(super) use pictures::{get_agent_image, get_agent_thumb};
 pub(super) use steer::steer_agent_session;
 pub(super) use view::{get_agent_session, get_agent_session_modes, get_agent_session_usage};
 
@@ -21,7 +23,7 @@ use crate::{
         node::agent::{self},
         *,
     },
-    store::{AgentImageBytes, AgentImageOf, SessionOn},
+    store::SessionOn,
     tools::machines::command_name,
 };
 
@@ -300,62 +302,6 @@ pub(super) async fn list_agent_images(_: Cx, _: ListAgentImages) -> Reply<Vec<Ag
     Ok(Vec::new())
 }
 
-/// The kept copy of the picture, or else the node's, which is then kept.
-pub(super) async fn get_agent_image(cx: Cx, get: GetAgentImage) -> Reply<AgentImageData> {
-    if !is_image_key(&get.key) {
-        return Err(ApiError::bad_request("That is not an image key."));
-    }
-    match cx.user.agent_image(&get.key).await {
-        Ok(Some(kept)) => {
-            return Ok(AgentImageData {
-                key: get.key,
-                mime: kept.mime,
-                data: kept.data,
-            });
-        }
-        Ok(None) => {}
-        // The node may still have it.
-        Err(e) => log::warn!("agent image not read; key={} error={e:#}", get.key),
-    }
-    let live = live_host(&cx, &get.machine_id).await?;
-    let image = live
-        .online
-        .agent_image(&get.session, &get.key)
-        .await
-        .map_err(|e| {
-            // A node from before images by key closes the stream.
-            ApiError::bad_request(format!(
-                "Could not read the image from {}: {e:#}. Updating beep-node there may help.",
-                live.host.machine_name
-            ))
-        })?
-        .ok_or(ApiError::NotFound {})?;
-    if image_key(&image.data) != get.key {
-        log::warn!(
-            "node gave another image; session={} key={}",
-            get.session,
-            get.key
-        );
-        return Err(ApiError::NotFound {});
-    }
-    let image = AgentImageBytes {
-        mime: image.mime,
-        data: image.data,
-    };
-    let of = AgentImageOf {
-        machine_id: &get.machine_id,
-        session: &get.session,
-    };
-    if let Err(e) = cx.user.save_agent_image(of, &image).await {
-        log::warn!("agent image not kept; key={} error={e:#}", get.key);
-    }
-    Ok(AgentImageData {
-        key: get.key,
-        mime: image.mime,
-        data: image.data,
-    })
-}
-
 /// Part of a media file on one of the caller's machines; nothing is kept.
 pub(super) async fn get_agent_file(cx: Cx, get: GetAgentFile) -> Reply<AgentFileChunk> {
     if media_mime(&get.path).is_none() {
@@ -518,11 +464,6 @@ fn checkout_for(
         )));
     }
     Ok(Some(plan))
-}
-
-/// Whether `key` is what `image_key` makes: 16 lowercase hex digits.
-fn is_image_key(key: &str) -> bool {
-    key.len() == 16 && key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 #[cfg(test)]
