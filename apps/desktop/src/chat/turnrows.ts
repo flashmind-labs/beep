@@ -41,7 +41,7 @@ export function toggleThought(btn: Element) {
 export function turnHeadHtml(t: { state: TurnState; start?: number; ms: number | null; stats: string; key: string | number | null; opened: boolean }) {
   const label = `<span${t.state !== "done" && t.start != null ? ` data-since="${t.start}" data-state="${t.state}"` : ""}>${esc(heading(t.state, t.ms))}</span>`
     + (t.stats ? `<span class="stats">· ${esc(t.stats)}</span>` : "");
-  return `<div class="dcoderturn">`
+  return `<div class="dcoderturn${t.state === "done" ? "" : " live"}">`
     + (t.key == null ? `<span class="hd">${label}</span>`
       : `<button class="hd${t.opened ? " open" : ""}" data-turn="${esc(t.key)}" aria-expanded="${t.opened}" title="${t.opened ? "Fold the steps" : "Show the steps"}">${label}${ICON.chev}</button>`)
     + (t.start != null ? `<span class="when">${clock(t.start)}</span>` : "") + "</div>";

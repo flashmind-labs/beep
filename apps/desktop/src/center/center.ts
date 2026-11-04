@@ -16,7 +16,7 @@ import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, jump } from "./home.ts";
-import { shown, windowProject, toMain, go, setWindowProject } from "./views.ts";
+import { shown, windowProject, toMain, go, goHistory, setWindowProject } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, addProject } from "./sidebar.ts";
 import { openResearch } from "../research/page.ts";
 import { openTile } from "../project/split.ts";
@@ -50,6 +50,10 @@ document.addEventListener("keydown", e => {
   }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
+  if ((key === "[" || key === "]") && !e.shiftKey) {
+    e.preventDefault();
+    return goHistory(key === "]");
+  }
   // ⌘W closes the focused pane's tab, else this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
   if (key === "w" && !e.shiftKey) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }

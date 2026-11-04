@@ -4,10 +4,11 @@ import type { PaneTarget } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject } from "../project/agent.ts";
-import { type ViewArg, type ViewHead, type CenterView, $, state, views } from "./state.ts";
+import { type ProjectsArg, type ViewArg, type ViewHead, type CenterView, $, state, views } from "./state.ts";
 import { drawSide, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
+import { PageHistory } from "./pagehistory.ts";
 
 export let shown: string | null = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
@@ -53,6 +54,28 @@ export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
 }
 
+const pages = new PageHistory<{ view: string; arg: ViewArg }>();
+/// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
+let moving = false;
+
+/// The page showing, as `go` opens it again.
+function here() {
+  return { view: shown!, arg: shown === "projects" ? { project: state.picked } : shownArg };
+}
+
+/// Goes one page back (⌘[) or forward (⌘]), if there is one.
+export function goHistory(forward: boolean) {
+  if (!shown) return;
+  const page = forward ? pages.forward(here()) : pages.back(here());
+  if (!page) return;
+  moving = true;
+  try {
+    go(page.view, page.arg);
+  } finally {
+    moving = false;
+  }
+}
+
 /// Shows view `name`, passing `arg` to its mount.
 export function go(name: string, arg?: ViewArg): boolean {
   if (route(windowScope(), name, arg) === "main") {
@@ -69,9 +92,10 @@ export function go(name: string, arg?: ViewArg): boolean {
   if (name === "pane" && opensAgent(arg) && !arg.from && shown && shown !== "pane") {
     arg = { ...arg, from: { view: shown, arg: shown === "projects" ? { project: state.picked } : shownArg } };
   }
-  shownArg = arg;
   const view = views.get(name);
   if (!view) return false;
+  if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null } : arg });
+  shownArg = arg;
   if (shown && shown !== name) views.get(shown)!.unmount?.();
   shown = name;
   for (const [n, v] of views) v.el.hidden = n !== name;
