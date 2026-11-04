@@ -17,8 +17,9 @@ const SETTINGS_FILE: &str = "node.toml";
 /// What `node.toml` holds.
 #[derive(Debug, Serialize, Deserialize)]
 struct Settings {
-    /// The server's endpoint id.
-    server: String,
+    /// The server's endpoint id; a node that only belongs to a mesh has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server: Option<String>,
     name: String,
     /// Agents to offer beyond the known ones, or in their place, such as
     /// `[[agents]] name = "claude" program = "/opt/acp/claude-agent-acp"`.
@@ -48,7 +49,8 @@ pub struct State {
     /// The folder the key and settings live in.
     pub dir: PathBuf,
     pub key: SecretKey,
-    pub server: EndpointId,
+    /// The server this node is linked to, if it is.
+    pub server: Option<EndpointId>,
     pub name: String,
     pub agents: Vec<AgentKind>,
     /// The folders shared through `files/1`.
@@ -124,7 +126,17 @@ impl State {
     pub fn create(dir: &Path, server: &str, name: &str) -> Result<Self> {
         let server: EndpointId = server.parse().context("--server is not an endpoint id")?;
         let key = ensure_key(dir)?;
-        Self::save(dir, key, server, name, None)
+        Self::save(dir, key, Some(server), name, None)
+    }
+
+    /// The node in `dir`, made with `name` and no server when `dir` has no
+    /// settings yet, for a machine that only belongs to a mesh.
+    pub fn load_or_start(dir: &Path, name: &str) -> Result<Self> {
+        if dir.join(SETTINGS_FILE).exists() && read_key(dir)?.is_some() {
+            return Self::load(dir);
+        }
+        let key = ensure_key(dir)?;
+        Self::save(dir, key, None, name, None)
     }
 
     /// Saves the settings for `server` with the key `ensure_key` made.
@@ -133,7 +145,7 @@ impl State {
     pub fn save(
         dir: &Path,
         key: SecretKey,
-        server: EndpointId,
+        server: Option<EndpointId>,
         name: &str,
         search: Option<Search>,
     ) -> Result<Self> {
@@ -157,7 +169,7 @@ impl State {
         let old = old.map(|old| (old.agents, old.files, old.webhook_listen, old.port));
         let (agents, files, webhook_listen, port) = old.unwrap_or_default();
         let settings = Settings {
-            server: server.to_string(),
+            server: server.map(|server| server.to_string()),
             name: name.trim().to_owned(),
             agents,
             files,
@@ -177,14 +189,11 @@ impl State {
             );
         };
         let settings = read_settings(dir)?;
-        let server = settings
-            .server
-            .parse()
-            .context("the server in node.toml is not an endpoint id")?;
+        let server = parse_server(&settings)?;
         Ok(Self::of(dir, key, server, settings))
     }
 
-    fn of(dir: &Path, key: SecretKey, server: EndpointId, settings: Settings) -> Self {
+    fn of(dir: &Path, key: SecretKey, server: Option<EndpointId>, settings: Settings) -> Self {
         Self {
             dir: dir.to_owned(),
             key,
@@ -218,11 +227,19 @@ pub fn saved_server(dir: &Path) -> Result<Option<EndpointId>> {
     if !dir.join(SETTINGS_FILE).exists() {
         return Ok(None);
     }
-    let server = read_settings(dir)?
+    parse_server(&read_settings(dir)?)
+}
+
+fn parse_server(settings: &Settings) -> Result<Option<EndpointId>> {
+    settings
         .server
-        .parse()
-        .context("the server in node.toml is not an endpoint id")?;
-    Ok(Some(server))
+        .as_deref()
+        .map(|server| {
+            server
+                .parse()
+                .context("the server in node.toml is not an endpoint id")
+        })
+        .transpose()
 }
 
 /// Where `node.toml` in `dir` says to look for git checkouts.
@@ -284,6 +301,18 @@ mod tests {
         let loaded = State::load(dir).unwrap();
         assert_eq!(loaded.name, "build box");
         assert_eq!(loaded.key.public(), first.key.public());
+    }
+
+    #[test]
+    fn a_node_with_no_server_starts_and_loads_again_without_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let first = State::load_or_start(dir, "box").unwrap();
+        assert_eq!(first.server, None);
+        let again = State::load_or_start(dir, "other name").unwrap();
+        assert_eq!(again.name, "box");
+        assert_eq!(again.key.public(), first.key.public());
+        assert_eq!(saved_server(dir).unwrap(), None);
     }
 
     #[test]

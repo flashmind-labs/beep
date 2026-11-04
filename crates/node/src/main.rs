@@ -2,7 +2,7 @@
 
 use beep_node::{
     agents::{Agents, claude::hooks, mcp},
-    link::{self, local, state},
+    link::{self, local, peers, state},
     machine::{env, service, setup, update},
 };
 
@@ -72,8 +72,16 @@ enum Command {
         #[arg(long)]
         name: String,
     },
-    /// Connects to the server and serves Beep until stopped.
+    /// Serves Beep until stopped: to the server when this machine is linked to
+    /// one, and to the devices of its mesh. Makes this machine's key on the
+    /// first run.
     Run,
+    /// This machine's mesh of devices. A desktop starts one and brings
+    /// machines in; a node can only join.
+    Mesh {
+        #[command(subcommand)]
+        action: MeshAction,
+    },
     /// Runs as the node bundled with a single-user server: reads the
     /// server's key from a folder both share, leaves this node's key there
     /// for the server to link to its owner, then serves like `run`.
@@ -156,6 +164,19 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum MeshAction {
+    /// Joins the mesh a desktop's ticket names, in the node that is running
+    /// from this folder.
+    Join {
+        /// The ticket, or `-` to read it from stdin, which keeps it out of
+        /// process listings and shell history.
+        ticket: String,
+    },
+    /// Lists the devices of the mesh and which are online.
+    Devices,
 }
 
 #[derive(Subcommand)]
@@ -277,8 +298,29 @@ async fn main() -> Result<()> {
             let state = state::State::create(&dir, &server, &name)?;
             link::print_offer(&state)
         }
+        Command::Mesh { action } => match action {
+            MeshAction::Join { ticket } => {
+                let ticket = if ticket == "-" {
+                    let mut text = String::new();
+                    tokio::io::AsyncReadExt::read_to_string(&mut tokio::io::stdin(), &mut text)
+                        .await?;
+                    text
+                } else {
+                    ticket
+                };
+                peers::join(&dir, &ticket).await?;
+                println!("Joined. The node picked it up.");
+                Ok(())
+            }
+            MeshAction::Devices => {
+                for line in peers::devices(&dir).await? {
+                    println!("{line}");
+                }
+                Ok(())
+            }
+        },
         Command::Run => {
-            let state = state::State::load(&dir)?;
+            let state = state::State::load_or_start(&dir, &setup::host_name().await)?;
             let stop = stopped()?;
             if !cli.with_parent {
                 return link::serve(state, cli.workspace.as_deref(), stop).await;

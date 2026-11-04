@@ -55,6 +55,31 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     Ok(())
 }
 
+/// Runs one request on the node's tasks, as `process/1` would.
+pub(crate) async fn answer(request: Request) -> Reply {
+    TASKS.answer(request).await
+}
+
+/// Runs `command` as a task and waits for it, up to `limit`; one still
+/// running then is stopped. The reply is the task's status.
+pub(crate) async fn run_for(command: String, cwd: Option<String>, limit: Duration) -> Reply {
+    let id = match TASKS.start(command, cwd) {
+        Reply::Started { id } => id,
+        other => return other,
+    };
+    let done = lock(&TASKS.inner)
+        .jobs
+        .iter()
+        .find(|job| job.id == id)
+        .map(|job| job.done.clone());
+    if let Some(mut done) = done
+        && timeout(limit, done.wait_for(|done| *done)).await.is_err()
+    {
+        return TASKS.stop(id).await;
+    }
+    TASKS.status(id)
+}
+
 #[derive(Default)]
 struct Tasks {
     inner: Mutex<Inner>,
