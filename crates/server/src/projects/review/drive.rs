@@ -1,6 +1,7 @@
 //! Moves reviews on in the background: collects and dedupes findings, verifies each once, and
 //! removes done worktrees. Only this loop writes progress; every step is safe to repeat.
 
+use super::super::issues::head as clip;
 use super::{
     git::remove_review_worktree,
     report::{
@@ -410,13 +411,4 @@ async fn verify(
         },
         why: Some(said.why).filter(|why| !why.is_empty()),
     })
-}
-
-/// `text` cut to `max` bytes on a character boundary.
-fn clip(text: &str, max: usize) -> &str {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }

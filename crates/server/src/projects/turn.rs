@@ -366,7 +366,7 @@ pub(crate) async fn read_personas(
             _ => continue,
         };
         let file = format!("{PERSONAS_DIR}/{name}");
-        let parsed = personas::parse(&file, &text);
+        let parsed = personas::parse(&text);
         found.push((file, parsed));
     }
     found

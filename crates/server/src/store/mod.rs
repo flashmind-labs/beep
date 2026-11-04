@@ -1,3 +1,5 @@
+//! Postgres: `Store` and its queries, one file per kind of row, and the migrations list.
+
 use crate::protocol::MemorySource;
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};

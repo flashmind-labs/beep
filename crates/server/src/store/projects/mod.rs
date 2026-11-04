@@ -1,7 +1,5 @@
 //! Projects, their checkouts, agent chats, tasks and workers.
 
-#![allow(dead_code, reason = "the project agent uses these in the next tasks")]
-
 mod tasks;
 mod workers;
 
@@ -35,7 +33,6 @@ pub(crate) struct ProjectRow {
     pub(crate) default_branch: String,
     /// The machine its workers start on first.
     pub(crate) pin: Option<EndpointId>,
-    pub(crate) created_at: DateTime<Utc>,
 }
 
 /// Where a project is checked out.
@@ -97,7 +94,6 @@ pub(crate) struct WorkerRow {
     pub(crate) asking: bool,
     pub(crate) last_output: Option<String>,
     pub(crate) persona: Option<String>,
-    pub(crate) persona_commit: Option<String>,
     /// How many of its session's turns the project chat has heard about.
     pub(crate) turns_seen: u32,
     pub(crate) started_at: DateTime<Utc>,
@@ -228,7 +224,6 @@ fn project_from(row: &PgRow) -> Result<ProjectRow> {
         visibility: visibility.parse()?,
         default_branch: row.try_get(5)?,
         pin: pin.as_deref().map(endpoint).transpose()?,
-        created_at: row.try_get(7)?,
     })
 }
 
@@ -300,7 +295,6 @@ pub(super) fn worker_from(row: &PgRow) -> Result<WorkerRow> {
         asking: row.try_get(8)?,
         last_output: row.try_get(9)?,
         persona: row.try_get(10)?,
-        persona_commit: row.try_get(11)?,
         turns_seen: u32::try_from(turns_seen)?,
         started_at: row.try_get(13)?,
         last_turn_at: row.try_get(14)?,

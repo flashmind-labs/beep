@@ -87,7 +87,7 @@ fn add_failure(code: Option<i32>, branch: &str, out: &str) -> String {
 }
 
 /// The end of `text`, cut on a character boundary.
-fn tail(text: &str) -> &str {
+pub(crate) fn tail(text: &str) -> &str {
     let text = text.trim();
     let mut start = text.len().saturating_sub(300);
     while !text.is_char_boundary(start) {

@@ -98,7 +98,7 @@ pub(crate) async fn startup(app: &Arc<App>) -> Result<()> {
     Ok(())
 }
 
-fn quote(text: &str) -> String {
+pub(crate) fn quote(text: &str) -> String {
     match text.char_indices().nth(MAX_QUOTED) {
         Some((end, _)) => format!("{}...", &text[..end]),
         None => text.to_owned(),

@@ -6,6 +6,7 @@ use super::{
     own_nodes::{machine_names, online},
     projects::task_view,
 };
+use crate::projects::branches::tail;
 use crate::{
     api::router::Cx,
     nodes::{Online, StartOn},
@@ -535,16 +536,6 @@ async fn run(node: &Online, script: &str, limit: Duration) -> Result<String> {
         Some(code) => bail!("git exited with {code}: {}", tail(&out)),
         None => bail!("git did not finish in time"),
     }
-}
-
-/// The end of `text`, cut on a character boundary.
-fn tail(text: &str) -> &str {
-    let text = text.trim();
-    let mut start = text.len().saturating_sub(300);
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
 }
 
 fn verdict(finding: &ReviewFindingRow) -> ReviewVerdict {

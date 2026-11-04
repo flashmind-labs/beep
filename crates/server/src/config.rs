@@ -1,3 +1,5 @@
+//! The server's TOML config and its keys on disk.
+
 use std::{
     collections::HashMap,
     env,

@@ -535,7 +535,7 @@ pub(crate) async fn pull_request_head(
 }
 
 /// The start of `text`, at most `max` bytes, cut on a character boundary.
-fn head(text: &str, max: usize) -> &str {
+pub(super) fn head(text: &str, max: usize) -> &str {
     let mut end = text.len().min(max);
     while !text.is_char_boundary(end) {
         end -= 1;

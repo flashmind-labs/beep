@@ -18,7 +18,6 @@ use iroh::EndpointId;
 use uuid::Uuid;
 
 /// The user's projects, their tasks and workers.
-#[allow(dead_code, reason = "the project agent uses these in the next tasks")]
 impl User {
     pub(crate) async fn ensure_project(&self, name: &RepoName) -> Result<ProjectRow> {
         self.store.ensure_project(&self.key, name).await

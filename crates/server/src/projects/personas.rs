@@ -14,12 +14,6 @@ pub(crate) struct ProjectPersona {
     pub(crate) engine: Option<WorkerAgent>,
     /// What a machine must be able to do to run it.
     pub(crate) needs: Vec<Capability>,
-    /// MCP servers the persona wants.
-    #[allow(dead_code, reason = "workers do not start MCP servers yet")]
-    pub(crate) mcp: Vec<String>,
-    /// The file the persona was read from.
-    #[allow(dead_code, reason = "nothing names a persona's file yet")]
-    pub(crate) file: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -34,8 +28,8 @@ pub(crate) enum PersonaFileError {
     Need(String),
 }
 
-/// Read the persona in `text`, which came from `file`.
-pub(crate) fn parse(file: &str, text: &str) -> Result<ProjectPersona, PersonaFileError> {
+/// Read the persona in `text`.
+pub(crate) fn parse(text: &str) -> Result<ProjectPersona, PersonaFileError> {
     let (mut meta, body) = match split(text) {
         Some(parts) => parts,
         None => {
@@ -45,8 +39,6 @@ pub(crate) fn parse(file: &str, text: &str) -> Result<ProjectPersona, PersonaFil
                 persona,
                 engine: None,
                 needs: Vec::new(),
-                mcp: Vec::new(),
-                file: file.to_owned(),
             });
         }
     };
@@ -61,15 +53,13 @@ pub(crate) fn parse(file: &str, text: &str) -> Result<ProjectPersona, PersonaFil
         .into_iter()
         .map(|name| Capability::from_str(&name).map_err(|_| PersonaFileError::Need(name)))
         .collect::<Result<Vec<_>, _>>()?;
-    let mcp = names(meta.remove("mcp"))?;
+    names(meta.remove("mcp"))?;
     let rest = format!("---\n{}---\n{body}", serde_yaml::to_string(&meta)?);
     let persona = Persona::from_markdown(&rest, &[] as &[&str])?;
     Ok(ProjectPersona {
         persona,
         engine,
         needs,
-        mcp,
-        file: file.to_owned(),
     })
 }
 
@@ -118,13 +108,11 @@ mod tests {
     fn persona_reads_beep_keys() {
         let text = "---\nname: blender-rigger\ndescription: Rigs characters\nengine: claude\n\
                     needs: [cuda, blender]\nmcp: [blender]\n---\nYou rig models.\n";
-        let found = parse("agents/rigger.md", text).unwrap();
+        let found = parse(text).unwrap();
         assert_eq!(found.engine, Some(WorkerAgent::Claude));
         assert_eq!(found.needs, [Capability::Cuda, Capability::Blender]);
-        assert_eq!(found.mcp, ["blender"]);
         assert_eq!(found.persona.name, "blender-rigger");
         assert_eq!(found.persona.system_prompt, "You rig models.");
         assert!(found.persona.notices.is_empty());
-        assert_eq!(found.file, "agents/rigger.md");
     }
 }
