@@ -12,7 +12,7 @@ use crate::{
     link::state::State,
     link::traffic::Traffic,
     link::{
-        from_mesh::Membership,
+        from_mesh::{Family, Membership},
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
@@ -31,8 +31,9 @@ use beep_proto::{
     client::CLOSE_REVOKED,
     link::LinkOffer,
     node::{
-        CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
-        Open, Opened, StatsReport, Up, agent, link, status, tool_update, tools,
+        CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
+        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, harness::AgentSettings, link,
+        status, tool_update, tools,
     },
 };
 use iroh::{
@@ -135,9 +136,8 @@ pub async fn serve(
     // stops with the node.
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
-    let mut offers = Offers::local(&state.agents, provision);
+    let mut offers = Offers::local(&state.agents, provision, state.server.is_some());
     offers.traffic = traffic;
-    offers.has_server = state.server.is_some();
     offers.extra.push(Arc::new(Logs::service()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
@@ -433,25 +433,23 @@ pub struct Offers {
     pub(crate) mesh: Membership,
     /// The node's transfers and synced projects, when it shares folders.
     pub(crate) transfers: Option<Transfers>,
-    /// The node has a server to link to (`server` in `node.toml`). Without
-    /// one, the tools that need it are left off the agent's list.
-    pub(crate) has_server: bool,
 }
 
 impl Offers {
     /// What every node serves, the CLI and the Mac app alike: the coding
     /// agents found on the PATH (with `agents` from `node.toml`) and their
     /// sessions, and `provision`. A host adds its own protocols to `extra`.
-    pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
+    /// `has_server` says whether the node has a server to link to; without
+    /// one the memory tools are left out of what agents are told and see.
+    pub fn local(agents: &[AgentKind], provision: Arc<Provision>, has_server: bool) -> Self {
         Self {
             agents: Arc::new(Agents::new(crate::agents::detect(agents))),
             extra: Vec::new(),
             provision: Some(provision),
-            tools: Upstream::default(),
+            tools: Upstream::new(has_server),
             traffic: Traffic::default(),
             mesh: Membership::default(),
             transfers: None,
-            has_server: true,
         }
     }
 
@@ -603,14 +601,16 @@ impl Linked {
         }
         let served = serve_linked(&connection, &mut tx, &mut rx, &offers, &measured).await;
         offers.tools.set(None);
-        // A node in a mesh takes these from it, which the server's link does
-        // not touch.
-        if !offers.mesh.joined() {
+        // What the mesh owns is the mesh's, which the server's link does not
+        // touch.
+        if !offers.mesh.owns(Family::Credentials) {
             // Revoked or only cut off, the node keeps no token it cannot hear
             // about being removed; the server sends them again on reconnecting.
             if let Some(provision) = &offers.provision {
                 provision.forget().await;
             }
+        }
+        if !offers.mesh.owns(Family::Harnesses) && !offers.mesh.owns(Family::Flsh) {
             // The harnesses' env vars may be secrets too; the server sends the
             // settings again on reconnecting.
             offers.agents.set_settings(Default::default());
@@ -661,20 +661,8 @@ async fn serve_linked(
                 Err(e) => log::warn!("session task failed: {e}"),
             },
             message = rx.recv::<Down>() => match message {
-                Ok(Some(Down::Credentials(_))) if offers.mesh.joined() => {
-                    log::info!("ignored credentials from the server: this node takes them from its mesh");
-                }
-                Ok(Some(Down::Credentials(credentials))) => match &offers.provision {
-                    Some(provision) => provision.apply(credentials).await,
-                    None => log::debug!("credentials came to a node that does not take them"),
-                },
-                Ok(Some(Down::AgentSettings(_))) if offers.mesh.joined() => {
-                    log::info!("ignored agent settings from the server: this node takes them from its mesh");
-                }
-                Ok(Some(Down::AgentSettings(settings))) => {
-                    offers.agents.set_settings(settings);
-                    offers.agents.settings_arrived();
-                }
+                Ok(Some(Down::Credentials(credentials))) => take_credentials(offers, credentials).await,
+                Ok(Some(Down::AgentSettings(settings))) => take_settings(offers, settings),
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
@@ -714,6 +702,38 @@ async fn serve_linked(
             }
         }
     }
+}
+
+/// The server's credentials, unless the mesh owns them.
+async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
+    if offers.mesh.owns(Family::Credentials) {
+        log::info!("ignored credentials from the server: this node takes them from its mesh");
+        return;
+    }
+    match &offers.provision {
+        Some(provision) => provision.apply(credentials).await,
+        None => log::debug!("credentials came to a node that does not take them"),
+    }
+}
+
+/// The server's agent settings, except the parts the mesh owns.
+fn take_settings(offers: &Offers, mut settings: AgentSettings) {
+    let (harnesses, flsh) = (
+        offers.mesh.owns(Family::Harnesses),
+        offers.mesh.owns(Family::Flsh),
+    );
+    if harnesses || flsh {
+        log::info!("ignored agent settings from the server: this node takes them from its mesh");
+        let now = offers.agents.settings();
+        if harnesses {
+            settings.harnesses = now.harnesses;
+        }
+        if flsh {
+            settings.flsh = now.flsh;
+        }
+    }
+    offers.agents.set_settings(settings);
+    offers.agents.settings_arrived();
 }
 
 /// Who opened a session, and so what it may use.
@@ -812,4 +832,31 @@ async fn tool_changed(provision: Option<&Provision>) {
 
 pub(crate) fn changed(before: &EnvReport, now: &EnvReport) -> bool {
     before != now
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beep_proto::node::harness::HarnessConfig;
+
+    /// A node with no mesh takes whatever the server pushes, as it always did.
+    #[tokio::test]
+    async fn a_node_with_no_mesh_takes_the_servers_agent_settings() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(&[], Provision::new(dir.path()), true);
+        assert!(!offers.mesh.joined());
+        assert!(!offers.mesh.owns(Family::Harnesses));
+        let off = HarnessConfig {
+            enabled: false,
+            ..HarnessConfig::new("codex")
+        };
+        take_settings(
+            &offers,
+            AgentSettings {
+                harnesses: vec![off.clone()],
+                flsh: None,
+            },
+        );
+        assert_eq!(offers.agents.settings().harnesses, [off]);
+    }
 }

@@ -10,12 +10,14 @@ use crate::{
         Offers,
         peer_tools::{self, Caller},
     },
+    machine::env,
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{DeviceKind, Key, Mesh};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, link,
+    EnvReport, LinkRx, LinkTx, Open, Opened, link,
     mesh_state::{StateValue, SyncSpec},
+    status::{self, Report},
     tools::{PROTOCOL, Reply, Request, Tool},
     transfer::Reply as TransferReply,
 };
@@ -30,6 +32,8 @@ use tokio::time::timeout;
 const LINK_WAIT: Duration = Duration::from_secs(15);
 /// How many times opening a call's stream is tried.
 const HANDSHAKES: u32 = 3;
+/// How long a machine has to report itself for `list_machines`.
+const STATUS_WAIT: Duration = Duration::from_secs(5);
 /// How long the machine has to take a call's stream.
 const OPEN_LIMIT: Duration = Duration::from_secs(15);
 /// How long one call may run: a command runs at most half an hour.
@@ -73,7 +77,9 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
             .map(str::to_owned)
     };
     match request.tool {
-        Tool::ListMachines => Some(list(mesh)),
+        // The server's list has more to say, so it answers when there is one.
+        Tool::ListMachines if offers.tools.has_server() => None,
+        Tool::ListMachines => Some(list(mesh).await),
         Tool::RunOn | Tool::MachineLog | Tool::SendFiles => {
             let name = machine(&args)?;
             let Some(target) = machines(mesh)
@@ -215,7 +221,7 @@ async fn sync_project(
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case(project.trim()))
     else {
-        if offers.has_server {
+        if offers.tools.has_server() {
             return None;
         }
         let names: Vec<&str> = specs.iter().map(|(name, _)| name.as_str()).collect();
@@ -281,7 +287,7 @@ async fn sync_project(
 
 /// `None` (the server's) when there is one, else why there is no such machine.
 fn missing(offers: &Offers, mesh: &Mesh, name: &str) -> Option<Reply> {
-    if offers.has_server {
+    if offers.tools.has_server() {
         return None;
     }
     let names: Vec<String> = machines(mesh).into_iter().map(|m| m.name).collect();
@@ -291,10 +297,19 @@ fn missing(offers: &Offers, mesh: &Mesh, name: &str) -> Option<Reply> {
     ))
 }
 
-fn list(mesh: &Mesh) -> Reply {
-    let mut text = String::new();
-    for status in mesh.devices() {
-        let here = if status.device.id == mesh.me() {
+/// The mesh's devices, each with what its own status report says of it
+/// when it answers in time.
+async fn list(mesh: &Mesh) -> Reply {
+    let me = mesh.me();
+    let lines = futures::future::join_all(mesh.devices().into_iter().map(|status| async move {
+        let env = if status.device.id == me {
+            Some(env::probe().await)
+        } else if status.online {
+            peer_env(mesh, status.device.id).await
+        } else {
+            None
+        };
+        let here = if status.device.id == me {
             " (this machine)"
         } else {
             ""
@@ -304,11 +319,61 @@ fn list(mesh: &Mesh) -> Reply {
             DeviceKind::Desktop => "desktop",
             DeviceKind::Node => "node",
         };
-        let name = command_name(&status.device.name);
-        // Writing to a string cannot fail.
-        let _ = writeln!(text, "- {name}{here}: {online}, {kind}");
+        let mut line = format!(
+            "- {}{here}: {online}, {kind}",
+            command_name(&status.device.name)
+        );
+        if let Some(env) = env {
+            // Writing to a string cannot fail.
+            let _ = write!(line, "\n  {}", describe(&env));
+        }
+        line
+    }))
+    .await;
+    done(lines.join("\n"), false)
+}
+
+/// One line on what the machine is and can do.
+fn describe(env: &EnvReport) -> String {
+    let mut line = format!(
+        "{} {} ({}), {} CPUs, {} GB memory",
+        env.os,
+        env.arch,
+        env.os_version,
+        env.cpus,
+        env.memory_mb / 1024
+    );
+    let can: Vec<String> = env
+        .capabilities()
+        .iter()
+        .map(|c| <&str>::from(*c).to_owned())
+        .collect();
+    if !can.is_empty() {
+        let _ = write!(line, "; can: {}", can.join(", "));
     }
-    done(text.trim_end(), false)
+    let gpus: Vec<&str> = env.gpus.iter().map(|gpu| gpu.model.as_str()).collect();
+    if !gpus.is_empty() {
+        let _ = write!(line, "; GPUs: {}", gpus.join(", "));
+    }
+    let tools: Vec<&str> = env.tools.iter().map(|tool| tool.name.as_str()).collect();
+    if !tools.is_empty() {
+        let _ = write!(line, "; tools: {}", tools.join(", "));
+    }
+    line
+}
+
+/// What `peer` reports of its machine, or `None` when it does not within
+/// `STATUS_WAIT`; the list then says no more of it than its name.
+async fn peer_env(mesh: &Mesh, peer: EndpointId) -> Option<EnvReport> {
+    let read = async {
+        let (_tx, mut rx) = handshake(mesh, peer, status::PROTOCOL).await.ok()?;
+        loop {
+            if let Report::Env(env) = rx.recv::<Report>().await.ok()?? {
+                return Some(env);
+            }
+        }
+    };
+    timeout(STATUS_WAIT, read).await.ok().flatten()
 }
 
 /// A job `run_on` started on another machine: `task:<n>@<machine>`.
@@ -374,7 +439,7 @@ fn name_the_job(text: &str, machine: &str) -> String {
 }
 
 async fn over_the_mesh(mesh: &Mesh, peer: EndpointId, request: &Request) -> Result<Reply> {
-    let (mut tx, mut rx) = handshake(mesh, peer).await?;
+    let (mut tx, mut rx) = handshake(mesh, peer, PROTOCOL).await?;
     tx.send(request).await?;
     timeout(CALL_LIMIT, rx.recv())
         .await
@@ -384,10 +449,10 @@ async fn over_the_mesh(mesh: &Mesh, peer: EndpointId, request: &Request) -> Resu
 
 /// Opens `tools/1` on `peer`. A link replaced while it opens (two machines
 /// dialing each other keep one) is tried again; nothing has run yet.
-async fn handshake(mesh: &Mesh, peer: EndpointId) -> Result<(LinkTx, LinkRx)> {
+async fn handshake(mesh: &Mesh, peer: EndpointId, protocol: &str) -> Result<(LinkTx, LinkRx)> {
     let mut tries = HANDSHAKES;
     loop {
-        match try_handshake(mesh, peer).await {
+        match try_handshake(mesh, peer, protocol).await {
             Err(e) if tries > 1 => {
                 log::debug!("opening tools/1 on {peer} failed, trying again: {e:#}");
                 tries -= 1;
@@ -401,11 +466,15 @@ async fn handshake(mesh: &Mesh, peer: EndpointId) -> Result<(LinkTx, LinkRx)> {
 
 /// The streams, or why the machine turned the call away, which trying
 /// again does not change.
-async fn try_handshake(mesh: &Mesh, peer: EndpointId) -> Result<Result<(LinkTx, LinkRx), String>> {
+async fn try_handshake(
+    mesh: &Mesh,
+    peer: EndpointId,
+    protocol: &str,
+) -> Result<Result<(LinkTx, LinkRx), String>> {
     let (send, recv) = open(mesh, peer).await?;
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
-        protocol: PROTOCOL.to_owned(),
+        protocol: protocol.to_owned(),
     })
     .await?;
     let opened: Opened = timeout(OPEN_LIMIT, rx.recv())

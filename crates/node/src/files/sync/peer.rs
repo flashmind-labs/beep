@@ -153,6 +153,11 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     let mut seq = shared.subscribe();
     let mut peers = shared.watch_peers();
     loop {
+        // A device removed meanwhile gets nothing more, not even what is
+        // already queued.
+        if !syncs.allows(&peer) {
+            return Ok(());
+        }
         let changes = shared.changes(since, BATCH);
         if !changes.entries.is_empty() {
             since = changes.upto;

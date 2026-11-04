@@ -197,6 +197,9 @@ struct Config {
     files: Vec<PathBuf>,
     /// The UDP port to bind; random when unset.
     port: Option<u16>,
+    /// Project folders a server set before this start, kept in the node's
+    /// saved list under their folder names.
+    saved_projects: Vec<PathBuf>,
 }
 
 impl Node {
@@ -222,6 +225,23 @@ impl Node {
         let text = toml::to_string(&toml::Value::try_from(settings).expect("settings are toml"))
             .expect("settings encode");
         fs::write(dir.path().join("node.toml"), text).expect("settings are written");
+        if !config.saved_projects.is_empty() {
+            let projects: Vec<_> = config
+                .saved_projects
+                .iter()
+                .map(|folder| {
+                    let name = folder.file_name().and_then(|n| n.to_str()).expect("a name");
+                    json!({ "name": name, "folder": folder, "peers": [] })
+                })
+                .collect();
+            let saved = dir.path().join("blobs/sync");
+            fs::create_dir_all(&saved).expect("the saved list folder");
+            fs::write(
+                saved.join("projects.json"),
+                json!({ "projects": projects }).to_string(),
+            )
+            .expect("the saved list is written");
+        }
         Self::run(dir, home, key.public()).await
     }
 
@@ -1025,14 +1045,6 @@ async fn the_servers_sync_and_credentials_do_not_overwrite_the_mesh() {
         .await
         .expect("the node linked to its server in time")
         .expect("the server saw the node");
-    // The server speaks before the mesh has said anything.
-    push_everything(
-        &mut server,
-        &mut node,
-        shared.path(),
-        &[("SRV_FIRST", "from-the-server")],
-    )
-    .await;
     set_credential(&desktop, "gh", "MESH_VAR", "from-the-mesh").await;
     let harness = HarnessConfig {
         enabled: false,
@@ -1064,12 +1076,12 @@ async fn the_servers_sync_and_credentials_do_not_overwrite_the_mesh() {
     node.logged("from the mesh: sync mesh-proj").await;
     let conn = desktop.reach(node.id).await;
     assert_eq!(
-        env_seen(&conn, ["MESH_VAR", "SRV_FIRST"]).await,
+        env_seen(&conn, ["MESH_VAR", "SRV_LATER"]).await,
         "got[from-the-mesh][]"
     );
     assert_eq!(sync_names(&conn).await, ["mesh-proj"]);
     assert!(start_refusal(&conn, work.path()).await.is_some());
-    // And after the mesh has spoken.
+    // Whatever the server pushes now, the mesh has spoken.
     push_everything(
         &mut server,
         &mut node,
@@ -1171,15 +1183,25 @@ async fn synced_pair_with_agent(agent: bool) -> Pair {
     }
 }
 
-/// Waits for `path` to hold `text`; the outer limit is the only clock.
+/// Waits for `path` to hold `text`, woken by the folder's file events; the
+/// outer limit is the only clock.
 async fn has_text(path: &Path, text: &str) {
+    use notify::{RecursiveMode, Watcher};
+    let (send, mut events) = mpsc::unbounded_channel();
+    let mut watcher = notify::recommended_watcher(move |_| {
+        send.send(()).ok();
+    })
+    .expect("a watcher starts");
+    watcher
+        .watch(
+            path.parent().expect("a folder"),
+            RecursiveMode::NonRecursive,
+        )
+        .expect("the folder is watched");
     timeout(LIMIT, async {
-        loop {
-            if fs::read_to_string(path).is_ok_and(|have| have == text) {
-                return;
-            }
-            tokio::task::yield_now().await;
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        // Checked after the watch starts, so no change falls between.
+        while !fs::read_to_string(path).is_ok_and(|have| have == text) {
+            events.recv().await.expect("the watcher lives");
         }
     })
     .await
@@ -1329,12 +1351,28 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
     b.join(&desktop.ticket(DeviceKind::Node).await).await;
     desktop.reach(b.id).await;
     let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
-    let (listed, failed) = mcp.call("list_machines", json!({})).await;
-    assert!(!failed, "{listed}");
+    // The link to the other node may still be coming up.
+    let listed = timeout(LIMIT, async {
+        loop {
+            let (listed, failed) = mcp.call("list_machines", json!({})).await;
+            assert!(!failed, "{listed}");
+            if listed.contains("box-b: online") {
+                return listed;
+            }
+        }
+    })
+    .await
+    .expect("box-b came online in time");
     assert!(
         listed.contains("box-a") && listed.contains("box-b"),
         "{listed}"
     );
+    // Each machine says what it is, from its own status report.
+    let os_lines = listed
+        .lines()
+        .filter(|line| line.contains(std::env::consts::OS))
+        .count();
+    assert!(os_lines >= 2, "{listed}");
     let (text, failed) = mcp
         .call(
             "run_on",
@@ -1480,15 +1518,13 @@ async fn credentials_come_back_after_a_restart_with_no_server() {
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     set_credential(&desktop, "gh", "MESH_VAR", "still-here").await;
     node.logged("from the mesh: 1 credentials").await;
-    let node = node.restart().await;
-    // Nothing reaches it from a desktop: the state file is what it has.
-    assert!(
-        node.log
-            .iter()
-            .any(|line| line.contains("from the mesh: 1 credentials")),
-        "{:?}",
-        node.log
-    );
+    let mut node = node.restart().await;
+    // Nothing reaches it from a desktop: the state file is what it has. The
+    // line may have come before the node was ready.
+    let applied = "from the mesh: 1 credentials";
+    if !node.log.iter().any(|line| line.contains(applied)) {
+        node.logged(applied).await;
+    }
     // The desktop may hold the old process's link for a moment; ask again
     // on the new one.
     let mut updates = desktop.mesh.updates();
@@ -1550,4 +1586,87 @@ async fn an_agent_syncs_a_project_and_sends_a_file_with_no_server() {
         )
         .await;
     assert!(failed, "{text}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_mesh_takes_over_a_family_only_once_it_holds_a_key_of_it() {
+    let (desktop, mut links) = desktop_pushing().await;
+    let shared = TempDir::new().expect("a temp folder");
+    let kept = shared.path().join("kept");
+    fs::create_dir(&kept).expect("the project folder");
+    let mut node = Node::start(Config {
+        server: Some(desktop.id()),
+        files: vec![shared.path().to_owned()],
+        saved_projects: vec![kept.clone()],
+        ..Config::default()
+    })
+    .await;
+    let conn = {
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        desktop.reach(node.id).await
+    };
+    let mut server = timeout(LIMIT, links.recv())
+        .await
+        .expect("the node linked to its server in time")
+        .expect("the server saw the node");
+    // The mesh holds no such keys: a project the server set stays running.
+    node.logged("from the mesh: owns []").await;
+    assert_eq!(sync_names(&conn).await, ["kept"]);
+    // And the server's pushes are still taken.
+    server
+        .tx
+        .send(&Down::Credentials(env_credentials(&[("SRV_ONLY", "one")])))
+        .await
+        .expect("the credentials are sent");
+    node.logged("credentials: 1 env vars").await;
+    assert_eq!(env_seen(&conn, ["SRV_ONLY", "NOT_SET"]).await, "got[one][]");
+    // The mesh gets its first sync key: it owns sync from now on.
+    let folder = shared.path().join("proj");
+    fs::create_dir(&folder).expect("the project folder");
+    let spec = SyncSpec {
+        folders: [(node.id, folder.display().to_string())].into(),
+        paused: false,
+    };
+    desktop
+        .mesh
+        .set(
+            Key::Sync("proj".to_owned()),
+            Some(spec.to_bytes().expect("a spec encodes")),
+        )
+        .await
+        .expect("the spec is written");
+    node.logged("from the mesh: sync proj with 0 peers").await;
+    assert_eq!(sync_names(&conn).await, ["proj"]);
+    // Credentials stay the server's until the mesh holds one.
+    server
+        .tx
+        .send(&Down::Credentials(env_credentials(&[("SRV_ONLY", "two")])))
+        .await
+        .expect("the credentials are sent");
+    node.logged("credentials: 1 env vars").await;
+    assert_eq!(env_seen(&conn, ["SRV_ONLY", "NOT_SET"]).await, "got[two][]");
+    // Deleting the last credential of the mesh empties the family.
+    set_credential(&desktop, "gh", "MESH_VAR", "from-the-mesh").await;
+    node.logged("from the mesh: 1 credentials").await;
+    desktop
+        .mesh
+        .set(Key::Credential("gh".to_owned()), None)
+        .await
+        .expect("the credential is deleted");
+    node.logged("from the mesh: 0 credentials").await;
+    assert_eq!(env_seen(&conn, ["SRV_ONLY", "MESH_VAR"]).await, "got[][]");
+}
+
+#[tokio::test]
+async fn a_sync_spec_that_stops_reading_keeps_its_last_good_value() {
+    let mut pair = synced_pair().await;
+    pair.desktop
+        .mesh
+        .set(Key::Sync("proj".to_owned()), Some(b"not a spec".to_vec()))
+        .await
+        .expect("the entry is written");
+    pair.a.logged("ignored sync/proj in the mesh").await;
+    let conn = pair.desktop.reach(pair.a.id).await;
+    assert_eq!(sync_names(&conn).await, ["proj"]);
 }

@@ -474,6 +474,16 @@ impl Mesh {
             .collect()
     }
 
+    /// Whether any key whose text form starts with `prefix` was ever
+    /// written, even if deleted since.
+    pub fn has_held(&self, prefix: &str) -> bool {
+        self.inner
+            .view()
+            .held
+            .iter()
+            .any(|key| key.to_string().starts_with(prefix))
+    }
+
     /// Keys that changed, written here or taken from a peer. A receiver that
     /// falls behind gets `Lagged` and must rescan; subscribe before the first
     /// `scan` so nothing falls between the two.
@@ -498,11 +508,6 @@ impl Mesh {
     /// How many times the address table has changed.
     pub fn addr_updates(&self) -> u64 {
         self.inner.addr_updates.load(Ordering::Relaxed)
-    }
-
-    /// Whether `id` is a current member of this mesh.
-    pub fn is_member(&self, id: EndpointId) -> bool {
-        self.inner.is_member(id)
     }
 
     pub fn peer(&self, id: EndpointId) -> Option<Connection> {
