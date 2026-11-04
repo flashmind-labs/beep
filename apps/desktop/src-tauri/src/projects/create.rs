@@ -1,14 +1,14 @@
 //! The New project sheet: the git hosts a repository can go on, and making
 //! the project.
 
-use super::{ProjectRow, import::IMPORT_TIMEOUT, known, needs_update};
+use super::ProjectRow;
 use crate::{
     beep::Service,
-    error::{DesktopError, Result},
+    error::Result,
+    fleet::projects::{FleetState, desk, mirror_import},
 };
 use beep_proto::{
-    ApiError, CheckoutFailure, CreateProject, CreatedProject, GitHostKind, ListProjectForges,
-    NewRepository, ProjectForge,
+    CheckoutFailure, CreateProject, CreatedProject, GitHostKind, NewRepository, ProjectForge,
 };
 use serde::Serialize;
 
@@ -52,35 +52,31 @@ impl From<CreatedProject> for CreatedRow {
     }
 }
 
-/// The git hosts the user has a token for; `None` from a server too old to
-/// make projects.
+/// The git hosts the user has a token for.
 #[tauri::command]
-pub async fn project_forges(beep: Service<'_>) -> Result<Option<Vec<ForgeRow>>> {
-    let forges = known(beep.call(ListProjectForges {}).await)?;
-    Ok(forges.map(|forges| forges.into_iter().map(ForgeRow::from).collect()))
+pub async fn project_forges(fleet: FleetState<'_>) -> Result<Option<Vec<ForgeRow>>> {
+    let forges = desk(&fleet).await?.forges().await?;
+    Ok(Some(forges.into_iter().map(ForgeRow::from).collect()))
 }
 
 /// Makes the project `name`: on `repository` and cloned onto `machine_ids`, or
 /// with no repository, `git init` on the one machine given.
 #[tauri::command]
 pub async fn create_project(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     name: String,
     repository: Option<NewRepository>,
     machine_ids: Vec<String>,
 ) -> Result<CreatedRow> {
-    beep.call_within(
-        CreateProject {
-            name,
-            repository,
-            machine_ids,
-        },
-        IMPORT_TIMEOUT,
-    )
-    .await
-    .map(CreatedRow::from)
-    .map_err(|e| match needs_update(e, "before it creates projects") {
-        DesktopError::Api(ApiError::BadRequest { message }) => DesktopError::BadRequest(message),
-        other => other,
-    })
+    let request = CreateProject {
+        name,
+        repository,
+        machine_ids,
+    };
+    let created = desk(&fleet).await?.create(&request).await?;
+    for landed in &created.imported {
+        mirror_import(&beep, landed).await;
+    }
+    Ok(created.into())
 }

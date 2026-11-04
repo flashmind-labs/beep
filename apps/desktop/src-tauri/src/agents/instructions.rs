@@ -5,12 +5,10 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::projects::{FleetState, desk},
     projects::needs_update,
 };
-use beep_proto::{
-    GetInstructions, InstructionsVersion, ListInstructionsVersions, MachineAgentFiles,
-    ReadAgentFiles, SaveInstructions, SyncAgentFiles,
-};
+use beep_proto::{InstructionsVersion, MachineAgentFiles, ReadAgentFiles, SyncAgentFiles};
 use serde::Serialize;
 
 /// One saved version as the view shows it.
@@ -41,33 +39,29 @@ fn outdated(e: DesktopError) -> DesktopError {
 
 /// The newest version, or `None` before the first save.
 #[tauri::command]
-pub async fn instructions_get(beep: Service<'_>) -> Result<Option<VersionRow>> {
-    let newest = beep.call(GetInstructions {}).await.map_err(outdated)?;
-    Ok(newest.map(Into::into))
+pub async fn instructions_get(fleet: FleetState<'_>) -> Result<Option<VersionRow>> {
+    Ok(desk(&fleet).await?.instructions().map(Into::into))
 }
 
 /// Saves `text` as the version after `base`.
 #[tauri::command]
 pub async fn instructions_save(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     text: String,
     base: Option<u32>,
     note: String,
 ) -> Result<VersionRow> {
-    let saved = beep
-        .call(SaveInstructions { text, base, note })
-        .await
-        .map_err(outdated)?;
+    let saved = desk(&fleet)
+        .await?
+        .save_instructions(&text, base, &note)
+        .await?;
     Ok(saved.into())
 }
 
 /// Every version, newest first.
 #[tauri::command]
-pub async fn instructions_versions(beep: Service<'_>) -> Result<Vec<VersionRow>> {
-    let versions = beep
-        .call(ListInstructionsVersions {})
-        .await
-        .map_err(outdated)?;
+pub async fn instructions_versions(fleet: FleetState<'_>) -> Result<Vec<VersionRow>> {
+    let versions = desk(&fleet).await?.instructions_versions();
     Ok(versions.into_iter().map(Into::into).collect())
 }
 

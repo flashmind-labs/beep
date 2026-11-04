@@ -6,20 +6,32 @@ use crate::{
     fleet::{
         Fleet, Machines,
         files::{self as direct, FALLBACK_DEFAULT, Place},
+        projects::{FleetState, desk},
     },
+    projects::needs_update,
     projects::reviews::BranchRow,
-    projects::{known, needs_update},
 };
 use beep_proto::{
-    AddBranchWorktree, FindImportFork, ImportCheckout, ImportFork, ImportPreview,
-    ListProjectMachines, PreviewImport, WorkBranch,
+    AddBranchWorktree, ImportCheckout, ImportFork, ImportPreview, ListProjectMachines, WorkBranch,
 };
 use serde::Serialize;
 use std::time::Duration;
 
-/// Where `project` has a checkout on a machine of the mesh, as the server
-/// records it; none without a server or a record.
+/// Where `project` has a checkout on a machine of the mesh that is online: from the mesh's
+/// records, else, for a project only the server has, as the server records it.
 pub(crate) async fn places(beep: &Beep, fleet: &Fleet, project: &str) -> Vec<Place> {
+    let online = fleet.online();
+    let recorded: Vec<Place> = fleet
+        .mesh()
+        .map(|mesh| beep_fleet::places(&mesh, project))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(machine, _)| online.contains(machine))
+        .map(|(machine, folder)| Place { machine, folder })
+        .collect();
+    if !recorded.is_empty() {
+        return recorded;
+    }
     let machines = beep
         .call(ListProjectMachines {
             project: project.to_owned(),
@@ -39,8 +51,6 @@ pub(crate) async fn places(beep: &Beep, fleet: &Fleet, project: &str) -> Vec<Pla
 
 /// Adding a worktree may fetch the branch first.
 const ADD_TIMEOUT: Duration = Duration::from_secs(150);
-/// Previewing asks every online machine.
-const PREVIEW_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Serialize)]
 pub struct CheckoutRow {
@@ -108,24 +118,16 @@ impl From<ImportPreview> for PreviewView {
     }
 }
 
-/// What importing `repo` would find; `None` from a server too old to say.
+/// What importing `repo` would find.
 #[tauri::command]
-pub async fn preview_import(beep: Service<'_>, repo: String) -> Result<Option<PreviewView>> {
-    Ok(known(
-        beep.call_within(PreviewImport { repo }, PREVIEW_TIMEOUT)
-            .await,
-    )?
-    .map(Into::into))
+pub async fn preview_import(fleet: FleetState<'_>, repo: String) -> Result<Option<PreviewView>> {
+    Ok(Some(desk(&fleet).await?.preview(&repo).await?.into()))
 }
 
-/// The user's fork that importing `repo` would clone; `None` from a server
-/// too old to say.
+/// The user's fork that importing `repo` would clone.
 #[tauri::command]
-pub async fn find_import_fork(beep: Service<'_>, repo: String) -> Result<Option<ImportFork>> {
-    known(
-        beep.call_within(FindImportFork { repo }, PREVIEW_TIMEOUT)
-            .await,
-    )
+pub async fn find_import_fork(fleet: FleetState<'_>, repo: String) -> Result<Option<ImportFork>> {
+    Ok(Some(desk(&fleet).await?.find_fork(&repo).await?))
 }
 
 /// Gives `branch` of `project` a worktree on `machine_id`.

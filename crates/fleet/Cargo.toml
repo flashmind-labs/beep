@@ -1,0 +1,31 @@
+[package]
+name = "beep-fleet"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+beep-mesh = { path = "../mesh" }
+beep-projects = { path = "../projects" }
+beep-proto = { path = "../proto" }
+chrono = "0.4"
+futures = "0.3"
+iroh = "1.3"
+log = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rmp-serde = "1"
+secrecy = "0.10"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4", "v5"] }
+
+[dev-dependencies]
+beep-mesh = { path = "../mesh" }
+tempfile = "3"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+async-trait = "0.1"
+log = "0.4"

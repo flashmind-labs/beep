@@ -20,7 +20,6 @@
 
 use crate::{Devices, MeshError, WriteLimit};
 use iroh::{EndpointId, SecretKey, Signature};
-use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -46,9 +45,14 @@ pub enum Key {
     Pin(String),
     Credential(String),
     Harness(String),
-    Terminal(String),
     Flsh,
-    Instructions,
+    /// One saved version of the user's instructions: `instructions/<ms>.<id>`.
+    InstructionVersion(String),
+    /// A terminal kept running on a machine: `terminal/<id>`.
+    Terminal(String),
+    /// A kind this build does not know, as its text. A member holds it and passes it on and
+    /// nothing reads it, so a newer desktop's new kind never stops an older member's sync.
+    Other(String),
 }
 
 impl fmt::Display for Key {
@@ -60,9 +64,10 @@ impl fmt::Display for Key {
             Key::Pin(n) => write!(f, "pin/{n}"),
             Key::Credential(n) => write!(f, "credential/{n}"),
             Key::Harness(n) => write!(f, "harness/{n}"),
-            Key::Terminal(n) => write!(f, "terminal/{n}"),
             Key::Flsh => f.write_str("flsh"),
-            Key::Instructions => f.write_str("instructions"),
+            Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
+            Key::Terminal(n) => write!(f, "terminal/{n}"),
+            Key::Other(text) => f.write_str(text),
         }
     }
 }
@@ -72,10 +77,8 @@ impl FromStr for Key {
 
     fn from_str(s: &str) -> Result<Self, MeshError> {
         let bad = || MeshError::BadKey(s.to_owned());
-        match s {
-            "flsh" => return Ok(Key::Flsh),
-            "instructions" => return Ok(Key::Instructions),
-            _ => {}
+        if s == "flsh" {
+            return Ok(Key::Flsh);
         }
         let (kind, name) = s.split_once('/').ok_or_else(bad)?;
         if name.is_empty() {
@@ -89,10 +92,21 @@ impl FromStr for Key {
             "pin" => Ok(Key::Pin(name)),
             "credential" => Ok(Key::Credential(name)),
             "harness" => Ok(Key::Harness(name)),
+            "instructions" => Ok(Key::InstructionVersion(name)),
             "terminal" => Ok(Key::Terminal(name)),
+            // Not a kind this build knows, but well formed: kept as it is.
+            other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
             _ => Err(bad()),
         }
     }
+}
+
+/// A kind is lower case letters, digits, `-` and `_`.
+fn kind_is_well_formed(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_'))
 }
 
 impl Serialize for Key {
@@ -103,7 +117,17 @@ impl Serialize for Key {
 
 impl<'de> Deserialize<'de> for Key {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(D::Error::custom)
+        // Any text decodes, so one origin's refused key never fails the frame and strands its
+        // later entries; `apply` refuses a malformed one and steps past it.
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or(Key::Other(text)))
+    }
+}
+
+impl Key {
+    /// Text that is none of the kinds, and not well formed as an unknown one either.
+    fn is_malformed(&self) -> bool {
+        matches!(self, Key::Other(text) if text.parse::<Key>().is_err())
     }
 }
 
@@ -500,6 +524,7 @@ impl State {
         let now = now_ms();
         let mut applied = Applied::default();
         let mut stopped = BTreeSet::new();
+        let mut skipped = Vec::new();
         let mut next = self.heads.clone();
         let mut fresh = Vec::new();
         for entry in entries {
@@ -516,7 +541,20 @@ impl State {
                 continue;
             }
             next.insert(entry.origin, entry.seq);
+            if entry.key.is_malformed() {
+                // Signed by a desktop but not a key: nothing to keep, and the origin's later
+                // entries still count, so the head moves past it.
+                applied
+                    .refused
+                    .push(MeshError::BadKey(entry.key.to_string()));
+                skipped.push((entry.origin, entry.seq));
+                continue;
+            }
             fresh.push(entry);
+        }
+        for (origin, seq) in skipped {
+            let head = self.heads.entry(origin).or_insert(0);
+            *head = (*head).max(seq);
         }
         if fresh.is_empty() {
             return Ok(applied);
@@ -626,17 +664,24 @@ mod tests {
             Key::Pin("p".into()),
             Key::Credential("c".into()),
             Key::Harness("claude".into()),
-            Key::Terminal("t".into()),
             Key::Flsh,
-            Key::Instructions,
+            Key::InstructionVersion("1793000000000.a".into()),
+            Key::Terminal("t1".into()),
+            Key::Other("future-kind/x y".into()),
         ];
         for key in keys {
             assert_eq!(key.to_string().parse::<Key>().expect("parses"), key);
         }
         assert_eq!(project("a").to_string(), "project/a");
         assert!("project/".parse::<Key>().is_err());
-        assert!("nope/x".parse::<Key>().is_err());
         assert!("flsh/x".parse::<Key>().is_err());
+        assert!("Nope/x".parse::<Key>().is_err());
+        assert!("/x".parse::<Key>().is_err());
+        assert!("nope".parse::<Key>().is_err());
+        assert_eq!(
+            "nope/x".parse::<Key>().expect("an unknown kind is kept"),
+            Key::Other("nope/x".into())
+        );
     }
 
     #[test]
@@ -745,6 +790,50 @@ mod tests {
         assert!(applied.changed.is_empty());
         assert_eq!(a.get(&Key::Credential("c".into())), None);
         assert!(a.heads().is_empty());
+    }
+
+    #[test]
+    fn a_key_of_an_unknown_kind_passes_through_an_older_member() {
+        let m = mesh(2, 1);
+        let (_da, a) = open(&m, 0);
+        let (_db, mut b) = open(&m, 1);
+        let (_dn, mut node) = open(&m, 2);
+        let key = Key::Other("from-the-future/x y".into());
+        let sent = entry(&m, 0, key.clone(), "kept", 5, 1);
+        // Over the wire, as text: the signature covers it byte for byte.
+        let wire = postcard::to_stdvec(&sent).expect("encodes");
+        let received: Entry = postcard::from_bytes(&wire).expect("an unknown kind decodes");
+        assert_eq!(received, sent);
+        // A member that knows no such kind holds it and hands it on.
+        let applied = node.apply(vec![received], &m.devices).expect("apply");
+        assert!(applied.refused.is_empty(), "{:?}", applied.refused);
+        assert_eq!(node.get(&key), val("kept").as_deref());
+        let passed = node.since(&b.heads());
+        assert_eq!(passed, vec![sent.clone()]);
+        let again = b.apply(passed, &m.devices).expect("apply");
+        assert!(again.refused.is_empty());
+        assert_eq!(b.get(&key), val("kept").as_deref());
+        assert!(a.get(&key).is_none());
+    }
+
+    #[test]
+    fn a_bad_key_in_a_batch_does_not_strand_the_origins_later_entries() {
+        let m = mesh(1, 0);
+        let (_da, mut a) = open(&m, 0);
+        let first = entry(&m, 0, project("p1"), "one", 5, 1);
+        let bad = entry(&m, 0, Key::Other("not a key".into()), "x", 5, 2);
+        let later = entry(&m, 0, project("p3"), "three", 5, 3);
+        // On the wire the bad key still decodes.
+        let wire = postcard::to_stdvec(&bad).expect("encodes");
+        let received: Entry = postcard::from_bytes(&wire).expect("a bad key decodes");
+        let applied = a
+            .apply(vec![first, received, later], &m.devices)
+            .expect("apply");
+        assert_eq!(applied.refused.len(), 1);
+        assert!(matches!(applied.refused[0], MeshError::BadKey(_)));
+        assert_eq!(a.get(&project("p1")), val("one").as_deref());
+        assert_eq!(a.get(&project("p3")), val("three").as_deref());
+        assert_eq!(a.heads().get(&m.keys[0].public()), Some(&3));
     }
 
     #[test]

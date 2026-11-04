@@ -1,30 +1,33 @@
 //! Settings, Agent accounts: how the coding agents sign in on the user's
 //! machines. Claude Code signs in once, here: Beep runs `claude
 //! setup-token`, which opens the browser and prints a long-lived token, and
-//! the token goes straight to the server, which hands it to the machines.
+//! the token goes into the mesh, which hands it to the machines.
 //! Codex signs in on each machine with its device sign-in, which the
-//! server runs there, or uses an API key the server hands out.
+//! server runs there, or uses an API key the mesh hands out.
 
 use crate::{
-    beep::{Beep, Service, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::{Machines, agents as direct},
+    fleet::{
+        Machines, agents as direct,
+        projects::{FleetState, desk},
+    },
     projects::unknown_op,
     settings::cli_login::{find_tool, refused},
     settings::credentials::plain,
 };
 use anyhow::Context;
+use beep_fleet::Session;
 use beep_proto::{
     AgentAccount, AgentAccounts, AgentMachine, AgentToken, CancelCodexLogin, CodexLogin,
-    CodexLoginState, GetAgentAccounts, GetCodexLogin, RevokeAgentToken, SaveAgentToken, SecretText,
-    StartCodexLogin,
+    CodexLoginState, GetCodexLogin, SecretText, StartCodexLogin,
 };
 use serde::Serialize;
 use std::{
     path::Path,
     process::Stdio,
     str::FromStr,
-    sync::{Mutex, PoisonError},
+    sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 use tauri::State;
@@ -144,16 +147,12 @@ fn agent(slug: &str) -> Result<AgentAccount> {
 /// The agents' tokens and machines; `None` from a server too old to keep
 /// them.
 #[tauri::command]
-pub async fn agent_accounts(beep: Service<'_>) -> Result<Option<AccountsView>> {
+pub async fn agent_accounts(fleet: FleetState<'_>) -> Result<Option<AccountsView>> {
     let AgentAccounts {
         claude,
         codex_key,
         machines,
-    } = match beep.call(GetAgentAccounts {}).await {
-        Ok(accounts) => accounts,
-        Err(e) if unknown_op(&e) => return Ok(None),
-        Err(e) => return Err(e),
-    };
+    } = desk(&fleet).await?.agent_accounts().await?;
     Ok(Some(AccountsView {
         claude: claude.map(Into::into),
         codex_key: codex_key.map(Into::into),
@@ -164,33 +163,26 @@ pub async fn agent_accounts(beep: Service<'_>) -> Result<Option<AccountsView>> {
 /// Saves a pasted token for `agent` (`claude` or `codex`).
 #[tauri::command]
 pub async fn save_agent_token(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     agent_slug: String,
     secret: String,
 ) -> Result<TokenView> {
     let agent = agent(&agent_slug)?;
-    save(&beep, agent, SecretText::new(secret)).await
+    save(&fleet, agent, SecretText::new(secret)).await
 }
 
-async fn save(beep: &Beep, agent: AgentAccount, secret: SecretText) -> Result<TokenView> {
-    let saved = beep
-        .call(SaveAgentToken {
-            agent: agent.slug().to_owned(),
-            secret,
-        })
-        .await
-        .map_err(outdated)?;
+async fn save(fleet: &Arc<Session>, agent: AgentAccount, secret: SecretText) -> Result<TokenView> {
+    let saved = desk(fleet)
+        .await?
+        .save_agent_token(agent.slug(), &secret)
+        .await?;
     Ok(saved.into())
 }
 
 #[tauri::command]
-pub async fn revoke_agent_token(beep: Service<'_>, agent_slug: String) -> Result<()> {
+pub async fn revoke_agent_token(fleet: FleetState<'_>, agent_slug: String) -> Result<()> {
     let agent = agent(&agent_slug)?;
-    beep.call(RevokeAgentToken {
-        agent: agent.slug().to_owned(),
-    })
-    .await
-    .map_err(outdated)
+    Ok(desk(&fleet).await?.revoke_agent_token(agent.slug()).await?)
 }
 
 #[tauri::command]
@@ -283,7 +275,7 @@ impl ClaudeSignIn {
 /// reaches the page.
 #[tauri::command]
 pub async fn claude_sign_in(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     sign_in: State<'_, ClaudeSignIn>,
 ) -> Result<TokenView> {
     let claude = find_tool("claude").ok_or_else(|| {
@@ -292,7 +284,7 @@ pub async fn claude_sign_in(
     let cancelled = sign_in.start()?;
     let token = setup_token(&claude, cancelled).await;
     sign_in.stop();
-    save(&beep, AgentAccount::Claude, token?).await
+    save(&fleet, AgentAccount::Claude, token?).await
 }
 
 #[tauri::command]

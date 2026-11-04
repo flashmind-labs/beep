@@ -228,13 +228,45 @@ fn settings(mesh: &Mesh) -> AgentSettings {
                 None
             }
         });
+    let named = read::<HarnessConfig>(mesh, "harness/")
+        .into_iter()
+        .filter_map(|(key, config)| match key {
+            Key::Harness(name) => Some((name, config)),
+            _ => None,
+        })
+        .collect();
     AgentSettings {
-        harnesses: read::<HarnessConfig>(mesh, "harness/")
-            .into_iter()
-            .map(|(_, config)| config)
-            .collect(),
+        harnesses: harnesses_for(&mesh.me().to_string(), named),
         flsh,
     }
+}
+
+/// The harness settings this device runs with. `harness/<agent>` is the same on every device;
+/// `harness/<agent>/<device>` holds what is a path on one machine, the program and the home folder,
+/// and only the one named for this device counts, so a Mac's path never reaches another machine.
+fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessConfig> {
+    let mut shared = Vec::new();
+    let mut mine = BTreeMap::new();
+    for (name, config) in named {
+        match name.split_once('/') {
+            None => shared.push(config),
+            Some((agent, device)) if device == me => {
+                mine.insert(agent.to_owned(), config);
+            }
+            Some(_) => {}
+        }
+    }
+    for config in &mut shared {
+        // Whatever a shared value says about paths is not for this machine; only its own key is.
+        config.program = None;
+        config.home = None;
+        if let Some(own) = mine.remove(&config.agent) {
+            config.program = own.program;
+            config.home = own.home;
+        }
+    }
+    shared.extend(mine.into_values());
+    shared
 }
 
 /// The projects this device syncs: those whose spec names it, with the
@@ -286,4 +318,45 @@ fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) ->
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(agent: &str, program: Option<&str>) -> HarnessConfig {
+        HarnessConfig {
+            program: program.map(ToOwned::to_owned),
+            ..HarnessConfig::new(agent)
+        }
+    }
+
+    #[test]
+    fn a_program_path_reaches_only_the_device_it_is_for() {
+        let named = || {
+            vec![
+                ("codex".to_owned(), config("codex", None)),
+                (
+                    "codex/mac".to_owned(),
+                    config("codex", Some("/Users/a/bin/codex")),
+                ),
+                (
+                    "codex/linux".to_owned(),
+                    config("codex", Some("/usr/local/bin/codex")),
+                ),
+            ]
+        };
+        let on_linux = harnesses_for("linux", named());
+        assert_eq!(on_linux.len(), 1);
+        assert_eq!(on_linux[0].program.as_deref(), Some("/usr/local/bin/codex"));
+        let elsewhere = harnesses_for("windows", named());
+        assert_eq!(elsewhere.len(), 1);
+        assert_eq!(elsewhere[0].program, None);
+        // A path left in the shared value is nobody's.
+        let stray = vec![(
+            "codex".to_owned(),
+            config("codex", Some("/Users/a/bin/codex")),
+        )];
+        assert_eq!(harnesses_for("linux", stray)[0].program, None);
+    }
 }

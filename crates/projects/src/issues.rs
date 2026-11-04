@@ -11,6 +11,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use beep_proto::{ProjectIssue, ProjectPullRequest};
 use iroh::EndpointId;
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
@@ -402,6 +403,34 @@ pub async fn list_open_prs(
             pr,
         })
         .collect())
+}
+
+/// An open issue as the apps list it.
+pub fn issue_view(issue: OpenIssue) -> ProjectIssue {
+    ProjectIssue {
+        number: issue.number,
+        title: issue.title,
+        labels: issue.labels,
+        author: issue.author,
+        opened_at: issue.opened_at.into(),
+        comments: issue.comments,
+        url: issue.url,
+    }
+}
+
+/// An open pull request as the apps list it.
+pub fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
+    let pr = listed.pr;
+    ProjectPullRequest {
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        author: pr.author,
+        draft: pr.draft,
+        mine: listed.mine,
+        created_at: pr.created_at.into(),
+        updated_at: pr.updated_at.into(),
+    }
 }
 
 /// The branch pull request `number` is made from, read from the host now.

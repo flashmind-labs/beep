@@ -2,15 +2,10 @@
 //! agent's plan is used, and what the agents cost today, this week and
 //! this month.
 
-use crate::{
-    beep::{Service, epoch_ms},
-    error::Result,
-    projects::known,
-};
+use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
-    AgentSlug, AgentTokens, GetSpendReport, GetUsage, GetUsageReport, HarnessBill, HarnessSpend,
-    ModelSpend, PeriodSpend, PlanLimits, PlanWindow, ProjectBill, ProjectSpend, SpendPeriod,
-    SpendReport, UsageReport, UsageView,
+    AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelSpend, PeriodSpend, PlanLimits,
+    PlanWindow, ProjectBill, ProjectSpend, SpendPeriod, SpendReport, UsageReport, UsageView,
 };
 use serde::Serialize;
 
@@ -260,15 +255,10 @@ impl From<UsageView> for UsageRow {
     }
 }
 
-/// The plans and spending; `None` from a server too old to keep them, so
-/// the pill hides. `refresh` has the machines read the plans again.
+/// The plans and spending, summed over every machine that is online. Each
+/// machine reads its plans again on every read. The last report comes at
+/// once, with a new one collected behind it; `refresh` waits for a new one.
 #[tauri::command]
-pub async fn usage_get(beep: Service<'_>, refresh: bool) -> Result<Option<UsageRow>> {
-    if let Some(report) = known(beep.call(GetSpendReport { refresh }).await)? {
-        return Ok(Some(report.into()));
-    }
-    if let Some(report) = known(beep.call(GetUsageReport { refresh }).await)? {
-        return Ok(Some(report.into()));
-    }
-    Ok(known(beep.call(GetUsage { refresh }).await)?.map(Into::into))
+pub async fn usage_get(fleet: FleetState<'_>, refresh: bool) -> Result<Option<UsageRow>> {
+    Ok(Some(fleet.spend(refresh).await?.into()))
 }

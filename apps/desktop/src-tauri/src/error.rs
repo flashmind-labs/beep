@@ -37,6 +37,22 @@ impl From<anyhow::Error> for DesktopError {
     }
 }
 
+impl From<beep_fleet::FleetError> for DesktopError {
+    fn from(e: beep_fleet::FleetError) -> Self {
+        use beep_fleet::FleetError;
+        match e {
+            FleetError::Offline(name) => Self::Offline(name),
+            FleetError::NoMesh(why) => Self::NoMesh(why),
+            FleetError::Mesh(e) => Self::Mesh(e),
+            FleetError::NeedsServer => Self::NoServer,
+            FleetError::NotFound => Self::Api(ApiError::NotFound {}),
+            FleetError::Refused(text) => Self::BadRequest(text),
+            FleetError::Import(e) => Self::BadRequest(e.to_string()),
+            FleetError::Other(e) => Self::Other(e),
+        }
+    }
+}
+
 impl From<tauri::Error> for DesktopError {
     fn from(e: tauri::Error) -> Self {
         Self::Other(e.into())
