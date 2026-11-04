@@ -4,11 +4,11 @@
 
 use crate::{
     agents::work_copy,
-    beep::{Service, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     center::AgentsShown,
     chat::markdown,
     error::Result,
-    fleet::Fleet,
+    fleet::{Fleet, Machines, agents as direct, extra},
     machines::list::Outside,
     projects::{known, unknown_op},
 };
@@ -188,8 +188,6 @@ pub struct Started {
     why: String,
 }
 
-/// The machines of the mesh that offer an agent, and those the server lists
-/// that are not in it.
 #[tauri::command]
 pub async fn agent_hosts(
     app: AppHandle,
@@ -216,9 +214,61 @@ pub async fn agent_hosts(
 }
 
 #[tauri::command]
-pub async fn agent_sessions(beep: Service<'_>) -> Result<Vec<SessionRow>> {
-    let sessions = beep.call(ListAgentSessions {}).await?;
+pub async fn agent_sessions(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    held: State<'_, Outside>,
+) -> Result<Vec<SessionRow>> {
+    let sessions = machine_sessions(&app, &beep, &fleet, &held).await;
     Ok(sessions.into_iter().map(SessionRow::from).collect())
+}
+
+/// Whether two listings of a session differ in what the windows draw, which
+/// leaves out what moves on every read.
+fn same_session(old: &MachineSession, new: &MachineSession) -> bool {
+    old.machine_id == new.machine_id
+        && old.id == new.id
+        && old.status == new.status
+        && old.question.as_ref().map(|q| q.id) == new.question.as_ref().map(|q| q.id)
+}
+
+/// The sessions of every machine, newest activity first, at once: Beep's on
+/// this Mac, read in this process, and the rest as last held. The other
+/// machines of the mesh, the server and the scans of what agents ran
+/// outside Beep refresh in the background, each machine on its own limit,
+/// and the windows redraw when one changes.
+pub(crate) async fn machine_sessions(
+    app: &AppHandle,
+    beep: &Arc<Beep>,
+    fleet: &Arc<Fleet>,
+    held: &Outside,
+) -> Vec<MachineSession> {
+    let mut sessions = direct::local_sessions(fleet).await;
+    let (b, f) = (beep.clone(), fleet.clone());
+    sessions.extend(held.sessions.refreshed(
+        app,
+        async move {
+            let (peers, server) =
+                tokio::join!(direct::peer_sessions(&f), b.call(ListAgentSessions {}));
+            let mut sessions = peers;
+            sessions.extend(
+                extra(server)
+                    .into_iter()
+                    .filter(|session| f.member(&session.machine_id).is_none()),
+            );
+            Ok(sessions)
+        },
+        same_session,
+    ));
+    let f = fleet.clone();
+    sessions.extend(held.scans.refreshed(
+        app,
+        async move { Ok(direct::scanned_sessions(&f).await) },
+        same_session,
+    ));
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
+    sessions
 }
 
 /// Starts a session; no `machine_id` lets the server pick. `chat` hears
@@ -230,6 +280,7 @@ pub async fn agent_sessions(beep: Service<'_>) -> Result<Vec<SessionRow>> {
 #[tauri::command]
 pub async fn agent_start(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: Option<String>,
     agent: Option<String>,
     cwd: Option<String>,
@@ -239,23 +290,38 @@ pub async fn agent_start(
     effort: Option<Effort>,
     checkout: Option<CheckoutPlan>,
 ) -> Result<Started> {
-    let started = beep
-        .call(StartAgentSession {
-            machine_id,
-            agent,
-            cwd,
-            prompt,
-            needs: Vec::new(),
-            chat,
-            model,
-            effort: effort.map(Into::into),
-            checkout: checkout.map(Into::into),
-        })
-        .await?;
+    let request = StartAgentSession {
+        machine_id,
+        agent,
+        cwd,
+        prompt,
+        needs: Vec::new(),
+        chat,
+        model,
+        effort: effort.map(Into::into),
+        checkout: checkout.map(Into::into),
+    };
+    // A chat that hears the session is the server's: it follows the node.
+    let chat_on_server = request.chat.is_some() && beep.server().is_some();
+    let started = if !chat_on_server && goes_direct(&fleet, request.machine_id.as_deref()).await {
+        direct::start(&fleet, request).await?
+    } else {
+        beep.call(request).await?
+    };
     Ok(Started {
         session: started.session.into(),
         why: started.why,
     })
+}
+
+/// Whether a call about `machine` goes to the mesh: a member of it, or,
+/// when none is named, any member that runs agents. Otherwise the server
+/// has it.
+async fn goes_direct(fleet: &Fleet, machine: Option<&str>) -> bool {
+    match machine {
+        Some(machine) => fleet.member(machine).is_some(),
+        None => !direct::hosts(fleet).is_empty(),
+    }
 }
 
 /// The machine Auto would pick, as the start form shows it.
@@ -281,18 +347,22 @@ impl From<MachinePick> for PickView {
 #[tauri::command]
 pub async fn agent_preview(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     agent: Option<String>,
     cwd: Option<String>,
     prompt: String,
 ) -> Result<Option<PickView>> {
-    let asked = beep
-        .call(PreviewAgentMachine {
-            agent,
-            cwd,
-            prompt,
-            needs: Vec::new(),
-        })
-        .await;
+    let request = PreviewAgentMachine {
+        agent,
+        cwd,
+        prompt,
+        needs: Vec::new(),
+    };
+    let asked = if goes_direct(&fleet, None).await {
+        direct::preview_machine(&fleet, request).await
+    } else {
+        beep.call(request).await
+    };
     match asked {
         Ok(pick) => Ok(Some(pick.into())),
         Err(e) if unknown_op(&e) => Ok(None),
@@ -342,10 +412,19 @@ impl From<AgentModel> for ModelView {
 #[tauri::command]
 pub async fn agent_models(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     agent: String,
 ) -> Result<Option<ModelsView>> {
-    match beep.call(ListAgentModels { machine_id, agent }).await {
+    let request = ListAgentModels {
+        machine_id: machine_id.clone(),
+        agent,
+    };
+    let asked = match fleet.member(&machine_id) {
+        Some(machine) => direct::models(&fleet, machine, &request).await,
+        None => beep.call(request).await,
+    };
+    match asked {
         Ok(list) => Ok(Some(list.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
@@ -357,19 +436,22 @@ pub async fn agent_models(
 #[tauri::command]
 pub async fn agent_resume(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     agent: String,
     session: String,
     prompt: Option<String>,
 ) -> Result<Started> {
-    let started = beep
-        .call(ResumeAgentSession {
-            machine_id,
-            agent,
-            session,
-            prompt,
-        })
-        .await?;
+    let request = ResumeAgentSession {
+        machine_id,
+        agent,
+        session,
+        prompt,
+    };
+    let started = match fleet.member(&request.machine_id) {
+        Some(machine) => direct::resume(&fleet, machine, request).await?,
+        None => beep.call(request).await?,
+    };
     Ok(Started {
         session: started.session.into(),
         why: started.why,
@@ -378,10 +460,13 @@ pub async fn agent_resume(
 
 /// One session in full. The calling webview's session view shows it, so
 /// its notices stay quiet while the view keeps reading it.
+// The arguments are the fields of the window's `invoke` call.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_view(
     window: WebviewWindow,
     beep: Service<'_>,
+    fleet: Machines<'_>,
     shown: State<'_, AgentsShown>,
     machine_id: String,
     agent: String,
@@ -395,14 +480,16 @@ pub async fn agent_view(
         &session,
         Instant::now(),
     );
-    let view = beep
-        .call(GetAgentSession {
-            machine_id,
-            agent,
-            session,
-            last,
-        })
-        .await?;
+    let request = GetAgentSession {
+        machine_id,
+        agent,
+        session,
+        last,
+    };
+    let view = match fleet.member(&request.machine_id) {
+        Some(machine) => direct::session(&fleet, machine, &request).await?,
+        None => beep.call(request).await?,
+    };
     Ok(view.into())
 }
 
@@ -423,18 +510,20 @@ pub async fn session_folder_here(
 #[tauri::command]
 pub async fn agent_usage(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     agent: String,
     session: String,
 ) -> Result<Option<AgentSessionUsage>> {
-    known(
-        beep.call(GetAgentSessionUsage {
-            machine_id,
-            agent,
-            session,
-        })
-        .await,
-    )
+    let request = GetAgentSessionUsage {
+        machine_id,
+        agent,
+        session,
+    };
+    known(match fleet.member(&request.machine_id) {
+        Some(machine) => direct::usage(&fleet, machine, &request).await,
+        None => beep.call(request).await,
+    })
 }
 
 /// A session's modes for the page.
@@ -471,18 +560,20 @@ impl From<AgentSessionModes> for ModesRow {
 #[tauri::command]
 pub async fn agent_modes(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     agent: String,
     session: String,
 ) -> Result<Option<ModesRow>> {
-    let modes = known(
-        beep.call(GetAgentSessionModes {
-            machine_id,
-            agent,
-            session,
-        })
-        .await,
-    )?;
+    let request = GetAgentSessionModes {
+        machine_id,
+        agent,
+        session,
+    };
+    let modes = known(match fleet.member(&request.machine_id) {
+        Some(machine) => direct::modes(&fleet, machine, &request).await,
+        None => beep.call(request).await,
+    })?;
     Ok(modes.map(Into::into))
 }
 

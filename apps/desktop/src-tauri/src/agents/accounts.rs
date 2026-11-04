@@ -8,7 +8,10 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::projects::{FleetState, desk},
+    fleet::{
+        Machines, agents as direct,
+        projects::{FleetState, desk},
+    },
     projects::unknown_op,
     settings::cli_login::{find_tool, refused},
     settings::credentials::plain,
@@ -183,16 +186,23 @@ pub async fn revoke_agent_token(fleet: FleetState<'_>, agent_slug: String) -> Re
 }
 
 #[tauri::command]
-pub async fn codex_login_start(beep: Service<'_>, machine_id: String) -> Result<CodexLoginView> {
+pub async fn codex_login_start(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    machine_id: String,
+) -> Result<CodexLoginView> {
     let CodexLogin {
         task,
         url,
         code,
         expires_at,
-    } = beep
-        .call(StartCodexLogin { machine_id })
-        .await
-        .map_err(outdated)?;
+    } = match fleet.member(&machine_id) {
+        Some(machine) => direct::codex_login_start(&fleet, machine).await?,
+        None => beep
+            .call(StartCodexLogin { machine_id })
+            .await
+            .map_err(outdated)?,
+    };
     Ok(CodexLoginView {
         task,
         url,
@@ -204,21 +214,34 @@ pub async fn codex_login_start(beep: Service<'_>, machine_id: String) -> Result<
 #[tauri::command]
 pub async fn codex_login_state(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     task: u32,
 ) -> Result<CodexStateView> {
-    let state = beep
-        .call(GetCodexLogin { machine_id, task })
-        .await
-        .map_err(outdated)?;
+    let state = match fleet.member(&machine_id) {
+        Some(machine) => direct::codex_login_state(&fleet, machine, task).await?,
+        None => beep
+            .call(GetCodexLogin { machine_id, task })
+            .await
+            .map_err(outdated)?,
+    };
     Ok(state.into())
 }
 
 #[tauri::command]
-pub async fn codex_login_cancel(beep: Service<'_>, machine_id: String, task: u32) -> Result<()> {
-    beep.call(CancelCodexLogin { machine_id, task })
-        .await
-        .map_err(outdated)
+pub async fn codex_login_cancel(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    machine_id: String,
+    task: u32,
+) -> Result<()> {
+    match fleet.member(&machine_id) {
+        Some(machine) => direct::codex_login_cancel(&fleet, machine, task).await,
+        None => beep
+            .call(CancelCodexLogin { machine_id, task })
+            .await
+            .map_err(outdated),
+    }
 }
 
 /// The Claude Code sign-in under way, if any: one at a time.

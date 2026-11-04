@@ -71,15 +71,18 @@ fn main() {
                     let beep = app
                         .try_state::<Arc<Beep>>()
                         .map(|beep| beep.inner().clone());
+                    let fleet = app
+                        .try_state::<Arc<Fleet>>()
+                        .map(|fleet| fleet.inner().clone());
                     tauri::async_runtime::spawn(async move {
-                        let response = match beep {
-                            Some(beep) => {
-                                file.serve(
-                                    |at| async move { artifacts::read_sibling(&beep, at).await },
-                                )
+                        let response = match (beep, fleet) {
+                            (Some(beep), Some(fleet)) => {
+                                file.serve(|at| async move {
+                                    artifacts::read_sibling(&beep, &fleet, at).await
+                                })
                                 .await
                             }
-                            None => artifacts::unavailable(),
+                            _ => artifacts::unavailable(),
                         };
                         responder.respond(response);
                     });

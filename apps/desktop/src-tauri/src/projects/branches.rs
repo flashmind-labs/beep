@@ -1,15 +1,53 @@
 //! Branches with work before an import, and giving a branch a worktree.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     error::Result,
-    fleet::projects::{FleetState, desk},
+    fleet::{
+        Fleet, Machines,
+        files::{self as direct, FALLBACK_DEFAULT, Place},
+        projects::{FleetState, desk},
+    },
     projects::needs_update,
     projects::reviews::BranchRow,
 };
-use beep_proto::{AddBranchWorktree, ImportCheckout, ImportFork, ImportPreview, WorkBranch};
+use beep_proto::{
+    AddBranchWorktree, ImportCheckout, ImportFork, ImportPreview, ListProjectMachines, WorkBranch,
+};
 use serde::Serialize;
 use std::time::Duration;
+
+/// Where `project` has a checkout on a machine of the mesh that is online: from the mesh's
+/// records, else, for a project only the server has, as the server records it.
+pub(crate) async fn places(beep: &Beep, fleet: &Fleet, project: &str) -> Vec<Place> {
+    let online = fleet.online();
+    let recorded: Vec<Place> = fleet
+        .mesh()
+        .map(|mesh| beep_fleet::places(&mesh, project))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(machine, _)| online.contains(machine))
+        .map(|(machine, folder)| Place { machine, folder })
+        .collect();
+    if !recorded.is_empty() {
+        return recorded;
+    }
+    let machines = beep
+        .call(ListProjectMachines {
+            project: project.to_owned(),
+        })
+        .await;
+    crate::fleet::extra(machines)
+        .into_iter()
+        .filter(|machine| machine.online)
+        .filter_map(|machine| {
+            Some(Place {
+                machine: fleet.member(&machine.machine_id)?,
+                folder: machine.folder?,
+            })
+        })
+        .collect()
+}
 
 /// Adding a worktree may fetch the branch first.
 const ADD_TIMEOUT: Duration = Duration::from_secs(150);
@@ -96,10 +134,21 @@ pub async fn find_import_fork(fleet: FleetState<'_>, repo: String) -> Result<Opt
 #[tauri::command]
 pub async fn add_branch_worktree(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     project: String,
     branch: String,
     machine_id: String,
 ) -> Result<BranchRow> {
+    if let Some(machine) = fleet.member(&machine_id) {
+        let place = places(&beep, &fleet, &project)
+            .await
+            .into_iter()
+            .find(|place| place.machine == machine);
+        if let Some(place) = place {
+            let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
+            return Ok(added.into());
+        }
+    }
     let request = AddBranchWorktree {
         project,
         branch,

@@ -4,7 +4,10 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::Result,
-    fleet::projects::{FleetState, desk},
+    fleet::{
+        Machines, agents as direct,
+        projects::{FleetState, desk},
+    },
     projects::unknown_op,
     settings::credentials::plain,
 };
@@ -190,6 +193,7 @@ impl From<AgentHarnesses> for HarnessesView {
 #[tauri::command]
 pub async fn agent_harnesses(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     refresh: bool,
 ) -> Result<Option<HarnessesView>> {
@@ -197,7 +201,11 @@ pub async fn agent_harnesses(
         machine_id,
         refresh,
     };
-    match beep.call_within(request, LIST_LIMIT).await {
+    let asked = match fleet.member(&request.machine_id) {
+        Some(machine) => direct::harnesses(&fleet, machine, refresh).await,
+        None => beep.call_within(request, LIST_LIMIT).await,
+    };
+    match asked {
         Ok(list) => Ok(Some(list.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(plain(e)),
@@ -224,13 +232,18 @@ pub async fn harness_settings_save(
 #[tauri::command]
 pub async fn agent_harness_update(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     agent: String,
 ) -> Result<HarnessesView> {
-    let updated = beep
-        .call_within(UpdateAgentHarness { machine_id, agent }, UPDATE_LIMIT)
-        .await
-        .map_err(plain)?;
+    let updated = match fleet.member(&machine_id) {
+        Some(machine) => direct::update_harness(&fleet, machine, &agent).await,
+        None => {
+            beep.call_within(UpdateAgentHarness { machine_id, agent }, UPDATE_LIMIT)
+                .await
+        }
+    }
+    .map_err(plain)?;
     Ok(updated.into())
 }
 

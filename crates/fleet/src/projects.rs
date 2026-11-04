@@ -17,7 +17,6 @@ use beep_projects::{
     branches::add_worktree,
     imports::{
         flow::{self, Effects, Env, Import},
-        folder::{FolderPath, look},
         found::{self, MachineFound},
         host_repos::read_hosts,
         hosts::{find_fork, forgejo_of, project_forges},
@@ -32,7 +31,7 @@ use beep_projects::{
 };
 use beep_proto::{
     BranchPlace, CheckoutFailure, CreateProject, CreatedProject, FoundProject, HostRepos,
-    ImportFork, ImportPreview, ImportedProject, MachineFolder, ProjectForge, ProjectGroup,
+    ImportFork, ImportPreview, ImportedProject, ProjectForge, ProjectGroup,
     groups::{group_name, group_paths},
     node::mesh_state::SyncSpec,
 };
@@ -44,8 +43,6 @@ use uuid::Uuid;
 const MAX_IMPORT_WORKTREES: usize = 20;
 /// The branch worktrees are cut from when the checkout says none.
 const FALLBACK_DEFAULT: &str = "main";
-/// The most folders asked of each machine's agent sessions.
-const FOUND_LIMIT: u32 = 100;
 /// The most repositories one host lists.
 const MAX_REPOS: usize = 100;
 
@@ -455,43 +452,11 @@ impl Desk {
         Ok(previews::preview(&usable, &imports, &servers, input).await?)
     }
 
-    /// One folder on `machine_id` for the folder browser: `path`, else the workspace, else home.
-    pub async fn browse(&self, machine_id: &str, path: Option<&str>) -> Result<MachineFolder> {
-        let picked = match path {
-            Some(path) => FolderPath::parse(path)?,
-            None => None,
-        };
-        let machines = self.machines().await;
-        let machine = flow::choose_machine(&machines, Some(machine_id))?;
-        let start = match picked {
-            Some(picked) => picked,
-            None => match machine.workspace.as_deref().map(FolderPath::parse) {
-                Some(Ok(Some(workspace))) => workspace,
-                _ => FolderPath::Home(String::new()),
-            },
-        };
-        Ok(look(machine.shell()?, &machine.name, &start).await?)
-    }
-
-    /// The checkouts the machines' coding agents worked in that are not projects yet.
-    pub async fn found(&self) -> Result<Vec<FoundProject>> {
-        let mut machines = Vec::new();
-        for machine in self.machines().await {
-            let Some(sessions) = machine.sessions else {
-                continue;
-            };
-            match sessions.found(FOUND_LIMIT).await {
-                Ok(folders) => machines.push(MachineFound {
-                    machine_id: machine.id,
-                    machine_name: machine.name,
-                    folders,
-                }),
-                Err(e) => log::info!("{} could not list its folders: {e:#}", machine.name),
-            }
-        }
+    /// The checkouts the machines' coding agents worked in that are not projects yet: `found`
+    /// grouped by repository, leaving out what the mesh already has as a project.
+    pub fn group_found(&self, found: Vec<MachineFound>) -> Vec<FoundProject> {
         let servers = forgejo_of(&self.opened());
-        let imported = MeshStore::new(&self.mesh).rows();
-        Ok(found::group(machines, &imported, &servers))
+        found::group(found, &MeshStore::new(&self.mesh).rows(), &servers)
     }
 
     /// The user's repositories per git host, newest update first, without those imported.

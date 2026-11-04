@@ -54,7 +54,7 @@ pub use crate::protocol::node::{
     sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
 pub use agent::{AgentLink, Mark, StartOn, Watched};
-pub(crate) use agent::{News, NodeFile, NodeWork, SessionRefused, WorkRead, WorkWrite};
+pub(crate) use agent::{News, NodeFile, NodeImage, NodeWork, SessionRefused, WorkRead, WorkWrite};
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};
 pub(crate) use retry::{NODE_BACK, Repeat};
@@ -110,7 +110,7 @@ pub struct Nodes {
     /// Woken when a node connects or drops, for calls waiting on one.
     changed: Notify,
     /// The newest `gh` and `teacli` releases, for `ListToolUpdates`.
-    pub releases: tool_update::ToolReleases,
+    pub releases: beep_mesh::machine::releases::ToolReleases,
 }
 
 /// How long after a node drops a call still waits for it to come back:

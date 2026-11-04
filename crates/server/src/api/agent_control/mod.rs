@@ -26,11 +26,10 @@ use crate::{
     store::SessionOn,
     tools::machines::command_name,
 };
+use beep_mesh::machine::{Makes, checkout_for, pick_agent, picked_effort, picked_model};
 
 /// The most transcript entries one view reads.
 const MAX_ENTRIES: u32 = 200;
-/// The agent Auto starts when the request names none, most preferred first.
-const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
 /// An online machine of the caller's that offers a coding agent.
 pub(super) struct Live {
@@ -52,28 +51,7 @@ impl Live {
 
     /// `named`, or the one this machine prefers when the call names none.
     pub(super) fn agent(&self, named: Option<&str>) -> Result<String, ApiError> {
-        if let Some(named) = named {
-            return if self.offers(named) {
-                Ok(named.to_owned())
-            } else {
-                Err(ApiError::bad_request(format!(
-                    "{} does not offer {}.",
-                    self.host.machine_name,
-                    agent_name(named)
-                )))
-            };
-        }
-        PREFERRED
-            .iter()
-            .find(|agent| self.offers(agent))
-            .map(|agent| (*agent).to_owned())
-            .or_else(|| self.host.agents.first().cloned())
-            .ok_or_else(|| {
-                ApiError::bad_request(format!(
-                    "{} offers no coding agent.",
-                    self.host.machine_name
-                ))
-            })
+        pick_agent(&self.host, named)
     }
 }
 
@@ -354,59 +332,8 @@ pub(super) async fn list_agent_models(cx: Cx, list: ListAgentModels) -> Reply<Ag
             current: None,
             models: Vec::new(),
         },
-        agent_models,
+        beep_mesh::machine::agent_models,
     ))
-}
-
-/// What the app sees of the models a node found.
-fn agent_models(list: agent::ModelList) -> AgentModels {
-    let pick = match list.pick {
-        agent::ModelPick::Listed => AgentModelPick::Listed {},
-        agent::ModelPick::Named => AgentModelPick::Named {},
-        _ => AgentModelPick::Fixed {},
-    };
-    AgentModels {
-        pick,
-        current: list.current,
-        models: list
-            .models
-            .into_iter()
-            .map(|model| AgentModel {
-                id: model.id,
-                name: model.name,
-                description: model.description,
-            })
-            .collect(),
-    }
-}
-
-/// The model a start asks for: `None` for the agent's own.
-fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
-    let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
-        return Ok(None);
-    };
-    if !agent::valid_model(model) {
-        return Err(ApiError::bad_request("That is not a model name."));
-    }
-    Ok(Some(model.to_owned()))
-}
-
-/// The thinking level a start asks of `agent`: `None` for the agent's own.
-fn picked_effort(
-    agent: &str,
-    effort: Option<AgentEffort>,
-) -> Result<Option<agent::Effort>, ApiError> {
-    let Some(effort) = effort.map(agent::Effort::from) else {
-        return Ok(None);
-    };
-    if !agent::efforts(agent).contains(&effort) {
-        return Err(ApiError::bad_request(format!(
-            "{} cannot be set to think at {}.",
-            agent_name(agent),
-            effort.as_str()
-        )));
-    }
-    Ok(Some(effort))
 }
 
 /// The branch or worktree a start asks `node` to make; refused when the node is too old to make it.
@@ -420,51 +347,3 @@ fn picked_checkout(
     };
     checkout_for(makes, &node.name, checkout)
 }
-
-/// Which checkout plans a node makes.
-#[derive(Debug, Clone, Copy)]
-struct Makes {
-    /// A new branch or worktree named from the prompt.
-    checkouts: bool,
-    /// A worktree on a branch named by the start, new or existing.
-    branches: bool,
-}
-
-/// `picked_checkout` for a node named `name` that makes what `makes` says.
-fn checkout_for(
-    makes: Makes,
-    name: &str,
-    checkout: Option<AgentCheckoutPlan>,
-) -> Result<Option<agent::CheckoutPlan>, ApiError> {
-    let Some(plan) = checkout.map(agent::CheckoutPlan::from) else {
-        return Ok(None);
-    };
-    if let Some(base) = plan.base()
-        && !agent::valid_ref(base)
-    {
-        return Err(ApiError::bad_request(format!(
-            "{base:?} is not a branch or commit name."
-        )));
-    }
-    if let Some(branch) = plan.branch() {
-        if !agent::valid_branch(branch) {
-            return Err(ApiError::bad_request(format!(
-                "{branch:?} is not a branch name git takes."
-            )));
-        }
-        if !makes.branches {
-            return Err(ApiError::bad_request(format!(
-                "beep-node on {name} is too old to start on a named branch. Update it, or start on a new worktree."
-            )));
-        }
-    }
-    if !makes.checkouts {
-        return Err(ApiError::bad_request(format!(
-            "beep-node on {name} is too old to make a branch or worktree. Update it, or start in the checkout as it is."
-        )));
-    }
-    Ok(Some(plan))
-}
-
-#[cfg(test)]
-mod tests;

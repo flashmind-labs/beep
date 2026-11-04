@@ -23,7 +23,6 @@ use std::time::Duration;
 use uuid::Uuid;
 
 mod agent_accounts;
-mod agent_auto;
 mod agent_control;
 mod agent_found;
 mod agent_sessions;
