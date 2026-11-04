@@ -31,6 +31,8 @@ const QUEUE: usize = 64;
 /// How long a notice that came one way waits for the same one to come the
 /// other way.
 const TWICE: Duration = Duration::from_secs(60);
+/// How long a stream stays open before it counts as working.
+const HELD: Duration = Duration::from_secs(30);
 /// How long a machine gets to answer an answer.
 const ANSWERING: Duration = Duration::from_secs(10);
 
@@ -124,27 +126,39 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
 async fn machine(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
     let mut backoff = Backoff::eager();
     loop {
-        match stream(&fleet, id, &out, &mut backoff).await {
+        let started = Instant::now();
+        let mut replied = false;
+        match stream(&fleet, id, &out, &mut replied).await {
             Ok(()) => return,
             Err(e) => log::debug!("following alerts from {}: {e}", fleet.name_of(id)),
+        }
+        if held(replied, started.elapsed()) {
+            backoff.reset();
         }
         sleep(backoff.pause()).await;
     }
 }
 
-/// One stream's life. `Ok` when the receiver is gone.
+/// Whether a stream that broke was a working one, so the next try comes at
+/// once: the machine sent something, or kept it open for `HELD`. One that
+/// is accepted and closed again keeps backing off.
+fn held(replied: bool, lived: Duration) -> bool {
+    replied || lived >= HELD
+}
+
+/// One stream's life. `Ok` when the receiver is gone; `replied` says
+/// whether the machine sent anything.
 async fn stream(
     fleet: &Fleet,
     id: EndpointId,
     out: &mpsc::Sender<Direct>,
-    backoff: &mut Backoff,
+    replied: &mut bool,
 ) -> Result<()> {
     let client = fleet.client(id).await?;
     let (mut tx, mut rx) = client.open(SESSIONS_PROTOCOL).await?;
     tx.send(&SessionsRequest::FollowAlerts {})
         .await
         .map_err(MeshError::Link)?;
-    backoff.reset();
     if out.send(Direct::Connected).await.is_err() {
         return Ok(());
     }
@@ -154,6 +168,7 @@ async fn stream(
         let Some(reply) = reply else {
             return Err(MeshError::Link(anyhow::anyhow!("the machine ended the stream")).into());
         };
+        *replied = true;
         let SessionsReply::Alert { alert } = reply else {
             continue;
         };
@@ -307,6 +322,15 @@ cat > /dev/null
             question,
             machine_name: machine_name.into(),
         }
+    }
+
+    #[test]
+    fn a_stream_that_is_accepted_and_closed_keeps_backing_off() {
+        let secs = Duration::from_secs;
+        assert!(!held(false, secs(1)));
+        assert!(!held(false, HELD - secs(1)));
+        assert!(held(true, secs(0)));
+        assert!(held(false, HELD));
     }
 
     #[test]
