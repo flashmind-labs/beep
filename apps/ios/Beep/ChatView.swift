@@ -383,12 +383,12 @@ struct ChatView: View {
                     }
                     TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
                         .id(field)
-                        .font(.body(15))
+                        .font(.body(14))
                         .foregroundStyle(Mint.ink)
                         .tint(Mint.ink)
                         .lineLimit(1...6)
                         .focused($typing)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, 10)
                         .padding(.leading, draft.isEmpty && !model.chat.busy ? 6 : 16)
                 }
                 .padding(.leading, 4).padding(.trailing, 12)
@@ -488,7 +488,7 @@ struct ChatView: View {
             PulseDot()
             Text("Listening...").font(.body(12, .medium)).foregroundStyle(Mint.muted)
         }
-        .padding(.horizontal, 20).padding(.vertical, 2)
+        .padding(.horizontal, Mint.pageInset).padding(.vertical, 2)
     }
 
     /// Messages queued while the reply runs; each sends as its own turn once the one before
@@ -556,8 +556,8 @@ struct ChatView: View {
                 ForEach(Array(photos.enumerated()), id: \.offset) { index, data in
                     ZStack(alignment: .topTrailing) {
                         PhotoThumb(data: data).frame(width: 64, height: 64)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.ledge, lineWidth: 1.5))
+                            .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
+                            .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: 1.5))
                         Button { photos.remove(at: index) } label: {
                             Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Mint.page)
                                 .frame(width: 20, height: 20).background(Circle().fill(Mint.ink))
@@ -632,7 +632,7 @@ private struct ErrorRow<Extra: View>: View {
             Button("Retry", action: retry).buttonStyle(TextAction(color: Mint.error))
         }
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Mint.error.opacity(0.1)))
+        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.error.opacity(0.1)))
     }
 }
 
@@ -667,12 +667,12 @@ private struct EmptyChat: View {
                 .padding(.top, 16)
             }
             (Text("A little help.\n".display) + Text("Right here.".display).foregroundColor(Mint.ok))
-                .font(.display(40)).foregroundStyle(Mint.ink)
+                .font(.display(24)).foregroundStyle(Mint.ink)
                 .lineSpacing(0)
                 .popIn(anchor: .bottomLeading)
                 .padding(.top, 24)
             Text("Find an answer. Untangle a thought.\nKeep something worth remembering.")
-                .font(.body(15)).foregroundStyle(Mint.muted).lineSpacing(5)
+                .font(.body(14)).foregroundStyle(Mint.muted).lineSpacing(5)
                 .padding(.top, 12)
                 .padding(.bottom, 28)
             let items = model.starters.isEmpty ? Self.templates
@@ -684,8 +684,8 @@ private struct EmptyChat: View {
                             Image(systemName: starterIcon(item.title + " " + item.prompt))
                                 .font(.system(size: 16, weight: .medium)).foregroundStyle(Mint.ink)
                                 .frame(width: 34, height: 34)
-                                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.tints[index % 3]))
-                            Text(item.title).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[index % 3]))
+                            Text(item.title).font(.body(14, .medium)).foregroundStyle(Mint.ink)
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
                             Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .medium))
@@ -764,7 +764,7 @@ private struct ThinkingPreview: View {
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.2)],
                                  startPoint: .top, endPoint: .bottom))
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
     }
 }
 
@@ -830,7 +830,7 @@ struct MessageView: View {
                     ApprovalCard(prompt: prompt).padding(.bottom, 8)
                 }
                 if !message.text.isEmpty {
-                    Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }.botBubble()
+                    Typewriter(text: message.text, streaming: live) { MarkdownText(text: $0) }
                 }
                 // The web pages the turn used, once the reply is done.
                 if !live, !message.text.isEmpty, !message.sources.isEmpty {
@@ -878,7 +878,7 @@ struct MessageView: View {
 
     /// The text, with any pictures above it in a 220 point wide block as in the mock.
     @ViewBuilder private var userBubble: some View {
-        let text = Text(message.text).font(.body(15)).foregroundStyle(Mint.onUser).lineSpacing(4).textSelection(.enabled)
+        let text = Text(message.text).font(.body(14)).foregroundStyle(Mint.onUser).lineSpacing(4).textSelection(.enabled)
         if !message.files.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if !message.pictures.isEmpty { PictureGrid(pictures: message.pictures) }
@@ -947,7 +947,7 @@ struct MessageView: View {
                 MarkdownText(text: message.reasoning, size: 13, color: Mint.muted)
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
                     .padding(.bottom, 6)
                     .unfold()
             }
@@ -1197,7 +1197,7 @@ struct ToolChip: View {
                 withTransaction(Transaction(animation: nil)) { wiggle = false }
                 if moving { withAnimation(.stamp) { stamped = true } }
             } else if moving {
-                withAnimation(.linear(duration: 0.26).repeatForever(autoreverses: true)) { wiggle = true }
+                wiggle = false
             }
         }
     }
@@ -1228,10 +1228,10 @@ struct ApprovalCard: View {
                     Text(String(prompt.approval.app.prefix(1)).uppercased())
                         .font(.body(14, .semibold))
                         .frame(width: 32, height: 32)
-                        .background(RoundedRectangle(cornerRadius: 9).fill(Mint.surface))
-                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 2))
+                        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+                        .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: 2))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(prompt.approval.action) with \(prompt.approval.app)?").font(.body(15, .semibold))
+                        Text("\(prompt.approval.action) with \(prompt.approval.app)?").font(.body(14, .semibold))
                         Text(forRoutine ? "Each run does this without asking until it ends"
                              : "\(prompt.approval.app) asks before it does this")
                             .font(.body(12)).foregroundStyle(Mint.muted)
@@ -1262,7 +1262,7 @@ struct ApprovalCard: View {
                         model.answer(prompt, .allow)
                     }
                         .font(.body(14, .semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 20).frame(minHeight: 44)
+                        .padding(.horizontal, Mint.pageInset).frame(minHeight: 44)
                         .chunky(Mint.ok, radius: 12)
                     if !forRoutine {
                         Button("Always") { model.answer(prompt, .always) }.buttonStyle(PillButton())
@@ -1271,7 +1271,7 @@ struct ApprovalCard: View {
                     Button("Deny") { model.answer(prompt, .deny) }
                         .font(.body(14, .medium)).foregroundStyle(Mint.error)
                 }
-                .padding(14)
+                .padding(Mint.spacing)
             }
             .foregroundStyle(Mint.ink)
             .card()
@@ -1331,7 +1331,7 @@ private struct RecordStrip: View {
                         }
                         .padding(.horizontal, 12).padding(.vertical, 10)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+                        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
                         .containerRelativeFrame(.horizontal) { width, _ in width * 0.78 }
                     }
                 }
@@ -1392,7 +1392,7 @@ struct MarkdownText: View {
                         .font(.system(size: size - 2, design: .monospaced))
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Mint.tints[1]))
+                        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[1]))
                 case .table(let table):
                     tableView(table)
                 case .rule:
@@ -1485,8 +1485,8 @@ struct MarkdownText: View {
                 }
             }
             .background(Mint.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Mint.soft, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
+            .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
             .padding(1)
         }
         .blocksChatSwipe()
@@ -1621,26 +1621,9 @@ extension View {
 
 /// A dot fading in and out, while dictation listens.
 private struct PulseDot: View {
-    @State private var bright = false
-
-    var body: some View {
-        Circle().fill(Mint.accent).frame(width: 7, height: 7)
-            .opacity(bright ? 1 : 0.4)
-            .onAppear { withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { bright = true } }
-    }
+    var body: some View { Circle().fill(Mint.accent).frame(width: 7, height: 7) }
 }
 
-/// A ring spreading out from the mic button while it listens.
 private struct MicRing: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var spread = false
-
-    var body: some View {
-        Circle().fill(Mint.accent.opacity(spread ? 0 : 0.45))
-            .scaleEffect(spread ? 1.7 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeOut(duration: 1.1).repeatForever(autoreverses: false)) { spread = true }
-            }
-    }
+    var body: some View { Circle().stroke(Mint.soft, lineWidth: 1) }
 }

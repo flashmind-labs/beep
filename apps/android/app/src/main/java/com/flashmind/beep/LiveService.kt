@@ -136,7 +136,7 @@ class LiveService : Service() {
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null as Icon?, "Stop", stop).build())
             .setCategory(Notification.CATEGORY_SERVICE)
-            .setColor(0xFF3B9B7A.toInt())
+            .setColor(LINEAR_ACCENT.toInt())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .apply { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE) }

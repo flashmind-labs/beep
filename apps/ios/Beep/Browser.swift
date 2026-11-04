@@ -86,7 +86,7 @@ struct BrowserView: View {
                     .font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1).truncationMode(.middle)
                     .padding(.horizontal, 10).padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Mint.page))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
                     .padding(.horizontal, 4)
                 icon("arrow.clockwise", "Reload") { browser.reload() }
                 icon("xmark", "Close", action: close)

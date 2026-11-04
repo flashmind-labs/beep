@@ -21,7 +21,7 @@ private struct TalkToBeepView: View {
         Button(intent: TalkToBeepIntent(from: .control)) { content }
             .buttonStyle(.plain)
             .widgetURL(URL(string: "beep://live"))
-            .containerBackground(for: .widget) { LiveTones.page }
+            .containerBackground(for: .widget) { Mint.page }
     }
 
     @ViewBuilder private var content: some View {
@@ -29,23 +29,22 @@ private struct TalkToBeepView: View {
             HStack(spacing: 14) {
                 SmallOrb(phase: .listening, size: 52)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Talk to Beep").font(.custom("BricolageGrotesque-96ptExtraBold", size: 20)).foregroundStyle(LiveTones.ink)
-                    Text("Live voice, hands free").font(.custom("Rubik-Light", size: 13)).foregroundStyle(LiveTones.muted)
+                    Text("Talk to Beep").font(.body(20)).foregroundStyle(Mint.ink)
+                    Text("Live voice, hands free").font(.body(13)).foregroundStyle(Mint.muted)
                 }
                 Spacer(minLength: 0)
                 Label("Talk", systemImage: "waveform")
-                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(LiveTones.ink)
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Mint.onAccent)
                     .padding(.leading, 10).padding(.trailing, 14).padding(.vertical, 9)
-                    .background(Capsule().fill(LiveTones.coral))
-                    .overlay(Capsule().stroke(LiveTones.ledge, lineWidth: 1.5))
-                    .background(Capsule().fill(LiveTones.ledge).offset(x: 2, y: 2))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.accent))
+
             }
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 SmallOrb(phase: .listening, size: 58)
                 Spacer(minLength: 0)
-                Text("Talk to Beep").font(.custom("BricolageGrotesque-96ptExtraBold", size: 19)).foregroundStyle(LiveTones.ink)
-                Text("Tap to talk").font(.custom("Rubik-Light", size: 12)).foregroundStyle(LiveTones.muted)
+                Text("Talk to Beep").font(.body(19)).foregroundStyle(Mint.ink)
+                Text("Tap to talk").font(.body(12)).foregroundStyle(Mint.muted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
@@ -63,7 +62,7 @@ struct LiveVoiceActivity: Widget {
                 if context.state.phase != .ended { EndButton() }
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
-            .activityBackgroundTint(Color(red: 16 / 255, green: 24 / 255, blue: 20 / 255).opacity(0.72))
+            .activityBackgroundTint(Mint.activity.opacity(0.95))
             .activitySystemActionForegroundColor(.white)
             .widgetURL(URL(string: "beep://live"))
         } dynamicIsland: { context in
@@ -111,9 +110,9 @@ private struct Summary: View {
 private struct EndButton: View {
     var body: some View {
         Button(intent: EndLiveIntent()) {
-            Text("End").font(.system(size: 13, weight: .semibold)).foregroundStyle(LiveTones.ink)
+            Text("End").font(.system(size: 13, weight: .semibold)).foregroundStyle(Mint.ink)
                 .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(Capsule().fill(LiveTones.coral))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.accent))
         }
         .buttonStyle(.plain)
     }
@@ -125,18 +124,7 @@ private struct SmallOrb: View {
     var size: CGFloat
 
     var body: some View {
-        let tones: [Color] = switch phase {
-        case .listening: [Color(red: 0xA6 / 255, green: 0xEB / 255, blue: 0xCF / 255), LiveTones.green,
-                          Color(red: 0x0F / 255, green: 0x3B / 255, blue: 0x2C / 255)]
-        case .thinking, .ended: [Color(red: 0x7F / 255, green: 0xBF / 255, blue: 0xA6 / 255), Color(red: 0x2E / 255, green: 0x6F / 255, blue: 0x59 / 255),
-                         Color(red: 0x0D / 255, green: 0x2A / 255, blue: 0x20 / 255)]
-        case .speaking: [Color(red: 0xFF / 255, green: 0xD0 / 255, blue: 0xC7 / 255), LiveTones.coral,
-                         Color(red: 0x5A / 255, green: 0x23 / 255, blue: 0x1C / 255)]
-        }
-        Circle()
-            .fill(RadialGradient(stops: [
-                .init(color: tones[0], location: 0), .init(color: tones[1], location: 0.46), .init(color: tones[2], location: 1),
-            ], center: UnitPoint(x: 0.36, y: 0.3), startRadius: 0, endRadius: size * 0.75))
+        Circle().fill(phase == .speaking ? Mint.accent : phase == .listening ? Mint.ok : Mint.muted)
             .frame(width: size, height: size)
     }
 }
@@ -153,21 +141,11 @@ extension LiveVoiceAttributes.Phase {
 
     var tint: Color {
         switch self {
-        case .listening: Color(red: 0xA6 / 255, green: 0xEB / 255, blue: 0xCF / 255)
-        case .thinking, .ended: Color(red: 0x92 / 255, green: 0xA5 / 255, blue: 0x9A / 255)
-        case .speaking: Color(red: 0xFF / 255, green: 0xB5 / 255, blue: 0x9E / 255)
+        case .listening: Mint.ok
+        case .thinking, .ended: Mint.muted
+        case .speaking: Mint.brand
         }
     }
-}
-
-/// Mint Quiet, as in the app.
-private enum LiveTones {
-    static let page = Color(red: 0xF4 / 255, green: 0xF8 / 255, blue: 0xF5 / 255)
-    static let ink = Color(red: 0x10 / 255, green: 0x20 / 255, blue: 0x1A / 255)
-    static let muted = Color(red: 0x5C / 255, green: 0x6E / 255, blue: 0x64 / 255)
-    static let ledge = Color(red: 0x1F / 255, green: 0x3A / 255, blue: 0x2E / 255)
-    static let green = Color(red: 0x3B / 255, green: 0x9B / 255, blue: 0x7A / 255)
-    static let coral = Color(red: 0xF0 / 255, green: 0x7A / 255, blue: 0x6A / 255)
 }
 
 #Preview(as: .systemMedium) {

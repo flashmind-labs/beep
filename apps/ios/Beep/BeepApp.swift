@@ -99,7 +99,6 @@ struct RootView: View {
                 }
             }
             .tint(Mint.brand)
-            .overlay { LiveGlow() }
             .sheet(item: $sheet) { shown in
                 switch shown {
                 case .new:

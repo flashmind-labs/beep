@@ -176,8 +176,8 @@ private struct RecCardView: View {
                         Button(action: action.run) {
                             Text(action.label).font(.body(12.5, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                                 .frame(maxWidth: .infinity, minHeight: 32)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Mint.surface))
-                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 1.5))
+                                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+                                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: 1.5))
                         }
                         .buttonStyle(.plain)
                     }
@@ -188,7 +188,7 @@ private struct RecCardView: View {
             }
         }
         .background(Mint.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: Mint.radius))
         .chunky(Mint.surface, radius: 16)
         .sheet(isPresented: $addingEvent) {
             if let event { EventEditor(title: card.title, event: event, notes: card.url, place: event.venue ?? card.subtitle) }
@@ -295,10 +295,10 @@ private struct RecPicture: View {
             if let event {
                 VStack(spacing: 0) {
                     Text(day(event, "EEE").uppercased()).font(.body(9.5, .semibold)).foregroundStyle(Mint.accent)
-                    Text(day(event, "d")).font(.body(17, .bold)).foregroundStyle(Mint.ink)
+                    Text(day(event, "d")).font(.body(14, .bold)).foregroundStyle(Mint.ink)
                 }
                 .frame(width: 42).padding(.vertical, 4)
-                .chunky(Mint.surface, radius: 10, drop: 2)
+                .chunky(Mint.surface, radius: 10)
                 .padding(10)
             }
         }

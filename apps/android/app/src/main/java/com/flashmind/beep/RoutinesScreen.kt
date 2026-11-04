@@ -111,9 +111,9 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
         })
     }
     Scaffold(containerColor = Ink, snackbarHost = {
-        SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(12.dp)) }
+        SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(Beep.shapes.smallRadius)) }
     }, topBar = {
-        TopAppBar(title = { Text(displayText("Routines"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Routines"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
                 contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New routine", Modifier.size(20.dp)) } },
@@ -182,7 +182,7 @@ private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, Strin
         }
     }) {
         BeepCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+            Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     Text(cron.label.ifBlank { "Reminder" }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(3.dp))
@@ -194,7 +194,7 @@ private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, Strin
                         Text(it, fontSize = 11.sp, color = TextDim)
                     }
                     // Grants the routine holds; tapping opens them.
-                    if (grantsLine != null) Row(Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onGrants).padding(vertical = 4.dp),
+                    if (grantsLine != null) Row(Modifier.padding(top = 4.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius)).clickable(onClick = onGrants).padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Icon(Icons.Outlined.Shield, null, Modifier.size(14.dp), tint = Moss)
                         Text(grantsLine, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Moss)
@@ -294,7 +294,7 @@ internal fun CreateCronDialog(places: List<Place>, onDismiss: () -> Unit, onAskB
         text = { TimePicker(time) },
         confirmButton = { TextButton(onClick = { pickingTime = false }) { Text("Done") } })
     AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        title = { Text(displayText("New routine"), style = displayStyle(22.sp)) },
+        title = { Text(displayText("New routine"), style = displayStyle(18.sp)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(label, { label = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Morning briefing") }, colors = fieldColors)

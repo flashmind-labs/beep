@@ -99,7 +99,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
             }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } },
             title = { Text("Edit memory") },
-            text = { OutlinedTextField(text, { text = it }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) },
+            text = { OutlinedTextField(text, { text = it }, shape = RoundedCornerShape(Beep.shapes.smallRadius), modifier = Modifier.fillMaxWidth()) },
             containerColor = Surface)
     }
     if (confirmClear) AlertDialog(
@@ -110,7 +110,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
         text = { Text("Beep will forget all ${memories.size} memories. This cannot be undone.") },
         containerColor = Surface)
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Memories"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Memories"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { if (memories.isNotEmpty()) TextButton(onClick = { confirmClear = true }) { Text("Clear all", color = Coral, fontSize = 13.sp) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
@@ -119,7 +119,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
             Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(query, { query = it }, placeholder = { Text("Search memories", fontSize = 13.sp) },
                     leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
-                    shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(Beep.shapes.smallRadius), modifier = Modifier.weight(1f),
                     colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
                         unfocusedBorderColor = Border, focusedBorderColor = Moss))
                 Spacer(Modifier.width(12.dp))
@@ -216,7 +216,7 @@ private fun MemoryCard(memory: ChatRepository.Memory, about: MemoryScope?, today
     }
     val details = listOfNotNull(origin, shortDate(memory.updated), starts)
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
                 Text(memory.content, fontSize = 13.sp, lineHeight = 19.sp, color = if (ended) TextMuted else Color.Unspecified)
                 about?.let { scope ->

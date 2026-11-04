@@ -33,8 +33,8 @@ private struct PopIn: ViewModifier {
         let on = shown || !play || reduceMotion
         content
             .opacity(on ? 1 : 0)
-            .scaleEffect(on ? 1 : 0.86, anchor: anchor)
-            .offset(y: on ? 0 : 10)
+            .scaleEffect(on ? 1 : 0.98, anchor: anchor)
+            .offset(y: on ? 0 : 4)
             .onAppear {
                 guard play, !shown else { return }
                 withAnimation(.pop.delay(delay)) { shown = true }
@@ -55,92 +55,25 @@ extension View {
     }
 }
 
-/// Three dots that hop in turn while Beep works.
 struct PulsingDots: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 4) {
-                ForEach(0..<3) { index in
-                    let lift = reduceMotion ? 1 : Self.lift(time, index)
-                    Circle().fill(Mint.accent.opacity(0.45 + 0.55 * lift))
-                        .frame(width: 6, height: 6)
-                        .offset(y: -4 * lift)
-                }
-            }
-            .frame(height: 12)
-        }
-    }
-
-    /// 380 ms up and 380 ms down, each dot 120 ms behind the one before.
-    private static func lift(_ time: TimeInterval, _ index: Int) -> Double {
-        let phase = (time - Double(index) * 0.12).truncatingRemainder(dividingBy: 0.76)
-        let t = (phase < 0 ? phase + 0.76 : phase) / 0.38
-        let x = t <= 1 ? t : 2 - t
-        return x < 0.5 ? 4 * x * x * x : 1 - pow(-2 * x + 2, 3) / 2
+        HStack(spacing: 4) {
+            ForEach(0..<3) { _ in Circle().fill(Mint.accent).frame(width: 6, height: 6) }
+        }.frame(height: 12)
     }
 }
 
-/// The progress line under a pending reply, with a highlight sweeping across its letters.
 struct StatusLine: View {
-    var body: some View {
-        Shimmer(text: "Thinking…")
-    }
+    var body: some View { Text("Thinking…").font(.body(13)).foregroundStyle(Mint.muted) }
 }
 
-/// Text with a bright band that moves across it, letter by letter.
-private struct Shimmer: View {
-    let text: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if reduceMotion {
-            Text(text).font(.body(13)).foregroundStyle(Mint.muted)
-        } else {
-            TimelineView(.animation) { context in
-                let letters = Array(text)
-                let period = 0.09 * Double(letters.count + 8)
-                let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
-                let sweep = -4 + progress * Double(letters.count + 8)
-                letters.enumerated().reduce(Text("")) { line, item in
-                    let glow = max(0, min(1, 1 - abs(Double(item.offset) - sweep) / 3))
-                    return line + Text(String(item.element)).foregroundColor(Self.mix(glow))
-                }
-                .font(.body(13))
-            }
-        }
-    }
-
-    /// From the muted color to ink as `glow` goes from 0 to 1.
-    private static func mix(_ glow: Double) -> Color {
-        // Mint.muted is 0x5C6E64 and Mint.ink 0x10201A.
-        let from = (0x5C, 0x6E, 0x64), to = (0x10, 0x20, 0x1A)
-        func channel(_ a: Int, _ b: Int) -> Double { (Double(a) + (Double(b) - Double(a)) * glow) / 255 }
-        return Color(red: channel(from.0, to.0), green: channel(from.1, to.1), blue: channel(from.2, to.2))
-    }
-}
-
-/// Three grey lines with a sheen passing over them, where the reply will appear.
 struct ReplySkeleton: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let shift = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.3) / 1.3
-            VStack(alignment: .leading, spacing: 9) {
-                ForEach([1, 0.86, 0.55], id: \.self) { width in
-                    GeometryReader { geo in
-                        let x = geo.size.width * (shift * 2 - 0.5)
-                        Capsule().fill(reduceMotion ? AnyShapeStyle(Mint.code) : AnyShapeStyle(LinearGradient(
-                            colors: [Mint.code, Mint.surface, Mint.code],
-                            startPoint: UnitPoint(x: (x - geo.size.width * 0.4) / geo.size.width, y: 0),
-                            endPoint: UnitPoint(x: (x + geo.size.width * 0.4) / geo.size.width, y: 0))))
-                            .frame(width: geo.size.width * width)
-                    }
-                    .frame(height: 12)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach([1, 0.86, 0.55], id: \.self) { width in
+                GeometryReader { geo in
+                    RoundedRectangle(cornerRadius: 4).fill(Mint.code).frame(width: geo.size.width * width)
+                }.frame(height: 12)
             }
         }
     }

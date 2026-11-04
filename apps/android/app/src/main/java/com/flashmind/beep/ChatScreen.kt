@@ -31,12 +31,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
-import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -48,8 +46,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.*
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -73,7 +69,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -272,13 +267,13 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     Spacer(Modifier.height(20.dp))
                 }
                 if (compact) {
-                    Text(displayText("Hey. What can I help with?"), style = displayStyle(20.sp))
+                    Text(displayText("Hey. What can I help with?"), style = displayStyle(18.sp))
                     Spacer(Modifier.height(18.dp))
                 } else {
                     Text(buildAnnotatedString {
                         append(displayText("A little help.\n"))
                         withStyle(SpanStyle(color = Beep.colors.ok)) { append(displayText("Right here.")) }
-                    }, style = displayStyle(40.sp, lineHeight = 44.sp), modifier = Modifier.popIn("hello"))
+                    }, style = displayStyle(24.sp), modifier = Modifier.popIn("hello"))
                     Spacer(Modifier.height(12.dp))
                     Text("Find an answer. Untangle a thought.\nKeep something worth remembering.", color = TextMuted, lineHeight = 23.sp)
                     Spacer(Modifier.height(28.dp))
@@ -345,9 +340,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                             else RoundedCornerShape(6.dp, radius, radius, radius)
                         val bubbleModifier = when {
                             isUser -> Modifier.padding(start = 48.dp)
-                                .then(if (Beep.shapes.card == CardLook.Hairline) Modifier.clip(bubbleShape).background(Beep.colors.user)
-                                    else Modifier.beepFrame(bubbleShape, Beep.colors.user))
-                            Beep.shapes.botBubble -> Modifier.padding(end = 24.dp).beepFrame(bubbleShape, Beep.colors.surface)
+                                .clip(bubbleShape).background(Beep.colors.user)
                             else -> Modifier.fillMaxWidth()
                         }
                         // A finished tool that has something to show becomes a card; the rest stay chips.
@@ -429,7 +422,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                                 message.files.forEach { FileCard(it) }
                             }
                             if (shownText.isNotBlank()) MessageContent(shownText, message.role, compact,
-                                padded = isUser || Beep.shapes.botBubble)
+                                padded = isUser)
                         }
                         MessageMenu(menuOpen, onDismiss = { menuOpen = false }, text = message.text, onQuote = quote,
                             onDelete = if (message.role == "user" && !chat.busy) {
@@ -613,7 +606,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         val leaveNote by live.leaveNote.collectAsState()
         leaveNote?.takeIf { it.chatId == chat.id }?.let { note ->
             Row(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp).padding(top = 6.dp).fillMaxWidth()
-                .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
+                .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface)
                 .padding(start = 12.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Outlined.GraphicEq, null, Modifier.size(16.dp), tint = TextMuted)
@@ -628,10 +621,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         AnimatedVisibility(visible = listening,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Row(Modifier.padding(horizontal = if (compact) 12.dp else 20.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                val pulseAlpha by rememberInfiniteTransition(label = "listen-pulse").animateFloat(
-                    initialValue = 0.4f, targetValue = 1f,
-                    animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "listen-alpha")
-                Box(Modifier.size(7.dp).background(Beep.colors.accent.copy(alpha = pulseAlpha), CircleShape))
+                Box(Modifier.size(7.dp).background(Beep.colors.accent, CircleShape))
                 Spacer(Modifier.width(8.dp))
                 Text(if (chat.busy) "Listening, goes in the queue" else "Listening, tap stop when done", fontSize = 12.sp, color = TextMuted, fontWeight = FontWeight.Medium)
             }
@@ -647,7 +637,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     val previewBitmap = remember(img) { decodeImageBase64(img) }
                     if (previewBitmap != null) {
                         Box {
-                            Box(Modifier.size(72.dp).popIn(img).beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())) {
+                            Box(Modifier.size(72.dp).popIn(img).beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface)) {
                                 Image(previewBitmap.asImageBitmap(), "Attached image ${index + 1}",
                                     contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                             }
@@ -689,7 +679,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         AnimatedVisibility(visible = chat.hasQueued,
             enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp).padding(top = 6.dp).fillMaxWidth()
-                .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
+                .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface)
                 .padding(start = 12.dp, top = 2.dp, bottom = 2.dp, end = 4.dp)) {
                 Row(Modifier.heightIn(min = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Outlined.Schedule, null, Modifier.size(16.dp), tint = TextMuted)
@@ -740,7 +730,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                     Icon(Icons.Outlined.OpenInFull, "Open full app", Modifier.size(18.dp), tint = TextMuted)
                 }
             }
-            Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface, pressableLook()),
+            Row(Modifier.weight(1f).heightIn(min = buttonSize).beepFrame(buttonShape, Surface),
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!chat.busy && draft.isBlank() && !listening && attachedImages.size < MAX_IMAGES) {
                     IconButton(onClick = { attaching = true }, modifier = Modifier.padding(start = 2.dp)) {
@@ -930,19 +920,9 @@ private fun CopyReply(text: String, compact: Boolean) {
 /** Grey lines where the reply will be written, with a soft sheen passing over them. */
 @Composable
 private fun ReplySkeleton(modifier: Modifier = Modifier) {
-    val base = Beep.colors.raised
-    val sheen = Beep.colors.surface
-    val noMotion = reduceMotion()
-    val shift by rememberInfiniteTransition(label = "skeleton").animateFloat(0f, 1f,
-        infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "skeleton-shift")
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(1f, 0.86f, 0.55f).forEach { width ->
-            Box(Modifier.fillMaxWidth(width).height(12.dp).clip(CircleShape).drawBehind {
-                if (noMotion) { drawRect(base); return@drawBehind }
-                val x = size.width * (shift * 2f - 0.5f)
-                drawRect(Brush.linearGradient(listOf(base, sheen, base), start = Offset(x - size.width * 0.4f, 0f),
-                    end = Offset(x + size.width * 0.4f, 0f)))
-            })
+            Box(Modifier.fillMaxWidth(width).height(12.dp).background(Beep.colors.raised, RoundedCornerShape(4.dp)))
         }
     }
 }
@@ -1069,27 +1049,8 @@ internal suspend fun LazyListState.scrollToEnd(animated: Boolean) {
 
 @Composable
 internal fun PulsingDots() {
-    val noMotion = reduceMotion()
-    val dot = Beep.colors.accent
-    if (noMotion) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(3) { Box(Modifier.size(6.dp).background(dot, CircleShape)) }
-        }
-        return
-    }
-    val infiniteTransition = rememberInfiniteTransition(label = "dots")
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { index ->
-            val lift by infiniteTransition.animateFloat(
-                initialValue = 0f, targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(380, easing = EaseInOutCubic, delayMillis = index * 120),
-                    repeatMode = RepeatMode.Reverse
-                ), label = "dot-lift-$index"
-            )
-            Box(Modifier.size(6.dp).graphicsLayer { translationY = -4.dp.toPx() * lift }
-                .background(dot.copy(alpha = 0.45f + 0.55f * lift), CircleShape))
-        }
+        repeat(3) { Box(Modifier.size(6.dp).background(Beep.colors.accent, CircleShape)) }
     }
 }
 

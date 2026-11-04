@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>UIAppFonts</key>
+	<array><string>inter.ttf</string></array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
@@ -43,15 +45,6 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>
-	</array>
-	<key>UIAppFonts</key>
-	<array>
-		<string>bricolage_grotesque.ttf</string>
-		<string>rubik.ttf</string>
-		<string>fredoka.ttf</string>
-		<string>nunito.ttf</string>
-		<string>sniglet_regular.ttf</string>
-		<string>sniglet_extrabold.ttf</string>
 	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>

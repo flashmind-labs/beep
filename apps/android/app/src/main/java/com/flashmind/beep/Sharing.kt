@@ -82,17 +82,17 @@ fun ShareSheet(repository: ChatRepository, chat: Conversation, onDismiss: () -> 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(52.dp).background(Beep.colors.tints[1], RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(52.dp).background(Beep.colors.tints[1], RoundedCornerShape(Beep.shapes.radius)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Link, null, Modifier.size(24.dp), tint = Beep.colors.ink)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(displayText("Share this chat"), style = displayStyle(24.sp), color = Beep.colors.ink)
+                    Text(displayText("Share this chat"), style = displayStyle(18.sp), color = Beep.colors.ink)
                     Text(chat.title, fontSize = 13.sp, color = Beep.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             val url = link?.url
-            Box(Modifier.fillMaxWidth().height(46.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp),
+            Box(Modifier.fillMaxWidth().height(46.dp).background(Beep.colors.page, RoundedCornerShape(Beep.shapes.smallRadius)).padding(horizontal = 14.dp),
                 contentAlignment = Alignment.CenterStart) {
                 if (url == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
                 else Text(url, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Beep.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -102,13 +102,13 @@ fun ShareSheet(repository: ChatRepository, chat: Conversation, onDismiss: () -> 
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("Beep chat", url))
                     Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
-                }, enabled = url != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp)) {
+                }, enabled = url != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(Beep.shapes.smallRadius)) {
                     Icon(Icons.Outlined.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy", fontWeight = FontWeight.SemiBold)
                 }
                 Button(onClick = {
                     val text = "${chat.title}\n$url"
                     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null))
-                }, enabled = url != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(12.dp),
+                }, enabled = url != null, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(Beep.shapes.smallRadius),
                     colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                     Icon(Icons.Outlined.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Send", fontWeight = FontWeight.SemiBold)
                 }
@@ -149,7 +149,7 @@ fun SharedChatScreen(repository: ChatRepository, token: String, onBack: () -> Un
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(title = {
             Column {
-                Text(displayText(shared?.title ?: "Shared chat"), style = displayStyle(20.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(displayText(shared?.title ?: "Shared chat"), style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 shared?.let {
                     Text("Shared " + DateUtils.getRelativeTimeSpanString(it.sharedAt), fontSize = 12.sp, color = Beep.colors.muted)
                 }
@@ -166,7 +166,7 @@ fun SharedChatScreen(repository: ChatRepository, token: String, onBack: () -> Un
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
                 }
                 else -> {
-                    LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = BeepSpace.page), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         itemsIndexed(chat.entries) { _, entry -> SharedEntry(entry) }
                     }
                     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp),
@@ -178,7 +178,7 @@ fun SharedChatScreen(repository: ChatRepository, token: String, onBack: () -> Un
                                     .onSuccess { onContinued() }
                                     .onFailure { copying = false; Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show() }
                             }
-                        }, enabled = !copying, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
+                        }, enabled = !copying, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(Beep.shapes.radius),
                             colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                             Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                             Text("Continue in my chats", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)

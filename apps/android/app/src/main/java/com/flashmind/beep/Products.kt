@@ -135,7 +135,7 @@ internal fun ProductRow(products: List<Product>, loading: Boolean) {
 private fun ProductCard(product: Product, modifier: Modifier) {
     val context = LocalContext.current
     val open = LocalOpenLink.current
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(Beep.shapes.radius)
     Box(modifier) {
         Column(Modifier.fillMaxWidth().beepFrame(shape, Beep.colors.surface)
             .clickable(onClickLabel = "Open ${product.store}") { open?.invoke(product.url) ?: ExternalBrowser.open(context, product.url) }) {
@@ -173,7 +173,7 @@ private fun ProductImage(url: String?) {
 /** A card shaped like the others while its block is still coming in. */
 @Composable
 private fun LoadingCard(modifier: Modifier) {
-    Column(modifier.beepFrame(RoundedCornerShape(16.dp), Beep.colors.surface)) {
+    Column(modifier.beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface)) {
         Box(Modifier.fillMaxWidth().height(116.dp).background(Beep.colors.code))
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(0.4f, 0.9f, 0.6f, 0.3f).forEach { w ->

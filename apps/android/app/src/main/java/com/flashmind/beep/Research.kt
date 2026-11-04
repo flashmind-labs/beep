@@ -73,7 +73,7 @@ private val TextDim: Color @Composable @ReadOnlyComposable get() = Beep.colors.d
 private const val POLL_BUSY_MS = 2_500L
 private const val POLL_IDLE_MS = 10_000L
 private val RUNNING = setOf(ResearchStatus.RESEARCHING, ResearchStatus.REVIEWING, ResearchStatus.WRITING)
-private val SCOUT_COLORS = listOf(Color(0xFF5CC49C), Color(0xFF8FB8E8), Color(0xFFE8C46D), Color(0xFFE89A6D), Color(0xFF9AD0D8))
+private val scoutColors: List<Color> @Composable get() = with(Beep.colors) { listOf(brand, ok, warn, error, muted) }
 
 /** A research as last fetched, without its log, and every log entry so far. */
 internal data class ResearchLive(val research: Research, val entries: List<ResearchEntry>) {
@@ -208,11 +208,12 @@ internal fun ResearchLive?.hint(): String = when {
     else -> "Message the lead"
 }
 
+@Composable
 private fun agentColor(id: String, ink: Color): Color = when {
-    id == "lead" -> Color(0xFFF07A6A)
-    id == "critic" -> Color(0xFFC59AE8)
+    id == "lead" -> Beep.colors.accent
+    id == "critic" -> Beep.colors.brand
     id == "writer" -> ink
-    else -> SCOUT_COLORS[((id.removePrefix("scout-").toIntOrNull() ?: 1) - 1).mod(SCOUT_COLORS.size)]
+    else -> scoutColors[((id.removePrefix("scout-").toIntOrNull() ?: 1) - 1).mod(scoutColors.size)]
 }
 
 private fun agentInitial(id: String) = when {
@@ -227,7 +228,7 @@ private fun AgentDot(id: String, size: Int = 22) {
     val color = agentColor(id, Beep.colors.ink)
     Box(Modifier.size(size.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
         Text(agentInitial(id), fontSize = (size / 2).sp, fontWeight = FontWeight.Bold,
-            color = if (id == "writer") Beep.colors.page else Color(0xFF0A0E0C))
+            color = if (id == "writer") Beep.colors.page else Beep.colors.page)
     }
 }
 
@@ -281,7 +282,7 @@ internal fun ResearchActions(live: ResearchLive, onGo: () -> Unit, onPaper: () -
 @Composable
 internal fun ResearchProgressRow(live: ResearchLive, onOpen: () -> Unit, onStop: () -> Unit) {
     Row(Modifier.padding(horizontal = 14.dp).padding(top = 6.dp).fillMaxWidth()
-        .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface, pressableLook())
+        .beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Surface)
         .clickable(onClickLabel = "Open the workspace", onClick = onOpen).padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = TextMuted)
@@ -318,7 +319,7 @@ internal suspend fun shareResearchPdf(context: Context, repository: ChatReposito
 /** A short line over the bottom of a screen, with a spinner while it waits on something. */
 @Composable
 internal fun Notice(text: String, bad: Boolean, modifier: Modifier = Modifier) {
-    Row(modifier.clip(RoundedCornerShape(12.dp)).background(if (bad) Beep.colors.error else Beep.colors.ink)
+    Row(modifier.clip(RoundedCornerShape(Beep.shapes.smallRadius)).background(if (bad) Beep.colors.error else Beep.colors.ink)
         .padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         if (!bad) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = Beep.colors.page)
@@ -378,7 +379,7 @@ internal fun ResearchWorkspace(repository: ChatRepository, sessionId: String, st
     }) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                if (opened == null) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                if (opened == null) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = BeepSpace.page).padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     WorkspaceTab.entries.forEach { t ->
                         val label = if (t == WorkspaceTab.SOURCES && live?.research?.sources?.isNotEmpty() == true)
@@ -386,7 +387,7 @@ internal fun ResearchWorkspace(repository: ChatRepository, sessionId: String, st
                         FilterChip(selected = t == tab, onClick = { chosen = t }, label = { Text(label, fontSize = 13.sp) },
                             colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Beep.colors.user,
                                 selectedLabelColor = Beep.colors.onUser, containerColor = Surface),
-                            shape = RoundedCornerShape(999.dp))
+                            shape = RoundedCornerShape(Beep.shapes.radius))
                     }
                 }
                 when {
@@ -603,14 +604,14 @@ internal fun ResearchListScreen(repository: ChatRepository, onBack: () -> Unit, 
     }
     fun start() { topic.trim().takeIf { it.isNotEmpty() }?.let { onStart(it); topic = "" } }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Research"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Research"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.padding(horizontal = BeepSpace.page).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextField(topic, { topic = it }, Modifier.weight(1f).beepFrame(RoundedCornerShape(Beep.shapes.radius), Surface, pressableLook()),
+                TextField(topic, { topic = it }, Modifier.weight(1f).beepFrame(RoundedCornerShape(Beep.shapes.radius), Surface),
                     placeholder = { Text("What should the team research?", fontSize = 15.sp, color = TextDim) },
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent),
