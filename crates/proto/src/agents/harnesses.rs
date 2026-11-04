@@ -1,44 +1,44 @@
 //! Coding-agent harnesses: custom agents, accounts, models and credentials.
 
 use crate::SecretText;
-use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
-/// One machine's settings for a harness (`ListHarnessSettings`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineHarnessSettings {
-    pub machine_id: String,
-    pub machine_name: String,
-    pub settings: HarnessSettings,
-}
+wire_structs! {
+    /// One machine's settings for a harness (`ListHarnessSettings`).
+    pub struct MachineHarnessSettings {
+        pub machine_id: String,
+        pub machine_name: String,
+        pub settings: HarnessSettings,
+    }
 
-/// One custom agent a coding agent harness defines, as
-/// `ListCustomAgents` reads it: a named prompt with a description, and
-/// optionally the model, tools and color it runs with.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CustomAgent {
-    /// The name the harness knows it by; the file's stem when it names
-    /// none.
-    pub name: String,
-    pub harness: CustomAgentHarness,
-    pub scope: CustomAgentScope,
-    pub description: String,
-    /// As the file names it, such as `opus` or `inherit`.
-    pub model: Option<String>,
-    /// The tools it may use, as the file lists them; empty for all.
-    pub tools: Vec<String>,
-    /// As the file names it, such as `blue` or `#3b82f6`.
-    pub color: Option<String>,
-    /// The file it came from: relative to the project folder for a
-    /// project agent, starting `~/` for a user one.
-    pub path: String,
-    /// Its prompt, at most [`MAX_CUSTOM_AGENT_PROMPT`] bytes.
-    pub prompt: String,
-    /// The prompt goes on past what `prompt` holds.
-    pub prompt_cut: bool,
-    /// Why the file could not be read, when it could not; the other fields
-    /// then say what was found.
-    pub error: Option<String>,
+    /// One custom agent a coding agent harness defines, as
+    /// `ListCustomAgents` reads it: a named prompt with a description, and
+    /// optionally the model, tools and color it runs with.
+    #[derive(Eq)]
+    pub struct CustomAgent {
+        /// The name the harness knows it by; the file's stem when it names
+        /// none.
+        pub name: String,
+        pub harness: CustomAgentHarness,
+        pub scope: CustomAgentScope,
+        pub description: String,
+        /// As the file names it, such as `opus` or `inherit`.
+        pub model: Option<String>,
+        /// The tools it may use, as the file lists them; empty for all.
+        pub tools: Vec<String>,
+        /// As the file names it, such as `blue` or `#3b82f6`.
+        pub color: Option<String>,
+        /// The file it came from: relative to the project folder for a
+        /// project agent, starting `~/` for a user one.
+        pub path: String,
+        /// Its prompt, at most [`MAX_CUSTOM_AGENT_PROMPT`] bytes.
+        pub prompt: String,
+        /// The prompt goes on past what `prompt` holds.
+        pub prompt_cut: bool,
+        /// Why the file could not be read, when it could not; the other fields
+        /// then say what was found.
+        pub error: Option<String>,
+    }
 }
 
 /// The most of a custom agent's prompt `ListCustomAgents` gives.
@@ -94,50 +94,49 @@ impl CustomAgentScope {
     }
 }
 
-/// The coding agent harnesses on one machine, as `ListAgentHarnesses`
-/// gives them.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentHarnesses {
-    pub machine_id: String,
-    pub machine_name: String,
-    /// When the machine last looked the newest versions up; `None` when it
-    /// never did.
-    pub checked_at: Option<SystemTime>,
-    /// Every harness Beep knows, installed or not, then any other the
-    /// machine runs.
-    pub harnesses: Vec<AgentHarness>,
+wire_structs! {
+    /// The coding agent harnesses on one machine, as `ListAgentHarnesses`
+    /// gives them.
+    pub struct AgentHarnesses {
+        pub machine_id: String,
+        pub machine_name: String,
+        /// When the machine last looked the newest versions up; `None` when it
+        /// never did.
+        pub checked_at: Option<SystemTime>,
+        /// Every harness Beep knows, installed or not, then any other the
+        /// machine runs.
+        pub harnesses: Vec<AgentHarness>,
+    }
+
+    /// One harness on a machine.
+    pub struct AgentHarness {
+        /// Its slug, such as `claude`.
+        pub agent: String,
+        /// Its CLI is on the machine.
+        pub installed: bool,
+        /// The machine can start it; only these are offered.
+        pub runnable: bool,
+        /// Its version, such as `2.1.312`.
+        pub version: Option<String>,
+        /// The newest version, when it could be looked up.
+        pub latest: Option<String>,
+        /// What the machine starts for it when no binary path is set.
+        pub program: Option<String>,
+        /// The variable its home folder is set with, such as `CODEX_HOME`.
+        pub home_var: Option<String>,
+        /// Its home folder when that variable is not set, such as `~/.codex`.
+        pub home_default: Option<String>,
+        pub sign_in: HarnessSignIn,
+        /// The command Install or Update runs there; `None` when there is none.
+        pub install: Option<String>,
+        pub settings: HarnessSettings,
+    }
 }
 
-/// One harness on a machine.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentHarness {
-    /// Its slug, such as `claude`.
-    pub agent: String,
-    /// Its CLI is on the machine.
-    pub installed: bool,
-    /// The machine can start it; only these are offered.
-    pub runnable: bool,
-    /// Its version, such as `2.1.312`.
-    pub version: Option<String>,
-    /// The newest version, when it could be looked up.
-    pub latest: Option<String>,
-    /// What the machine starts for it when no binary path is set.
-    pub program: Option<String>,
-    /// The variable its home folder is set with, such as `CODEX_HOME`.
-    pub home_var: Option<String>,
-    /// Its home folder when that variable is not set, such as `~/.codex`.
-    pub home_default: Option<String>,
-    pub sign_in: HarnessSignIn,
-    /// The command Install or Update runs there; `None` when there is none.
-    pub install: Option<String>,
-    pub settings: HarnessSettings,
-}
-
-wire_enum! {
+ffi_enum! {
     /// How a harness signs in on a machine. `BeepToken` is the token Beep
     /// keeps for it (Agent accounts), handed to every session it starts.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum HarnessSignIn {
         0 Unknown {}
         1 SignedIn { account: Option<String>, plan: Option<String> }
@@ -146,89 +145,82 @@ wire_enum! {
     }
 }
 
-/// The caller's settings for one harness on one machine. Empty text means
-/// what the machine finds.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HarnessSettings {
-    /// Off: not offered on that machine.
-    pub enabled: bool,
-    /// The program to start in place of the one the machine finds.
-    pub program: String,
-    /// Its home folder, set with its home variable.
-    pub home: String,
-    /// Added to every session it starts.
-    pub args: Vec<String>,
-    pub env: Vec<HarnessEnv>,
+wire_structs! {
+    /// The caller's settings for one harness on one machine. Empty text means
+    /// what the machine finds.
+    pub struct HarnessSettings {
+        /// Off: not offered on that machine.
+        pub enabled: bool,
+        /// The program to start in place of the one the machine finds.
+        pub program: String,
+        /// Its home folder, set with its home variable.
+        pub home: String,
+        /// Added to every session it starts.
+        pub args: Vec<String>,
+        pub env: Vec<HarnessEnv>,
+    }
+
+    /// An env var a harness gets. The server never sends a value back: in
+    /// replies `value` is always `None`. Not for the phone app, which has no
+    /// `SecretText` type.
+    pub struct HarnessEnv {
+        pub name: String,
+        pub value: Option<SecretText>,
+    }
 }
 
-/// An env var a harness gets. The server never sends a value back: in
-/// replies `value` is always `None`. Not for the phone app, which has no
-/// `SecretText` type.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HarnessEnv {
-    pub name: String,
-    pub value: Option<SecretText>,
+ffi_structs! {
+    /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
+    pub struct AgentAccounts {
+        /// The Claude Code token the machines get, when there is one.
+        pub claude: Option<AgentToken>,
+        /// The API key Codex uses instead of each machine's own sign-in.
+        pub codex_key: Option<AgentToken>,
+        /// The caller's machines with Claude Code or Codex, by name.
+        pub machines: Vec<AgentMachine>,
+    }
+
+    /// A token Beep keeps for a coding agent. The secret stays on the server.
+    pub struct AgentToken {
+        /// The secret's last four characters.
+        pub last4: String,
+        pub created_at: SystemTime,
+        /// The server can no longer open it; the user has to sign in again.
+        pub unreadable: bool,
+    }
+
+    /// One of the user's machines with Claude Code or Codex.
+    pub struct AgentMachine {
+        pub machine_id: String,
+        pub machine_name: String,
+        pub online: bool,
+        /// Claude Code is on it, as it last said.
+        pub claude: bool,
+        /// Codex is on it, as it last said.
+        pub codex: bool,
+        /// Claude Code sessions Beep runs on it now.
+        pub claude_sessions: u32,
+        /// Whether Codex is signed in there; `None` when not known, such as
+        /// while it is offline.
+        pub codex_signed_in: Option<bool>,
+    }
+
+    /// A Codex device sign-in under way on a machine.
+    pub struct CodexLogin {
+        /// The node's background task running `codex login`.
+        pub task: u32,
+        /// The page to enter the code on.
+        pub url: String,
+        pub code: String,
+        /// When the code stops working.
+        pub expires_at: SystemTime,
+    }
 }
 
-/// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentAccounts {
-    /// The Claude Code token the machines get, when there is one.
-    pub claude: Option<AgentToken>,
-    /// The API key Codex uses instead of each machine's own sign-in.
-    pub codex_key: Option<AgentToken>,
-    /// The caller's machines with Claude Code or Codex, by name.
-    pub machines: Vec<AgentMachine>,
-}
-
-/// A token Beep keeps for a coding agent. The secret stays on the server.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentToken {
-    /// The secret's last four characters.
-    pub last4: String,
-    pub created_at: SystemTime,
-    /// The server can no longer open it; the user has to sign in again.
-    pub unreadable: bool,
-}
-
-/// One of the user's machines with Claude Code or Codex.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentMachine {
-    pub machine_id: String,
-    pub machine_name: String,
-    pub online: bool,
-    /// Claude Code is on it, as it last said.
-    pub claude: bool,
-    /// Codex is on it, as it last said.
-    pub codex: bool,
-    /// Claude Code sessions Beep runs on it now.
-    pub claude_sessions: u32,
-    /// Whether Codex is signed in there; `None` when not known, such as
-    /// while it is offline.
-    pub codex_signed_in: Option<bool>,
-}
-
-/// A Codex device sign-in under way on a machine.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CodexLogin {
-    /// The node's background task running `codex login`.
-    pub task: u32,
-    /// The page to enter the code on.
-    pub url: String,
-    pub code: String,
-    /// When the code stops working.
-    pub expires_at: SystemTime,
-}
-
-wire_enum! {
+ffi_enum! {
     /// How a Codex device sign-in stands. `Gone` is no longer on its
     /// machine, such as after a restart, or the machine is offline.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum CodexLoginState {
         0 Waiting {}
         1 SignedIn {}
@@ -263,26 +255,25 @@ impl AgentAccount {
     }
 }
 
-/// The models a coding agent can run on a machine, as `ListAgentModels`
-/// gives them.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentModels {
-    pub pick: AgentModelPick,
-    /// The model the agent runs when none is picked, when it says.
-    pub current: Option<String>,
-    /// The models to pick from, for `AgentModelPick::Listed`.
-    pub models: Vec<AgentModel>,
+ffi_structs! {
+    /// The models a coding agent can run on a machine, as `ListAgentModels`
+    /// gives them.
+    pub struct AgentModels {
+        pub pick: AgentModelPick,
+        /// The model the agent runs when none is picked, when it says.
+        pub current: Option<String>,
+        /// The models to pick from, for `AgentModelPick::Listed`.
+        pub models: Vec<AgentModel>,
+    }
 }
 
-wire_enum! {
+ffi_enum! {
     /// How the start form picks a coding agent's model: `Fixed` when none
     /// can be picked (the agent runs its own, or the machine's beep-node is
     /// too old to pick one), `Listed` from `AgentModels::models`, `Named`
     /// by any name the agent takes when it lists none.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "snake_case")]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentModelPick {
         0 Fixed {}
         1 Listed {}
@@ -290,7 +281,7 @@ wire_enum! {
     }
 }
 
-wire_enum! {
+ffi_enum! {
     /// What a coding agent starts on, as `StartAgentSession::checkout`
     /// asks: a new `beep/<slug>` branch in the checkout itself, or one in a
     /// new worktree at `.worktrees/beep-<slug>`, made from `base` (the
@@ -302,7 +293,6 @@ wire_enum! {
     /// older than `Feature::BRANCH_WORKTREES` refuses both, and so does a
     /// node from before them. See `node::agent::CheckoutPlan`.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentCheckoutPlan {
         0 NewBranch { base: Option<String> }
         1 NewWorktree { base: Option<String> }
@@ -311,12 +301,11 @@ wire_enum! {
     }
 }
 
-wire_enum! {
+ffi_enum! {
     /// How hard a coding agent thinks, as `StartAgentSession::effort`
     /// asks. Which levels an agent takes is `node::agent::efforts`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "snake_case")]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum AgentEffort {
         0 Off {}
         1 Minimal {}
@@ -328,84 +317,76 @@ wire_enum! {
     }
 }
 
-/// One model a coding agent offers.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentModel {
-    /// What `StartAgentSession::model` names it by.
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
+ffi_structs! {
+    /// One model a coding agent offers.
+    #[derive(Eq)]
+    pub struct AgentModel {
+        /// What `StartAgentSession::model` names it by.
+        pub id: String,
+        pub name: String,
+        pub description: Option<String>,
+    }
+
+    /// One saved version of the user's instructions.
+    pub struct InstructionsVersion {
+        /// 1 for the first save, then one more each time.
+        pub version: u32,
+        /// Markdown.
+        pub text: String,
+        /// What made it, such as "Restored version 3"; empty for an edit.
+        pub note: String,
+        pub saved_at: SystemTime,
+    }
+
+    /// The agent files on one machine, as `ReadAgentFiles` reads them.
+    pub struct MachineAgentFiles {
+        pub machine_id: String,
+        pub machine_name: String,
+        pub files: Vec<AgentFile>,
+        /// Why the machine could not be read or written; `files` is then empty.
+        pub error: Option<String>,
+    }
+
+    /// One coding agent's instructions file on a machine.
+    pub struct AgentFile {
+        /// `claude`, `codex`, `gemini` or `pi`.
+        pub agent: String,
+        /// Under the home folder, such as `~/.claude/CLAUDE.md`.
+        pub path: String,
+        /// Its text; `None` when the agent's folder is there but the file is
+        /// not.
+        pub text: Option<String>,
+        /// It holds the newest instructions between Beep's markers.
+        pub synced: bool,
+    }
+
+    /// A credential as `ListCredentials` lists it. The secret stays on the
+    /// server.
+    pub struct Credential {
+        pub id: String,
+        pub kind: CredentialKind,
+        /// The secret's last four characters.
+        pub last4: String,
+        /// Who the token signs in as, such as a GitHub login. `None` for API
+        /// keys, and for a Forgejo server the server could not reach to check.
+        pub account: Option<String>,
+        /// The env var the machines get it as, such as `GH_TOKEN`. Empty for
+        /// Forgejo, whose tokens go into teacli's config instead.
+        pub env_var: String,
+        /// Whether the caller's machines get it.
+        pub to_machines: bool,
+        pub created_at: SystemTime,
+        /// The server can no longer open it; the user has to enter it again.
+        /// Machines do not get it.
+        pub unreadable: bool,
+    }
 }
 
-/// One saved version of the user's instructions.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InstructionsVersion {
-    /// 1 for the first save, then one more each time.
-    pub version: u32,
-    /// Markdown.
-    pub text: String,
-    /// What made it, such as "Restored version 3"; empty for an edit.
-    pub note: String,
-    pub saved_at: SystemTime,
-}
-
-/// The agent files on one machine, as `ReadAgentFiles` reads them.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineAgentFiles {
-    pub machine_id: String,
-    pub machine_name: String,
-    pub files: Vec<AgentFile>,
-    /// Why the machine could not be read or written; `files` is then empty.
-    pub error: Option<String>,
-}
-
-/// One coding agent's instructions file on a machine.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentFile {
-    /// `claude`, `codex`, `gemini` or `pi`.
-    pub agent: String,
-    /// Under the home folder, such as `~/.claude/CLAUDE.md`.
-    pub path: String,
-    /// Its text; `None` when the agent's folder is there but the file is
-    /// not.
-    pub text: Option<String>,
-    /// It holds the newest instructions between Beep's markers.
-    pub synced: bool,
-}
-
-/// A credential as `ListCredentials` lists it. The secret stays on the
-/// server.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Credential {
-    pub id: String,
-    pub kind: CredentialKind,
-    /// The secret's last four characters.
-    pub last4: String,
-    /// Who the token signs in as, such as a GitHub login. `None` for API
-    /// keys, and for a Forgejo server the server could not reach to check.
-    pub account: Option<String>,
-    /// The env var the machines get it as, such as `GH_TOKEN`. Empty for
-    /// Forgejo, whose tokens go into teacli's config instead.
-    pub env_var: String,
-    /// Whether the caller's machines get it.
-    pub to_machines: bool,
-    pub created_at: SystemTime,
-    /// The server can no longer open it; the user has to enter it again.
-    /// Machines do not get it.
-    pub unreadable: bool,
-}
-
-wire_enum! {
+ffi_enum! {
     /// What `CheckCredential` found. `machine` is the name of the machine
     /// that reached the server, `None` when Beep's server did. `message`
     /// says what happened, for the user.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum CredentialCheck {
         0 Valid { account: String, machine: Option<String> }
         1 Refused { machine: Option<String>, message: String }
@@ -413,12 +394,11 @@ wire_enum! {
     }
 }
 
-wire_enum! {
+ffi_enum! {
     /// What a credential is for. `url` is a Forgejo or Gitea server's base
     /// URL, such as `https://git.example.com`; `provider` an `ApiProvider`
     /// slug, such as `openrouter`.
     #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum CredentialKind {
         0 GitHub {}
         1 Forgejo { url: String }
