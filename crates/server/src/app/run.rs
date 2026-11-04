@@ -47,7 +47,7 @@ use flashmind::{
         search_read::WebSearchReadTool,
     },
     types::{
-        AgentEvent, AgentInput, ContentPart, ToolRegistry,
+        AgentEvent, AgentInput, ContentPart, LlmError, LlmErrorKind, ToolRegistry,
         tool::{Tool, ToolResult},
     },
 };
@@ -844,13 +844,11 @@ impl App {
                                 continue;
                             }
                             Some(AgentEvent::Done(_)) => break RunStatus::Completed,
-                            Some(AgentEvent::Error(_)) => {
+                            Some(AgentEvent::Error(error)) => {
                                 // Provider errors can contain upstream response details. Keep them off the wire.
                                 let error = RunEvent::Error {
-                            message:
-                                "The model request failed. Check server provider configuration."
-                                    .to_owned(),
-                        };
+                                    message: failure_message(&error).to_owned(),
+                                };
                                 live.push(error);
                                 break RunStatus::Failed;
                             }
@@ -1427,6 +1425,26 @@ fn system_prompt(research: bool, project: bool) -> &'static str {
         (true, _) => research::LEAD_PROMPT,
         (false, true) => project_turn::PROJECT_PROMPT,
         (false, false) => ASSISTANT_PROMPT,
+    }
+}
+
+/// What the user is told about a failed model request, by its cause.
+fn failure_message(error: &str) -> &'static str {
+    match LlmError::classify(error).kind {
+        LlmErrorKind::Configuration => {
+            "The model request failed. Check server provider configuration."
+        }
+        LlmErrorKind::ContextLengthExceeded => {
+            "This chat is too long for the model, even after summarizing it."
+        }
+        LlmErrorKind::InvalidRequest | LlmErrorKind::MalformedToolCall => {
+            "The model rejected something in this chat, such as a file it cannot read."
+        }
+        LlmErrorKind::StreamError | LlmErrorKind::RateLimited => {
+            "The model provider is busy or unreachable. Try again in a moment."
+        }
+        LlmErrorKind::ContentFiltered => "The model refused to answer this.",
+        _ => "The model request failed.",
     }
 }
 
