@@ -2,6 +2,7 @@
 //! parsers for their output, and the names they use.
 
 pub mod commands;
+pub mod issues;
 pub mod leak;
 pub mod model;
 mod owner_var;
