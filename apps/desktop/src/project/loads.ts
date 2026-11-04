@@ -5,6 +5,7 @@ import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote } from "../u
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "./pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
+import { harnessEl } from "../agents/harnessicon.ts";
 import { base, machineSync, type RunningAgent } from "../center/home-state.ts";
 import { foundRow } from "../addproject/addproject.ts";
 import { foundFor, withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
@@ -255,7 +256,7 @@ export async function loadWhere(name: string) {
 }
 
 /// The sessions your coding agents ran in the project's folders, newest first,
-/// each resumable; those running now are under Agents.
+/// each opens; those running now are under Agents.
 const SESSIONS_SHOWN = 5;
 
 export function sessionsSection(p: Project, running: RunningAgent[]) {
@@ -279,27 +280,13 @@ export function sessionsSection(p: Project, running: RunningAgent[]) {
 function openAgentRow(r: SessionRow) { go("pane", { agent: { kind: "agent", ...r } }); }
 
 function sessionRow(s: SessionRow) {
-  const ended = s.status === "ended";
-  const said = h("span", "bad");
-  const act: HTMLButtonElement = ended
-    ? button("Resume", "small", async () => {
-      act.disabled = true;
-      act.textContent = "Resuming…";
-      said.textContent = "";
-      try {
-        const started = await invoke<Started>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: null });
-        sessionsDue.add(state.picked!);
-        openAgentRow(started.session);
-      } catch (e) {
-        act.disabled = false;
-        act.textContent = "Resume";
-        said.textContent = reason(e);
-      }
-    })
-    : button("Open", "small", () => openAgentRow(s));
-  const meta = [h("span", "ap-ag", agentLabel(s.agent)), ended ? "ended" : s.status, s.machine_name, base(s.cwd), s.last_activity ? ago(s.last_activity) : ""]
+  const tile = harnessEl(s.agent);
+  tile.title = agentLabel(s.agent);
+  const meta = [tile, s.status, s.machine_name, base(s.cwd), s.last_activity ? ago(s.last_activity) : ""]
     .filter(Boolean).map(x => typeof x === "string" ? h("span", "", x) : x);
-  return h("div", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta), h("span", "acts", said, act));
+  const row = h("button", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta));
+  row.addEventListener("click", () => openAgentRow(s));
+  return row;
 }
 
 /// The projects whose sessions are being read, and those to read again on the

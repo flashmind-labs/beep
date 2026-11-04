@@ -324,6 +324,11 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 
 /* One project: where it lives, its agents and its sessions. */
 .pv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px }
+button.pv-row { all: unset; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px; width: 100%; box-sizing: border-box; cursor: pointer }
+button.pv-row:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+button.pv-row:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: -2px }
+button.pv-row .m { align-items: center }
+button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size: 7.5px; flex: none }
 .pv-row + .pv-row { border-top: 1px solid var(--border) }
 .pv-row .t { min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .pv-row .t b { font-weight: 500 }
