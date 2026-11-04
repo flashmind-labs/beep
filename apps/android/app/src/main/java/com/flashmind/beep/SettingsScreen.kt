@@ -50,6 +50,8 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Laptop
@@ -67,8 +69,11 @@ import kotlinx.coroutines.withContext
 /** Everything that is not a conversation or one of the drawer tiles. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
+internal fun SettingsScreen(
     repository: ChatRepository,
+    accountMode: AccountMode,
+    onApps: () -> Unit,
+    onInstructions: () -> Unit,
     onBack: () -> Unit,
     onBubbleSettings: () -> Unit,
     onLinkedDevices: () -> Unit,
@@ -76,32 +81,39 @@ fun SettingsScreen(
     onGrants: () -> Unit,
 ) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Settings"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            ThemePicker()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Show everything", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text("Projects, coding agents and machines", fontSize = 12.sp, color = Beep.colors.muted)
+                }
+                BeepSwitch(checked = accountMode.showEverything, onCheckedChange = accountMode::show, label = "Show everything")
+            }
+            SettingsRow(Icons.Outlined.Extension, "Apps", "Connected accounts and permissions", onApps)
+            Column {
+                AccountRow(repository)
+                SettingsRow(Icons.Outlined.Laptop, "Linked devices", "Use Beep from your computer", onLinkedDevices)
+                SettingsRow(Icons.Outlined.Shield, "Routine grants", "What routines may do without asking", onGrants)
+                if (accountMode.expanded) {
+                    SettingsRow(Icons.Outlined.Dns, "Machines", "Where Beep runs commands and coding agents", onMachines)
+                    SettingsRow(Icons.Outlined.Edit, "Instructions", "Your rules for every agent", onInstructions)
+                }
+            }
+            HorizontalDivider(color = Beep.colors.softLine)
             AvatarPicker()
+            HorizontalDivider(color = Beep.colors.softLine)
             BubblePicker(onBubbleSettings)
+            HorizontalDivider(color = Beep.colors.softLine)
             VoiceSpeedPicker()
-            // Loaded by AgentsSwitch; the model section words Auto by it.
             var agents by remember { mutableStateOf<Agents?>(null) }
             ModelPicker(repository, agentsOn = agents?.enabled == true)
             AgentsSwitch(repository, agents) { agents = it }
-            Column {
-                HorizontalDivider(color = Beep.colors.softLine)
-                AccountRow(repository)
-                HorizontalDivider(color = Beep.colors.softLine)
-                SettingsRow(Icons.Outlined.Laptop, "Linked devices", "Use Beep from your computer", onLinkedDevices)
-                HorizontalDivider(color = Beep.colors.softLine)
-                SettingsRow(Icons.Outlined.Shield, "Routine grants", "What routines may do without asking", onGrants)
-                HorizontalDivider(color = Beep.colors.softLine)
-                SettingsRow(Icons.Outlined.Dns, "Machines", "Where Beep runs commands and coding agents", onMachines)
-                HorizontalDivider(color = Beep.colors.softLine)
-            }
         }
     }
 }
@@ -245,8 +257,7 @@ private fun ModelPicker(repository: ChatRepository, agentsOn: Boolean) {
                         else -> "Off: every prompt uses the model below"
                     }, fontSize = 12.sp, color = Beep.colors.muted)
                 }
-                Switch(checked = current.auto, onCheckedChange = ::auto,
-                    colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
+                BeepSwitch(checked = current.auto, onCheckedChange = ::auto, label = "Auto")
             }
         }
         Column {
@@ -321,8 +332,7 @@ private fun AgentsSwitch(repository: ChatRepository, agents: Agents?, setAgents:
                 Text(if (current.enabled) "On for everyone: Jev picks an agent for each prompt"
                     else "Off: everyone uses the general assistant", fontSize = 12.sp, color = Beep.colors.muted)
             }
-            Switch(checked = current.enabled, onCheckedChange = ::toggle,
-                colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok))
+            BeepSwitch(checked = current.enabled, onCheckedChange = ::toggle, label = "Agents")
         }
         Column(Modifier.alpha(if (current.enabled) 1f else 0.5f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             current.agents.forEach { agent ->
@@ -350,10 +360,12 @@ private fun modelDetail(choice: ModelChoice): String {
 private fun SettingsRow(icon: ImageVector, label: String, detail: String?, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, Modifier.size(20.dp), tint = Beep.colors.muted)
+        androidx.compose.foundation.layout.Box(Modifier.size(36.dp).border(1.dp, Beep.colors.softLine, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(18.dp), tint = Beep.colors.muted)
+        }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
             if (detail != null) Text(detail, fontSize = 12.sp, color = Beep.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(20.dp), tint = Beep.colors.muted)

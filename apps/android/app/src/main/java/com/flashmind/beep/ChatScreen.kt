@@ -336,7 +336,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                         // Only a reply after the latest prompt: while a new run starts, the one before it is done
                         // and keeps its cards.
                         val isLastAssistant = !isUser && chat.messages.lastOfTurns()?.id == message.id
-                        val bubbleShape = if (isUser) RoundedCornerShape(radius, radius, 6.dp, radius)
+                        val bubbleShape = if (isUser) RoundedCornerShape(12.dp, 12.dp, 4.dp, 12.dp)
                             else RoundedCornerShape(6.dp, radius, radius, radius)
                         val bubbleModifier = when {
                             isUser -> Modifier.padding(start = 48.dp)
@@ -720,7 +720,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         var micHeld by remember { mutableStateOf(false) }
         val liveShown = liveDock && liveState.active && !micHeld
         LaunchedEffect(liveShown) { if (liveShown) dictation.cancel() }
-        val buttonSize = if (compact) 44.dp else 50.dp
+        val buttonSize = 44.dp
         val buttonShape = RoundedCornerShape(Beep.shapes.radius)
         if (liveShown) LiveDock(live, compact) else Row(Modifier.padding(start = if (onExpand != null) 2.dp else if (compact) 8.dp else 14.dp, end = if (compact) 10.dp else 16.dp,
             top = if (compact) 4.dp else 8.dp, bottom = if (compact) 8.dp else 12.dp).fillMaxWidth(),
@@ -739,8 +739,8 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
                 }
                 TextField(value = draftField, onValueChange = { if (it.text.toByteArray().size <= 32768) { draftField = it; draft = it.text } },
                     modifier = Modifier.weight(1f).focusRequester(inputFocusRequester),
-                    placeholder = { Text(if (micHeld) "Let go to send · Slide away to cancel" else if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else if (research?.isResearch == true) research.live.hint() else "Ask anything...", fontSize = 15.sp, color = TextDim) },
-                    textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
+                    placeholder = { Text(if (micHeld) "Let go to send · Slide away to cancel" else if (listening) "Speak now..." else if (attachedImages.size > 1) "Ask about the images..." else if (attachedImages.isNotEmpty()) "Describe the image..." else if (attachedFiles.isNotEmpty()) "Ask about the file..." else if (research?.isResearch == true) research.live.hint() else "Message", fontSize = 14.sp, color = TextDim) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = 14.sp),
                     colors = TextFieldDefaults.colors(unfocusedContainerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, cursorColor = TextPrimary),
                     maxLines = if (compact) 3 else 6,
@@ -1159,8 +1159,8 @@ private fun SourceChips(messageId: String, sources: List<WebSource>, onOpen: (St
 /** A pill with a soft outline, the frame of one source chip. */
 @Composable
 private fun SourceChip(modifier: Modifier, start: Dp = 4.dp, content: @Composable RowScope.() -> Unit) {
-    val shape = RoundedCornerShape(50)
-    Row(Modifier.height(28.dp).clip(shape).background(Beep.colors.surface).border(1.5.dp, Beep.colors.softLine, shape)
+    val shape = RoundedCornerShape(6.dp)
+    Row(Modifier.height(28.dp).clip(shape).background(Beep.colors.surface).border(1.dp, Beep.colors.softLine, shape)
         .then(modifier).padding(start = start, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically, content = content)
 }

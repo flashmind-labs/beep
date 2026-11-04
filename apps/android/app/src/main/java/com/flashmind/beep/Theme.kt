@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -146,12 +152,12 @@ private fun linearTokens(style: BeepStyle, dark: Boolean): BeepTokens {
         muted = Color(if (dark) 0xFF8A8F98 else 0xFF676C76),
         dim = Color(if (dark) 0xFF5B5F65 else 0xFF767B85),
         line = border, softLine = border, ledge = border,
-        user = lerp(page, accent, 0.22f), onUser = ink,
+        user = if (style == BeepStyle.MintQuiet) Color(if (dark) 0xFF202439 else 0xFFD5D9F1) else lerp(page, accent, 0.22f), onUser = ink,
         brand = Color(if (dark) 0xFF8A9CF0 else 0xFF4F5BC0), accent = accent, onAccent = Color.White,
         ok = Color(if (dark) 0xFF4CB782 else 0xFF268557),
         warn = Color(if (dark) 0xFFF2C94C else 0xFF946B00),
         error = Color(if (dark) 0xFFEB5757 else 0xFFC33838),
-        tints = listOf(raised, surface, lerp(page, accent, 0.12f)), code = raised, onCode = ink,
+        tints = listOf(raised, surface, if (style == BeepStyle.MintQuiet) Color(if (dark) 0xFF1B1E2A else 0xFFE5E7F5) else lerp(page, accent, 0.12f)), code = raised, onCode = ink,
     ), BeepShapes(radius = 8.dp, smallRadius = 6.dp),
         BeepFonts(Inter, FontWeight.SemiBold, 0.em, Inter))
 }
@@ -192,10 +198,8 @@ object Appearance {
 
 @Composable
 fun BeepTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    remember { Appearance.load(context.applicationContext) }
     val dark = isSystemInDarkTheme()
-    val tokens = BeepTokens.of(Appearance.style.value, dark)
+    val tokens = BeepTokens.of(BeepStyle.MintQuiet, dark)
     val c = tokens.colors
     val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
         primary = c.accent, onPrimary = c.onAccent, primaryContainer = c.user, onPrimaryContainer = c.onUser,
@@ -317,5 +321,34 @@ fun Modifier.popIn(key: Any, play: Boolean = true, origin: TransformOrigin = Tra
         scaleX = scale; scaleY = scale
         translationY = (1 - v) * 4.dp.toPx()
         transformOrigin = origin
+    }
+}
+
+/** The mock's compact header and quiet bottom divider. */
+@Composable
+internal fun Modifier.beepBar(): Modifier {
+    val line = Beep.colors.softLine
+    return drawWithContent {
+        drawContent()
+        drawLine(line, androidx.compose.ui.geometry.Offset(0f, size.height),
+            androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1.dp.toPx())
+    }
+}
+
+/** A compact visual switch inside a full touch target. */
+@Composable
+internal fun BeepSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit, label: String,
+    modifier: Modifier = Modifier, enabled: Boolean = true) {
+    androidx.compose.foundation.layout.Box(modifier.size(48.dp).alpha(if (enabled) 1f else 0.45f)
+        .semantics { contentDescription = label }
+        .toggleable(value = checked, enabled = enabled, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onCheckedChange),
+        contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.layout.Box(Modifier.size(width = 40.dp, height = 24.dp)
+            .background(if (checked) Beep.colors.ok else Beep.colors.softLine, androidx.compose.foundation.shape.CircleShape)
+            .border(1.dp, Beep.colors.softLine, androidx.compose.foundation.shape.CircleShape)) {
+            androidx.compose.foundation.layout.Box(Modifier.align(Alignment.CenterStart).offset(x = if (checked) 20.dp else 3.dp)
+                .size(17.dp).background(Beep.colors.surface, androidx.compose.foundation.shape.CircleShape)
+                .border(1.dp, Beep.colors.softLine, androidx.compose.foundation.shape.CircleShape))
+        }
     }
 }

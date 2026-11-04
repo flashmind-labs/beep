@@ -25,6 +25,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,6 +76,8 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
     var stats by remember { mutableStateOf(emptyMap<String, MachineStats>()) }
     var error by remember { mutableStateOf("") }
     var open by rememberSaveable { mutableStateOf<String?>(null) }
+    var terminals by rememberSaveable { mutableStateOf(false) }
+    if (terminals) { TerminalsScreen(repository, machineId = open, onBack = { terminals = false }); return }
     fun refresh() = scope.launch {
         runCatching {
             withContext(Dispatchers.IO) {
@@ -94,9 +98,12 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
     val shown = machines?.firstOrNull { it.id == open }
     BackHandler(enabled = shown != null) { open = null }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText(shown?.name ?: "Machines"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText(shown?.name ?: "Machines"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = { if (shown != null) open = null else onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
+            actions = {
+                IconButton(onClick = { terminals = true }) { Icon(Icons.Outlined.Terminal, "Terminals", Modifier.size(20.dp)) }
+                IconButton(onClick = { refresh() }) { Icon(Icons.Outlined.Refresh, "Refresh", Modifier.size(20.dp)) }
+            }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
         if (shown != null) {
             MachineDetail(shown, stats[shown.id], Modifier.padding(padding))
@@ -114,17 +121,17 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
                         fontSize = 13.sp, lineHeight = 20.sp, color = Beep.colors.muted, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp, horizontal = 12.dp))
                     else -> {
+                        WorkspaceHeading("Connected (${list.count { it.online }} online)")
                         list.forEach { machine -> MachineCard(machine, stats[machine.id]) { open = machine.id } }
-                        Text("Beep runs commands and coding agents on these when you ask. Each one runs beep-node and is linked like a computer.",
-                            fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
+
                     }
                 }
             }
-            Button(onClick = { codes.typing = true }, modifier = Modifier.fillMaxWidth().height(52.dp),
+            Button(onClick = { codes.typing = true }, modifier = Modifier.fillMaxWidth().height(44.dp),
                 shape = RoundedCornerShape(Beep.shapes.radius),
                 colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                 Icon(Icons.Outlined.Dns, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                Text("Link a machine", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Link a machine", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -269,6 +276,11 @@ private fun MachineDetail(machine: Machine, stats: MachineStats?, modifier: Modi
         Facts(listOf("OS" to env.osVersion.ifEmpty { env.os }, "Chip" to env.arch, "CPUs" to env.cpus.toString(),
             "Memory" to "${env.memoryMb / 1024u} GB", "Host" to env.hostname, "Home" to env.home).filter { it.second.isNotEmpty() },
             mono = setOf("Home"))
+        val agents = env.tools.filter { it.name in setOf("claude", "codex", "gemini", "opencode", "pi", "flsh") }
+        if (agents.isNotEmpty()) {
+            Section("Coding agents")
+            Facts(agents.map { tool -> tool.name to listOfNotNull(tool.version, env.logins.find { it.tool == tool.name }?.let { if (it.signedIn) "Signed in" else "Not signed in" }).joinToString(" · ") })
+        }
         if (env.logins.isNotEmpty()) {
             Section("Signed in")
             Facts(env.logins.map { it.tool to (if (!it.signedIn) "Not signed in" else it.account ?: "Signed in") })

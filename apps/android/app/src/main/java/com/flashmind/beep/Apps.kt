@@ -228,7 +228,7 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
 
     val t = Beep.colors
     Scaffold(containerColor = t.page, topBar = {
-        TopAppBar(title = { Text(displayText("Apps"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Apps"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = t.page))
     }) { padding ->
@@ -437,7 +437,7 @@ private fun McpServerScreen(repository: ChatRepository, server: McpServer, busy:
             dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } })
     }
     Scaffold(containerColor = t.page, topBar = {
-        TopAppBar(title = {
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AppLogo(server.id, server.name, size = 32.dp)
                 Spacer(Modifier.width(12.dp))
@@ -486,9 +486,8 @@ private fun McpServerScreen(repository: ChatRepository, server: McpServer, busy:
                                         if (!tool.usable) Text("Too large for Beep to use", fontSize = 11.sp, color = t.muted)
                                     }
                                     Spacer(Modifier.width(10.dp))
-                                    Switch(checked = tool.enabled, onCheckedChange = { toggle(tool.name, it) }, enabled = tool.usable,
-                                        modifier = Modifier.semantics { contentDescription = "Use ${mcpToolLabel(tool.name)}" },
-                                        colors = SwitchDefaults.colors(checkedTrackColor = t.ok))
+                                    BeepSwitch(checked = tool.enabled, onCheckedChange = { toggle(tool.name, it) }, enabled = tool.usable,
+                                        label = "Use ${mcpToolLabel(tool.name)}")
                                 }
                             }
                         }
@@ -584,7 +583,7 @@ private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration
     }
 
     Scaffold(containerColor = t.page, topBar = {
-        TopAppBar(title = {
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AppLogo(app.slug, app.name, app.logoUrl, size = 32.dp)
                 Spacer(Modifier.width(12.dp))
@@ -725,8 +724,7 @@ private fun ActionRow(action: AppAction, level: PermissionLevel, onAllowed: (Boo
             modifier = Modifier.clip(CircleShape).background(tint).padding(horizontal = 8.dp, vertical = 3.dp))
         if (level == PermissionLevel.ASK) {
             Spacer(Modifier.width(10.dp))
-            Switch(checked = action.allowed, onCheckedChange = onAllowed, modifier = Modifier.semantics { contentDescription = "Always allow ${action.label}" },
-                colors = SwitchDefaults.colors(checkedTrackColor = t.ok))
+            BeepSwitch(checked = action.allowed, onCheckedChange = onAllowed, label = "Always allow ${action.label}")
         }
     }
 }
