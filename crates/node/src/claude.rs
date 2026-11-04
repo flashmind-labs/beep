@@ -4,10 +4,10 @@
 //! session Beep started (see `crate::agents`).
 
 use crate::found::Seen as Sighting;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    agent::{ExternalSession, Presence},
+    agent::{ExternalSession, LiveStatus, Presence, Steer},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -19,6 +19,7 @@ pub(crate) use transcript::{Excerpt, unix_seconds};
 
 mod discover;
 pub mod hooks;
+mod live;
 mod procs;
 mod subagents;
 mod transcript;
@@ -50,6 +51,7 @@ pub(crate) fn projects_dir() -> Option<PathBuf> {
 pub struct External {
     store: Option<discover::Store>,
     hub: watch::Hub,
+    live: live::Live,
 }
 
 impl External {
@@ -58,6 +60,7 @@ impl External {
         Self {
             store: discover::Store::locate(),
             hub: watch::Hub::default(),
+            live: live::Live::default(),
         }
     }
 
@@ -67,6 +70,7 @@ impl External {
         Self {
             store: Some(discover::Store::at(root)),
             hub: watch::Hub::default(),
+            live: live::Live::default(),
         }
     }
 
@@ -164,7 +168,33 @@ impl External {
 
     /// Takes hook events on the socket in `dir` until the node stops.
     pub async fn listen_hooks(&self, dir: &Path) -> Result<()> {
-        watch::listen(&hooks::socket_path(dir), &self.hub).await
+        watch::listen(&hooks::socket_path(dir), &self.hub, &self.live).await
+    }
+
+    /// How session `id` does now as its hooks report it, after queuing
+    /// `steer` for its next hook when given. `owned` is as for `list`.
+    pub async fn live(
+        &self,
+        id: &str,
+        steer: Option<Steer>,
+        owned: HashMap<String, String>,
+    ) -> Result<LiveStatus> {
+        let found = match self.list(1, Some(id.to_owned()), owned).await?.pop() {
+            Some(found) => found,
+            None if self.live.knows(id) => ExternalSession {
+                id: id.to_owned(),
+                agent: "claude".to_owned(),
+                ..ExternalSession::default()
+            },
+            None => bail!("there is no Claude Code session {id} here"),
+        };
+        if let Some(taken) = &found.taken_over {
+            bail!("session {id} runs here as session {taken}, so steer it as that session");
+        }
+        if let Some(steer) = steer {
+            self.live.steer(id, steer).map_err(anyhow::Error::msg)?;
+        }
+        Ok(self.live.status(found))
     }
 
     /// Serves one `Watch` stream.

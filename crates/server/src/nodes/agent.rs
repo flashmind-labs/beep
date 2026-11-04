@@ -5,8 +5,9 @@ use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
-            self, Entry, Event, ExternalSession, ModelList, Question, Request, SESSIONS_PROTOCOL,
-            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Status, StopReason,
+            self, Entry, Event, ExternalSession, LiveStatus, ModelList, Question, Request,
+            SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Status,
+            Steer, StopReason,
         },
         link,
     },
@@ -372,6 +373,26 @@ impl Online {
             Ok(other) => bail!("the node answered {other:?}"),
             // An older node closes the stream on a request it cannot read.
             Err(e) => Err(e.context("the node may need an update to list them")),
+        }
+    }
+
+    /// How Claude Code session `session`, started outside Beep, does now, after queuing
+    /// `steer` for its next hook when given.
+    pub(crate) async fn live_session(
+        &self,
+        session: &str,
+        steer: Option<Steer>,
+    ) -> Result<LiveStatus> {
+        let session = session.to_owned();
+        let request = match steer {
+            Some(steer) => SessionsRequest::Steer { session, steer },
+            None => SessionsRequest::Live { session },
+        };
+        match self.sessions_request(request).await {
+            Ok(SessionsReply::Live { status }) => Ok(*status),
+            Ok(SessionsReply::Error { message }) => bail!("{message}"),
+            Ok(other) => bail!("the node answered {other:?}"),
+            Err(e) => Err(e.context("the node may need an update for live status")),
         }
     }
 
