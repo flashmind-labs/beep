@@ -104,6 +104,22 @@ pub(super) fn tools() -> Value {
             "annotations": { "title": "Cancel a job" }
         },
         {
+            "name": "machine_log",
+            "description": "Read the recent log of beep-node on one of the user's machines, to \
+                debug the machine itself: its link to Beep, sync, agent sessions. Gives the \
+                last `lines` lines (default 200, at most 1000), oldest first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "machine": machine("The machine, by its name in list_machines"),
+                    "lines": { "type": "integer", "minimum": 1, "maximum": 1000 }
+                },
+                "required": ["machine"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Read a machine's log", "readOnlyHint": true }
+        },
+        {
             "name": ASK_USER,
             "description": "Ask the user a question and wait for the answer. It shows in \
                 Beep's Needs you on their desktop and phone. Give `options` for a choice; they \

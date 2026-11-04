@@ -25,6 +25,7 @@ pub enum Tool {
     SendFiles,
     JobStatus,
     Cancel,
+    MachineLog,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,

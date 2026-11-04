@@ -62,7 +62,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     Mac builds, or one with a GPU for heavy jobs. run_on runs a command there, or starts a \
     coding agent there with a prompt; job_status and cancel follow what it started. \
     sync_project syncs a project's files to the user's other machines before work there, and \
-    send_files copies files to another machine. ask_user asks the user a question and waits \
+    send_files copies files to another machine. machine_log reads a machine's beep-node log. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";
 
 /// How sessions start the server, and the key their tokens are made with.

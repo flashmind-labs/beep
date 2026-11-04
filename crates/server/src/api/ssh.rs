@@ -143,7 +143,7 @@ async fn search_node(cx: &Cx, machine_id: &str) -> Result<Online, ApiError> {
 
 /// One of the caller's online machines, with its name. Another account's
 /// machine is `NotFound`, as one that does not exist.
-async fn owned_online(cx: &Cx, machine_id: &str) -> Result<(String, Online), ApiError> {
+pub(super) async fn owned_online(cx: &Cx, machine_id: &str) -> Result<(String, Online), ApiError> {
     let owned = cx
         .user
         .nodes()

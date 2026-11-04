@@ -1239,6 +1239,11 @@ requests! {
     /// them in sync; a machine that holds it already keeps what it holds.
     /// `BadRequest` says why it cannot.
     410 CopyProject { project: String, machine_id: String } => Call<ProjectCopy>
+    /// The last `lines` lines of the beep-node log of `machine_id`, one of the
+    /// caller's online machines, oldest first, at most 1000 lines and 256 KB.
+    /// `NotFound` when the machine is not the caller's; `BadRequest` saying
+    /// why when it is offline, too old or has no log to read.
+    411 GetMachineLog { machine_id: String, lines: u32 } => Call<String>
 }
 
 #[cfg(test)]

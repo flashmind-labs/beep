@@ -34,6 +34,7 @@ mod files;
 mod follow;
 mod harness;
 mod images;
+mod logs;
 mod retry;
 mod search;
 mod shell;
