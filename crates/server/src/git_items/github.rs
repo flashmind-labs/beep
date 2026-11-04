@@ -1,6 +1,6 @@
 //! Open pull requests and issues on GitHub, from its issue search.
 
-use super::host::{Caller, HostError};
+use super::host::{Caller, Found, HostError, Label, label_names};
 use crate::protocol::{GitItem, GitItemKind, GitReview};
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
@@ -82,10 +82,12 @@ struct SearchItem {
     pull_request: Option<serde::de::IgnoredAny>,
     /// `https://api.github.com/repos/<org>/<repo>`.
     repository_url: String,
+    #[serde(default)]
+    labels: Vec<Label>,
 }
 
 /// The user's open items on GitHub with `caller`'s token.
-pub async fn items(caller: &Caller<'_>) -> Result<Vec<GitItem>, HostError> {
+pub async fn items(caller: &Caller<'_>) -> Result<Vec<Found>, HostError> {
     let asked = join_all(Query::ALL.map(|query| async move {
         let url = Url::parse_with_params(
             SEARCH,
@@ -114,8 +116,8 @@ pub async fn items(caller: &Caller<'_>) -> Result<Vec<GitItem>, HostError> {
 }
 
 /// The items the listing searches found, once each, marked by the others.
-fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<GitItem> {
-    let mut items: Vec<GitItem> = Vec::new();
+fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<Found> {
+    let mut items: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
     for (query, hits) in found.iter().filter(|(query, _)| query.lists()) {
         for hit in hits {
@@ -126,7 +128,7 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<GitItem> {
                 items.push(item(hit, repo));
                 items.len() - 1
             });
-            let item = &mut items[i];
+            let item = &mut items[i].item;
             match query {
                 Query::Authored => item.authored = true,
                 Query::Assigned => item.assigned = true,
@@ -140,7 +142,7 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<GitItem> {
             let Some(&i) = at.get(&hit.html_url) else {
                 continue;
             };
-            let item = &mut items[i];
+            let item = &mut items[i].item;
             match query {
                 Query::Approved => item.review = GitReview::Approved {},
                 Query::ChangesRequested => item.review = GitReview::ChangesRequested {},
@@ -152,9 +154,9 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<GitItem> {
     items
 }
 
-fn item(hit: &SearchItem, repo: String) -> GitItem {
+fn item(hit: &SearchItem, repo: String) -> Found {
     let pull = hit.pull_request.is_some();
-    GitItem {
+    let item = GitItem {
         host: HOST.to_owned(),
         repo,
         number: hit.number,
@@ -173,6 +175,10 @@ fn item(hit: &SearchItem, repo: String) -> GitItem {
         review: GitReview::None {},
         checks_failing: false,
         comments: hit.comments,
+    };
+    Found {
+        item,
+        labels: label_names(&hit.labels),
     }
 }
 
@@ -197,6 +203,7 @@ mod tests {
       {"html_url": "https://github.com/acme/widget/pull/142", "number": 142,
        "title": "Retry uploads when the token expires", "state": "open", "draft": false,
        "comments": 3, "updated_at": "2026-10-30T09:15:00Z",
+       "labels": [{"id": 1, "name": "bug", "color": "d73a4a"}],
        "repository_url": "https://api.github.com/repos/acme/widget",
        "user": {"login": "some-user"},
        "pull_request": {"url": "https://api.github.com/repos/acme/widget/pulls/142"}},
@@ -243,15 +250,22 @@ mod tests {
             (Query::ReviewRequested, reply(REVIEW)),
         ]);
         assert_eq!(items.len(), 4);
-        let crash = items
+        let pr = items
             .iter()
-            .find(|i| i.number == 131)
-            .expect("the issue is listed");
-        assert!(crash.authored && crash.assigned);
-        let review = items
-            .iter()
-            .find(|i| i.number == 144)
+            .find(|i| i.item.number == 142)
             .expect("the PR is listed");
+        assert_eq!(pr.labels, ["bug"]);
+        let crash = &items
+            .iter()
+            .find(|i| i.item.number == 131)
+            .expect("the issue is listed")
+            .item;
+        assert!(crash.authored && crash.assigned);
+        let review = &items
+            .iter()
+            .find(|i| i.item.number == 144)
+            .expect("the PR is listed")
+            .item;
         assert!(review.review_requested && review.draft && !review.authored);
     }
 
@@ -263,9 +277,9 @@ mod tests {
             (Query::ChangesRequested, reply(FAILING)),
         ]);
         assert_eq!(items.len(), 2);
-        assert!(items[0].checks_failing);
-        assert_eq!(items[0].review, GitReview::ChangesRequested {});
-        assert!(!items[1].checks_failing);
-        assert!(items.iter().all(|i| i.repo != "other/thing"));
+        assert!(items[0].item.checks_failing);
+        assert_eq!(items[0].item.review, GitReview::ChangesRequested {});
+        assert!(!items[1].item.checks_failing);
+        assert!(items.iter().all(|i| i.item.repo != "other/thing"));
     }
 }

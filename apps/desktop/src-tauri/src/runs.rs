@@ -12,9 +12,10 @@ use crate::{
     threads::{IssueRow, PullRequestRow},
 };
 use beep_proto::{
-    GetProjectLists, GetProjectRun, GetProjectRunOn, GitHostKind, HostedChecks, HostedRun,
-    HostedRuns, ListProjectRuns, ListProjectRunsAll, PrChecks, ProjectRunDetail, ProjectRuns,
-    RunJob, RunLog, RunProgress, RunState, RunStep, RunsHost, StepProgress, WorkflowRun,
+    GetLabeledProjectLists, GetProjectRun, GetProjectRunOn, GitHostKind, HostedChecks, HostedRun,
+    HostedRuns, LabeledProjectLists, ListProjectRuns, ListProjectRunsAll, PrChecks,
+    ProjectRunDetail, ProjectRuns, RunJob, RunLog, RunProgress, RunState, RunStep, RunsHost,
+    StepProgress, WorkflowRun,
 };
 use serde::Serialize;
 use std::{sync::Arc, time::SystemTime};
@@ -52,14 +53,19 @@ pub async fn center_project_lists(
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
     match beep
-        .call(GetProjectLists {
+        .call(GetLabeledProjectLists {
             project_id,
             refresh,
         })
         .await
     {
-        Ok(lists) => Ok(Some(ListsRow {
-            prs: lists.pull_requests.into_iter().map(Into::into).collect(),
+        Ok(LabeledProjectLists { lists, pr_labels }) => Ok(Some(ListsRow {
+            prs: lists
+                .pull_requests
+                .into_iter()
+                .zip(pr_labels)
+                .map(|(pr, labels)| PullRequestRow::labeled(pr, labels))
+                .collect(),
             prs_error: lists.prs_error,
             issues: lists.issues.into_iter().map(Into::into).collect(),
             issues_error: lists.issues_error,

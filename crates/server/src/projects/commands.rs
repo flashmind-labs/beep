@@ -486,7 +486,8 @@ impl HostCommand<'_> {
             }
             Self::ListOpenPrs => {
                 let jq = "[.[] | {number, title, url, author: .author.login, \
-                          isDraft, createdAt, updatedAt, headRefName}]";
+                          isDraft, createdAt, updatedAt, headRefName, \
+                          labels: [.labels[].name]}]";
                 let limit = GH_OPEN_LIMIT.to_string();
                 gh(
                     &["pr", "list"],
@@ -496,7 +497,7 @@ impl HostCommand<'_> {
                         "--limit",
                         &limit,
                         "--json",
-                        "number,title,url,author,isDraft,createdAt,updatedAt,headRefName",
+                        "number,title,url,author,isDraft,createdAt,updatedAt,headRefName,labels",
                         "--jq",
                         jq,
                     ],
@@ -903,6 +904,22 @@ fn comment_count(item: &Value) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
+/// The label names of an issue or pull request: gh's jq gives names,
+/// Forgejo label objects.
+fn label_names(item: &Value) -> Vec<String> {
+    match item.get("labels") {
+        Some(Value::Array(labels)) => labels
+            .iter()
+            .map(|label| match label {
+                Value::String(name) => name.clone(),
+                other => text(other, "name"),
+            })
+            .filter(|name| !name.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
 pub(crate) fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
     let value = json(out)?;
@@ -925,21 +942,10 @@ pub(crate) fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
             let opened_at = DateTime::parse_from_rfc3339(&opened)
                 .with_context(|| format!("issue #{number} has a bad creation time"))?
                 .with_timezone(&Utc);
-            let labels = match item.get("labels") {
-                Some(Value::Array(labels)) => labels
-                    .iter()
-                    .map(|label| match label {
-                        Value::String(name) => name.clone(),
-                        other => text(other, "name"),
-                    })
-                    .filter(|name| !name.is_empty())
-                    .collect(),
-                _ => Vec::new(),
-            };
             Ok(OpenIssue {
                 number,
                 title: text(item, "title"),
-                labels,
+                labels: label_names(item),
                 author: login(item),
                 opened_at,
                 comments: comment_count(item),
@@ -963,6 +969,7 @@ pub(crate) struct OpenPr {
     pub(crate) updated_at: DateTime<Utc>,
     /// The branch it is made from; empty when the host's CLI does not say.
     pub(crate) head: String,
+    pub(crate) labels: Vec<String>,
 }
 
 /// The time in the first of `keys` that holds one; `what` names it in the error.
@@ -1011,6 +1018,7 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
                 created_at,
                 updated_at,
                 head,
+                labels: label_names(item),
             })
         })
         .collect()
@@ -1352,7 +1360,7 @@ mod tests {
         };
         let gh = r#"[{"number":7,"title":"Bump serde","url":"https://github.com/acme/widget/pull/7",
             "author":"dependabot[bot]","isDraft":false,"createdAt":"2026-10-30T08:00:00Z",
-            "updatedAt":"2026-10-31T09:00:00Z","headRefName":"bump-serde"}]"#;
+            "updatedAt":"2026-10-31T09:00:00Z","headRefName":"bump-serde","labels":["deps"]}]"#;
         assert_eq!(
             parse_open_prs(gh).expect("prs"),
             [OpenPr {
@@ -1364,6 +1372,7 @@ mod tests {
                 created_at: at("2026-10-30T08:00:00Z"),
                 updated_at: at("2026-10-31T09:00:00Z"),
                 head: "bump-serde".into(),
+                labels: vec!["deps".into()],
             }]
         );
         let tea = r#"[
@@ -1371,6 +1380,7 @@ mod tests {
              "created_at":"2026-10-29T10:00:00+02:00","updated_at":"2026-10-29T12:00:00+02:00",
              "url":"https://git.example.com/api/v1/repos/acme/widget/pulls/5",
              "html_url":"https://git.example.com/acme/widget/pulls/5","body":"Long text",
+             "labels":[{"name":"perf"}],
              "head":{"ref":"faster-start","repo":{"full_name":"acme/widget"}}},
             {"number":6,"title":"No draft field","user":{"login":"sam"},
              "created_at":"2026-10-28T10:00:00Z",
@@ -1381,6 +1391,8 @@ mod tests {
         assert_eq!(prs[0].author, "kim");
         assert!(prs[0].draft);
         assert_eq!(prs[0].head, "faster-start");
+        assert_eq!(prs[0].labels, ["perf"]);
+        assert!(prs[1].labels.is_empty());
         assert_eq!(prs[1].head, "");
         assert_eq!(prs[0].url, "https://git.example.com/acme/widget/pulls/5");
         assert_eq!(prs[0].updated_at, at("2026-10-29T10:00:00Z"));

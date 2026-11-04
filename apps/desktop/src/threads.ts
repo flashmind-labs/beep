@@ -50,6 +50,8 @@ export interface PullRequestRow {
   created_at: number;
   /// In milliseconds since the Unix epoch.
   updated_at: number;
+  /// Missing from a list kept by an older app.
+  labels?: string[];
 }
 
 /// A chat about one thread (ThreadChatRow).

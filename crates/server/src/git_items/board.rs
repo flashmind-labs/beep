@@ -2,12 +2,12 @@
 
 use super::{
     forgejo, github,
-    host::{Caller, HostError},
+    host::{Caller, Found, HostError},
 };
 use crate::{
     AsyncMutex,
     credentials::{Slot, host_client},
-    protocol::{GitHost, GitHostKind, GitItem, GitItems},
+    protocol::{GitHost, GitHostKind, GitItem, GitItems, LabeledGitItems},
     store::GitLogin,
 };
 use futures::future::join_all;
@@ -32,7 +32,7 @@ struct Cached {
     /// The credential ids it was read with, so a token change rereads.
     logins: Vec<String>,
     at: Instant,
-    items: GitItems,
+    items: LabeledGitItems,
 }
 
 /// Each user's last list, locked per user so concurrent asks read the hosts once.
@@ -61,11 +61,14 @@ impl GitBoard {
     }
 
     /// `user`'s open items with `logins`, from the cache while it is fresh.
-    pub async fn list(&self, user: &str, logins: Vec<GitLogin>) -> anyhow::Result<GitItems> {
+    pub async fn list(&self, user: &str, logins: Vec<GitLogin>) -> anyhow::Result<LabeledGitItems> {
         if logins.is_empty() {
-            return Ok(GitItems {
-                items: Vec::new(),
-                hosts: Vec::new(),
+            return Ok(LabeledGitItems {
+                found: GitItems {
+                    items: Vec::new(),
+                    hosts: Vec::new(),
+                },
+                labels: Vec::new(),
             });
         }
         let slot = self
@@ -80,7 +83,13 @@ impl GitBoard {
         let mut cached = slot.lock().await;
         let ids: Vec<String> = logins.iter().map(|login| login.id.clone()).collect();
         if let Some(last) = cached.as_ref() {
-            let ttl = if last.items.hosts.iter().any(|host| host.error.is_some()) {
+            let ttl = if last
+                .items
+                .found
+                .hosts
+                .iter()
+                .any(|host| host.error.is_some())
+            {
                 FRESH_AFTER_ERROR
             } else {
                 FRESH
@@ -101,7 +110,7 @@ impl GitBoard {
 }
 
 /// Asks every host at once and puts their answers together.
-async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> GitItems {
+async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> LabeledGitItems {
     let answers = join_all(logins.iter().map(|login| async move {
         let (host, kind) = match &login.slot {
             Slot::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
@@ -135,23 +144,23 @@ async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> G
 /// One host's answer.
 struct Answer {
     host: GitHost,
-    result: Result<Vec<GitItem>, HostError>,
+    result: Result<Vec<Found>, HostError>,
 }
 
 /// Every host's error and their items deduplicated, newest activity first.
-fn combine(answers: Vec<Answer>) -> GitItems {
+fn combine(answers: Vec<Answer>) -> LabeledGitItems {
     let mut hosts = Vec::new();
-    let mut items: Vec<GitItem> = Vec::new();
+    let mut found: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
     for Answer { mut host, result } in answers {
         match result {
-            Ok(found) => {
-                for item in found {
-                    match at.get(&item.url) {
-                        Some(&i) => absorb(&mut items[i], item),
+            Ok(listed) => {
+                for one in listed {
+                    match at.get(&one.item.url) {
+                        Some(&i) => absorb(&mut found[i].item, one.item),
                         None => {
-                            at.insert(item.url.clone(), items.len());
-                            items.push(item);
+                            at.insert(one.item.url.clone(), found.len());
+                            found.push(one);
                         }
                     }
                 }
@@ -160,8 +169,12 @@ fn combine(answers: Vec<Answer>) -> GitItems {
         }
         hosts.push(host);
     }
-    items.sort_by_key(|item| Reverse(item.updated_at));
-    GitItems { items, hosts }
+    found.sort_by_key(|one| Reverse(one.item.updated_at));
+    let (items, labels) = found.into_iter().map(|one| (one.item, one.labels)).unzip();
+    LabeledGitItems {
+        found: GitItems { items, hosts },
+        labels,
+    }
 }
 
 /// Adds what `other` says about the same item to `item`.
@@ -180,6 +193,13 @@ mod tests {
     use super::*;
     use crate::protocol::{GitItemKind, GitReview};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn found(item: GitItem) -> Found {
+        Found {
+            item,
+            labels: Vec::new(),
+        }
+    }
 
     fn item(url: &str, secs: u64) -> GitItem {
         GitItem {
@@ -215,17 +235,21 @@ mod tests {
         let got = combine(vec![
             Answer {
                 host: host("github.com", "some-user"),
-                result: Ok(vec![ok.clone()]),
+                result: Ok(vec![Found {
+                    item: ok.clone(),
+                    labels: vec!["bug".into()],
+                }]),
             },
             Answer {
                 host: host("git.example.com", "some-user"),
                 result: Err(HostError::Timeout("git.example.com".into())),
             },
         ]);
-        assert_eq!(got.items, vec![ok]);
-        assert_eq!(got.hosts[0].error, None);
+        assert_eq!(got.found.items, vec![ok]);
+        assert_eq!(got.labels, [["bug"]]);
+        assert_eq!(got.found.hosts[0].error, None);
         assert_eq!(
-            got.hosts[1].error.as_deref(),
+            got.found.hosts[1].error.as_deref(),
             Some("git.example.com did not answer in time.")
         );
     }
@@ -246,13 +270,14 @@ mod tests {
         let got = combine(vec![
             Answer {
                 host: host("github.com", "first-login"),
-                result: Ok(vec![mine]),
+                result: Ok(vec![found(mine)]),
             },
             Answer {
                 host: host("github.com", "second-login"),
-                result: Ok(vec![theirs, newer.clone()]),
+                result: Ok(vec![found(theirs), found(newer.clone())]),
             },
         ]);
+        let got = got.found;
         assert_eq!(got.items.len(), 2);
         assert_eq!(got.items[0], newer);
         let merged = &got.items[1];
