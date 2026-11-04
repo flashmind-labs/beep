@@ -174,6 +174,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px }
 .dhead .tt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dhead .tt small { font-size: 12px; color: var(--muted) }
+.dhead .aguse { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap }
+.dhead .aguse:empty { display: none }
 .dtyping { display: inline-flex; gap: 3px } .dtyping i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted) }
 .dmlist { flex: none; margin: 0 12px 8px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); display: grid; gap: 1px }
 .dmlist button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; color: var(--fg); padding: 6px 8px; border-radius: var(--radius-sm); text-align: left; font-size: 13px }
