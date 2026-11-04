@@ -85,7 +85,7 @@ The agent's app tools come from two places:
 
 `CATALOG` in `crates/server/src/apps/mod.rs` lists the tools the agent gets
 and which of them act. An acting tool asks first when the app is set to Ask
-(`crates/server/src/permissions.rs`). The approval card shows the call's
+(`crates/server/src/apps/permissions/`). The approval card shows the call's
 arguments, and for IDs it shows the record they name: from an earlier
 result in the chat, or read back through the tool in `LOOKUPS`. When adding
 an acting tool that takes an ID, add its read tool there.

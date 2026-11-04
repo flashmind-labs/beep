@@ -79,12 +79,8 @@ impl DecisionTool {
         }
     }
 
-    /// Jev's probability that the answer to `instructions` about `state` is yes.
-    pub async fn probability(&self, state: &str, instructions: &str) -> Result<f64> {
-        self.judge(state, instructions, None).await
-    }
-
-    /// Like `probability`, with a short question and what counts as yes and as no.
+    /// Jev's probability that the answer to `instructions` about `state` is yes, given a short
+    /// question and what counts as yes and as no.
     pub async fn probability_with(
         &self,
         state: &str,
