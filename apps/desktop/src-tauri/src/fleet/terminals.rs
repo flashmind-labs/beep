@@ -6,7 +6,7 @@
 use super::Fleet;
 use crate::error::{DesktopError, Result};
 use beep_mesh::{
-    Key, PeerClient,
+    Key,
     machine::{
         Tasks,
         terminals::{self, Kept, field, optional, state_of},
