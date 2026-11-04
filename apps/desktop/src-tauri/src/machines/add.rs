@@ -4,7 +4,7 @@
 //! Only a desktop mints tickets: the server never does.
 
 use crate::{
-    beep::Service,
+    beep::{Service, identity::computer_name},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
@@ -31,6 +31,15 @@ pub struct TokenView {
 #[tauri::command]
 pub async fn mesh_invite(fleet: State<'_, Arc<Fleet>>, kind: DeviceKind) -> Result<String> {
     Ok(fleet.invite(kind).await?.encode_string())
+}
+
+/// Joins the mesh a ticket from another desktop names, under this Mac's name. A Mac that is
+/// alone in its own mesh leaves it and brings its settings along.
+#[tauri::command]
+pub async fn mesh_join(fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
+    let ticket = JoinTicket::decode_string(ticket.trim())
+        .map_err(|_| DesktopError::BadRequest("that is not a ticket".into()))?;
+    fleet.join(&ticket, &computer_name()).await
 }
 
 #[tauri::command]

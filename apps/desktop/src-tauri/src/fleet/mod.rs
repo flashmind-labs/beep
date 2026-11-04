@@ -11,6 +11,7 @@ pub(crate) mod alerts;
 mod carry;
 pub(crate) mod files;
 mod mesh;
+pub(crate) mod migrate;
 pub(crate) mod projects;
 mod status;
 pub(crate) mod terminals;
