@@ -20,7 +20,11 @@ import type { PicRef, SentFile, SentImage } from "./media.ts";
 import { canPickModel, modelName, MODELS } from "../settings/model.ts";
 import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
-import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel, VISIBLE_STEPS } from "./tools.ts";
+import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
+import { attachLive } from "../agents/thoughtlive.ts";
+import { answerHtml, errorCardHtml, queueRowHtml, stepMark, thinkingRow, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
+import { plural } from "../ui/format.ts";
+import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
 
 // ---------- Chat ----------
@@ -84,8 +88,6 @@ interface ModelPick {
 interface PromptMap extends HTMLElement {
   turns?: HTMLElement[];
 }
-
-const CARET = '<span class="caret"></span>';
 
 export function renderChat() {
   S.view = "chat";
@@ -178,7 +180,7 @@ export const MAP_QUIET_AFTER = 12;
 /// the prompt, click it to jump there.
 export function drawMap() {
   const b = body();
-  const turns = b && S.view === "chat" ? ([...b.children] as HTMLElement[]).filter(t => t.querySelector(":scope > .ask")) : [];
+  const turns = b && S.view === "chat" ? ([...b.children] as HTMLElement[]).filter(t => t.querySelector(ASK)) : [];
   let map = $<PromptMap>("#map");
   if (!b || turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
   if (!map) map = bar.appendChild(h<PromptMap>('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
@@ -188,7 +190,7 @@ export function drawMap() {
     map.turns = turns;
     map.replaceChildren(...turns.map(t => {
       const tk = h('<button class="tk"><i></i><span class="tip"></span></button>');
-      const q = t.querySelector(":scope > .ask")!.textContent ?? "";
+      const q = askText(t);
       tk.querySelector(".tip")!.textContent = q;
       tk.setAttribute("aria-label", q);
       tk.addEventListener("click", () => { b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }); focusAsk(); });
@@ -219,7 +221,7 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
 }
 /// A turn for `question`, not yet in any chat.
 export function makeTurn(question: string, images?: PicRef[], files?: AskFile[]) {
-  const turn = h<Turn>(`<div class="turn">${question ? `<div class="ask">${esc(question)}</div>` : ""}${picRow(images)}</div>`);
+  const turn = h<Turn>(`<div class="turn dcoderlog">${question ? userRowHtml(esc(question)) : ""}${picRow(images)}</div>`);
   fillPics(turn);
   if (files?.length) turn.append(askFiles(files));
   turn.steps = [];
@@ -235,64 +237,82 @@ export function ranOn(turn: Turn, model: string, thinking: string) {
     : thinking;
   if (!line) return;
   turn.querySelector(".dranon")?.remove();
-  turn.querySelector(".ask")?.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
+  turn.querySelector(ASK)?.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
 }
 
-export function stepIcon(state: Step["state"]) {
-  if (state === "run") return '<span class="dspin"></span>';
-  if (state === "bad") return `<span class="dbad">${ICON.x}</span>`;
-  if (state === "stop") return `<span style="color:var(--dim);display:grid">${ICON.x}</span>`;
-  return `<span class="dok">${ICON.check}</span>`;
+/// The user's prompt in a turn, and the answer.
+export const ASK = ":scope > .dcoderen.user", ANSWER = ":scope > .dcoderen.agent";
+/// What the prompt of `turn` says.
+export const askText = (turn: Element) => turn.querySelector(`${ASK} > span`)?.textContent ?? "";
+
+/// The log's kind of call for a Beep tool, for its row's icon.
+function stepKind(name: string): ToolKind {
+  if (/^(web_search|browser|open_browser)$/.test(name)) return "web";
+  if (/^(exec|node|desktop|code_agent)$/.test(name)) return "command";
+  if (name === "attach") return "read";
+  return name.startsWith("mcp") || (name && name === name.toUpperCase()) ? "mcp" : "other";
 }
 
-// Same fold as the phone: while running, the last three steps and a
-// "+N tools" row; once done, one "N steps" row that opens them all.
-/// A step's label, with the machine of "Running on build-box: df -h" as a chip.
-export function stepText(label: string) {
-  const m = /^(Running|Ran) on (\S+): (.*)$/s.exec(label);
-  return m ? `${m[1]} on <span class="dhost">${esc(m[2])}</span> ${esc(m[3])}` : esc(label);
+const STATUS: Record<Step["state"], string> = { run: "in_progress", ok: "completed", bad: "failed", stop: "pending" };
+
+/// A step as the coding agent's log draws a call: its verb, then what it acts on.
+function stepRow(t: Step) {
+  const label = t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label;
+  const [, verb = label, target = ""] = /^(\S+)\s+([\s\S]*)$/.exec(label) ?? [];
+  return toolRowHtml({ kind: stepKind(t.name), verb, target, tip: label, detail: t.state === "bad" ? "failed" : "", bad: t.state === "bad", mark: stepMark(STATUS[t.state], t.state === "run") });
 }
 
-export function drawSteps(turn: Turn, done: boolean | undefined) {
-  let box = turn.querySelector(".tools");
-  if (!turn.steps.length) { box?.remove(); return; }
+/// Turns drawn so far, so each thought has its own key.
+let turnCount = 0;
+
+/// Draws what the turn did before its answer, as a coding agent's turn shows
+/// it: the heading with how long it worked, the thought, and the steps. A
+/// running turn shows its newest step; a finished one folds them into the
+/// heading until it is opened.
+export function drawWork(turn: Turn) {
+  let box = turn.querySelector<HTMLElement>(":scope > .tools");
   if (!box) {
-    box = h('<div class="tools dsteps"></div>');
-    const reply = turn.querySelector(".reply, .dcard, .derr");
-    reply ? turn.insertBefore(box, reply) : turn.append(box);
+    box = h('<div class="tools dcoderlog"></div>');
+    box.dataset.key = String(++turnCount);
+    box.addEventListener("click", e => {
+      const btn = (e.target as Element).closest("[data-thought]");
+      if (btn && turn.thought) { turn.thought.touched = true; turn.thought.open = toggleThought(btn); return; }
+      if (!(e.target as Element).closest("[data-turn]")) return;
+      turn.folded = !turn.folded;
+      drawWork(turn);
+    });
+    const after = turn.querySelector(`${ANSWER}, :scope > .dcard, :scope > .derrcard`);
+    after ? turn.insertBefore(box, after) : turn.append(box);
   }
-  const rows = (steps: Step[]) => steps.map(t => `<div class="dstep${t.state === "run" ? " run" : ""}"><span class="s">${stepIcon(t.state)}</span><span>${stepText(t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label)}</span></div>`).join("");
-  const n = turn.steps.length;
-  const row = (expanded: boolean, label: string) => `<button class="drow" aria-expanded="${expanded}"><span class="chev">${ICON.chev}</span>${label}</button>`;
-  if (done) {
-    box.innerHTML = row(!turn.folded, n === 1 ? "1 step" : `${n} steps`) + (turn.folded ? "" : rows(turn.steps));
-  } else {
-    const hidden = turn.folded ? Math.max(0, n - VISIBLE_STEPS) : 0;
-    box.innerHTML = (hidden ? row(false, `+${hidden} tools`) : "") + rows(turn.steps.slice(hidden));
+  const running = !turn.done, steps = turn.steps, th = turn.thought, opened = !turn.folded;
+  const shown = opened ? steps : running ? steps.slice(-1) : [];
+  let thought = "";
+  if (th && (running || opened || !steps.length)) {
+    const live = running && th.ms == null, folding = !live && !th.touched && !th.ended;
+    if (!live) th.ended = true;
+    thought = thoughtHtml({ key: `chat:${box.dataset.key}`, text: th.text, ms: th.ms, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding });
   }
-  box.querySelector(".drow")?.addEventListener("click", () => { turn.folded = !turn.folded; drawSteps(turn, turn.done); });
+  const waiting = running && !(th && th.ms == null) && !turn.querySelector(ANSWER) && !steps.some(t => t.state === "run");
+  const ms = turn.begun == null ? null : (turn.ended ?? Date.now()) - turn.begun;
+  box.innerHTML = turnHeadHtml({ state: running ? "working" : "done", start: turn.begun, ms, stats: steps.length ? plural(steps.length, "tool call", "tool calls") : "", key: steps.length ? box.dataset.key! : null, opened })
+    + thought + shown.map(stepRow).join("") + (waiting ? thinkingRow() : "");
+  attachLive(box, () => { if (turn.thought) turn.thought.touched = true; });
+  tickTurns();
+}
+
+/// The thought streaming into `turn` ended: something else came.
+function endThought(turn: Turn) {
+  if (turn.thought && turn.thought.ms == null) turn.thought.ms = Date.now() - turn.thought.start;
 }
 
 export function reply(turn: Turn) {
-  let el = turn.querySelector(".reply");
+  let el = turn.querySelector(ANSWER);
   if (!el) {
-    el = h('<div class="reply"></div>');
+    el = h('<div class="dcoderen agent md"></div>');
     const files = turn.querySelector(".files");
     files ? turn.insertBefore(el, files) : turn.append(el);
   }
   return el;
-}
-
-export function thinking(turn: Turn, delta: string) {
-  let row = turn.querySelector(".thinkrow");
-  if (!row) {
-    row = h(`<div class="thinkrow" style="display:grid;gap:6px"><button class="drow" aria-expanded="false"><span class="chev">${ICON.chev}</span>Thinking</button><div class="think" hidden></div></div>`);
-    const btn = row.querySelector("button")!, text = row.querySelector<HTMLElement>(".think")!;
-    btn.addEventListener("click", () => { text.hidden = !text.hidden; btn.setAttribute("aria-expanded", String(!text.hidden)); });
-    const ask = turn.querySelector(".dachips") ?? turn.querySelector(".dpics") ?? turn.querySelector(".ask");
-    ask ? ask.after(row) : turn.prepend(row);
-  }
-  row.querySelector(".think")!.textContent += delta;
 }
 
 /// What a tool sent, under the reply. `route` is a `get_route` call's id,
@@ -341,7 +361,7 @@ export function suggestions(turn: Turn, replies: string[]) {
 
 export function failed(turn: Turn, message: string) {
   turn.failed = true;
-  turn.append(h(`<div class="derr">${esc(message)}</div>`));
+  turn.append(h(errorCardHtml(message)));
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
 
@@ -349,10 +369,11 @@ export function finish(id: string | null, turn: Turn) {
   // A chat with no id yet is in no list.
   if (id) touch(id);
   turn.done = true;
-  turn.querySelector(".caret")?.remove();
+  turn.ended = Date.now();
+  endThought(turn);
   for (const s of turn.steps) if (s.state === "run") s.state = "stop";
   turn.folded = true;
-  drawSteps(turn, true);
+  drawWork(turn);
   replyActs(turn);
   if (turn.user) loadTurnAgent(id, turn);
   const e = live.get(id);
@@ -421,13 +442,15 @@ export function popQueued() {
 export function drawQueue() {
   const old = $("#queue"), q = queued.get(S.session);
   if (S.view !== "chat" || !q?.list.length) return old?.remove();
-  const el = h(`<div class="dqueue" id="queue"><div class="dqh"><span>${q.held ? "Not sent" : "Queued, sends after this reply"}</span>${q.held ? `<button class="dbtn">Send<kbd>⌘${ICON.ret}</kbd></button>` : ""}</div>`
-    + q.list.map((t, i) => `<div class="dq"><span class="n">${i + 1}</span><span class="t">${esc(t)}</span><button class="dcopy" aria-label="Edit queued prompt ${i + 1}">${ICON.x}</button></div>`).join("") + `</div>`);
-  el.querySelector(".dqh .dbtn")?.addEventListener("click", () => sendQueued(S.session));
-  el.querySelectorAll(".dq .dcopy").forEach((b, i) => b.addEventListener("click", () => {
-    const [text] = q.list.splice(i, 1);
+  const el = h(`<div class="ag-queue" id="queue">${q.list.map((t, i) => queueRowHtml({
+    label: "Queued", cls: "", text: t, tip: t, chips: [], when: q.held ? "not sent" : "after the reply",
+    buttons: `${q.held && !i ? '<button data-q="send">Send</button>' : ""}<button data-q="${i}" data-act="edit">Edit</button><button data-q="${i}" aria-label="Remove">${ICON.x}</button>`,
+  })).join("")}</div>`);
+  el.querySelectorAll<HTMLElement>("[data-q]").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.q === "send") return sendQueued(S.session);
+    const [text] = q.list.splice(Number(b.dataset.q), 1);
     if (!q.list.length) queued.delete(S.session);
-    setAsk([text, $$<HTMLTextAreaElement>("#ask").value].filter(s => s.trim()).join("\n\n"));
+    if (b.dataset.act === "edit") setAsk([text, $$<HTMLTextAreaElement>("#ask").value].filter(s => s.trim()).join("\n\n"));
     drawQueue();
     refreshHints();
     focusAsk();
@@ -448,17 +471,28 @@ export function follow(id: string | null, turn: Turn) {
         entry(id).run = { id: ev.run_id, turn };
         if (id === S.session) refreshHints();
         break;
-      case "text": reply(turn).innerHTML = ev.html + CARET; break;
-      case "reasoning": thinking(turn, ev.delta); break;
+      case "text": {
+        const first = !turn.querySelector(ANSWER);
+        endThought(turn);
+        reply(turn).innerHTML = answerHtml(ev.html);
+        if (first) drawWork(turn);
+        break;
+      }
+      case "reasoning":
+        if (!turn.thought || turn.thought.ms != null) turn.thought = { text: turn.thought?.text ?? "", start: Date.now() };
+        turn.thought.text += ev.delta;
+        drawWork(turn);
+        break;
       case "tool_started":
         if (QUIET_TOOLS.has(ev.name)) break;
-        turn.steps.push({ id: ev.call_id, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
-        drawSteps(turn, false);
+        endThought(turn);
+        turn.steps.push({ id: ev.call_id, name: ev.name, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
+        drawWork(turn);
         break;
       case "tool_result": {
         const step = turn.steps.find(s => s.id === ev.call_id);
         if (step) step.state = ev.success ? "ok" : "bad";
-        drawSteps(turn, false);
+        drawWork(turn);
         toolOutput(turn, ev, ev.name === "get_route" && ev.success && ev.call_id ? ev.call_id : null);
         break;
       }
@@ -470,7 +504,6 @@ export function follow(id: string | null, turn: Turn) {
         ranOn(turn, ev.model, ev.thinking);
         break;
       case "approval":
-        turn.querySelector(".caret")?.remove();
         approvalCard(id, turn, ev);
         break;
       case "error": failed(turn, ev.message); break;
@@ -485,9 +518,11 @@ export function follow(id: string | null, turn: Turn) {
   return channel;
 }
 
-/// Makes `turn` chat `id`'s running reply, with a caret until text comes.
+/// Makes `turn` chat `id`'s running reply, thinking until something comes.
 export function startRun(id: string | null, turn: Turn, runId: string | null) {
-  reply(turn).innerHTML = CARET;
+  turn.begun = Date.now();
+  turn.done = false;
+  drawWork(turn);
   const e = entry(id);
   e.body = body();
   e.run = { id: runId, turn };
@@ -574,6 +609,7 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
+  turn.ended = undefined;
   e.run = { id: null, turn };
   if (id === S.session) refreshHints();
   return turn;

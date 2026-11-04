@@ -5,6 +5,7 @@ import type { LinkState } from "./core.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
+import { stopFace } from "../chat/turnrows.ts";
 
 // ---------- Hints ----------
 
@@ -64,7 +65,7 @@ export function drawStop() {
   const running = S.view === "chat" && !!here()?.run;
   if (!row || running === !!btn) return;
   if (!running) return btn?.remove();
-  const stopBtn = h(`<button class="dbtn" id="stopRun" aria-label="Stop the reply"><span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop<kbd>⌘.</kbd></button>`);
+  const stopBtn = h(`<button class="dbtn" id="stopRun" aria-label="Stop the reply">${stopFace()}</button>`);
   stopBtn.onclick = () => { stop(); focusAsk(); };
   row.insertBefore(stopBtn, $("#grip"));
 }
