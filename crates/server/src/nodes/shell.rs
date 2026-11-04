@@ -1,6 +1,6 @@
 //! Commands in a node's shell (`shell/1`), on one stream so state carries to the next command.
 
-use super::Online;
+use super::{Online, retry::Unsent};
 use crate::{
     AsyncMutex,
     protocol::node::{
@@ -126,13 +126,15 @@ async fn run(
     on_output: &mut (dyn FnMut(&str) + Send),
 ) -> Result<Done> {
     let timeout_secs = u32::try_from(limit.as_secs()).unwrap_or(u32::MAX);
+    // Not written means not run, so the command may go again.
     shell
         .tx
         .send(&Request::Run {
             command: command.to_owned(),
             timeout_secs,
         })
-        .await?;
+        .await
+        .map_err(Unsent)?;
     let answer = async {
         loop {
             match shell.rx.recv::<Event>().await? {

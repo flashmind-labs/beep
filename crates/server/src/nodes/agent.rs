@@ -1,6 +1,6 @@
 //! Coding-agent sessions on a node: one followed stream per session, keeping its latest state.
 
-use super::{Ask, Follower, Online, RECONNECT_WAIT};
+use super::{Ask, Follower, Online, RECONNECT_WAIT, retry::Unsent};
 use crate::{
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
@@ -709,9 +709,12 @@ impl Online {
         }
     }
 
+    /// Opens a stream for `protocol`; a link that fails first gives an
+    /// `Unsent` error, so the call may go again.
     pub(super) async fn open_stream(&self, protocol: &str) -> Result<(LinkTx, LinkRx)> {
         self.try_open(protocol).await.map_err(|e| match e {
-            Opening::Link(e) | Opening::Refused(e) => e,
+            Opening::Link(e) => Unsent(e).into(),
+            Opening::Refused(e) => e,
         })
     }
 
