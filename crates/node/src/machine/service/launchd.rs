@@ -97,6 +97,15 @@ pub(super) fn plan(exe: &Path) -> Result<Plan> {
     })
 }
 
+/// The folder the plist passes as `--dir`.
+pub(super) fn dir_in(plist: &str) -> Option<PathBuf> {
+    let flag = "<string>--dir</string>";
+    let after = &plist[plist.find(flag)? + flag.len()..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = after[start..].find("</string>")? + start;
+    Some(PathBuf::from(super::existing::unescape(&after[start..end])))
+}
+
 /// Whether `plist` starts the node from `exe`: its first program argument.
 fn runs(plist: &str, exe: &Path) -> bool {
     let program = format!(
@@ -253,5 +262,20 @@ mod tests {
         );
         assert_ne!(older, current);
         assert_eq!(refreshed(&older).as_deref(), Some(current.as_str()));
+    }
+
+    #[test]
+    fn the_plist_names_its_folder() {
+        let mut spaced = launch(None);
+        spaced.dir = PathBuf::from("/srv/a & b/node");
+        assert_eq!(
+            dir_in(&plist(&spaced, Path::new("/l.log"))),
+            Some(PathBuf::from("/srv/a & b/node"))
+        );
+        let sample = "<array>\n        <string>/usr/local/bin/beep-node</string>\n        \
+            <string>--dir</string>\n        <string>/Users/u/Library/node</string>\n        \
+            <string>run</string>\n    </array>";
+        assert_eq!(dir_in(sample), Some(PathBuf::from("/Users/u/Library/node")));
+        assert_eq!(dir_in("<array></array>"), None);
     }
 }
