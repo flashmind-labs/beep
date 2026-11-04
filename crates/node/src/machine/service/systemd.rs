@@ -86,6 +86,46 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
     Ok(Restart::Restarted(Manager::Systemd))
 }
 
+/// The folder the unit's `ExecStart` passes as `--dir`.
+pub(super) fn dir_in(unit: &str) -> Option<PathBuf> {
+    let exec = unit
+        .lines()
+        .find_map(|line| line.strip_prefix("ExecStart="))?;
+    super::existing::dir_arg(&split(exec))
+}
+
+/// A command line as `quote_arg` wrote it: quoted words, where a backslash
+/// takes the next character and `%%` and `$$` stand for one.
+fn split(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut chars = line.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c == ' ' {
+            chars.next();
+            continue;
+        }
+        let mut word = String::new();
+        let quoted = c == '"';
+        if quoted {
+            chars.next();
+        }
+        while let Some(c) = chars.next() {
+            match c {
+                '"' if quoted => break,
+                ' ' if !quoted => break,
+                '\\' => word.extend(chars.next()),
+                '%' | '$' if chars.peek() == Some(&c) => {
+                    chars.next();
+                    word.push(c);
+                }
+                _ => word.push(c),
+            }
+        }
+        words.push(word);
+    }
+    words
+}
+
 /// Whether `unit` starts the node from `exe`.
 fn runs(unit: &str, exe: &Path) -> bool {
     let start = format!("ExecStart={} ", quote_arg(&exe.display().to_string()));
@@ -266,5 +306,22 @@ mod tests {
             .replace("\n\n[Install]", "\nEnvironment=RUST_LOG=info\n\n[Install]");
         assert_ne!(older, current);
         assert_eq!(refreshed(&older).as_deref(), Some(current.as_str()));
+    }
+
+    #[test]
+    fn the_unit_names_its_folder() {
+        let mut spaced = launch(None);
+        spaced.dir = PathBuf::from("/srv/my $node/50%");
+        assert_eq!(
+            dir_in(&unit(&spaced)),
+            Some(PathBuf::from("/srv/my $node/50%"))
+        );
+        let sample = "[Service]\nExecStart=\"/home/u/.local/bin/beep-node\" \"--dir\" \
+            \"/home/u/.config/beep-node\" \"run\"\nRestart=always\n";
+        assert_eq!(
+            dir_in(sample),
+            Some(PathBuf::from("/home/u/.config/beep-node"))
+        );
+        assert_eq!(dir_in("[Service]\nRestart=always\n"), None);
     }
 }
