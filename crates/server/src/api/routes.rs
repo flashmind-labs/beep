@@ -285,6 +285,7 @@ pub fn router() -> Router {
         .call(custom_agents::list_custom_agents)
         .call(agent_control::list_agent_models)
         .call(project_import::remove_project)
+        .call(mesh::mirror_import)
         .call(project_sync::list_project_syncthing)
         .call(projects::list_project_pull_requests)
         .call(projects::get_pull_request_head)

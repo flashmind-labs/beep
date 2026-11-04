@@ -21,6 +21,7 @@ mod tool;
 pub use checks::Checkouts;
 pub(crate) use copy::copy_project;
 pub(crate) use create::{create_project, project_forges};
+pub(crate) use folder::FolderPath;
 pub(crate) use found::MachineFound;
 pub use host_repos::HostRepoCache;
 pub(crate) use host_repos::host_repos;
