@@ -67,6 +67,14 @@ fn done(text: impl Into<String>, failed: bool) -> Reply {
     }
 }
 
+/// Whether a call may go to the mesh. The server holds the user's rules and
+/// asks first before a run or a send, so while its link is up those three go
+/// through it; with no link they go direct, where a refusing rule cannot be
+/// enforced.
+pub(super) fn goes_direct(tool: Tool, server_link_up: bool) -> bool {
+    !(server_link_up && matches!(tool, Tool::RunOn | Tool::SendFiles | Tool::MachineLog))
+}
+
 /// The reply for `request`, or `None` when the server answers it: a tool
 /// that is not between machines, or a machine the mesh does not hold.
 pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Option<Reply> {
@@ -529,6 +537,18 @@ mod tests {
         let job = Job::parse("task:7@box-b").expect("a job id");
         assert_eq!((job.id, job.machine.as_str()), (7, "box-b"));
         assert!(Job::parse("7").is_none());
+    }
+
+    #[test]
+    fn runs_and_sends_go_through_a_linked_server_and_direct_without_one() {
+        for tool in [Tool::RunOn, Tool::SendFiles, Tool::MachineLog] {
+            assert!(!goes_direct(tool, true), "{tool:?}");
+            assert!(goes_direct(tool, false), "{tool:?}");
+        }
+        // Not rule-checked by the server: unchanged either way.
+        for tool in [Tool::JobStatus, Tool::Cancel, Tool::SyncProject] {
+            assert!(goes_direct(tool, true), "{tool:?}");
+        }
     }
 
     #[test]

@@ -411,6 +411,11 @@ impl Mesh {
         self.inner.store.run(move |core| core.remove(id)).await
     }
 
+    /// Whether `id` was removed from the mesh, for good.
+    pub fn is_removed(&self, id: EndpointId) -> bool {
+        self.inner.view().devices.is_removed(id)
+    }
+
     /// This device's id.
     pub fn me(&self) -> EndpointId {
         self.inner.me

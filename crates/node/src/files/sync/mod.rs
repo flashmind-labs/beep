@@ -160,13 +160,15 @@ pub struct Syncs {
 }
 
 impl Inner {
-    /// Whether `peer` is still a device of the mesh, when the node is in
-    /// one. Asked on every connection and request, so a removed device is
-    /// out at once, before the project's peer list catches up.
-    fn in_mesh(&self, peer: &EndpointId) -> bool {
+    /// Whether `peer` was removed from the mesh the node is in. Asked on
+    /// every connection and request, so a removed device is out at once,
+    /// before the project's peer list catches up. A device that never
+    /// joined is no concern of the mesh: a machine still linked through
+    /// the server keeps the grants the server issued it.
+    fn removed(&self, peer: &EndpointId) -> bool {
         lock(&self.mesh)
             .as_ref()
-            .is_none_or(|mesh| mesh.is_member(*peer))
+            .is_some_and(|mesh| mesh.is_removed(*peer))
     }
 
     /// Whether `peer` may sync: when the mesh owns the project list, only a
@@ -180,7 +182,7 @@ impl Inner {
 
 impl Access for Inner {
     fn allows(&self, peer: &EndpointId) -> bool {
-        self.in_mesh(peer)
+        !self.removed(peer)
     }
 
     fn may_connect(&self, peer: &EndpointId) -> bool {
