@@ -21,8 +21,11 @@ use tokio::time::timeout;
 
 /// How long `with_deadline` waits for a member to come online.
 pub const DEADLINE: Duration = Duration::from_secs(3);
-/// How long a node has to answer an `Open`.
-const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a network open may take, from the new stream to the node's answer.
+pub const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long `call` waits for a node to reply.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Serves one session stream: the node's `session()` over in-memory halves.
 pub type SessionFn =
@@ -85,7 +88,11 @@ impl PeerClient {
         Self {
             via: Via::Peer(Arc::new(move || {
                 let mesh = mesh.clone();
-                Box::pin(async move { mesh.open_bi(peer).await })
+                Box::pin(async move {
+                    mesh.open_bi(peer)
+                        .await
+                        .map_err(|e| MeshError::Link(e.into()))
+                })
             })),
         }
     }
@@ -99,59 +106,58 @@ impl PeerClient {
     }
 
     /// Opens a stream for `protocol` and waits for the node to accept it.
+    /// Over the network the whole exchange, from opening the stream to the
+    /// node's answer, gets `OPEN_TIMEOUT`.
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
-        let (mut tx, mut rx) = match &self.via {
-            Via::Peer(open_bi) => {
+        match &self.via {
+            Via::Peer(open_bi) => timeout(OPEN_TIMEOUT, async {
                 let (send, recv) = open_bi().await?;
-                link(send, recv)
-            }
+                let (tx, rx) = link(send, recv);
+                handshake(tx, rx, protocol).await
+            })
+            .await
+            .map_err(|e| {
+                MeshError::Link(anyhow::Error::new(e).context("the node did not open the stream"))
+            })?,
             Via::Local(session) => {
                 let pair = local_link();
                 let (node_tx, node_rx) = pair.node;
-                // Ends when either side drops its half of the pipes.
+                // The session task ends when either side drops its half of
+                // the pipes, so nothing outlives the call or the stream.
                 spawn(session(node_tx, node_rx));
-                pair.caller
+                let (tx, rx) = pair.caller;
+                handshake(tx, rx, protocol).await
             }
-        };
-        let open = Open {
-            protocol: protocol.to_owned(),
-        };
-        tx.send(&open).await.map_err(MeshError::Link)?;
-        let opened = match &self.via {
-            Via::Peer(_) => timeout(OPEN_TIMEOUT, rx.recv::<Opened>())
-                .await
-                .map_err(|e| {
-                    MeshError::Link(
-                        anyhow::Error::new(e).context("the node did not open the stream"),
-                    )
-                })?,
-            Via::Local(_) => rx.recv::<Opened>().await,
-        };
-        match opened
-            .map_err(MeshError::Link)?
-            .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))?
-        {
-            Opened::Ready {} => Ok((tx, rx)),
-            Opened::Refused { reason } => Err(MeshError::Declined {
-                protocol: protocol.to_owned(),
-                reason,
-            }),
-            other => Err(MeshError::Unexpected(format!("{other:?}"))),
         }
     }
 
-    /// Sends one request on a new stream and reads one reply.
+    /// Sends one request on a new stream and reads one reply, giving up
+    /// after `CALL_TIMEOUT`.
     pub async fn call<Q: Serialize, R: DeserializeOwned>(
         &self,
         protocol: &str,
         request: &Q,
     ) -> Result<R, MeshError> {
-        let (mut tx, mut rx) = self.open(protocol).await?;
-        tx.send(request).await.map_err(MeshError::Link)?;
-        rx.recv()
-            .await
-            .map_err(MeshError::Link)?
-            .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))
+        self.call_within(CALL_TIMEOUT, protocol, request).await
+    }
+
+    /// Like `call`, with the whole exchange limited to `limit`.
+    pub async fn call_within<Q: Serialize, R: DeserializeOwned>(
+        &self,
+        limit: Duration,
+        protocol: &str,
+        request: &Q,
+    ) -> Result<R, MeshError> {
+        timeout(limit, async {
+            let (mut tx, mut rx) = self.open(protocol).await?;
+            tx.send(request).await.map_err(MeshError::Link)?;
+            rx.recv()
+                .await
+                .map_err(MeshError::Link)?
+                .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))
+        })
+        .await
+        .map_err(|e| MeshError::Link(anyhow::Error::new(e).context("the node did not answer")))?
     }
 
     /// Sends one request and yields the replies until the node finishes the
@@ -172,6 +178,31 @@ impl PeerClient {
                 Err(e) => Some((Err(MeshError::Link(e)), None)),
             }
         }))
+    }
+}
+
+/// Sends `Open` and reads the node's answer.
+async fn handshake(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    protocol: &str,
+) -> Result<(LinkTx, LinkRx), MeshError> {
+    let open = Open {
+        protocol: protocol.to_owned(),
+    };
+    tx.send(&open).await.map_err(MeshError::Link)?;
+    let opened = rx
+        .recv::<Opened>()
+        .await
+        .map_err(MeshError::Link)?
+        .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))?;
+    match opened {
+        Opened::Ready {} => Ok((tx, rx)),
+        Opened::Refused { reason } => Err(MeshError::Declined {
+            protocol: protocol.to_owned(),
+            reason,
+        }),
+        other => Err(MeshError::Unexpected(format!("{other:?}"))),
     }
 }
 
@@ -202,10 +233,10 @@ pub async fn with_deadline(machine: EndpointId, mesh: &Mesh) -> Result<PeerClien
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::node::{LinkRx, LinkTx, Open, Opened};
     use futures::StreamExt;
-    use std::sync::Arc;
     use std::time::Instant;
+    use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+    use tokio::time::timeout as within;
 
     async fn serve(mut tx: LinkTx, mut rx: LinkRx) {
         let Ok(Some(open)) = rx.recv::<Open>().await else {
@@ -228,6 +259,11 @@ mod tests {
                     }
                 }
             }
+            "stall/1" => {
+                tx.send(&Opened::Ready {}).await.ok();
+                rx.recv::<u32>().await.ok();
+                std::future::pending::<()>().await;
+            }
             other => {
                 let reason = format!("this node does not offer {other}");
                 tx.send(&Opened::Refused { reason }).await.ok();
@@ -235,8 +271,57 @@ mod tests {
         }
     }
 
+    /// Sends until the caller is gone, then says so.
+    async fn tick(mut tx: LinkTx, mut rx: LinkRx, gone: UnboundedSender<()>) {
+        if rx.recv::<Open>().await.is_err() {
+            return;
+        }
+        tx.send(&Opened::Ready {}).await.ok();
+        rx.recv::<u32>().await.ok();
+        let mut i = 0u32;
+        while tx.send(&i).await.is_ok() {
+            i = i.wrapping_add(1);
+        }
+        gone.send(()).ok();
+    }
+
     fn session() -> SessionFn {
         Arc::new(|tx, rx| Box::pin(serve(tx, rx)))
+    }
+
+    #[tokio::test]
+    async fn dropping_a_local_follow_reaches_the_session() {
+        let (gone, mut gone_rx) = unbounded_channel();
+        let session: SessionFn = Arc::new(move |tx, rx| Box::pin(tick(tx, rx, gone.clone())));
+        let client = PeerClient::local(session);
+        let mut items = Box::pin(
+            client
+                .follow::<u32, u32>("tick/1", &0)
+                .await
+                .expect("opened"),
+        );
+        items.next().await.expect("an item").expect("ok");
+        drop(items);
+        within(Duration::from_secs(60), gone_rx.recv())
+            .await
+            .expect("the session noticed")
+            .expect("signal");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_to_a_stalled_node_gives_up_at_its_limit() {
+        let client = PeerClient::local(session());
+        let start = tokio::time::Instant::now();
+        let limit = Duration::from_secs(5);
+        let reply = within(
+            Duration::from_secs(600),
+            client.call_within::<u32, u32>(limit, "stall/1", &0),
+        )
+        .await
+        .expect("returned by itself");
+        assert!(matches!(reply, Err(MeshError::Link(_))), "{reply:?}");
+        assert!(start.elapsed() >= limit);
+        assert!(start.elapsed() <= limit + Duration::from_millis(2));
     }
 
     #[tokio::test]
@@ -270,9 +355,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_local_call_costs_well_under_a_millisecond_when_the_box_is_idle() {
+    async fn a_local_call_costs_under_five_milliseconds() {
         let client = PeerClient::local(session());
-        let mut fastest = std::time::Duration::MAX;
+        let mut fastest = Duration::MAX;
         for _ in 0..200 {
             let start = Instant::now();
             let _: u32 = client.call("echo/1", &1u32).await.expect("answered");
@@ -280,6 +365,6 @@ mod tests {
         }
         eprintln!("fastest local call: {fastest:?}");
         // The fastest of 200 is steady on a loaded box; 5 ms is far above it.
-        assert!(fastest < std::time::Duration::from_millis(5), "{fastest:?}");
+        assert!(fastest < Duration::from_millis(5), "{fastest:?}");
     }
 }

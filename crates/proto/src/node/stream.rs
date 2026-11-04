@@ -118,8 +118,8 @@ impl LinkTx {
         Ok(())
     }
 
-    /// Finishes the stream and waits until the peer read all of it or
-    /// stopped reading.
+    /// Finishes the stream. On the network it waits until the peer read all
+    /// of it or stopped reading; on an in-process link it returns at once.
     pub async fn finish(self) -> Result<()> {
         match self.0.into_inner() {
             Out::Net(mut send) => {

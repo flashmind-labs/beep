@@ -2,8 +2,8 @@
 //! and outer timeouts; nothing sleeps.
 
 use beep_mesh::{
-    DEADLINE, DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, PEER_ALPN,
-    PeerClient, PeerStream, SessionFn, StreamHandler, transport_config, with_deadline,
+    DEADLINE, DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, OPEN_TIMEOUT,
+    PEER_ALPN, PeerClient, PeerStream, SessionFn, StreamHandler, transport_config, with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
 use futures::StreamExt;
@@ -741,6 +741,7 @@ async fn a_peer_that_is_off_says_so_within_the_deadline() {
     let offline = with_deadline(gone, &a.mesh).await.expect_err("offline");
     // The paused clock rounds a sleep up to the next millisecond.
     let limit = DEADLINE + Duration::from_millis(2);
+    assert!(start.elapsed() >= DEADLINE, "{:?}", start.elapsed());
     assert!(start.elapsed() <= limit, "{:?}", start.elapsed());
     assert!(offline.to_string().contains("offline"));
 }
@@ -755,4 +756,79 @@ async fn a_removed_device_is_offline_at_once() {
     let start = Instant::now();
     with_deadline(b.id(), &a.mesh).await.expect_err("offline");
     assert_eq!(start.elapsed(), Duration::ZERO);
+}
+
+#[tokio::test]
+async fn an_open_to_a_node_at_its_stream_cap_ends_within_the_open_timeout() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(Arc::new(|stream: PeerStream| {
+        Box::pin(async move {
+            let _keep = stream;
+            never::<()>().await;
+        })
+    }));
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let conn = b.mesh.peer(a.id()).expect("connected");
+    let mut held = Vec::new();
+    for _ in 0..64 {
+        let (mut send, recv) = conn.open_bi().await.expect("stream");
+        send.write_all(b"x").await.expect("write");
+        held.push((send, recv));
+    }
+    let client = PeerClient::over(b.mesh.clone(), a.id());
+    pause();
+    let start = Instant::now();
+    let opened = timeout(Duration::from_secs(600), client.open("echo/1"))
+        .await
+        .expect("open returned by itself");
+    assert!(opened.is_err());
+    assert!(start.elapsed() <= OPEN_TIMEOUT + Duration::from_millis(2));
+}
+
+#[tokio::test]
+async fn a_peer_client_reports_a_missing_link_as_a_link_error() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    let gone = b.id();
+    b.stop().await;
+    until(&a.mesh, |m| !online(m, gone)).await;
+    let client = PeerClient::over(a.mesh.clone(), gone);
+    let err = client.open("echo/1").await.err().expect("not connected");
+    assert!(matches!(err, MeshError::Link(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn dropping_a_network_follow_reaches_the_session() {
+    let (gone, mut gone_rx) = unbounded_channel();
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(Arc::new(move |stream: PeerStream| {
+        let gone = gone.clone();
+        Box::pin(async move {
+            let (mut tx, mut rx) = link(stream.send, stream.recv);
+            if rx.recv::<Open>().await.is_err() {
+                return;
+            }
+            tx.send(&Opened::Ready {}).await.ok();
+            rx.recv::<u32>().await.ok();
+            let mut i = 0u32;
+            while tx.send(&i).await.is_ok() {
+                i = i.wrapping_add(1);
+            }
+            gone.send(()).ok();
+        })
+    }));
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    let mut items = Box::pin(net.follow::<u32, u32>("tick/1", &0).await.expect("opened"));
+    items.next().await.expect("an item").expect("ok");
+    drop(items);
+    timeout(LIMIT, gone_rx.recv())
+        .await
+        .expect("the session noticed")
+        .expect("signal");
 }
