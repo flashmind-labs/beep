@@ -522,7 +522,7 @@ function mountPage(path: SettingsPath) {
     return openApps(box, sub);
   }
   if (path.page === "machines") {
-    machinesIn(box, id => follow("machines", id ? { kind: "machine", id } : null));
+    machinesIn(box, id => follow("machines", id ? { kind: "machine", id } : null), () => { SET.machines = MC.list; drawChrome(); });
     return renderMachines(sub?.kind === "machine" ? sub.id : null);
   }
   const embed = windowHooks?.embedView;

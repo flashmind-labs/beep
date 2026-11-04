@@ -1,6 +1,6 @@
 // The "Add a machine" sheet.
 import { invoke } from "../ui/tauri.ts";
-import { HOME_SEARCH, INSTALL, START, next, timeLeft, machineById, describeMachine, macOption, searchFolder, withSearch } from "./addmachine-state.ts";
+import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";
 import type { MacControl, MachineView } from "../center/home-state.ts";
 import { button, el } from "../ui/dom.ts";
@@ -14,14 +14,6 @@ interface NodeToken {
   expires_at: number;
 }
 
-/// What add_machine_over_ssh gives (SshAdd).
-interface SshAdd {
-  machine_id: string | null;
-  system: string;
-  error: string;
-  output: string[];
-}
-
 type Timer = ReturnType<typeof setInterval> | undefined;
 
 const POLL_MS = 2000;
@@ -31,11 +23,6 @@ let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, sta
 let ticker: Timer, poller: Timer, back: Element | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: Timer;
-// Over SSH: the online machines that can run ssh, the one picked, its
-// hosts (null while loading), the target being added and the last failure.
-let sshMachines: MachineView[] = [], sshFrom = "", sshHosts: string[] | null = null;
-let sshBusy: string | null = null, sshFailed: { target: string; add: SshAdd } | null = null;
-let sshInput: HTMLInputElement | null = null;
 // Where the new machine looks for projects; it goes on the setup command.
 let searchInput: HTMLInputElement | null = null;
 
@@ -97,18 +84,6 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   macAsked = false;
   loadMac();
   macPoller = setInterval(loadMac, POLL_MS);
-  sshMachines = [];
-  sshFrom = "";
-  sshHosts = null;
-  sshBusy = null;
-  sshFailed = null;
-  sshInput = el("input", "am-code am-target");
-  sshInput.placeholder = "user@host";
-  sshInput.setAttribute("aria-label", "SSH target");
-  sshInput.spellcheck = false;
-  sshInput.addEventListener("keydown", e => {
-    if (e.key === "Enter" && sshInput) addOverSsh(sshInput.value);
-  });
   searchInput = el("input", "am-code am-search");
   searchInput.value = HOME_SEARCH;
   searchInput.setAttribute("aria-label", "Search for projects in");
@@ -118,7 +93,6 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
     const now = commandLine();
     if (shown && now) shown.replaceWith(now);
   });
-  loadSsh();
   start();
 }
 
@@ -128,69 +102,6 @@ function commandLine() {
   const line = codeLine(withSearch(state.command, searchInput ? searchInput.value : ""));
   line.classList.add("am-cmd");
   return line;
-}
-
-/// The online machines, and the hosts the default one's ssh knows: this
-/// Mac's when it is online, else the first.
-async function loadSsh() {
-  try {
-    const [machines, me] = await Promise.all([
-      invoke<MachineView[]>("list_machines"),
-      invoke<MacControl>("mac_control").catch(() => null),
-    ]);
-    if (!root) return;
-    sshMachines = machines.filter(m => m.online);
-    sshFrom = (sshMachines.find(m => m.id === me?.id) || sshMachines[0] || { id: "" }).id;
-  } catch (e) {
-    console.warn("machines for ssh:", e);
-    return;
-  }
-  loadHosts();
-}
-
-async function loadHosts() {
-  const from = sshFrom;
-  sshHosts = null;
-  drawSsh();
-  if (!from) return;
-  let hosts: string[] = [];
-  try {
-    hosts = await invoke<string[]>("ssh_hosts", { machineId: from });
-  } catch (e) {
-    console.warn("ssh hosts:", e);
-  }
-  if (root && from === sshFrom) {
-    sshHosts = hosts;
-    drawSsh();
-  }
-}
-
-/// Has the picked machine install beep-node on `target` over ssh; the sheet
-/// shows Linked once it is online.
-async function addOverSsh(target: string) {
-  target = target.trim();
-  if (!target || sshBusy || !sshFrom) return;
-  sshBusy = target;
-  sshFailed = null;
-  drawSsh();
-  let add: SshAdd;
-  try {
-    const search = searchFolder(searchInput ? searchInput.value : "");
-    add = await invoke<SshAdd>("add_machine_over_ssh", { machineId: sshFrom, target, search });
-    if (add.machine_id) {
-      const machine = machineById(await invoke<MachineView[]>("list_machines"), add.machine_id);
-      if (machine && root) {
-        sshBusy = null;
-        update({ type: "found", machine });
-        return;
-      }
-    }
-  } catch (e) {
-    add = { machine_id: null, system: "", error: String(e), output: [] };
-  }
-  sshBusy = null;
-  if (!add.machine_id) sshFailed = { target, add };
-  if (root) drawSsh();
 }
 
 /// Closes the sheet, revoking its token unless the machine used it.
@@ -283,58 +194,8 @@ function drawMac() {
   else if (!!was !== !!now) draw();
 }
 
-/// Redraws only the SSH part and the status line, so the typed target and
-/// the token lines keep their state.
-function drawSsh() {
-  if (!sheet || state.step !== "waiting") return;
-  const block = sheet.querySelector(".am-ssh"), now = sshBlock();
-  if (block && now) block.replaceWith(now);
-  else if (!!block !== !!now) return draw();
-  const status = sheet.querySelector(".am-status");
-  if (status) status.replaceWith(statusLine());
-}
-
-/// Over SSH: which machine runs ssh, its known hosts, and a target field.
-function sshBlock() {
-  if (!sshMachines.length || !sshInput) return null;
-  const pick = el("select", "am-from");
-  pick.setAttribute("aria-label", "Machine that runs ssh");
-  for (const m of sshMachines) {
-    const option = el("option", "", m.name);
-    option.value = m.id;
-    option.selected = m.id === sshFrom;
-    pick.append(option);
-  }
-  pick.disabled = !!sshBusy;
-  pick.addEventListener("change", () => {
-    sshFrom = pick.value;
-    sshFailed = null;
-    loadHosts();
-  });
-  const from = sshMachines.find(m => m.id === sshFrom);
-  const hosts = sshHosts === null ? null
-    : sshHosts.length ? el("div", "am-hosts", ...sshHosts.map(host => {
-      const b = button(host, "dbtn", () => addOverSsh(host));
-      b.disabled = !!sshBusy;
-      if (host === sshBusy) b.setAttribute("aria-pressed", "true");
-      return b;
-    }))
-    : el("div", "am-label", `No hosts in ~/.ssh/config or known_hosts on ${from ? from.name : "it"}.`);
-  sshInput.disabled = !!sshBusy;
-  return el("div", "am-mac am-ssh", el("div", "am-ssh-head", el("span", "am-other", "Over SSH"), el("span", "am-from-label", "from"), pick), hosts, sshInput);
-}
-
-/// Where the sheet says how it goes: an SSH add running or failed, else
-/// the wait for the token.
+/// Where the sheet says how it goes: the wait for the token.
 function statusLine() {
-  if (sshBusy) return el("div", "am-status am-wait", el("span", "dspin"), `Installing beep-node on ${sshBusy} over SSH`);
-  if (sshFailed) {
-    const { target, add } = sshFailed;
-    return el("div", "am-status",
-      el("div", "am-msg bad", `${target}${add.system ? ` (${add.system})` : ""}: ${add.error}`),
-      add.output.length ? el("pre", "am-out", add.output.join("\n")) : null,
-      el("div", "am-line", button("Try again", "dbtn pri", () => addOverSsh(target)), button("Close", "dbtn quiet", () => { sshFailed = null; drawSsh(); })));
-  }
   if (state.step !== "waiting") return el("div", "am-status");
   return el("div", "am-status am-wait",
     el("span", "dspin"),
@@ -381,8 +242,7 @@ function draw() {
   const mine = macBlock();
   const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
   box.replaceChildren(el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc")), ...present([mine, other, ...body()]));
-  // The target field first: a focused host button would install on Enter.
-  const first = box.querySelector<HTMLElement>(".am-target:not(:disabled)") || box.querySelector("button");
+  const first = box.querySelector("button");
   if (first && !box.contains(document.activeElement)) first.focus();
 }
 
@@ -393,10 +253,11 @@ function body() {
     case "waiting":
       return present([
         el("div", "am-line", el("span", "am-label am-search-label", "Search for projects in"), searchInput),
-        sshBlock(),
-        el("div", "am-label am-hand", "Or install it by hand"),
         el("div", "am-label", "1. Install beep-node on the machine"),
+        el("div", "am-os", "macOS or Linux"),
         codeLine(INSTALL),
+        el("div", "am-os", "Windows, in PowerShell"),
+        codeLine(INSTALL_WINDOWS),
         el("div", "am-label", "2. Run this there"),
         commandLine(),
         statusLine(),

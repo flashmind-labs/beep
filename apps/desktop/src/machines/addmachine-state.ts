@@ -5,6 +5,9 @@ import type { MacControl, MachineEnv, MachineView } from "../center/home-state.t
 /// The command that puts beep-node on a machine.
 export const INSTALL = "curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh";
 
+/// The same in PowerShell.
+export const INSTALL_WINDOWS = "irm https://releases.flashmind.com/beep/node/install.ps1 | iex";
+
 /// Where a new machine looks for projects unless told otherwise.
 export const HOME_SEARCH = "~/";
 
