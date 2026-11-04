@@ -7,10 +7,7 @@ use super::{
     service::{Chosen, Import, choose_machine, forgejo_of, import, project},
 };
 use crate::{
-    account::{
-        credentials::{Opened, Slot, host_client},
-        user::User,
-    },
+    account::{credentials::host_client, user::User},
     app::App,
     nodes::{Online, push_sync},
     protocol::{
@@ -19,6 +16,7 @@ use crate::{
     },
     store::{NewImport, NodeRow, SyncRow},
 };
+use beep_projects::credentials::{Opened, Slot};
 use beep_projects::git_items::new_repo;
 use beep_projects::git_items::{
     Caller, HostError,

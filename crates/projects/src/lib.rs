@@ -2,6 +2,7 @@
 //! parsers for their output, and the names they use.
 
 pub mod commands;
+pub mod credentials;
 pub mod git_items;
 pub mod imports;
 pub mod issues;

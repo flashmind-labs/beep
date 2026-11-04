@@ -2,10 +2,11 @@
 
 use crate::{
     AsyncMutex,
-    account::credentials::{Slot, host_client, is_public},
+    account::credentials::{host_client, is_public},
     protocol::{GitHost, GitHostKind, GitItem, GitItems, LabeledGitItems},
     store::GitLogin,
 };
+use beep_projects::credentials::Slot;
 use beep_projects::git_items::{Caller, HostError, forgejo, github, host::Found};
 use futures::future::join_all;
 use reqwest::Client;

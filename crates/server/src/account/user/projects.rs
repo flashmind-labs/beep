@@ -2,11 +2,11 @@
 
 use super::User;
 use crate::{
-    account::credentials::Opened,
     protocol::ProjectGroup,
     store::{SaveGroup, SyncRow},
 };
 use anyhow::Result;
+use beep_projects::credentials::Opened;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;

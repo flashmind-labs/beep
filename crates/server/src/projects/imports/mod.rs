@@ -27,7 +27,7 @@ pub(crate) use service::{
 };
 pub(crate) use tool::ImportProjectTool;
 
-use crate::account::credentials::{Opened, Slot, github_for};
+use beep_projects::credentials::{Opened, Slot, github_for};
 use beep_projects::imports::repo::{Host, RepoRef};
 use secrecy::ExposeSecret;
 

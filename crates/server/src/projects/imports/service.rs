@@ -8,10 +8,7 @@ use super::{
     preview::existing_checkout,
 };
 use crate::{
-    account::{
-        credentials::{Opened, Slot},
-        user::User,
-    },
+    account::user::User,
     app::App,
     nodes::{Online, SHELL},
     protocol::{
@@ -20,6 +17,7 @@ use crate::{
     },
     store::{ImportRow, NewImport, NodeRow},
 };
+use beep_projects::credentials::{Opened, Slot};
 use beep_projects::imports::clone;
 use beep_projects::imports::folder;
 use beep_projects::imports::place;

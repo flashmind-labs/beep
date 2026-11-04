@@ -1,13 +1,11 @@
 //! Where a project's workflow runs are read: which of the user's tokens reads its host.
 
 use crate::{
-    account::{
-        credentials::{Opened, Slot, github_for, is_public},
-        user::User,
-    },
+    account::{credentials::is_public, user::User},
     app::App,
     projects::repo_watch::hosts::RepoOnHost,
 };
+use beep_projects::credentials::{Opened, Slot, github_for};
 use beep_projects::{git_items::HostError, model::IssueHost, repo_watch::runs::Target};
 
 /// Where `place`'s runs are read for `user_id` with credentials `opened`, or why they cannot be.
