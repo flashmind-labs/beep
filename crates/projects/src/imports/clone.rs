@@ -6,9 +6,10 @@
 
 use super::{
     ImportError,
+    fork::UsedFork,
     repo::{Host, RepoRef},
 };
-use crate::{Shell, git_items::forks::Fork, quote};
+use crate::{Shell, quote};
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
@@ -298,15 +299,6 @@ pub fn explain(failure: Failure<'_>) -> ImportError {
         machine: failure.machine.to_owned(),
         detail,
     }
-}
-
-/// The user's fork of an imported repository.
-#[derive(Debug, Clone)]
-pub struct UsedFork {
-    /// The fork, on the repository's host.
-    pub repo: RepoRef,
-    /// What the host said about it.
-    pub found: Fork,
 }
 
 /// Clones on `shell`'s machine, named `machine`, the fork when there is one; `false` when a

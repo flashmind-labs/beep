@@ -25,8 +25,8 @@ use beep_projects::imports::folder;
 use beep_projects::imports::place;
 use beep_projects::imports::{
     ImportError,
-    clone::UsedFork,
     folder::{FolderPath, Seen},
+    fork::UsedFork,
     place::{Candidate, Folders},
     repo::RepoRef,
 };

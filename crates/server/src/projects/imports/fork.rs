@@ -5,19 +5,15 @@ use crate::{
     account::credentials::{Opened, Slot, host_client, is_public},
     app::App,
 };
-use beep_projects::git_items::forks;
-use beep_projects::imports::repo::RepoRef;
 use beep_projects::{
-    git_items::{
-        Caller,
-        forks::{Api, Lookup},
+    git_items::{Caller, forks::Api},
+    imports::{
+        fork::{UsedFork, find as find_fork},
+        repo::RepoRef,
     },
-    model::RepoName,
 };
 
 const GITHUB_API: &str = "https://api.github.com";
-
-pub(crate) use beep_projects::imports::clone::UsedFork;
 
 /// Where to reach a repository's host, and with which token.
 pub(super) struct Target<'a> {
@@ -61,7 +57,6 @@ pub(crate) async fn find(app: &App, credentials: &[Opened], repo: &RepoRef) -> O
         base,
         login,
     } = target_of(credential_of(repo, credentials)?).await?;
-    let upstream = RepoName::parse(&repo.project()).ok()?;
     let client = match host_client() {
         Ok(client) => client,
         Err(e) => {
@@ -76,24 +71,5 @@ pub(crate) async fn find(app: &App, credentials: &[Opened], repo: &RepoRef) -> O
         host: &host,
         token: &opened.secret,
     };
-    let lookup = Lookup {
-        api,
-        base: &base,
-        upstream: &upstream,
-        login,
-    };
-    let found = match forks::find(&caller, &lookup).await {
-        Ok(found) => found?,
-        Err(e) => {
-            log::info!("looking for a fork of {}: {e}", repo.project());
-            return None;
-        }
-    };
-    match repo.sibling(&found.name) {
-        Ok(fork) => Some(UsedFork { repo: fork, found }),
-        Err(e) => {
-            log::info!("the fork {} is not a repository name: {e}", found.name);
-            None
-        }
-    }
+    find_fork(&caller, api, &base, login, repo).await
 }
