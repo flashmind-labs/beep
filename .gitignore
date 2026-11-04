@@ -27,3 +27,6 @@ __pycache__/
 admin.sock
 /tests/e2e/.fleet
 /tests/e2e/.logs/
+
+# Syncthing temporaries
+.syncthing.*.tmp
