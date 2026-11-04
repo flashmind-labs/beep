@@ -202,7 +202,8 @@ pub struct SkippedPath {
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum Rule {
-    /// `.git` never syncs.
+    /// A `.git` that stays on its machine: one below the project's root, a
+    /// linked worktree's or a submodule's.
     Git,
     /// The project's `.gitignore`.
     GitIgnore,
