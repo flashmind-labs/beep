@@ -35,14 +35,20 @@ pub(super) async fn open_or_create(
 }
 
 /// Protocols the node serves once its transfer and sync services are up. A
-/// session that opens one before then waits for them.
-pub(super) const LATER: [&str; 5] = [
+/// session that opens one before then waits for them. `files/1` is not one:
+/// `Folders` needs no blob store, so it is served from the start.
+pub(super) const LATER: [&str; 4] = [
     sync::PROTOCOL,
     sync::CONTROLS,
     sync::RESCAN,
     transfer::PROTOCOL,
-    files::PROTOCOL,
 ];
+
+/// The folders sync follows, wherever the projects are: the user's home.
+pub(super) fn home_folders() -> Folders {
+    let home: Vec<PathBuf> = env::var_os("HOME").map(Into::into).into_iter().collect();
+    Folders::new(&home)
+}
 
 /// What answers on the endpoint while the app runs.
 pub(super) struct Serving {
@@ -93,18 +99,21 @@ impl Serving {
 
     /// Starts the node's transfer and sync services, as a node does. Those
     /// that cannot start are left out, and nothing waits for them.
-    pub(super) async fn start_services(&self, endpoint: &Endpoint, dir: &Path, peers: &Peers) {
+    pub(super) async fn start_services(
+        &self,
+        endpoint: &Endpoint,
+        dir: &Path,
+        peers: &Peers,
+        folders: Folders,
+    ) {
         let _settle = Settle {
             late: &self.late,
             peers,
         };
-        // Sync follows the user's folders, wherever the projects are.
-        let home: Vec<PathBuf> = env::var_os("HOME").map(Into::into).into_iter().collect();
-        let folders = Folders::new(&home);
         if folders.is_empty() {
             return;
         }
-        match Transfers::start_shared(endpoint, &dir.join("blobs"), folders.clone()).await {
+        match Transfers::start_shared(endpoint, &dir.join("blobs"), folders).await {
             Ok((transfers, served)) => {
                 let stopped = {
                     let mut services = self.services();
@@ -128,12 +137,8 @@ impl Serving {
                     return;
                 }
             }
-            Err(e) => {
-                log::warn!("not offering transfers: {e:#}");
-                return;
-            }
+            Err(e) => log::warn!("not offering transfers: {e:#}"),
         }
-        peers.offer(Arc::new(folders));
     }
 
     fn services(&self) -> MutexGuard<'_, Services> {
