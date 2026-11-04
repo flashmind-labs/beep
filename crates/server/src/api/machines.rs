@@ -1,6 +1,6 @@
 //! The machines running beep-node, for the app's Machines screen.
 
-use super::{Reply, devices::unlink};
+use super::{Reply, devices::unlink, ssh::owned_online};
 use crate::{
     api::router::Cx,
     nodes::{self, Sampled, TokenRefusal},
@@ -104,6 +104,19 @@ pub(super) async fn update_machine(
         restarting: updated.restarting,
         note: updated.note,
     })
+}
+
+/// The last lines of one of the caller's online machines' log. Another
+/// account's machine is `NotFound`, as one that does not exist.
+pub(super) async fn get_machine_log(
+    cx: Cx,
+    GetMachineLog { machine_id, lines }: GetMachineLog,
+) -> Reply<String> {
+    let (_, online) = owned_online(&cx, &machine_id).await?;
+    online
+        .log(lines)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("{e:#}")))
 }
 
 /// The caller's online machines that `update_machine` can update.

@@ -25,6 +25,11 @@ pub(crate) fn dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join("Library/Logs/Beep"))
 }
 
+/// The file being written now.
+pub(crate) fn current() -> Option<PathBuf> {
+    Some(path(&dir()?, 0))
+}
+
 /// Starts logging to the file, written on a thread of its own. The guard
 /// flushes it when dropped. Without a file the app runs as before, silent.
 pub fn start() -> Option<WorkerGuard> {

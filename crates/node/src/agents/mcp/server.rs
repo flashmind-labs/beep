@@ -416,6 +416,7 @@ mod tests {
                 "send_files",
                 "job_status",
                 "cancel",
+                "machine_log",
                 "ask_user"
             ]
         );

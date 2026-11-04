@@ -3,15 +3,21 @@
 
 use crate::{
     beep::{Service, epoch_ms},
+    chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     projects::unknown_op,
 };
 use beep_proto::{
-    ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineEnv, MachineTraffic,
-    MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
+    GetMachineLog, ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineEnv,
+    MachineTraffic, MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
+    node::logs::MAX_LINES,
 };
 use serde::Serialize;
-use std::time::Duration;
+use std::{fs, path::PathBuf, time::Duration};
+use tauri::{AppHandle, Manager};
+
+/// How long a machine has to read its log; the server gives it 30 seconds.
+const LOG_TIMEOUT: Duration = Duration::from_secs(40);
 
 /// A machine as the bar shows it.
 #[derive(Debug, Serialize)]
@@ -91,6 +97,32 @@ pub async fn updatable_machines(beep: Service<'_>) -> Result<Vec<UpdatableMachin
         Err(e) if unknown_op(&e) => Ok(Vec::new()),
         listed => listed,
     }
+}
+
+/// The recent log of one of the account's machines.
+#[tauri::command]
+pub async fn machine_log(beep: Service<'_>, id: String) -> Result<String> {
+    let request = GetMachineLog {
+        machine_id: id,
+        lines: MAX_LINES,
+    };
+    match beep.call_within(request, LOG_TIMEOUT).await {
+        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
+            "The server needs an update before logs can be read here.".into(),
+        )),
+        read => read,
+    }
+}
+
+/// Saves a machine's log to Downloads for a report and returns where it went.
+#[tauri::command]
+pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<PathBuf> {
+    let to = free_name(
+        &app.path().download_dir()?,
+        &file_name(&format!("{name}.log")),
+    );
+    fs::write(&to, text).map_err(anyhow::Error::from)?;
+    Ok(to)
 }
 
 /// Has one of the account's machines update its beep-node and restart

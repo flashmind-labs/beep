@@ -6,6 +6,7 @@ use super::{
     agents::{self, Asker, Order},
     command_name, copy,
     exec::ExecTool,
+    log::MachineLogTool,
     process::ProcessTool,
     transfer,
 };
@@ -141,6 +142,7 @@ impl Calls {
             Call::SendFiles => self.send_files(parse(args)?).await,
             Call::JobStatus => self.job(parse::<JobArgs>(args)?.id, false).await,
             Call::Cancel => self.job(parse::<JobArgs>(args)?.id, true).await,
+            Call::MachineLog => self.machine_log(parse(args)?).await,
             Call::Unknown => Err("This server does not know that tool; it needs an update.".into()),
         }
     }
@@ -192,6 +194,14 @@ impl Calls {
             }
         }
         Ok(out.trim_end().to_owned())
+    }
+
+    async fn machine_log(&self, args: LogArgs) -> Outcome {
+        let tool = MachineLogTool {
+            machines: self.machines.clone(),
+        };
+        let args = json!({ "in": args.machine, "lines": args.lines });
+        outcome(call_tool(&tool, args).await)
     }
 
     async fn run_on(&self, args: RunOnArgs) -> Outcome {
@@ -594,6 +604,14 @@ struct SendArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct LogArgs {
+    machine: String,
+    #[serde(default)]
+    lines: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct JobArgs {
     id: String,
 }
@@ -691,6 +709,70 @@ mod tests {
             args: args.to_string(),
             approved,
         }
+    }
+
+    #[tokio::test]
+    async fn a_coding_agent_reads_a_machines_log_without_asking() {
+        let harness = Harness::new(Scripted::default()).await;
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let log = folder.path().join("beep.log");
+        std::fs::write(
+            &log,
+            "2099-01-01T00:00:00Z   WARN beep_node: a.rs:1 lost the link\n",
+        )
+        .expect("the log is written");
+        let endpoint = |key| {
+            iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+                .secret_key(key)
+                .bind()
+        };
+        let server = endpoint(iroh::SecretKey::generate())
+            .await
+            .expect("the server binds");
+        let handler = crate::nodes::NodeHandler::new(harness.app.clone(), server.id());
+        let router = iroh::protocol::Router::builder(server)
+            .accept(crate::nodes::NODE_ALPN, handler)
+            .spawn();
+        let key = iroh::SecretKey::generate();
+        harness
+            .alice
+            .link_key(crate::store::NewKey {
+                endpoint: key.public(),
+                name: "build-box",
+                kind: crate::protocol::DeviceKind::Desktop {},
+            })
+            .await
+            .expect("the node's key links");
+        let node = endpoint(key.clone()).await.expect("the node binds");
+        let addr = router.endpoint().addr();
+        let served = tokio::spawn(async move {
+            let offers = beep_node::link::Offers {
+                extra: vec![std::sync::Arc::new(
+                    beep_node::machine::service::logs::Logs::file(log),
+                )],
+                ..Default::default()
+            };
+            beep_node::link::connect(&node, addr, "build-box", &offers).await
+        });
+        let id = key.public().to_string();
+        timeout(Duration::from_secs(20), async {
+            while harness.app.nodes.online(&id).is_none() {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the node came online");
+
+        let args = json!({ "machine": "build-box", "lines": 10 });
+        let read = calls(&harness)
+            .answer(&request(Call::MachineLog, args, Approved::No))
+            .await;
+        assert!(
+            matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
+            "{read:?}"
+        );
+        served.abort();
+        router.shutdown().await.expect("the router stops");
     }
 
     #[tokio::test]

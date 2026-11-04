@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use beep_node::agents::{AgentKind, Agents};
 use beep_node::link::{Offers, Protocol, Session};
+use beep_node::machine::service::logs::Logs;
 use beep_server::protocol::node::{
     AppInfo, AppName, GpuInfo, GpuVendor, LinkRx, LinkTx,
     desktop::{self, Reply, Screenshot},
@@ -27,12 +28,12 @@ use beep_server::{
         AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionUsage, AgentSteer, AgentTokens,
         AnswerApproval, ApiError, Approval, ApprovalDecision, CreateNodeToken, CustomAgent,
         CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus, GetAgentFile,
-        GetAgentImage, GetAgentSession, GetAgentSessionUsage, GetNodeToken, GetSession,
-        GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange, HarnessSettings,
-        HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
-        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
-        ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability, MemoryScope,
-        MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
+        GetAgentImage, GetAgentSession, GetAgentSessionUsage, GetMachineLog, GetNodeToken,
+        GetSession, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
+        HarnessSettings, HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels,
+        ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines,
+        ListMemoryScopes, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability,
+        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
         RevokeNodeToken, RunEvent, SaveHarnessSettings, StartAgentSession, SteerAgentSession,
         Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile, image_key,
         link::LinkOffer,
@@ -2989,6 +2990,95 @@ async fn every_user_links_a_machine_that_only_they_see() {
     assert!(alice.call(&ListAgentSessions {}).await.unwrap().is_empty());
     served.abort();
     server.router.shutdown().await.unwrap();
+}
+
+/// Links a node of the first user's serving `extra` and waits until it is
+/// online. Gives its machine id.
+async fn log_node(
+    center: &mut CommandCenter,
+    name: &'static str,
+    extra: Vec<Arc<dyn Protocol>>,
+) -> String {
+    let key = SecretKey::generate();
+    center.users[0]
+        .link_key(NewKey {
+            endpoint: key.public(),
+            name,
+            kind: DeviceKind::Desktop {},
+        })
+        .await
+        .unwrap();
+    let addr = center.router.endpoint().addr();
+    let node = endpoint(key.clone()).await;
+    center.nodes.push(tokio::spawn(async move {
+        let offers = Offers {
+            extra,
+            ..Offers::default()
+        };
+        beep_node::link::connect(&node, addr, name, &offers).await
+    }));
+    let id = key.public().to_string();
+    online(&center.app, &id).await;
+    id
+}
+
+#[tokio::test]
+async fn an_app_reads_the_recent_log_of_its_own_machines() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("beep.log");
+    let pad = "x".repeat(400);
+    // Dated ahead so no line is too old. The last line is chatter to hide.
+    let mut log: String = (0..1500)
+        .map(|n| format!("2099-01-01T00:00:00Z   INFO beep_node::link: link.rs:1 line {n} {pad}\n"))
+        .collect();
+    log.push_str("2099-01-01T00:00:00Z   INFO iroh::socket: socket.rs:1 poll_send\n");
+    std::fs::write(&path, log).unwrap();
+
+    let mut center = CommandCenter::new(2).await;
+    let with_log = log_node(&mut center, "with-log", vec![Arc::new(Logs::file(path))]).await;
+    let no_log = log_node(
+        &mut center,
+        "no-log",
+        vec![Arc::new(Logs::file(folder.path().join("missing.log")))],
+    )
+    .await;
+    let old = log_node(&mut center, "old", Vec::new()).await;
+    let (_alice_node, alice) = center.phone(0).await;
+    let (_bob_node, bob) = center.phone(1).await;
+    let ask = |machine_id: &str, lines| GetMachineLog {
+        machine_id: machine_id.to_owned(),
+        lines,
+    };
+    let refusal = |error: anyhow::Error| match error.downcast::<ApiError>().unwrap() {
+        ApiError::BadRequest { message } => message,
+        other => panic!("{other:?}"),
+    };
+
+    let last = alice.call(&ask(&with_log, 2)).await.unwrap();
+    let last: Vec<&str> = last.lines().collect();
+    assert_eq!(last.len(), 2);
+    assert!(last[0].contains("line 1498 "), "{}", last[0]);
+    assert!(last[1].contains("line 1499 "), "{}", last[1]);
+
+    // Past the byte cap it gives whole lines from the end.
+    let capped = alice.call(&ask(&with_log, u32::MAX)).await.unwrap();
+    assert!(capped.len() <= beep_server::protocol::node::logs::MAX_BYTES);
+    assert!(capped.starts_with("2099-"), "{}", &capped[..40]);
+    assert!(capped.ends_with(&format!("line 1499 {pad}\n")));
+
+    let none = alice.call(&ask(&no_log, 10)).await.unwrap_err();
+    assert!(refusal(none).starts_with("opening "));
+    let too_old = alice.call(&ask(&old, 10)).await.unwrap_err();
+    assert_eq!(
+        refusal(too_old),
+        "beep-node on old is too old to send its log. Update it."
+    );
+    let foreign = bob.call(&ask(&with_log, 10)).await.unwrap_err();
+    assert!(matches!(
+        foreign.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
+    center.shutdown().await;
 }
 
 #[tokio::test]
