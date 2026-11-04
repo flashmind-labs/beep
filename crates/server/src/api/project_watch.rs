@@ -1,9 +1,6 @@
 //! A project's pull requests, issues and workflow runs from `crate::projects::repo_watch`'s copy.
 
-use super::{
-    Reply, SEND_TIMEOUT,
-    projects::{issue_view, project_of, pull_request_view},
-};
+use super::{Reply, SEND_TIMEOUT, projects::project_of};
 use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
@@ -17,6 +14,7 @@ use crate::{
     store::ProjectRow,
 };
 use beep_projects::issues::untracked_now;
+use beep_projects::issues::{issue_view, pull_request_view};
 use beep_projects::model::IssueHost;
 use std::sync::Arc;
 use tokio::{sync::broadcast::error::RecvError, time::timeout};

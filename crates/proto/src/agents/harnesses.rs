@@ -1,7 +1,10 @@
 //! Coding-agent harnesses: custom agents, accounts, models and credentials.
 
-use crate::SecretText;
-use std::time::SystemTime;
+use crate::{
+    ApiError, SecretText,
+    node::{EnvSecret, harness::harness},
+};
+use std::{collections::HashSet, time::SystemTime};
 
 wire_structs! {
     /// One machine's settings for a harness (`ListHarnessSettings`).
@@ -477,6 +480,124 @@ impl ApiProvider {
             Self::Meshy => "MESHY_API_KEY",
         }
     }
+}
+
+// What a harness's settings may hold.
+/// The longest program path or home folder taken.
+const MAX_PATH: usize = 1024;
+/// The most launch arguments, and the longest one.
+const MAX_ARGS: usize = 32;
+const MAX_ARG: usize = 1024;
+/// The most env vars, the longest name and the longest value.
+const MAX_ENV: usize = 32;
+const MAX_ENV_NAME: usize = 128;
+const MAX_ENV_VALUE: usize = 8 * 1024;
+/// The longest agent slug, for one a machine's `node.toml` adds.
+const MAX_AGENT: usize = 32;
+
+/// A slug Beep knows, or one a machine's `node.toml` could add.
+pub fn check_agent(agent: &str) -> Result<(), ApiError> {
+    let plain = !agent.is_empty()
+        && agent.len() <= MAX_AGENT
+        && agent
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
+    if harness(agent).is_some() || plain {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(format!(
+            "{agent:?} is not a coding agent."
+        )))
+    }
+}
+
+/// `settings` trimmed, or why they cannot be saved.
+pub fn check_settings(settings: HarnessSettings) -> Result<HarnessSettings, ApiError> {
+    let line = |what: &str, text: &str, max: usize| -> Result<String, ApiError> {
+        let text = text.trim();
+        if text.len() > max {
+            return Err(ApiError::bad_request(format!("The {what} is too long.")));
+        }
+        if text.chars().any(char::is_control) {
+            return Err(ApiError::bad_request(format!(
+                "The {what} cannot hold a line break or control character."
+            )));
+        }
+        Ok(text.to_owned())
+    };
+    let program = line("binary path", &settings.program, MAX_PATH)?;
+    let home = line("home folder", &settings.home, MAX_PATH)?;
+    if settings.args.len() > MAX_ARGS {
+        return Err(ApiError::bad_request(format!(
+            "At most {MAX_ARGS} launch arguments."
+        )));
+    }
+    let args = settings
+        .args
+        .iter()
+        .map(|arg| line("launch argument", arg, MAX_ARG))
+        .filter(|arg| !matches!(arg, Ok(arg) if arg.is_empty()))
+        .collect::<Result<Vec<String>, ApiError>>()?;
+    if settings.env.len() > MAX_ENV {
+        return Err(ApiError::bad_request(format!(
+            "At most {MAX_ENV} environment variables."
+        )));
+    }
+    let mut seen = HashSet::new();
+    let mut env = Vec::new();
+    for var in settings.env {
+        let name = var.name.trim().to_owned();
+        if name.is_empty() && var.value.is_none() {
+            continue;
+        }
+        let valid = name.len() <= MAX_ENV_NAME
+            && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+            return Err(ApiError::bad_request(format!(
+                "{name:?} is not an environment variable name."
+            )));
+        }
+        if !seen.insert(name.clone()) {
+            return Err(ApiError::bad_request(format!("{name} is set twice.")));
+        }
+        if let Some(value) = &var.value
+            && (value.expose().len() > MAX_ENV_VALUE || value.expose().contains('\0'))
+        {
+            return Err(ApiError::bad_request(format!(
+                "The value of {name} is too long or not text."
+            )));
+        }
+        env.push(HarnessEnv {
+            name,
+            value: var.value,
+        });
+    }
+    Ok(HarnessSettings {
+        enabled: settings.enabled,
+        program,
+        home,
+        args,
+        env,
+    })
+}
+
+/// Each of `wanted` with its new value, or `kept`'s for that name; one with neither is dropped.
+pub fn merged_env(kept: Vec<EnvSecret>, wanted: Vec<HarnessEnv>) -> Vec<EnvSecret> {
+    wanted
+        .into_iter()
+        .filter_map(|var| {
+            let value = var.value.or_else(|| {
+                kept.iter()
+                    .find(|old| old.name == var.name)
+                    .map(|old| old.value.clone())
+            })?;
+            Some(EnvSecret {
+                name: var.name,
+                value,
+            })
+        })
+        .collect()
 }
 
 /// The env var `gh` reads its token from.
