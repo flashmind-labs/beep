@@ -1,7 +1,7 @@
 //! Open pull requests and issues on GitHub, from its issue search.
 
 use super::host::{Caller, Found, HostError, Label, label_names};
-use crate::protocol::{GitItem, GitItemKind, GitReview};
+use beep_proto::{GitItem, GitItemKind, GitReview};
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::Deserialize;

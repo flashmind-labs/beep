@@ -4,17 +4,17 @@ use super::{
     forks::{Account, Api, all_pages},
     host::{Caller, HostError, status_error},
 };
-use crate::projects::model::RepoName;
+use crate::model::RepoName;
 use futures::future::join_all;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 /// A host's API, and the token's account when it is known already.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Forge<'a> {
-    pub(crate) api: Api,
-    pub(crate) base: &'a str,
-    pub(crate) login: Option<&'a str>,
+pub struct Forge<'a> {
+    pub api: Api,
+    pub base: &'a str,
+    pub login: Option<&'a str>,
 }
 
 impl Forge<'_> {
@@ -44,10 +44,7 @@ struct OrgPermissions {
 }
 
 /// The token's account, then the organizations it can create in.
-pub(crate) async fn owners(
-    caller: &Caller<'_>,
-    forge: &Forge<'_>,
-) -> Result<Vec<String>, HostError> {
+pub async fn owners(caller: &Caller<'_>, forge: &Forge<'_>) -> Result<Vec<String>, HostError> {
     let login = forge.login(caller).await?;
     let first = format!("{}/user/orgs?{}", forge.base, forge.api.page());
     let orgs: Vec<Org> = match all_pages(caller, first, |_| false).await {
@@ -87,10 +84,10 @@ async fn can_create(caller: &Caller<'_>, forge: &Forge<'_>, login: &str, org: &s
 
 /// The repository to make.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct NewRepo<'a> {
-    pub(crate) owner: &'a str,
-    pub(crate) name: &'a str,
-    pub(crate) private: bool,
+pub struct NewRepo<'a> {
+    pub owner: &'a str,
+    pub name: &'a str,
+    pub private: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -108,7 +105,7 @@ struct Made {
 
 /// Why the host made no repository.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum CreateError {
+pub enum CreateError {
     NameTaken,
     /// The token lacks the scope, or the account may not create in that owner.
     Denied,
@@ -116,7 +113,7 @@ pub(crate) enum CreateError {
 }
 
 /// Creates the repository and gives its name as the host wrote it.
-pub(crate) async fn create(
+pub async fn create(
     caller: &Caller<'_>,
     forge: &Forge<'_>,
     new: &NewRepo<'_>,

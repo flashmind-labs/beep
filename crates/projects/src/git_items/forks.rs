@@ -1,7 +1,7 @@
 //! The user's fork of a repository and their open pull request branches, read from GitHub or Forgejo.
 
 use super::host::{Caller, HostError, Page};
-use crate::projects::{branches::branch_name, model::RepoName};
+use crate::model::{RepoName, branch_name};
 use reqwest::Url;
 use serde::{Deserialize, de::DeserializeOwned};
 
@@ -12,7 +12,7 @@ const MAX_PAGES: usize = 20;
 
 /// Which API the calls go to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Api {
+pub enum Api {
     GitHub,
     Forgejo,
 }
@@ -28,23 +28,23 @@ impl Api {
 }
 
 /// The API base (such as `https://api.github.com`) and the repository there.
-pub(crate) struct Lookup<'a> {
-    pub(crate) api: Api,
-    pub(crate) base: &'a str,
-    pub(crate) upstream: &'a RepoName,
+pub struct Lookup<'a> {
+    pub api: Api,
+    pub base: &'a str,
+    pub upstream: &'a RepoName,
     /// The token's account, when it is known already; asked for otherwise.
-    pub(crate) login: Option<&'a str>,
+    pub login: Option<&'a str>,
 }
 
 /// The user's fork, as the import clones it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Fork {
+pub struct Fork {
     /// `login/repo`.
-    pub(crate) name: RepoName,
+    pub name: RepoName,
     /// The upstream's default branch, which the local one tracks.
-    pub(crate) default_branch: String,
+    pub default_branch: String,
     /// The heads of the user's open pull requests from the fork.
-    pub(crate) branches: Vec<String>,
+    pub branches: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,10 +87,7 @@ struct Head {
 }
 
 /// The user's fork of `lookup.upstream`, `None` when they have none or own the upstream.
-pub(crate) async fn find(
-    caller: &Caller<'_>,
-    lookup: &Lookup<'_>,
-) -> Result<Option<Fork>, HostError> {
+pub async fn find(caller: &Caller<'_>, lookup: &Lookup<'_>) -> Result<Option<Fork>, HostError> {
     let base = lookup.base.trim_end_matches('/');
     let login = match lookup.login {
         Some(login) => login.to_owned(),
