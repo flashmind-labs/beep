@@ -8,7 +8,7 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { since } from "../ui/format.ts";
-import { emptyPanel, fitRows, note } from "../ui/parts.ts";
+import { emptyPanel, note } from "../ui/parts.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "./pagecache.ts";
 
@@ -279,10 +279,9 @@ interface ProjectRuns {
   detail: RunDetail | null;
   detailError: string;
   loading: boolean;
+  /// The state the finished runs are filtered to.
+  only?: string | null;
 }
-
-/// Rows shown before the list scrolls.
-const SHOWN = 5;
 
 type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
@@ -487,7 +486,20 @@ export function makeRuns(deps: RunDeps) {
       return box;
     }
     if (why) box.append(h("div", "cc-err", why));
-    box.append(h("div", "cc-panel pj-runbox", fitRows(d.runs.map(r => row(id, s, r)), SHOWN)));
+    const current = d.runs.filter(r => going(r.state)), finished = d.runs.filter(r => !going(r.state));
+    const states = [...new Set(finished.map(r => r.state))].sort();
+    const only = s.only && states.includes(s.only) ? s.only : null;
+    const chip = (state: string) => button(`${runChip(state).text} ${finished.filter(r => r.state === state).length}`, `pj-tag lab${state === only ? " on" : ""}`, () => {
+      s.only = state === only ? null : state;
+      redraw();
+    });
+    const panel = (runs: RunRow[]) => h("div", "cc-panel pj-runbox", ...runs.map(r => row(id, s, r)));
+    box.append(h("div", "cc-sec", h("h4", "", "Running"), h("small", "", String(current.length))),
+      current.length ? panel(current) : emptyPanel(h("span", "", "Nothing running.")),
+      h("div", "cc-sec", h("h4", "", "Finished"), h("small", "", String(finished.length))));
+    if (states.length > 1) box.append(h("div", "pj-labels", ...states.map(chip)));
+    if (finished.length) box.append(panel(only ? finished.filter(r => r.state === only) : finished));
+    else box.append(emptyPanel(h("span", "", "No finished runs.")));
     return box;
   }
 

@@ -454,6 +454,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-det { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; scrollbar-width: thin }
 .pj-det .pj-labels { border-bottom: 0; padding: 0 }
 .pj-rows { margin: 0 -18px }
+/* Long lists: the webview skips rows outside the pane. */
+.pj-rows > .pj-li, .pj-runbox > .pj-runrow { content-visibility: auto; contain-intrinsic-size: auto 52px }
 .pj-back { align-self: flex-start }
 .pj-det > * { flex: none }
 /* A pull request or issue: its head, then the description and comments. */
