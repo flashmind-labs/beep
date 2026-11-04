@@ -1316,3 +1316,52 @@ async fn a_stignore_it_cannot_follow_refuses_the_folder_and_says_why() {
     );
     assert!(refused[0].message.contains("(?x)odd"), "{refused:?}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_config_from_a_peer_brings_the_remote_and_nothing_git_runs() {
+    let a = Node::new().await;
+    let b = Node::new().await;
+    new_repo(&a);
+    let dir = a.folder();
+    git(
+        &dir,
+        &["remote", "add", "origin", "https://example.com/app.git"],
+    );
+    for (key, value) in [
+        ("core.fsmonitor", "/tmp/payload"),
+        ("core.sshCommand", "/tmp/payload"),
+        ("core.hooksPath", "/tmp/hooks"),
+        ("alias.x", "!/tmp/payload"),
+        ("credential.helper", "!/tmp/payload"),
+        ("filter.x.clean", "/tmp/payload"),
+        ("diff.x.textconv", "/tmp/payload"),
+        ("remote.evil.url", "ext::sh -c /tmp/payload"),
+    ] {
+        git(&dir, &["config", key, value]);
+    }
+    a.sync_with(&b).await;
+    b.sync_with(&a).await;
+    eventually("the checkout and its config to arrive", || {
+        head(&b).is_some() && read(&b.path(".git/config")).is_some()
+    })
+    .await;
+    let config = String::from_utf8(read(&b.path(".git/config")).unwrap()).unwrap();
+    assert!(config.contains("https://example.com/app.git"), "{config}");
+    assert!(config.contains("repositoryformatversion"), "{config}");
+    for hostile in [
+        "fsmonitor",
+        "sshcommand",
+        "hookspath",
+        "alias",
+        "credential",
+        "filter",
+        "textconv",
+        "payload",
+        "ext::",
+    ] {
+        assert!(
+            !config.to_lowercase().contains(hostile),
+            "{hostile} in\n{config}"
+        );
+    }
+}

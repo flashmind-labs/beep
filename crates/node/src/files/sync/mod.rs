@@ -40,6 +40,7 @@ use tokio::{task::spawn_blocking, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
 mod disk;
+mod gitconfig;
 mod gitdir;
 mod map;
 #[cfg(test)]
