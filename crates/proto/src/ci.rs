@@ -104,6 +104,7 @@ wire_enum! {
     /// How a run, job or step stands. `Waiting` waits for an approval or
     /// a runner; `Unknown` is a state the host names that Beep does not
     /// know.
+    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
     #[strum(serialize_all = "snake_case")]
     pub enum RunState {
