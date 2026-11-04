@@ -8,6 +8,7 @@
 
 use crate::{
     link::connection::{Offers, Who, changed, session},
+    link::from_mesh,
     link::local_socket::{Listener, Stream},
     machine::{env, stats},
 };
@@ -35,6 +36,7 @@ use tokio::{
     task::JoinSet,
     time::{MissedTickBehavior, interval, timeout},
 };
+use tokio_util::task::AbortOnDropHandle;
 
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
 const SOCKET: &str = "mesh.sock";
@@ -65,6 +67,8 @@ struct Inner {
     name: String,
     offers: Offers,
     active: Mutex<Option<Active>>,
+    /// Applies the mesh's state to the node while it is a member.
+    follower: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
 /// The node's membership, shared by the router, the control socket and the
@@ -83,6 +87,7 @@ impl Peers {
                 name,
                 offers,
                 active: Mutex::new(None),
+                follower: Mutex::new(None),
             }),
         }
     }
@@ -162,6 +167,20 @@ impl Peers {
     fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
         peer.on_stream(self.stream_handler());
+        // From here on the mesh, not the server, says what the node syncs,
+        // holds and runs agents with.
+        let offers = &self.inner.offers;
+        offers.mesh.set(mesh.clone());
+        if let Some(transfers) = &offers.transfers {
+            transfers.syncs().follow(mesh.clone());
+        }
+        let follow = from_mesh::follow(mesh.clone(), self.inner.endpoint.id(), offers.clone());
+        *self
+            .inner
+            .follower
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            Some(AbortOnDropHandle::new(tokio::spawn(follow)));
         *self
             .inner
             .active

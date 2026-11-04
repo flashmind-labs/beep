@@ -2,13 +2,12 @@
 //! space, downloads into the store and moves the result into place.
 
 use super::{
-    Ticker,
+    Out, Ticker,
     place::{self, Folder, Journal, Partial, Reserved, Room, make_dirs_at, relative_path},
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use beep_proto::node::{
-    LinkTx,
-    transfer::{ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, MAX_MANIFEST, Manifest, Stage},
+use beep_proto::node::transfer::{
+    ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, MAX_MANIFEST, Manifest, Stage,
 };
 use futures::StreamExt;
 use iroh::{Endpoint, EndpointAddr, endpoint::Connection};
@@ -111,7 +110,7 @@ struct Written {
 /// and checks limits and free space before any data moves. Writes under a
 /// hidden partial folder, used by descriptor, and checks for a cancel
 /// between chunks; only the final rename touches the final path.
-pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut LinkTx) -> Result<Fetched> {
+pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut Out<'_>) -> Result<Fetched> {
     // Kept from the collector while it downloads and is written out.
     let _tag = cx.store.tags().temp_tag(job.content).await?;
     let connection = connect(&cx, &job.from).await?;
@@ -157,7 +156,7 @@ async fn transfer(
     cx: &Fetcher<'_>,
     job: &Job,
     connection: &Connection,
-    tx: &mut LinkTx,
+    tx: &mut Out<'_>,
 ) -> Result<Written> {
     let mut plan = cancellable(cx, probe(cx, job, connection)).await?;
     let room = reserve_space(cx, job, plan.total).await?;
@@ -285,7 +284,7 @@ async fn download(
     job: &Job,
     connection: &Connection,
     plan: &Plan,
-    tx: &mut LinkTx,
+    tx: &mut Out<'_>,
 ) -> Result<()> {
     let progress = cx.store.remote().fetch(connection.clone(), job.content);
     let mut progress = pin!(progress.stream());
@@ -359,7 +358,7 @@ async fn write_out(
     job: &Job,
     plan: &Plan,
     partial: &Partial,
-    tx: &mut LinkTx,
+    tx: &mut Out<'_>,
 ) -> Result<()> {
     let mut ticker = Ticker::new(Stage::Writing, plan.total);
     if job.kind == ContentKind::Folder {
@@ -399,7 +398,7 @@ async fn export(
     blob: Hash,
     mut file: File,
     ticker: &mut Ticker,
-    tx: &mut LinkTx,
+    tx: &mut Out<'_>,
 ) -> Result<()> {
     let mut reader = cx.store.blobs().reader(blob);
     let mut buffer = vec![0; CHUNK];

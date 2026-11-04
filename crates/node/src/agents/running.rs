@@ -105,6 +105,11 @@ impl Agents {
         self.settings.set(settings);
     }
 
+    /// The settings now in force.
+    pub fn settings(&self) -> AgentSettings {
+        self.settings.current()
+    }
+
     /// The server sent the user's settings: sessions held over a restart
     /// may start.
     pub fn settings_arrived(&self) {

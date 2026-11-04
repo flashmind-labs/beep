@@ -4,6 +4,8 @@
 //! check, since the mesh's members are the user's own machines.
 
 use crate::{
+    files::transfer::{Incoming, Transfers},
+    link::Offers,
     machine::service::logs,
     run::tasks::{self, Table},
 };
@@ -11,12 +13,17 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     process::{Reply as TaskReply, Request as TaskRequest, TaskId},
+    sync::{ProjectStatus, State as SyncState},
     tools::{Reply, Request, Tool},
 };
 use serde::Deserialize;
 use serde_json::Value;
 use std::{fmt::Write, time::Duration};
-use tokio::{task::spawn_blocking, time::timeout};
+use tokio::{
+    sync::Semaphore,
+    task::spawn_blocking,
+    time::{Instant, sleep, timeout},
+};
 
 /// How long a peer has to send its call.
 const READ_LIMIT: Duration = Duration::from_secs(10);
@@ -27,12 +34,26 @@ const DEFAULT_RUN_SECS: u64 = 600;
 const DEFAULT_LOG_LINES: u32 = 100;
 
 /// Who calls, and what this device lets them do.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
-    /// Whether `RunOn` may run a command here.
+    /// Whether a node's `RunOn`, `MachineLog` and `SendFiles` may act on this
+    /// device: not when it is a desktop.
     pub may_run_on_here: bool,
+    /// This node's synced projects and transfers, when it shares folders.
+    pub transfers: Option<Transfers>,
+}
+
+impl Caller {
+    /// This node's own agent calling it.
+    pub(crate) fn local(offers: &Offers) -> Self {
+        Self {
+            table: Table::Shared,
+            may_run_on_here: true,
+            transfers: offers.transfers.clone(),
+        }
+    }
 }
 
 /// Serves one `tools/1` call: its request, then its reply.
@@ -63,10 +84,14 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             Tool::JobStatus => job(args, false, caller.table).await,
             Tool::Cancel => job(args, true, caller.table).await,
             Tool::MachineLog => machine_log(args).await,
-            Tool::SyncProject | Tool::SendFiles => Err(format!(
-                "{} is not served node to node yet; ask from a desktop.",
-                request.tool
-            )),
+            // Writes outside a project the desktop's owner shares: a node may
+            // not send files to a desktop. Syncing is confined to a project
+            // this device already syncs, with the peers a desktop named.
+            Tool::SendFiles if !caller.may_run_on_here => Err(
+                "This device is a desktop: another node may not send files to it.".to_owned(),
+            ),
+            Tool::SyncProject => sync_project(args, &caller).await,
+            Tool::SendFiles => receive_files(args, &caller).await,
             other => Err(format!("A node does not serve {other} for another node.")),
         },
     };
@@ -157,6 +182,101 @@ async fn machine_log(args: Value) -> Outcome {
         .map_err(|e| format!("{e:#}"))
 }
 
+#[derive(Deserialize)]
+struct SyncArgs {
+    project: String,
+}
+
+/// How long `sync_project` waits for the project to settle.
+const SYNC_WAIT: Duration = Duration::from_secs(90);
+const SYNC_POLL: Duration = Duration::from_millis(500);
+
+/// The most `sync_project` calls waiting on a project at once, from every
+/// peer together.
+const MAX_SYNCS: usize = 4;
+static SYNC_SLOTS: Semaphore = Semaphore::const_new(MAX_SYNCS);
+
+/// Scans the project here, then waits until it has what the other machines
+/// have, and says how it stands.
+async fn sync_project(args: Value, caller: &Caller) -> Outcome {
+    let SyncArgs { project } = parse(args)?;
+    // Capped for node peers only; the server's calls are not theirs to crowd.
+    let _slot =
+        if matches!(caller.table, Table::Peer(_)) {
+            Some(SYNC_SLOTS.try_acquire().map_err(|_| {
+                format!("busy: {MAX_SYNCS} syncs are already waiting on this machine")
+            })?)
+        } else {
+            None
+        };
+    let Some(transfers) = &caller.transfers else {
+        return Err("This machine shares no folders, so it syncs no projects.".to_owned());
+    };
+    let syncs = transfers.syncs();
+    let status = syncs.rescan(&project).await.map_err(|e| format!("{e:#}"))?;
+    let deadline = Instant::now() + SYNC_WAIT;
+    let mut status = status;
+    while !settled(&status) && Instant::now() < deadline {
+        sleep(SYNC_POLL).await;
+        match syncs.status().into_iter().find(|s| s.name == project) {
+            Some(now) => status = now,
+            None => return Err(format!("{project} stopped syncing here.")),
+        }
+    }
+    Ok(sync_line(&status))
+}
+
+/// Whether a project has nothing left to bring in line.
+fn settled(status: &ProjectStatus) -> bool {
+    match status.state {
+        SyncState::Idle => status.pending == 0 && status.progress.is_none(),
+        SyncState::Failed | SyncState::Paused => true,
+        _ => false,
+    }
+}
+
+fn sync_line(status: &ProjectStatus) -> String {
+    let mut line = match status.state {
+        SyncState::Idle if status.pending == 0 => format!("in sync, {} files", status.files),
+        SyncState::Failed => format!(
+            "failed: {}",
+            status.error.as_deref().unwrap_or("no reason given")
+        ),
+        SyncState::Paused => "paused by the user".to_owned(),
+        _ => match status.progress {
+            Some(progress) => format!(
+                "syncing, {} of {} files",
+                progress.files_done, progress.files_total
+            ),
+            None => format!("syncing, {} files pending", status.pending),
+        },
+    };
+    if !status.conflicts.is_empty() {
+        // Writing to a string cannot fail.
+        let _ = write!(line, "; {} conflict copies", status.conflicts.len());
+    }
+    line
+}
+
+/// Takes the file another node's agent offers: the call's args are the
+/// `Incoming` that node built after offering it.
+async fn receive_files(args: Value, caller: &Caller) -> Outcome {
+    let Some(transfers) = &caller.transfers else {
+        return Err("This machine shares no folders, so it takes no files.".to_owned());
+    };
+    let incoming: Incoming = parse(args)?;
+    let name = incoming.name.clone();
+    let received = transfers
+        .receive(incoming)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(format!(
+        "{name} landed at {} ({} bytes)",
+        received.path.display(),
+        received.size
+    ))
+}
+
 fn status_text(reply: TaskReply) -> Outcome {
     let TaskReply::Status {
         task,
@@ -187,6 +307,14 @@ fn task_error(reply: TaskReply) -> String {
 mod tests {
     use super::*;
 
+    fn caller(table: Table, may_run_on_here: bool) -> Caller {
+        Caller {
+            table,
+            may_run_on_here,
+            transfers: None,
+        }
+    }
+
     fn run_on() -> Request {
         Request {
             session: "a3f9c1".to_owned(),
@@ -197,12 +325,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_desktop_takes_no_files_from_a_node_but_syncs_for_it() {
+        let table = Table::Peer(iroh::SecretKey::generate().public());
+        let on_desktop = caller(table, false);
+        let send = Request {
+            session: "a3f9c1".to_owned(),
+            tool: Tool::SendFiles,
+            args: "{}".to_owned(),
+            approved: Default::default(),
+        };
+        let Reply::Done { text, failed } = answer(send, on_desktop.clone()).await else {
+            panic!("not done");
+        };
+        assert!(failed && text.contains("desktop"), "{text}");
+        // Syncing is not refused for being a desktop: it is confined to a
+        // project the device already syncs.
+        let sync = Request {
+            session: "a3f9c1".to_owned(),
+            tool: Tool::SyncProject,
+            args: r#"{"project":"game"}"#.to_owned(),
+            approved: Default::default(),
+        };
+        let Reply::Done { text, .. } = answer(sync, on_desktop).await else {
+            panic!("not done");
+        };
+        assert!(!text.contains("desktop"), "{text}");
+    }
+
+    #[tokio::test]
     async fn a_desktop_does_not_show_its_log_to_a_node() {
         let table = Table::Peer(iroh::SecretKey::generate().public());
-        let caller = Caller {
-            table,
-            may_run_on_here: false,
-        };
+        let caller = caller(table, false);
         let request = Request {
             session: "a3f9c1".to_owned(),
             tool: Tool::MachineLog,
@@ -218,19 +371,13 @@ mod tests {
     #[tokio::test]
     async fn a_desktop_refuses_run_on_from_a_node_and_a_node_takes_it() {
         let table = Table::Peer(iroh::SecretKey::generate().public());
-        let on_desktop = Caller {
-            table,
-            may_run_on_here: false,
-        };
+        let on_desktop = caller(table, false);
         let Reply::Done { text, failed } = answer(run_on(), on_desktop).await else {
             panic!("not done");
         };
         assert!(failed && text.contains("desktop"), "{text}");
         assert!(!text.contains("ran-here"));
-        let on_node = Caller {
-            table,
-            may_run_on_here: true,
-        };
+        let on_node = caller(table, true);
         let Reply::Done { text, failed } = answer(run_on(), on_node).await else {
             panic!("not done");
         };
