@@ -498,10 +498,11 @@ pub async fn agent_view(
 #[tauri::command]
 pub async fn session_folder_here(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     cwd: String,
 ) -> Result<Option<String>> {
-    let folder = work_copy::folder_here(&beep, &machine_id, &cwd).await;
+    let folder = work_copy::folder_here(&beep, &fleet, &machine_id, &cwd).await;
     Ok(folder.map(|f| f.to_string_lossy().into_owned()))
 }
 

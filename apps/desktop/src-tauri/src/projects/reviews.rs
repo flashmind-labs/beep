@@ -3,13 +3,16 @@
 //! finding, and handing the rest to a worker or the project agent.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     error::{DesktopError, Result},
     fleet::{
-        Machines,
+        Fleet, Machines,
         files::{self as direct, FALLBACK_DEFAULT},
     },
-    projects::{branches::places, known, needs_update},
+    projects::{
+        branches::{Placed, placed},
+        known, needs_update,
+    },
 };
 use beep_proto::{
     BranchReview, CheckBranchReview, DismissReviewFinding, FixReviewFindings, GetBranchReview,
@@ -239,6 +242,27 @@ fn outdated(e: DesktopError) -> DesktopError {
     needs_update(e, "before it reviews branches")
 }
 
+/// `project`'s branches, read at a checkout on a machine of the mesh when
+/// it has one; `None` from a server too old to list them.
+pub(crate) async fn read_branches(
+    beep: &Beep,
+    fleet: &Fleet,
+    project: String,
+) -> Result<Option<ProjectBranches>> {
+    if let Placed::Mesh(places) = placed(beep, fleet, &project).await?
+        && let Some(place) = places.first()
+    {
+        let (default_branch, branches) = direct::branches(fleet, place, FALLBACK_DEFAULT).await?;
+        return Ok(Some(ProjectBranches {
+            machine_id: place.machine.to_string(),
+            machine_name: fleet.name_of(place.machine),
+            default_branch,
+            branches,
+        }));
+    }
+    known(beep.call(ListProjectBranches { project }).await)
+}
+
 /// `project`'s branches; `None` from a server too old to list them.
 #[tauri::command]
 pub async fn project_branches(
@@ -246,19 +270,7 @@ pub async fn project_branches(
     fleet: Machines<'_>,
     project: String,
 ) -> Result<Option<BranchesView>> {
-    if let Some(place) = places(&beep, &fleet, &project).await.into_iter().next() {
-        let (default_branch, branches) = direct::branches(&fleet, &place, FALLBACK_DEFAULT).await?;
-        return Ok(Some(
-            ProjectBranches {
-                machine_id: place.machine.to_string(),
-                machine_name: fleet.name_of(place.machine),
-                default_branch,
-                branches,
-            }
-            .into(),
-        ));
-    }
-    Ok(known(beep.call(ListProjectBranches { project }).await)?.map(Into::into))
+    Ok(read_branches(&beep, &fleet, project).await?.map(Into::into))
 }
 
 /// `project`'s newest review of each branch; `None` from a server too old
