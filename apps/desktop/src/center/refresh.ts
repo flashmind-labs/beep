@@ -38,7 +38,7 @@ export async function refresh() {
     const [home, mac, sync, top, projectGroups] = await Promise.all([
       invoke<HomeView>("center_home"),
       invoke<MacControl>("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
-      // Sync progress only adds to the Now column; Home draws without it.
+      // Sync rows only add to the machines table; Home draws without them.
       invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
       invoke<string[]>("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
       invoke<ProjectGroup[] | null>("project_groups").catch(e => { console.warn("project groups:", e); return state.groups; }),
