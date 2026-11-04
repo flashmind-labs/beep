@@ -41,7 +41,7 @@ impl User {
         &self,
         project: &str,
         endpoint: &str,
-        fork: Option<&crate::projects::model::RepoName>,
+        fork: Option<&RepoName>,
     ) -> Result<()> {
         self.store
             .set_import_fork(&self.key, project, endpoint, fork)
