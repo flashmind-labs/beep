@@ -9,8 +9,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions, Session,
-    SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
+    Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, Session, Stream,
+    TRANSCRIBE_RATE, Transcribe, Transcription,
     client::{Client, Node, OnNotice, Replies, Uplink},
 };
 use iroh::{Endpoint, EndpointId};
@@ -319,14 +319,6 @@ impl Beep {
             Some(sessions) => Ok(sessions),
             None => self.call(ListSessions {}).await,
         }
-    }
-
-    /// Searches the local copy, or the server before the copy is ready.
-    pub async fn search(&self, query: String) -> Result<Vec<SessionMatch>> {
-        if let Some(found) = self.chats.search(&query) {
-            return Ok(found);
-        }
-        self.call(SearchSessions { query }).await
     }
 
     /// Downloads a sent file to `dest`, part by part. It lands under a

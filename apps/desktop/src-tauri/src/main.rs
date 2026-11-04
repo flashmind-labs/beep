@@ -271,11 +271,9 @@ fn main() {
             machines::tools::update_machine_tool,
             notices::work::answer_work,
             notices::work::list_questions,
-            palette::lists::center_palette,
-            palette::lists::center_palette_branches,
-            palette::lists::center_palette_prs,
-            palette::lists::center_palette_sessions,
-            palette::rank::center_find,
+            palette::index::center_find_text,
+            palette::lists::center_palette_index,
+            palette::lists::center_palette_refresh,
             platform::editors::editors,
             platform::editors::open_in_editor,
             platform::logfile::log_webview,
@@ -442,6 +440,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         env!("CARGO_PKG_VERSION"),
     ));
     app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
+    app.manage(palette::PaletteCache::load(&views)?);
     app.manage(views);
     let (beep, notices) =
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
@@ -458,7 +457,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(center::Shown::default());
     app.manage(center::AgentsShown::default());
     app.manage(center::Pending::default());
-    app.manage(palette::PaletteCache::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(machines::terminals::Attached::default());
     app.state::<machines::this_mac::Machine>().sync(&beep);
@@ -472,6 +470,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         notices,
     ));
     tauri::async_runtime::spawn(beep::sync::follow(handle.clone(), beep.clone()));
+    tauri::async_runtime::spawn(palette::lists::follow(handle.clone(), beep.clone()));
     tauri::async_runtime::spawn(platform::update::follow(handle.clone()));
     tauri::async_runtime::spawn(tray::waiting::follow(handle.clone(), beep.clone()));
     voice::hotkey::start(move |input| voice.on_input(input));
