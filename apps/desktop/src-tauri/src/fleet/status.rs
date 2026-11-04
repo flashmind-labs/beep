@@ -194,6 +194,7 @@ impl Status {
     }
 
     /// Counts up whenever a machine comes, goes or reports.
+    #[cfg(test)]
     pub fn changes(&self) -> watch::Receiver<u64> {
         self.shared.changes.subscribe()
     }
