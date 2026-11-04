@@ -16,7 +16,6 @@ use std::sync::Arc;
 pub(crate) const REPLY: &str = "project_reply";
 /// Never saved: a reply always asks.
 pub(crate) const REPLY_SLUG: &str = "PROJECT_REPLY";
-/// The longest reply.
 const MAX_REPLY: usize = 16 * 1024;
 
 pub(super) struct ReplyTool {

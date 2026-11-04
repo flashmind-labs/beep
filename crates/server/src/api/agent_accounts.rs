@@ -8,7 +8,8 @@ use super::{
     own_nodes::{linked_keys, online},
 };
 use crate::{
-    credentials::{Slot, last4},
+    account::credentials::{Slot, last4},
+    api::router::Cx,
     nodes::Online,
     protocol::{
         node::{
@@ -17,7 +18,6 @@ use crate::{
         },
         *,
     },
-    router::Cx,
     store::{AgentTokenRow, NewCredential},
 };
 use anyhow::{Result, bail};

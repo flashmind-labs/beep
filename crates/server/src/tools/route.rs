@@ -2,8 +2,8 @@
 //! The model gets the legs as text; the apps get a card with each leg's shape.
 
 use crate::{
+    account::user::User,
     protocol::{RouteCard, RouteLeg, RouteOption, RoutePoint, RouteStop},
-    user::User,
 };
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;

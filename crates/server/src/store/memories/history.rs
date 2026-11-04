@@ -2,8 +2,8 @@
 
 use super::{CORE, Fact, Meta, USER, from_record, meta_map, now_text, row_from};
 use crate::{
+    account::user::UserKey,
     store::{MemoryRow, Store},
-    user::UserKey,
 };
 use anyhow::Result;
 use chrono::{Duration, Utc};

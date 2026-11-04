@@ -6,15 +6,14 @@ use super::{
     projects::end,
 };
 use crate::{
+    account::user::UserKey,
     projects::{model::ProjectId, threads::ThreadKind},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// One chat about a thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ThreadChatRow {
     pub(crate) project: ProjectId,

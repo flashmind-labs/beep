@@ -4,7 +4,7 @@ use super::{
     file::{UserFiles, read_user_file},
     machines::Machines,
 };
-use crate::{fetch::MAX_DOWNLOAD, images::Describer, workspace::Workspace};
+use crate::{agent::images::Describer, nodes::workspace::Workspace, tools::fetch::MAX_DOWNLOAD};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::{

@@ -2,8 +2,8 @@
 
 use super::Reply;
 use crate::{
+    api::router::Cx,
     protocol::{ListMachineTraffic, MachineTraffic},
-    router::Cx,
 };
 
 pub(super) async fn list_machine_traffic(

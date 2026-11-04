@@ -2,11 +2,11 @@
 
 use super::{Reply, found};
 use crate::{
-    places,
+    api::router::Cx,
     protocol::*,
-    router::Cx,
+    routines::places,
+    routines::wake,
     store::{Location, SavedPlace},
-    wake,
 };
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;

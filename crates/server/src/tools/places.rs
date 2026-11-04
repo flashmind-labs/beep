@@ -1,8 +1,8 @@
 use super::args::text;
 use crate::{
-    places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
+    account::user::User,
+    routines::places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
     store::{Location, NewPlace, NewPlaceRoutine, SavedPlace},
-    user::User,
 };
 use async_trait::async_trait;
 use chrono::{TimeDelta, Utc};
@@ -14,7 +14,6 @@ use uuid::Uuid;
 /// How old the phone's location may be for "I'm here" to mean it.
 const FRESH_MINUTES: i64 = 15;
 
-/// Which of the place tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlaceToolKind {
     Save,

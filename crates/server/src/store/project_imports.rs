@@ -1,7 +1,7 @@
-//! Projects a user imported onto their machines (see `crate::imports`).
+//! Projects a user imported onto their machines (see `crate::projects::imports`).
 
 use super::Store;
-use crate::{projects::model::RepoName, user::UserKey};
+use crate::{account::user::UserKey, projects::model::RepoName};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
@@ -23,7 +23,6 @@ pub struct ImportRow {
     pub(crate) fork: Option<RepoName>,
 }
 
-/// An import to record.
 pub struct NewImport<'a> {
     pub project: &'a str,
     pub endpoint: &'a str,

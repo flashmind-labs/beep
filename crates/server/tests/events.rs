@@ -6,12 +6,14 @@
 
 use async_trait::async_trait;
 use beep_server::{
+    account::user::User,
+    agent::models::ModelChoices,
+    agent::subagents::Pool,
     app::{App, ServerTools, UserNotice},
-    events::{self, Accepted, EventApp, Limits, Settings, Topic, Urgency, Verdict, normalize},
-    models::ModelChoices,
+    routines::events::{
+        self, Accepted, EventApp, Limits, Settings, Topic, Urgency, Verdict, normalize,
+    },
     store::{EventState, TestDb},
-    subagents::Pool,
-    user::User,
 };
 use chrono::{SecondsFormat, Utc};
 use flashmind::types::{

@@ -1,3 +1,5 @@
+//! The server's TOML config and its keys on disk.
+
 use std::{
     collections::HashMap,
     env,
@@ -9,11 +11,11 @@ use std::{
 };
 
 use crate::{
-    events::EventsConfig,
-    instance::InstanceConfig,
+    account::instance::InstanceConfig,
+    memory::watchers::WatchersConfig,
     research::{ResearchConfig, RoleModel},
+    routines::events::EventsConfig,
     voice::VoiceConfig,
-    watchers::WatchersConfig,
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
@@ -84,7 +86,7 @@ pub struct Config {
     /// The model account events are triaged on.
     #[serde(default)]
     pub events: EventsConfig,
-    /// Runs the server for one owner (see `crate::instance`).
+    /// Runs the server for one owner (see `crate::account::instance`).
     pub instance: Option<InstanceConfig>,
     /// The agents that read finished chats.
     #[serde(default)]

@@ -83,7 +83,6 @@ pub(crate) fn picked_path(picked: &Picked, path: &str) -> Result<String> {
     on_machine(path, picked.cwd(), picked.home.as_deref())
 }
 
-/// The file name at the end of `path`.
 pub(crate) fn file_name(path: &str) -> Option<&str> {
     Path::new(path).file_name().and_then(|name| name.to_str())
 }

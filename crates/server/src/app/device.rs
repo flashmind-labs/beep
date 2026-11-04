@@ -2,10 +2,10 @@
 
 use super::{App, Reach, UserNotice};
 use crate::{
-    live::LiveRun,
-    permissions::ApprovalPayload,
+    account::user::User,
+    agent::live::LiveRun,
+    apps::permissions::ApprovalPayload,
     protocol::{Approval, DeviceAnswer, DeviceQuery, Notice, PendingApproval, Run, RunEvent},
-    user::User,
 };
 use anyhow::Result;
 use flashmind::types::tool::ToolResult;

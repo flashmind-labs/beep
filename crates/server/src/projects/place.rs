@@ -2,8 +2,7 @@
 //! that has room.
 
 use super::model::{MAX_MACHINE_WORKERS, MachinePath};
-use crate::protocol::node::Capability;
-use crate::tools::machines::command_name;
+use crate::{protocol::node::Capability, tools::machines::command_name};
 use iroh::EndpointId;
 
 /// What placement knows about one machine for one project.

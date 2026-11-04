@@ -1,13 +1,16 @@
 use super::*;
+use crate::projects::testing::widget_project;
 use crate::{
     projects::{
-        model::{MachinePath, Roles, Visibility},
+        model::{Roles, Visibility},
         testing::{FakeFleet, FakeShell},
+        threads::parse::ThreadComment,
+        turn::REPLY_LABEL,
     },
-    store::{CheckoutRow, TestDb},
+    store::TestDb,
 };
-use chrono::TimeZone;
-use serde_json::json;
+use chrono::{DateTime, TimeZone, Utc};
+use serde_json::{Value, json};
 
 fn at(hour: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 30, hour, 0, 0).unwrap()
@@ -45,27 +48,16 @@ fn bots_do_not_need_reply() {
 /// Alice's `acme/widget` with GitHub roles and a home checkout.
 async fn github_project(user: &User, fleet: &mut FakeFleet) -> (ProjectRow, Arc<FakeShell>) {
     let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
-    let project = user
-        .ensure_project(&RepoName::parse("acme/widget").unwrap())
-        .await
-        .unwrap();
-    user.add_checkout(
-        project.id,
-        &CheckoutRow {
-            machine: home,
-            path: MachinePath::parse("/srv/widget").unwrap(),
-            home: true,
+    let project = widget_project(
+        user,
+        home,
+        Roles {
+            issues: Some(IssueHost::Github),
+            prs: Some(IssueHost::Github),
         },
+        Visibility::Public,
     )
-    .await
-    .unwrap();
-    let roles = Roles {
-        issues: Some(IssueHost::Github),
-        prs: Some(IssueHost::Github),
-    };
-    user.set_project_setup(project.id, &roles, Visibility::Public, "main")
-        .await
-        .unwrap();
+    .await;
     (user.project(project.id).await.unwrap().unwrap(), shell)
 }
 

@@ -1,7 +1,7 @@
 //! Actions allowed for the rest of one chat via "Allow for this session".
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use sqlx::Row;
 use uuid::Uuid;

@@ -1,7 +1,7 @@
 //! Phones registered for push; a token belongs to the key that registered it, since notices are sealed to that key.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::{Context, Result};
 use iroh::EndpointId;
 use strum::{EnumString, IntoStaticStr};
@@ -62,7 +62,6 @@ impl Store {
         Ok(deleted > 0)
     }
 
-    /// The push tokens registered by `endpoint`.
     pub(crate) async fn push_tokens(&self, endpoint: &EndpointId) -> Result<Vec<PushToken>> {
         let rows: Vec<(String, String)> =
             sqlx::query_as("SELECT fcm_token, service FROM devices WHERE endpoint_id=$1")

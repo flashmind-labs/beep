@@ -13,9 +13,11 @@ use beep_node::{
     link::{Offers, Protocol},
 };
 use beep_server::{
+    account::user::User,
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, ServerTools},
     client::{Client, Node},
-    models::ModelChoices,
     nodes::{self, Online},
     protocol::{
         ApiError, ConflictKeep, CopyProject, DeviceKind, GetProjectSyncDetail, GetSyncSkipped,
@@ -24,8 +26,6 @@ use beep_server::{
     },
     push::Pusher,
     store::{NewImport, NewKey, SyncRow, TestDb},
-    transport,
-    user::User,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,

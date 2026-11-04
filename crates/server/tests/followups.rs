@@ -2,11 +2,11 @@
 //! checked by a judge model. They call the real model, so they are ignored by
 //! default. `just eval-followups` runs them with the dev config.
 use beep_server::{
+    agent::decision::DecisionTool,
+    agent::followups::{self, Input, ToolOutput},
     config::Config,
-    decision::DecisionTool,
-    followups::{self, Input, ToolOutput},
-    memories::Turn,
-    starters::Generator,
+    memory::memories::Turn,
+    memory::starters::Generator,
 };
 use flashmind::{
     llm::OpenRouterProvider,

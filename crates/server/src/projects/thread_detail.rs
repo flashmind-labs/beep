@@ -9,9 +9,9 @@ use super::{
     threads::clipped,
 };
 use crate::{
+    account::user::User,
     protocol::{GitItemKind, GitReview, RunState, ThreadDetail, ThreadPost, ThreadState},
     store::ProjectRow,
-    user::User,
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};

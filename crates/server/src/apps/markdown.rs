@@ -1,6 +1,6 @@
 //! Turns HTML in app tool results, such as email bodies, into Markdown before the model reads them.
 
-use crate::paging;
+use crate::agent::paging;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::Value;

@@ -1,4 +1,8 @@
+//! The hub: `App` holds the server's shared state; sign-in is in `admission`, turns start in
+//! `submit` and run in `run`.
+
 pub mod admin;
+mod admission;
 mod auto;
 mod context;
 mod device;
@@ -7,57 +11,52 @@ mod group_reminders;
 mod group_tools;
 mod learning;
 pub(crate) mod memory_context;
+mod notice;
 mod notify;
 mod research;
 mod run;
 mod skills;
 mod starters;
+mod submit;
 mod voice;
+
+pub use notice::{Answer, Draws, Message, Reach, UserNotice};
 
 pub(crate) use group::group_message;
 
 use crate::{
     AsyncMutex,
+    account::credentials::CredentialKey,
+    account::instance::{Instance, InstanceConfig},
+    account::user::{Shared, User},
+    agent::compaction::{self, Summarizer},
+    agent::decision::DecisionTool,
+    agent::images::Describer,
+    agent::live::LiveRun,
+    agent::models::ModelChoices,
+    agent::titles,
+    agent::tool_attachments::RecentAttachments,
     apps::{Composio, ComposioSettings},
-    compaction::{self, Summarizer},
-    credentials::CredentialKey,
-    decision::DecisionTool,
-    images::Describer,
-    instance::{Instance, InstanceConfig},
-    live::LiveRun,
-    metering,
-    models::ModelChoices,
-    protocol::{ApprovalDecision, DeviceKind, Notice, Platform, RunEvent, Upload},
-    search::SearchTool,
-    starters::Generator,
-    store::{Account, CreateRun, LinkKey, NewKey, RunStatus, SessionRef, SignIn, Store},
-    stt::{RealtimeStt, Unavailable},
-    titles,
-    tool_attachments::RecentAttachments,
+    memory::starters::Generator,
+    protocol::DeviceKind,
+    store::{Account, SessionRef, Store},
     tools::Transitous,
-    user::{Shared, User},
+    tools::search::SearchTool,
+    voice::stt::{RealtimeStt, Unavailable},
     voice::{Voice, VoiceConfig},
-    wake::Woken,
 };
 use anyhow::Result;
 use flashmind::{
     core::CancellationToken,
     types::{AgentLlmConfig, LlmProvider, Model, ReasoningLevel},
 };
-use iroh::EndpointId;
 use secrecy::SecretString;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, PoisonError, atomic::AtomicBool},
     time::Duration,
 };
-use tokio::{
-    sync::broadcast,
-    time::{sleep, timeout},
-};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// How long a stop waits for its run to save.
@@ -101,29 +100,29 @@ pub struct App {
     /// The project workers' sessions and the issue mirroring in flight.
     pub projects: crate::projects::Projects,
     /// Looks through the users' machines for checkouts of their projects.
-    pub checkouts: crate::imports::Checkouts,
+    pub checkouts: crate::projects::imports::Checkouts,
     /// Speaks voice notes and transcribes spoken replies.
     voice: Voice,
     /// Transcribes speech live, for `Transcribe`.
     realtime: Arc<dyn RealtimeStt>,
     /// Live transcriptions running at once, server-wide.
     live_transcriptions: voice::LiveSlots,
-    /// Account events on their way to the agent (see `crate::events`).
-    pub events: crate::events::Hub,
+    /// Account events on their way to the agent (see `crate::routines::events`).
+    pub events: crate::routines::events::Hub,
     /// Sub-agent runs outside the chats, such as event triage.
-    pub subagents: crate::subagents::Subagents,
-    /// Set when the server runs for one owner (see `crate::instance`).
+    pub subagents: crate::agent::subagents::Subagents,
+    /// Set when the server runs for one owner (see `crate::account::instance`).
     instance: Option<Instance>,
-    /// Agents that read finished chats over (see `crate::watchers`).
-    pub watchers: crate::watchers::Hub,
+    /// Agents that read finished chats over (see `crate::memory::watchers`).
+    pub watchers: crate::memory::watchers::Hub,
     /// Seals and opens users' credentials.
     pub credential_key: CredentialKey,
     /// Each user's open PRs and issues on their git hosts, cached a few minutes.
-    pub git_items: crate::git_items::GitBoard,
+    pub git_items: crate::projects::git_items::GitBoard,
     /// Each user's repositories on their git hosts, cached a few minutes.
-    pub host_repos: crate::imports::HostRepoCache,
+    pub host_repos: crate::projects::imports::HostRepoCache,
     /// Each project's PRs, issues and workflow runs, refreshed while someone looks.
-    pub repo_watch: crate::repo_watch::RepoWatch,
+    pub repo_watch: crate::projects::repo_watch::RepoWatch,
 }
 
 /// Optional server-credentialed tools and single-user settings, as `App::new` takes them.
@@ -178,155 +177,6 @@ pub enum Admission {
     Guest,
 }
 
-/// A `Notice` addressed to one user's open notification streams.
-#[derive(Debug, Clone)]
-pub struct UserNotice {
-    pub user: String,
-    pub notice: Notice,
-    /// What the user's computers get instead of `notice`, when it differs.
-    pub desktop: Option<Notice>,
-    /// Which of the user's devices get it.
-    pub to: Reach,
-}
-
-/// Which of a user's devices a `UserNotice` goes to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reach {
-    Everyone,
-    /// The computers only, never a phone.
-    Desktops,
-    /// Only the device with this key, such as one that started a coding-agent session.
-    Device(EndpointId),
-}
-
-impl Reach {
-    fn includes(self, id: &EndpointId, kind: &DeviceKind) -> bool {
-        match self {
-            Self::Everyone => true,
-            Self::Desktops => matches!(kind, DeviceKind::Desktop {}),
-            Self::Device(device) => device == *id,
-        }
-    }
-}
-
-impl UserNotice {
-    /// Tells the user's phones `session_id` changed, or the chat list when empty.
-    pub fn changed(user: &str, session_id: &str) -> Self {
-        Self {
-            user: user.to_owned(),
-            notice: Notice {
-                title: String::new(),
-                body: String::new(),
-                session_id: session_id.to_owned(),
-                app: None,
-                approval: None,
-                changed: true,
-                group: false,
-            },
-            desktop: None,
-            to: Reach::Everyone,
-        }
-    }
-
-    /// The notice device `id` of `kind` gets; `None` when the notice is not for it.
-    pub fn for_device(&self, id: &EndpointId, kind: &DeviceKind) -> Option<&Notice> {
-        if !self.to.includes(id, kind) {
-            return None;
-        }
-        Some(match &self.desktop {
-            Some(desktop) if matches!(kind, DeviceKind::Desktop {}) => desktop,
-            _ => &self.notice,
-        })
-    }
-
-    /// Tells the user's devices that group `id` changed.
-    pub fn group_changed(user: &str, id: &str) -> Self {
-        let mut notice = Self::changed(user, id);
-        notice.notice.group = true;
-        notice
-    }
-}
-
-pub struct Message {
-    pub session_id: Uuid,
-    pub request_id: Uuid,
-    pub message: String,
-    pub cron_id: Option<String>,
-    /// A routine's label, empty when it has none. Set for routine runs only.
-    pub scheduled: Option<String>,
-    /// A routine whose reply always reaches the user; set for the evening digest only.
-    pub always_sent: bool,
-    /// An event's label when an event woke the agent (see `crate::wake`).
-    pub woken: Option<Woken>,
-    pub images: Vec<String>,
-    /// Other files sent with the message, such as a PDF.
-    pub files: Vec<Upload>,
-    /// The recording a held reply came as; `message` holds its transcript.
-    pub voice: Option<Upload>,
-    /// Said aloud in live mode; `message` is what was heard.
-    pub spoken: bool,
-    /// Set when the run resumes a session that stopped to ask the user.
-    pub answer: Option<Answer>,
-    /// A one-off model for this run, instead of the user's picked one.
-    pub model: Option<Model>,
-    /// A one-off thinking for this run, instead of the user's picked one.
-    pub thinking: Option<ReasoningLevel>,
-    /// The device the message came from. A computer has no phone to act on.
-    pub origin: DeviceKind,
-    /// The app the message came from, when it says.
-    pub platform: Option<Platform>,
-    /// What the app draws under a reply, so the run gets those tools.
-    pub draws: Draws,
-    /// The lead's background turn telling the user a research ended.
-    pub finished_research: bool,
-}
-
-impl Message {
-    /// Something the user typed, not a routine, event or card answer.
-    pub(crate) fn is_prompt(&self) -> bool {
-        self.cron_id.is_none()
-            && self.scheduled.is_none()
-            && self.woken.is_none()
-            && self.answer.is_none()
-            && !self.finished_research
-    }
-
-    /// A prompt said aloud, live or as a held reply.
-    fn is_spoken(&self) -> bool {
-        self.is_prompt() && (self.spoken || self.voice.is_some())
-    }
-}
-
-/// What an app draws under a reply; a run only gets tools whose results its app shows.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Draws {
-    /// `show_chart` and `show_stock_chart`.
-    pub charts: bool,
-    /// `show_cards`.
-    pub cards: bool,
-    /// Source chips: the app shows the web pages a reply used, so the model need not list them.
-    pub sources: bool,
-}
-
-/// The user's answer to the tool call a session stopped on.
-#[derive(Debug, Clone)]
-pub struct Answer {
-    pub call_id: String,
-    pub decision: ApprovalDecision,
-    /// With `Allow`, the action also runs without asking for the rest of the chat.
-    pub for_session: bool,
-}
-
-impl Message {
-    /// The run's request id, keyed by the call so answering twice returns the same run.
-    pub(crate) fn request(&self) -> String {
-        match &self.answer {
-            Some(answer) => format!("approval:{}", answer.call_id),
-            None => self.request_id.to_string(),
-        }
-    }
-}
-
 impl App {
     pub fn new(
         store: Store,
@@ -358,8 +208,11 @@ impl App {
             decision: decision.clone(),
         };
         let voice = Voice::new(provider.clone(), mistral, voice);
-        let subagents =
-            crate::subagents::Subagents::new(provider.clone(), llm.clone(), notifications.clone());
+        let subagents = crate::agent::subagents::Subagents::new(
+            provider.clone(),
+            llm.clone(),
+            notifications.clone(),
+        );
         Arc::new(Self {
             store,
             notifications,
@@ -384,18 +237,18 @@ impl App {
             teams: AsyncMutex::new(HashMap::new()),
             nodes: crate::nodes::Nodes::default(),
             projects: crate::projects::Projects::default(),
-            checkouts: crate::imports::Checkouts::default(),
+            checkouts: crate::projects::imports::Checkouts::default(),
             voice,
             realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),
             live_transcriptions: voice::LiveSlots::default(),
-            events: crate::events::Hub::default(),
+            events: crate::routines::events::Hub::default(),
             subagents,
             instance: instance.map(Instance::new),
-            watchers: crate::watchers::Hub::default(),
+            watchers: crate::memory::watchers::Hub::default(),
             credential_key: credential_key.unwrap_or_else(CredentialKey::random),
-            git_items: crate::git_items::GitBoard::new(),
-            host_repos: crate::imports::HostRepoCache::default(),
-            repo_watch: crate::repo_watch::RepoWatch::default(),
+            git_items: crate::projects::git_items::GitBoard::new(),
+            host_repos: crate::projects::imports::HostRepoCache::default(),
+            repo_watch: crate::projects::repo_watch::RepoWatch::default(),
         })
     }
 
@@ -416,187 +269,6 @@ impl App {
             .values()
             .cloned()
             .collect()
-    }
-
-    /// The user `endpoint` is, started on first connection; `None` for a removed or refused key.
-    pub async fn sign_in(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Option<SignedIn>> {
-        Ok(match self.admit(endpoint).await? {
-            Admission::SignedIn(signed_in) => Some(signed_in),
-            Admission::Revoked | Admission::NotInvited | Admission::Guest => None,
-        })
-    }
-
-    /// Who `endpoint` signs in as; an unlinked key makes its own account unless single-user rules forbid.
-    pub async fn admit(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Admission> {
-        let Some(instance) = &self.instance else {
-            return Ok(match self.store.sign_in(endpoint).await? {
-                SignIn::Account {
-                    account,
-                    device,
-                    primary,
-                } => Admission::SignedIn(self.signed_in(&account, device, primary)),
-                SignIn::Revoked => Admission::Revoked,
-            });
-        };
-        let sign_in = match self.store.linked_sign_in(endpoint).await? {
-            Some(sign_in) => sign_in,
-            None => match self.claim_new(instance, endpoint).await? {
-                Some(sign_in) => sign_in,
-                None => return Ok(Admission::Guest),
-            },
-        };
-        Ok(match sign_in {
-            SignIn::Account {
-                account,
-                device,
-                primary,
-            } => {
-                if !self.owns(instance, &account, endpoint).await? {
-                    return Ok(Admission::NotInvited);
-                }
-                Admission::SignedIn(self.signed_in(&account, device, primary))
-            }
-            SignIn::Revoked => Admission::Revoked,
-        })
-    }
-
-    /// Who an already-linked key signs in as; `None` for a revoked or unlinked key.
-    pub async fn sign_in_linked(
-        self: &Arc<Self>,
-        endpoint: &EndpointId,
-    ) -> Result<Option<SignedIn>> {
-        let mut sign_in = self.store.linked_sign_in(endpoint).await?;
-        if let Some(instance) = &self.instance
-            && sign_in.is_none()
-            && self.link_local_node(instance, endpoint).await?
-        {
-            sign_in = self.store.linked_sign_in(endpoint).await?;
-        }
-        Ok(match sign_in {
-            Some(SignIn::Account {
-                account,
-                device,
-                primary,
-            }) => {
-                if let Some(instance) = &self.instance
-                    && !self.owns(instance, &account, endpoint).await?
-                {
-                    return Ok(None);
-                }
-                Some(self.signed_in(&account, device, primary))
-            }
-            Some(SignIn::Revoked) | None => None,
-        })
-    }
-
-    fn signed_in(
-        self: &Arc<Self>,
-        account: &Account,
-        device: DeviceKind,
-        primary: bool,
-    ) -> SignedIn {
-        SignedIn {
-            user: self.start_user(account),
-            device,
-            primary,
-        }
-    }
-
-    /// The single-user settings, when the server runs for one owner.
-    pub fn instance(&self) -> Option<&Instance> {
-        self.instance.as_ref()
-    }
-
-    /// The instance owner's account, read once and then kept.
-    pub async fn instance_owner(&self) -> Result<Option<String>> {
-        let Some(instance) = &self.instance else {
-            return Ok(None);
-        };
-        if let Some(owner) = instance.owner() {
-            return Ok(Some(owner));
-        }
-        let owner = self.store.instance_owner().await?;
-        if let Some(owner) = &owner {
-            instance.set_owner(owner);
-        }
-        Ok(owner)
-    }
-
-    /// Makes `endpoint` the owner's new account when nobody owns the instance and the config allows.
-    async fn claim_new(
-        &self,
-        instance: &Instance,
-        endpoint: &EndpointId,
-    ) -> Result<Option<SignIn>> {
-        if instance.owner_key().is_some_and(|key| key != endpoint)
-            || self.instance_owner().await?.is_some()
-        {
-            log::info!("refused a key that is not the owner's; key={endpoint}");
-            return Ok(None);
-        }
-        let claimed = self.store.claim_instance_new(endpoint).await?;
-        if let Some(SignIn::Account { account, .. }) = &claimed {
-            log::info!("instance claimed; user={} key={endpoint}", account.id);
-            instance.set_owner(&account.id);
-        }
-        Ok(claimed)
-    }
-
-    /// Whether `account` owns the instance, claiming it when unowned and the config allows this key.
-    async fn owns(
-        &self,
-        instance: &Instance,
-        account: &Account,
-        endpoint: &EndpointId,
-    ) -> Result<bool> {
-        if let Some(owner) = self.instance_owner().await? {
-            return Ok(owner == account.id);
-        }
-        if instance.owner_key().is_some_and(|key| key != endpoint) {
-            return Ok(false);
-        }
-        if self.store.claim_instance(&account.id, endpoint).await? {
-            log::info!("instance claimed; user={} key={endpoint}", account.id);
-            instance.set_owner(&account.id);
-            return Ok(true);
-        }
-        // Another key claimed it a moment ago.
-        Ok(self.instance_owner().await?.as_deref() == Some(account.id.as_str()))
-    }
-
-    /// Links `endpoint` to the owner when it is the bundled node's key; `false` otherwise.
-    async fn link_local_node(
-        self: &Arc<Self>,
-        instance: &Instance,
-        endpoint: &EndpointId,
-    ) -> Result<bool> {
-        let Some(node) = instance.local_node()? else {
-            return Ok(false);
-        };
-        if node.endpoint != *endpoint {
-            return Ok(false);
-        }
-        let Some(owner) = self.instance_owner().await? else {
-            log::info!("the bundled node waits for the instance to have an owner");
-            return Ok(false);
-        };
-        let Some(account) = self.store.account(&owner).await? else {
-            return Ok(false);
-        };
-        let key = NewKey {
-            endpoint: node.endpoint,
-            name: &node.name,
-            kind: DeviceKind::Desktop {},
-        };
-        let user = self.start_user(&account);
-        match user.link_key(key).await? {
-            LinkKey::Linked(_) => {
-                log::info!("bundled node linked; user={owner} key={endpoint}");
-                user.changed("");
-                Ok(true)
-            }
-            LinkKey::Taken => Ok(false),
-        }
     }
 
     /// Starts every known user, so their crons and feeds run without a connection.
@@ -642,158 +314,6 @@ impl App {
         user.start(self);
         log::info!("user started; user={id}");
         user
-    }
-
-    pub async fn submit(self: &Arc<Self>, user: &Arc<User>, message: Message) -> Result<CreateRun> {
-        // Serialize registration with cancellation so a newly created run can always be stopped.
-        let runs = self.runs.lock().await;
-        self.submit_locked(runs, user, message).await
-    }
-
-    async fn submit_locked(
-        self: &Arc<Self>,
-        mut runs: tokio::sync::MutexGuard<'_, HashMap<String, Arc<LiveRun>>>,
-        user: &Arc<User>,
-        message: Message,
-    ) -> Result<CreateRun> {
-        let result = user
-            .create_run(message.session_id, &message.request(), &message.message)
-            .await?;
-        if let CreateRun::Created(run) = &result {
-            let live = Arc::new(LiveRun::new(CancellationToken::new()));
-            live.push(RunEvent::RunStarted {
-                run_id: run.id.clone(),
-                session_id: run.session_id.clone(),
-            });
-            if message.voice.is_some() {
-                live.push(RunEvent::Transcript {
-                    text: message.message.clone(),
-                });
-            }
-            runs.insert(run.id.clone(), live.clone());
-            drop(runs);
-
-            let (app, user, run) = (self.clone(), user.clone(), run.clone());
-            let session = SessionRef {
-                user: user.id().to_owned(),
-                id: message.session_id,
-            };
-            // A woken chat is named after its event, and only if it is kept.
-            match self.store.needs_first_title(&session).await {
-                Ok(true) if message.woken.is_none() => {
-                    let (app, text) = (self.clone(), message.message.clone());
-                    tokio::spawn(async move {
-                        let generator = app.generator(&session.user);
-                        if titles::name_first(&app.store, generator, &session, &text).await {
-                            // Nobody listening just means no phone is online.
-                            let _ = app
-                                .notifications
-                                .send(UserNotice::changed(&session.user, ""));
-                        }
-                    });
-                }
-                Ok(_) => {}
-                Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
-            }
-            tokio::spawn(async move {
-                // Saved before the run can finish, which replaces it.
-                if message.is_prompt()
-                    && let Err(error) = user.save_prompt(&run, &message.message).await
-                {
-                    log::warn!("unable to save the prompt: {error:#}; run_id={}", run.id);
-                }
-                let turn = metering::in_turn(app.execute(&user, &run, &message, &live));
-                if let Err(error) = turn.await {
-                    log::error!("run failed: {error}; run_id={}", run.id);
-                    if let Err(error) = user.finish(&run, None, RunStatus::Failed).await {
-                        log::error!("unable to persist failure: {error}; run_id={}", run.id);
-                    }
-                    live.push(RunEvent::RunFinished {
-                        status: RunStatus::Failed.as_str().to_owned(),
-                        updated_at: None,
-                    });
-                }
-                app.runs.lock().await.remove(&run.id);
-                live.done.cancel();
-                // Node reports wait for the chat to be free.
-                app.subagents.turn_ended();
-            });
-        }
-        Ok(result)
-    }
-
-    /// The event feed of a run in progress, `None` once it has finished.
-    pub async fn live(&self, id: &str) -> Option<Arc<LiveRun>> {
-        self.runs.lock().await.get(id).cloned()
-    }
-
-    /// Waits up to `limit` for `chat`'s run to be saved; `false` when one is still going.
-    pub(crate) async fn run_ended(&self, user: &User, chat: Uuid, limit: Duration) -> Result<bool> {
-        let Some(run) = user.active_run(chat).await? else {
-            return Ok(true);
-        };
-        // Gone from the live runs means it is saved or being saved now.
-        if let Some(live) = self.live(&run.id).await
-            && timeout(limit, live.done.cancelled()).await.is_err()
-        {
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
-    /// Stops the run and returns once it is saved, so the next message can follow at once.
-    pub async fn cancel(&self, id: &str) {
-        if let Some(live) = self.live(id).await {
-            live.cancel.cancel();
-            let _ = timeout(STOPPING_WAIT, live.done.cancelled()).await;
-        }
-    }
-
-    /// Stops taking prompts and waits up to `limit` for the running turns
-    /// to end, so a restart does not cut them off.
-    pub async fn drain(&self, limit: Duration) {
-        self.draining.store(true, Ordering::Relaxed);
-        let running = self.runs.lock().await.len();
-        if running == 0 {
-            return;
-        }
-        log::info!("shutdown: waiting up to {limit:?} for {running} runs to end");
-        let ended = timeout(limit, async {
-            while !self.runs.lock().await.is_empty() {
-                sleep(Duration::from_millis(250)).await;
-            }
-        })
-        .await;
-        if ended.is_err() {
-            let left = self.runs.lock().await.len();
-            log::warn!("shutdown: interrupting {left} runs still going");
-        }
-    }
-
-    /// Whether the server stopped taking prompts because it is restarting.
-    pub fn draining(&self) -> bool {
-        self.draining.load(Ordering::Relaxed)
-    }
-
-    pub async fn shutdown(&self) {
-        // Read by runs as they stop, so they end as interrupted, not cancelled.
-        self.shutting_down.store(true, Ordering::Relaxed);
-        self.events.stop();
-        self.watchers.stop();
-        self.subagents.stop();
-        self.stop_teams().await;
-        for live in self.runs.lock().await.values() {
-            live.cancel.cancel();
-        }
-        let _ = timeout(Duration::from_secs(10), async {
-            loop {
-                if self.runs.lock().await.is_empty() {
-                    break;
-                }
-                sleep(Duration::from_millis(25)).await;
-            }
-        })
-        .await;
     }
 
     /// The model `user`'s turns run on.
@@ -911,54 +431,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use iroh::SecretKey;
-
-    fn key(n: u8) -> EndpointId {
-        SecretKey::from_bytes(&[n; 32]).public()
-    }
-
-    fn titled(title: &str) -> Notice {
-        Notice {
-            title: title.into(),
-            ..UserNotice::changed("u1", "").notice
-        }
-    }
-
-    #[test]
-    fn a_notice_reaches_only_the_devices_it_names() {
-        let (phone, mac, other_mac) = (key(1), key(2), key(3));
-        let (is_phone, is_mac) = (DeviceKind::Phone {}, DeviceKind::Desktop {});
-        let mut sent = UserNotice {
-            user: "u1".into(),
-            notice: titled("plain"),
-            desktop: Some(titled("for computers")),
-            to: Reach::Everyone,
-        };
-        let got = |sent: &UserNotice, id, kind| sent.for_device(id, kind).map(|n| n.title.clone());
-        assert_eq!(got(&sent, &phone, &is_phone).as_deref(), Some("plain"));
-        assert_eq!(got(&sent, &mac, &is_mac).as_deref(), Some("for computers"));
-
-        sent.to = Reach::Desktops;
-        assert_eq!(got(&sent, &phone, &is_phone), None, "never a phone");
-        assert_eq!(got(&sent, &mac, &is_mac).as_deref(), Some("for computers"));
-        assert_eq!(
-            got(&sent, &other_mac, &is_mac).as_deref(),
-            Some("for computers")
-        );
-
-        sent.to = Reach::Device(phone);
-        assert_eq!(got(&sent, &phone, &is_phone).as_deref(), Some("plain"));
-        assert_eq!(got(&sent, &mac, &is_mac), None);
-
-        sent.to = Reach::Device(mac);
-        assert_eq!(got(&sent, &phone, &is_phone), None);
-        assert_eq!(got(&sent, &mac, &is_mac).as_deref(), Some("for computers"));
-        assert_eq!(
-            got(&sent, &other_mac, &is_mac),
-            None,
-            "only the Mac that started it"
-        );
-    }
-}
+mod tests;

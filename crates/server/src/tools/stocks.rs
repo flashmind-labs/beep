@@ -307,7 +307,6 @@ fn title(info: &StockInfo) -> String {
     }
 }
 
-/// Each point as its percent change from the first one.
 fn percent_change(points: &[ChartPoint]) -> Vec<ChartPoint> {
     let Some(base) = points.first().map(|p| p.y).filter(|y| *y != 0.0) else {
         return Vec::new();

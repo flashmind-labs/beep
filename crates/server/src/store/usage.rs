@@ -1,7 +1,7 @@
 //! Token usage and cost per user, day, model and kind of turn.
 
 use super::Store;
-use crate::metering::CallUsage;
+use crate::agent::metering::CallUsage;
 use anyhow::Result;
 
 impl Store {

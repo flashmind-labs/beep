@@ -2,10 +2,10 @@
 
 use super::memory::{fact, fact_schema, opt_arg, reply};
 use crate::{
-    leak::Secret,
+    account::user::User,
+    memory::leak::Secret,
     protocol::MemorySource,
     store::{MEMORY_CATEGORIES, Scope},
-    user::User,
 };
 use anyhow::Result;
 use async_trait::async_trait;

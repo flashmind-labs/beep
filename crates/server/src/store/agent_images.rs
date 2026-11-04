@@ -1,7 +1,7 @@
 //! Copies of agent session pictures by `image_key`, so `GetAgentImage` works while the machine is offline.
 
 use super::{Store, files::FILE_KEEP};
-use crate::{protocol::image_key, user::UserKey};
+use crate::{account::user::UserKey, protocol::image_key};
 use anyhow::{Result, bail};
 use sqlx::Row;
 use uuid::Uuid;

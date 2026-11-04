@@ -4,7 +4,7 @@ use super::{
     MAX_FOLLOW_UPS, MAX_GAP_SCOUTS, MAX_ROUNDS, MAX_SCOUTS, MAX_TEAM_SCOUTS, MIN_SCOUTS, Plan,
     RoleModel, Scout, Status,
 };
-use crate::{app::App, models::ModelChoices, user::User};
+use crate::{account::user::User, agent::models::ModelChoices, app::App};
 use anyhow::Result;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult, parse_args};
