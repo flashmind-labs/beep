@@ -16,6 +16,7 @@ use crate::{
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
+    lock,
     machine::env,
     machine::provision::Provision,
     machine::service::logs::Logs,
@@ -48,7 +49,7 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime},
@@ -191,7 +192,7 @@ pub async fn serve(
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
-                offers.transfers = Some(transfers.clone());
+                offers.transfers.set(transfers.clone());
                 started = Some(transfers);
             }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
@@ -416,6 +417,21 @@ async fn connect_as(
         .await
 }
 
+/// The node's transfers, set once its services are up and read by whoever
+/// holds a copy of the offers.
+#[derive(Clone, Default)]
+pub(crate) struct Sharing(Arc<Mutex<Option<Transfers>>>);
+
+impl Sharing {
+    pub(crate) fn get(&self) -> Option<Transfers> {
+        lock(&self.0).clone()
+    }
+
+    pub(crate) fn set(&self, transfers: Transfers) {
+        *lock(&self.0) = Some(transfers);
+    }
+}
+
 /// What a node serves beside its shell.
 #[derive(Clone, Default)]
 pub struct Offers {
@@ -435,7 +451,9 @@ pub struct Offers {
     /// The mesh the node belongs to, once it does.
     pub(crate) mesh: Membership,
     /// The node's transfers and synced projects, when it shares folders.
-    pub(crate) transfers: Option<Transfers>,
+    /// Shared by every copy of the offers, so one made before the services
+    /// started sees them once they do.
+    pub(crate) transfers: Sharing,
     /// Set while the host does not lend this machine to other devices: they
     /// get its status, but no shell, task or screen.
     pub(crate) withheld: Arc<AtomicBool>,
@@ -466,7 +484,7 @@ impl Offers {
             tools: Upstream::new(has_server),
             traffic: Traffic::default(),
             mesh: Membership::default(),
-            transfers: None,
+            transfers: Sharing::default(),
             withheld: Arc::default(),
         }
     }
@@ -881,7 +899,7 @@ pub(crate) async fn serve_open(
                 Who::Node { peer, desktop_here } => Caller {
                     table: tasks::Table::Peer(peer),
                     may_run_on_here: !desktop_here,
-                    transfers: offers.transfers.clone(),
+                    transfers: offers.transfers.get(),
                 },
             };
             peer_tools::serve(tx, rx, caller).await

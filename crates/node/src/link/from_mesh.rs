@@ -258,7 +258,7 @@ impl Applied {
                 self.settings = Some(settings);
             }
         }
-        if let Some(transfers) = &offers.transfers
+        if let Some(transfers) = offers.transfers.get()
             && owned.contains(&Family::Sync)
         {
             let (projects, pending) = projects(mesh, me, &mut self.specs);
