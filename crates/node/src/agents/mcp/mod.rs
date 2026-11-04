@@ -233,6 +233,11 @@ impl Upstream {
         self.has_server
     }
 
+    /// Whether the link to the server is up now.
+    pub(crate) fn connected(&self) -> bool {
+        self.connection.borrow().is_some()
+    }
+
     pub(crate) fn set(&self, connection: Option<Connection>) {
         self.connection.send_replace(connection);
     }
@@ -303,6 +308,7 @@ impl Backend for Node {
         // In a mesh the machines answer for themselves; the server still
         // takes what is not between machines, and machines the mesh lacks.
         if let Some(mesh) = self.offers.mesh.get()
+            && machines::goes_direct(request.tool, self.offers.tools.connected())
             && let Some(reply) = machines::call(&self.offers, &mesh, request).await
         {
             return Ok(reply);

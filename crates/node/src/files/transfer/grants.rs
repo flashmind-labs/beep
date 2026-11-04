@@ -25,8 +25,9 @@ const EVENT_QUEUE: usize = 32;
 /// Who may fetch beyond the open offers: the peers of a synced project,
 /// for the files this node holds of it.
 pub(crate) trait Access: Send + Sync {
-    /// Whether `peer` may fetch anything at all: a device removed from the
-    /// node's mesh may not, whatever is open for it.
+    /// Whether `peer` may fetch anything at all: a device the node's mesh
+    /// lists as removed may not, whatever is open for it. Others are left
+    /// to the grants.
     fn allows(&self, _peer: &EndpointId) -> bool {
         true
     }
@@ -277,6 +278,21 @@ mod tests {
         assert!(grants.connect(2, Some(gone)).is_err());
         assert!(grants.connect(3, Some(kept)).is_ok());
         assert!(grants.get(3, &GetRequest::blob(file)).is_ok());
+    }
+
+    #[test]
+    fn a_device_outside_the_mesh_keeps_the_grant_the_server_issued() {
+        let grants = Arc::new(Grants::default());
+        let gone = SecretKey::generate().public();
+        let stranger = SecretKey::generate().public();
+        let nobody = SecretKey::generate().public();
+        let file = Hash::new(b"brokered");
+        grants.set_access(Arc::new(Removed(gone)));
+        let _guard = grants.grant(stranger, HashAndFormat::raw(file));
+        assert!(grants.connect(1, Some(stranger)).is_ok());
+        assert!(grants.get(1, &GetRequest::blob(file)).is_ok());
+        // With no grant, it is refused as before.
+        assert!(grants.connect(2, Some(nobody)).is_err());
     }
 
     #[test]
