@@ -118,6 +118,27 @@ impl Beep {
         self.server.as_ref().map(|server| server.id)
     }
 
+    /// Whether this app is linked to a server: one is set and the link code
+    /// was used. The built-in server id alone is not a link.
+    pub fn linked(&self) -> bool {
+        self.server.is_some() && self.link_state() == LinkState::Linked
+    }
+
+    /// Notes that the server still has to drop `machine`.
+    pub fn owe_unlink(&self, machine: &str) {
+        self.update_saved(|s| s.owe_unlink(machine));
+    }
+
+    /// The server dropped `machine`, or never had it.
+    pub fn settle_unlink(&self, machine: &str) {
+        self.update_saved(|s| s.settle_unlink(machine));
+    }
+
+    /// Machines the server has yet to drop.
+    pub fn owed_unlinks(&self) -> Vec<String> {
+        self.saved().unlinks.clone()
+    }
+
     /// What takes the server's notices on the endpoint, for the router.
     pub fn push(&self) -> Option<PushHandler> {
         self.server.as_ref().map(|server| server.push.clone())
@@ -488,6 +509,10 @@ mod tests {
     /// The app on a loopback endpoint with no relay, so nothing reaches a
     /// network, and no server.
     async fn without_server(dir: &TempDir) -> Arc<Beep> {
+        app(dir, None).await
+    }
+
+    async fn app(dir: &TempDir, server: Option<EndpointId>) -> Arc<Beep> {
         let identity = load_or_create(&dir.path().join("identity.key")).expect("a key is made");
         let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
@@ -499,7 +524,7 @@ mod tests {
         let (beep, _notices) = Beep::start(
             endpoint,
             identity,
-            None,
+            server,
             file,
             Chats::load(dir.path().join("sync")),
         );
@@ -523,6 +548,22 @@ mod tests {
             Err(DesktopError::NoServer)
         ));
         assert!(!beep.has_login().await);
+    }
+
+    #[tokio::test]
+    async fn a_server_id_is_a_link_only_once_the_app_is_linked() {
+        let dir = TempDir::new().expect("a temp dir");
+        let none = without_server(&dir).await;
+        none.set_link_state(LinkState::Linked);
+        assert!(!none.linked(), "a link with no server is no link");
+        let dir = TempDir::new().expect("a temp dir");
+        let built_in = SecretKey::generate().public();
+        let beep = app(&dir, Some(built_in)).await;
+        assert!(!beep.linked(), "a built-in id alone is no link");
+        beep.set_link_state(LinkState::Linked);
+        assert!(beep.linked());
+        beep.set_link_state(LinkState::Revoked);
+        assert!(!beep.linked());
     }
 
     // The clock is paused, so tokio moves it straight to the next timer
