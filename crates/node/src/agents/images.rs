@@ -2,14 +2,15 @@
 //! the server can ask for one by its `[image: image-<key>]` line, and queued
 //! for the server's `FollowImages` stream.
 
+use super::image_index::FileIndexes;
 use crate::lock;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::image_key;
 use serde_json::Value;
 use std::{
     collections::VecDeque,
-    fs::File,
-    io::{self, BufRead, BufReader, Read},
+    io,
+    ops::ControlFlow,
     path::Path,
     sync::{Arc, Mutex},
 };
@@ -22,7 +23,7 @@ const SESSION_BYTES: usize = 32 * 1024 * 1024;
 const MAX_IMAGES: usize = 64;
 const MAX_BYTES: usize = 128 * 1024 * 1024;
 /// The longest session file line read when looking for a picture.
-const MAX_LINE: usize = 64 * 1024 * 1024;
+pub(super) const MAX_LINE: usize = 64 * 1024 * 1024;
 /// The most pictures and bytes waiting for the server; the oldest go.
 const MAX_UNSENT: usize = 32;
 const MAX_UNSENT_BYTES: usize = 64 * 1024 * 1024;
@@ -49,13 +50,14 @@ pub(crate) fn image_line(data: &[u8]) -> String {
 
 /// The pictures kept, oldest first, bounded per session and overall. One
 /// evicted, or lost when the node restarted, is found again in the agent's
-/// own session file (`find_in_file`).
+/// own session file (`find_in_file`), through `files`.
 #[derive(Debug, Default)]
 pub(crate) struct Images {
     kept: Mutex<Kept>,
     unsent: Mutex<Outbox>,
     /// Woken when a picture joins `unsent`.
     arrived: Notify,
+    files: FileIndexes,
 }
 
 /// A picture of `session` for the server to keep.
@@ -161,6 +163,12 @@ impl Images {
         (!had).then_some(picture)
     }
 
+    /// The picture `key` in the session file at `path`. Blocks: a session
+    /// file can be hundreds of MiB.
+    pub(crate) fn find_in_file(&self, path: &Path, key: &str) -> io::Result<Option<Picture>> {
+        self.files.find(path, key)
+    }
+
     /// The picture `key` of `session`, when kept; it is then the newest.
     pub(crate) fn get(&self, session: &str, key: &str) -> Option<Arc<Picture>> {
         let mut kept = lock(&self.kept);
@@ -243,53 +251,44 @@ pub(crate) fn block_picture(block: &Value) -> Option<Picture> {
     })
 }
 
-/// The picture `key` in the session file at `path`, one JSON object per
-/// line: an image block, or a data URL in any text, such as Codex's
-/// `input_image` or a prompt an agent inlined it in.
-pub(crate) fn find_in_file(path: &Path, key: &str) -> io::Result<Option<Picture>> {
-    let mut lines = BufReader::new(File::open(path)?);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        let read = (&mut lines)
-            .take(u64::try_from(MAX_LINE).unwrap_or(u64::MAX))
-            .read_until(b'\n', &mut line)?;
-        if read == 0 {
-            return Ok(None);
-        }
-        if line.last() != Some(&b'\n') && read == MAX_LINE {
-            // Too long to read: skip the rest of it.
-            lines.skip_until(b'\n')?;
-            continue;
-        }
-        if !contains(&line, b"base64") {
-            continue;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(&line) else {
-            continue;
-        };
-        if let Some(found) = find_in(&value, key) {
-            return Ok(Some(found));
-        }
-    }
-}
-
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
+/// Whether a session file's line can hold a picture, before it is parsed.
+pub(super) fn has_base64(line: &[u8]) -> bool {
+    line.windows(6).any(|window| window == b"base64")
 }
 
 /// The picture `key` anywhere in `value`.
-fn find_in(value: &Value, key: &str) -> Option<Picture> {
-    let wanted = |picture: &Picture| image_key(&picture.data) == key;
+pub(super) fn find_in(value: &Value, key: &str) -> Option<Picture> {
+    let found = each_picture(value, &mut |picture| {
+        if image_key(&picture.data) == key {
+            ControlFlow::Break(picture)
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    match found {
+        ControlFlow::Break(picture) => Some(picture),
+        ControlFlow::Continue(()) => None,
+    }
+}
+
+/// Gives `each` the pictures anywhere in `value`, one at a time, until it
+/// says to stop.
+pub(super) fn each_picture<B>(
+    value: &Value,
+    each: &mut impl FnMut(Picture) -> ControlFlow<B>,
+) -> ControlFlow<B> {
     match value {
-        Value::Object(fields) => block_picture(value)
-            .filter(wanted)
-            .or_else(|| fields.values().find_map(|field| find_in(field, key))),
-        Value::Array(items) => items.iter().find_map(|item| find_in(item, key)),
-        Value::String(text) => urls_in(text).find(wanted),
-        _ => None,
+        Value::Object(fields) => {
+            if let Some(picture) = block_picture(value) {
+                each(picture)?;
+            }
+            fields
+                .values()
+                .try_for_each(|field| each_picture(field, each))
+        }
+        Value::Array(items) => items.iter().try_for_each(|item| each_picture(item, each)),
+        Value::String(text) => urls_in(text).try_for_each(each),
+        _ => ControlFlow::Continue(()),
     }
 }
 
@@ -307,7 +306,6 @@ fn urls_in(text: &str) -> impl Iterator<Item = Picture> + '_ {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     fn png(fill: u8, size: usize) -> Picture {
         let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
@@ -369,31 +367,5 @@ mod tests {
         }
         let oldest = images.next_unsent().now_or_never().expect("waiting");
         assert_eq!(oldest.session, "s2", "the oldest went");
-    }
-
-    #[test]
-    fn a_picture_is_found_in_a_session_file() {
-        let dir = std::env::temp_dir().join(format!("beep-images-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("session.jsonl");
-        let claude = png(3, 40);
-        let codex = png(4, 40);
-        let lines = [
-            json!({"type": "user", "message": {"content": [
-                {"type": "text", "text": "what is this"},
-                {"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                    "data": STANDARD.encode(&claude.data)}}
-            ]}}),
-            json!({"type": "response_item", "payload": {"content": [
-                {"type": "input_image", "image_url": format!("data:image/png;base64,{}", STANDARD.encode(&codex.data))}
-            ]}}),
-        ];
-        let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
-        std::fs::write(&path, text).unwrap();
-        let found = |picture: &Picture| find_in_file(&path, &image_key(&picture.data)).unwrap();
-        assert_eq!(found(&claude), Some(claude));
-        assert_eq!(found(&codex), Some(codex));
-        assert_eq!(found(&png(5, 40)), None);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
