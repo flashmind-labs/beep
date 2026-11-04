@@ -52,9 +52,10 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {
-            Tool::RunOn if !caller.may_run_on_here => {
-                Err("This device is a desktop: another node may not run commands on it.".to_owned())
-            }
+            Tool::RunOn | Tool::MachineLog if !caller.may_run_on_here => Err(
+                "This device is a desktop: another node may not run commands on it or read its log."
+                    .to_owned(),
+            ),
             Tool::RunOn => match parse(args) {
                 Ok(args) => run_on(args, caller.table).await,
                 Err(e) => Err(e),
@@ -193,6 +194,25 @@ mod tests {
             args: r#"{"command":"echo ran-here"}"#.to_owned(),
             approved: Default::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn a_desktop_does_not_show_its_log_to_a_node() {
+        let table = Table::Peer(iroh::SecretKey::generate().public());
+        let caller = Caller {
+            table,
+            may_run_on_here: false,
+        };
+        let request = Request {
+            session: "a3f9c1".to_owned(),
+            tool: Tool::MachineLog,
+            args: r#"{"lines":5}"#.to_owned(),
+            approved: Default::default(),
+        };
+        let Reply::Done { text, failed } = answer(request, caller).await else {
+            panic!("not done");
+        };
+        assert!(failed && text.contains("desktop"), "{text}");
     }
 
     #[tokio::test]

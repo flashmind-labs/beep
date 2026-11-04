@@ -302,3 +302,52 @@ async fn a_node_flooding_forged_entries_is_closed() {
         .await
         .expect("the flooding peer was dropped");
 }
+
+#[tokio::test]
+async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
+    let a = create().await;
+    let ticket = a
+        .mesh
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .expect("ticket");
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("temp dir");
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::join(dir.path(), endpoint.clone(), &ticket, "b")
+        .await
+        .expect("joins");
+    let _b = serve(endpoint, &mesh);
+    let peer = key.public();
+    let mut updates = a.mesh.updates();
+    let live = |mesh: &Mesh| mesh.peer(peer);
+    let stale = timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if let Some(conn) = live(&a.mesh) {
+                return conn;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the peer connects");
+    // The link is replaced: the old one closes, a new one takes its place.
+    stale.close(3u32.into(), b"duplicate");
+    timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if live(&a.mesh).is_some_and(|c| c.stable_id() != stale.stable_id()) {
+                return;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the link comes back");
+    assert!(stale.open_bi().await.is_err());
+    a.mesh
+        .open_from(peer, stale)
+        .await
+        .expect("the newer link opens the stream");
+}
