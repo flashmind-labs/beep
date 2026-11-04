@@ -34,7 +34,7 @@ const SETTLE: Duration = Duration::from_millis(300);
 /// delete within seconds.
 pub(super) const DELETE_SETTLE: Duration = Duration::from_secs(5);
 /// How soon files that could not be fetched are tried again.
-const RETRY: Duration = Duration::from_secs(30);
+pub(super) const RETRY: Duration = Duration::from_secs(30);
 /// How often a changing state is saved; it is saved on stop as well.
 const SAVE_EVERY: Duration = Duration::from_secs(2);
 
@@ -62,6 +62,8 @@ pub(super) struct Task {
     /// Tags on what those fetches got so far: without one, the store's
     /// collector deletes it between rounds and the file starts over.
     pub(super) unfinished: HashMap<Hash, TempTag>,
+    /// When a dial to a peer last failed, until one succeeds.
+    pub(super) down: HashMap<EndpointId, Instant>,
 }
 
 /// When held deletes are due: once the folder was quiet for
@@ -253,6 +255,7 @@ impl Task {
             held: BTreeSet::new(),
             waiting: Vec::new(),
             unfinished: HashMap::new(),
+            down: HashMap::new(),
         }
     }
 

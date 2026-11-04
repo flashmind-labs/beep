@@ -17,19 +17,22 @@ export BOAT_NO_UPDATE=1
 
 ROLES=(server node-a node-b)
 
-# provision : make the fleet, in parallel, unless $FLEET already exists.
+# provision : make the roles $FLEET does not have yet, in parallel.
 provision(){
-  if [[ -f "$FLEET" ]]; then
+  local role missing=() pids=() failed=0
+  for role in "${ROLES[@]}"; do
+    [[ -f "$FLEET" ]] && grep -q " $role\$" "$FLEET" || missing+=("$role")
+  done
+  if [[ ${#missing[@]} == 0 ]]; then
     note "reusing the fleet in $FLEET"
     cat "$FLEET"
     return 0
   fi
   command -v boat > /dev/null || { echo "boat not found (https://boat.dev)" >&2; return 1; }
   command -v jq > /dev/null || { echo "jq not found" >&2; return 1; }
-  step "provision: ${ROLES[*]} (boat ${E2E_BOAT_TYPE:-small})"
-  : > "$FLEET"
-  local role pids=() failed=0
-  for role in "${ROLES[@]}"; do
+  step "provision: ${missing[*]} (boat ${E2E_BOAT_TYPE:-small})"
+  touch "$FLEET"
+  for role in "${missing[@]}"; do
     (
       local id
       id="$(boat new --no-env --type "${E2E_BOAT_TYPE:-small}" --name "beep-e2e-$role" \
@@ -44,7 +47,7 @@ provision(){
   done
   for role in "${pids[@]}"; do wait "$role" || failed=1; done
   local made; made="$(wc -l < "$FLEET")"
-  if [[ "$failed" != 0 || "$made" != "${#ROLES[@]}" ]]; then
+  if [[ "$failed" != 0 || "$made" -lt "${#ROLES[@]}" ]]; then
     echo "provisioning failed; $made VM(s) recorded in $FLEET" >&2
     return 1
   fi

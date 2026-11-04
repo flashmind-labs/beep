@@ -23,28 +23,9 @@ RATE="${E2E_RESUME_RATE:-80mbit}"
 # Expanded on the VM, also inside quotes there.
 P="\$HOME/ws/$PROJECT"
 
-# The interfaces holding node-a's IPv4 and IPv6 default routes: iroh may
-# send over either, or through a relay over either.
-UPLINKS="{ ip -4 route show default; ip -6 route show default; } | awk '{for(i=1;i<NF;i++) if(\$i==\"dev\") print \$(i+1)}' | sort -u"
-
-# cap / uncap : limit node-a's egress on every uplink.
-cap(){
-  on node-a "for dev in \$($UPLINKS); do sudo tc qdisc replace dev \$dev root tbf rate $RATE burst 256kb latency 400ms || exit 1; done"
-}
-uncap(){
-  on node-a "for dev in \$($UPLINKS); do sudo tc qdisc del dev \$dev root 2> /dev/null; done; true"
-}
-
-# fetching_mb : MB of the blob node-b received last. A fetch lands in the
-# node's blob store first and is copied into the folder once whole.
-fetching_mb(){
-  on node-b "f=\$(ls -t ~/beep/state/blobs/data/*.data 2> /dev/null | head -1)
-if [ -n \"\$f\" ]; then du -m \"\$f\" | cut -f1; else echo 0; fi"
-}
-
 # halfway : node-b has fetched between a tenth and most of the file.
 halfway(){
-  local mb; mb="$(fetching_mb)" || return 1
+  local mb; mb="$(fetching_mb node-b)" || return 1
   (( mb >= SIZE_MB / 10 && mb < SIZE_MB * 8 / 10 ))
 }
 
@@ -57,10 +38,10 @@ interrupt(){
   step "$n. node-b stopped with SIG$signal mid-fetch, then started"
   on node-a "head -c ${SIZE_MB}M /dev/urandom > $P/large-$n.bin" || abort "could not write on node-a"
   if ! wait_for 180 "node-b fetching large-$n.bin" halfway; then
-    fail "node-b never got partway through large-$n.bin (at $(fetching_mb) MB)"
+    fail "node-b never got partway through large-$n.bin (at $(fetching_mb node-b) MB)"
     return
   fi
-  note "stopping node-b at $(fetching_mb) MB of $SIZE_MB"
+  note "stopping node-b at $(fetching_mb node-b) MB of $SIZE_MB"
   stop_node node-b "$signal"
   start_node node-b
   synced 300 "large-$n.bin complete on node-b after SIG$signal"
@@ -68,11 +49,11 @@ interrupt(){
 }
 
 fresh_world
-trap uncap EXIT
+trap 'uncap node-a' EXIT
 turn_on_sync
 on node-a "echo seed > $P/seed.txt"
 synced 120 "a first file on node-b"
-cap && note "node-a's egress capped at $RATE"
+cap node-a "$RATE" && note "node-a's egress capped at $RATE"
 
 interrupt 1 TERM
 interrupt 2 KILL

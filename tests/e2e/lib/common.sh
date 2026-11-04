@@ -10,9 +10,50 @@ fail(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILS=$((FAILS+1)); }
 step(){ printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 note(){ printf '   %s\n' "$*"; }
 
-# summary : the final tally; exits non-zero if any check failed.
+# Measurements: `measure` records one and checks it against its budget;
+# summary prints them all as a table.
+MEASURED=()
+
+# now : seconds since the epoch, to the millisecond, on this machine. Every
+# time is taken here, so the VMs' clocks never matter. A poll is one ssh
+# round trip (about 1 s), so times are good to a second or so.
+now(){ date +%s.%3N; }
+
+# since <start> : seconds from <start> (a `now`) to now, one decimal.
+since(){ awk -v a="$1" -v b="$(now)" 'BEGIN { printf "%.1f", b - a }'; }
+
+# measure <what> <value> <unit> <max|min> <budget> : record a measurement
+# and FAIL when it is over a max budget or under a min one. An empty
+# budget only records it.
+measure(){
+  local what="$1" value="$2" unit="$3" kind="$4" budget="$5" verdict=ok
+  if [[ -n "$budget" ]]; then
+    if awk -v v="$value" -v b="$budget" -v k="$kind" \
+        'BEGIN { exit !((k == "max" && v > b) || (k == "min" && v < b)) }'; then
+      verdict=OVER
+      [[ "$kind" == min ]] && verdict=UNDER
+      fail "$what: $value $unit, budget $kind $budget"
+    fi
+  fi
+  MEASURED+=("$what|$value $unit|${budget:+$kind $budget}|$verdict")
+}
+
+# timings : the measurements as a table.
+timings(){
+  [[ ${#MEASURED[@]} -gt 0 ]] || return 0
+  printf '   %-46s %12s %12s  %s\n' measurement value budget ""
+  local row what value budget verdict
+  for row in "${MEASURED[@]}"; do
+    IFS='|' read -r what value budget verdict <<< "$row"
+    printf '   %-46s %12s %12s  %s\n' "$what" "$value" "${budget:--}" "$verdict"
+  done
+}
+
+# summary : the measurements and the final tally; exits non-zero if any
+# check failed.
 summary(){
   step "summary"
+  timings
   if [[ "$FAILS" -eq 0 ]]; then
     printf '\033[32mALL CHECKS PASSED\033[0m\n'; exit 0
   else
@@ -21,7 +62,7 @@ summary(){
 }
 
 # abort <message> : fail and stop the scenario; the dispatcher fetches logs.
-abort(){ fail "$*"; echo "aborting"; exit 1; }
+abort(){ fail "$*"; timings; echo "aborting"; exit 1; }
 
 # vm_id <role> : the sandbox id of server, node-a or node-b.
 vm_id(){
@@ -52,6 +93,18 @@ put(){
 get(){
   local id; id="$(vm_id "$1")" || return 1
   boat scp "$id:$2" "$3" > /dev/null
+}
+
+# poll <seconds> <command...> : run the command back to back until it
+# succeeds, for timing: each `on` is an ssh round trip, which paces it.
+# Returns 1 after <seconds>.
+poll(){
+  local limit="$1"; shift
+  local started=$SECONDS
+  until "$@" > /dev/null 2>&1; do
+    (( SECONDS - started < limit )) || return 1
+    sleep 0.2
+  done
 }
 
 # wait_for <seconds> <what> <command...> : run the command every 2 s until it
