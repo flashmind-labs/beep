@@ -1,7 +1,6 @@
 mod alarm;
 pub(crate) mod args;
 mod attach;
-mod browser;
 mod cards;
 mod charts;
 mod chat;
@@ -117,7 +116,6 @@ pub fn registry(
     if origin == (DeviceKind::Phone {}) {
         registry.register(Arc::new(open_app::OpenAppTool));
         registry.register(Arc::new(alarm::SetAlarmTool));
-        registry.register(Arc::new(browser::OpenBrowserTool));
         registry.register(Arc::new(maps::OpenMapsTool { user: user.clone() }));
         registry.register(Arc::new(contacts::ContactsTool {
             app,
