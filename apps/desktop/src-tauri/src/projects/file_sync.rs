@@ -7,7 +7,7 @@ use crate::{
     center::kept,
     center::view_cache::{View, ViewCache},
     error::Result,
-    fleet::projects::{FleetState, desk},
+    fleet::projects::{FleetState, desk, desk_or_server},
     projects::known,
 };
 use beep_proto::{
@@ -53,9 +53,12 @@ pub async fn project_sync(
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<SyncRow>> {
-    let rows = match desk(&fleet).await {
+    let rows = match desk_or_server(&fleet, &beep).await {
         Ok(desk) => {
-            let mut ours = desk.sync().await;
+            let mut ours = match desk {
+                Some(desk) => desk.sync().await,
+                None => Vec::new(),
+            };
             // The projects only the server syncs, until they are moved into the mesh.
             if beep.server().is_some() {
                 match known(beep.call(ListProjectSync {}).await) {
@@ -172,7 +175,10 @@ pub async fn project_sync_detail(
     beep: Service<'_>,
     project: String,
 ) -> Result<Option<SyncDetailView>> {
-    match desk(&fleet).await?.sync_detail(&project).await {
+    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
+        return Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into));
+    };
+    match desk.sync_detail(&project).await {
         Ok(detail) => Ok(Some(detail.into())),
         // Synced by the server alone, until the project is moved into the mesh.
         Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
@@ -191,7 +197,11 @@ pub async fn project_sync_pause(
     project: String,
     paused: bool,
 ) -> Result<SyncDetailView> {
-    match desk(&fleet).await?.pause_sync(&project, paused).await {
+    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
+        let detail = beep.call(PauseProjectSync { project, paused }).await?;
+        return Ok(detail.into());
+    };
+    match desk.pause_sync(&project, paused).await {
         Ok(detail) => Ok(detail.into()),
         Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
             let detail = beep.call(PauseProjectSync { project, paused }).await?;

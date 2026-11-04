@@ -6,7 +6,7 @@ use crate::{
     center::view_cache::{View, ViewCache},
     center::{self, kept},
     error::Result,
-    fleet::projects::{FleetState, desk, mirror_remove},
+    fleet::projects::{FleetState, desk, desk_or_server, mirror_remove},
 };
 use beep_proto::{ImportedProject, ListProjects, ProjectAgent, RemoveProject};
 use serde::Serialize;
@@ -85,10 +85,14 @@ pub async fn remove_project(
     beep: Service<'_>,
     project: String,
 ) -> Result<()> {
-    match desk(&fleet).await?.remove(&project).await {
+    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
+        return beep.call(RemoveProject { project }).await;
+    };
+    match desk.remove(&project).await {
         Ok(()) => {
-            mirror_remove(&beep, &project).await;
-            Ok(())
+            // Nothing read of it is kept.
+            fleet.forget();
+            mirror_remove(&beep, &project).await
         }
         // A project only the server has, until it is moved into the mesh.
         Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {

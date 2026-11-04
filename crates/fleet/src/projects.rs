@@ -98,6 +98,12 @@ impl MeshStore {
         Ok(())
     }
 
+    /// The name the project is stored under, which is the one it was first imported as, in any
+    /// case it is asked for; the name given when it is new.
+    fn name_of(&self, project: &str) -> String {
+        find_project(&self.mesh, project).map_or_else(|| project.to_owned(), |stored| stored.name)
+    }
+
     fn stored_row(&self, name: &str, machine: EndpointId) -> anyhow::Result<ImportRow> {
         let stored = find_project(&self.mesh, name).ok_or_else(|| anyhow::anyhow!("not stored"))?;
         let place = stored
@@ -117,8 +123,9 @@ impl ImportStore for MeshStore {
     async fn save_import(&self, import: NewImport<'_>) -> anyhow::Result<ImportRow> {
         let machine = import.endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        self.ensure(import.project, import.url).await?;
-        let key = place_key(import.project, machine);
+        let name = self.name_of(import.project);
+        self.ensure(&name, import.url).await?;
+        let key = place_key(&name, machine);
         let place = Place {
             folder: import.folder.to_owned(),
             // Moving a checkout keeps when it was first imported.
@@ -126,17 +133,18 @@ impl ImportStore for MeshStore {
             fork: read::<Place>(&self.mesh, &key).and_then(|old| old.fork),
         };
         write(&self.mesh, key, Some(&place)).await?;
-        self.stored_row(import.project, machine)
+        self.stored_row(&name, machine)
     }
 
     async fn link_import(&self, import: NewImport<'_>) -> anyhow::Result<bool> {
         let machine = import.endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let key = place_key(import.project, machine);
+        let name = self.name_of(import.project);
+        let key = place_key(&name, machine);
         if self.mesh.get(&key).is_some() {
             return Ok(false);
         }
-        self.ensure(import.project, import.url).await?;
+        self.ensure(&name, import.url).await?;
         let place = Place {
             folder: import.folder.to_owned(),
             imported_ms: now_ms(),
@@ -154,7 +162,7 @@ impl ImportStore for MeshStore {
     ) -> anyhow::Result<()> {
         let machine = endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let key = place_key(project, machine);
+        let key = place_key(&self.name_of(project), machine);
         let Some(mut place) = read::<Place>(&self.mesh, &key) else {
             return Ok(());
         };

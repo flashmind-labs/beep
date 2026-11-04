@@ -21,7 +21,10 @@ use beep_proto::{
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tempfile::TempDir;
@@ -216,11 +219,21 @@ struct Peering {
     nodes: HashMap<EndpointId, SessionFn>,
     /// Machines that never answer, to show a call does not wait on them.
     stuck: Vec<EndpointId>,
+    /// While set, the mesh is not there.
+    broken: AtomicBool,
+    /// The mesh never finishes opening.
+    never: bool,
 }
 
 #[async_trait]
 impl Peers for Peering {
     async fn mesh(&self) -> Result<Mesh, FleetError> {
+        if self.never {
+            std::future::pending::<()>().await;
+        }
+        if self.broken.load(Ordering::Relaxed) {
+            return Err(FleetError::NoMesh("gone".into()));
+        }
         Ok(self.mesh.clone())
     }
 
@@ -248,6 +261,8 @@ fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<P
             .map(|(dev, node)| (dev.id, node.session()))
             .collect(),
         stuck: stuck.iter().map(|dev| dev.id).collect(),
+        broken: AtomicBool::new(false),
+        never: false,
     })
 }
 
@@ -880,4 +895,187 @@ async fn a_projects_runs_read_with_the_hosts_token() {
     let one = studio.run("acme/widget", 77).await.expect("the run reads");
     assert_eq!(one.jobs.len(), 1);
     assert!(one.run.progress.is_some(), "a running run shows its step");
+}
+
+/// The project `acme/widget` checked out on this Mac, whose host answers from `node`, and a
+/// session on it that cannot reach the other machines at all.
+async fn local_project(
+    f: &Fleet,
+    node: &Arc<FakeNode>,
+    fresh: Duration,
+) -> (Arc<Peering>, Arc<beep_fleet::Session>, Arc<AtomicUsize>) {
+    desk(&f.studio, &[(&f.studio, node)])
+        .await
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.studio.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let peers = peering(&f.studio, &[(&f.studio, node)], &[&f.laptop, &f.build]);
+    let changed = Arc::new(AtomicUsize::new(0));
+    let heard = changed.clone();
+    let session = beep_fleet::Session::new(
+        peers.clone(),
+        beep_fleet::Options {
+            fresh,
+            ..beep_fleet::Options::default()
+        },
+        move |_| {
+            heard.fetch_add(1, Ordering::Relaxed);
+        },
+    )
+    .expect("a session");
+    (peers, session, changed)
+}
+
+fn widget_host() -> Arc<FakeNode> {
+    Arc::new(FakeNode {
+        prints: vec![
+            (
+                "issue list",
+                r#"[{"number":7,"title":"Crash","labels":[],"author":"octo","createdAt":"2026-10-01T10:00:00Z","comments":0,"url":"https://github.com/acme/widget/issues/7"}]"#,
+            ),
+            (
+                "pr list",
+                r#"[{"number":9,"title":"Fix","url":"https://github.com/acme/widget/pull/9","author":"octo","isDraft":false,"createdAt":"2026-10-02T10:00:00Z","updatedAt":"2026-10-03T10:00:00Z","headRefName":"fix","labels":[]}]"#,
+            ),
+            ("api user", "octo\n"),
+            (
+                "pr view",
+                r#"{"number":9,"headRefName":"fix","isCrossRepository":false}"#,
+            ),
+        ],
+        ..FakeNode::default()
+    })
+}
+
+#[tokio::test]
+async fn a_background_read_that_fails_does_not_tell_the_page() {
+    let f = fleet().await;
+    let node = widget_host();
+    let (peers, session, changed) = local_project(&f, &node, Duration::ZERO).await;
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("a cold read");
+    // Stale at once; the mesh goes away, so the read behind it fails.
+    peers.broken.store(true, Ordering::Relaxed);
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("the last read");
+    session.settled().await;
+    assert_eq!(changed.load(Ordering::Relaxed), 0, "a failure is not news");
+    peers.broken.store(false, Ordering::Relaxed);
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("the last read");
+    session.settled().await;
+    assert_eq!(changed.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn forgetting_makes_the_next_read_go_to_the_host() {
+    let f = fleet().await;
+    let node = widget_host();
+    let (_peers, session, _) = local_project(&f, &node, Duration::from_secs(3600)).await;
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("a cold read");
+    let ran = node.ran.lock().expect("log").len();
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("a warm read");
+    assert_eq!(node.ran.lock().expect("log").len(), ran);
+    session.forget();
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("a cold read again");
+    assert!(
+        node.ran.lock().expect("log").len() > ran,
+        "it asked the host again"
+    );
+}
+
+#[tokio::test]
+async fn a_session_does_not_wait_for_a_mesh_that_never_opens() {
+    let f = fleet().await;
+    let mut peers = Arc::try_unwrap(peering(&f.studio, &[], &[]))
+        .ok()
+        .expect("one owner");
+    peers.never = true;
+    let session = beep_fleet::Session::new(
+        Arc::new(peers),
+        beep_fleet::Options {
+            mesh_wait: Duration::from_millis(100),
+            ..beep_fleet::Options::default()
+        },
+        |_| {},
+    )
+    .expect("a session");
+    match session.desk().await {
+        Err(FleetError::NoMesh(_)) => {}
+        _ => panic!("a mesh still opening is NoMesh"),
+    }
+}
+
+#[tokio::test]
+async fn a_project_imported_in_another_case_is_the_same_project() {
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let (build, mac) = (Arc::new(FakeNode::default()), Arc::new(FakeNode::default()));
+    let studio = desk(&f.studio, &[(&f.build, &build), (&second, &mac)]).await;
+    let on = |repo: &'static str, machine: String| {
+        let studio = &studio;
+        async move {
+            studio
+                .import(ImportJob {
+                    repo,
+                    machine_id: Some(machine.leak()),
+                    folder: None,
+                    parent: None,
+                    worktrees: &[],
+                })
+                .await
+        }
+    };
+    on("acme/widget", f.build.id.to_string())
+        .await
+        .expect("the first");
+    on("Acme/Widget", second.id.to_string())
+        .await
+        .expect("the same project in another case");
+    let seen = studio.imported().await;
+    assert_eq!(seen.len(), 2);
+    assert!(seen.iter().all(|p| p.project == "acme/widget"), "{seen:?}");
+}
+
+#[tokio::test]
+async fn a_checkout_here_is_read_without_asking_the_other_machines() {
+    let f = fleet().await;
+    let node = widget_host();
+    let (peers, _session, _) = local_project(&f, &node, Duration::ZERO).await;
+    let desk = Desk::open(peers).await.expect("the desk opens");
+    let work = async {
+        let issues = desk.issues("acme/widget").await.expect("issues");
+        let prs = desk
+            .pull_requests("acme/widget")
+            .await
+            .expect("pull requests");
+        let head = desk.pr_head("acme/widget", 9).await.expect("a head");
+        (issues.len(), prs.len(), head.branch)
+    };
+    let got = timeout(Duration::from_secs(20), work)
+        .await
+        .expect("nothing waits on a machine that never answers");
+    assert_eq!(got, (1, 1, "fix".to_owned()));
 }

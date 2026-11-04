@@ -7,7 +7,7 @@ use crate::{
     beep::{BarEvent, Pick, Sent, Service, Turn, epoch_ms},
     center::{self, Chat},
     error::{DesktopError, Result},
-    fleet::projects::{FleetState, desk},
+    fleet::projects::{FleetState, desk, desk_or_server},
 };
 use beep_fleet::project_id;
 use beep_proto::{
@@ -70,14 +70,15 @@ pub async fn project_machines(
     beep: Service<'_>,
     project: String,
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
-    let desk = desk(&fleet).await?;
     // A project only the server has: until it is moved into the mesh, the server answers.
-    if !desk.has_project(&project) && beep.server().is_some() {
-        let machines = known(beep.call(ListProjectMachines { project }).await)?;
-        return Ok(
-            machines.map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect())
-        );
-    }
+    let desk = match desk_or_server(&fleet, &beep).await? {
+        Some(desk) if desk.has_project(&project) || beep.server().is_none() => desk,
+        _ => {
+            let machines = known(beep.call(ListProjectMachines { project }).await)?;
+            return Ok(machines
+                .map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect()));
+        }
+    };
     let machines = desk.project_machines(&project).await?;
     Ok(Some(
         machines.into_iter().map(ProjectMachineRow::from).collect(),
@@ -113,11 +114,12 @@ pub async fn project_syncthing(
     beep: Service<'_>,
     project: String,
 ) -> Result<Vec<SyncthingPlace>> {
-    let desk = desk(&fleet).await?;
-    if !desk.has_project(&project) && beep.server().is_some() {
-        return Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default());
+    match desk_or_server(&fleet, &beep).await? {
+        Some(desk) if desk.has_project(&project) || beep.server().is_none() => {
+            Ok(desk.syncthing(&project).await)
+        }
+        _ => Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default()),
     }
-    Ok(desk.syncthing(&project).await)
 }
 
 /// The project agent of `name` (`org/repo`), made with its chat on the

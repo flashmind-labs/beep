@@ -20,7 +20,6 @@
 
 use crate::{Devices, MeshError, WriteLimit};
 use iroh::{EndpointId, SecretKey, Signature};
-use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -118,7 +117,17 @@ impl Serialize for Key {
 
 impl<'de> Deserialize<'de> for Key {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(D::Error::custom)
+        // Any text decodes, so one origin's refused key never fails the frame and strands its
+        // later entries; `apply` refuses a malformed one and steps past it.
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or(Key::Other(text)))
+    }
+}
+
+impl Key {
+    /// Text that is none of the kinds, and not well formed as an unknown one either.
+    fn is_malformed(&self) -> bool {
+        matches!(self, Key::Other(text) if text.parse::<Key>().is_err())
     }
 }
 
@@ -515,6 +524,7 @@ impl State {
         let now = now_ms();
         let mut applied = Applied::default();
         let mut stopped = BTreeSet::new();
+        let mut skipped = Vec::new();
         let mut next = self.heads.clone();
         let mut fresh = Vec::new();
         for entry in entries {
@@ -531,7 +541,20 @@ impl State {
                 continue;
             }
             next.insert(entry.origin, entry.seq);
+            if entry.key.is_malformed() {
+                // Signed by a desktop but not a key: nothing to keep, and the origin's later
+                // entries still count, so the head moves past it.
+                applied
+                    .refused
+                    .push(MeshError::BadKey(entry.key.to_string()));
+                skipped.push((entry.origin, entry.seq));
+                continue;
+            }
             fresh.push(entry);
+        }
+        for (origin, seq) in skipped {
+            let head = self.heads.entry(origin).or_insert(0);
+            *head = (*head).max(seq);
         }
         if fresh.is_empty() {
             return Ok(applied);
@@ -791,6 +814,26 @@ mod tests {
         assert!(again.refused.is_empty());
         assert_eq!(b.get(&key), val("kept").as_deref());
         assert!(a.get(&key).is_none());
+    }
+
+    #[test]
+    fn a_bad_key_in_a_batch_does_not_strand_the_origins_later_entries() {
+        let m = mesh(1, 0);
+        let (_da, mut a) = open(&m, 0);
+        let first = entry(&m, 0, project("p1"), "one", 5, 1);
+        let bad = entry(&m, 0, Key::Other("not a key".into()), "x", 5, 2);
+        let later = entry(&m, 0, project("p3"), "three", 5, 3);
+        // On the wire the bad key still decodes.
+        let wire = postcard::to_stdvec(&bad).expect("encodes");
+        let received: Entry = postcard::from_bytes(&wire).expect("a bad key decodes");
+        let applied = a
+            .apply(vec![first, received, later], &m.devices)
+            .expect("apply");
+        assert_eq!(applied.refused.len(), 1);
+        assert!(matches!(applied.refused[0], MeshError::BadKey(_)));
+        assert_eq!(a.get(&project("p1")), val("one").as_deref());
+        assert_eq!(a.get(&project("p3")), val("three").as_deref());
+        assert_eq!(a.heads().get(&m.keys[0].public()), Some(&3));
     }
 
     #[test]

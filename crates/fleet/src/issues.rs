@@ -17,6 +17,7 @@ use beep_proto::{
     PullRequestHead,
 };
 use secrecy::ExposeSecret;
+use std::future::Future;
 use std::{
     sync::{Mutex, PoisonError},
     time::{Duration, Instant},
@@ -57,33 +58,55 @@ impl Desk {
         Ok((store, DeskMachines::of(&self.machines().await)))
     }
 
+    /// Runs `read` against what reading the project's host needs, asking this Mac alone when the
+    /// project is checked out here, and the others only if that failed.
+    async fn host_first<T, R, F>(&self, project: &str, read: R) -> Result<T>
+    where
+        R: Fn(DeskProject, DeskMachines) -> F,
+        F: Future<Output = Result<T>>,
+    {
+        let (store, machines) = self.host_reads(project, true).await?;
+        let here = store.is_on(self.local);
+        match read(store, machines).await {
+            Err(_) if here => {
+                let (store, machines) = self.host_reads(project, false).await?;
+                read(store, machines).await
+            }
+            done => done,
+        }
+    }
+
     /// The project's open issues no task tracks.
     pub async fn issues(&self, project: &str) -> Result<Vec<ProjectIssue>> {
-        let (store, machines) = self.host_reads(project, false).await?;
-        let open = list_open(&store, &machines).await?;
-        Ok(open.into_iter().map(issue_view).collect())
+        self.host_first(project, |store, machines| async move {
+            let open = list_open(&store, &machines).await?;
+            Ok(open.into_iter().map(issue_view).collect())
+        })
+        .await
     }
 
     /// Every open pull request of the project, newest first.
     pub async fn pull_requests(&self, project: &str) -> Result<Vec<ProjectPullRequest>> {
-        let (store, machines) = self.host_reads(project, false).await?;
-        let listed = list_open_prs(&store, &machines).await?;
-        Ok(listed.into_iter().map(pull_request_view).collect())
+        self.host_first(project, |store, machines| async move {
+            let listed = list_open_prs(&store, &machines).await?;
+            Ok(listed.into_iter().map(pull_request_view).collect())
+        })
+        .await
     }
 
     /// The branch pull request `number` is made from.
     pub async fn pr_head(&self, project: &str, number: u64) -> Result<PullRequestHead> {
-        let (store, machines) = self.host_reads(project, false).await?;
-        let head = pull_request_head(&store, &machines, number).await?;
-        Ok(PullRequestHead {
-            number: head.number,
-            branch: head.branch,
-            fork: head.fork,
+        self.host_first(project, |store, machines| async move {
+            let head = pull_request_head(&store, &machines, number).await?;
+            Ok(PullRequestHead {
+                number: head.number,
+                branch: head.branch,
+                fork: head.fork,
+            })
         })
+        .await
     }
-}
 
-impl Desk {
     /// The project's open pull requests, with their labels, and its issues no task tracks. A list
     /// that cannot be read says why beside the other.
     pub async fn lists(&self, project: &str) -> Result<LabeledProjectLists> {

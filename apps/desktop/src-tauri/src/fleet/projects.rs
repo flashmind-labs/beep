@@ -49,6 +49,19 @@ pub(crate) async fn desk(session: &Arc<Session>) -> Result<Desk> {
     Ok(session.desk().await?)
 }
 
+/// The desk, or `None` when the mesh is not there and a server is linked to answer instead; with
+/// neither, the error.
+pub(crate) async fn desk_or_server(session: &Arc<Session>, beep: &Beep) -> Result<Option<Desk>> {
+    match desk(session).await {
+        Ok(desk) => Ok(Some(desk)),
+        Err(e) if beep.server().is_some() => {
+            log::info!("no mesh, so the server answers: {e}");
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// The desk and the name of the mesh project `id` is the id of. `None` for an id the server made.
 /// It waits for the mesh to open, and fails when there is none, so an id the mesh would know is
 /// never taken for a server's while the mesh is still opening.
@@ -77,15 +90,14 @@ pub(crate) async fn mirror_import(beep: &Beep, imported: &ImportedProject) {
     }
 }
 
-/// Tells the server a project was removed, as [`mirror_import`] does.
-pub(crate) async fn mirror_remove(beep: &Beep, project: &str) {
+/// Tells the server a project was removed. The caller hears if it did not: the project is gone
+/// from the mesh all the same.
+pub(crate) async fn mirror_remove(beep: &Beep, project: &str) -> Result<()> {
     if beep.server().is_none() {
-        return;
+        return Ok(());
     }
     let request = RemoveProject {
         project: project.to_owned(),
     };
-    if let Err(e) = beep.call(request).await {
-        log::info!("the server did not take a project's removal: {e}");
-    }
+    beep.call(request).await
 }
