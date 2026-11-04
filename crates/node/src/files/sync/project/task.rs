@@ -12,7 +12,12 @@ use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
 use iroh::EndpointAddr;
 use iroh_blobs::{BlobFormat, Hash, hashseq::HashSeq};
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashSet},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{
     sync::mpsc,
     task::{JoinSet, spawn_blocking},
@@ -40,6 +45,8 @@ pub(super) struct Task {
     pub(super) parts: Parts,
     pub(super) watcher: Watcher,
     pub(super) mode: Mode,
+    /// The folders the last scan watched.
+    pub(super) dirs: HashSet<PathBuf>,
     /// The first scan checks the store still holds what it saw.
     pub(super) first: bool,
     /// The hashes the store's tag for the project protects now.
@@ -240,6 +247,7 @@ impl Task {
             parts,
             watcher,
             mode,
+            dirs: HashSet::new(),
             first: true,
             protected: None,
             pending: 0,
