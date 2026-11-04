@@ -223,6 +223,46 @@ async fn a_device_with_company_does_not_leave_its_mesh() {
 }
 
 #[tokio::test]
+async fn a_removed_device_leaves_its_mesh_for_another() {
+    let studio = create("Studio").await;
+    let laptop = join(&studio, DeviceKind::Desktop, "Laptop").await;
+    let other = create("Other").await;
+    let ticket = other
+        .mesh
+        .invite(DeviceKind::Desktop, Duration::from_secs(3600))
+        .await
+        .expect("ticket");
+    studio
+        .mesh
+        .remove(laptop.id())
+        .await
+        .expect("the removal is signed");
+    until(&laptop.mesh, |m| m.is_removed(laptop.id())).await;
+    let (key, dir) = laptop.stop().await;
+    let mesh = Mesh::join_replacing_lone(dir.path(), bind(&key).await, &ticket, "Laptop")
+        .await
+        .expect("a removed device counts as lone");
+    assert!(mesh.is_member(mesh.me()));
+    assert_eq!(mesh.devices().len(), 2);
+}
+
+#[tokio::test]
+async fn forgetting_a_mesh_leaves_a_folder_with_none() {
+    let studio = create("Studio").await;
+    let laptop = join(&studio, DeviceKind::Node, "Laptop").await;
+    let (key, dir) = laptop.stop().await;
+    Mesh::forget(dir.path())
+        .await
+        .expect("the mesh is forgotten");
+    assert!(
+        Mesh::open(dir.path(), bind(&key).await)
+            .await
+            .expect("opens")
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn a_swap_cut_short_leaves_the_old_mesh_or_the_new_one() {
     let lone = create("Laptop").await;
     let (key, dir) = lone.stop().await;
