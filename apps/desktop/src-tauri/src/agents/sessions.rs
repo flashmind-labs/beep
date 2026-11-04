@@ -9,18 +9,24 @@ use crate::{
     chat::markdown,
     error::Result,
     fleet::{Fleet, Machines, agents as direct, extra},
+    machines::list::Outside,
     projects::{known, unknown_op},
 };
+use beep_mesh::Key;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, GetAgentSession, GetAgentSessionModes,
     GetAgentSessionUsage, ListAgentHosts, ListAgentModels, ListAgentSessions, MachinePick,
     MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
-    node::agent::{CheckoutPlan, Effort},
+    node::{
+        agent::{CheckoutPlan, Effort},
+        harness::HarnessConfig,
+        mesh_state::StateValue,
+    },
 };
 use serde::Serialize;
-use std::time::Instant;
-use tauri::{State, WebviewWindow};
+use std::{sync::Arc, time::Instant};
+use tauri::{AppHandle, State, WebviewWindow};
 use uuid::Uuid;
 
 /// A machine that can run a coding agent.
@@ -183,13 +189,26 @@ pub struct Started {
 }
 
 #[tauri::command]
-pub async fn agent_hosts(beep: Service<'_>, fleet: Machines<'_>) -> Result<Vec<HostRow>> {
-    let mut hosts = direct::hosts(&fleet).await;
-    let others = extra(beep.call(ListAgentHosts {}).await);
-    hosts.extend(
-        others
-            .into_iter()
-            .filter(|host| fleet.member(&host.machine_id).is_none()),
+pub async fn agent_hosts(
+    app: AppHandle,
+    fleet: State<'_, Arc<Fleet>>,
+    held: State<'_, Outside>,
+) -> Result<Vec<HostRow>> {
+    let mesh = fleet.mesh();
+    // A harness the desktops switched off is not offered.
+    let is_off = |agent: &str| {
+        mesh.as_ref()
+            .and_then(|mesh| mesh.get(&Key::Harness(agent.to_owned())))
+            .and_then(|bytes| HarnessConfig::from_bytes(&bytes).ok())
+            .is_some_and(|config| !config.enabled)
+    };
+    let hosts = fleet.status().agent_hosts(is_off);
+    let hosts = held.hosts.merged(
+        &app,
+        hosts,
+        ListAgentHosts {},
+        |host| &host.machine_id,
+        |old, new| old == new,
     );
     Ok(hosts.into_iter().map(HostRow::from).collect())
 }
@@ -401,8 +420,6 @@ pub async fn agent_resume(
 
 /// One session in full. The calling webview's session view shows it, so
 /// its notices stay quiet while the view keeps reading it.
-// The arguments are the fields of the window's `invoke` call.
-#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_view(
     window: WebviewWindow,

@@ -65,10 +65,9 @@ function commandLine() {
   return line;
 }
 
-/// Closes the sheet, revoking its token unless the machine used it.
+/// Closes the sheet.
 export function closeAddMachine() {
   if (!root) return;
-  if (state.step === "waiting") invoke("revoke_node_token", { token: state.token }).catch(() => {});
   clearInterval(ticker);
   clearInterval(poller);
   clearInterval(macPoller);
@@ -97,10 +96,7 @@ async function start() {
   poller = undefined;
   try {
     const made = await invoke<NodeToken>("create_node_token", { name: null });
-    if (!root) {
-      invoke("revoke_node_token", { token: made.token }).catch(() => {});
-      return;
-    }
+    if (!root) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at });
     poller = setInterval(poll, POLL_MS);
   } catch (e) {

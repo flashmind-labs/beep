@@ -22,11 +22,9 @@ use beep_proto::{
     HarnessSignIn, ListAgentModels, MachinePick, MachineSession, PreviewAgentMachine,
     ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession, image_key, media_mime,
     node::{
-        EnvReport,
         agent::{self, Request},
         harness::{HarnessConfig, HarnessInfo, harness},
         mesh_state::StateValue,
-        status::{self, Report},
     },
 };
 use futures::{StreamExt, stream};
@@ -34,7 +32,7 @@ use iroh::EndpointId;
 use std::{
     cmp::Reverse,
     future::Future,
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Duration, UNIX_EPOCH},
 };
 use tokio::time::timeout;
 
@@ -42,20 +40,8 @@ use tokio::time::timeout;
 const MAX_ENTRIES: u32 = 200;
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
-/// How long a machine's offers are trusted.
-const FRESH: Duration = Duration::from_secs(60);
-/// How long a machine has to report what it has.
-const REPORT_WAIT: Duration = Duration::from_secs(5);
 /// How long an order to a session may take.
 const ORDER_WAIT: Duration = Duration::from_secs(10);
-
-/// What a machine last said of itself over `status/1`.
-#[derive(Clone)]
-pub(super) struct Probed {
-    at: Instant,
-    offers: Vec<String>,
-    env: Option<EnvReport>,
-}
 
 fn not_found() -> DesktopError {
     DesktopError::Api(ApiError::NotFound {})
@@ -79,56 +65,6 @@ impl Fleet {
         }
     }
 
-    /// What `machine` offers, from its `status/1` stream; fresh for `FRESH`.
-    async fn probed(&self, machine: EndpointId) -> Result<Probed> {
-        let cached = self
-            .hosts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&machine)
-            .filter(|probed| probed.at.elapsed() < FRESH)
-            .cloned();
-        if let Some(probed) = cached {
-            return Ok(probed);
-        }
-        let client = self.client(machine).await?;
-        let (_tx, mut rx) = client.open(status::PROTOCOL).await?;
-        let mut probed = Probed {
-            at: Instant::now(),
-            offers: Vec::new(),
-            env: None,
-        };
-        let mut offered = false;
-        let read = async {
-            while let Some(report) = rx.recv::<Report>().await.map_err(MeshError::Link)? {
-                match report {
-                    Report::Offers(offers) => {
-                        probed.offers = offers;
-                        offered = true;
-                    }
-                    Report::Env(env) => probed.env = Some(env),
-                    _ => {}
-                }
-                if offered && probed.env.is_some() {
-                    break;
-                }
-            }
-            Ok::<_, MeshError>(())
-        };
-        // A machine that offers but has not probed yet still lists.
-        if let Ok(read) = timeout(REPORT_WAIT, read).await {
-            read?;
-        }
-        if !offered {
-            return Err(DesktopError::Offline(self.name_of(machine)));
-        }
-        self.hosts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(machine, probed.clone());
-        Ok(probed)
-    }
-
     /// Whether the user turned `agent` off, in the mesh's shared settings.
     fn harness_off(&self, agent: &str) -> bool {
         self.mesh()
@@ -137,49 +73,18 @@ impl Fleet {
             .is_some_and(|config| !config.enabled)
     }
 
-    /// `machine` as a place to run agents; `None` when it offers none.
-    pub(crate) async fn agent_host(&self, machine: EndpointId) -> Result<Option<AgentHost>> {
-        let probed = self.probed(machine).await?;
-        let agents: Vec<String> = probed
-            .offers
-            .iter()
-            .filter_map(|offer| agent::agent_of(offer))
-            .filter(|agent| !self.harness_off(agent))
-            .map(str::to_owned)
-            .collect();
-        if agents.is_empty() {
-            return Ok(None);
-        }
-        let env = probed.env.unwrap_or_default();
-        Ok(Some(AgentHost {
-            machine_id: machine.to_string(),
-            machine_name: self.name_of(machine),
-            agents,
-            workspace: None,
-            home: Some(env.home.clone()).filter(|home| !home.is_empty()),
-            capabilities: env
-                .capabilities()
-                .into_iter()
-                .map(machine::machine_capability)
-                .collect(),
-        }))
+    /// `machine` as a place to run agents; `None` when it offers none now.
+    pub(crate) fn agent_host(&self, machine: EndpointId) -> Option<AgentHost> {
+        hosts(self)
+            .into_iter()
+            .find(|host| host.machine_id == machine.to_string())
     }
 }
 
-/// The online machines of the mesh that offer an agent.
-pub(crate) async fn hosts(fleet: &Fleet) -> Vec<AgentHost> {
-    let asks: Vec<_> = fleet
-        .online()
-        .into_iter()
-        .map(|machine| async move { fleet.agent_host(machine).await })
-        .collect();
-    let mut found: Vec<AgentHost> = stream::iter(asks)
-        .buffer_unordered(IN_FLIGHT)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .filter_map(|host| host.ok().flatten())
-        .collect();
+/// The online machines of the mesh that offer an agent, as their last
+/// status reports say.
+pub(crate) fn hosts(fleet: &Fleet) -> Vec<AgentHost> {
+    let mut found = fleet.status().agent_hosts(|agent| fleet.harness_off(agent));
     found.sort_by(|a, b| a.machine_name.cmp(&b.machine_name));
     found
 }
@@ -376,7 +281,7 @@ async fn pick(
     prompt: &str,
 ) -> Result<(AgentHost, String)> {
     let mut asking = Vec::new();
-    for host in hosts(fleet).await {
+    for host in hosts(fleet) {
         let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
         asking.push(AutoHost {
             client: fleet.client(machine).await?,
@@ -525,7 +430,7 @@ pub(crate) async fn models(
     list: &ListAgentModels,
 ) -> Result<AgentModels> {
     let client = fleet.client(machine).await?;
-    let host = fleet.agent_host(machine).await?;
+    let host = fleet.agent_host(machine);
     if !host.is_some_and(|host| host.agents.contains(&list.agent)) {
         return Err(ApiError::bad_request(format!(
             "{} does not offer {}.",

@@ -266,13 +266,14 @@ fn main() {
             chat::sessions::stock_chart,
             chat::sessions::unshare_session,
             machines::add::create_node_token,
+            machines::add::mesh_invite,
             machines::add::machine_search,
             machines::add::node_token_machine,
-            machines::add::revoke_node_token,
             machines::add::set_machine_search,
             machines::list::list_machines,
             machines::list::machine_log,
             machines::list::machine_traffic,
+            machines::list::mesh_remove,
             machines::list::remove_machine,
             machines::list::save_machine_log,
             machines::list::updatable_machines,
@@ -499,6 +500,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let (opening, push) = (fleet.clone(), beep.push());
     tauri::async_runtime::spawn(async move { opening.run(push).await });
     app.manage(machine);
+    app.manage(machines::list::Outside::default());
     app.manage(tray::Recent::default());
     app.manage(projects::live::Followed::default());
     app.manage(research::Pending::default());
