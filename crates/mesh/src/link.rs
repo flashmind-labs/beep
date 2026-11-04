@@ -17,9 +17,9 @@ use std::collections::BTreeMap;
 use std::mem::take;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore, watch};
 use tokio::task::JoinSet;
-use tokio::time::timeout;
+use tokio::time::{Instant, sleep_until, timeout};
 use tracing::{debug, warn};
 
 const OPS_PER_FRAME: usize = 128;
@@ -29,6 +29,12 @@ const SETUP: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_secs(2);
 /// Refused items on one link before it is dropped.
 const MAX_REFUSED: usize = 16;
+/// How long a connection that left the mesh link keeps taking streams the
+/// peer may already have opened on it.
+const DRAIN: Duration = Duration::from_secs(3);
+/// How long it stays after its last stream ends, so the peer can read the
+/// end of it before the connection goes.
+const LINGER: Duration = Duration::from_secs(2);
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Frame {
@@ -50,13 +56,17 @@ pub(crate) enum Frame {
 /// What the peer is known to hold, per origin.
 type Known = Arc<Mutex<Heads>>;
 
-/// Runs a connection until it ends, then unregisters it.
+/// Runs a connection until it ends, then unregisters it. The connection is
+/// not closed here: the streams on it end first (see `run`).
 pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointId) {
     let peer = conn.remote_id();
     if let Err(e) = run(&inner, &conn, peer, dialer).await {
         debug!("link ended: {e}");
     }
-    conn.close(0u32.into(), b"done");
+    unregister(&inner, &conn, peer);
+}
+
+fn unregister(inner: &Inner, conn: &Connection, peer: EndpointId) {
     let mut conns = inner.conns();
     if conns
         .get(&peer)
@@ -95,29 +105,44 @@ pub(crate) async fn tell_removed(inner: &Inner, conn: Connection) {
 }
 
 /// Keeps one connection per peer. When both sides of one instance dialed,
-/// the one the smaller id dialed stays. A connection from a new instance of
-/// the peer (a restart) always replaces the old, which may be a dead link.
-fn register(inner: &Inner, conn: &Connection, peer: EndpointId, who: Dialed, session: u64) -> bool {
+/// the one the smaller id dialed stays; the other one is retired, not
+/// closed, so streams already open on it carry on. A connection from a new
+/// instance of the peer (a restart) always replaces the old, which may be a
+/// dead link. Returns what retires the new connection, or `None` when it
+/// lost the tie itself.
+fn register(
+    inner: &Inner,
+    conn: &Connection,
+    peer: EndpointId,
+    who: Dialed,
+    session: u64,
+) -> Option<Arc<Notify>> {
     let mut conns = inner.conns();
     if let Some(old) = conns.get(&peer)
         && old.conn.close_reason().is_none()
     {
         if old.session == session && old.dialer < who.0 {
-            return false;
+            return None;
         }
-        old.conn.close(3u32.into(), b"duplicate");
+        if old.session == session {
+            old.retire.notify_one();
+        } else {
+            old.conn.close(3u32.into(), b"duplicate");
+        }
     }
+    let retire = Arc::new(Notify::new());
     conns.insert(
         peer,
         Live {
             conn: conn.clone(),
             dialer: who.0,
             session,
+            retire: retire.clone(),
         },
     );
     drop(conns);
     inner.bump();
-    true
+    Some(retire)
 }
 
 /// Who opened a connection.
@@ -130,6 +155,76 @@ async fn run(
     peer: EndpointId,
     dialer: EndpointId,
 ) -> Result<(), MeshError> {
+    let Shaken {
+        send,
+        recv,
+        heads,
+        session,
+        first,
+    } = match handshake(inner, conn, peer, dialer).await {
+        Ok(done) => done,
+        Err(e) => {
+            conn.close(0u32.into(), b"done");
+            return Err(e);
+        }
+    };
+    // Only now can a caller reach the connection through `peer()`, so no
+    // stream of theirs can be taken for the sync stream.
+    let retire = register(inner, conn, peer, Dialed(dialer), session);
+    let (over, over_rx) = watch::channel(false);
+    let mut app = JoinSet::new();
+    app.spawn(streams(inner.clone(), conn.clone(), peer, over_rx));
+    let result = match retire {
+        Some(retire) => {
+            let known: Known = Arc::new(Mutex::new(heads));
+            let mut tasks: JoinSet<Result<(), MeshError>> = JoinSet::new();
+            tasks.spawn(read(inner.clone(), conn.clone(), peer, recv, known.clone()));
+            tasks.spawn(write(inner.clone(), conn.clone(), peer, send, known, first));
+            // The first to end ends the sync link; dropping the set stops the rest.
+            tokio::select! {
+                ended = tasks.join_next() => match ended {
+                    Some(Ok(result)) => result,
+                    Some(Err(e)) => Err(frame::net(e)),
+                    None => Ok(()),
+                },
+                // The streams end with the connection.
+                _ = app.join_next() => Ok(()),
+                () = retire.notified() => Ok(()),
+            }
+        }
+        None => Ok(()),
+    };
+    // The sync link is over. Streams on the connection carry on until they
+    // end (see `streams`), so it is no longer reachable but not closed; a
+    // removal still cuts it, through `retired`.
+    inner.retired().insert(conn.stable_id(), conn.clone());
+    unregister(inner, conn, peer);
+    if !inner.is_member(inner.me) || !inner.is_member(peer) {
+        conn.close(2u32.into(), b"removed");
+    }
+    over.send(true).ok();
+    while app.join_next().await.is_some() {}
+    inner.retired().remove(&conn.stable_id());
+    result
+}
+
+/// The sync stream after both hellos.
+struct Shaken {
+    send: SendStream,
+    recv: RecvStream,
+    /// What the peer holds.
+    heads: Heads,
+    session: u64,
+    /// The addresses we sent in our hello.
+    first: Vec<AddrNote>,
+}
+
+async fn handshake(
+    inner: &Arc<Inner>,
+    conn: &Connection,
+    peer: EndpointId,
+    dialer: EndpointId,
+) -> Result<Shaken, MeshError> {
     let opened = async {
         if dialer == inner.me {
             conn.open_bi().await.map_err(frame::net)
@@ -160,23 +255,13 @@ async fn run(
         return Err(frame::net("the first frame was not a hello"));
     };
     inner.learn(addrs, Some(peer)).await;
-    // Only now can a caller reach the connection through `peer()`, so no
-    // stream of theirs can be taken for the sync stream.
-    if !register(inner, conn, peer, Dialed(dialer), session) {
-        conn.close(3u32.into(), b"duplicate");
-        return Ok(());
-    }
-    let known: Known = Arc::new(Mutex::new(heads));
-    let mut tasks: JoinSet<Result<(), MeshError>> = JoinSet::new();
-    tasks.spawn(read(inner.clone(), conn.clone(), peer, recv, known.clone()));
-    tasks.spawn(write(inner.clone(), conn.clone(), peer, send, known, first));
-    tasks.spawn(streams(inner.clone(), conn.clone(), peer));
-    // The first task to end ends the link; dropping the set stops the rest.
-    match tasks.join_next().await {
-        Some(Ok(result)) => result,
-        Some(Err(e)) => Err(frame::net(e)),
-        None => Ok(()),
-    }
+    Ok(Shaken {
+        send,
+        recv,
+        heads,
+        session,
+        first,
+    })
 }
 
 async fn read(
@@ -225,6 +310,7 @@ async fn read(
             }
         }
         if refused >= MAX_REFUSED {
+            conn.close(1u32.into(), b"too many refused items");
             return Err(frame::net("too many refused items"));
         }
     }
@@ -334,10 +420,26 @@ async fn write(
     }
 }
 
-async fn streams(inner: Arc<Inner>, conn: Connection, peer: EndpointId) -> Result<(), MeshError> {
+/// Takes the streams a peer opens after the sync stream. Once `over` says
+/// the sync link is done (replaced by another connection, or ended), it
+/// keeps taking streams for `DRAIN`, then returns when none are left running
+/// for `LINGER`. It returns early when the connection closes.
+async fn streams(
+    inner: Arc<Inner>,
+    conn: Connection,
+    peer: EndpointId,
+    mut over: watch::Receiver<bool>,
+) -> Result<(), MeshError> {
     let permits = Arc::new(Semaphore::new(MAX_STREAMS));
     let mut running = JoinSet::new();
+    let mut until: Option<Instant> = None;
     loop {
+        if until.is_none() && *over.borrow() {
+            until = Some(Instant::now() + DRAIN);
+        }
+        if until.is_some_and(|t| running.is_empty() && Instant::now() >= t) {
+            return Ok(());
+        }
         tokio::select! {
             accepted = conn.accept_bi() => {
                 let (mut send, mut recv) = accepted.map_err(frame::net)?;
@@ -366,7 +468,16 @@ async fn streams(inner: Arc<Inner>, conn: Connection, peer: EndpointId) -> Resul
                 {
                     warn!("a peer stream task failed: {e}");
                 }
+                if until.is_some() {
+                    until = Some(Instant::now() + LINGER);
+                }
             }
+            changed = over.changed(), if until.is_none() => {
+                if changed.is_err() {
+                    until = Some(Instant::now() + DRAIN);
+                }
+            }
+            () = sleep_until(until.unwrap_or_else(Instant::now)), if until.is_some() && running.is_empty() => {}
         }
     }
 }

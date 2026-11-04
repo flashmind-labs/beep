@@ -1,5 +1,6 @@
 //! Tests that speak the sync stream by hand, as a hostile peer would.
 
+use crate::PeerStream;
 use crate::devices::OpBody;
 use crate::frame;
 use crate::link::Frame;
@@ -10,6 +11,7 @@ use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, SecretKey};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -82,6 +84,11 @@ struct Raw {
 
 /// Connects as `key` and sends a `Hello` that holds nothing.
 async fn raw(to: &Dev, key: &SecretKey) -> Raw {
+    raw_in(to, key, fastrand::u64(..)).await
+}
+
+/// As `raw`, claiming to be the instance of the peer that has `session`.
+async fn raw_in(to: &Dev, key: &SecretKey, session: u64) -> Raw {
     // Tiny windows: whatever the other side sends piles up unread.
     let tiny = QuicTransportConfig::builder()
         .stream_receive_window(VarInt::from_u32(4096))
@@ -101,7 +108,7 @@ async fn raw(to: &Dev, key: &SecretKey) -> Raw {
     let hello = Frame::Hello {
         addrs: Vec::new(),
         heads: BTreeMap::new(),
-        session: fastrand::u64(..),
+        session,
     };
     frame::send(&mut send, &hello).await.expect("hello");
     Raw {
@@ -350,4 +357,93 @@ async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
         .open_from(peer, stale)
         .await
         .expect("the newer link opens the stream");
+}
+
+/// A stream that is open when a second connection from the same peer wins
+/// the tie keeps working, and the connection it is on goes once it ends.
+#[tokio::test]
+async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
+    let a = create().await;
+    // The smaller id's dial wins a tie, so `b` is smaller and its second
+    // connection always takes over.
+    let key = loop {
+        let key = SecretKey::generate();
+        if key.public() < a.key.public() {
+            break key;
+        }
+    };
+    let ticket = a
+        .mesh
+        .invite(DeviceKind::Desktop, Duration::from_secs(60))
+        .await
+        .expect("ticket");
+    let dir = TempDir::new().expect("temp dir");
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::join(dir.path(), endpoint.clone(), &ticket, "b")
+        .await
+        .expect("joins");
+    let (peer, join) = mesh.protocols();
+    peer.on_stream(Arc::new(|mut stream: PeerStream| {
+        Box::pin(async move {
+            let mut byte = [0u8; 1];
+            while stream.recv.read_exact(&mut byte).await.is_ok() {
+                if stream.send.write_all(&byte).await.is_err() {
+                    return;
+                }
+            }
+        })
+    }));
+    let _b = Router::builder(endpoint)
+        .accept(PEER_ALPN, peer)
+        .accept(JOIN_ALPN, join)
+        .spawn();
+    let mut updates = a.mesh.updates();
+    let first = timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if let Some(conn) = a.mesh.peer(key.public()) {
+                return conn;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the peer connects");
+    let (mut send, mut recv) = first.open_bi().await.expect("stream");
+    let mut byte = [0u8; 1];
+    send.write_all(b"x").await.expect("write");
+    timeout(LIMIT, recv.read_exact(&mut byte))
+        .await
+        .expect("answered")
+        .expect("read");
+    // The same instance dials again: the tie.
+    let _second = raw_in(&a, &key, mesh.session()).await;
+    timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if a.mesh
+                .peer(key.public())
+                .is_some_and(|c| c.stable_id() != first.stable_id())
+            {
+                return;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the second connection takes over");
+    send.write_all(b"y")
+        .await
+        .expect("the stream outlives the tie");
+    timeout(LIMIT, recv.read_exact(&mut byte))
+        .await
+        .expect("answered")
+        .expect("the stream outlives the tie");
+    assert_eq!(&byte, b"y");
+    // With its last stream over, the old connection goes.
+    send.finish().expect("finish");
+    drop((send, recv));
+    timeout(LIMIT, first.closed())
+        .await
+        .expect("the old connection closes");
 }
