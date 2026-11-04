@@ -2,9 +2,11 @@
 //! and outer timeouts; nothing sleeps.
 
 use beep_mesh::{
-    DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, PEER_ALPN, PeerStream,
-    StreamHandler, transport_config,
+    DEADLINE, DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, OPEN_TIMEOUT,
+    PEER_ALPN, PeerClient, PeerStream, SessionFn, StreamHandler, transport_config, with_deadline,
 };
+use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
+use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
@@ -17,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tokio::time::timeout;
+use tokio::time::{Instant, pause, timeout};
 
 const LIMIT: Duration = Duration::from_secs(60);
 
@@ -434,15 +436,28 @@ async fn two_members_holding_different_addresses_for_a_third_settle() {
     a.mesh.hint_addr(high.clone(), now + 2_000).await;
     until(&b.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
     until(&a.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
-    // A full round trip of state passes through every link.
-    let before = [&a, &b, &c].map(|d| d.mesh.addr_updates());
-    a.mesh
-        .set(project("barrier"), Some(b"1".to_vec()))
-        .await
-        .expect("write");
-    until(&b.mesh, |m| m.get(&project("barrier")).is_some()).await;
-    until(&c.mesh, |m| m.get(&project("barrier")).is_some()).await;
-    assert_eq!([&a, &b, &c].map(|d| d.mesh.addr_updates()), before);
+    // A note still in flight may land once. Trading notes forever would keep
+    // counting through every round trip of state.
+    let total = || {
+        [&a, &b, &c]
+            .map(|d| d.mesh.addr_updates())
+            .iter()
+            .sum::<u64>()
+    };
+    let before = total();
+    for round in 0..20u8 {
+        a.mesh
+            .set(project("barrier"), Some(vec![round]))
+            .await
+            .expect("write");
+        for peer in [&b, &c] {
+            until(&peer.mesh, |m| {
+                m.get(&project("barrier")) == Some(vec![round])
+            })
+            .await;
+        }
+    }
+    assert!(total() - before <= 3, "addresses kept changing hands");
 }
 
 /// Counts connections that reach the peer ALPN, then serves them.
@@ -609,4 +624,211 @@ async fn a_peer_may_have_64_streams_open_and_no_more() {
         .expect("the 65th was answered");
     assert!(refused.is_err(), "the 65th stream was served");
     assert!(entries.try_recv().is_err());
+}
+
+/// A stand-in for the node's `session()`.
+async fn session(mut tx: LinkTx, mut rx: LinkRx) {
+    let Ok(Some(open)) = rx.recv::<Open>().await else {
+        return;
+    };
+    match open.protocol.as_str() {
+        "echo/1" => {
+            tx.send(&Opened::Ready {}).await.ok();
+            if let Ok(Some(n)) = rx.recv::<u32>().await {
+                tx.send(&(n + 1)).await.ok();
+            }
+        }
+        "count/1" => {
+            tx.send(&Opened::Ready {}).await.ok();
+            if let Ok(Some(n)) = rx.recv::<u32>().await {
+                for i in 0..n {
+                    tx.send(&i).await.ok();
+                }
+            }
+        }
+        "stall/1" => {
+            tx.send(&Opened::Ready {}).await.ok();
+            if let Ok(Some(_)) = rx.recv::<u32>().await {
+                tx.send(&7u32).await.ok();
+                never::<()>().await;
+            }
+        }
+        other => {
+            let reason = format!("this node does not offer {other}");
+            tx.send(&Opened::Refused { reason }).await.ok();
+        }
+    }
+}
+
+fn session_fn() -> SessionFn {
+    Arc::new(|tx, rx| Box::pin(session(tx, rx)))
+}
+
+fn session_handler() -> StreamHandler {
+    Arc::new(|stream: PeerStream| {
+        Box::pin(async move {
+            let (tx, rx) = link(stream.send, stream.recv);
+            session(tx, rx).await;
+        })
+    })
+}
+
+async fn count(client: &PeerClient, n: u32) -> Vec<u32> {
+    client
+        .follow::<u32, u32>("count/1", &n)
+        .await
+        .expect("opened")
+        .map(|item| item.expect("item"))
+        .collect()
+        .await
+}
+
+#[tokio::test]
+async fn the_local_client_and_the_network_client_answer_alike() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(session_handler());
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    let local = PeerClient::local(session_fn());
+    for client in [&net, &local] {
+        let reply: u32 = client.call("echo/1", &41u32).await.expect("answered");
+        assert_eq!(reply, 42);
+        assert_eq!(count(client, 4).await, [0, 1, 2, 3]);
+    }
+    let refused = |client: &PeerClient| {
+        let client = client.clone();
+        async move {
+            client
+                .open("nope/1")
+                .await
+                .err()
+                .expect("refused")
+                .to_string()
+        }
+    };
+    assert_eq!(refused(&net).await, refused(&local).await);
+}
+
+#[tokio::test]
+async fn follow_ends_with_the_error_when_the_connection_drops() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(session_handler());
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    let mut items = Box::pin(net.follow::<u32, u32>("stall/1", &0).await.expect("opened"));
+    let first = timeout(LIMIT, items.next()).await.expect("first item");
+    assert_eq!(first.expect("an item").expect("ok"), 7);
+    a.stop().await;
+    let next = timeout(LIMIT, items.next()).await.expect("did not hang");
+    assert!(matches!(next, Some(Err(_))), "{next:?}");
+    assert!(timeout(LIMIT, items.next()).await.expect("ended").is_none());
+}
+
+#[tokio::test]
+async fn a_peer_that_is_off_says_so_within_the_deadline() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    let gone = b.id();
+    b.stop().await;
+    until(&a.mesh, |m| !online(m, gone)).await;
+    pause();
+    let start = Instant::now();
+    let offline = with_deadline(gone, &a.mesh).await.expect_err("offline");
+    // The paused clock rounds a sleep up to the next millisecond.
+    let limit = DEADLINE + Duration::from_millis(2);
+    assert!(start.elapsed() >= DEADLINE, "{:?}", start.elapsed());
+    assert!(start.elapsed() <= limit, "{:?}", start.elapsed());
+    assert!(offline.to_string().contains("offline"));
+}
+
+#[tokio::test]
+async fn a_removed_device_is_offline_at_once() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    a.mesh.remove(b.id()).await.expect("removed");
+    pause();
+    let start = Instant::now();
+    with_deadline(b.id(), &a.mesh).await.expect_err("offline");
+    assert_eq!(start.elapsed(), Duration::ZERO);
+}
+
+#[tokio::test]
+async fn an_open_to_a_node_at_its_stream_cap_ends_within_the_open_timeout() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(Arc::new(|stream: PeerStream| {
+        Box::pin(async move {
+            let _keep = stream;
+            never::<()>().await;
+        })
+    }));
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let conn = b.mesh.peer(a.id()).expect("connected");
+    let mut held = Vec::new();
+    for _ in 0..64 {
+        let (mut send, recv) = conn.open_bi().await.expect("stream");
+        send.write_all(b"x").await.expect("write");
+        held.push((send, recv));
+    }
+    let client = PeerClient::over(b.mesh.clone(), a.id());
+    pause();
+    let start = Instant::now();
+    let opened = timeout(Duration::from_secs(600), client.open("echo/1"))
+        .await
+        .expect("open returned by itself");
+    assert!(opened.is_err());
+    assert!(start.elapsed() <= OPEN_TIMEOUT + Duration::from_millis(2));
+}
+
+#[tokio::test]
+async fn a_peer_client_reports_a_missing_link_as_a_link_error() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    let gone = b.id();
+    b.stop().await;
+    until(&a.mesh, |m| !online(m, gone)).await;
+    let client = PeerClient::over(a.mesh.clone(), gone);
+    let err = client.open("echo/1").await.err().expect("not connected");
+    assert!(matches!(err, MeshError::Link(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn dropping_a_network_follow_reaches_the_session() {
+    let (gone, mut gone_rx) = unbounded_channel();
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(Arc::new(move |stream: PeerStream| {
+        let gone = gone.clone();
+        Box::pin(async move {
+            let (mut tx, mut rx) = link(stream.send, stream.recv);
+            if rx.recv::<Open>().await.is_err() {
+                return;
+            }
+            tx.send(&Opened::Ready {}).await.ok();
+            rx.recv::<u32>().await.ok();
+            let mut i = 0u32;
+            while tx.send(&i).await.is_ok() {
+                i = i.wrapping_add(1);
+            }
+            gone.send(()).ok();
+        })
+    }));
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    let mut items = Box::pin(net.follow::<u32, u32>("tick/1", &0).await.expect("opened"));
+    items.next().await.expect("an item").expect("ok");
+    drop(items);
+    timeout(LIMIT, gone_rx.recv())
+        .await
+        .expect("the session noticed")
+        .expect("signal");
 }
