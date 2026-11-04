@@ -1,5 +1,6 @@
 import { type AgentReport, cardKey, parseAgentReport, type ReportStep } from "./agentcard.ts";
-import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, agentAvatar, agentKind, openAgent, stateTag } from "../agents/agents.ts";
+import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, agentAvatar, agentKind, stateTag } from "../agents/agents.ts";
+import { openAgent } from "../agents/session.ts";
 import { esc, h, ICON, invoke } from "../bar/core.ts";
 import type { Turn } from "../bar/core.ts";
 
