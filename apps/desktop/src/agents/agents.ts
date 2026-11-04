@@ -244,6 +244,9 @@ export const AGENT_PICS_KEPT = 60;
 /// The pictures of `[image: image-<key>]` lines, read from the session's
 /// machine, by key, as data URLs: `null` for one the machine no longer has.
 export const agentImages = new Map<string, Promise<string | null> | string | null>();
+/// The same pictures made small, which only the log draws: never saved or
+/// shown in a viewer.
+export const agentThumbs = new Map<string, Promise<string | null> | string | null>();
 /// How often the session view asks for its session while on screen.
 export const AGENT_POLL_MS = 1500;
 /// How often while a thought streams, so its letters arrive nearly live.

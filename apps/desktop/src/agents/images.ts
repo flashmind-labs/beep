@@ -4,7 +4,7 @@ import { fileBase64 } from "../chat/attach.ts";
 import { $, esc, h, ICON, invoke, S } from "../bar/core.ts";
 import { GONE } from "../chat/media.ts";
 import { mentionChips, wireMentionChips } from "./workdrop.ts";
-import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages } from "./agents.ts";
+import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
 import { noAgentImages, redrawAgentHints } from "./session.ts";
 
 let pastedCount = 0;
@@ -67,32 +67,39 @@ export function drawAgentAttached() {
   if (S.view === "agent") redrawAgentHints();
 }
 
-/// The picture `key` of session `o`, read from its machine the first time.
-/// Only one the machine no longer has stays gone; anything else tries again.
-export function loadAgentImage(o: OpenAgent, key: string) {
-  let got = agentImages.get(key);
+/// The picture `key` of session `o` as `command` gives it, read from its
+/// machine the first time and kept in `cache`. Only one the machine no longer
+/// has stays gone; anything else tries again.
+function loadOnce(cache: typeof agentImages, command: string, o: OpenAgent, key: string) {
+  let got = cache.get(key);
   if (got === undefined) {
-    got = invoke<string>("agent_image", { machineId: o.machine_id, session: o.session, key }).then(url => {
-      agentImages.set(key, url);
+    got = invoke<string>(command, { machineId: o.machine_id, session: o.session, key }).then(url => {
+      cache.set(key, url);
       return url;
     }, e => {
-      if (String(e) === GONE) agentImages.set(key, null);
-      else agentImages.delete(key);
+      if (String(e) === GONE) cache.set(key, null);
+      else cache.delete(key);
       return null;
     });
-    agentImages.set(key, got);
+    cache.set(key, got);
   }
   return Promise.resolve(got);
 }
+
+export const loadAgentImage = (o: OpenAgent, key: string) => loadOnce(agentImages, "agent_image", o, key);
+
+/// The picture a tile of the log stands for, whole: what opens, saves or
+/// copies, as the tile itself may show a thumbnail. Null when it cannot be read.
+export const fullPic = (o: OpenAgent, img: HTMLImageElement) => img.dataset.key ? loadAgentImage(o, img.dataset.key) : Promise.resolve(img.src);
 
 /// Fills the session pictures drawn before their bytes were here.
 export function fillAgentPics(b: HTMLElement) {
   const o = AG.open;
   if (!o) return;
   for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-key]:not([src])")) {
-    loadAgentImage(o, img.dataset.key!).then(url => {
+    loadOnce(agentThumbs, "agent_thumb", o, img.dataset.key!).then(url => {
       if (url) img.src = url;
-      else if (img.isConnected && agentImages.get(img.dataset.key!) === null) img.replaceWith(h(gonePic(img.alt)));
+      else if (img.isConnected && agentThumbs.get(img.dataset.key!) === null) img.replaceWith(h(gonePic(img.alt)));
     });
   }
 }
