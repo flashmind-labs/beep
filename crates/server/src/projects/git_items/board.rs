@@ -2,7 +2,7 @@
 
 use crate::{
     AsyncMutex,
-    account::credentials::{Slot, host_client},
+    account::credentials::{Slot, host_client, is_public},
     protocol::{GitHost, GitHostKind, GitItem, GitItems, LabeledGitItems},
     store::GitLogin,
 };
@@ -121,7 +121,7 @@ async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> L
             token: &login.secret,
         };
         let result = match &login.slot {
-            Slot::Forgejo(url) if !url.is_public().await => Err(HostError::Private(host.clone())),
+            Slot::Forgejo(url) if !is_public(url).await => Err(HostError::Private(host.clone())),
             Slot::Forgejo(url) => forgejo::items(&caller, url.as_str()).await,
             _ => github::items(&caller).await,
         };

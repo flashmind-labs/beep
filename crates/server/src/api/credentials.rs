@@ -3,7 +3,7 @@
 use super::Reply;
 use crate::{
     account::credentials::{
-        Checked, Checker, Slot, last4,
+        Checked, Checker, Slot, is_public, last4,
         machines::{MAX_MACHINES, Reach, check_from},
     },
     api::router::Cx,
@@ -92,7 +92,7 @@ pub(super) async fn check_credential(
     let Slot::Forgejo(url) = &login.slot else {
         return Err(ApiError::NotFound {});
     };
-    let from_server = if url.is_public().await {
+    let from_server = if is_public(url).await {
         Checker::new()?.forgejo(url, &login.secret).await
     } else {
         Checked::Unreachable
@@ -240,7 +240,7 @@ async fn save_github(
 async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
     let checked = match slot {
         Slot::GitHub => Checker::new()?.github(secret).await,
-        Slot::Forgejo(url) if !url.is_public().await => return Ok(None),
+        Slot::Forgejo(url) if !is_public(url).await => return Ok(None),
         Slot::Forgejo(url) => Checker::new()?.forgejo(url, secret).await,
         Slot::ApiKey(ApiProvider::OpenRouter) => Checker::new()?.openrouter(secret).await,
         Slot::ApiKey(_) | Slot::AgentToken(_) => return Ok(None),

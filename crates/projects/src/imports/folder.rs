@@ -1,7 +1,7 @@
 //! Folders the user picks on a machine, read through the node's shell so any readable folder works.
 
 use super::{ImportError, clone::quote};
-use crate::protocol::MachineFolder;
+use beep_proto::MachineFolder;
 
 /// What the listing script prints before each line it means.
 const MARK: &str = "BEEP_FOLDER:";
@@ -12,7 +12,7 @@ const MAX_PATH: usize = 1024;
 
 /// A folder on a machine as given: absolute, or under `~`, which the machine's shell expands.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum FolderPath {
+pub enum FolderPath {
     /// `/` and the parts after it, without a trailing `/`.
     Absolute(String),
     /// The parts after `~/`; empty for the home folder itself.
@@ -21,7 +21,7 @@ pub(crate) enum FolderPath {
 
 impl FolderPath {
     /// The folder `input` names, `None` when blank; refuses relative paths, `..` and control characters.
-    pub(crate) fn parse(input: &str) -> Result<Option<Self>, ImportError> {
+    pub fn parse(input: &str) -> Result<Option<Self>, ImportError> {
         let input = input.trim();
         if input.is_empty() {
             return Ok(None);
@@ -55,7 +55,7 @@ impl FolderPath {
     }
 
     /// The path as one sh word, with `$HOME` expanded by the shell.
-    pub(crate) fn shell_word(&self) -> String {
+    pub fn shell_word(&self) -> String {
         match self {
             Self::Absolute(path) => quote(path),
             Self::Home(rest) if rest.is_empty() => "\"$HOME\"".to_owned(),
@@ -65,7 +65,7 @@ impl FolderPath {
 }
 
 /// Reads one folder: prints `path`, then `git <origin>`, `full` and `dir <name>` lines as they apply.
-pub(crate) fn script(folder: &FolderPath) -> String {
+pub fn script(folder: &FolderPath) -> String {
     format!(
         "d={word}\n\
          if [ -d \"$d\" ]; then\n\
@@ -92,7 +92,7 @@ pub(crate) fn script(folder: &FolderPath) -> String {
 
 /// What the script found, read from its output.
 #[derive(Debug, PartialEq)]
-pub(crate) enum Seen {
+pub enum Seen {
     Folder(MachineFolder),
     /// A file is there, at this path.
     File(String),
@@ -101,7 +101,7 @@ pub(crate) enum Seen {
 }
 
 /// Reads the script's output; `None` when it said nothing it means.
-pub(crate) fn read(output: &str) -> Option<Seen> {
+pub fn read(output: &str) -> Option<Seen> {
     let mut path = None;
     let mut exists = true;
     let mut origin = None;
@@ -159,7 +159,7 @@ fn parent(path: &str) -> Option<String> {
 }
 
 /// Where an import into `seen` goes: the folder itself when a checkout, empty or missing, else `<folder>/<name>`.
-pub(crate) fn destination(seen: &MachineFolder, name: &str) -> String {
+pub fn destination(seen: &MachineFolder, name: &str) -> String {
     if !seen.exists || seen.empty || seen.origin.is_some() {
         seen.path.clone()
     } else if seen.path == "/" {

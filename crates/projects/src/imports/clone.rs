@@ -4,41 +4,48 @@
 //! looks like a checkout. The token reaches git's credential helper as a shell variable, never in
 //! a command line or saved remote. With a fork, the fork is `origin` and the repo `upstream`.
 
-use super::ImportError;
+use super::{
+    ImportError,
+    repo::{Host, RepoRef},
+};
+use crate::{git_items::forks::Fork, shell::MachineShell};
 use secrecy::{ExposeSecret, SecretString};
+use std::time::Duration;
 
 /// What the script prints last, before what it found.
 const MARK: &str = "BEEP_IMPORT:";
 /// How much of the output is kept to explain a failure.
 const KEEP: usize = 8 * 1024;
+/// How long a clone may take.
+const CLONE_LIMIT: Duration = Duration::from_secs(30 * 60);
 
 /// One clone to run.
-pub(crate) struct Job<'a> {
+pub struct Job<'a> {
     /// What git clones, such as `https://github.com/org/repo.git`.
-    pub(crate) url: &'a str,
+    pub url: &'a str,
     /// The checkout's absolute folder.
-    pub(crate) folder: &'a str,
+    pub folder: &'a str,
     /// The user's token for the host, when they saved one.
-    pub(crate) token: Option<&'a SecretString>,
+    pub token: Option<&'a SecretString>,
     /// Whether `$GH_TOKEN` on the machine may stand in for `token`.
-    pub(crate) github: bool,
+    pub github: bool,
     /// Set when `url` is the user's fork: what else the clone sets up.
-    pub(crate) fork: Option<ForkSetup<'a>>,
+    pub fork: Option<ForkSetup<'a>>,
 }
 
 /// What a clone of the user's fork sets up after cloning it.
 #[derive(Clone, Copy)]
-pub(crate) struct ForkSetup<'a> {
+pub struct ForkSetup<'a> {
     /// What git fetches the repository itself from, as `upstream`.
-    pub(crate) upstream_url: &'a str,
+    pub upstream_url: &'a str,
     /// The default branch the local one tracks as `upstream/<it>`; empty keeps the fork's.
-    pub(crate) default_branch: &'a str,
+    pub default_branch: &'a str,
     /// The user's pull request heads from the fork, made local branches tracking `origin`.
-    pub(crate) branches: &'a [String],
+    pub branches: &'a [String],
 }
 
 /// Quotes `text` for sh.
-pub(super) fn quote(text: &str) -> String {
+pub fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
@@ -91,7 +98,7 @@ fn fork_steps(git: &str, fork: &ForkSetup<'_>) -> String {
 }
 
 /// The script. Secret: it holds the token.
-pub(crate) fn script(job: &Job<'_>) -> SecretString {
+pub fn script(job: &Job<'_>) -> SecretString {
     let (parent, leaf) = split(job.folder);
     let temp = format!("{parent}/.{leaf}.importing");
     let git = git_with_token(job.token, job.github);
@@ -126,29 +133,29 @@ pub(crate) fn script(job: &Job<'_>) -> SecretString {
 
 /// A remote a checkout gets.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NewRemote {
-    pub(crate) name: String,
-    pub(crate) url: String,
+pub struct NewRemote {
+    pub name: String,
+    pub url: String,
 }
 
 /// A checkout already there, and the remotes it lacks for the fork.
-pub(crate) struct Link<'a> {
+pub struct Link<'a> {
     /// The checkout's absolute folder.
-    pub(crate) folder: &'a str,
-    pub(crate) token: Option<&'a SecretString>,
-    pub(crate) github: bool,
-    pub(crate) add: &'a [NewRemote],
+    pub folder: &'a str,
+    pub token: Option<&'a SecretString>,
+    pub github: bool,
+    pub add: &'a [NewRemote],
     /// The remote that is the fork, which the branches track.
-    pub(crate) fork_remote: &'a str,
+    pub fork_remote: &'a str,
     /// The remote that is the repository itself.
-    pub(crate) upstream_remote: &'a str,
+    pub upstream_remote: &'a str,
     /// The heads of the user's pull requests from the fork.
-    pub(crate) branches: &'a [String],
+    pub branches: &'a [String],
 }
 
 /// Adds `link`'s remotes to an existing checkout, fetches, and makes PR branches local; prints `linked`.
 /// Secret: it holds the token.
-pub(crate) fn link_script(link: &Link<'_>) -> SecretString {
+pub fn link_script(link: &Link<'_>) -> SecretString {
     let git = git_with_token(link.token, link.github);
     let mut script = format!(
         "d={folder}\nexport GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never\n",
@@ -172,7 +179,7 @@ pub(crate) fn link_script(link: &Link<'_>) -> SecretString {
 }
 
 /// Whether the link script got to the end.
-pub(crate) fn linked(output: &str, exit_code: Option<i32>) -> bool {
+pub fn linked(output: &str, exit_code: Option<i32>) -> bool {
     exit_code == Some(0)
         && output
             .lines()
@@ -191,7 +198,7 @@ fn split(folder: &str) -> (&str, &str) {
 
 /// What the script found.
 #[derive(Debug, PartialEq)]
-pub(crate) enum Outcome {
+pub enum Outcome {
     Cloned,
     /// A checkout was there already, with this `origin` (empty for none).
     Existing(String),
@@ -204,7 +211,7 @@ pub(crate) enum Outcome {
 }
 
 /// Reads the script's output and how it ended.
-pub(crate) fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> Outcome {
+pub fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> Outcome {
     if timed_out {
         return Outcome::TimedOut;
     }
@@ -225,7 +232,7 @@ pub(crate) fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> 
 }
 
 /// The end of `output`, up to `KEEP` bytes.
-pub(crate) fn tail(output: &str) -> String {
+pub fn tail(output: &str) -> String {
     let output = output.trim();
     let mut start = output.len().saturating_sub(KEEP);
     while !output.is_char_boundary(start) {
@@ -235,16 +242,16 @@ pub(crate) fn tail(output: &str) -> String {
 }
 
 /// What went wrong, for a clone git refused.
-pub(crate) struct Failure<'a> {
-    pub(crate) output: &'a str,
-    pub(crate) project: String,
-    pub(crate) host: String,
-    pub(crate) machine: &'a str,
-    pub(crate) had_token: bool,
+pub struct Failure<'a> {
+    pub output: &'a str,
+    pub project: String,
+    pub host: String,
+    pub machine: &'a str,
+    pub had_token: bool,
 }
 
 /// The plain sentence for a failed clone.
-pub(crate) fn explain(failure: Failure<'_>) -> ImportError {
+pub fn explain(failure: Failure<'_>) -> ImportError {
     let text = failure.output.to_ascii_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|needle| text.contains(needle));
     if has(&[
@@ -295,6 +302,79 @@ pub(crate) fn explain(failure: Failure<'_>) -> ImportError {
     ImportError::Failed {
         machine: failure.machine.to_owned(),
         detail,
+    }
+}
+
+/// The user's fork of an imported repository.
+#[derive(Debug, Clone)]
+pub struct UsedFork {
+    /// The fork, on the repository's host.
+    pub repo: RepoRef,
+    /// What the host said about it.
+    pub found: Fork,
+}
+
+/// Clones on `shell`'s machine, named `machine`, the fork when there is one; `false` when a
+/// checkout was there already.
+pub async fn run_clone(
+    shell: &dyn MachineShell,
+    machine: &str,
+    repo: &RepoRef,
+    fork: Option<&UsedFork>,
+    folder: &str,
+    token: Option<&SecretString>,
+) -> Result<bool, ImportError> {
+    let cloning = fork.map_or(repo, |fork| &fork.repo);
+    let url = cloning.clone_url();
+    let upstream_url = repo.clone_url();
+    let script = script(&Job {
+        url: &url,
+        folder,
+        token,
+        github: repo.host == Host::GitHub,
+        fork: fork.map(|fork| ForkSetup {
+            upstream_url: &upstream_url,
+            default_branch: &fork.found.default_branch,
+            branches: &fork.found.branches,
+        }),
+    });
+    let ran = shell
+        .run(&script, CLONE_LIMIT)
+        .await
+        .map_err(|e| ImportError::Link {
+            machine: machine.to_owned(),
+            detail: e.to_string(),
+        })?;
+    match outcome(&ran.output, ran.exit_code, ran.timed_out) {
+        Outcome::Cloned => Ok(true),
+        Outcome::Existing(remote)
+            if repo.matches_remote(&remote)
+                || fork.is_some_and(|fork| fork.repo.matches_remote(&remote)) =>
+        {
+            Ok(false)
+        }
+        Outcome::Existing(remote) => Err(ImportError::OtherRepo {
+            folder: folder.to_owned(),
+            machine: machine.to_owned(),
+            remote: if remote.is_empty() {
+                "no origin remote".to_owned()
+            } else {
+                remote
+            },
+        }),
+        Outcome::Occupied => Err(ImportError::Occupied {
+            folder: folder.to_owned(),
+            machine: machine.to_owned(),
+        }),
+        Outcome::NoGit => Err(ImportError::NoGit(machine.to_owned())),
+        Outcome::TimedOut => Err(ImportError::TimedOut(cloning.project())),
+        Outcome::Failed(said) => Err(explain(Failure {
+            output: &said,
+            project: cloning.project(),
+            host: repo.host_name(),
+            machine,
+            had_token: token.is_some(),
+        })),
     }
 }
 
@@ -582,5 +662,89 @@ mod tests {
         );
         assert!(!gone.exists());
         assert!(!root.path().join("ws/projects/org/.gone.importing").exists());
+    }
+
+    use crate::{MachineShell, ShellError, ShellOutput};
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    /// Records the scripts it is given and answers each with a fixed output.
+    struct FakeShell {
+        said: ShellOutput,
+        scripts: Mutex<Vec<String>>,
+    }
+
+    impl FakeShell {
+        fn prints(output: &str, exit_code: i32) -> FakeShell {
+            FakeShell {
+                said: ShellOutput {
+                    exit_code: Some(exit_code),
+                    timed_out: false,
+                    output: output.to_owned(),
+                },
+                scripts: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl MachineShell for FakeShell {
+        async fn run(&self, script: &SecretString, _: Duration) -> Result<ShellOutput, ShellError> {
+            self.scripts
+                .lock()
+                .expect("the log is not poisoned")
+                .push(script.expose_secret().to_owned());
+            Ok(self.said.clone())
+        }
+    }
+
+    fn widget() -> RepoRef {
+        RepoRef::parse("acme/widget", &[]).expect("a repository")
+    }
+
+    #[tokio::test]
+    async fn an_import_clones_through_a_fake_shell() {
+        let shell = FakeShell::prints("\nBEEP_IMPORT: cloned\n", 0);
+        let token = SecretString::from("tok_abc");
+        let cloned = run_clone(
+            &shell,
+            "build-box",
+            &widget(),
+            None,
+            "/srv/projects/acme/widget",
+            Some(&token),
+        )
+        .await;
+        assert_eq!(cloned, Ok(true));
+        let scripts = shell.scripts.lock().expect("the log is not poisoned");
+        assert_eq!(scripts.len(), 1);
+        assert!(scripts[0].contains("u='https://github.com/acme/widget.git'"));
+        assert!(scripts[0].contains("d='/srv/projects/acme/widget'"));
+    }
+
+    #[tokio::test]
+    async fn a_checkout_of_the_same_repository_is_kept_and_another_refused() {
+        let same = FakeShell::prints(
+            "\nBEEP_IMPORT: existing git@github.com:acme/widget.git\n",
+            0,
+        );
+        let kept = run_clone(&same, "build-box", &widget(), None, "/srv/w", None).await;
+        assert_eq!(kept, Ok(false));
+        let other = FakeShell::prints("\nBEEP_IMPORT: existing https://github.com/acme/other\n", 0);
+        let refused = run_clone(&other, "build-box", &widget(), None, "/srv/w", None).await;
+        assert!(
+            matches!(refused, Err(ImportError::OtherRepo { .. })),
+            "{refused:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_clone_says_why() {
+        let shell = FakeShell::prints("fatal: repository not found", 128);
+        let refused = run_clone(&shell, "build-box", &widget(), None, "/srv/w", None).await;
+        assert!(
+            matches!(refused, Err(ImportError::NotFound { .. })),
+            "{refused:?}"
+        );
     }
 }

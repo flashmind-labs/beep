@@ -4,21 +4,21 @@ use super::{ImportError, repo::RepoRef};
 
 /// What the server knows of a machine's folders.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Folders<'a> {
+pub struct Folders<'a> {
     /// `linux`, `macos` or `windows`; `None` before its first report.
-    pub(crate) os: Option<&'a str>,
-    pub(crate) home: Option<&'a str>,
+    pub os: Option<&'a str>,
+    pub home: Option<&'a str>,
     /// The user's files and code, on the user's own Linux environment.
-    pub(crate) workspace: Option<&'a str>,
+    pub workspace: Option<&'a str>,
 }
 
 /// `<workspace or home>/projects/<org>/<repo>` on Linux, else `~/Projects/<org>/<repo>`; `None` without a home.
-pub(crate) fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<String> {
+pub fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<String> {
     project_folder(folders, &[repo.org(), repo.name()])
 }
 
 /// `parts` under the machine's projects folder; `None` without a home.
-pub(super) fn project_folder(folders: Folders<'_>, parts: &[&str]) -> Option<String> {
+pub fn project_folder(folders: Folders<'_>, parts: &[&str]) -> Option<String> {
     let linux = match folders.os {
         Some(os) => os == "linux",
         // Only a Linux node runs with a workspace.
@@ -41,21 +41,18 @@ pub(super) fn project_folder(folders: Folders<'_>, parts: &[&str]) -> Option<Str
 
 /// What the chooser knows of one of the user's machines.
 #[derive(Debug)]
-pub(crate) struct Candidate<'a> {
-    pub(crate) id: &'a str,
-    pub(crate) name: &'a str,
-    pub(crate) online: bool,
+pub struct Candidate<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub online: bool,
     /// Online and runs commands.
-    pub(crate) shell: bool,
+    pub shell: bool,
     /// The user's environment, with a workspace.
-    pub(crate) workspace: bool,
+    pub workspace: bool,
 }
 
 /// The machine to import onto, by index: `wanted`, else the environment, else the only online one.
-pub(crate) fn choose(
-    candidates: &[Candidate<'_>],
-    wanted: Option<&str>,
-) -> Result<usize, ImportError> {
+pub fn choose(candidates: &[Candidate<'_>], wanted: Option<&str>) -> Result<usize, ImportError> {
     if let Some(id) = wanted.map(str::trim).filter(|id| !id.is_empty()) {
         let at = candidates
             .iter()
