@@ -16,6 +16,7 @@ use crate::{
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
+    lock,
     machine::env,
     machine::provision::Provision,
     machine::service::logs::Logs,
@@ -32,8 +33,8 @@ use beep_proto::{
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
-        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, harness::AgentSettings, link,
-        status, tool_update, tools, version,
+        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
+        harness::AgentSettings, link, status, tool_update, tools, version,
     },
 };
 use iroh::{
@@ -47,7 +48,10 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{
@@ -188,7 +192,7 @@ pub async fn serve(
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
-                offers.transfers = Some(transfers.clone());
+                offers.transfers.set(transfers.clone());
                 started = Some(transfers);
             }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
@@ -413,6 +417,21 @@ async fn connect_as(
         .await
 }
 
+/// The node's transfers, set once its services are up and read by whoever
+/// holds a copy of the offers.
+#[derive(Clone, Default)]
+pub(crate) struct Sharing(Arc<Mutex<Option<Transfers>>>);
+
+impl Sharing {
+    pub(crate) fn get(&self) -> Option<Transfers> {
+        lock(&self.0).clone()
+    }
+
+    pub(crate) fn set(&self, transfers: Transfers) {
+        *lock(&self.0) = Some(transfers);
+    }
+}
+
 /// What a node serves beside its shell.
 #[derive(Clone, Default)]
 pub struct Offers {
@@ -432,10 +451,26 @@ pub struct Offers {
     /// The mesh the node belongs to, once it does.
     pub(crate) mesh: Membership,
     /// The node's transfers and synced projects, when it shares folders.
-    pub(crate) transfers: Option<Transfers>,
+    /// Shared by every copy of the offers, so one made before the services
+    /// started sees them once they do.
+    pub(crate) transfers: Sharing,
+    /// Set while the host does not lend this machine to other devices: they
+    /// get its status, but no shell, task or screen.
+    pub(crate) withheld: Arc<AtomicBool>,
 }
 
 impl Offers {
+    /// Whether other devices of the mesh may use this machine's shell,
+    /// tasks and screen. On unless the host turned it off; what runs here for
+    /// the person at this machine is not affected.
+    pub fn lend_to_peers(&self, lent: bool) {
+        self.withheld.store(!lent, Ordering::Relaxed);
+    }
+
+    pub(crate) fn lends_to_peers(&self) -> bool {
+        !self.withheld.load(Ordering::Relaxed)
+    }
+
     /// What every node serves, the CLI and the Mac app alike: the coding
     /// agents found on the PATH (with `agents` from `node.toml`) and their
     /// sessions, and `provision`. A host adds its own protocols to `extra`.
@@ -449,7 +484,8 @@ impl Offers {
             tools: Upstream::new(has_server),
             traffic: Traffic::default(),
             mesh: Membership::default(),
-            transfers: None,
+            transfers: Sharing::default(),
+            withheld: Arc::default(),
         }
     }
 
@@ -817,6 +853,19 @@ pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
         .context("the session closed before its protocol")
 }
 
+/// Why a device of the mesh may not open `protocol` on a machine that does
+/// not lend itself to others, or `None`. Status stays open.
+pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
+    let shared = [
+        shell::PROTOCOL,
+        terminal::PROTOCOL,
+        tasks::PROTOCOL,
+        desktop::PROTOCOL,
+    ];
+    (!lent && shared.contains(&protocol))
+        .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
+}
+
 /// Serves a session stream that opened with `open`, if `who` may use it.
 pub(crate) async fn serve_open(
     mut tx: LinkTx,
@@ -850,7 +899,7 @@ pub(crate) async fn serve_open(
                 Who::Node { peer, desktop_here } => Caller {
                     table: tasks::Table::Peer(peer),
                     may_run_on_here: !desktop_here,
-                    transfers: offers.transfers.clone(),
+                    transfers: offers.transfers.get(),
                 },
             };
             peer_tools::serve(tx, rx, caller).await
@@ -908,6 +957,31 @@ pub(crate) fn changed(before: &EnvReport, now: &EnvReport) -> bool {
 mod tests {
     use super::*;
     use beep_proto::node::harness::HarnessConfig;
+
+    #[test]
+    fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(&[], Provision::new(dir.path()), false);
+        assert!(offers.lends_to_peers(), "lent until the host says not");
+        offers.lend_to_peers(false);
+        // Offers made earlier from this one share the setting.
+        let copy = offers.clone();
+        for protocol in ["shell/1", "terminal/1", "process/1", "desktop/1"] {
+            assert!(
+                withheld(protocol, copy.lends_to_peers()).is_some(),
+                "{protocol}"
+            );
+        }
+        for protocol in ["status/1", "version/1", "tools/1", "files/1"] {
+            assert_eq!(
+                withheld(protocol, copy.lends_to_peers()),
+                None,
+                "{protocol}"
+            );
+        }
+        offers.lend_to_peers(true);
+        assert_eq!(withheld("shell/1", copy.lends_to_peers()), None);
+    }
 
     /// A node with no mesh takes whatever the server pushes, as it always did.
     #[tokio::test]
@@ -1008,6 +1082,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_link_keeps_what_the_node_has() {
+        // Forgetting after the link clears the process-wide credentials.
+        let _env = crate::machine::provision::spawn_env::TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().expect("a temp folder");
         let (offers, mesh) = layered(dir.path()).await;
         let from_server = AgentSettings {

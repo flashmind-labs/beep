@@ -96,6 +96,11 @@ pub(super) fn walks(path: &str) -> bool {
         .is_some_and(|folder| folder == "pack" || (folder.len() == 2 && is_hex(folder)))
 }
 
+/// Whether `path` is the repository's config, which is rewritten on the way in.
+pub(super) fn is_config(path: &str) -> bool {
+    path == ".git/config"
+}
+
 pub(super) fn in_git(path: &str) -> bool {
     path.starts_with(PREFIX)
 }

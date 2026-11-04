@@ -8,17 +8,17 @@
 
 use crate::{
     files::transfer::Transfers,
-    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open},
+    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open, withheld},
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     machine::{env, stats},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream, SessionFn,
-    StreamHandler,
+    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream,
+    SessionFn, StreamHandler,
 };
-use beep_proto::node::{LinkRx, LinkTx, link, status::Report};
+use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, status::Report};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -29,6 +29,7 @@ use serde::de::IgnoredAny;
 use std::{
     collections::BTreeSet,
     fmt::Write,
+    future::Future,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -47,6 +48,8 @@ const SOCKET: &str = "mesh.sock";
 const JOIN: &str = "join ";
 /// The node answers one line per device, then `end`.
 const DEVICES: &str = "devices";
+/// `leave`; the node answers `left`, or `failed <why>`.
+const LEAVE: &str = "leave";
 
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -98,6 +101,13 @@ impl Inner {
             bail!("the node stopped");
         }
         let offers = self.offers().clone();
+        // The person at this machine is not held to the setting; a device of the mesh is.
+        if who.id() != self.endpoint.id()
+            && let Some(reason) = withheld(&open.protocol, offers.lends_to_peers())
+        {
+            let mut tx = tx;
+            return tx.send(&Opened::Refused { reason }).await;
+        }
         serve_open(tx, rx, open, offers, who).await
     }
 }
@@ -155,7 +165,7 @@ impl Peers {
         }
         let offers = self.inner.offers().clone();
         offers.mesh.clear();
-        if let Some(transfers) = &offers.transfers {
+        if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().unfollow();
         }
         self.inner
@@ -191,23 +201,53 @@ impl Peers {
     }
 
     /// Joins the mesh a desktop's ticket names. The ticket is read once and
-    /// never logged or put in an error.
+    /// never logged or put in an error. A node whose mesh removed it has no
+    /// mesh to keep and takes the new one in its place.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
         let ticket = JoinTicket::decode_string(ticket.trim())
             .map_err(|_| anyhow::anyhow!("that is not a join ticket"))?;
-        if self.is_member() {
+        let old = self.active().map(|active| active.mesh);
+        if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
         }
-        let mesh = Mesh::join(
-            &self.inner.dir,
-            self.inner.endpoint.clone(),
-            &ticket,
-            &self.inner.name,
-        )
-        .await
+        let mesh = match old {
+            Some(old) => {
+                self.leave().await;
+                close_within(old).await?;
+                Mesh::join_replacing_lone(
+                    &self.inner.dir,
+                    self.inner.endpoint.clone(),
+                    &ticket,
+                    &self.inner.name,
+                )
+                .await
+            }
+            None => {
+                Mesh::join(
+                    &self.inner.dir,
+                    self.inner.endpoint.clone(),
+                    &ticket,
+                    &self.inner.name,
+                )
+                .await
+            }
+        }
         .context("could not join")?;
         self.install(mesh);
         Ok(())
+    }
+
+    /// Leaves the mesh for good and deletes what it kept: the node is in none
+    /// after this, and can join another.
+    pub(crate) async fn forget(&self) -> Result<()> {
+        let old = self.active().map(|active| active.mesh);
+        self.leave().await;
+        if let Some(old) = old {
+            close_within(old).await?;
+        }
+        Mesh::forget(&self.inner.dir)
+            .await
+            .context("could not delete the mesh")
     }
 
     /// Whether this device is a desktop in the current device list.
@@ -218,8 +258,10 @@ impl Peers {
             .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop)
     }
 
+    /// Whether this device is in a mesh it was not removed from.
     pub fn is_member(&self) -> bool {
-        self.active().is_some()
+        self.active()
+            .is_some_and(|active| active.mesh.is_member(active.mesh.me()))
     }
 
     /// The mesh's devices, empty before the node joined.
@@ -260,7 +302,7 @@ impl Peers {
         };
         let offers = self.inner.offers().clone();
         offers.mesh.set(active.mesh.clone());
-        if let Some(transfers) = &offers.transfers {
+        if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().follow(active.mesh.clone());
         }
         let follow = from_mesh::follow(active.mesh, self.inner.endpoint.id(), offers);
@@ -269,7 +311,7 @@ impl Peers {
 
     /// The node's transfer and sync services started: the mesh drives them.
     pub fn serve_transfers(&self, transfers: Transfers) {
-        self.inner.offers().transfers = Some(transfers);
+        self.inner.offers().transfers.set(transfers);
         self.follow();
     }
 
@@ -371,9 +413,22 @@ impl ProtocolHandler for JoinAlpn {
 
 /// Serves `status/1`: the offers, then the machine's reports until the peer
 /// closes the stream.
-pub(crate) async fn status(mut tx: LinkTx, mut rx: LinkRx, offers: Offers) -> Result<()> {
+pub(crate) async fn status(tx: LinkTx, rx: LinkRx, offers: Offers) -> Result<()> {
+    status_with(tx, rx, offers, env::probe).await
+}
+
+/// `status` with the way to probe the machine given. A probe runs a dozen
+/// commands and can take half a minute: it runs beside the loop, so the
+/// peer's close and the stats and traffic reports are not held up by it.
+async fn status_with<P, F>(mut tx: LinkTx, mut rx: LinkRx, offers: Offers, probe: P) -> Result<()>
+where
+    P: Fn() -> F,
+    F: Future<Output = EnvReport> + Send + 'static,
+{
     tx.send(&Report::Offers(offers.names())).await?;
     let mut reprobe = interval(REPROBE);
+    reprobe.tick().await;
+    let mut probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
     let mut resample = interval(RESAMPLE);
     resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut traffic = interval(REPORT_TRAFFIC);
@@ -386,11 +441,18 @@ pub(crate) async fn status(mut tx: LinkTx, mut rx: LinkRx, offers: Offers) -> Re
                 gone?;
                 return Ok(());
             }
-            _ = reprobe.tick() => {
-                let now = env::probe().await;
-                if reported.as_ref().is_none_or(|before| changed(before, &now)) {
-                    tx.send(&Report::Env(now.clone())).await?;
-                    reported = Some(now);
+            _ = reprobe.tick(), if probing.is_none() => {
+                probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
+            }
+            Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
+                probing = None;
+                match probed {
+                    Ok(now) if reported.as_ref().is_none_or(|before| changed(before, &now)) => {
+                        tx.send(&Report::Env(now.clone())).await?;
+                        reported = Some(now);
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::warn!("probing the machine failed: {e}"),
                 }
             }
             _ = resample.tick() => {
@@ -398,6 +460,29 @@ pub(crate) async fn status(mut tx: LinkTx, mut rx: LinkRx, offers: Offers) -> Re
                 tx.send(&Report::Stats(stats::sample(folders).await)).await?;
             }
             _ = traffic.tick() => tx.send(&Report::Traffic(offers.traffic.report())).await?,
+        }
+    }
+}
+
+/// How long a close waits for the tasks that still hold the mesh to let go.
+const CLOSE_WAIT: Duration = Duration::from_secs(5);
+/// How often a close looks again while it waits.
+const CLOSE_POLL: Duration = Duration::from_millis(25);
+
+/// Closes `mesh`, trying again while a task that was just stopped still holds
+/// a handle, for at most `CLOSE_WAIT`.
+async fn close_within(mut mesh: Mesh) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + CLOSE_WAIT;
+    loop {
+        match mesh.close().await {
+            Ok(()) => return Ok(()),
+            Err(in_use) if tokio::time::Instant::now() >= deadline => {
+                bail!("{in_use}")
+            }
+            Err(InUse(back)) => {
+                mesh = back;
+                tokio::time::sleep(CLOSE_POLL).await;
+            }
         }
     }
 }
@@ -447,6 +532,14 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
             }
             Err(e) => format!("failed {e:#}\n"),
         }
+    } else if request == LEAVE {
+        match peers.forget().await {
+            Ok(()) => {
+                log::info!("left the mesh");
+                "left\n".to_owned()
+            }
+            Err(e) => format!("failed {e:#}\n"),
+        }
     } else if request == DEVICES {
         let mut out = String::new();
         for status in peers.devices() {
@@ -477,6 +570,17 @@ pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
     let lines = ask(dir, &format!("{JOIN}{}", ticket.trim())).await?;
     match lines.first().map(String::as_str) {
         Some("joined") => Ok(()),
+        Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
+        None => bail!("the node closed without answering"),
+    }
+}
+
+/// Has the node running from `dir` leave its mesh and delete what it kept.
+#[cfg(feature = "cli")]
+pub async fn leave(dir: &Path) -> Result<()> {
+    let lines = ask(dir, LEAVE).await?;
+    match lines.first().map(String::as_str) {
+        Some("left") => Ok(()),
         Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
         None => bail!("the node closed without answering"),
     }
@@ -584,6 +688,91 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[tokio::test]
+    async fn status_reports_and_ends_while_the_probe_is_still_running() {
+        use iroh::{SecretKey, endpoint::presets};
+        const ALPN: &[u8] = b"status-test";
+        let bind = || async {
+            Endpoint::builder(presets::Minimal)
+                .secret_key(SecretKey::generate())
+                .alpns(vec![ALPN.to_vec()])
+                .bind()
+                .await
+                .expect("the endpoint binds")
+        };
+        let (node, desktop) = (bind().await, bind().await);
+        let addr = node.addr();
+        let dialing = tokio::spawn({
+            let desktop = desktop.clone();
+            async move { desktop.connect(addr, ALPN).await }
+        });
+        let incoming = node.accept().await.expect("a connection comes");
+        let from_desktop = incoming.await.expect("it is accepted");
+        let to_node = dialing.await.expect("joined").expect("connected");
+
+        // The node serves status with a probe that never finishes.
+        let serving = tokio::spawn(async move {
+            let (send, recv) = from_desktop.open_bi().await.expect("a stream opens");
+            let (tx, rx) = link(send, recv);
+            status_with(tx, rx, Offers::default(), std::future::pending).await
+        });
+        let (send, recv) = to_node.accept_bi().await.expect("the stream arrives");
+        let (client_tx, mut reports) = link(send, recv);
+        let (mut stats, mut traffic) = (false, false);
+        timeout(Duration::from_secs(30), async {
+            while !(stats && traffic) {
+                match reports.recv::<Report>().await.expect("a report reads") {
+                    Some(Report::Stats(_)) => stats = true,
+                    Some(Report::Traffic(_)) => traffic = true,
+                    Some(Report::Env(_)) => panic!("the probe never finished"),
+                    Some(_) => {}
+                    None => panic!("the stream ended"),
+                }
+            }
+        })
+        .await
+        .expect("the reports came while the probe ran");
+        // The desktop leaving ends the stream without waiting for the probe.
+        drop(client_tx);
+        to_node.close(0u32.into(), b"done");
+        timeout(Duration::from_secs(30), serving)
+            .await
+            .expect("status ended with the peer")
+            .expect("the task joined")
+            .ok();
+    }
+
+    #[tokio::test]
+    async fn transfers_served_to_the_mesh_reach_the_offers_it_was_made_from() {
+        use crate::files::{Folders, syncthing::Syncthing};
+        use iroh::{SecretKey, endpoint::presets};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        let offers = Offers::default();
+        let peers = Peers::new(
+            endpoint.clone(),
+            dir.path().to_owned(),
+            "box".to_owned(),
+            offers.clone(),
+        );
+        let transfers = Transfers::start_with(
+            &endpoint,
+            &dir.path().join("blobs"),
+            Folders::new(&[]),
+            Syncthing::at(vec![dir.path().join("syncthing")], None),
+        )
+        .await
+        .expect("the transfers start");
+        peers.serve_transfers(transfers.clone());
+        // The host's own copy, which its agents' tools read, sees them too.
+        assert!(offers.transfers.get().is_some());
+        transfers.shutdown().await.expect("the transfers stop");
     }
 
     #[tokio::test]

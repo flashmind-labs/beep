@@ -159,6 +159,8 @@ impl Machine {
 
     /// Starts or stops the link to match the setting and the link state.
     pub fn sync(&self, beep: &Arc<Beep>) {
+        // Other devices of the mesh get a shell, tasks and the screen only while it is on.
+        self.home.offers.lend_to_peers(beep.use_mac());
         let mut task = self.task.lock().unwrap_or_else(PoisonError::into_inner);
         let wanted = beep.use_mac() && beep.linked();
         let running = task

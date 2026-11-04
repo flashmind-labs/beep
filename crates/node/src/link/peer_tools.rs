@@ -51,7 +51,7 @@ impl Caller {
         Self {
             table: Table::Shared,
             may_run_on_here: true,
-            transfers: offers.transfers.clone(),
+            transfers: offers.transfers.get(),
         }
     }
 }

@@ -134,6 +134,14 @@ impl Core {
         }
     }
 
+    /// Removes the mesh in `dir`, and one a swap left aside.
+    pub(crate) fn forget(dir: &Path) -> Result<(), MeshError> {
+        remove_if_present(&dir.join("mesh"))?;
+        remove_if_present(&dir.join(ASIDE))?;
+        sync_dir(dir)?;
+        Ok(())
+    }
+
     pub(crate) fn exists(dir: &Path) -> bool {
         dir.join("mesh").join("devices.bin").exists()
     }
