@@ -2213,7 +2213,21 @@ interface SplitItem {
 }
 
 /// A group of the list: its title, rows, and a note in place of rows.
-type SplitGroup = { title: string; items: SplitItem[]; note?: string };
+/// A list's label filter: the labels its items carry, the one picked, and
+/// what picking one does.
+type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
+type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter };
+
+/// The label each project's Issues list is filtered to, by project name.
+const issueLabel = new Map<string, string>();
+
+/// A label chip: a click filters its list to it, a second click clears it.
+function labelChip(label: string, f: LabelFilter, tag: "button" | "i") {
+  const c = h(tag, `pj-tag lab${label === f.on ? " on" : ""}`, label);
+  if (c instanceof HTMLButtonElement) c.type = "button";
+  c.addEventListener("click", e => { e.stopPropagation(); f.pick(label); });
+  return c;
+}
 
 /// The note of a code host list: why it could not be read, or that it reads.
 function hostNote(list: unknown[] | null | undefined, error: string, none: string) {
@@ -2268,7 +2282,15 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
   }));
-  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), items: issueItems });
+  const label = issueLabel.get(p.name);
+  groups.push({
+    title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."),
+    items: label ? issueItems.filter(i => i.tags?.includes(label)) : issueItems,
+    labels: { all: [...new Set(issueItems.flatMap(i => i.tags || []))].sort(), on: label, pick: l => {
+      if (issueLabel.get(p.name) === l) issueLabel.delete(p.name); else issueLabel.set(p.name, l);
+      redrawProjects();
+    } },
+  });
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
     { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
@@ -2292,8 +2314,10 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
   for (const g of groups) {
     if (g.title) list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
     if (g.note) list.append(h("div", "note", g.note));
+    const f = g.labels;
+    if (f?.all.length) list.append(h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))));
     for (const i of g.items) {
-      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => h("i", "pj-tag", l)))), h("span", "r", i.right));
+      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l)))), h("span", "r", i.right));
       row.type = "button";
       row.title = i.title;
       if (i.key === picked.key) row.setAttribute("aria-current", "true");

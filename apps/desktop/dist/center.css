@@ -436,6 +436,12 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* A label: a small neutral chip after a row's meta text and in the detail pane. */
 .pj-tag { display: inline-block; margin-left: 4px; padding: 0 6px; font-style: normal; font-size: 10px; line-height: 14px; vertical-align: 1px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 .pj-dh .meta .pj-tag { margin-left: 0 }
+/* Label chips above a list and on its rows: a click filters, the picked one lit. */
+.pj-labels { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 14px 6px }
+.pj-labels .pj-tag { margin-left: 0; font: inherit; font-size: 10px; line-height: 14px }
+.pj-tag.lab { cursor: pointer }
+.pj-tag.lab:hover { color: var(--fg) }
+.pj-tag.lab.on { color: var(--fg); border-color: var(--accent) }
 .pj-li .r { font-size: 11.5px; color: var(--muted); white-space: nowrap }
 .pj-det { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; scrollbar-width: thin }
 .pj-det > * { flex: none }
