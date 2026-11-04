@@ -15,9 +15,9 @@ use beep_fleet::{
 };
 use beep_proto::{
     Credential, FlshSettings, GetFlshSettings, ImportedProject, InstructionsVersion,
-    ListCredentials, ListHarnessSettings, ListImportedProjects, ListInstructionsVersions,
-    ListProjectGroups, ListProjectSync, ListProjectsOnTop, MachineHarnessSettings, ProjectGroup,
-    ProjectSync,
+    ListCredentials, ListDevices, ListHarnessSettings, ListImportedProjects,
+    ListInstructionsVersions, ListProjectGroups, ListProjectSync, ListProjectsOnTop,
+    MachineHarnessSettings, ProjectGroup, ProjectSync,
 };
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
