@@ -29,6 +29,7 @@ use beep_mesh::{
     },
     transport_config,
 };
+use beep_proto::client::bind_endpoint;
 use beep_proto::node::{
     agent::{DiffAsk, Event, Request},
     mesh_state::{StateValue, SyncSpec},
@@ -37,7 +38,6 @@ use beep_proto::node::{
     sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     terminal::{Reply as TermReply, Size},
 };
-use beep_proto::client::bind_endpoint;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 use iroh_tickets::Ticket;
 use std::{
@@ -78,7 +78,9 @@ fn key_in(dir: &Path) -> Result<SecretKey> {
     let file = dir.join("key");
     match fs::read(&file) {
         Ok(bytes) => {
-            let bytes: [u8; 32] = bytes.try_into().map_err(|_| anyhow!("key is not 32 bytes"))?;
+            let bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| anyhow!("key is not 32 bytes"))?;
             Ok(SecretKey::from_bytes(&bytes))
         }
         Err(_) => {
@@ -323,15 +325,17 @@ impl Driver {
                     landed.project, landed.machine_name, landed.folder, landed.cloned
                 );
                 for p in self.desk.imported().await {
-                    println!("  recorded: {} on {} {}", p.project, p.machine_name, p.folder);
+                    println!(
+                        "  recorded: {} on {} {}",
+                        p.project, p.machine_name, p.folder
+                    );
                 }
             }
             ["syncset", project, places @ ..] => {
                 let mut spec = SyncSpec::default();
                 for place in places {
                     let (name, folder) = place.split_once('=').context("name=folder")?;
-                    spec.folders
-                        .insert(self.id_of(name)?, folder.to_owned());
+                    spec.folders.insert(self.id_of(name)?, folder.to_owned());
                 }
                 self.mesh
                     .set(Key::Sync((*project).to_owned()), Some(spec.to_bytes()?))
@@ -368,7 +372,11 @@ impl Driver {
             }
             ["members"] => {
                 for d in self.mesh.devices() {
-                    println!("  {} {}", d.device.name, if d.online { "online" } else { "offline" });
+                    println!(
+                        "  {} {}",
+                        d.device.name,
+                        if d.online { "online" } else { "offline" }
+                    );
                 }
             }
             [] => {}
@@ -405,7 +413,9 @@ impl Driver {
                     return Ok(());
                 }
                 Some(Event::Refused { reason }) => bail!("refused: {reason}"),
-                Some(Event::State { state }) => println!("  state {:?} {}", state.status, state.summary),
+                Some(Event::State { state }) => {
+                    println!("  state {:?} {}", state.status, state.summary)
+                }
                 Some(_) => {}
                 None => bail!("stream closed"),
             }

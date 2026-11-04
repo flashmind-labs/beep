@@ -492,6 +492,7 @@ dependencies = [
  "chrono",
  "futures",
  "iroh",
+ "iroh-tickets",
  "log",
  "reqwest 0.12.28",
  "rmp-serde",
