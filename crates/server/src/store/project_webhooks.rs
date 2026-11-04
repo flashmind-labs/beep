@@ -3,6 +3,7 @@
 use super::Store;
 use crate::user::UserKey;
 use anyhow::{Context, Result};
+use sqlx::Row;
 use uuid::Uuid;
 
 /// A watch about to ask a node for a webhook.
@@ -14,6 +15,15 @@ pub(crate) struct NewWebhook<'a> {
     pub(crate) endpoint: &'a str,
     /// The webhook's secret, sealed.
     pub(crate) secret: &'a [u8],
+}
+
+/// The webhooks left on a repository the user has no project for any more.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OrphanWebhooks {
+    /// `IssueHost::stored`.
+    pub(crate) host: String,
+    pub(crate) repo: String,
+    pub(crate) hooks: Vec<u64>,
 }
 
 fn hook_id(hook: u64) -> Result<i64> {
@@ -75,6 +85,39 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Webhooks on repositories without a project of the user, by repository; rows of theirs
+    /// without a webhook go.
+    pub(crate) async fn orphan_webhooks(&self, user: &UserKey) -> Result<Vec<OrphanWebhooks>> {
+        const ORPHAN: &str = "user_id=$1 AND NOT EXISTS (
+            SELECT 1 FROM projects p WHERE p.user_id=$1 AND lower(p.name)=lower(repo))";
+        sqlx::query(&format!(
+            "DELETE FROM project_webhooks WHERE {ORPHAN} AND hook_id IS NULL"
+        ))
+        .bind(user.as_str())
+        .execute(&self.pool)
+        .await?;
+        let rows = sqlx::query(&format!(
+            "SELECT host, repo, array_agg(hook_id ORDER BY created_at) FROM project_webhooks
+             WHERE {ORPHAN} AND hook_id IS NOT NULL GROUP BY host, repo ORDER BY host, repo"
+        ))
+        .bind(user.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                let hooks: Vec<i64> = row.try_get(2)?;
+                Ok(OrphanWebhooks {
+                    host: row.try_get(0)?,
+                    repo: row.try_get(1)?,
+                    hooks: hooks
+                        .into_iter()
+                        .filter_map(|id| u64::try_from(id).ok())
+                        .collect(),
+                })
+            })
+            .collect()
     }
 
     /// The webhook `hook` on the repository is gone.

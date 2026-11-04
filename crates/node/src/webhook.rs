@@ -3,7 +3,8 @@
 //! open while it does. The node forwards that repository's webhook into its
 //! listener and passes each signed delivery's event on. When the session
 //! ends, however it ends, the node stops the forward and deletes the
-//! webhook it made, and no other.
+//! webhook it made, and no other. A watch that only removes ends once the
+//! old webhooks are gone.
 
 mod hosts;
 mod listener;
@@ -28,7 +29,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::timeout;
-use tokio_util::task::TaskTracker;
+use tokio_util::task::{TaskTracker, task_tracker::TaskTrackerToken};
 
 /// The most repositories one node watches at once.
 const MAX_WATCHES: usize = 16;
@@ -72,6 +73,17 @@ impl Webhooks {
                 cleanups: TaskTracker::new(),
             }),
         })
+    }
+
+    /// Waits up to `limit` for the webhooks of ended watches to be removed,
+    /// as when the node stops. One still there stays recorded on the server,
+    /// which has it removed at the next watch.
+    pub async fn finish(&self, limit: Duration) {
+        let cleanups = &self.inner.cleanups;
+        cleanups.close();
+        if timeout(limit, cleanups.wait()).await.is_err() {
+            log::warn!("{} webhooks Beep made were not removed", cleanups.len());
+        }
     }
 }
 
@@ -140,24 +152,21 @@ async fn serve(inner: Arc<Inner>, tx: LinkTx, mut rx: LinkRx) -> Result<()> {
             let host = GitHub::new(&watch.repo, token_var.as_deref());
             run(&inner, host, Reach::Loopback, &watch, secret, &mut server).await
         }
-        WatchHost::Forgejo { host } => match inner.listen {
-            Some(addr) => {
-                let host = Forgejo {
-                    repo: watch.repo.clone(),
-                    host: host.clone(),
-                };
-                run(
-                    &inner,
-                    host,
-                    Reach::Private(addr),
-                    &watch,
-                    secret,
-                    &mut server,
-                )
-                .await
-            }
-            None => polling(&mut server, Refusal::new(PollReason::NoAddress, "")).await,
-        },
+        WatchHost::Forgejo { host } => {
+            let host = Forgejo {
+                repo: watch.repo.clone(),
+                host: host.clone(),
+            };
+            // Removing needs no address to be reached on.
+            let reach = match inner.listen {
+                Some(addr) => Reach::Private(addr),
+                None if watch.remove_only => Reach::Loopback,
+                None => {
+                    return polling(&mut server, Refusal::new(PollReason::NoAddress, "")).await;
+                }
+            };
+            run(&inner, host, reach, &watch, secret, &mut server).await
+        }
         other => {
             let detail = format!("unknown host {other:?}");
             polling(&mut server, Refusal::new(PollReason::Failed, detail)).await
@@ -200,6 +209,9 @@ async fn run<H: HostApi>(
             Err(refusal) => log::info!("an old webhook was not removed: {}", refusal.detail),
         }
     }
+    if watch.remove_only {
+        return Ok(());
+    }
     let mut route = match inner.listeners.route(reach, secret.clone()).await {
         Ok(route) => route,
         Err(e) => {
@@ -215,7 +227,7 @@ async fn run<H: HostApi>(
     let mut cleanup = Cleanup {
         host: Some(host),
         hook,
-        tracker: inner.cleanups.clone(),
+        token: inner.cleanups.token(),
     };
     server.reply(&WatchReply::Live { hook }).await?;
     loop {
@@ -275,7 +287,9 @@ async fn forward_news(forward: &mut Option<Forward>) -> News {
 struct Cleanup<H: HostApi> {
     host: Option<Arc<H>>,
     hook: Option<u64>,
-    tracker: TaskTracker,
+    /// Held until the removal is spawned, so `Webhooks::finish` waits for
+    /// a watch being dropped too.
+    token: TaskTrackerToken,
 }
 
 impl<H: HostApi> Cleanup<H> {
@@ -293,7 +307,7 @@ impl<H: HostApi> Drop for Cleanup<H> {
             return;
         };
         // Bounded by `MAX_WATCHES` and by `CLEANUP_LIMIT`.
-        self.tracker.spawn(async move {
+        self.token.task_tracker().spawn(async move {
             remove(host.as_ref(), hook).await;
         });
     }

@@ -89,12 +89,13 @@ impl Server for FakeServer {
 
 const SECRET: &str = "per-hook-secret";
 
-fn watch(stale: &[u64]) -> Watch {
+fn watch(stale: &[u64], remove_only: bool) -> Watch {
     Watch {
         host: WatchHost::GitHub { token_var: None },
         repo: "acme/widget".into(),
         secret: SecretText::new(SECRET),
         stale: stale.to_vec(),
+        remove_only,
     }
 }
 
@@ -102,16 +103,19 @@ struct Running {
     replies: mpsc::UnboundedReceiver<WatchReply>,
     close: oneshot::Sender<()>,
     task: tokio::task::JoinHandle<Result<()>>,
-    inner: Arc<Inner>,
+    webhooks: Webhooks,
 }
 
 fn start(host: FakeHost, stale: &[u64]) -> Running {
-    let inner = Webhooks::new(None).expect("no address is fine").inner;
+    start_watch(host, watch(stale, false))
+}
+
+fn start_watch(host: FakeHost, watch: Watch) -> Running {
+    let webhooks = Webhooks::new(None).expect("no address is fine");
     let (tx, replies) = mpsc::unbounded_channel();
     let (close, closed) = oneshot::channel();
-    let watch = watch(stale);
     let task = {
-        let inner = inner.clone();
+        let inner = webhooks.inner.clone();
         tokio::spawn(async move {
             let mut server = FakeServer {
                 replies: tx,
@@ -125,7 +129,7 @@ fn start(host: FakeHost, stale: &[u64]) -> Running {
         replies,
         close,
         task,
-        inner,
+        webhooks,
     }
 }
 
@@ -189,12 +193,27 @@ async fn a_watch_cut_off_still_removes_its_webhook() {
         running.replies.recv().await,
         Some(WatchReply::Live { hook: Some(100) })
     );
-    // The connection to the server drops: the session is dropped mid-watch.
+    // The node stops: the session is dropped mid-watch, and the node
+    // waits for the removal before it exits, the abort not yet done.
     running.task.abort();
-    let _ = running.task.await;
-    running.inner.cleanups.close();
-    running.inner.cleanups.wait().await;
+    running.webhooks.finish(Duration::from_secs(5)).await;
     assert_eq!(host.hooks(), [1]);
+}
+
+#[tokio::test]
+async fn a_removed_project_has_its_old_webhooks_removed_and_no_new_one() {
+    let host = FakeHost::new(true, &[1, 3, 4]);
+    let mut running = start_watch(host.clone(), watch(&[3, 4], true));
+    for hook in [3, 4] {
+        assert_eq!(
+            running.replies.recv().await,
+            Some(WatchReply::Removed { hook })
+        );
+    }
+    running.task.await.expect("joins").expect("ends cleanly");
+    assert_eq!(running.replies.recv().await, None, "the session ended");
+    assert_eq!(host.hooks(), [1]);
+    assert!(host.state().url.is_none(), "no webhook made");
 }
 
 #[tokio::test]
