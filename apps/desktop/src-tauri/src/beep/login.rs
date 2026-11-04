@@ -8,8 +8,7 @@ use crate::{
     tray,
 };
 use beep_proto::{
-    ApiError, CompleteLogin, ListDevices, SecretText, StartLogin, link::LinkOffer,
-    urls::login_token,
+    ApiError, CompleteLogin, ListDevices, SecretText, StartLogin, link::LinkOffer, login_token,
 };
 use std::{sync::Arc, time::SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
