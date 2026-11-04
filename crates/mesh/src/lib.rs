@@ -17,8 +17,8 @@ pub use client::{
 };
 pub use devices::{Device, DeviceKind, DeviceOp, Devices, Merged, MeshError, WriteLimit};
 pub use mesh::{
-    DEFAULT_TICKET_TTL, DeviceStatus, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol, PEER_ALPN,
-    PeerStream, StreamHandler, transport_config,
+    DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,
+    PEER_ALPN, PeerStream, StreamHandler, transport_config,
 };
 pub use state::{Applied, Entry, Heads, Key, State};
 pub use ticket::{JoinSecret, JoinTicket};

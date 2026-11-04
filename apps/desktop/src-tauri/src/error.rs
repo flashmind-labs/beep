@@ -16,6 +16,7 @@ pub enum DesktopError {
     /// The mesh is not open: still opening, or it could not be.
     #[error("the mesh is not open: {0}")]
     NoMesh(String),
+    /// A mesh operation failed; the text is the mesh's own.
     #[error("{0}")]
     Mesh(#[from] beep_mesh::MeshError),
     /// A machine of the mesh that is not connected.

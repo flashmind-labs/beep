@@ -158,12 +158,20 @@ enum Slot {
 /// never come.
 pub struct Late {
     slot: watch::Sender<Slot>,
+    /// Connections waiting for the services; more are closed.
+    waiting: Arc<Semaphore>,
 }
+
+/// How many connections may wait for the services at once.
+const MAX_WAITING: usize = 16;
+/// How long a connection waits for the services before it is closed.
+const WAIT_LIMIT: Duration = Duration::from_secs(30);
 
 impl Default for Late {
     fn default() -> Self {
         Self {
             slot: watch::channel(Slot::Waiting).0,
+            waiting: Arc::new(Semaphore::new(MAX_WAITING)),
         }
     }
 }
@@ -172,6 +180,7 @@ impl Late {
     pub fn add_to(&self, router: RouterBuilder) -> RouterBuilder {
         let waiting = |blobs| Waiting {
             slot: self.slot.subscribe(),
+            waiting: self.waiting.clone(),
             blobs,
         };
         router
@@ -187,15 +196,22 @@ impl Late {
         });
     }
 
-    /// The services will not start.
+    /// The services will not start, unless they already have.
     pub fn fail(&self) {
-        self.slot.send_replace(Slot::Failed);
+        self.slot.send_if_modified(|slot| {
+            let waiting = matches!(slot, Slot::Waiting);
+            if waiting {
+                *slot = Slot::Failed;
+            }
+            waiting
+        });
     }
 }
 
 /// One of `Late`'s two protocols.
 struct Waiting {
     slot: watch::Receiver<Slot>,
+    waiting: Arc<Semaphore>,
     blobs: bool,
 }
 
@@ -208,13 +224,21 @@ impl std::fmt::Debug for Waiting {
 impl ProtocolHandler for Waiting {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let mut slot = self.slot.clone();
-        let ready = match slot.wait_for(|slot| !matches!(slot, Slot::Waiting)).await {
-            Ok(ready) => ready.clone(),
-            Err(_) => Slot::Failed,
+        // The permit is held while waiting, and no longer.
+        let ready = match self.waiting.clone().try_acquire_owned() {
+            Ok(_permit) => timeout(
+                WAIT_LIMIT,
+                slot.wait_for(|slot| !matches!(slot, Slot::Waiting)),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(|ready| ready.clone()),
+            Err(_) => None,
         };
         match ready {
-            Slot::Ready { blobs, .. } if self.blobs => blobs.accept(connection).await,
-            Slot::Ready { sync, .. } => sync.accept(connection).await,
+            Some(Slot::Ready { blobs, .. }) if self.blobs => blobs.accept(connection).await,
+            Some(Slot::Ready { sync, .. }) => sync.accept(connection).await,
             _ => {
                 connection.close(1u32.into(), b"not serving");
                 Ok(())

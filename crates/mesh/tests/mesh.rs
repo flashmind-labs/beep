@@ -2,8 +2,9 @@
 //! and outer timeouts; nothing sleeps.
 
 use beep_mesh::{
-    DEADLINE, DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, OPEN_TIMEOUT,
-    PEER_ALPN, PeerClient, PeerStream, SessionFn, StreamHandler, transport_config, with_deadline,
+    DEADLINE, DeviceKind, InUse, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol,
+    OPEN_TIMEOUT, PEER_ALPN, PeerClient, PeerStream, SessionFn, StreamHandler, transport_config,
+    with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
 use futures::StreamExt;
@@ -246,6 +247,28 @@ async fn a_swap_cut_short_leaves_the_old_mesh_or_the_new_one() {
         .expect("the new mesh stays");
     assert_eq!(opened.devices().len(), 1);
     assert!(!aside.exists());
+}
+
+#[tokio::test]
+async fn a_mesh_closes_once_it_is_the_only_handle_and_not_before() {
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("temp dir");
+    let mesh = Mesh::create(dir.path(), bind(&key).await, "a")
+        .await
+        .expect("created");
+    let held = mesh.clone();
+    let Err(InUse(mesh)) = mesh.close().await else {
+        panic!("closed with another handle alive");
+    };
+    assert_eq!(mesh.devices().len(), 1);
+    drop(held);
+    mesh.close().await.expect("the only handle closes");
+    // Its files are free: the directory opens again.
+    let again = Mesh::open(dir.path(), bind(&key).await)
+        .await
+        .expect("opens")
+        .expect("in a mesh");
+    assert_eq!(again.devices().len(), 1);
 }
 
 #[tokio::test]

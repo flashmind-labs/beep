@@ -16,9 +16,9 @@ use beep_proto::{
 };
 use iroh::{Endpoint, protocol::Router};
 use std::{
-    env,
+    env, mem,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
 /// The mesh in `dir`, or a new one with this Mac, a desktop, as its first
@@ -48,7 +48,29 @@ pub(super) const LATER: [&str; 5] = [
 pub(super) struct Serving {
     router: Router,
     late: Late,
-    transfers: Mutex<Option<Transfers>>,
+    services: Mutex<Services>,
+}
+
+/// The sync and transfer services: not started yet, running, or stopped for
+/// good, after which none starts.
+enum Services {
+    Waiting,
+    Running(Transfers),
+    Stopped,
+}
+
+/// Lets the sessions and connections waiting for the services go on, when
+/// starting them ends any way at all, a panic included.
+struct Settle<'a> {
+    late: &'a Late,
+    peers: &'a Peers,
+}
+
+impl Drop for Settle<'_> {
+    fn drop(&mut self) {
+        self.late.fail();
+        self.peers.settle();
+    }
 }
 
 impl Serving {
@@ -65,39 +87,51 @@ impl Serving {
         Self {
             router: late.add_to(router).spawn(),
             late,
-            transfers: Mutex::default(),
+            services: Mutex::new(Services::Waiting),
         }
     }
 
     /// Starts the node's transfer and sync services, as a node does. Those
     /// that cannot start are left out, and nothing waits for them.
     pub(super) async fn start_services(&self, endpoint: &Endpoint, dir: &Path, peers: &Peers) {
+        let _settle = Settle {
+            late: &self.late,
+            peers,
+        };
         // Sync follows the user's folders, wherever the projects are.
         let home: Vec<PathBuf> = env::var_os("HOME").map(Into::into).into_iter().collect();
         let folders = Folders::new(&home);
         if folders.is_empty() {
-            self.late.fail();
-        } else {
-            match Transfers::start_shared(endpoint, &dir.join("blobs"), folders.clone()).await {
-                Ok((transfers, served)) => {
-                    self.late.serve(served);
-                    peers.offer(Arc::new(transfers.syncs()));
-                    peers.offer(Arc::new(transfers.syncs().controls()));
-                    peers.offer(Arc::new(transfers.syncs().rescans()));
-                    peers.offer(Arc::new(transfers.clone()));
-                    *self
-                        .transfers
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner) = Some(transfers);
-                }
-                Err(e) => {
-                    log::warn!("not offering transfers: {e:#}");
-                    self.late.fail();
-                }
-            }
-            peers.offer(Arc::new(folders));
+            return;
         }
-        peers.settle();
+        match Transfers::start_shared(endpoint, &dir.join("blobs"), folders.clone()).await {
+            Ok((transfers, served)) => {
+                let mut services = self.services();
+                if matches!(*services, Services::Stopped) {
+                    // Stopped while starting: these never run.
+                    drop(services);
+                    if let Err(e) = transfers.shutdown().await {
+                        log::warn!("transfers did not stop cleanly: {e:#}");
+                    }
+                    return;
+                }
+                self.late.serve(served);
+                peers.offer(Arc::new(transfers.syncs()));
+                peers.offer(Arc::new(transfers.syncs().controls()));
+                peers.offer(Arc::new(transfers.syncs().rescans()));
+                peers.offer(Arc::new(transfers.clone()));
+                *services = Services::Running(transfers);
+            }
+            Err(e) => {
+                log::warn!("not offering transfers: {e:#}");
+                return;
+            }
+        }
+        peers.offer(Arc::new(folders));
+    }
+
+    fn services(&self) -> MutexGuard<'_, Services> {
+        self.services.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Stops the router, then the services, which save their state.
@@ -105,11 +139,11 @@ impl Serving {
         if let Err(e) = self.router.shutdown().await {
             log::warn!("the router did not stop cleanly: {e:#}");
         }
-        let transfers = self
-            .transfers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let services = mem::replace(&mut *self.services(), Services::Stopped);
+        let transfers = match services {
+            Services::Running(transfers) => Some(transfers),
+            Services::Waiting | Services::Stopped => None,
+        };
         if let Some(transfers) = transfers
             && let Err(e) = transfers.shutdown().await
         {
