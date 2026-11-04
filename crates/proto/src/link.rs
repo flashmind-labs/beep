@@ -16,6 +16,7 @@
 //! server. An app that scans one learns which server to connect to (see
 //! `LinkOffer::server`); the first account to connect owns that server.
 
+pub use crate::format_group_code as format_join_code;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroh::{EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
@@ -161,19 +162,9 @@ pub fn join_uri(code: &str) -> String {
 /// other text, such as a link offer.
 pub fn join_code(input: &str) -> Option<String> {
     let input = input.trim();
-    let input = input.strip_prefix(JOIN_SCHEME).unwrap_or(input);
-    let code: String = input
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != '-')
-        .map(|c| c.to_ascii_uppercase())
-        .collect();
+    let code = crate::urls::plain_code(input.strip_prefix(JOIN_SCHEME).unwrap_or(input));
     let valid = code.len() == 10 && code.bytes().all(|b| b.is_ascii_alphanumeric());
     valid.then_some(code)
-}
-
-/// `code` as people read it: `K7QM4-X9TRP`.
-pub fn format_join_code(code: &str) -> String {
-    crate::format_group_code(code)
 }
 
 fn check_name(name: &str) -> Result<(), LinkError> {

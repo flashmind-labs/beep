@@ -321,6 +321,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt.pj-where .nm > b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-mt.pj-where .nm.wide { grid-column: span 2 }
 .cc-mt.pj-where > .acts { flex-wrap: nowrap }
+.cc-mt.pj-where > :not(.th) { padding: 12px 14px }
+.cc-mt.pj-where > .th { padding-left: 14px; padding-right: 14px }
+.cc-mt.pj-where .nm { gap: 4px }
 
 /* One project: where it lives, its agents and its sessions. */
 .pv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px }
@@ -430,6 +433,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-li .lead { display: grid; place-items: center }
 .pj-li .lead svg { width: 18px; height: 18px }
 .pj-li .num { font-family: var(--mono); font-size: 11px; color: var(--muted) }
+.cc-line > .num { font-family: var(--mono); font-size: 11px; color: var(--muted); justify-self: center }
+.cc-line:has(> .num) { grid-template-columns: minmax(28px, max-content) minmax(0, 1fr) auto }
 .pj-li .t { display: grid; min-width: 0; line-height: 17px }
 .pj-li .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .pj-li .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

@@ -136,7 +136,7 @@ interface HitLike {
   id: string;
   title: string;
   detail: string;
-  top: boolean;
+  top?: boolean;
 }
 
 /// Whether hit `h` is about `project`: the project itself, one of its

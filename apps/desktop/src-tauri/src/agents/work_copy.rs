@@ -151,7 +151,7 @@ async fn is_here(folder: &Path, syncthing: &Syncthing) -> bool {
     let found = spawn_blocking(move || (at.is_absolute() && at.is_dir(), keeps(&at))).await;
     match found {
         Ok((true, true)) => true,
-        Ok((true, false)) => syncthing.managed(folder).await.is_some(),
+        Ok((true, false)) => syncthing.check(folder).await.is_some(),
         Ok((false, _)) => false,
         Err(e) => {
             log::warn!("could not look for a synced copy: {e}");

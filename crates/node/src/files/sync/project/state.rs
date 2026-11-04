@@ -7,7 +7,7 @@ use crate::files::sync::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     path::Path,
 };
@@ -39,6 +39,13 @@ pub(super) struct Saved {
     /// The folder it belongs to.
     #[serde(default)]
     pub(super) root: Option<RootId>,
+    /// The peers whose checkout was found fit to merge with (see
+    /// `Shared::first_contact`), by peer key.
+    #[serde(default)]
+    pub(super) matched: BTreeSet<String>,
+    /// A ref HEAD names moved, and the index is not rebuilt yet.
+    #[serde(default)]
+    pub(super) index_stale: bool,
 }
 
 pub(super) struct State {

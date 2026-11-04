@@ -392,8 +392,9 @@ pub(crate) async fn project_machines(
             }
         })
         .collect();
-    let stale = checks::stale(&rows, &listed, Utc::now());
-    let Page { machines, to_check } = checks::machines(&rows, &listed);
+    let now = Utc::now();
+    let stale = checks::stale(&rows, &listed, now);
+    let Page { machines, to_check } = checks::machines(&rows, &listed, now);
     app.checkouts.check_all(app, user, &to_check);
     app.checkouts.check_all(app, user, &stale);
     Ok(Some(machines))

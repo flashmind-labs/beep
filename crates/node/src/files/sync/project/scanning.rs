@@ -3,6 +3,7 @@
 use super::{list::record, state::Seen, task::Task};
 use crate::files::sync::{
     disk::{self, Found as OnDisk, same},
+    gitdir::{self, Repo},
     root::{self, Checked, RootId},
     rules::{MARKER, Rules},
     scan,
@@ -41,7 +42,23 @@ impl Task {
             let root = root.clone();
             spawn_blocking(move || Rules::load(&root)).await??
         };
+        let syncs_git = rules.syncs_git();
         *write_lock(&self.shared.rules) = rules;
+        // Before the walk: git writes objects before the refs that name
+        // them, so the walk finds every object these refs need.
+        let repo = {
+            let root = root.clone();
+            spawn_blocking(move || {
+                Repo::open(&root)
+                    .filter(|_| syncs_git)
+                    .map(|repo| repo.refs())
+                    .transpose()
+            })
+            .await??
+        };
+        // No repository to read: its files missing are not deletes.
+        let repo_gone = repo.is_none();
+        let refs = repo.unwrap_or_default();
         let walked = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
             spawn_blocking(move || {
@@ -90,8 +107,27 @@ impl Task {
                 Err(e) => log::debug!("{}: {e:#}", self.shared.name),
             }
         }
+        {
+            let state = self.shared.lock();
+            for now in &refs {
+                let prior = state.saved.seen.get(&now.found.path).cloned();
+                if prior
+                    .as_ref()
+                    .is_none_or(|prior| prior.hash != *now.oid.as_bytes())
+                {
+                    hashed.push((&now.found, *now.oid.as_bytes(), prior));
+                }
+            }
+        }
+        // HEAD last: a peer applying part of the list finds what it names.
+        hashed.sort_by_key(|(found, ..)| gitdir::kind(&found.path) == Some(gitdir::Kind::Head));
         let first = self.first;
-        let kept: HashSet<&str> = walked.files.iter().map(|f| f.path.as_str()).collect();
+        let kept: HashSet<&str> = walked
+            .files
+            .iter()
+            .chain(refs.iter().map(|now| &now.found))
+            .map(|f| f.path.as_str())
+            .collect();
         let (gone, seen_count): (Vec<String>, usize) = {
             let state = self.shared.lock();
             let gone = state
@@ -110,7 +146,13 @@ impl Task {
             spawn_blocking(move || {
                 gone.into_iter()
                     .map(|path| {
-                        let missing = matches!(disk::look(&root, &path), Ok(OnDisk::Missing));
+                        let missing = if gitdir::in_git(&path) && repo_gone {
+                            false
+                        } else if gitdir::is_ref(&path) {
+                            true
+                        } else {
+                            matches!(disk::look(&root, &path), Ok(OnDisk::Missing))
+                        };
                         (path, missing)
                     })
                     .collect::<Vec<_>>()
@@ -201,7 +243,10 @@ impl Task {
             let root = self.shared.root.clone();
             spawn_blocking(move || {
                 held.into_iter()
-                    .filter(|path| matches!(disk::look(&root, path), Ok(OnDisk::Missing)))
+                    .filter(|path| {
+                        gitdir::is_ref(path)
+                            || matches!(disk::look(&root, path), Ok(OnDisk::Missing))
+                    })
                     .collect::<Vec<_>>()
             })
             .await?

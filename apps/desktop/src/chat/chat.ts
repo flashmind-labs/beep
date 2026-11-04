@@ -586,9 +586,9 @@ export async function watchRun(id: string | null) {
   try {
     const runId = await invoke<string | null>("active_run", { session: id }).catch(() => null);
     if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;
-    // The prompt is already drawn from the server's copy, waiting for its reply.
+    // The prompt or a turn's line is already drawn from the server's copy, waiting for its reply.
     const last = [...body()!.querySelectorAll<Turn>(".turn")].at(-1);
-    const turn = last?.user && !last.done ? last : newTurn("");
+    const turn = last && !last.done && (last.user || last.querySelector(":scope > .dsystem")) ? last : newTurn("");
     turn.steps ??= [];
     startRun(id, turn, runId);
     refreshHints();

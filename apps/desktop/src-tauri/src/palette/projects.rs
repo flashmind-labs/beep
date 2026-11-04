@@ -1,13 +1,13 @@
 //! Projects and coding-agent sessions for the palette: imported projects,
-//! the board's, and the folders agents worked in, found once each.
+//! the board's, and the folders agents worked in, listed once each.
 
 use super::{
+    index::{Entry, HitKind},
     lists::PaletteLists,
-    rank::{Hit, HitKind, PER_KIND, Tier, best, tier},
 };
 use crate::agents::sessions::SessionRow;
 use beep_proto::{ImportedProject, MachineSession};
-use std::{cmp::Reverse, collections::HashSet, time::SystemTime};
+use std::{cmp::Reverse, collections::HashSet};
 
 /// The harness's name as the app shows it, such as "Claude Code".
 fn harness_name(agent: &str) -> &str {
@@ -57,12 +57,8 @@ struct FolderRow<'a> {
 /// Projects by name, once each: imported ones, then the board's, then the
 /// folders coding agents worked in. A folder named like a listed
 /// project's repo is that project.
-pub(super) fn project_hits(
-    query: &str,
-    lists: &PaletteLists,
-    imported: &[ImportedProject],
-) -> Vec<(Tier, Hit)> {
-    let mut hits = Vec::new();
+pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]) -> Vec<Entry> {
+    let mut entries = Vec::new();
     let mut names: HashSet<&str> = HashSet::new();
     let mut repos: HashSet<String> = HashSet::new();
     for p in imported {
@@ -71,13 +67,13 @@ pub(super) fn project_hits(
             continue;
         }
         repos.insert(last_part(&p.project).unwrap_or(&p.project).to_lowercase());
-        let Some(tier) = tier(query, &p.project) else {
-            continue;
-        };
-        let (id, name) = (p.project.clone(), p.project.clone());
-        hits.push((
-            tier,
-            Hit::new(HitKind::Project, id, name, p.machine_name.clone()),
+        let (id, name, machine) = (p.project.clone(), p.project.clone(), p.machine_name.clone());
+        entries.push(Entry::new(
+            HitKind::Project,
+            id,
+            name,
+            machine,
+            &[&p.project],
         ));
     }
     for b in lists.boards.iter().flatten() {
@@ -85,12 +81,15 @@ pub(super) fn project_hits(
             continue;
         }
         repos.insert(last_part(&b.name).unwrap_or(&b.name).to_lowercase());
-        let Some(tier) = tier(query, &b.name) else {
-            continue;
-        };
         let detail = "Project chat · not imported".to_owned();
         let (id, name) = (b.chat_id.to_string(), b.name.clone());
-        hits.push((tier, Hit::new(HitKind::ProjectChat, id, name, detail)));
+        entries.push(Entry::new(
+            HitKind::ProjectChat,
+            id,
+            name,
+            detail,
+            &[&b.name],
+        ));
     }
     let mut folders: Vec<FolderRow> = Vec::new();
     for s in lists.sessions.iter().flatten() {
@@ -118,9 +117,6 @@ pub(super) fn project_hits(
         }
     }
     for f in folders {
-        let Some(tier) = tier(query, f.name) else {
-            continue;
-        };
         let count = if f.sessions == 1 {
             "1 session".to_owned()
         } else {
@@ -128,30 +124,25 @@ pub(super) fn project_hits(
         };
         let detail = format!("Not imported · {count} · {}", f.machines.join(", "));
         let name = f.name.to_owned();
-        hits.push((tier, Hit::new(HitKind::Folder, name.clone(), name, detail)));
+        entries.push(Entry::new(
+            HitKind::Folder,
+            name.clone(),
+            name,
+            detail,
+            &[f.name],
+        ));
     }
-    best(hits)
+    entries
 }
 
-/// A session that matched, and when it last moved.
-struct FoundSession {
-    tier: Tier,
-    at: SystemTime,
-    hit: Hit,
-}
-
-/// Coding-agent sessions found by title, project, harness or machine,
-/// the best match first, then the one that moved last.
-pub(super) fn session_hits(
-    query: &str,
-    lists: &PaletteLists,
-    imported: &[ImportedProject],
-) -> Vec<(Tier, Hit)> {
-    let mut found: Vec<FoundSession> = lists
-        .sessions
-        .iter()
-        .flatten()
-        .filter_map(|s| {
+/// Coding-agent sessions, the one that moved last first, found by title,
+/// project, harness or machine.
+pub(super) fn session_entries(lists: &PaletteLists, imported: &[ImportedProject]) -> Vec<Entry> {
+    let mut sessions: Vec<&MachineSession> = lists.sessions.iter().flatten().collect();
+    sessions.sort_by_key(|s| Reverse(s.last_activity));
+    sessions
+        .into_iter()
+        .map(|s| {
             let project = session_project(s, imported);
             let harness = harness_name(&s.agent);
             let title = s
@@ -160,7 +151,7 @@ pub(super) fn session_hits(
                 .filter(|t| !t.trim().is_empty())
                 .or(project)
                 .unwrap_or(harness);
-            let tier = [
+            let keys: Vec<&str> = [
                 Some(title),
                 project,
                 Some(harness),
@@ -169,8 +160,7 @@ pub(super) fn session_hits(
             ]
             .into_iter()
             .flatten()
-            .filter_map(|text| tier(query, text))
-            .min()?;
+            .collect();
             let detail = [Some(harness), project, Some(s.machine_name.as_str())]
                 .into_iter()
                 .flatten()
@@ -178,19 +168,9 @@ pub(super) fn session_hits(
                 .collect::<Vec<_>>()
                 .join(" · ");
             let id = format!("{} {}", s.machine_id, s.id);
-            let mut hit = Hit::new(HitKind::AgentSession, id, title.to_owned(), detail);
-            hit.session = Some(SessionRow::from(s.clone()));
-            Some(FoundSession {
-                tier,
-                at: s.last_activity,
-                hit,
-            })
+            let mut entry = Entry::new(HitKind::AgentSession, id, title.to_owned(), detail, &keys);
+            entry.session = Some(SessionRow::from(s.clone()));
+            entry
         })
-        .collect();
-    found.sort_by_key(|f| (f.tier, Reverse(f.at)));
-    found
-        .into_iter()
-        .take(PER_KIND)
-        .map(|f| (f.tier, f.hit))
         .collect()
 }
