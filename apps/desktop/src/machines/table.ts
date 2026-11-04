@@ -75,7 +75,7 @@ function readSyncDetails() {
 function projectRow(p: MachineProject) {
   let right: HTMLElement;
   if (p.pct == null) {
-    right = h("span", `pb-chip${p.chip.wait ? " wait" : ""}`, p.chip.text);
+    right = h("span", `chip${p.chip.wait ? " wait" : ""}`, p.chip.text);
   } else {
     const fill = h("i");
     fill.style.width = `${p.pct}%`;

@@ -297,7 +297,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     const chip = stateChip(m);
     const pct = m.paused ? null : syncPct(m);
     const head = h("div", "fs-h", h("span", `ddot${m.status === "offline" ? " off" : ""}`), h("b", "", m.machine_name),
-      h("span", `pb-chip${chip.wait ? " wait" : ""}`, chip.text));
+      h("span", `chip${chip.wait ? " wait" : ""}`, chip.text));
     const bar = pct == null ? null : h("div", "fs-bar", h("i", ""));
     if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
     const meta = h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)), m.folder ? h("code", "", m.folder) : null);

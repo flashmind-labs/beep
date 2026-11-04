@@ -57,7 +57,7 @@ export function freshNote(f: Freshness) {
 /// A state chip such as "running" or "needs reply"; `cls` colours it, and
 /// `spin` puts a spinner before the text.
 export function stateChip(cls: string, text: string, spin = false) {
-  return el("span", cls ? `pj-st ${cls}` : "pj-st", spin ? el("span", "dspin") : null, text);
+  return el("span", cls ? `chip ${cls}` : "chip", spin ? el("span", "dspin") : null, text);
 }
 
 /// A segmented control: one button per option, the `current` one pressed.
