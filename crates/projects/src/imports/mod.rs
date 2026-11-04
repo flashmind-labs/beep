@@ -3,6 +3,7 @@
 pub mod clone;
 mod error;
 pub mod folder;
+pub mod fork;
 pub mod host_repos;
 pub mod place;
 pub mod repo;

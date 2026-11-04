@@ -8,7 +8,8 @@ use crate::{
 };
 use beep_projects::imports::clone;
 use beep_projects::imports::{
-    clone::{Link, NewRemote, UsedFork},
+    clone::{Link, NewRemote},
+    fork::UsedFork,
     repo::{Host, RepoRef},
 };
 use secrecy::{ExposeSecret, SecretString};
