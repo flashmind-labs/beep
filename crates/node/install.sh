@@ -150,10 +150,10 @@ main() {
     fi
 
     say ""
-    say "Next, open Add a machine in Beep and run"
-    say "  beep-node setup <token>"
-    say "with the token it shows. It links this machine and starts beep-node"
-    say "in the background."
+    say "Next, open Add a machine in the Beep desktop app and run"
+    say "  beep-node mesh join <ticket>"
+    say "with the ticket it shows. It also starts beep-node in the background."
+    say "(beep-node setup <token> is the older way, for linking to a server account.)"
 }
 
 main "$@"
