@@ -10,6 +10,12 @@ pub enum DesktopError {
     Unlinked,
     #[error("this computer was removed from the account")]
     Revoked,
+    /// A call that only a server answers, made with none.
+    #[error("no server")]
+    NoServer,
+    /// A machine of the mesh that is not connected.
+    #[error("{0} is offline")]
+    Offline(String),
     #[error("{0}")]
     BadRequest(String),
     #[error("{0:#}")]

@@ -714,7 +714,17 @@ pub(crate) async fn session(
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    let (mut tx, mut rx) = link(send, recv);
+    let (tx, rx) = link(send, recv);
+    session_over(tx, rx, offers, who).await
+}
+
+/// `session` on a stream already framed: a peer's, or one in this process.
+pub(crate) async fn session_over(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    offers: Offers,
+    who: Who,
+) -> Result<()> {
     let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
         .await
         .context("the session did not say its protocol")??
