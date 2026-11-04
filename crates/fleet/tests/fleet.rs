@@ -469,6 +469,11 @@ async fn issues_and_pull_requests_read_with_no_server() {
     assert_eq!(prs.len(), 1);
     assert_eq!(prs[0].number, 9);
     assert!(prs[0].mine);
+    let lists = laptop.lists("acme/widget").await.expect("lists read");
+    assert_eq!(lists.lists.pull_requests.len(), 1);
+    assert_eq!(lists.pr_labels, [Vec::<String>::new()]);
+    assert_eq!(lists.lists.issues.len(), 1);
+    assert!(lists.lists.prs_error.is_none() && lists.lists.issues_error.is_none());
     let head = laptop.pr_head("acme/widget", 9).await.expect("a head");
     assert_eq!(head.branch, "fix-save");
     assert!(!head.fork);
