@@ -37,7 +37,6 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::task::AbortOnDropHandle;
-use uuid::Uuid;
 
 pub(crate) mod calls;
 mod catalog;
@@ -90,15 +89,12 @@ pub struct Launch {
 impl Launch {
     /// Sessions run `exe mcp` against the node in `dir`.
     pub fn new(exe: PathBuf, dir: PathBuf) -> Self {
-        let mut key = [0; 32];
-        key[..16].copy_from_slice(Uuid::new_v4().as_bytes());
-        key[16..].copy_from_slice(Uuid::new_v4().as_bytes());
         let socket = socket::path_for(&dir);
         Self {
             exe,
             dir,
             socket,
-            key,
+            key: rand::random(),
         }
     }
 
