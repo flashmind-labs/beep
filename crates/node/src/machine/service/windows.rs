@@ -55,6 +55,10 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
+pub(super) fn start() -> Result<()> {
+    run("schtasks", &["/Run", "/TN", TASK])
+}
+
 pub(super) fn restart() -> Result<()> {
     // Ending the task ends conhost, and the node with it (`--with-parent`).
     end();

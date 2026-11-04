@@ -323,14 +323,23 @@ async fn main() -> Result<()> {
                 // as `setup` does, before the ticket is sent.
                 if !peers::is_running(&dir) {
                     // A service for another folder is not replaced.
-                    service::ensure_joinable(&dir)?;
+                    let action = service::join_action(&dir)?;
                     // The service needs the folder and the key to exist.
                     state::State::load_or_start(&dir, &setup::host_name().await)?;
-                    let described = in_background(&dir, cli.workspace.as_deref()).context(
-                        "no node is running and the service could not be started; run \
-                         `beep-node run` in another terminal, then join again",
-                    )?;
-                    println!("{described}");
+                    let failed = "no node is running and the service could not be started; run \
+                         `beep-node run` in another terminal, then join again";
+                    match action {
+                        service::Action::Install => {
+                            let described =
+                                in_background(&dir, cli.workspace.as_deref()).context(failed)?;
+                            println!("{described}");
+                        }
+                        // Its unit stays as it is, with its own workspace.
+                        service::Action::Start => {
+                            let manager = service::start().context(failed)?;
+                            println!("Started the stopped {manager:?} service.");
+                        }
+                    }
                 }
                 peers::join_when_up(&dir, &ticket, peers::START_LIMIT).await?;
                 if let Some(search) = &search {

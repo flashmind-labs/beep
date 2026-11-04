@@ -10,6 +10,7 @@ use std::{
 };
 
 mod existing;
+pub use existing::Action;
 mod launchd;
 pub mod logs;
 #[cfg(windows)]
@@ -279,14 +280,26 @@ impl Manager {
     }
 }
 
-/// Fails when a service for another folder than `dir` is installed, so a
-/// join there does not replace it. Nothing is changed. Where no service
-/// manager is usable there is nothing to replace.
-pub fn ensure_joinable(dir: &Path) -> Result<()> {
+/// What a join into `dir` does about the service. Fails when one for
+/// another folder is installed, so a join there does not replace it.
+/// Nothing is changed. Where no service manager is usable there is nothing
+/// to replace.
+pub fn join_action(dir: &Path) -> Result<Action> {
     let Ok(manager) = manager() else {
-        return Ok(());
+        return Ok(Action::Install);
     };
     existing::decide(&existing::installed(manager)?, dir)
+}
+
+/// Starts the installed service without rewriting it.
+pub fn start() -> Result<Manager> {
+    let manager = manager()?;
+    match manager {
+        Manager::Systemd => systemd::start()?,
+        Manager::Launchd => launchd::start()?,
+        Manager::TaskScheduler => windows::start()?,
+    }
+    Ok(manager)
 }
 
 /// `beep-node service install`.
