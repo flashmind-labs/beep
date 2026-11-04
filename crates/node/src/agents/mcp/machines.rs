@@ -18,7 +18,7 @@ use beep_proto::node::{
     EnvReport, LinkRx, LinkTx, Open, Opened, link,
     mesh_state::{StateValue, SyncSpec},
     status::{self, Report},
-    tools::{PROTOCOL, Reply, Request, Tool},
+    tools::{Approved, PROTOCOL, Reply, Request, Tool},
     transfer::Reply as TransferReply,
 };
 use iroh::EndpointId;
@@ -175,7 +175,33 @@ pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -
     if listed(&text).contains(&name) {
         return None;
     }
+    // The server cannot ask about a machine it lacks, so a send its rules
+    // would ask about fails closed, as with the link down. A run or a log
+    // read goes direct.
+    if request.tool == Tool::SendFiles {
+        let probe = Request {
+            approved: Approved::No,
+            ..request.clone()
+        };
+        if let Ok(reply) = offers.tools.call(&probe).await
+            && let Some(refusal) = ask_refusal(&reply)
+        {
+            return Some(refusal);
+        }
+    }
     Some(to_target(offers, mesh, &target, request, &args).await)
+}
+
+/// The refusal for a send the server answered with an approval card: the
+/// card cannot be shown for a machine the server does not know.
+fn ask_refusal(server: &Reply) -> Option<Reply> {
+    matches!(server, Reply::Ask { .. }).then(|| {
+        done(
+            "send_files needs the user's approval, and the server cannot ask it for a machine \
+             it does not know. Ask the user to allow Your machines in Beep, then try again.",
+            true,
+        )
+    })
 }
 
 /// The most paths one `send_files` call takes.
@@ -677,6 +703,23 @@ mod tests {
         for tool in [Tool::JobStatus, Tool::Cancel, Tool::SyncProject] {
             assert_eq!(route(tool, true, true), Route::Direct, "{tool:?}");
         }
+    }
+
+    #[test]
+    fn a_send_the_server_would_ask_about_fails_closed() {
+        let ask = Reply::Ask {
+            app: "Your machines".to_owned(),
+            action: "send files".to_owned(),
+            fields: Vec::new(),
+        };
+        let refusal = ask_refusal(&ask).expect("refused");
+        assert!(
+            matches!(refusal, Reply::Done { failed: true, .. }),
+            "{refusal:?}"
+        );
+        // Allowed, or refused by the server's own words: nothing to add.
+        assert!(ask_refusal(&done("No such machine.", true)).is_none());
+        assert!(ask_refusal(&done("Sent.", false)).is_none());
     }
 
     fn mesh_line(name: &str) -> Line {
