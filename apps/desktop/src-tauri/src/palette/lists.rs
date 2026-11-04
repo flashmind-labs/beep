@@ -252,12 +252,13 @@ async fn read_lists(app: &AppHandle, beep: &Arc<Beep>) {
 
 async fn read_server_lists(app: &AppHandle, beep: &Beep) {
     let session = app.state::<Arc<FleetSession>>();
+    let fleet = app.state::<Arc<Fleet>>();
     let (memories, routines, listed, boards, imported) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListImportedProjects {}),
         beep.call(ListProjects {}),
-        mesh_imports(&app.state::<Arc<Fleet>>(), &session),
+        mesh_imports(&fleet, &session),
     );
     let memories = section("memories", memories);
     let routines = section("routines", routines);
