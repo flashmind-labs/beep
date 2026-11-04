@@ -127,7 +127,7 @@ pub(super) fn merge_peer(map: &mut Map, entries: &[Entry]) -> Merged {
 /// makes git see it; objects before the refs that name them; a new HEAD
 /// before refs (git needs one to take them), a changing HEAD after the ref it
 /// may name, and refs removed last, once HEAD left them.
-fn turn(work: &Work) -> u8 {
+pub(super) fn turn(work: &Work) -> u8 {
     match gitdir::kind(&work.path) {
         Some(Kind::Object) if work.path.ends_with(".idx") => 1,
         Some(Kind::Object) => 0,

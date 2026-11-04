@@ -41,6 +41,15 @@ impl Dir {
         })
     }
 
+    /// Flushes everything written to this folder's disk, at one flush however
+    /// many files. Where there is no such call this does nothing, and each
+    /// file is flushed on its own instead.
+    pub(crate) fn sync_disk(&self) -> io::Result<()> {
+        #[cfg(target_os = "linux")]
+        rustix::fs::syncfs(&self.fd)?;
+        Ok(())
+    }
+
     pub(crate) fn try_clone(&self) -> io::Result<Self> {
         Ok(Self {
             fd: self.fd.try_clone()?,

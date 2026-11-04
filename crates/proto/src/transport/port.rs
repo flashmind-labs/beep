@@ -2,7 +2,7 @@
 
 use iroh::{
     Endpoint,
-    endpoint::{BindError, BindOpts, Builder},
+    endpoint::{BindError, BindOpts, Builder, QuicTransportConfig, QuicTransportConfigBuilder},
 };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -11,6 +11,16 @@ pub const NODE_PORT: u16 = 47120;
 /// The UDP port the server binds unless its config names another; not the
 /// node's, since a node often runs beside it.
 pub const SERVER_PORT: u16 = 47121;
+
+/// The transport of everything that stays connected. It sends each datagram on
+/// its own: on a network card without checksum offload, batches fail. The socket
+/// notices at the first one, but iroh gives each connection the batch size as it
+/// was when the connection was made, so every older one goes on sending batches
+/// that are dropped without a word. Anything larger than a datagram then waits
+/// for retries, for seconds or minutes on a connection that looks healthy.
+pub fn transport() -> QuicTransportConfigBuilder {
+    QuicTransportConfig::builder().enable_segmentation_offload(false)
+}
 
 /// Binds the endpoint `builder` makes on UDP `port`, IPv4 and, where the
 /// machine has it, IPv6. A port that is taken gets a warning and a random

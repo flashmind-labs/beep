@@ -62,7 +62,7 @@ impl Backoff {
 /// The transport the link connects with: pinged when idle, given up on
 /// after `IDLE_MS` of silence.
 pub(crate) fn transport() -> QuicTransportConfig {
-    QuicTransportConfig::builder()
+    beep_proto::port::transport()
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(IDLE_MS))))
         .build()

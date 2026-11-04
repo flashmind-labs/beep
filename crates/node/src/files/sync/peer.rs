@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc, time::Duration};
 use tokio::{
     task::JoinSet,
-    time::{sleep, timeout},
+    time::{Instant, sleep, timeout},
 };
 
 /// `beep-sync/1` nodes leave `.git` and tracked files out and would write
@@ -178,7 +178,7 @@ pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: Endpoint
     let mut wait = FIRST_RETRY;
     loop {
         let pulled = tokio::select! {
-            pulled = pull_once(&shared, &endpoint, &peer) => pulled,
+            pulled = pull_once(&shared, &endpoint, &peer, &mut wait) => pulled,
             () = shared.stopped() => return,
         };
         match pulled {
@@ -193,7 +193,13 @@ pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: Endpoint
     }
 }
 
-async fn pull_once(shared: &Shared, endpoint: &Endpoint, peer: &EndpointAddr) -> Result<()> {
+async fn pull_once(
+    shared: &Shared,
+    endpoint: &Endpoint,
+    peer: &EndpointAddr,
+    wait: &mut Duration,
+) -> Result<()> {
+    let started = Instant::now();
     let connection = timeout(CONNECT_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
         .await
         .context("could not reach the peer in time")??;
@@ -208,7 +214,17 @@ async fn pull_once(shared: &Shared, endpoint: &Endpoint, peer: &EndpointAddr) ->
     .await?;
     while let Some(reply) = rx.recv::<Reply>().await? {
         match reply {
-            Reply::Head { commit } => shared.first_contact(&peer.id, commit).await?,
+            Reply::Head { commit } => {
+                // A connection that worked: losing it is no reason to wait long.
+                *wait = FIRST_RETRY;
+                log::debug!(
+                    "{}: {} answered {:?} after dialling",
+                    shared.name(),
+                    peer.id,
+                    started.elapsed()
+                );
+                shared.first_contact(&peer.id, commit).await?;
+            }
             Reply::Changes {
                 replica,
                 entries,
