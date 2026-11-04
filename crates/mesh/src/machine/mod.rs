@@ -4,6 +4,7 @@
 //! share it; neither keeps its own copy.
 
 pub mod agent;
+pub mod agent_files;
 pub mod auto;
 pub mod codex_login;
 mod convert;

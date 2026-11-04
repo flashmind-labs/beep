@@ -9,9 +9,9 @@ use super::{
 use crate::error::{DesktopError, Result};
 use async_trait::async_trait;
 use beep_mesh::{
-    PeerClient,
+    MeshError, PeerClient,
     machine::{
-        self, Exec, listing,
+        self, Exec, agent_files, listing,
         sessions::{self, WorkRead, WorkWrite},
     },
 };
@@ -24,8 +24,9 @@ use beep_projects::{
     },
 };
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MAX_WORK_UPLOAD, MachineFolder,
-    MachineSession, MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree, WriteWorkFile,
+    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MAX_WORK_UPLOAD, MachineAgentFiles,
+    MachineFolder, MachineSession, MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree,
+    WriteWorkFile,
     node::{agent::DiffAsk, tool_update::Tool},
 };
 use futures::{StreamExt, stream};
@@ -263,6 +264,59 @@ pub(crate) async fn add_worktree(
     branches::add_worktree(&shell, &name, &place.folder, branch, default_branch)
         .await
         .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))
+}
+
+/// The agent files on every online machine of the mesh, each machine read
+/// on its own limit, a few at once. `newest` is the instructions they are
+/// compared with.
+pub(crate) async fn agent_files(fleet: &Fleet, newest: Option<&str>) -> Vec<MachineAgentFiles> {
+    let asks: Vec<_> = fleet
+        .online()
+        .into_iter()
+        .map(|machine| async move {
+            let host = fleet.host_of(machine);
+            let read = async {
+                match fleet.client(machine).await {
+                    Ok(client) => agent_files::read(&client).await,
+                    Err(e) => Err(MeshError::Link(anyhow::anyhow!("{e}"))),
+                }
+            };
+            let files = timeout(agent_files::LIMIT, read).await.unwrap_or_else(|_| {
+                Err(MeshError::Link(anyhow::anyhow!(
+                    "the machine did not answer in time"
+                )))
+            });
+            agent_files::machine_files(host.id, host.name, files, newest)
+        })
+        .collect();
+    let mut found: Vec<MachineAgentFiles> = stream::iter(asks)
+        .buffer_unordered(IN_FLIGHT)
+        .collect()
+        .await;
+    found.sort_by(|a, b| a.machine_name.cmp(&b.machine_name));
+    found
+}
+
+/// Writes `text` into the agent files on a machine and reads them back.
+pub(crate) async fn sync_agent_files(
+    fleet: &Fleet,
+    machine: EndpointId,
+    text: &str,
+) -> Result<MachineAgentFiles> {
+    let name = fleet.name_of(machine);
+    let fail = |e: beep_mesh::MeshError| DesktopError::BadRequest(format!("{name}: {e:#}"));
+    let client = fleet.client(machine).await?;
+    let before = agent_files::read(&client).await.map_err(fail)?;
+    agent_files::write(&client, &before, text)
+        .await
+        .map_err(fail)?;
+    let after = agent_files::read(&client).await;
+    Ok(agent_files::machine_files(
+        machine.to_string(),
+        name.clone(),
+        after,
+        Some(text),
+    ))
 }
 
 /// The last `lines` lines of a machine's log.
