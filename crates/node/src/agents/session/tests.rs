@@ -1,0 +1,1094 @@
+// The fake agents are sh scripts, so most tests run on Unix only.
+#![cfg_attr(windows, allow(dead_code, unused_imports))]
+
+use super::*;
+use super::{
+    orders::{choose, queue_room},
+    turns::take_steers,
+};
+use crate::agents::{
+    acp,
+    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY},
+};
+use beep_proto::node::agent::{Alert, AlertKind, OptionKind, StopReason};
+use beep_proto::{MAX_AGENT_IMAGES, Upload};
+use serde_json::Value;
+
+fn options() -> Vec<AnswerOption> {
+    let option = |id: &str, name: &str, kind| AnswerOption {
+        id: id.into(),
+        name: name.into(),
+        kind,
+    };
+    vec![
+        option("allow", "Allow", OptionKind::AllowOnce),
+        option("always", "Always Allow", OptionKind::AllowAlways),
+        option("reject", "Reject", OptionKind::RejectOnce),
+    ]
+}
+
+/// The shell helpers fake adapters share: `reply` answers the request
+/// last read into `$line` with the id it carried.
+const REPLY: &str = r#"
+log() { printf '%s\n' "$line" >> "$1"; }
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+handshake() {
+    read -r line; log "$1"
+    reply '{"protocolVersion":1,"agentCapabilities":{}}'
+    read -r line; log "$1"
+    reply '{"sessionId":"s"}'
+}
+"#;
+
+/// An ACP adapter in a few lines of shell: it can resume sessions and
+/// appends each line it reads to the file in `$1`. On the prompt it asks
+/// permission once, then ends the turn.
+const FAKE_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{}}}}'
+read -r line; log "$1"
+reply '{}'
+read -r line; log "$1"
+reply '{}'
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}'
+read -r line; log "$1"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Picked it up."}}}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+cat > /dev/null
+"#;
+
+/// An adapter that puts a choice to the user on its first prompt, as a
+/// pi extension's select does, and waits.
+const ASKING_ADAPTER: &str = r#"
+handshake "$1"
+read -r line; log "$1"
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"},{"optionId":"choice-1","name":"other.txt","kind":"allow_once"}]}}'
+cat > /dev/null
+"#;
+
+fn fake(name: &str, log: &Path) -> AgentKind {
+    script(name, FAKE_ADAPTER, log)
+}
+
+fn script(name: &str, script: &str, log: &Path) -> AgentKind {
+    AgentKind {
+        name: name.into(),
+        program: "sh".into(),
+        args: vec![
+            "-c".into(),
+            format!("{REPLY}{script}"),
+            "fake-adapter".into(),
+            log.display().to_string(),
+        ],
+        env: Default::default(),
+    }
+}
+
+async fn settle(session: &Session) {
+    let mut live = session.live.clone();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        live.wait_for(|live| {
+            live.info.turns >= 1 || matches!(live.status(), Status::Ended | Status::Asking)
+        }),
+    )
+    .await
+    .expect("the session settles")
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_takeover_resumes_without_permission_prompts() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let id = "0f3c2a9e-1111-4222-8333-944455556666";
+    let session = Session::start(Start {
+        prompt: Some("carry on".into()),
+        resume: Some(id.into()),
+        ..start_on(&fake("claude", &log), dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let info = session.info();
+    assert_eq!(info.turns, 1, "{:?}", info.state.error);
+    assert_eq!(info.last_message, "Picked it up.");
+    assert!(info.question.is_none());
+    assert_eq!(session.live.borrow().agent_session.as_deref(), Some(id));
+    let sent: Vec<Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(sent[1]["method"], "session/load");
+    assert_eq!(sent[1]["params"]["sessionId"], id);
+    assert_eq!(sent[1]["params"]["cwd"], dir.display().to_string());
+    assert_eq!(sent[2]["method"], "session/set_mode");
+    assert_eq!(sent[2]["params"]["modeId"], "bypassPermissions");
+    assert_eq!(
+        sent[3]["method"], "session/prompt",
+        "the prompt waits for the mode"
+    );
+    // The stray permission request was allowed, not asked.
+    assert_eq!(sent[4]["id"], "p1");
+    assert_eq!(sent[4]["result"]["outcome"]["optionId"], "allow");
+    let (entries, _) = session.live.borrow().transcript(10);
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.text == "Allowed: Run cargo test")
+    );
+}
+
+/// An adapter that starts a session and ends its first turn at once.
+const PLAIN_ADAPTER: &str = r#"
+handshake "$1"
+read -r line; log "$1"
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(Start {
+        prompt: Some("hello".into()),
+        ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let ask = |reply| Command::Ask {
+        question: Asking {
+            text: "Which branch?".into(),
+            detail: None,
+            options: options(),
+        },
+        reply,
+    };
+    let (reply, answer) = oneshot::channel();
+    session.order(ask(reply)).await.unwrap();
+    let shown = session.info().question.expect("the question shows");
+    assert_eq!(shown.text, "Which branch?");
+    assert_eq!(session.info().state.status, Status::Asking);
+    session
+        .order(Command::Answer {
+            question: shown.id,
+            reply: "always".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        answer.await.unwrap(),
+        Answered::Picked(options()[1].clone())
+    );
+    assert!(session.info().question.is_none());
+    let (reply, answer) = oneshot::channel();
+    session.order(ask(reply)).await.unwrap();
+    let shown = session.info().question.expect("the question shows");
+    session
+        .order(Command::Answer {
+            question: shown.id,
+            reply: "the release branch".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        answer.await.unwrap(),
+        Answered::Said("the release branch".into())
+    );
+    // Nothing went to the agent: the node asked, not the agent.
+    assert_eq!(sent(&log).len(), 3);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_choice_is_still_asked() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
+    settle(&session).await;
+    let info = session.info();
+    assert_eq!(info.state.status, Status::Asking);
+    let question = info.question.expect("a question");
+    assert_eq!(question.text, "Which file?");
+    assert_eq!(question.options.len(), 2);
+    let sent = std::fs::read_to_string(&log).unwrap();
+    assert!(!sent.contains("session/set_mode"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_declining_answer_waits_only_where_there_is_room() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
+    settle(&session).await;
+    let question = session.info().question.expect("a question").id;
+    for n in 0..MAX_QUEUED {
+        let prompt = Command::Prompt(format!("later {n}").into());
+        session.order(prompt).await.unwrap();
+    }
+    let answer = Command::Answer {
+        question,
+        reply: "neither, look in docs".into(),
+    };
+    assert!(session.order(answer).await.is_err());
+    assert_eq!(session.info().state.queued as usize, MAX_QUEUED);
+    assert!(session.info().question.is_some(), "still open");
+    session.close().await;
+}
+
+/// An adapter that puts a choice to the user, then ends its turn without
+/// waiting for it, logs the answer the node gives and exits.
+const ABANDONING_ADAPTER: &str = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+read -r line
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"}]}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r line; log "$1"
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session =
+        Session::start(start_on(&script("pi", ABANDONING_ADAPTER, &log), dir, None)).unwrap();
+    let mut live = session.live.clone();
+    // The adapter exits once it hears the answer; without one it waits.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        live.wait_for(|live| live.status() == Status::Ended),
+    )
+    .await
+    .expect("the question was never answered")
+    .unwrap();
+    let sent = std::fs::read_to_string(&log).unwrap();
+    let answer: Value = serde_json::from_str(sent.trim()).unwrap();
+    assert_eq!(answer["id"], "p1");
+    assert_eq!(answer["result"]["outcome"]["outcome"], "cancelled");
+}
+
+/// An adapter that answers with whatever id each request carries, then
+/// writes a burst far larger than a pipe holds before it reads the
+/// prompt. A node that stops reading while it writes deadlocks on it.
+const BURSTING_ADAPTER: &str = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+chunk=$(head -c 2000 /dev/zero | tr '\0' x)
+i=0
+while [ $i -lt 2000 ]; do
+printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\n' "$chunk"
+i=$((i+1))
+done
+line=$(head -n 1)
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("unused");
+    let session = Session::start(Start {
+        prompt: Some("y".repeat(4 * 1024 * 1024)),
+        ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None)
+    })
+    .unwrap();
+    let mut live = session.live.clone();
+    // The timeout only bounds a failure; the turn ending is the signal.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        live.wait_for(|live| live.info.turns >= 1 || live.status() == Status::Ended),
+    )
+    .await
+    .expect("the session hung: reading waited on writing")
+    .unwrap();
+    let info = session.info();
+    assert_eq!(info.turns, 1, "{:?}", info.state.error);
+    assert_eq!(info.last_message.len(), 4 * 1024, "the burst was read");
+}
+
+/// Starts the adapter `body` (after the handshake, with `$line` holding
+/// the first prompt) as a session that asks permission.
+fn started(dir: &Path, body: &str) -> Session {
+    started_within(dir, body, STOP_WITHIN)
+}
+
+/// `started`, giving the agent `within` to end a turn after Stop.
+fn started_within(dir: &Path, body: &str, within: Duration) -> Session {
+    let handshake = r#"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+read -r line
+"#;
+    Session::start_within(
+        start_on(
+            &script("codex", &format!("{handshake}{body}"), &dir.join("log")),
+            dir,
+            None,
+        ),
+        within,
+    )
+    .unwrap()
+}
+
+/// Waits until `done` holds. The timeout only bounds a failure.
+async fn until(session: &Session, done: impl FnMut(&Live) -> bool) {
+    let mut live = session.live.clone();
+    tokio::time::timeout(std::time::Duration::from_secs(60), live.wait_for(done))
+        .await
+        .expect("the session got there")
+        .unwrap();
+}
+
+const UPDATE: &str =
+    r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_oversized_message_is_dropped_and_the_session_goes_on() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let body = format!(
+        r#"
+printf '%s{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"' '{UPDATE}'
+head -c {} /dev/zero | tr '\0' x
+printf '"}}}}}}}}\n'
+echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Still here"}}}}}}'
+cat > /dev/null
+"#,
+        acp::MAX_MESSAGE + 1
+    );
+    let session = started(dir, &body);
+    until(&session, |live| {
+        live.info.state.summary == "Still here" || live.status() == Status::Ended
+    })
+    .await;
+    let info = session.info();
+    assert_eq!(info.state.status, Status::Working);
+    let error = info.state.error.unwrap_or_default();
+    assert!(error.contains("dropped a 16 MiB message"), "{error}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_update_of_an_unknown_kind_is_skipped() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let body = format!(
+        r#"
+echo '{UPDATE}{{"sessionUpdate":"something_new","detail":1}}}}}}'
+echo '{UPDATE}{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"done"}}}}}}}}'
+reply '{{"stopReason":"end_turn"}}'
+cat > /dev/null
+"#
+    );
+    let session = started(dir, &body);
+    until(&session, |live| {
+        live.info.turns >= 1 || live.status() == Status::Ended
+    })
+    .await;
+    let info = session.info();
+    assert_eq!(info.turns, 1, "{:?}", info.state.error);
+    assert_eq!(info.last_message, "done");
+}
+
+/// Claude Code saving a plot from a shell command and never opening
+/// it, then listing the folder, which names an older picture too.
+const PLOTTING_ADAPTER: &str = r#"
+cat <<'EOF'
+UPDATE{"sessionUpdate":"tool_call","toolCallId":"t1","title":"`python -c \"import matplotlib.pyplot as plt; plt.plot([1, 2]); plt.savefig('plot.png')\"`","kind":"execute","status":"pending"}}}
+EOF
+printf '\211PNG\r\n\032\nplot' > plot.png
+echo 'UPDATE{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+echo 'UPDATE{"sessionUpdate":"tool_call","toolCallId":"t2","title":"`ls`","kind":"execute","status":"pending"}}}'
+echo 'UPDATE{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"completed","content":[{"type":"content","content":{"type":"text","text":"old.png\nplot.png"}}]}}}'
+echo 'UPDATE{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Plotted it."}}}}'
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_plot_a_command_saved_shows_once_the_turn_ends() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let old = std::fs::File::create(dir.join("old.png")).unwrap();
+    std::io::Write::write_all(&mut &old, b"\x89PNG\r\n\x1a\nold").unwrap();
+    old.set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    let session = started(dir, &PLOTTING_ADAPTER.replace("UPDATE", UPDATE));
+    until(&session, |live| {
+        live.info.turns >= 1
+            && live
+                .transcript(10)
+                .0
+                .iter()
+                .any(|e| e.text.contains("[image:"))
+    })
+    .await;
+    let (entries, _) = session.live.borrow().transcript(10);
+    let plot = format!(
+        "[image: image-{}]",
+        beep_proto::image_key(b"\x89PNG\r\n\x1a\nplot")
+    );
+    let last = entries.last().unwrap();
+    assert_eq!(
+        last.text,
+        format!("Plotted it.\n{plot}"),
+        "only the new plot"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn closing_stops_the_agent_with_sigterm() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let marker = dir.join("terminated");
+    let body = format!(
+        r#"
+trap 'echo bye > "{}"; exit 0' TERM
+echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Listening"}}}}}}'
+while :; do sleep 1; done
+"#,
+        marker.display()
+    );
+    let session = started(dir, &body);
+    until(&session, |live| live.info.state.summary == "Listening").await;
+    session.close().await;
+    assert_eq!(session.info().state.status, Status::Ended);
+    assert_eq!(session.info().state.error, None, "closed, not failed");
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "bye\n");
+}
+
+/// An adapter that says whether it takes images (`$2`), then ends each
+/// prompt's turn at once.
+const IMAGES_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply "{\"protocolVersion\":1,\"agentCapabilities\":{\"promptCapabilities\":{\"image\":$2}}}"
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
+"#;
+
+/// A session of an agent that takes images or not, once it is idle.
+async fn image_session(dir: &Path, images: bool) -> Session {
+    let mut kind = script("codex", IMAGES_ADAPTER, &dir.join("sent.jsonl"));
+    kind.args.push(images.to_string());
+    let session = Session::start(Start {
+        prompt: None,
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    until(&session, |live| {
+        matches!(live.status(), Status::Idle | Status::Ended)
+    })
+    .await;
+    assert_eq!(session.info().state.status, Status::Idle);
+    session
+}
+
+fn shot() -> Prompt {
+    Prompt {
+        text: "The button overlaps".into(),
+        images: vec![Upload {
+            name: "shot.png".into(),
+            mime: "image/png".into(),
+            data: b"\x89PNG\r\n\x1a\n".to_vec(),
+        }],
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn images_go_to_an_agent_that_takes_them() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let session = image_session(dir, true).await;
+    session.order(Command::Prompt(shot())).await.unwrap();
+    until(&session, |live| {
+        live.info.turns >= 1 || live.status() == Status::Ended
+    })
+    .await;
+    let sent: Vec<Value> = std::fs::read_to_string(dir.join("sent.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let prompt = &sent[2];
+    assert_eq!(prompt["method"], "session/prompt");
+    assert_eq!(prompt["params"]["prompt"][0]["text"], "The button overlaps");
+    assert_eq!(prompt["params"]["prompt"][1]["type"], "image");
+    assert_eq!(prompt["params"]["prompt"][1]["mimeType"], "image/png");
+    let data = b"\x89PNG\r\n\x1a\n";
+    let key = beep_proto::image_key(data);
+    let (entries, _) = session.live.borrow().transcript(10);
+    let shown = format!("The button overlaps\n[image: image-{key}]");
+    assert!(
+        entries.iter().any(|entry| entry.text == shown),
+        "{entries:?}"
+    );
+    let kept = session.live.borrow().picture(&key);
+    assert_eq!(
+        kept.map(|picture| picture.data.clone()),
+        Some(data.to_vec())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_queue_is_bounded_in_prompts_and_bytes() {
+    let text = |len: usize| Prompt::from("x".repeat(len));
+    let mut queued = VecDeque::new();
+    assert_eq!(queue_room(&queued, &text(10)), Ok(()));
+
+    let image = |len: usize| Prompt {
+        text: String::new(),
+        images: vec![Upload {
+            name: "shot.png".into(),
+            mime: "image/png".into(),
+            data: vec![0; len],
+        }],
+    };
+    queued.push_back(image(MAX_QUEUED_BYTES / 2));
+    queued.push_back(image(MAX_QUEUED_BYTES / 2 - 10));
+    assert_eq!(queue_room(&queued, &text(10)), Ok(()), "exactly the limit");
+    let full = queue_room(&queued, &text(11)).unwrap_err();
+    assert!(full.starts_with("Too much already waits"), "{full}");
+
+    let many: VecDeque<_> = (0..MAX_QUEUED).map(|_| text(1)).collect();
+    let full = queue_room(&many, &text(1)).unwrap_err();
+    assert_eq!(
+        full,
+        format!("{MAX_QUEUED} prompts already wait for this turn")
+    );
+}
+
+#[test]
+fn a_reply_picks_an_option_by_id_number_name_or_word() {
+    let options = options();
+    let pick = |reply| choose(&options, reply).map(|option| option.id.as_str());
+    assert_eq!(pick("reject"), Some("reject"));
+    assert_eq!(pick("2"), Some("always"));
+    assert_eq!(pick("Always Allow"), Some("always"));
+    assert_eq!(pick("allow_once"), Some("allow"));
+    assert_eq!(pick("yes"), Some("allow"));
+    assert_eq!(pick("no"), Some("reject"));
+    assert_eq!(pick("4"), None);
+    assert_eq!(pick("use the other folder instead"), None);
+}
+
+/// An adapter that writes its arguments after `$1` to `$1.args`, offers
+/// two models on `session/new`, answers a switch with
+/// `$BEEP_FAKE_SWITCH` as its error (an empty result when unset), then
+/// ends a turn.
+const MODEL_ADAPTER: &str = r#"
+out="$1"; shift; printf '%s\n' "$@" > "$out.args"; set -- "$out"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"fast"},{"modelId":"deep"}],"currentModelId":"fast"}}'
+read -r line; log "$1"
+case "$line" in
+*session/prompt*) ;;
+*) if [ -n "$BEEP_FAKE_SWITCH" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":%s}\n' "$(id)" "$BEEP_FAKE_SWITCH"; else reply '{}'; fi
+ read -r line; log "$1";;
+esac
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+cat > /dev/null
+"#;
+
+fn sent(log: &Path) -> Vec<Value> {
+    std::fs::read_to_string(log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Start<'a> {
+    Start {
+        id: "c0ffee".into(),
+        kind,
+        cwd: dir,
+        prompt: Some("go".into()),
+        resume: None,
+        model: model.map(ModelId::new),
+        effort: None,
+        note: None,
+        brief: None,
+        mcp: None,
+        images: Arc::default(),
+        usage: Arc::default(),
+        alerts: Arc::default(),
+        node: NodeMode::default(),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_new_session_switches_to_its_model_before_the_first_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", MODEL_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, Some("deep"))).unwrap();
+    settle(&session).await;
+    let info = session.info();
+    assert_eq!(info.turns, 1, "{:?}", info.state.error);
+    let sent = sent(&log);
+    assert_eq!(sent[1]["method"], "session/new");
+    assert_eq!(sent[2]["method"], "session/set_model");
+    assert_eq!(sent[2]["params"]["sessionId"], "s");
+    assert_eq!(sent[2]["params"]["modelId"], "deep");
+    assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
+    let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
+    assert_eq!(args.trim(), "", "no flag on the command line");
+}
+
+/// An adapter that offers two models, ends its first turn, then
+/// answers the switch that comes after.
+const SWITCH_LATER_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"fast"},{"modelId":"deep"}],"currentModelId":"fast"}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+read -r line; log "$1"
+reply '{}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_running_session_switches_its_model_for_the_next_turn() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", SWITCH_LATER_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    settle(&session).await;
+    // It cannot think at another level: refused, nothing sent.
+    let refused = session
+        .order(Command::Configure {
+            model: None,
+            effort: Some(Effort::High),
+        })
+        .await;
+    assert!(
+        refused
+            .unwrap_err()
+            .contains("cannot change how hard it thinks")
+    );
+    session
+        .order(Command::Configure {
+            model: Some("deep".into()),
+            effort: None,
+        })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.transcript(10)
+            .0
+            .iter()
+            .any(|entry| entry.text.contains("Switched to deep"))
+    })
+    .await;
+    let sent = sent(&log);
+    assert_eq!(sent[3]["method"], "session/set_model");
+    assert_eq!(sent[3]["params"]["modelId"], "deep");
+}
+
+/// Codex resuming a session: its `session/load` answer offers the model
+/// selector among its other config options, as `session/new` does.
+const RESUMED_CODEX_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{}}}}'
+read -r line; log "$1"
+reply '{"models":{"availableModels":[{"modelId":"fast[low]"}],"currentModelId":"fast[low]"},"configOptions":[{"id":"collaboration_mode","name":"Collaboration mode","category":"collaboration_mode","type":"select","currentValue":"default","options":[{"value":"default","name":"Default"}]},{"id":"model","name":"Model","category":"model","type":"select","currentValue":"fast","options":[{"value":"fast","name":"Fast"},{"value":"deep","name":"Deep"}]},{"id":"fast-mode","name":"Fast mode","category":"model_config","type":"select","currentValue":"off","options":[{"value":"off","name":"Off"}]}]}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+read -r line; log "$1"
+reply '{}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resumed_session_switches_its_model_with_what_load_offers() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
+    let start = Start {
+        resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()),
+        ..start_on(&kind, dir, None)
+    };
+    let session = Session::start(start).unwrap();
+    settle(&session).await;
+    session
+        .order(Command::Configure {
+            model: Some("deep".into()),
+            effort: None,
+        })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.transcript(10)
+            .0
+            .iter()
+            .any(|entry| entry.text.contains("Switched to deep"))
+    })
+    .await;
+    let sent = sent(&log);
+    assert_eq!(sent[1]["method"], "session/load");
+    assert_eq!(sent[3]["method"], "session/set_config_option");
+    assert_eq!(sent[3]["params"]["configId"], "model");
+    assert_eq!(sent[3]["params"]["value"], "deep");
+}
+
+/// An adapter whose `session/new` offers a thinking option, answers
+/// setting it with `$BEEP_FAKE_SET` as its error (an empty result when
+/// unset), then ends a turn.
+const THINKING_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","configOptions":[{"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"medium","name":"Medium"},{"value":"max","name":"Max"}]}]}'
+read -r line; log "$1"
+case "$line" in
+*session/prompt*) ;;
+*) if [ -n "$BEEP_FAKE_SET" ]; then printf '{"jsonrpc":"2.0","id":%s,"error":%s}\n' "$(id)" "$BEEP_FAKE_SET"; else reply '{"configOptions":[]}'; fi
+ read -r line; log "$1";;
+esac
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", THINKING_ADAPTER, &log);
+    let session = Session::start(Start {
+        effort: Some(Effort::Max),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1);
+    let sent = sent(&log);
+    assert_eq!(sent[2]["method"], "session/set_config_option");
+    assert_eq!(sent[2]["params"]["configId"], "effort");
+    assert_eq!(sent[2]["params"]["value"], "max");
+    assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
+}
+
+/// An adapter that ends its first turn with `/compact` advertised and
+/// the window at 85%, reports a finished compaction for the second
+/// prompt, then ends the third turn.
+const COMPACTING_ADAPTER: &str = r#"
+handshake "$1"
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+read -r line; log "$1"
+update '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"Compact"}]}'
+update '{"sessionUpdate":"usage_update","used":85000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"
+update '{"sessionUpdate":"compaction_update","compactionId":"c1","status":"in_progress"}'
+update '{"sessionUpdate":"compaction_update","compactionId":"c1","status":"completed"}'
+update '{"sessionUpdate":"usage_update","used":12000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"
+update '{"sessionUpdate":"usage_update","used":13000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+/// The text of each prompt the adapter got.
+fn prompts(log: &Path) -> Vec<String> {
+    sent(log)
+        .iter()
+        .filter(|line| line["method"] == "session/prompt")
+        .map(|line| {
+            line["params"]["prompt"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_full_window_is_compacted_before_the_next_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", COMPACTING_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    settle(&session).await;
+    assert_eq!(prompts(&log), ["go"], "nothing is compacted mid-turn");
+    session
+        .order(Command::Prompt(Prompt::from("next".to_owned())))
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns >= 2 || live.status() == Status::Ended
+    })
+    .await;
+    let info = session.info();
+    assert_eq!(info.turns, 2, "{:?}", info.state.error);
+    assert_eq!(prompts(&log), ["go", COMPACT_PROMPT, "next"]);
+    let initialize = &sent(&log)[0];
+    assert_eq!(
+        initialize["params"]["clientCapabilities"]["session"]["compaction"],
+        serde_json::json!({})
+    );
+    let (entries, _) = session.live.borrow().transcript(100);
+    let compacted: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.text == COMPACTED_ENTRY)
+        .collect();
+    assert_eq!(compacted.len(), 1, "{entries:?}");
+    assert_eq!(compacted[0].kind, EntryKind::Other);
+    assert!(
+        !entries.iter().any(|entry| entry.text == COMPACT_PROMPT),
+        "the node's /compact is not shown as the user's"
+    );
+}
+
+/// An adapter that puts a choice to the user on its first prompt,
+/// then ends that turn and the next one.
+const TWO_TURN_ADAPTER: &str = r#"
+handshake "$1"
+say() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\n' "$1"; }
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"},{"optionId":"choice-1","name":"other.txt","kind":"allow_once"}]}}'
+read -r line; log "$1"
+say "First."
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r line; log "$1"
+say "Both done."
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("pi", TWO_TURN_ADAPTER, &log);
+    let alerts = Arc::new(AlertHub::default());
+    let session = Session::start(Start {
+        alerts: alerts.clone(),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let question = session.info().question.expect("a question");
+    let asked = alerts.drain();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0].session, "c0ffee");
+    assert_eq!(asked[0].agent, "pi");
+    assert_eq!(
+        asked[0].kind,
+        AlertKind::Asks {
+            question: question.clone()
+        }
+    );
+    // Queued behind the asking turn, it runs before anyone hears of it.
+    session
+        .order(Command::Prompt(Prompt::from("next".to_owned())))
+        .await
+        .unwrap();
+    session
+        .order(Command::Answer {
+            question: question.id,
+            reply: "choice-0".into(),
+        })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns >= 2 || live.status() == Status::Ended
+    })
+    .await;
+    assert_eq!(session.info().turns, 2, "{:?}", session.info().state.error);
+    assert_eq!(
+        alerts.drain(),
+        [Alert {
+            session: "c0ffee".into(),
+            agent: "pi".into(),
+            title: None,
+            cwd: dir.display().to_string(),
+            kind: AlertKind::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+                last_message: "Both done.".into(),
+                error: None,
+            },
+        }]
+    );
+    session.close().await;
+    assert_eq!(alerts.drain(), [], "closing it is no news");
+}
+
+/// An adapter whose first turn runs one tool call, which finishes only
+/// once the test writes to the fifo in `$2`. It answers the node's
+/// `session/cancel` by ending the turn cancelled, and ends each later
+/// turn at once. It logs every line it reads.
+const STEERING_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{"image":true}}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
+read -r go < "$2"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt"
+while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let mut kind = script("codex", STEERING_ADAPTER, &log);
+    kind.args.push(fifo.display().to_string());
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    until(&session, |live| {
+        live.info.state.summary == "Running tests" || live.status() == Status::Ended
+    })
+    .await;
+    session
+        .order(Command::Prompt(Prompt::from("later".to_owned())))
+        .await
+        .unwrap();
+    let mut steer = shot();
+    steer.text = "Use the fixture @.beep/uploads/build.log".into();
+    session.order(Command::Steer(steer)).await.unwrap();
+    assert_eq!(session.info().state.queued, 2);
+    // Nothing goes while the tool call runs.
+    let methods = |log: &Path| -> Vec<String> {
+        sent(log)
+            .iter()
+            .map(|line| line["method"].as_str().unwrap_or("").to_owned())
+            .collect()
+    };
+    assert_eq!(
+        methods(&log),
+        ["initialize", "session/new", "session/prompt"]
+    );
+    // The tool call finishes.
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n"))
+        .await
+        .unwrap()
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns >= 3 || live.status() == Status::Ended
+    })
+    .await;
+    assert_eq!(
+        methods(&log),
+        [
+            "initialize",
+            "session/new",
+            "session/prompt",
+            "session/cancel",
+            "session/prompt",
+            "session/prompt"
+        ]
+    );
+    assert_eq!(
+        prompts(&log),
+        ["go", "Use the fixture @.beep/uploads/build.log", "later"]
+    );
+    let steered = &sent(&log)[4];
+    assert_eq!(steered["params"]["prompt"][1]["type"], "image");
+    let info = session.info();
+    assert_eq!(info.state.status, Status::Idle);
+    assert_eq!(info.state.queued, 0);
+}
+
+#[test]
+fn steers_waiting_together_go_as_one_prompt_within_the_image_limit() {
+    let mut steers: VecDeque<Prompt> = VecDeque::new();
+    assert_eq!(take_steers(&mut steers), None);
+    steers.push_back(Prompt::from("first".to_owned()));
+    steers.push_back(shot());
+    steers.push_back(Prompt::from("third".to_owned()));
+    let merged = take_steers(&mut steers).unwrap();
+    assert_eq!(merged.text, "first\n\nThe button overlaps\n\nthird");
+    assert_eq!(merged.images.len(), 1);
+    assert!(steers.is_empty());
+
+    // One more image than a prompt takes waits for the next prompt.
+    steers.extend((0..=MAX_AGENT_IMAGES).map(|_| shot()));
+    let merged = take_steers(&mut steers).unwrap();
+    assert_eq!(merged.images.len(), MAX_AGENT_IMAGES);
+    assert_eq!(steers.len(), 1);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_shows_at_once_and_an_agent_that_ignores_it_is_stopped() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let body = format!(
+        r#"
+echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Building","status":"in_progress"}}}}}}'
+while read -r line; do log "$1"; done
+"#
+    );
+    let session = started_within(dir, &body, Duration::from_millis(200));
+    until(&session, |live| {
+        live.info.state.summary == "Building" || live.status() == Status::Ended
+    })
+    .await;
+    session.order(Command::Cancel).await.unwrap();
+    // Before the agent says anything, the turn reads as stopping.
+    let info = session.info();
+    assert_eq!(info.state.summary, "Stopping");
+    assert_eq!(info.state.status, Status::Working);
+    until(&session, |live| live.status() == Status::Ended).await;
+    let error = session.info().state.error.unwrap_or_default();
+    assert!(error.contains("did not stop within"), "{error}");
+    let cancels = sent(&dir.join("log"))
+        .iter()
+        .filter(|line| line["method"] == "session/cancel")
+        .count();
+    assert_eq!(cancels, 1);
+}

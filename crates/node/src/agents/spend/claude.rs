@@ -1,12 +1,8 @@
-//! Claude Code's logs: each assistant line carries `message.usage` (fresh
-//! input, output, cache reads and cache writes, split into five-minute and
-//! one-hour writes when `cache_creation` says), `message.model`,
-//! `message.id`, `requestId`, `sessionId`, `cwd` and `timestamp`. One
-//! message is written once per content block, each copy with the same
-//! usage, so copies are told apart by message and request id.
+//! Claude Code's logs (`line`): each assistant line carries `message.usage`,
+//! `message.model`, `message.id` and `requestId`.
 
 use super::{Line, Request, billing::claude_cloud};
-use crate::{agents::prices::Tokens, claude::unix_seconds};
+use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use beep_proto::node::usage::Billing;
 use serde::Deserialize;
 
@@ -51,7 +47,9 @@ pub(super) fn wanted(line: &str) -> bool {
     line.contains("\"usage\"") && line.contains("\"assistant\"")
 }
 
-/// The request one line of a Claude Code log records, if any.
+/// The request one line of a Claude Code log records, if any. One message
+/// is written once per content block, each copy with the same usage, so
+/// copies are told apart by message and request id.
 pub(super) fn line(text: &str) -> Option<Line> {
     let entry: Entry = serde_json::from_str(text).ok()?;
     if entry.kind.as_deref() != Some("assistant") {

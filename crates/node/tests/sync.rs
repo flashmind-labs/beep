@@ -6,7 +6,7 @@
 //! tasks, with nothing to wait on from outside, so the tests poll the
 //! folders with a time limit.
 
-use beep_node::{files::Folders, syncthing::Syncthing, transfer::Transfers};
+use beep_node::files::{Folders, syncthing::Syncthing, transfer::Transfers};
 use beep_proto::node::sync::{Keep, Project, ProjectStatus, Refused, Rule, State};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{

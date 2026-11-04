@@ -4,7 +4,7 @@
 //! them as `project-live` events.
 
 use crate::{beep::Beep, projects::unknown_op};
-use beep_node::reconnect::Backoff;
+use beep_node::link::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
 use std::sync::{Arc, Mutex, PoisonError};

@@ -10,7 +10,7 @@ use crate::{
     markdown,
     state::LinkState,
 };
-use beep_node::reconnect::Backoff;
+use beep_node::link::reconnect::Backoff;
 use beep_proto::{
     ChatInfo, ChatKind, ChatMessage, GetUpdates, MessageBody, Session, SessionMatch, StreamUpdates,
     Update, UpdatePage, search::match_snippet,
