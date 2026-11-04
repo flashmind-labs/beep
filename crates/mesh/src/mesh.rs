@@ -75,9 +75,12 @@ pub struct PeerStream {
 }
 
 /// The transport settings a mesh endpoint should be built with: idle links
-/// are pinged and a dead one is given up on after ten seconds.
+/// are pinged and a dead one is given up on after ten seconds. Datagrams go
+/// singly, as `beep_proto::port::transport` has it, because sync shares the
+/// endpoint.
 pub fn transport_config() -> QuicTransportConfig {
     QuicTransportConfig::builder()
+        .enable_segmentation_offload(false)
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(IDLE_MS))))
         .build()
