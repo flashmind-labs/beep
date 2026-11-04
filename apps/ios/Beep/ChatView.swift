@@ -81,7 +81,7 @@ struct ChatView: View {
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
-                    .padding(18)
+                    .padding(16)
                     .animation(.bouncy, value: model.chat.busy)
                     .animation(.bouncy, value: replyStarted)
                     .animation(.easeOut(duration: 0.2), value: model.chat.error)
@@ -294,7 +294,7 @@ struct ChatView: View {
                 typing = false
                 menu()
             } label: { Image(systemName: "line.3.horizontal") }
-                .buttonStyle(ChunkyButton())
+                .buttonStyle(ChunkyButton(size: 42))
                 .accessibilityLabel("Conversations")
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.chat.title.isEmpty ? "New conversation" : model.chat.title)
@@ -342,8 +342,9 @@ struct ChatView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)
-        .padding(.vertical, 6)
+        .frame(minHeight: 54)
         .background(Mint.page)
+        .overlay(alignment: .bottom) { Rectangle().fill(Mint.soft).frame(height: 1) }
     }
 
     private var composer: some View {
@@ -375,7 +376,7 @@ struct ChatView: View {
                                 .frame(width: 40, height: 40).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padding(.bottom, 5)
+                        .padding(.bottom, 2)
                         .accessibilityLabel("Add a photo or file")
                     }
                     TextField("", text: $draft, prompt: Text(prompt).foregroundStyle(Mint.dim), axis: .vertical)
@@ -389,7 +390,7 @@ struct ChatView: View {
                         .padding(.leading, draft.isEmpty && !model.chat.busy ? 6 : 16)
                 }
                 .padding(.leading, 4).padding(.trailing, 12)
-                .frame(minHeight: 50)
+                .frame(minHeight: 44)
                 .chunky()
                 .blocksChatSwipe()
                 VStack(spacing: 8) {
@@ -402,12 +403,12 @@ struct ChatView: View {
                                     photos = []
                                     files = []
                                 } label: { Image(systemName: "clock") }
-                                    .buttonStyle(ChunkyButton(fill: Mint.surface, size: 50, radius: 18))
+                                    .buttonStyle(ChunkyButton(fill: Mint.surface, size: 44, radius: 6))
                                     .accessibilityLabel("Queue message")
                                     .transition(.scale(scale: 0.6).combined(with: .opacity))
                             }
                             Button { model.stop() } label: { Image(systemName: "stop.fill").foregroundStyle(Mint.page) }
-                                .buttonStyle(ChunkyButton(fill: Mint.ink, size: 50, radius: 18))
+                                .buttonStyle(ChunkyButton(fill: Mint.ink, size: 44, radius: 6))
                                 .foregroundStyle(Mint.page)
                                 .accessibilityLabel("Stop reply")
                         }
@@ -424,7 +425,7 @@ struct ChatView: View {
                                 Task { await voice.start { draft = before.isEmpty ? $0 : before + " " + $0 } }
                             }
                         } label: { Image(systemName: "mic") }
-                            .buttonStyle(ChunkyButton(fill: voice.listening ? Mint.accent : Mint.surface, size: 50, radius: 18))
+                            .buttonStyle(ChunkyButton(fill: voice.listening ? Mint.accent : Mint.surface, size: 44, radius: 6))
                             .background { if voice.listening { MicRing() } }
                             .accessibilityLabel(voice.listening ? "Stop listening" : "Voice input")
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
@@ -442,7 +443,7 @@ struct ChatView: View {
                                 withAnimation(.interpolatingSpring(stiffness: 600, damping: 2 * 0.4 * sqrt(600))) { squish = false }
                             }
                         } label: { Image(systemName: "paperplane") }
-                            .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 50, radius: 18))
+                            .buttonStyle(ChunkyButton(fill: empty ? Mint.surface : Mint.accent, size: 44, radius: 6))
                             .opacity(empty ? 0.45 : 1)
                             .scaleEffect(squish ? 0.82 : 1)
                             .disabled(empty)
@@ -453,12 +454,13 @@ struct ChatView: View {
             }
             .animation(.bouncy, value: model.chat.busy)
             .animation(.easeOut(duration: 0.15), value: empty)
-            .padding(.leading, 14)
-            .padding(.trailing, 16)
+            .padding(.leading, 12)
+            .padding(.trailing, 12)
             .padding(.top, 8)
             .padding(.bottom, 12)
         }
-        .background(Mint.page)
+        .background(Mint.surface)
+        .overlay(alignment: .top) { Rectangle().fill(Mint.soft).frame(height: 1) }
         .animation(.bouncy, value: photos.count)
         .animation(.bouncy, value: files.count)
     }
@@ -1204,6 +1206,7 @@ struct ToolChip: View {
 struct ApprovalCard: View {
     @Environment(AppModel.self) private var model
     let prompt: ApprovalPrompt
+    var onAnswer: ((ApprovalDecision) -> Void)? = nil
 
     /// A card asking for a routine's grant. Allow already saves the grant, which ends on its
     /// own, so Always has nothing more to give and is left off.
@@ -1257,16 +1260,16 @@ struct ApprovalCard: View {
                 }
                 HStack(spacing: 8) {
                     Button(split.records.isEmpty ? "Allow" : "Allow all \(split.records.count)") {
-                        model.answer(prompt, .allow)
+                        answer(.allow)
                     }
                         .font(.body(14, .semibold)).foregroundStyle(.white)
                         .padding(.horizontal, Mint.pageInset).frame(minHeight: 44)
                         .chunky(Mint.ok, radius: 12)
                     if !forRoutine {
-                        Button("Always") { model.answer(prompt, .always) }.buttonStyle(PillButton())
+                        Button("Always") { answer(.always) }.buttonStyle(PillButton())
                     }
                     Spacer()
-                    Button("Deny") { model.answer(prompt, .deny) }
+                    Button("Deny") { answer(.deny) }
                         .font(.body(14, .medium)).foregroundStyle(Mint.error)
                 }
                 .padding(Mint.spacing)
@@ -1274,6 +1277,10 @@ struct ApprovalCard: View {
             .foregroundStyle(Mint.ink)
             .card()
         }
+    }
+
+    private func answer(_ decision: ApprovalDecision) {
+        if let onAnswer { onAnswer(decision) } else { model.answer(prompt, decision) }
     }
 
     private func answerText(_ answer: ApprovalDecision) -> String {

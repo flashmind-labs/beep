@@ -57,6 +57,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 enum Route: Hashable {
     case groupInfo(String)
     case settings, memories, routines, skills, places, locationAlways, apps, devices, machines
+    case projects, codingAgents, terminals, notifications, activity
+    case project(String), terminal(String)
+    case agentSession(String, String, String)
     case skill(String)
     /// Memories, opened on the newest read.
     case latestRead
@@ -192,8 +195,17 @@ struct RootView: View {
             }
         case .settings: SettingsView(path: $path)
         case .devices: LinkedDevicesView(back: { pop() })
-        case .machines: MachinesView(back: { pop() })
+        case .machines: MachinesView(back: { pop() }, terminals: { path.append(.terminals) })
         case .apps: AppsView(back: { pop() })
+        case .projects: ProjectsView(path: $path)
+        case .project(let name): ProjectView(project: name, path: $path)
+        case .codingAgents: CodingAgentsView(path: $path)
+        case .agentSession(let machine, let agent, let session):
+            CodingSessionView(machineID: machine, agent: agent, sessionID: session, back: pop)
+        case .terminals: TerminalsView(path: $path)
+        case .terminal(let id): TerminalView(id: id, back: pop)
+        case .notifications: WorkspaceInbox(path: $path)
+        case .activity: WorkspaceInbox(path: $path, activity: true)
         case .memories: MemoriesView(path: $path)
         case .latestRead: MemoriesView(path: $path, latestRead: true)
         case .routines: RoutinesView(path: $path)
@@ -339,9 +351,7 @@ struct RootView: View {
         case "chat", "newchat", "photos": openChat(nil)
         // The newest chat from the saved list, without waiting for the server.
         case "last": openChat(model.sessions.max { $0.updatedAt < $1.updatedAt })
-        case "drawer":
-            while !model.connected { try? await Task.sleep(for: .milliseconds(200)) }
-            drawer = true
+        case "drawer": drawer = true
         case "widget": model.destination = .newChat
         case "products":
             openChat(nil)
@@ -355,7 +365,12 @@ struct RootView: View {
         case "settings": path = [.settings]
         case "apps": path = [.apps]
         case "devices": path = [.settings, .devices]
-        case "machines": path = [.settings, .machines]
+        case "machines": path = [.machines]
+        case "projects": path = [.projects]
+        case "agents": path = [.codingAgents]
+        case "terminals": path = [.terminals]
+        case "notifications": path = [.notifications]
+        case "activity": path = [.activity]
         case "shared":
             if let token = defaults.string(forKey: "token") { reading = token }
         case "memories": path = [.memories]

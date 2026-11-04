@@ -23,7 +23,7 @@ struct MemoriesView: View {
             BackBar(title: "Memories", back: { path.removeAll() }) {
                 if !memories.isEmpty {
                     Button("Clear all") { confirmClear = true }
-                        .buttonStyle(TextAction(color: Mint.accent))
+                        .buttonStyle(TextAction(color: Mint.error))
                         .font(.body(13))
                 }
             }
@@ -34,7 +34,7 @@ struct MemoriesView: View {
                         .font(.body(13)).foregroundStyle(Mint.ink)
                 }
                 .padding(.horizontal, 14)
-                .frame(minHeight: 50)
+                .frame(minHeight: 46)
                 .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
                 .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
                 Text("\(shown.count)").font(.body(12)).foregroundStyle(Mint.muted)
