@@ -47,6 +47,7 @@ mod files;
 mod follow;
 mod harness;
 mod images;
+mod search;
 mod shell;
 mod ssh;
 mod stats;

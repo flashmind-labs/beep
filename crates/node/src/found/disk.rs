@@ -1,10 +1,11 @@
-//! The git checkouts under the home folder, found on disk rather than in
-//! session logs, so a checkout no agent ran in still counts. Only main
-//! checkouts: the walk stops at a repository's top, so nested repositories
-//! and worktrees inside it are not looked at, and a worktree elsewhere
-//! (whose `.git` is a file) is left out. Home is walked once, on the first
-//! start, and what it found is saved in the node's folder; later checkouts
-//! come from the agents' logs.
+//! The git checkouts under the search folder (`search` in `node.toml`,
+//! home by default), found on disk rather than in session logs, so a
+//! checkout no agent ran in still counts. Only main checkouts: the walk
+//! stops at a repository's top, so nested repositories and worktrees inside
+//! it are not looked at, and a worktree elsewhere (whose `.git` is a file)
+//! is left out. The folder is walked once, on the first start or after it
+//! changes, and what it found is saved in the node's folder; later
+//! checkouts come from the agents' logs.
 
 use super::git::{self, Checkout};
 use anyhow::{Context, Result};
@@ -31,9 +32,20 @@ const FILE: &str = "checkouts.json";
 /// Written first, then renamed over `FILE`.
 const TEMP: &str = "checkouts.json.tmp";
 
+/// Drops the checkouts saved in `dir`, so the next start walks again.
+pub(crate) fn forget_checkouts(dir: &Path) -> Result<()> {
+    let path = dir.join(FILE);
+    match fs::remove_file(&path) {
+        Err(e) if e.kind() != ErrorKind::NotFound => {
+            Err(e).with_context(|| format!("removing {}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The checkouts saved in `dir`. When none are saved yet, as on the first
-/// start, walks `home` for them and saves what it found.
-pub(crate) fn saved_checkouts(home: &Path, dir: &Path) -> Vec<Checkout> {
+/// start, walks `root` for them and saves what it found.
+pub(crate) fn saved_checkouts(root: &Path, dir: &Path) -> Vec<Checkout> {
     let path = dir.join(FILE);
     match fs::read_to_string(&path) {
         Ok(text) => {
@@ -48,7 +60,7 @@ pub(crate) fn saved_checkouts(home: &Path, dir: &Path) -> Vec<Checkout> {
             return Vec::new();
         }
     }
-    let found = checkouts(home);
+    let found = checkouts(root);
     if let Err(e) = save(dir, &found) {
         log::warn!("the checkouts found were not saved: {e:#}");
     }

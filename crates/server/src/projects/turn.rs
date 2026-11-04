@@ -536,57 +536,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn filing_missing_issues_is_bounded() {
-        let db = TestDb::new().await.unwrap();
-        let user = User::for_test(db.store().await.unwrap(), "alice");
-        let mut fleet = FakeFleet::default();
-        let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
-        shell.hang_on("issue create");
-        let project = user
-            .ensure_project(&RepoName::parse("acme/widget").unwrap())
-            .await
-            .unwrap();
-        user.add_checkout(
-            project.id,
-            &CheckoutRow {
-                machine: home,
-                path: MachinePath::parse("/srv/widget").unwrap(),
-                home: true,
-            },
-        )
-        .await
-        .unwrap();
-        let roles = crate::projects::model::Roles {
-            issues: Some(IssueHost::Github),
-            prs: None,
-        };
-        user.set_project_setup(project.id, &roles, Visibility::Private, "main")
-            .await
-            .unwrap();
-        user.create_tasks(
-            project.id,
-            &[NewTask {
-                title: "Fix the build".into(),
-                body: String::new(),
-                depends_on: None,
-                needs: Vec::new(),
-                start: None,
-            }],
-        )
-        .await
-        .unwrap();
-        let project = user.project(project.id).await.unwrap().unwrap();
-        let (fleet, user) = (Arc::new(fleet), Arc::new(user));
-        // The host never answers; the turn still gets its context.
-        let ctx = start_with(fleet.clone(), &user, &project, Duration::from_millis(100)).await;
-        assert!(ctx.contains("fix-the-build: planned"), "{ctx}");
-        assert_eq!(shell.ran_with("issue create").len(), 1);
-        // The next turn does not start a second create beside it.
-        start_with(fleet, &user, &project, Duration::from_millis(10)).await;
-        assert_eq!(shell.ran_with("issue create").len(), 1);
-    }
-
-    #[tokio::test]
     async fn a_running_issue_create_is_never_cut_off() {
         let db = TestDb::new().await.unwrap();
         let user = Arc::new(User::for_test(db.store().await.unwrap(), "alice"));

@@ -405,15 +405,15 @@ impl Agents {
     }
 
     /// Reads the agents' logs and the checkouts saved in the node's folder
-    /// `dir` ahead of the first requests, which then find them read. Home
+    /// `dir` ahead of the first requests, which then find them read. `root`
     /// is walked only when no checkouts are saved yet.
-    pub async fn warm(&self, dir: PathBuf) {
+    pub async fn warm(&self, root: Option<PathBuf>, dir: PathBuf) {
         let mut on_disk = self.on_disk.lock().await;
         if let Err(e) = self.sighted_folders().await {
             log::debug!("the agents' logs were not read ahead: {e:#}");
         }
-        let found = match dirs::home_dir() {
-            Some(home) => spawn_blocking(move || found::saved_checkouts(&home, &dir))
+        let found = match root {
+            Some(root) => spawn_blocking(move || found::saved_checkouts(&root, &dir))
                 .await
                 .unwrap_or_else(|e| {
                     log::warn!("the checkouts on disk were not read: {e}");

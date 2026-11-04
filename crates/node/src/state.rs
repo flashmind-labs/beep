@@ -1,12 +1,12 @@
 //! The node's key and settings, kept in one folder.
 
-use crate::agents::AgentKind;
+use crate::{agents::AgentKind, found};
 use anyhow::{Context, Result, bail};
 use beep_proto::port::NODE_PORT;
 use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
+    fmt, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
 };
@@ -38,6 +38,10 @@ struct Settings {
     /// `NODE_PORT` unset, random at 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     port: Option<u16>,
+    /// Where to look for git checkouts, such as `search = "~/Projects"`;
+    /// home when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    search: Option<PathBuf>,
 }
 
 pub struct State {
@@ -54,6 +58,58 @@ pub struct State {
     pub webhook_listen: Option<SocketAddr>,
     /// The UDP port to bind (`port` in `node.toml`).
     pub port: u16,
+    /// Where to look for git checkouts (`search` in `node.toml`).
+    pub search: Search,
+}
+
+/// Where the node looks for git checkouts: a folder as written, where `~`
+/// is home; home when unset.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Search(Option<PathBuf>);
+
+impl Search {
+    /// A folder as the user typed it; empty, `~` and `~/` are home.
+    pub fn parse(text: &str) -> Self {
+        let text = text.trim();
+        let home = matches!(text, "" | "~" | "~/" | "~\\");
+        Self((!home).then(|| PathBuf::from(text)))
+    }
+
+    /// The folder to walk, `~` made home; `None` when it needs a home and
+    /// this system has none.
+    pub fn root(&self) -> Option<PathBuf> {
+        expand(self.0.as_deref(), dirs::home_dir())
+    }
+
+    /// The folder to walk, refused unless it is a folder on this machine.
+    pub fn existing_root(&self) -> Result<PathBuf> {
+        match self.root() {
+            Some(root) if root.is_dir() => Ok(root),
+            _ => bail!("{self} is not a folder on this machine"),
+        }
+    }
+}
+
+/// `~/Projects` is `Projects` under home.
+impl fmt::Display for Search {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Some(path) => write!(f, "{}", path.display()),
+            None => f.write_str("~/"),
+        }
+    }
+}
+
+fn expand(search: Option<&Path>, home: Option<PathBuf>) -> Option<PathBuf> {
+    let Some(search) = search else {
+        return home;
+    };
+    match search.strip_prefix("~") {
+        Ok(rest) if rest.as_os_str().is_empty() => home,
+        Ok(rest) => Some(home?.join(rest)),
+        Err(_) if search.is_absolute() => Some(search.to_owned()),
+        Err(_) => Some(home?.join(search)),
+    }
 }
 
 pub fn default_dir() -> Result<PathBuf> {
@@ -68,19 +124,38 @@ impl State {
     pub fn create(dir: &Path, server: &str, name: &str) -> Result<Self> {
         let server: EndpointId = server.parse().context("--server is not an endpoint id")?;
         let key = ensure_key(dir)?;
-        Self::save(dir, key, server, name)
+        Self::save(dir, key, server, name, None)
     }
 
     /// Saves the settings for `server` with the key `ensure_key` made.
-    pub fn save(dir: &Path, key: SecretKey, server: EndpointId, name: &str) -> Result<Self> {
+    /// `search` replaces the folder checkouts are looked for in; `None`
+    /// keeps it.
+    pub fn save(
+        dir: &Path,
+        key: SecretKey,
+        server: EndpointId,
+        name: &str,
+        search: Option<Search>,
+    ) -> Result<Self> {
         // Linking again keeps the agents and folders set by hand, and
         // refuses rather than drop settings it cannot read.
-        let (agents, files, webhook_listen, port) = if dir.join(SETTINGS_FILE).exists() {
-            let old = read_settings(dir)?;
-            (old.agents, old.files, old.webhook_listen, old.port)
+        let old = if dir.join(SETTINGS_FILE).exists() {
+            Some(read_settings(dir)?)
         } else {
-            Default::default()
+            None
         };
+        let kept = old.as_ref().and_then(|old| old.search.clone());
+        let search = match search {
+            Some(search) => {
+                if search.0 != kept {
+                    found::forget_checkouts(dir)?;
+                }
+                search.0
+            }
+            None => kept,
+        };
+        let old = old.map(|old| (old.agents, old.files, old.webhook_listen, old.port));
+        let (agents, files, webhook_listen, port) = old.unwrap_or_default();
         let settings = Settings {
             server: server.to_string(),
             name: name.trim().to_owned(),
@@ -88,6 +163,7 @@ impl State {
             files,
             webhook_listen,
             port,
+            search,
         };
         fs::write(dir.join(SETTINGS_FILE), toml::to_string(&settings)?)?;
         Ok(Self {
@@ -99,6 +175,7 @@ impl State {
             files: settings.files,
             webhook_listen: settings.webhook_listen,
             port: settings.port.unwrap_or(NODE_PORT),
+            search: Search(settings.search),
         })
     }
 
@@ -122,6 +199,7 @@ impl State {
             files: settings.files,
             webhook_listen: settings.webhook_listen,
             port: settings.port.unwrap_or(NODE_PORT),
+            search: Search(settings.search),
         })
     }
 }
@@ -150,6 +228,20 @@ pub fn saved_server(dir: &Path) -> Result<Option<EndpointId>> {
         .parse()
         .context("the server in node.toml is not an endpoint id")?;
     Ok(Some(server))
+}
+
+/// Where `node.toml` in `dir` says to look for git checkouts.
+pub fn saved_search(dir: &Path) -> Result<Search> {
+    Ok(Search(read_settings(dir)?.search))
+}
+
+/// Has `node.toml` in `dir` look for git checkouts in `search`, and drops
+/// the checkouts found elsewhere.
+pub fn save_search(dir: &Path, search: &Search) -> Result<()> {
+    let mut settings = read_settings(dir)?;
+    settings.search = search.0.clone();
+    fs::write(dir.join(SETTINGS_FILE), toml::to_string(&settings)?)?;
+    found::forget_checkouts(dir)
 }
 
 fn read_settings(dir: &Path) -> Result<Settings> {

@@ -15,8 +15,14 @@ pub enum Request {
     Hosts {},
     /// Connects to `target` (`user@host` or a config alias) without
     /// prompting, installs beep-node there and links it with `token`
-    /// (`beep-node setup`).
-    Add { target: String, token: SecretText },
+    /// (`beep-node setup`), looking for git checkouts in `search` (empty for
+    /// home).
+    Add {
+        target: String,
+        token: SecretText,
+        #[serde(default)]
+        search: String,
+    },
 }
 
 /// What the node answers.

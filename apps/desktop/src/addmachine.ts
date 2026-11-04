@@ -1,6 +1,6 @@
 // The "Add a machine" sheet.
 import { invoke } from "./tauri.ts";
-import { INSTALL, START, next, timeLeft, machineById, describeMachine, macOption } from "./addmachine-state.ts";
+import { HOME_SEARCH, INSTALL, START, next, timeLeft, machineById, describeMachine, macOption, searchFolder, withSearch } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";
 import type { MacControl, MachineView } from "./home.ts";
 import { button, el, present } from "./projects-state.ts";
@@ -35,6 +35,8 @@ let mac: MacSeen | null = null, macAsked = false, macPoller: Timer;
 let sshMachines: MachineView[] = [], sshFrom = "", sshHosts: string[] | null = null;
 let sshBusy: string | null = null, sshFailed: { target: string; add: SshAdd } | null = null;
 let sshInput: HTMLInputElement | null = null;
+// Where the new machine looks for projects; it goes on the setup command.
+let searchInput: HTMLInputElement | null = null;
 
 /// A dialog over the window: the dimmed scrim holding the sheet, not yet
 /// on the page.
@@ -109,8 +111,25 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   sshInput.addEventListener("keydown", e => {
     if (e.key === "Enter" && sshInput) addOverSsh(sshInput.value);
   });
+  searchInput = el("input", "am-code am-search");
+  searchInput.value = HOME_SEARCH;
+  searchInput.setAttribute("aria-label", "Search for projects in");
+  searchInput.spellcheck = false;
+  searchInput.addEventListener("input", () => {
+    const shown = sheet && sheet.querySelector(".am-cmd");
+    const now = commandLine();
+    if (shown && now) shown.replaceWith(now);
+  });
   loadSsh();
   start();
+}
+
+/// The setup command to copy, with the search folder when it is not home.
+function commandLine() {
+  if (state.step !== "waiting") return null;
+  const line = codeLine(withSearch(state.command, searchInput ? searchInput.value : ""));
+  line.classList.add("am-cmd");
+  return line;
 }
 
 /// The online machines, and the hosts the default one's ssh knows: this
@@ -158,7 +177,8 @@ async function addOverSsh(target: string) {
   drawSsh();
   let add: SshAdd;
   try {
-    add = await invoke<SshAdd>("add_machine_over_ssh", { machineId: sshFrom, target });
+    const search = searchFolder(searchInput ? searchInput.value : "");
+    add = await invoke<SshAdd>("add_machine_over_ssh", { machineId: sshFrom, target, search });
     if (add.machine_id) {
       const machine = machineById(await invoke<MachineView[]>("list_machines"), add.machine_id);
       if (machine && root) {
@@ -378,12 +398,13 @@ function body() {
       return [el("div", "am-wait", el("span", "dspin"), "Making a setup token")];
     case "waiting":
       return present([
+        el("div", "am-line", el("span", "am-label am-search-label", "Search for projects in"), searchInput),
         sshBlock(),
         el("div", "am-label am-hand", "Or install it by hand"),
         el("div", "am-label", "1. Install beep-node on the machine"),
         codeLine(INSTALL),
         el("div", "am-label", "2. Run this there"),
-        codeLine(state.command),
+        commandLine(),
         statusLine(),
       ]);
     case "linked": {

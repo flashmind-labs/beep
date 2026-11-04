@@ -9,6 +9,7 @@ use crate::{
     provision::Provision,
     reconnect::{self, Backoff},
     restart::{self, Reopen},
+    search::Searches,
     shell,
     state::State,
     stats, tasks, terminal,
@@ -127,9 +128,8 @@ pub async fn serve(
     offers.agents.share_folders(shared.clone());
     // The agents' logs read once ahead, so the first file request for a
     // session started outside Beep does not wait for them.
-    let agents = offers.agents.clone();
-    let dir = state.dir.clone();
-    let _warm = AbortOnDropHandle::new(tokio::spawn(async move { agents.warm(dir).await }));
+    let searches = Searches::start(state.dir.clone(), offers.agents.clone(), &state.search);
+    offers.extra.push(Arc::new(searches));
     // The workspace as the node resolved it, only once it is shared.
     let workspace = workspace
         .and_then(|dir| dir.canonicalize().ok())

@@ -47,12 +47,19 @@ impl Online {
         }
     }
 
-    /// Has the node install beep-node on `target` and link it with `token`.
-    pub(crate) async fn add_over_ssh(&self, target: &str, token: &SetupToken) -> Result<SshResult> {
+    /// Has the node install beep-node on `target` and link it with `token`,
+    /// looking for checkouts in `search` (empty for home).
+    pub(crate) async fn add_over_ssh(
+        &self,
+        target: &str,
+        token: &SetupToken,
+        search: &str,
+    ) -> Result<SshResult> {
         let (mut tx, mut rx) = self.open_stream(PROTOCOL).await?;
         tx.send(&Request::Add {
             target: target.to_owned(),
             token: SecretText::new(token.to_string()),
+            search: search.to_owned(),
         })
         .await?;
         let event = timeout(ADD_TIMEOUT, rx.recv::<Event>())

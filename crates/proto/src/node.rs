@@ -27,6 +27,7 @@ pub mod desktop;
 pub mod files;
 pub mod harness;
 pub mod process;
+pub mod search;
 pub mod shell;
 pub mod ssh;
 pub mod sync;
