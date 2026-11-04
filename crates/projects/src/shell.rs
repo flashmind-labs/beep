@@ -33,7 +33,7 @@ pub trait Shell: Send + Sync {
 }
 
 /// The most of the start of a script's output kept.
-const HEAD: usize = 64 * 1024;
+const HEAD: usize = 256 * 1024;
 /// The most of the end kept: a clone says how it finished on its last line.
 const TAIL: usize = 8 * 1024;
 
