@@ -7,7 +7,9 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
+    files::transfer::Transfers,
     link::connection::{Offers, Protocol, Who, changed, read_open, serve_open},
+    link::from_mesh,
     link::local_socket::{Listener, Stream},
     machine::{env, stats},
 };
@@ -37,6 +39,7 @@ use tokio::{
     task::JoinSet,
     time::{MissedTickBehavior, interval, timeout},
 };
+use tokio_util::task::AbortOnDropHandle;
 
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
 const SOCKET: &str = "mesh.sock";
@@ -69,11 +72,17 @@ struct Inner {
     /// Protocols a host will offer once its services are up.
     later: watch::Sender<BTreeSet<String>>,
     active: Mutex<Option<Active>>,
+    /// Applies the mesh's state to the node while it is a member.
+    follower: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
 impl Inner {
     fn offers(&self) -> MutexGuard<'_, Offers> {
         self.offers.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn follower(&self) -> MutexGuard<'_, Option<AbortOnDropHandle<()>>> {
+        self.follower.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Serves a stream a peer, or this process, opened.
@@ -111,6 +120,7 @@ impl Peers {
                 offers: Mutex::new(offers),
                 later: watch::channel(BTreeSet::new()).0,
                 active: Mutex::new(None),
+                follower: Mutex::new(None),
             }),
         }
     }
@@ -134,8 +144,20 @@ impl Peers {
         self.inner.later.send_modify(BTreeSet::clear);
     }
 
-    /// Lets go of the mesh, so it can stop. Peers are refused until `install`.
-    pub fn leave(&self) {
+    /// Lets go of the mesh, so it can stop: nothing in the node holds it
+    /// once this returns. Peers are refused until `install`.
+    pub async fn leave(&self) {
+        let follower = self.inner.follower().take();
+        if let Some(follower) = follower {
+            follower.abort();
+            // Returns once the task, and the mesh it held, is gone.
+            follower.await.ok();
+        }
+        let offers = self.inner.offers().clone();
+        offers.mesh.clear();
+        if let Some(transfers) = &offers.transfers {
+            transfers.syncs().unfollow();
+        }
         self.inner
             .active
             .lock()
@@ -225,6 +247,30 @@ impl Peers {
             .active
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(Active { mesh, peer, join });
+        self.follow();
+    }
+
+    /// From here on the mesh, not the server, says what the node syncs,
+    /// holds and runs agents with. Starts over on the current mesh and
+    /// offers, which a service started later may have added to, and ends
+    /// what followed before.
+    fn follow(&self) {
+        let Some(active) = self.active() else {
+            return;
+        };
+        let offers = self.inner.offers().clone();
+        offers.mesh.set(active.mesh.clone());
+        if let Some(transfers) = &offers.transfers {
+            transfers.syncs().follow(active.mesh.clone());
+        }
+        let follow = from_mesh::follow(active.mesh, self.inner.endpoint.id(), offers);
+        *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(follow)));
+    }
+
+    /// The node's transfer and sync services started: the mesh drives them.
+    pub fn serve_transfers(&self, transfers: Transfers) {
+        self.inner.offers().transfers = Some(transfers);
+        self.follow();
     }
 
     /// The node's session for a caller in this process, which is a desktop

@@ -21,6 +21,7 @@ pub mod desktop;
 pub mod files;
 pub mod harness;
 pub mod logs;
+pub mod mesh_state;
 pub mod process;
 pub mod search;
 pub mod shell;

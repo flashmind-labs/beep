@@ -71,6 +71,17 @@ impl Settings {
         };
     }
 
+    /// The settings now, as `set` took them.
+    pub(super) fn current(&self) -> AgentSettings {
+        let saved = lock(&self.0);
+        let mut harnesses: Vec<HarnessConfig> = saved.harnesses.values().cloned().collect();
+        harnesses.sort_by(|a, b| a.agent.cmp(&b.agent));
+        AgentSettings {
+            harnesses,
+            flsh: saved.flsh.clone(),
+        }
+    }
+
     /// Writes the user's flsh settings into the config `kind` (as
     /// `configured` gives it) reads, before it starts. Nothing for another
     /// agent, or while the user has none. An error when they cannot be

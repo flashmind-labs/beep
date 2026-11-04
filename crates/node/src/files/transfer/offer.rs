@@ -2,12 +2,11 @@
 //! folder a collection of its files, led by a manifest when it has executable
 //! files or empty folders.
 
-use super::Ticker;
+use super::{Out, Ticker};
 use crate::files::fsat;
 use anyhow::{Context, Result, bail, ensure};
-use beep_proto::node::{
-    LinkTx,
-    transfer::{Content, ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, Manifest, Reply, Stage},
+use beep_proto::node::transfer::{
+    Content, ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, Manifest, Reply, Stage,
 };
 use futures::StreamExt;
 use iroh_blobs::{
@@ -152,7 +151,7 @@ async fn add_file(
     entry: &Entry,
     before: u64,
     ticker: &mut Ticker,
-    tx: &mut LinkTx,
+    tx: &mut Out<'_>,
 ) -> Result<TempTag> {
     checked(&entry.path, entry.identity).await?;
     let progress = store.blobs().add_path_with_opts(AddPathOptions {
@@ -187,7 +186,7 @@ pub(super) async fn offer(
     store: &Store,
     path: &Path,
     from: iroh::EndpointAddr,
-    tx: &mut LinkTx,
+    tx: &mut Out<'_>,
 ) -> Result<Offered> {
     let name = path
         .file_name()

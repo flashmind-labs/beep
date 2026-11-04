@@ -114,16 +114,10 @@ impl Server {
         let transfers = Transfers::start(&node, state.path(), folders.clone())
             .await
             .expect("the transfers start");
-        let offers = Offers {
-            agents: Arc::default(),
-            extra: vec![
-                Arc::new(transfers) as Arc<dyn Protocol>,
-                Arc::new(folders) as Arc<dyn Protocol>,
-            ],
-            provision: None,
-            tools: Default::default(),
-            traffic: Default::default(),
-        };
+        let offers = Offers::with_protocols(vec![
+            Arc::new(transfers) as Arc<dyn Protocol>,
+            Arc::new(folders) as Arc<dyn Protocol>,
+        ]);
         let addr = self.router.endpoint().addr();
         let task =
             tokio::spawn(async move { beep_node::link::connect(&node, addr, name, &offers).await });

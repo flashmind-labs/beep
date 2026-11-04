@@ -266,13 +266,7 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
     let served = tokio::spawn({
         let server = server.clone();
         async move {
-            let offers = Offers {
-                agents: Arc::default(),
-                extra: vec![Arc::new(FakeDesktop)],
-                provision: None,
-                tools: Default::default(),
-                traffic: Default::default(),
-            };
+            let offers = Offers::with_protocols(vec![Arc::new(FakeDesktop)]);
             beep_node::link::connect(&node, server, "build box", &offers).await
         }
     });
@@ -371,13 +365,8 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
         let (key, addr, agents) = (node_key.clone(), server.addr.clone(), agents.clone());
         tokio::spawn(async move {
             let node = endpoint(key).await;
-            let offers = Offers {
-                agents,
-                extra: Vec::new(),
-                provision: None,
-                tools: Default::default(),
-                traffic: Default::default(),
-            };
+            let mut offers = Offers::default();
+            offers.agents = agents;
             beep_node::link::connect(&node, addr, "build box", &offers).await
         })
     };
@@ -579,13 +568,8 @@ async fn a_machine_links_from_the_link_its_node_printed() {
         let addr = server.addr.clone();
         async move {
             let node = endpoint(key).await;
-            let offers = Offers {
-                agents,
-                extra: Vec::new(),
-                provision: None,
-                tools: Default::default(),
-                traffic: Default::default(),
-            };
+            let mut offers = Offers::default();
+            offers.agents = agents;
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
     });
@@ -621,13 +605,8 @@ async fn a_real_claude_session_writes_a_file() {
         let addr = server.addr.clone();
         async move {
             let node = endpoint(node_key).await;
-            let offers = Offers {
-                agents,
-                extra: Vec::new(),
-                provision: None,
-                tools: Default::default(),
-                traffic: Default::default(),
-            };
+            let mut offers = Offers::default();
+            offers.agents = agents;
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
     });
@@ -1561,16 +1540,10 @@ struct FakeAgents {
 impl FakeAgents {
     fn offers(self) -> Offers {
         let fake = Arc::new(self);
-        Offers {
-            agents: Arc::default(),
-            extra: vec![
-                Arc::new(FakeSessions(fake.clone())),
-                Arc::new(FakeClaude(fake)),
-            ],
-            provision: None,
-            tools: Default::default(),
-            traffic: Default::default(),
-        }
+        Offers::with_protocols(vec![
+            Arc::new(FakeSessions(fake.clone())),
+            Arc::new(FakeClaude(fake)),
+        ])
     }
 }
 
@@ -3374,10 +3347,7 @@ async fn log_node(
     let addr = center.router.endpoint().addr();
     let node = endpoint(key.clone()).await;
     center.nodes.push(tokio::spawn(async move {
-        let offers = Offers {
-            extra,
-            ..Offers::default()
-        };
+        let offers = Offers::with_protocols(extra);
         beep_node::link::connect(&node, addr, name, &offers).await
     }));
     let id = key.public().to_string();
@@ -3499,15 +3469,11 @@ async fn an_unlinked_key_gets_only_a_small_hello_read() {
     let key = SecretKey::generate();
     let stranger = endpoint(key.clone()).await;
     // Offers padding the hello far past what a real one carries.
-    let offers = Offers {
-        agents: Arc::default(),
-        extra: (0..200)
+    let offers = Offers::with_protocols(
+        (0..200)
             .map(|_| Arc::new(BigName) as Arc<dyn Protocol>)
             .collect(),
-        provision: None,
-        tools: Default::default(),
-        traffic: Default::default(),
-    };
+    );
     let refused = beep_node::link::connect(&stranger, addr, "stranger", &offers)
         .await
         .unwrap_err();

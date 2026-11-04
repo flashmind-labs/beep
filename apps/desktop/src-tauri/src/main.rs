@@ -485,7 +485,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let (beep, notices) = Beep::start(endpoint.clone(), identity, server, file, chats);
     app.manage(beep.clone());
     // This Mac's node, and the mesh it is in, which opens in the background.
-    let machine = machines::this_mac::Machine::new(&dir.join("node"));
+    let machine = machines::this_mac::Machine::new(&dir.join("node"), beep.server().is_some());
     let fleet = Arc::new(Fleet::new(
         endpoint,
         &dir.join("node"),

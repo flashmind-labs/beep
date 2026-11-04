@@ -115,6 +115,7 @@ impl Serving {
                         peers.offer(Arc::new(transfers.syncs().controls()));
                         peers.offer(Arc::new(transfers.syncs().rescans()));
                         peers.offer(Arc::new(transfers.clone()));
+                        peers.serve_transfers(transfers.clone());
                         *services = Services::Running(transfers.clone());
                     }
                     stopped
