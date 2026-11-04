@@ -350,7 +350,8 @@ pub(crate) async fn close(fleet: &Fleet, id: Uuid) -> Result<()> {
     fleet.terminals.remove(id).map_err(saved)
 }
 
-/// A terminal followed live, or why it cannot be.
+/// A terminal followed live, or why it cannot be. Held for one attach.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Opened {
     /// The node's stream: keys go to `tx`, output comes from `rx`.
     Live { tx: LinkTx, rx: LinkRx },

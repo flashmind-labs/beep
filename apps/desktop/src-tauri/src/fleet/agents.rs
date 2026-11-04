@@ -387,7 +387,7 @@ async fn pick(
     let host = asking
         .into_iter()
         .nth(choice.at)
-        .ok_or_else(|| ApiError::Internal {})?
+        .ok_or(ApiError::Internal {})?
         .host;
     Ok((host, choice.why))
 }

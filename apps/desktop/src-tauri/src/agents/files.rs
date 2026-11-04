@@ -234,6 +234,8 @@ pub async fn agent_tree_save(
 
 /// Writes one part of a dropped file, `data` in base64, to `path` in
 /// `root`; the path it goes to, which the next parts send.
+// The arguments are the fields of the window's `invoke` call.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_tree_upload(
     beep: Service<'_>,
