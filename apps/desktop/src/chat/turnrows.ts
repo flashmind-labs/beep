@@ -6,12 +6,8 @@ import { copy } from "../ui/parts.ts";
 import { esc, ICON } from "../bar/core.ts";
 import { endedHtml, liveHtml } from "../agents/thoughtlive.ts";
 
-/// One pass of the "Thinking" letters, as in the CSS: 8 letters a second.
-const SWEEP_MS = 1500;
-
-/// "Thinking", its letters lit one after another in a loop that keeps its
-/// phase across redraws.
-const thinkingLabel = () => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[..."Thinking"].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
+/// "Thinking", its letters lit one after another in a loop.
+const thinkingLabel = () => `<span class="lb">${[..."Thinking"].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
 /// A running turn thinking before it has words to show.
 export const thinkingRow = () => `<div class="dthink live">${thinkingLabel()}</div>`;
