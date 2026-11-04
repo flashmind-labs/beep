@@ -1247,6 +1247,18 @@ requests! {
     /// The modes of a session Beep runs, the one it is in, and the plan it
     /// waits on approval of. `NotFound` as for `GetAgentSessionUsage`.
     412 GetAgentSessionModes { machine_id: String, agent: String, session: String } => Call<AgentSessionModes>
+    /// The git hosts the caller has a token for, for the New project sheet,
+    /// with who a repository there can belong to. A host that cannot answer
+    /// says why in its `error`.
+    413 ListProjectForges {} => Call<Vec<ProjectForge>>
+    /// Makes a project called `name`. With `repository`, creates it on that
+    /// git host with the caller's token and clones it onto each of
+    /// `machine_ids`, which then sync it; a machine that fails is listed in
+    /// `failed` and the repository stays. Without, runs `git init` on the one
+    /// machine given and imports it there. `BadRequest` saying why when nothing
+    /// was made: the name is taken or not valid, the token may not create
+    /// there, or a machine is offline.
+    414 CreateProject { name: String, repository: Option<NewRepository>, machine_ids: Vec<String> } => Call<CreatedProject>
 }
 
 #[cfg(test)]

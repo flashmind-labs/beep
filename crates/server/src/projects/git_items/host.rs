@@ -1,9 +1,9 @@
 //! One git host API call with a user's token, and its failure in plain words.
 
 use crate::protocol::GitItem;
-use reqwest::{Client, StatusCode, header, header::HeaderMap};
+use reqwest::{Client, Response, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Semaphore;
@@ -100,6 +100,26 @@ impl Caller<'_> {
             HostError::BadReply(host)
         })?;
         Ok(Page { items, next })
+    }
+
+    /// `POST url` with the token and a JSON body; the reply whatever its status.
+    pub async fn post<T: Serialize>(&self, url: &str, body: &T) -> Result<Response, HostError> {
+        let _permit = self
+            .calls
+            .acquire()
+            .await
+            .map_err(|_| HostError::Internal(self.host.to_owned()))?;
+        self.client
+            .post(url)
+            .header(header::ACCEPT, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                format!("token {}", self.token.expose_secret()),
+            )
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| send_error(self.host, &e))
     }
 }
 
