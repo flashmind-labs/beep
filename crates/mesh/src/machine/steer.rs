@@ -2,7 +2,7 @@
 
 use super::agent_name;
 use beep_proto::{
-    AgentCheckoutPlan, AgentEffort, AgentSteer, ApiError, ModelId, check_agent_images,
+    AgentCheckoutPlan, AgentEffort, AgentHost, AgentSteer, ApiError, ModelId, check_agent_images,
     node::agent::{self, Request},
 };
 
@@ -88,6 +88,33 @@ pub fn picked_effort(
         )));
     }
     Ok(Some(effort))
+}
+
+/// The agent Auto starts when the request names none, most preferred first.
+const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+
+/// `named`, or the one `host` prefers when the call names none.
+pub fn pick_agent(host: &AgentHost, named: Option<&str>) -> Result<String, ApiError> {
+    let offers = |agent: &str| host.agents.iter().any(|offered| offered == agent);
+    if let Some(named) = named {
+        return if offers(named) {
+            Ok(named.to_owned())
+        } else {
+            Err(ApiError::bad_request(format!(
+                "{} does not offer {}.",
+                host.machine_name,
+                agent_name(named)
+            )))
+        };
+    }
+    PREFERRED
+        .iter()
+        .find(|agent| offers(agent))
+        .map(|agent| (*agent).to_owned())
+        .or_else(|| host.agents.first().cloned())
+        .ok_or_else(|| {
+            ApiError::bad_request(format!("{} offers no coding agent.", host.machine_name))
+        })
 }
 
 /// Which checkout plans a node makes.

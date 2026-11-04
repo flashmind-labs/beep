@@ -6,6 +6,7 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::{Machines, files as direct},
     projects::needs_update,
 };
 use beep_proto::{
@@ -55,7 +56,14 @@ pub async fn revoke_node_token(beep: Service<'_>, token: String) -> Result<()> {
 
 /// Where `machine_id` looks for git checkouts, `~/` for home.
 #[tauri::command]
-pub async fn machine_search(beep: Service<'_>, machine_id: String) -> Result<String> {
+pub async fn machine_search(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    machine_id: String,
+) -> Result<String> {
+    if let Some(machine) = fleet.member(&machine_id) {
+        return direct::machine_search(&fleet, machine).await;
+    }
     beep.call(GetMachineSearch { machine_id }).await
 }
 
@@ -63,9 +71,13 @@ pub async fn machine_search(beep: Service<'_>, machine_id: String) -> Result<Str
 #[tauri::command]
 pub async fn set_machine_search(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     search: String,
 ) -> Result<String> {
+    if let Some(machine) = fleet.member(&machine_id) {
+        return direct::set_machine_search(&fleet, machine, &search).await;
+    }
     beep.call(SetMachineSearch { machine_id, search }).await
 }
 

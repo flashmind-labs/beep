@@ -23,7 +23,9 @@ pub use node::{
     update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
-pub use steer::{Makes, checkout_for, node_request, picked_effort, picked_model, queued_instead};
+pub use steer::{
+    Makes, checkout_for, node_request, pick_agent, picked_effort, picked_model, queued_instead,
+};
 
 use crate::MeshError;
 use anyhow::anyhow;

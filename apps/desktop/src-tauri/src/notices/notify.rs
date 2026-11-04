@@ -9,6 +9,7 @@ use crate::{
     center::{self, AgentTarget, CenterTarget},
     chat::approvals::{self, ChatAnswer},
     error::{DesktopError, Result},
+    fleet::{Fleet, agents as direct},
     notices::work,
     tray::waiting::WaitingList,
 };
@@ -165,14 +166,18 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
             let Some(question) = key.question else {
                 return Ok(());
             };
-            beep.call(AnswerAgentQuestion {
+            let answer = AnswerAgentQuestion {
                 machine_id: key.machine_id,
                 agent: key.agent,
                 session: key.session,
                 question,
                 reply: agent_reply(allow).into(),
-            })
-            .await
+            };
+            let fleet = app.state::<Arc<Fleet>>().inner().clone();
+            match fleet.member(&answer.machine_id) {
+                Some(machine) => direct::answer(&fleet, machine, answer).await,
+                None => beep.call(answer).await,
+            }
         }
     }
 }

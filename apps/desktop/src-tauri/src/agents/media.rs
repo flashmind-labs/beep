@@ -6,6 +6,7 @@ use crate::{
     beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name, image_mime},
     error::{DesktopError, Result},
+    fleet::{Fleet, Machines, agents as direct},
     projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -22,17 +23,20 @@ use tauri::{AppHandle, Manager};
 #[tauri::command]
 pub async fn agent_image(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     session: String,
     key: String,
 ) -> Result<String> {
-    let image = beep
-        .call(GetAgentImage {
-            machine_id,
-            session,
-            key,
-        })
-        .await;
+    let request = GetAgentImage {
+        machine_id,
+        session,
+        key,
+    };
+    let image = match fleet.member(&request.machine_id) {
+        Some(machine) => direct::image(&fleet, machine, &request).await,
+        None => beep.call(request).await,
+    };
     picture_url(image)
 }
 
@@ -42,10 +46,21 @@ pub async fn agent_image(
 #[tauri::command]
 pub async fn agent_thumb(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     session: String,
     key: String,
 ) -> Result<String> {
+    // On this Mac's own machines there is no wire to save, so the picture
+    // comes whole.
+    if let Some(machine) = fleet.member(&machine_id) {
+        let request = GetAgentImage {
+            machine_id,
+            session,
+            key,
+        };
+        return picture_url(direct::image(&fleet, machine, &request).await);
+    }
     let thumb = beep
         .call(GetAgentThumb {
             machine_id: machine_id.clone(),
@@ -101,11 +116,12 @@ pub struct AgentFilePart {
 #[tauri::command]
 pub async fn agent_file(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     path: String,
     offset: u64,
 ) -> Result<AgentFilePart> {
-    let chunk = file_chunk(&beep, machine_id, path, offset).await?;
+    let chunk = file_chunk(&beep, &fleet, machine_id, path, offset).await?;
     Ok(AgentFilePart {
         size: chunk.size,
         mime: chunk.mime,
@@ -119,10 +135,11 @@ pub async fn agent_file(
 pub async fn agent_file_open(
     app: AppHandle,
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     path: String,
 ) -> Result<()> {
-    let data = whole_file(&beep, &machine_id, &path).await?;
+    let data = whole_file(&beep, &fleet, &machine_id, &path).await?;
     let dir = app.path().app_cache_dir()?.join("agent-files");
     fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
     let of = image_key(format!("{machine_id}\n{path}").as_bytes());
@@ -141,10 +158,11 @@ pub async fn agent_file_open(
 pub async fn agent_file_save(
     app: AppHandle,
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     path: String,
 ) -> Result<PathBuf> {
-    let data = whole_file(&beep, &machine_id, &path).await?;
+    let data = whole_file(&beep, &fleet, &machine_id, &path).await?;
     let to = free_name(&app.path().download_dir()?, &file_name(&path));
     fs::write(&to, &data).map_err(anyhow::Error::from)?;
     Ok(to)
@@ -153,6 +171,7 @@ pub async fn agent_file_save(
 /// One `GetAgentFile`, with a file the machine no longer has as `GONE`.
 async fn file_chunk(
     beep: &Beep,
+    fleet: &Fleet,
     machine_id: String,
     path: String,
     offset: u64,
@@ -161,13 +180,15 @@ async fn file_chunk(
     if let Some(chunk) = work_copy::read(beep, &machine_id, &path, offset, len).await {
         return Ok(chunk);
     }
-    let chunk = beep
-        .call(GetAgentFile {
-            machine_id,
-            path,
-            offset,
-        })
-        .await;
+    let request = GetAgentFile {
+        machine_id,
+        path,
+        offset,
+    };
+    let chunk = match fleet.member(&request.machine_id) {
+        Some(machine) => direct::file(fleet, machine, &request).await,
+        None => beep.call(request).await,
+    };
     match chunk {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
@@ -175,11 +196,11 @@ async fn file_chunk(
 }
 
 /// The whole media file `path` on `machine_id`, read a chunk at a time.
-async fn whole_file(beep: &Beep, machine_id: &str, path: &str) -> Result<Vec<u8>> {
+async fn whole_file(beep: &Beep, fleet: &Fleet, machine_id: &str, path: &str) -> Result<Vec<u8>> {
     let mut data = Vec::new();
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
-        let chunk = file_chunk(beep, machine_id.to_owned(), path.to_owned(), offset).await?;
+        let chunk = file_chunk(beep, fleet, machine_id.to_owned(), path.to_owned(), offset).await?;
         if chunk.size > MAX_AGENT_FILE || chunk.data.len() > AGENT_FILE_CHUNK {
             return Err(DesktopError::BadRequest("file too large".into()));
         }

@@ -5,6 +5,7 @@ use super::{known, list::ProjectRow, needs_update};
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::{Machines, extra, files as direct},
 };
 use beep_proto::{
     ApiError, BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos,
@@ -60,9 +61,17 @@ impl From<FoundProject> for FoundRow {
 /// The checkouts the user's coding agents worked in that are not projects
 /// yet; none from a server too old to look.
 #[tauri::command]
-pub async fn found_projects(beep: Service<'_>) -> Result<Vec<FoundRow>> {
-    let found = known(beep.call(ListFoundFolders {}).await)?;
-    Ok(found.into_iter().flatten().map(FoundRow::from).collect())
+pub async fn found_projects(beep: Service<'_>, fleet: Machines<'_>) -> Result<Vec<FoundRow>> {
+    let here = direct::found_folders(&fleet).await;
+    let mut found = beep_projects::imports::found::group(here, &[], &[]);
+    let others = extra(beep.call(ListFoundFolders {}).await);
+    found.extend(others.into_iter().filter(|project| {
+        project
+            .places
+            .iter()
+            .all(|place| fleet.member(&place.machine_id).is_none())
+    }));
+    Ok(found.into_iter().map(FoundRow::from).collect())
 }
 
 /// One git host's repositories to clone, as the Add a project sheet lists
@@ -180,9 +189,13 @@ pub async fn import_project(
 #[tauri::command]
 pub async fn list_machine_folder(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     path: Option<String>,
 ) -> Result<MachineFolder> {
+    if let Some(machine) = fleet.member(&machine_id) {
+        return direct::folder(&fleet, machine, path.as_deref()).await;
+    }
     beep.call(ListMachineFolder { machine_id, path })
         .await
         .map_err(outdated)

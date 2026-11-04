@@ -4,18 +4,20 @@
 //! has it draw again.
 
 use crate::{
+    agents::sessions::machine_sessions,
     beep::{AsyncMutex, Beep},
     center::cache_view,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
+    fleet::Fleet,
 };
 use anyhow::anyhow;
-use beep_proto::{ListAgentSessions, MachineSession};
+use beep_proto::MachineSession;
 use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::{sync::oneshot, time::timeout};
 
 /// How long Home waits for the list when it has an older one to show.
@@ -82,17 +84,18 @@ impl AgentSessions {
             // Another window is asking already; its answer redraws this one.
             return match last {
                 Some(listed) => Ok(listed.sessions),
-                None => beep.call(ListAgentSessions {}).await,
+                None => Ok(machine_sessions(beep, &app.state::<Arc<Fleet>>()).await),
             };
         };
         let (tx, rx) = oneshot::channel();
         let me = self.clone();
         let app = app.clone();
         let beep = beep.clone();
+        let fleet = app.state::<Arc<Fleet>>().inner().clone();
         let cache = cache.clone();
         tauri::async_runtime::spawn(async move {
             let _asking = asking;
-            let listed = beep.call(ListAgentSessions {}).await;
+            let listed: Result<Vec<MachineSession>> = Ok(machine_sessions(&beep, &fleet).await);
             let answered = listed.is_ok();
             if let Ok(sessions) = &listed {
                 cache_view(&cache, View::AgentSessions, sessions);
