@@ -4,11 +4,12 @@ use super::{account, key};
 use crate::{
     account::{credentials::CredentialKey, user::UserKey},
     store::{
-        NewImport, Store, TestDb,
+        Store, TestDb,
         merge::{Merge, MergeInto, handled, projects, summed},
         test_chat, test_turn,
     },
 };
+use beep_projects::imports::records::NewImport;
 use beep_projects::model::RepoName;
 use sqlx::PgPool;
 use std::{

@@ -11,9 +11,10 @@ use crate::{
         tools::{drop_task, reopen_task},
         turn::REPLAN_LABEL,
     },
-    store::{NewImport, NewTask, ProjectRow, TestDb},
+    store::{NewTask, ProjectRow, TestDb},
 };
 use beep_projects::commands::{OpenIssue, ViewedIssue};
+use beep_projects::imports::records::NewImport;
 use beep_projects::issues::{SourceError, list_open, list_open_prs};
 use beep_projects::model::{IssueHost, RepoName, Roles, Visibility};
 use chrono::{TimeZone, Utc};

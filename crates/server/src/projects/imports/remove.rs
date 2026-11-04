@@ -1,6 +1,5 @@
 //! Removing a project from Beep, on request or once no machine has its folder. Files are never deleted.
 
-use super::gone::{self, Place};
 use crate::{
     account::user::User,
     app::App,
@@ -14,12 +13,14 @@ use crate::{
     store::RemovedProject,
 };
 use anyhow::Result;
+use beep_projects::{
+    Shell,
+    imports::gone::{self, Place},
+};
 use std::{sync::Arc, time::Duration};
 
 /// The longest looking for a machine's project folders may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(20);
-/// The most output kept from that look.
-const MAX_OUTPUT: usize = 64 * 1024;
 
 /// Removes project `name` and stops what runs for it; `false` when absent. Offline machines keep running.
 pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str) -> Result<bool> {
@@ -116,17 +117,9 @@ pub(crate) async fn drop_missing(
     if places.is_empty() {
         return Ok(0);
     }
-    let mut output = String::new();
-    let mut on_output = |text: &str| {
-        if output.len() < MAX_OUTPUT {
-            output.push_str(text);
-        }
-    };
-    let exited = node
-        .exec(&gone::script(&places), LOOK_LIMIT, &mut on_output)
-        .await?;
-    let finished = !exited.timed_out && exited.exit_code == Some(0);
-    let missing: Vec<&Place> = gone::missing(&output, finished, places.len())
+    let ran = node.run(&gone::script(&places), LOOK_LIMIT).await?;
+    let finished = !ran.timed_out && ran.exit_code == Some(0);
+    let missing: Vec<&Place> = gone::missing(&ran.output, finished, places.len())
         .into_iter()
         .filter_map(|n| places.get(n))
         .collect();
@@ -173,10 +166,8 @@ pub(crate) async fn drop_places(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        memory::watchers::testing::{Harness, Scripted},
-        store::NewImport,
-    };
+    use crate::memory::watchers::testing::{Harness, Scripted};
+    use beep_projects::imports::records::NewImport;
     use beep_projects::model::RepoName;
 
     const NAME: &str = "acme/widget";

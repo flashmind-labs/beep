@@ -255,8 +255,9 @@ mod tests {
     use super::*;
     use crate::{
         projects::{model::WorkerAgent, threads::ThreadKind},
-        store::{CheckoutRow, NewImport, NewTask, NewThreadChat, NewWorker, SyncRow, TestDb},
+        store::{CheckoutRow, NewTask, NewThreadChat, NewWorker, TestDb},
     };
+    use beep_projects::imports::records::{NewImport, SyncRow};
     use beep_projects::model::{IssueHost, MachinePath, RepoName};
     use chrono::Utc;
     use iroh::{EndpointId, SecretKey};

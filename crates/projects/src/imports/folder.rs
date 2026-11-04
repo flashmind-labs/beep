@@ -1,8 +1,9 @@
 //! Folders the user picks on a machine, read through the node's shell so any readable folder works.
 
 use super::ImportError;
-use crate::quote;
+use crate::{Shell, quote};
 use beep_proto::MachineFolder;
+use std::time::Duration;
 
 /// What the listing script prints before each line it means.
 const MARK: &str = "BEEP_FOLDER:";
@@ -167,6 +168,38 @@ pub fn destination(seen: &MachineFolder, name: &str) -> String {
         format!("/{name}")
     } else {
         format!("{}/{name}", seen.path)
+    }
+}
+
+/// The longest reading a folder may take.
+const LOOK_LIMIT: Duration = Duration::from_secs(20);
+
+/// What `folder` on the machine named `machine` holds.
+pub async fn look(
+    shell: &dyn Shell,
+    machine: &str,
+    folder: &FolderPath,
+) -> Result<MachineFolder, ImportError> {
+    let ran = shell
+        .run(&script(folder), LOOK_LIMIT)
+        .await
+        .map_err(|e| ImportError::Link {
+            machine: machine.to_owned(),
+            detail: format!("{e:#}"),
+        })?;
+    match read(&ran.output) {
+        Some(Seen::Folder(seen)) => Ok(seen),
+        Some(Seen::File(path)) => Err(ImportError::NotAFolder {
+            folder: path,
+            machine: machine.to_owned(),
+        }),
+        Some(Seen::Denied(path)) => Err(ImportError::Unreadable {
+            folder: path,
+            machine: machine.to_owned(),
+        }),
+        None => Err(ImportError::NoListing {
+            machine: machine.to_owned(),
+        }),
     }
 }
 

@@ -1,10 +1,7 @@
 //! Copying a project onto a machine without it: beep-sync brings it from a machine that has it over
 //! iroh-blobs, `.git` included, and keeps the two in step from then on.
 
-use super::{
-    preview::existing_checkout,
-    service::{Chosen, choose_machine, forgejo_of, look},
-};
+use super::context::Context;
 use crate::{
     account::user::User,
     app::App,
@@ -13,12 +10,13 @@ use crate::{
         ProjectCopy,
         node::files::{Reply, Request},
     },
-    store::{ImportRow, NewImport, SyncRow},
 };
 use beep_projects::branches::{READ_LIMIT, run_script};
-use beep_projects::imports::place;
+use beep_projects::imports::preview::existing_checkout;
+use beep_projects::imports::records::{ImportRow, NewImport, SyncRow};
+use beep_projects::imports::{flow::choose_machine, folder::look, hosts::forgejo_of, place};
 use beep_projects::{
-    imports::{ImportError, folder::FolderPath, place::Folders, repo::RepoRef},
+    imports::{ImportError, folder::FolderPath, repo::RepoRef},
     quote,
 };
 use std::{path::Path, sync::Arc};
@@ -42,11 +40,16 @@ pub(crate) async fn copy_project(
     if first.url.is_empty() {
         return Err(ImportError::LocalOnly(first.project.clone()));
     }
-    let Chosen { row, node } = choose_machine(app, user, Some(machine_id)).await?;
+    let context = Context::load(app, user).await?;
+    let machine = choose_machine(&context.machines, Some(machine_id))?;
+    let node = app
+        .nodes
+        .online(&machine.id)
+        .ok_or_else(|| ImportError::Offline(machine.name.clone()))?;
     let record = async |folder: &str| {
         user.link_import(NewImport {
             project: &first.project,
-            endpoint: &row.endpoint,
+            endpoint: &machine.id,
             folder,
             url: &first.url,
         })
@@ -59,7 +62,7 @@ pub(crate) async fn copy_project(
             from: None,
         })
     };
-    if let Some(here) = rows.iter().find(|one| one.endpoint == row.endpoint) {
+    if let Some(here) = rows.iter().find(|one| one.endpoint == machine.id) {
         return already(&here.folder).await;
     }
     let syncs = user.project_syncs().await?;
@@ -68,16 +71,15 @@ pub(crate) async fn copy_project(
             .iter()
             .find(|one| one.project == first.project && one.endpoint == endpoint)
     };
-    if let Some(here) = synced_on(&row.endpoint) {
+    if let Some(here) = synced_on(&machine.id) {
         return already(&here.folder).await;
     }
-    let credentials = user.git_credentials(&app.credential_key).await?;
-    let repo = RepoRef::parse(&first.url, &forgejo_of(&credentials))?;
-    if let Some(found) = existing_checkout(&row, &node, &repo, None).await {
+    let repo = RepoRef::parse(&first.url, &forgejo_of(&context.credentials))?;
+    if let Some(found) = existing_checkout(machine, &repo, None).await {
         return already(&found.folder).await;
     }
     if !node.syncs() {
-        return Err(ImportError::NoSharedFolders(row.name.clone()));
+        return Err(ImportError::NoSharedFolders(machine.name.clone()));
     }
     if user.pinned_projects().await?.contains(&first.project) {
         return Err(ImportError::Pinned(first.project.clone()));
@@ -86,50 +88,44 @@ pub(crate) async fn copy_project(
         return Err(ImportError::SyncPaused(first.project.clone()));
     }
     let link = |e: anyhow::Error| ImportError::Link {
-        machine: row.name.clone(),
+        machine: machine.name.clone(),
         detail: format!("{e:#}"),
     };
     let Reply::Roots { roots } = node.files(&Request::Roots {}).await.map_err(link)? else {
-        return Err(ImportError::NoSharedFolders(row.name.clone()));
+        return Err(ImportError::NoSharedFolders(machine.name.clone()));
     };
-    let env = row.env.as_ref();
-    let usual = place::checkout_folder(
-        Folders {
-            os: env.map(|env| env.os.as_str()),
-            home: env.map(|env| env.home.as_str()),
-            workspace: node.workspace.as_deref(),
-        },
-        &repo,
-    );
+    let usual = place::checkout_folder(machine.folders(), &repo);
     let Some(folder) = shared_folder(usual, &roots, &repo) else {
-        return Err(ImportError::NoSharedFolders(row.name.clone()));
+        return Err(ImportError::NoSharedFolders(machine.name.clone()));
     };
     let Some(picked) = FolderPath::parse(&folder)? else {
         return Err(ImportError::BadFolder);
     };
-    let seen = look(&node, &row, &picked).await?;
+    let seen = look(machine.shell()?, &machine.name, &picked).await?;
     if seen.exists && !seen.empty {
         return match seen.origin.as_deref() {
             Some(origin) if repo.matches_remote(origin) => already(&seen.path).await,
             Some(origin) if !origin.is_empty() => Err(ImportError::OtherRepo {
                 folder: seen.path.clone(),
-                machine: row.name.clone(),
+                machine: machine.name.clone(),
                 remote: origin.to_owned(),
             }),
             _ => Err(ImportError::Occupied {
                 folder: seen.path.clone(),
-                machine: row.name.clone(),
+                machine: machine.name.clone(),
             }),
         };
     }
     if !seen.exists {
         // Sync refuses a folder that is not there.
         let make = format!("mkdir -p {}", quote(&seen.path));
-        run_script(&node, &make, READ_LIMIT).await.map_err(link)?;
+        run_script(machine.shell()?, &make, READ_LIMIT)
+            .await
+            .map_err(link)?;
     }
     let to = SyncRow {
         project: first.project.clone(),
-        endpoint: row.endpoint.clone(),
+        endpoint: machine.id.clone(),
         folder: seen.path,
     };
     let mut sources: Vec<&ImportRow> = rows.iter().collect();
@@ -164,7 +160,7 @@ pub(crate) async fn copy_project(
             log::info!(
                 "project copying; project={} node={} from={}",
                 first.project,
-                row.endpoint,
+                machine.id,
                 source.endpoint
             );
             return Ok(ProjectCopy {
@@ -172,7 +168,7 @@ pub(crate) async fn copy_project(
                 from: Some(giver.name.clone()),
             });
         };
-        user.remove_project_sync(&first.project, &row.endpoint)
+        user.remove_project_sync(&first.project, &machine.id)
             .await?;
         if starts {
             user.remove_project_sync(&first.project, &source.endpoint)
@@ -182,7 +178,7 @@ pub(crate) async fn copy_project(
         let on_dest = refusal.node == dest;
         let failed = ImportError::CannotSync {
             machine: if on_dest {
-                row.name.clone()
+                machine.name.clone()
             } else {
                 giver.name.clone()
             },

@@ -1,21 +1,18 @@
 //! Links an existing checkout of the repo or fork instead of cloning: adds missing remotes and PR branches.
 
-use super::preview::{FolderRemotes, parse_remotes, remotes_script, repo_remote};
-use crate::{nodes::Online, store::NodeRow};
-use beep_projects::branches::{READ_LIMIT, run_script};
-use beep_projects::imports::clone;
-use beep_projects::imports::{
-    clone::{Link, NewRemote},
+use super::{
+    clone::{self, Link, NewRemote},
     fork::UsedFork,
+    machine::Machine,
+    preview::{FolderRemotes, parse_remotes, remotes_script, repo_remote},
     repo::{Host, RepoRef},
 };
+use crate::branches::{READ_LIMIT, run_script};
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
 /// The longest fetching the fork and the repository may take.
 const LINK_LIMIT: Duration = Duration::from_secs(30 * 60);
-/// The most output kept while linking; the end explains a failure.
-const MAX_OUTPUT: usize = 64 * 1024;
 
 /// The checkout's remote names for the repo and fork, and the ones to add.
 #[derive(Debug, PartialEq, Eq)]
@@ -49,18 +46,20 @@ fn plan(folder: &FolderRemotes, repo: &RepoRef, fork: &RepoRef) -> Option<Plan> 
 }
 
 /// Links the checkout at `folder` to `fork`; a failure is logged and the import goes on.
-pub(super) async fn link_fork(
-    node: &Online,
-    row: &NodeRow,
+pub async fn link_fork(
+    machine: &Machine,
     repo: &RepoRef,
     fork: &UsedFork,
     folder: &str,
     token: Option<&SecretString>,
 ) {
-    let read = match run_script(node, &remotes_script(&[folder.to_owned()]), READ_LIMIT).await {
+    let Ok(shell) = machine.shell() else {
+        return;
+    };
+    let read = match run_script(shell, &remotes_script(&[folder.to_owned()]), READ_LIMIT).await {
         Ok(out) => parse_remotes(&out),
         Err(e) => {
-            log::info!("link: remotes not read on {}: {e:#}", row.name);
+            log::info!("link: remotes not read on {}: {e:#}", machine.name);
             return;
         }
     };
@@ -70,7 +69,7 @@ pub(super) async fn link_fork(
     let Some(plan) = plan(remotes, repo, &fork.repo) else {
         log::info!(
             "link: {folder} on {} has an upstream or fork remote of its own",
-            row.name
+            machine.name
         );
         return;
     };
@@ -83,31 +82,21 @@ pub(super) async fn link_fork(
         upstream_remote: &plan.upstream_remote,
         branches: &fork.found.branches,
     });
-    let mut output = String::new();
-    let mut on_output = |text: &str| {
-        output.push_str(text);
-        if output.len() > MAX_OUTPUT {
-            output = clone::tail(&output);
-        }
-    };
-    match node
-        .exec(script.expose_secret(), LINK_LIMIT, &mut on_output)
-        .await
-    {
-        Ok(exited) if clone::linked(&output, exited.exit_code) => {}
-        Ok(_) => log::info!(
+    match shell.run(script.expose_secret(), LINK_LIMIT).await {
+        Ok(ran) if clone::linked(&ran.output, ran.exit_code) => {}
+        Ok(ran) => log::info!(
             "link: {folder} on {} not linked to its fork: {}",
-            row.name,
-            clone::tail(&output)
+            machine.name,
+            clone::tail(&ran.output)
         ),
-        Err(e) => log::info!("link: could not reach {}: {e:#}", row.name),
+        Err(e) => log::info!("link: could not reach {}: {e:#}", machine.name),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_projects::model::RepoName;
+    use crate::model::RepoName;
 
     fn folder(remotes: &[(&str, &str)]) -> FolderRemotes {
         FolderRemotes {
