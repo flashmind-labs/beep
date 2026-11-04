@@ -35,7 +35,7 @@ export type AddState =
   | { step: "waiting"; token: string; command: string; expiresAt: number }
   | { step: "linked"; machine: Machine }
   | { step: "expired" }
-  | { step: "outdated" | "error"; message: string };
+  | { step: "error"; message: string };
 
 /// What changes the sheet's state; see `next`.
 export type AddEvent =
@@ -61,7 +61,7 @@ export function next(state: AddState, event: AddEvent): AddState {
       return { step: "waiting", token: event.token, command: event.command, expiresAt: event.expiresAt };
     case "failed":
       if (state.step !== "loading") return state;
-      return { step: outdated(event.message) ? "outdated" : "error", message: event.message };
+      return { step: "error", message: event.message };
     case "tick":
       if (state.step === "waiting" && event.now >= state.expiresAt) return { step: "expired" };
       return state;
@@ -73,11 +73,6 @@ export function next(state: AddState, event: AddEvent): AddState {
     default:
       return state;
   }
-}
-
-/// Whether a refusal says the server is too old for setup tokens.
-export function outdated(message: string | null | undefined) {
-  return /needs an update/i.test(String(message || ""));
 }
 
 /// The time left until `expiresAt` as `9:41`, never below `0:00`.

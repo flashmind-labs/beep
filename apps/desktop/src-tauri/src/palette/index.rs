@@ -31,6 +31,19 @@ pub(crate) enum PaletteAction {
 }
 
 impl PaletteAction {
+    /// Whether it opens something only a subscription has.
+    fn needs_subscription(self) -> bool {
+        matches!(
+            self,
+            Self::NewChat
+                | Self::AllChats
+                | Self::Memories
+                | Self::Routines
+                | Self::Skills
+                | Self::Apps
+        )
+    }
+
     fn title(self) -> &'static str {
         match self {
             Self::NewChat => "New chat",
@@ -85,6 +98,14 @@ enum SettingsSection {
 }
 
 impl SettingsSection {
+    /// Whether the page is only there with a subscription.
+    fn needs_subscription(self) -> bool {
+        matches!(
+            self,
+            Self::Devices | Self::Models | Self::Apps | Self::Mac | Self::Agents
+        )
+    }
+
     fn title(self) -> &'static str {
         match self {
             Self::Devices => "Account",
@@ -253,15 +274,26 @@ pub(crate) fn build_index(lists: &PaletteLists) -> Index {
         let (id, name) = (m.id.clone(), m.name.clone());
         Entry::new(HitKind::Machine, id, name, state.to_owned(), &[&m.name])
     });
+    let local = lists.without_subscription;
     Index {
-        actions: PaletteAction::iter().map(action_entry).collect(),
-        settings: settings().map(|(t, s)| setting_entry(t, s)).collect(),
+        actions: PaletteAction::iter()
+            .filter(|action| !(local && action.needs_subscription()))
+            .map(action_entry)
+            .collect(),
+        settings: settings()
+            .filter(|(_, section)| !(local && section.needs_subscription()))
+            .map(|(t, s)| setting_entry(t, s))
+            .collect(),
         code: prs.chain(branches).collect(),
         projects: project_entries(lists, imported),
         sessions: session_entries(lists, imported),
-        chats: chats.into_iter().map(chat_entry).collect(),
-        memories: memories.collect(),
-        routines: routines.collect(),
+        chats: chats
+            .into_iter()
+            .map(chat_entry)
+            .filter(|_| !local)
+            .collect(),
+        memories: memories.filter(|_| !local).collect(),
+        routines: routines.filter(|_| !local).collect(),
         machines: machines.collect(),
     }
 }
@@ -342,6 +374,45 @@ mod tests {
 
     fn titles(entries: &[Entry]) -> Vec<&str> {
         entries.iter().map(|e| e.title.as_str()).collect()
+    }
+
+    #[test]
+    fn with_no_subscription_the_assistants_pages_are_not_found() {
+        let lists = PaletteLists {
+            without_subscription: true,
+            ..PaletteLists::default()
+        };
+        let index = build_index(&lists);
+        let actions = titles(&index.actions);
+        for gone in [
+            "New chat",
+            "All chats",
+            "Memories",
+            "Routines",
+            "Skills",
+            "Apps",
+        ] {
+            assert!(!actions.contains(&gone), "{gone}");
+        }
+        for kept in ["Home", "Settings", "Coding agents"] {
+            assert!(actions.contains(&kept), "{kept}");
+        }
+        let settings = titles(&index.settings);
+        for gone in [
+            "Account",
+            "Model",
+            "Apps",
+            "Let Beep use this Mac",
+            "Agent accounts",
+        ] {
+            assert!(!settings.contains(&gone), "{gone}");
+        }
+        for kept in ["Machines", "GitHub token", "Launch at login"] {
+            assert!(settings.contains(&kept), "{kept}");
+        }
+        // With one, all of them are there.
+        let all = build_index(&PaletteLists::default());
+        assert!(titles(&all.actions).contains(&"Memories"));
     }
 
     #[test]

@@ -5,7 +5,8 @@ import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
-import { IC, views } from "../center/state.ts";
+import { IC, state, views } from "../center/state.ts";
+import { groupShown } from "../settings/subscription.ts";
 import { failure, tag, skeleton } from "../center/pieces.ts";
 import { shown, registerView, go, drawTop } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
@@ -162,7 +163,7 @@ registerSidebarGroup<ResearchRow>("research", {
   onTitle: () => go("research"),
   action: () => plusButton("New research", () => go("research")),
   empty: () => emptyRow("No research yet"),
-  load: async () => (await fetchResearch())?.slice(0, SIDE_RESEARCH) ?? null,
+  load: async () => (groupShown("research", state.subscribed) ? (await fetchResearch())?.slice(0, SIDE_RESEARCH) ?? null : null),
   row(r) {
     const b = sideItem(IC.doc, r.topic, 0);
     b.title = `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`;

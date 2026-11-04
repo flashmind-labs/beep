@@ -9,6 +9,7 @@ import { drawSide, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
 import { PageHistory } from "./pagehistory.ts";
+import { viewHidden } from "../settings/subscription.ts";
 
 export let shown: string | null = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
@@ -78,6 +79,8 @@ export function goHistory(forward: boolean) {
 
 /// Shows view `name`, passing `arg` to its mount.
 export function go(name: string, arg?: ViewArg): boolean {
+  // A link to a page only a subscription has lands on Home.
+  if (viewHidden(name, arg, state.subscribed)) return go("home");
   if (route(windowScope(), name, arg) === "main") {
     toMain(mainTarget(name, arg));
     return false;

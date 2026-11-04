@@ -201,7 +201,7 @@ function page(home: HomeView) {
     { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length, make: () => [gitSection(git!)] },
     { key: "projects", label: "Projects", count: projects.length, on: projects.length > 0, make: () => [projectsSection(projects)] },
-    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => [machinesSection(machines!)] },
+    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => machinesSection(machines!) },
   ];
   const shownTabs = tabs.filter(t => t.on);
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
@@ -254,7 +254,9 @@ export function overview(home: HomeView) {
   if (needs.length) out.push(section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow))));
   if (updates?.length) out.push(updatesSection(updates));
   for (const [a, b] of rows) out.push(h("div", "cc-cols", a, b));
-  if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
+  if (!out.length && !state.subscribed) {
+    out.push(emptyPanel(h("b", "", "Nothing running"), h("span", "", "Start an agent on this Mac, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));
+  } else if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
   return out;
 }
 
@@ -330,6 +332,7 @@ export function draw() {
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
+  $("#home-comp").style.display = state.subscribed ? "" : "none";
   $<HTMLInputElement>("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }

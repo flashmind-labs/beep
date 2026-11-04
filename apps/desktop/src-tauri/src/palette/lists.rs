@@ -7,6 +7,7 @@ use super::index::build_index;
 use crate::{
     beep::{Beep, state::LinkState},
     center::{
+        home::{mesh_imports, with_server},
         home_sessions::AgentSessions,
         section,
         view_cache::{View, ViewCache, cache_view},
@@ -16,6 +17,7 @@ use crate::{
     machines::list::{self as machine_list, Outside},
     projects::reviews::read_branches as read_project_branches,
 };
+use beep_fleet::Session as FleetSession;
 use beep_proto::{
     Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems, ListImportedProjects,
     ListMemories, ListProjects, ListSessions, Machine, MachineSession, Memory, ProjectAgent,
@@ -38,8 +40,6 @@ const READ_EVERY: Duration = Duration::from_secs(300);
 const READ_GAP: Duration = Duration::from_secs(10);
 /// The least time between two reads of the chats, while one is busy.
 const CHATS_GAP: Duration = Duration::from_secs(2);
-/// How often to look again while the app is not linked.
-const UNLINKED_POLL: Duration = Duration::from_secs(5);
 /// The most projects whose branches are read.
 const BRANCH_PROJECTS: usize = 8;
 
@@ -60,6 +60,9 @@ pub(crate) struct PaletteLists {
     /// From the local copy of the chats, which has its own file.
     #[serde(skip)]
     pub(super) chats: Option<Vec<Session>>,
+    /// Set while the app has no subscription: the index leaves out what is the assistant's.
+    #[serde(skip)]
+    pub(super) without_subscription: bool,
 }
 
 /// A branch with commits its project's default branch does not have.
@@ -192,10 +195,9 @@ pub(crate) async fn follow(app: AppHandle, beep: Arc<Beep>) {
 async fn follow_lists(app: &AppHandle, beep: &Arc<Beep>) {
     let cache = app.state::<PaletteCache>();
     loop {
-        if beep.link_state() != LinkState::Linked {
-            sleep(UNLINKED_POLL).await;
-            continue;
-        }
+        // With no subscription the machines, projects and branches come from the mesh.
+        let without = beep.link_state() != LinkState::Linked;
+        cache.update(app, |lists| lists.without_subscription = without);
         read_lists(app, beep).await;
         sleep(READ_GAP).await;
         select! {
@@ -212,6 +214,8 @@ async fn follow_chats(app: &AppHandle, beep: &Arc<Beep>) {
         let reader = Arc::clone(beep);
         let copy = tauri::async_runtime::spawn_blocking(move || reader.chats().sessions()).await;
         let chats = match copy {
+            // The chats are the assistant's: none without a subscription.
+            Ok(_) if beep.link_state() != LinkState::Linked => Some(Vec::new()),
             Ok(Some(chats)) => Some(chats),
             Ok(None) if beep.link_state() == LinkState::Linked => {
                 section("chats", beep.call(ListSessions {}).await)
@@ -247,11 +251,14 @@ async fn read_lists(app: &AppHandle, beep: &Arc<Beep>) {
 }
 
 async fn read_server_lists(app: &AppHandle, beep: &Beep) {
-    let (memories, routines, projects, boards) = join!(
+    let session = app.state::<Arc<FleetSession>>();
+    let fleet = app.state::<Arc<Fleet>>();
+    let (memories, routines, listed, boards, imported) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListImportedProjects {}),
         beep.call(ListProjects {}),
+        mesh_imports(&fleet, &session),
     );
     let memories = section("memories", memories);
     let routines = section("routines", routines);
@@ -260,7 +267,7 @@ async fn read_server_lists(app: &AppHandle, beep: &Beep) {
         &app.state::<Arc<Fleet>>(),
         &app.state::<Outside>(),
     ));
-    let projects = section("projects", projects);
+    let projects = section("projects", with_server(imported, listed));
     let boards = section("the projects board", boards);
     app.state::<PaletteCache>().update(app, |lists| {
         lists.memories = memories.or(lists.memories.take());
@@ -273,6 +280,9 @@ async fn read_server_lists(app: &AppHandle, beep: &Beep) {
 
 /// The server may ask the git hosts.
 async fn read_prs(app: &AppHandle, beep: &Beep) {
+    if beep.link_state() != LinkState::Linked {
+        return;
+    }
     let Some(git) = section("pull requests", beep.call(ListGitItems {}).await) else {
         return;
     };

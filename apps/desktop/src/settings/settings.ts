@@ -3,9 +3,9 @@
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
-import { bar, esc, ICON, invoke, S, windowHooks } from "../bar/core.ts";
+import { bar, esc, ICON, invoke, listen, S, windowHooks } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
-import { renderInvitePhone, renderLink } from "../bar/link.ts";
+import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
 import { harnessTile } from "../agents/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
@@ -14,6 +14,7 @@ import { back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, page
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
+import { SUBSCRIPTION_NOTE, signInWay } from "./subscription.ts";
 
 /// What a new notice does while you are at this Mac (NoticeVoice).
 type NoticeVoice = "ask" | "aloud" | "off";
@@ -145,7 +146,7 @@ window.addEventListener("focus", () => {
 export const setSkeleton = (n: number) => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
 
 function setDevicesHtml(linked: boolean, set: MacSettings) {
-  if (!linked) return `<div class="dtoggle"><span><b>Not linked</b><small>Link to see your chats and memories here</small></span><button class="dbtn pri" id="link">Link to phone…</button></div>`;
+  if (!linked) return `<div class="dtoggle"><span><b>Subscription</b><small>${SUBSCRIPTION_NOTE}</small></span><button class="dbtn pri" id="subscribe">Sign in</button></div><div id="subNote"></div>`;
   if (SET.devices === null) return setSkeleton(2);
   const devices = SET.devices;
   // Whether this Mac made the account, and so links and removes devices.
@@ -234,7 +235,7 @@ function bindSettings(el: Element) {
     sw.disabled = true;
     thenRedraw(invoke(command, { enabled: sw.getAttribute("aria-checked") !== "true" }));
   });
-  $in("#link")?.addEventListener("click", () => setAway("link", renderLink));
+  $in("#subscribe")?.addEventListener("click", e => signIn(el, e.currentTarget as HTMLButtonElement));
   $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
   $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
   $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
@@ -283,6 +284,31 @@ function bindSettings(el: Element) {
       console.warn(err);
     }
   });
+}
+
+/// Signs in to a subscription: in the browser on a hosted server, with a token to paste if the
+/// link did not open; else the account starts on this Mac. Settings redraws when the link comes.
+async function signIn(el: Element, button: HTMLButtonElement) {
+  const note = el.querySelector<HTMLElement>("#subNote");
+  button.disabled = true;
+  try {
+    if (signInWay(await invoke<boolean>("login_hosted")) === "here") return void await invoke("use_here");
+    await invoke("start_login");
+    if (!note) return;
+    note.innerHTML = `<label class="dfield">Finish in your browser, or paste the token<input id="subToken" class="mono" autocomplete="off" spellcheck="false" placeholder="Token"></label><div class="derr" id="subErr"></div>`;
+    const token = note.querySelector<HTMLInputElement>("#subToken")!;
+    token.addEventListener("input", () => {
+      const text = token.value.trim();
+      if (!/^[\w-]+\.[\w-]+$/.test(text)) return;
+      token.disabled = true;
+      invoke("complete_login", { token: text }).catch(err => { token.disabled = false; note.querySelector("#subErr")!.textContent = String(err); });
+    });
+    token.focus();
+  } catch (err) {
+    if (note) note.innerHTML = `<div class="derr">${esc(err)}</div>`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 /// Redraws one section in place, once its data came.
@@ -337,17 +363,20 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
       ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
-  if (!linked) return [...out, ["devices", sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`)]];
+  const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
+  const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
+  const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
+  // Without a subscription these work over the mesh; the rest is the assistant's.
+  if (!linked) return [...out, creds, machines, instr, ["devices", sec("devices", "Subscription", setDevicesHtml(linked, set))]];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   if (mac) out.push(["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]);
-  out.push(["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())]);
+  out.push(machines);
   // The Coding agents rows sit outside #set-agents, which redraws alone.
   const sub = SET.path?.sub;
   out.push(["agents", sheet && sub?.kind === "agent" ? host("agents")
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
-  out.push(["creds", sec("creds", "Credentials", setCredsHtml())]);
-  out.push(["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)]);
+  out.push(creds, instr);
   out.push(["devices", sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`)]);
   return out;
 }
@@ -398,7 +427,8 @@ function navHtml(shown: SettingsPage[], path: SettingsPath) {
   return navEntries(shown, path, subEntries).map(({ page, sub, current }) => {
     const on = current ? ' aria-current="true"' : "";
     if (sub) return `<button class="cc-si sub" data-sub="${esc(subKey(sub))}"${on}><span class="tt">${esc(subLabel(sub))}</span></button>`;
-    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(pageLabel(page))}</span>${navCount(page)}</button>`;
+    const label = page === "devices" && SET.local?.linked === false ? "Subscription" : pageLabel(page);
+    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(label)}</span>${navCount(page)}</button>`;
   }).join("");
 }
 
@@ -589,8 +619,21 @@ export async function renderSettings(confirm = false, root?: HTMLElement, page?:
       <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
     bindSettings(el);
   }
-  if (!linked) return;
   // The server's parts, side by side; each fills its section as it answers.
+  if (linked) loadServerParts(set, alive);
+  invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
+    .then(() => {
+      if (!alive()) return;
+      if (SET.root) drawChrome(); else fillSection("machines", setMachinesHtml());
+      // The git hosts say which machines have gh and teacli.
+      if (CRED.list) fillSection("creds", setCredsHtml());
+    });
+  loadCreds();
+  if (linked) loadAgentAccounts();
+}
+
+/// The subscription's parts of Settings, which fill their sections as each answers.
+function loadServerParts(set: MacSettings, alive: () => boolean) {
   invoke<Device[]>("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
     .then(() => { if (alive()) fillSection("devices", `<div id="set-account">${setAccountHtml(true)}</div>${setDevicesHtml(true, set)}`); });
   invoke<Models>("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
@@ -607,13 +650,7 @@ export async function renderSettings(confirm = false, root?: HTMLElement, page?:
       if (!alive()) return;
       if (SET.root) drawChrome(); else fillSection("apps", setAppsHtml());
     });
-  invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
-    .then(() => {
-      if (!alive()) return;
-      if (SET.root) drawChrome(); else fillSection("machines", setMachinesHtml());
-      // The git hosts say which machines have gh and teacli.
-      if (CRED.list) fillSection("creds", setCredsHtml());
-    });
-  loadCreds();
-  loadAgentAccounts();
 }
+
+// Signing in changes which pages Settings has.
+listen<string>("link-state", () => { if (setShown()) renderSettings(); });

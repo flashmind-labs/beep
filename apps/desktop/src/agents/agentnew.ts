@@ -110,6 +110,12 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   loadProjects();
 }
 
+/// What the prompt field says while empty: in the bar with no subscription it is the whole bar.
+function taskHint(missing: boolean) {
+  if (missing) return "Say what the agent should do.";
+  return !PANE && S.link === "unlinked" ? "Run a command or start an agent" : "Describe the task.";
+}
+
 export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
 /// The agents the chosen machine offers; before one is picked, any machine's.
 export function formAgents() {
@@ -140,7 +146,7 @@ function drawFrame() {
   bar.innerHTML = `${head}<div class="agc-wrap" id="agwrap"><div class="agc">
       <h3 id="agtitle"></h3>
       <div class="agc-box" id="agbox">
-        <textarea id="agprompt" rows="3" placeholder="Describe the task." aria-label="What should the agent do?">${esc(f.prompt)}</textarea>
+        <textarea id="agprompt" rows="3" placeholder="${esc(taskHint(false))}" aria-label="What should the agent do?">${esc(f.prompt)}</textarea>
         <div class="agc-row"><span class="sp"></span><span id="agpill"></span>
           <button class="agc-send" id="aggo" title="Start (⌘↩)" aria-label="Start"></button></div>
         <div id="agpick"></div>
@@ -172,7 +178,7 @@ function drawParts() {
   const none = !!AG.hosts && !hosts.length;
   const missing = AG.error === "prompt";
   $$("#agbox").classList.toggle("err", missing);
-  $$<HTMLTextAreaElement>("#agprompt").placeholder = missing ? "Say what the agent should do." : "Describe the task.";
+  $$<HTMLTextAreaElement>("#agprompt").placeholder = taskHint(missing);
   // The search and the folder field are drawn again; they keep the keys.
   const active = document.activeElement;
   const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";

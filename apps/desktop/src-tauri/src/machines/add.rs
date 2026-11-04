@@ -4,44 +4,64 @@
 //! Only a desktop mints tickets: the server never does.
 
 use crate::{
-    beep::Service,
+    beep::{Service, identity::computer_name},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
-use beep_mesh::{DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, JoinTicket};
+use beep_mesh::{DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, JoinTicket, MeshError};
 use beep_proto::{GetMachineSearch, SetMachineSearch};
 use iroh::EndpointId;
 use iroh_tickets::Ticket;
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// A ticket as the sheet shows it.
 #[derive(Debug, Serialize)]
 pub struct TokenView {
-    /// The ticket, as `beep-node mesh join` takes it.
+    /// The ticket.
     token: String,
-    /// `beep-node mesh join <ticket>`, to copy.
+    /// What to copy: `beep-node mesh join <ticket>` for a node, the ticket for another Mac.
     command: String,
     /// In milliseconds since the Unix epoch.
     expires_at: u64,
 }
 
-/// A ticket that brings a device of `kind` into the mesh, as text.
+/// A ticket that brings a device of `kind` into the mesh, with what to copy: the line a node
+/// runs, or the ticket itself for another Mac to paste.
 #[tauri::command]
-pub async fn mesh_invite(fleet: State<'_, Arc<Fleet>>, kind: DeviceKind) -> Result<String> {
-    Ok(fleet.invite(kind).await?.encode_string())
-}
-
-#[tauri::command]
-pub async fn create_node_token(fleet: State<'_, Arc<Fleet>>) -> Result<TokenView> {
-    let ticket = fleet.invite(DeviceKind::Node).await?;
+pub async fn mesh_invite(fleet: State<'_, Arc<Fleet>>, kind: DeviceKind) -> Result<TokenView> {
+    let ticket = fleet.invite(kind).await?;
     let token = ticket.encode_string();
+    let command = match kind {
+        DeviceKind::Node => format!("beep-node mesh join {token}"),
+        DeviceKind::Desktop => token.clone(),
+    };
     Ok(TokenView {
-        command: format!("beep-node mesh join {token}"),
         token,
+        command,
         expires_at: ticket.expires_ms,
     })
+}
+
+/// What the join window says of a ticket that does not work.
+const USED: &str = "This ticket expired or was already used. Ask for a new one.";
+
+/// Joins the mesh a ticket from another desktop names, under this Mac's name. A Mac that is
+/// alone in its own mesh leaves it and brings its settings along.
+#[tauri::command]
+pub async fn mesh_join(app: AppHandle, fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
+    let ticket = JoinTicket::decode_string(ticket.trim())
+        .map_err(|_| DesktopError::BadRequest(USED.into()))?;
+    let joined = match fleet.join(&ticket, &computer_name()).await {
+        Err(DesktopError::Mesh(MeshError::Refused(_))) => {
+            Err(DesktopError::BadRequest(USED.into()))
+        }
+        other => other,
+    };
+    // The move was cancelled to let the mesh close; it runs again on whichever mesh is open.
+    crate::fleet::migrate::start(app);
+    joined
 }
 
 /// The id of the machine that joined with `token`, `None` while it is

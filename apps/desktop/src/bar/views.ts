@@ -1,4 +1,5 @@
 import { loadAgentHosts } from "../agents/agents.ts";
+import { renderAgentNew } from "../agents/agentnew.ts";
 import { loadApps, renderApps } from "../settings/apps.ts";
 import { focusAsk, newChat, renderChat } from "../chat/chat.ts";
 import { renderChats } from "../chat/chats.ts";
@@ -49,7 +50,9 @@ export async function show(view: string | null) {
   if (S.link === "linked") { loadModels(); loadAgentHosts(); }
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
-  if (S.link === "unlinked" || view === "link") return S.link === "linked" ? renderChat() : renderLink();
+  if (view === "link") return S.link === "linked" ? renderChat() : renderLink();
+  // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.
+  if (S.link === "unlinked") return renderAgentNew("", "chat");
   if (view && Object.hasOwn(NAMED, view)) return NAMED[view]();
   // Back from the browser: look again at what is connected.
   if (S.view === "apps") return loadApps();
