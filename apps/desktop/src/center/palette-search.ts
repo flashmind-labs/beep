@@ -1,41 +1,45 @@
-// When the Cmd+K palette asks for hits.
+// What the Cmd+K palette draws when. What the window holds draws at once;
+// chat text is searched by the app, a moment after typing stops.
 
 export const DEBOUNCE_MS = 120;
+/// Chat text is searched from this many characters.
+const MIN_TEXT_QUERY = 2;
 
-export type Finder<H> = (query: string, full: boolean) => Promise<H[]>;
-export type Drawer<H> = (query: string, hits: H[]) => void;
+export type TextFinder<T> = (query: string) => Promise<T[]>;
+export type Drawer<T> = (query: string, text: T[]) => void;
 
-export class PaletteSearch<H> {
+export class PaletteSearch<T> {
   private query = "";
-  /// Bumped on every ask; an answer carries the number it was sent with.
-  private asked = 0;
-  /// The number of the ask whose answer is on screen.
-  private drawn = 0;
-  /// Bumped when the query changes, so answers to the old one never draw.
-  private typed = 0;
+  /// The chats holding the query in their text, as far as known.
+  private text: T[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /// One search of chat text at a time: it walks every message.
+  private asking = false;
   private stopped = false;
 
-  private find: Finder<H>;
-  private draw: Drawer<H>;
+  private findText: TextFinder<T>;
+  private draw: Drawer<T>;
 
-  constructor(find: Finder<H>, draw: Drawer<H>) {
-    this.find = find;
+  constructor(findText: TextFinder<T>, draw: Drawer<T>) {
+    this.findText = findText;
     this.draw = draw;
   }
 
   /// The query changed.
   type(query: string) {
     this.query = query;
-    this.typed++;
-    this.ask(false);
-    this.later();
+    this.text = [];
+    this.draw(query, this.text);
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if (query.trim().length >= MIN_TEXT_QUERY) {
+      this.timer = setTimeout(() => { this.timer = undefined; this.ask(); }, DEBOUNCE_MS);
+    }
   }
 
-  /// What the app holds changed: ask again for the same query.
+  /// What the window holds changed: draw the same query again.
   refresh() {
-    this.ask(false);
-    this.later();
+    if (!this.stopped) this.draw(this.query, this.text);
   }
 
   /// The palette closed: nothing more draws.
@@ -44,23 +48,23 @@ export class PaletteSearch<H> {
     clearTimeout(this.timer);
   }
 
-  private later() {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.ask(true), DEBOUNCE_MS);
-  }
-
-  private async ask(full: boolean) {
-    if (this.stopped) return;
-    const mine = ++this.asked, typed = this.typed, query = this.query;
-    let hits: H[];
+  private async ask() {
+    if (this.stopped || this.asking) return;
+    const query = this.query;
+    this.asking = true;
+    let text: T[] | null = null;
     try {
-      hits = await this.find(query, full);
+      text = await this.findText(query);
     } catch (e) {
-      console.warn("searching:", e);
-      return;
+      console.warn("searching chat text:", e);
     }
-    if (this.stopped || typed !== this.typed || mine < this.drawn) return;
-    this.drawn = mine;
-    this.draw(query, hits);
+    this.asking = false;
+    if (this.stopped) return;
+    if (query === this.query) {
+      if (text) { this.text = text; this.draw(query, text); }
+      // Typed while this one ran, and its wait is over: search what it says now.
+    } else if (this.timer === undefined && this.query.trim().length >= MIN_TEXT_QUERY) {
+      this.ask();
+    }
   }
 }
