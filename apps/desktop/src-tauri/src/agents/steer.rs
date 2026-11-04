@@ -2,7 +2,7 @@
 //! message for the running turn, switching model, cancel and close.
 
 use crate::{
-    beep::{Beep, Service},
+    beep::Service,
     error::{DesktopError, Result},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
