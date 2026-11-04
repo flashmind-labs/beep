@@ -4,7 +4,7 @@ use super::{
     commands::{HostCommand, OwnedIssue, parse_owned_issues},
     fleet::{self, Fleet, Machine, NodeFleet},
     issues,
-    model::{IssueHost, MachinePath, Visibility},
+    model::{IssueHost, MachinePath, Visibility, memory_scope},
     personas::{self, PersonaFileError, ProjectPersona},
     threads,
 };
@@ -296,7 +296,7 @@ fn machine_line(machine: &Machine, running: &[String]) -> String {
 }
 
 async fn memories(ctx: &mut String, user: &User, project: &ProjectRow) {
-    let Ok(scope) = project.name.memory_scope() else {
+    let Ok(scope) = memory_scope(&project.name) else {
         return;
     };
     let rows = match user.memory_rows().await {

@@ -1,10 +1,8 @@
-use super::{
-    super::model::{IssueHost, RepoName, Visibility},
-    host::*,
-    parse::*,
-    *,
+use super::{host::*, parse::*, *};
+use crate::{
+    leak::PublicText,
+    model::{IssueHost, RepoName, Visibility},
 };
-use crate::memory::leak::PublicText;
 use chrono::{DateTime, Utc};
 
 fn repo() -> RepoName {
@@ -16,9 +14,7 @@ fn github() -> IssueHost {
 }
 
 fn forgejo() -> IssueHost {
-    IssueHost::Forgejo(
-        crate::projects::model::ForgejoHost::parse("git.example.com").expect("a host"),
-    )
+    IssueHost::Forgejo(crate::model::ForgejoHost::parse("git.example.com").expect("a host"))
 }
 
 fn setup_out(remote: &str, issues: &str, prs: &str, head: &str) -> String {
@@ -333,16 +329,6 @@ fn unreadable_visibility_is_public() {
             "{out}"
         );
     }
-}
-
-#[test]
-fn output_is_capped_on_a_char_boundary() {
-    let mut out = "a".repeat(MAX_OUTPUT - 1);
-    push_capped(&mut out, "éé");
-    assert_eq!(out.len(), MAX_OUTPUT - 1);
-    push_capped(&mut out, "b");
-    push_capped(&mut out, "c");
-    assert_eq!(out.len(), MAX_OUTPUT);
 }
 
 #[test]

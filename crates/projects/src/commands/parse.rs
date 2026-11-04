@@ -1,16 +1,16 @@
 //! Reads what `gh` and `tea` print: issues, pull requests, checks and logins.
 
-use super::super::model::{IssueHost, IssueRef, Visibility};
+use crate::model::{IssueHost, IssueRef, Visibility};
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use strum::IntoStaticStr;
 
-pub(in crate::projects) fn json(out: &str) -> Result<Value> {
+pub fn json(out: &str) -> Result<Value> {
     serde_json::from_str(out.trim()).context("the host did not print JSON")
 }
 
-pub(in crate::projects) fn text(value: &Value, key: &str) -> String {
+pub fn text(value: &Value, key: &str) -> String {
     value
         .get(key)
         .and_then(Value::as_str)
@@ -19,7 +19,7 @@ pub(in crate::projects) fn text(value: &Value, key: &str) -> String {
 }
 
 /// The issue a create command printed: gh prints its URL, teacli its JSON.
-pub(crate) fn parse_created_issue(host: &IssueHost, out: &str) -> Result<IssueRef> {
+pub fn parse_created_issue(host: &IssueHost, out: &str) -> Result<IssueRef> {
     let (number, url) = match host {
         IssueHost::Github => {
             let url = out
@@ -51,7 +51,7 @@ pub(crate) fn parse_created_issue(host: &IssueHost, out: &str) -> Result<IssueRe
 }
 
 /// The issue [`HostCommand::FindIssue`] found holding `marker`, if any.
-pub(crate) fn parse_found_issue(out: &str, marker: &str) -> Result<Option<IssueRef>> {
+pub fn parse_found_issue(out: &str, marker: &str) -> Result<Option<IssueRef>> {
     if out.trim().is_empty() {
         return Ok(None);
     }
@@ -80,14 +80,14 @@ pub(crate) fn parse_found_issue(out: &str, marker: &str) -> Result<Option<IssueR
 
 /// An issue Beep filed, as the list command prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OwnedIssue {
-    pub(crate) number: u64,
-    pub(crate) open: bool,
-    pub(crate) title: String,
-    pub(crate) comments: u32,
+pub struct OwnedIssue {
+    pub number: u64,
+    pub open: bool,
+    pub title: String,
+    pub comments: u32,
 }
 
-pub(crate) fn parse_owned_issues(_host: &IssueHost, out: &str) -> Result<Vec<OwnedIssue>> {
+pub fn parse_owned_issues(_host: &IssueHost, out: &str) -> Result<Vec<OwnedIssue>> {
     let value = json(out)?;
     let items = value
         .as_array()
@@ -111,27 +111,27 @@ pub(crate) fn parse_owned_issues(_host: &IssueHost, out: &str) -> Result<Vec<Own
 
 /// An open issue on the host, by anyone.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OpenIssue {
-    pub(crate) number: u64,
-    pub(crate) title: String,
-    pub(crate) labels: Vec<String>,
+pub struct OpenIssue {
+    pub number: u64,
+    pub title: String,
+    pub labels: Vec<String>,
     /// The login of who opened it.
-    pub(crate) author: String,
-    pub(crate) opened_at: DateTime<Utc>,
-    pub(crate) comments: u32,
-    pub(crate) url: String,
+    pub author: String,
+    pub opened_at: DateTime<Utc>,
+    pub comments: u32,
+    pub url: String,
 }
 
 /// One issue with its text, as [`HostCommand::ViewIssue`] prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ViewedIssue {
-    pub(crate) number: u64,
-    pub(crate) title: String,
-    pub(crate) body: String,
-    pub(crate) url: String,
-    pub(crate) open: bool,
+pub struct ViewedIssue {
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+    pub url: String,
+    pub open: bool,
     /// The login of who opened it.
-    pub(crate) author: String,
+    pub author: String,
 }
 
 /// The issue's web page: Forgejo's `url` is its API address.
@@ -182,7 +182,7 @@ pub(super) fn label_names(item: &Value) -> Vec<String> {
 }
 
 /// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
-pub(crate) fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
+pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
     let value = json(out)?;
     let items = value
         .as_array()
@@ -218,19 +218,19 @@ pub(crate) fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
 
 /// An open pull request on the host, by anyone.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OpenPr {
-    pub(crate) number: u64,
-    pub(crate) title: String,
+pub struct OpenPr {
+    pub number: u64,
+    pub title: String,
     /// Its web page.
-    pub(crate) url: String,
+    pub url: String,
     /// The login of who opened it.
-    pub(crate) author: String,
-    pub(crate) draft: bool,
-    pub(crate) created_at: DateTime<Utc>,
-    pub(crate) updated_at: DateTime<Utc>,
+    pub author: String,
+    pub draft: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     /// The branch it is made from; empty when the host's CLI does not say.
-    pub(crate) head: String,
-    pub(crate) labels: Vec<String>,
+    pub head: String,
+    pub labels: Vec<String>,
 }
 
 /// The time in the first of `keys` that holds one; `what` names it in the error.
@@ -251,7 +251,7 @@ pub(super) fn time_of(
 }
 
 /// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case).
-pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
+pub fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
     let value = json(out)?;
     let items = value
         .as_array()
@@ -292,15 +292,15 @@ pub(crate) fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
 
 /// The branch of a pull request, as [`HostCommand::ViewPrHead`] reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PrHead {
-    pub(crate) number: u64,
-    pub(crate) branch: String,
+pub struct PrHead {
+    pub number: u64,
+    pub branch: String,
     /// Made from another repository's branch.
-    pub(crate) fork: bool,
+    pub fork: bool,
 }
 
 /// Parses [`HostCommand::ViewPrHead`] from gh or Forgejo (a deleted fork's repo is null).
-pub(crate) fn parse_pr_head(out: &str) -> Result<PrHead> {
+pub fn parse_pr_head(out: &str) -> Result<PrHead> {
     let item = json(out)?;
     let number = item
         .get("number")
@@ -338,7 +338,7 @@ pub(crate) fn parse_pr_head(out: &str) -> Result<PrHead> {
 }
 
 /// The issue [`HostCommand::ViewIssue`] printed. A pull request is refused.
-pub(crate) fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
+pub fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
     let item = json(out)?;
     if item.get("pull_request").is_some_and(|pr| !pr.is_null()) {
         bail!("that number is a pull request, not an issue");
@@ -358,7 +358,7 @@ pub(crate) fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
 }
 
 /// Parses [`HostCommand::WhoAmI`]: bare from gh, JSON from teacli.
-pub(crate) fn parse_login(out: &str) -> Result<String> {
+pub fn parse_login(out: &str) -> Result<String> {
     let out = out.trim();
     let login = match serde_json::from_str::<Value>(out) {
         Ok(Value::String(login)) => login,
@@ -377,7 +377,7 @@ pub(crate) fn parse_login(out: &str) -> Result<String> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub(crate) enum ChecksState {
+pub enum ChecksState {
     Pending,
     Passing,
     Failing,
@@ -386,21 +386,21 @@ pub(crate) enum ChecksState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PrState {
-    pub(crate) number: u64,
-    pub(crate) url: String,
-    pub(crate) merged: bool,
-    pub(crate) open: bool,
+pub struct PrState {
+    pub number: u64,
+    pub url: String,
+    pub merged: bool,
+    pub open: bool,
     /// `APPROVED`, `CHANGES_REQUESTED` or `REVIEW_REQUIRED`; always `None` on Forgejo.
-    pub(crate) review: Option<String>,
+    pub review: Option<String>,
     /// Forgejo's pull request JSON carries no checks, so this is `None` there.
-    pub(crate) checks: ChecksState,
-    pub(crate) title: String,
-    pub(crate) body: String,
+    pub checks: ChecksState,
+    pub title: String,
+    pub body: String,
 }
 
 /// A pull request, or `None` when the output is empty or a list with none.
-pub(crate) fn parse_pr(host: &IssueHost, out: &str) -> Result<Option<PrState>> {
+pub fn parse_pr(host: &IssueHost, out: &str) -> Result<Option<PrState>> {
     if out.trim().is_empty() || out.trim() == "null" {
         return Ok(None);
     }
@@ -449,7 +449,7 @@ pub(crate) fn parse_pr(host: &IssueHost, out: &str) -> Result<Option<PrState>> {
 }
 
 /// Failing wins over pending, which wins over passing.
-pub(in crate::projects) fn checks_of(rollup: Option<&Value>) -> ChecksState {
+pub fn checks_of(rollup: Option<&Value>) -> ChecksState {
     let Some(checks) = rollup
         .and_then(Value::as_array)
         .filter(|list| !list.is_empty())
@@ -482,7 +482,7 @@ pub(in crate::projects) fn checks_of(rollup: Option<&Value>) -> ChecksState {
 }
 
 /// Whether the repository is public; anything unreadable counts as public, the cautious answer.
-pub(crate) fn parse_visibility(_host: &IssueHost, out: &str) -> Visibility {
+pub fn parse_visibility(_host: &IssueHost, out: &str) -> Visibility {
     let Ok(value) = json(out) else {
         return Visibility::Public;
     };
@@ -501,7 +501,7 @@ pub(crate) fn parse_visibility(_host: &IssueHost, out: &str) -> Visibility {
 }
 
 /// What changed about a pull request, for telling a new state from an old one.
-pub(crate) fn pr_fingerprint(pr: &PrState) -> String {
+pub fn pr_fingerprint(pr: &PrState) -> String {
     let state = if pr.open { "open" } else { "closed" };
     let checks: &'static str = pr.checks.into();
     format!(

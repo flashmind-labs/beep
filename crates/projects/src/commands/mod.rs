@@ -3,72 +3,22 @@
 
 mod host;
 mod parse;
-pub(crate) use host::{HostCommand, InlineComment, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING};
-pub(crate) use parse::{
-    ChecksState, OpenIssue, OpenPr, OwnedIssue, PrHead, PrState, ViewedIssue, parse_created_issue,
-    parse_found_issue, parse_login, parse_open_issues, parse_open_prs, parse_owned_issues,
-    parse_pr, parse_pr_head, parse_viewed_issue, parse_visibility, pr_fingerprint,
+pub use host::{HostCommand, InlineComment, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING};
+pub use parse::{
+    ChecksState, OpenIssue, OpenPr, OwnedIssue, PrHead, PrState, ViewedIssue, checks_of, json,
+    parse_created_issue, parse_found_issue, parse_login, parse_open_issues, parse_open_prs,
+    parse_owned_issues, parse_pr, parse_pr_head, parse_viewed_issue, parse_visibility,
+    pr_fingerprint, text,
 };
-pub(super) use parse::{checks_of, json, text};
 
-use super::model::{IssueHost, MachinePath, RepoName, Roles, TaskSlug, remote_parts};
-use crate::{account::credentials::github_owner_var, nodes::Online};
+use crate::model::{IssueHost, MachinePath, RepoName, Roles, TaskSlug, remote_parts};
+use crate::{github_owner_var, quote};
 use anyhow::Result;
-use async_trait::async_trait;
-use std::time::Duration;
-
-/// Most output a command keeps.
-const MAX_OUTPUT: usize = 64 * 1024;
-
-/// Where a project's commands run.
-#[async_trait]
-pub(crate) trait Shell: Send + Sync {
-    async fn run(&self, command: &str, limit: Duration) -> Result<CommandOutput>;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CommandOutput {
-    /// `None` when the command did not finish.
-    pub(crate) code: Option<i32>,
-    /// The first 64 KiB of what it printed.
-    pub(crate) out: String,
-}
-
-#[async_trait]
-impl Shell for Online {
-    async fn run(&self, command: &str, limit: Duration) -> Result<CommandOutput> {
-        let mut out = String::new();
-        let exited = self
-            .exec(command, limit, &mut |text| push_capped(&mut out, text))
-            .await?;
-        Ok(CommandOutput {
-            code: exited.exit_code,
-            out,
-        })
-    }
-}
-
-fn push_capped(out: &mut String, text: &str) {
-    let room = MAX_OUTPUT.saturating_sub(out.len());
-    let mut end = text.len().min(room);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    out.push_str(&text[..end]);
-}
-
-/// `text` as one shell word.
-pub(crate) fn quote(text: &str) -> String {
-    // Only a NUL byte cannot be quoted, and no command can carry one.
-    shlex::try_quote(&text.replace('\0', ""))
-        .map(|quoted| quoted.into_owned())
-        .unwrap_or_default()
-}
 
 // ---- git ----
 
 /// Keeps `.worktrees/` and `.beep/` out of `git status` in the checkout.
-pub(crate) fn exclude_project_dirs(checkout: &MachinePath) -> String {
+pub fn exclude_project_dirs(checkout: &MachinePath) -> String {
     let checkout = quote(checkout.as_str());
     format!(
         "exclude=\"$(git -C {checkout} rev-parse --path-format=absolute --git-common-dir)/info/exclude\" \
@@ -80,7 +30,7 @@ pub(crate) fn exclude_project_dirs(checkout: &MachinePath) -> String {
 
 /// Makes the task's worktree on a new `beep/<slug>` branch from `origin`'s `base`, or the
 /// local one when it has commits `origin` lacks.
-pub(crate) fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) -> String {
+pub fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) -> String {
     let repo = quote(checkout.as_str());
     let local = quote(&format!("refs/heads/{base}"));
     let remote = quote(&format!("refs/remotes/origin/{base}"));
@@ -97,12 +47,12 @@ pub(crate) fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) 
     )
 }
 
-pub(crate) fn head_commit(checkout: &MachinePath) -> String {
+pub fn head_commit(checkout: &MachinePath) -> String {
     format!("git -C {} rev-parse HEAD", quote(checkout.as_str()))
 }
 
 /// Removes the task's worktree and its `beep/<slug>` branch, nothing else.
-pub(crate) fn worktree_remove(checkout: &MachinePath, slug: &TaskSlug) -> String {
+pub fn worktree_remove(checkout: &MachinePath, slug: &TaskSlug) -> String {
     let repo = quote(checkout.as_str());
     format!(
         "git -C {repo} worktree remove --force {} && git -C {repo} branch -D {}",
@@ -116,7 +66,7 @@ const CONFIG_MARK: &str = "== config";
 const HEAD_MARK: &str = "== head";
 
 /// Prints the checkout's raw remote URLs, its `beep.issues`/`beep.prs` settings and default branch.
-pub(crate) fn read_setup(checkout: &MachinePath) -> String {
+pub fn read_setup(checkout: &MachinePath) -> String {
     let repo = quote(checkout.as_str());
     format!(
         "echo '{REMOTES_MARK}'; git -C {repo} config --get-regexp '^remote\\..*\\.url$'; \
@@ -128,13 +78,13 @@ pub(crate) fn read_setup(checkout: &MachinePath) -> String {
 
 /// What `read_setup` found out about a checkout.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Setup {
-    pub(crate) roles: Roles,
-    pub(crate) default_branch: String,
+pub struct Setup {
+    pub roles: Roles,
+    pub default_branch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum SetupError {
+pub enum SetupError {
     #[error("No remote of this checkout is {0}.")]
     OtherRepo(String),
     #[error("beep.issues and beep.prs are github, forgejo, forgejo:<host> or none, not {0:?}.")]
@@ -144,7 +94,7 @@ pub(crate) enum SetupError {
 }
 
 /// Reads the output of [`read_setup`] for the project `name`.
-pub(crate) fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupError> {
+pub fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupError> {
     let mut section = "";
     let mut remotes = Vec::new();
     let mut issues = "";
@@ -198,7 +148,7 @@ fn remote_host(url: &str, name: &RepoName) -> Option<String> {
 
 /// Prefix that makes `gh` run as the user's account for `repo`'s owner (see
 /// `credentials::for_machines`). Only the variable's name is in the command, never the token.
-pub(crate) fn gh_account(repo: &str) -> String {
+pub fn gh_account(repo: &str) -> String {
     repo.split_once('/')
         .and_then(|(owner, _)| github_owner_var(owner))
         .map(|var| format!("GH_TOKEN=\"${{{var}:-$GH_TOKEN}}\" "))
