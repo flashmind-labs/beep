@@ -114,6 +114,7 @@ async fn a_removed_projects_webhooks_go_once_a_node_is_online() {
         extra: vec![Arc::new(FakeWebhooks(watched)) as Arc<dyn Protocol>],
         provision: None,
         tools: Default::default(),
+        traffic: Default::default(),
     };
     let node = Endpoint::builder(presets::Minimal)
         .secret_key(key)

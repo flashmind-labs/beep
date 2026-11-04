@@ -4,6 +4,7 @@ import { backgroundTick } from "../project/pagecache.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { withoutDismissed } from "./updates.ts";
 import type { HomeView, MacControl, SyncRow } from "./home-state.ts";
+import type { MachineTraffic } from "../machines/traffic-state.ts";
 import { filterProjects, type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
 import type { AgentHost } from "../agents/agents.ts";
@@ -35,11 +36,13 @@ export async function refresh() {
   clearTimeout(retryTimer);
   loading = true;
   try {
-    const [home, mac, sync, top, projectGroups] = await Promise.all([
+    const [home, mac, sync, traffic, top, projectGroups] = await Promise.all([
       invoke<HomeView>("center_home"),
       invoke<MacControl>("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
       // Sync rows only add to the machines table; Home draws without them.
       invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
+      // So does traffic, and an older server has none.
+      invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return state.traffic; }),
       invoke<string[]>("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
       invoke<ProjectGroup[] | null>("project_groups").catch(e => { console.warn("project groups:", e); return state.groups; }),
     ]);
@@ -48,6 +51,7 @@ export async function refresh() {
     state.top = top || [];
     state.groups = projectGroups;
     state.sync = sync;
+    state.traffic = traffic;
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     const was = onlineMachines(state.home);
     state.home = home;

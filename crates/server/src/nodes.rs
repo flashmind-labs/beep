@@ -634,6 +634,12 @@ async fn serve(
                     }
                 }
                 Ok(Some(Up::Stats(report))) => stats.set(report),
+                Ok(Some(Up::Traffic(report))) => {
+                    // Counters are cumulative: the next report makes up for this one.
+                    if let Err(e) = user.save_node_traffic(&endpoint, &report).await {
+                        log::warn!("node traffic not saved; node={endpoint} error={e:#}");
+                    }
+                }
                 Ok(Some(other)) => log::debug!("node sent something unhandled: {other:?}"),
                 Ok(None) => return Ok(()),
                 // A message from a newer node this server cannot read yet.

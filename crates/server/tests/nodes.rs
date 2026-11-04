@@ -262,6 +262,7 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
                 extra: vec![Arc::new(FakeDesktop)],
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, server, "build box", &offers).await
         }
@@ -366,6 +367,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
                 extra: Vec::new(),
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         })
@@ -573,6 +575,7 @@ async fn a_machine_links_from_the_link_its_node_printed() {
                 extra: Vec::new(),
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
@@ -614,6 +617,7 @@ async fn a_real_claude_session_writes_a_file() {
                 extra: Vec::new(),
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
@@ -1286,6 +1290,7 @@ impl FakeAgents {
             ],
             provision: None,
             tools: Default::default(),
+            traffic: Default::default(),
         }
     }
 }
@@ -2861,6 +2866,7 @@ async fn an_unlinked_key_gets_only_a_small_hello_read() {
             .collect(),
         provision: None,
         tools: Default::default(),
+        traffic: Default::default(),
     };
     let refused = beep_node::link::connect(&stranger, addr, "stranger", &offers)
         .await
