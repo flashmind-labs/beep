@@ -1101,6 +1101,9 @@ struct LastFour;
 
 #[async_trait]
 impl beep_fleet::migrate::Source for LastFour {
+    async fn account(&self) -> beep_fleet::Result<String> {
+        Ok("account".into())
+    }
     async fn imports(&self) -> beep_fleet::Result<Vec<beep_proto::ImportedProject>> {
         Ok(Vec::new())
     }
@@ -1117,11 +1120,11 @@ impl beep_fleet::migrate::Source for LastFour {
         Ok(vec![beep_proto::Credential {
             id: "7".into(),
             kind: CredentialKind::ApiKey {
-                provider: "openrouter".into(),
+                provider: "anthropic".into(),
             },
             last4: "9f3a".into(),
             account: None,
-            env_var: "OPENROUTER_API_KEY".into(),
+            env_var: "ANTHROPIC_API_KEY".into(),
             to_machines: true,
             created_at: SystemTime::UNIX_EPOCH,
             unreadable: false,
@@ -1129,9 +1132,25 @@ impl beep_fleet::migrate::Source for LastFour {
     }
     async fn harness(
         &self,
-        _: &str,
+        agent: &str,
     ) -> beep_fleet::Result<Vec<beep_proto::MachineHarnessSettings>> {
-        Ok(Vec::new())
+        if agent != "codex" {
+            return Ok(Vec::new());
+        }
+        Ok(vec![beep_proto::MachineHarnessSettings {
+            machine_id: SecretKey::generate().public().to_string(),
+            machine_name: "box".into(),
+            settings: beep_proto::HarnessSettings {
+                enabled: true,
+                program: String::new(),
+                home: String::new(),
+                args: Vec::new(),
+                env: vec![beep_proto::HarnessEnv {
+                    name: "OPENAI_API_KEY".into(),
+                    value: None,
+                }],
+            },
+        }])
     }
     async fn flsh(&self) -> beep_fleet::Result<beep_proto::FlshSettings> {
         Ok(beep_proto::FlshSettings::default())
@@ -1144,7 +1163,7 @@ impl beep_fleet::migrate::Source for LastFour {
 #[tokio::test]
 async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
     let studio = create("Studio").await;
-    beep_fleet::migrate::run(&studio.mesh, &LastFour, "server-one")
+    beep_fleet::migrate::run(&studio.mesh, &LastFour)
         .await
         .expect("the account moves");
     let desk = desk(&studio, &[]).await;
@@ -1153,9 +1172,41 @@ async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
     assert!(listed[0].unreadable);
     assert_eq!(listed[0].last4, "9f3a");
     assert!(matches!(listed[0].kind, CredentialKind::ApiKey { .. }));
-    desk.remove_credential("7")
-        .await
-        .expect("removes the record");
+    // Entering the token again drops its record, so nodes may take the mesh's value.
+    assert_eq!(studio.mesh.scan("unmoved/credential/").len(), 1);
+    desk.save_credential(
+        &listed[0].kind,
+        &SecretText::new("sk-ant-newtokenvalue"),
+        true,
+    )
+    .await
+    .expect("saves");
+    assert!(studio.mesh.scan("unmoved/credential/").is_empty());
+    assert_eq!(desk.credentials().len(), 1);
+    assert!(!desk.credentials()[0].unreadable);
+    // The same for a harness variable, once it is given a value.
+    assert_eq!(studio.mesh.scan("unmoved/harness/").len(), 1);
+    let machine = studio.id.to_string();
+    desk.save_harness_settings_all(
+        &machine,
+        "codex",
+        beep_proto::HarnessSettings {
+            enabled: true,
+            program: String::new(),
+            home: String::new(),
+            args: Vec::new(),
+            env: vec![beep_proto::HarnessEnv {
+                name: "OPENAI_API_KEY".into(),
+                value: Some(SecretText::new("sk-openai-newvalue")),
+            }],
+        },
+        false,
+    )
+    .await
+    .expect("saves");
+    assert!(studio.mesh.scan("unmoved/harness/").is_empty());
+    let id = desk.credentials()[0].id.clone();
+    desk.remove_credential(&id).await.expect("removes it");
     assert!(desk.credentials().is_empty());
 }
 

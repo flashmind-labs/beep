@@ -47,7 +47,8 @@ pub(super) fn discard(dir: &Path) {
     }
 }
 
-/// Sets what the file holds in `mesh`, if there is a file. Every setting is
+/// Sets what the file holds in `mesh`, if there is a file, for the keys the mesh never held: a
+/// value the mesh has, or deleted, is newer than what this Mac carried. Every setting is
 /// tried. The file goes once all are set; otherwise it stays for the next
 /// start and the error names each one that failed.
 pub(super) async fn replay(dir: &Path, mesh: &Mesh) -> Result<()> {
@@ -61,7 +62,7 @@ pub(super) async fn replay(dir: &Path, mesh: &Mesh) -> Result<()> {
     let mut failed = Vec::new();
     for (text, value) in settings {
         let set = match Key::from_str(&text) {
-            Ok(key) => mesh.set(key, Some(value)).await,
+            Ok(key) => mesh.set_if_new(key, value).await.map(|_| ()),
             Err(e) => Err(e),
         };
         if let Err(e) = set {

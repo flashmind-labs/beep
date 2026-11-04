@@ -55,9 +55,26 @@ impl Family {
         }
     }
 
-    /// Whether `mesh` has ever held a key of this family.
-    pub(crate) fn owned_by(self, mesh: &Mesh) -> bool {
+    /// What the text form of a record of a value the account move could not bring starts with,
+    /// for the families that hold secrets.
+    fn unmoved(self) -> Option<&'static str> {
+        match self {
+            Family::Credentials => Some("unmoved/credential/"),
+            Family::Harnesses => Some("unmoved/harness/"),
+            Family::Sync | Family::Flsh => None,
+        }
+    }
+
+    /// Whether the mesh owns this family on the node: it has ever held a key of it, and, for a
+    /// node with a server, no record says a value is still only the server's. Such a node keeps
+    /// what the server set until every one is entered again; a node with no server has nothing
+    /// else to keep, so it takes the mesh's at once.
+    pub(crate) fn owned_by(self, mesh: &Mesh, has_server: bool) -> bool {
         mesh.has_held(self.prefix())
+            && !(has_server
+                && self
+                    .unmoved()
+                    .is_some_and(|prefix| !mesh.scan(prefix).is_empty()))
     }
 }
 
@@ -85,8 +102,9 @@ impl Membership {
     }
 
     /// Whether the node is in a mesh that owns `family` now.
-    pub(crate) fn owns(&self, family: Family) -> bool {
-        self.get().is_some_and(|mesh| family.owned_by(&mesh))
+    pub(crate) fn owns(&self, family: Family, has_server: bool) -> bool {
+        self.get()
+            .is_some_and(|mesh| family.owned_by(&mesh, has_server))
     }
 }
 
@@ -127,7 +145,7 @@ impl Applied {
     async fn apply(&mut self, mesh: &Mesh, me: EndpointId, offers: &Offers) {
         let owned: Vec<Family> = Family::ALL
             .into_iter()
-            .filter(|family| family.owned_by(mesh))
+            .filter(|family| family.owned_by(mesh, offers.has_server()))
             .collect();
         if self.owned.as_ref() != Some(&owned) {
             log::info!("from the mesh: owns {owned:?}");
@@ -323,6 +341,65 @@ fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_mesh::transport_config;
+    use iroh::{Endpoint, SecretKey, endpoint::presets};
+    use tempfile::TempDir;
+
+    async fn lone_mesh() -> (Mesh, TempDir) {
+        let dir = TempDir::new().expect("a temp folder");
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(transport_config())
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        let mesh = Mesh::create(dir.path(), endpoint, "desktop")
+            .await
+            .expect("the mesh is made");
+        (mesh, dir)
+    }
+
+    async fn put(mesh: &Mesh, key: Key) {
+        mesh.set(key, Some(vec![1])).await.expect("written");
+    }
+
+    async fn drop_key(mesh: &Mesh, key: Key) {
+        mesh.set(key, None).await.expect("deleted");
+    }
+
+    #[tokio::test]
+    async fn a_partly_reentered_credential_list_keeps_the_servers_until_all_are_back() {
+        let (mesh, _dir) = lone_mesh().await;
+        put(&mesh, Key::Credential("api.1.anthropic".into())).await;
+        put(&mesh, Key::Unmoved("credential/a".into())).await;
+        put(&mesh, Key::Unmoved("credential/b".into())).await;
+        // The mesh holds a credential, but two are still only the server's.
+        assert!(!Family::Credentials.owned_by(&mesh, true));
+        drop_key(&mesh, Key::Unmoved("credential/a".into())).await;
+        assert!(!Family::Credentials.owned_by(&mesh, true));
+        drop_key(&mesh, Key::Unmoved("credential/b".into())).await;
+        assert!(Family::Credentials.owned_by(&mesh, true));
+        // Harness variables count for the harness family only.
+        put(&mesh, Key::Harness("codex".into())).await;
+        put(&mesh, Key::Unmoved("harness/codex/OPENAI_API_KEY".into())).await;
+        assert!(Family::Credentials.owned_by(&mesh, true));
+        assert!(!Family::Harnesses.owned_by(&mesh, true));
+        drop_key(&mesh, Key::Unmoved("harness/codex/OPENAI_API_KEY".into())).await;
+        assert!(Family::Harnesses.owned_by(&mesh, true));
+    }
+
+    #[tokio::test]
+    async fn the_mesh_takes_over_once_nothing_is_unmoved() {
+        let (mesh, _dir) = lone_mesh().await;
+        put(&mesh, Key::Credential("api.1.anthropic".into())).await;
+        put(&mesh, Key::Unmoved("credential/a".into())).await;
+        // A node with no server has no values to keep: the mesh's apply at once.
+        assert!(Family::Credentials.owned_by(&mesh, false));
+        assert!(!Family::Credentials.owned_by(&mesh, true));
+        drop_key(&mesh, Key::Unmoved("credential/a".into())).await;
+        assert!(Family::Credentials.owned_by(&mesh, true));
+        assert!(Family::Credentials.owned_by(&mesh, false));
+    }
 
     fn config(agent: &str, program: Option<&str>) -> HarnessConfig {
         HarnessConfig {
