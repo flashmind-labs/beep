@@ -1,119 +1,47 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
-mod add_machine;
-mod agent_accounts;
 mod agents;
-mod apps;
-mod artifacts;
-mod audio;
 mod bar;
 mod beep;
-mod branches;
-mod cards;
 mod center;
-mod cli_login;
-mod commands;
-mod credentials;
-mod custom_agents;
-mod desktop;
-mod devices;
-mod editors;
+mod chat;
 mod error;
-mod file_sync;
-mod flsh_settings;
-mod gh_sign_in;
-mod git_items;
-mod grants;
-mod groups;
-mod harnesses;
-mod home_sessions;
-mod hotkey;
-mod identity;
-mod instructions;
-mod logfile;
-mod login_path;
-mod machine;
-mod machine_tools;
 mod machines;
-mod markdown;
-mod mcp_command;
-mod news;
-mod notify;
-mod orb;
-mod overview;
+mod notices;
 mod palette;
-mod pasted_image;
-mod presence;
-mod products;
-mod project_groups;
-mod project_live;
+mod platform;
 mod projects;
 mod research;
-mod reviews;
-mod runs;
-mod state;
-mod sync;
-mod terminals;
-mod threads;
-mod tool_labels;
-mod update;
-mod usage;
-mod view_cache;
+mod settings;
+mod tray;
 mod voice;
-mod waiting;
-mod work;
-mod work_diff;
-mod work_files;
 
 use anyhow::Context;
-use beep::{Beep, Field, Notices};
-use beep_proto::{AgentNoticeKey, Notice, Session, link::MAX_NAME};
-use groups::GroupApproval;
+use beep::{
+    Beep,
+    state::{LinkState, StateFile},
+};
 use iroh::EndpointId;
-use state::{LinkState, NoticeVoice, StateFile};
-use std::{
-    cmp::Reverse,
-    fs,
-    io::ErrorKind,
-    path::PathBuf,
-    process::Command,
-    sync::{Arc, Mutex, PoisonError},
-    time::Instant,
-};
-use tauri::{
-    ActivationPolicy, App, AppHandle, Emitter, Manager, RunEvent, WindowEvent,
-    image::Image,
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
-    tray::TrayIconBuilder,
-};
+use std::sync::Arc;
+use tauri::{ActivationPolicy, App, AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
 use voice::Voice;
 
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
-const TRAY: &str = "beep";
 /// Passed to Beep when it starts as a login item, so it stays in the tray.
 const LOGIN_ARG: &str = "--login";
-/// Chats listed under Recent in the tray menu.
-const RECENT: usize = 5;
-/// Menu ids of Recent's items start with this, then the session id.
-const CHAT_ITEM: &str = "chat:";
-
-/// The latest chats, kept so the tray menu can be built without waiting on
-/// the server.
-#[derive(Default)]
-struct Recent(Mutex<Vec<Session>>);
 
 fn main() {
     // An agent running the app as its Beep MCP server: no window, no log.
-    if let Some(status) = mcp_command::run(std::env::args_os().skip(1)) {
+    if let Some(status) = machines::mcp_command::run(std::env::args_os().skip(1)) {
         std::process::exit(status);
     }
-    let _log = logfile::start();
+    let _log = platform::logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
-    unsafe { login_path::adopt() };
+    unsafe { platform::login_path::adopt() };
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
@@ -123,31 +51,34 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec![LOGIN_ARG]),
         ))
-        .manage(artifacts::Pages::default())
-        .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
-            let app = ctx.app_handle();
-            match artifacts::route(&app.state::<artifacts::Pages>(), &request) {
-                artifacts::Route::Done(response) => responder.respond(response),
-                // A file beside a page is read from its machine first.
-                artifacts::Route::Read(file) => {
-                    let beep = app
-                        .try_state::<Arc<Beep>>()
-                        .map(|beep| beep.inner().clone());
-                    tauri::async_runtime::spawn(async move {
-                        let response = match beep {
-                            Some(beep) => {
-                                file.serve(
-                                    |at| async move { artifacts::read_sibling(&beep, at).await },
-                                )
-                                .await
-                            }
-                            None => artifacts::unavailable(),
-                        };
-                        responder.respond(response);
-                    });
+        .manage(agents::artifacts::Pages::default())
+        .register_asynchronous_uri_scheme_protocol(
+            agents::artifacts::SCHEME,
+            |ctx, request, responder| {
+                let app = ctx.app_handle();
+                match agents::artifacts::route(&app.state::<agents::artifacts::Pages>(), &request) {
+                    agents::artifacts::Route::Done(response) => responder.respond(response),
+                    // A file beside a page is read from its machine first.
+                    agents::artifacts::Route::Read(file) => {
+                        let beep = app
+                            .try_state::<Arc<Beep>>()
+                            .map(|beep| beep.inner().clone());
+                        tauri::async_runtime::spawn(async move {
+                            let response = match beep {
+                                Some(beep) => {
+                                    file.serve(|at| async move {
+                                        agents::artifacts::read_sibling(&beep, at).await
+                                    })
+                                    .await
+                                }
+                                None => agents::artifacts::unavailable(),
+                            };
+                            responder.respond(response);
+                        });
+                    }
                 }
-            }
-        })
+            },
+        )
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
             // Only the bar is a popover; research windows stay put. Live
@@ -185,34 +116,34 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
-            add_machine::create_node_token,
-            editors::editors,
-            editors::open_in_editor,
-            add_machine::revoke_node_token,
-            add_machine::node_token_machine,
-            add_machine::ssh_hosts,
-            add_machine::add_machine_over_ssh,
-            add_machine::machine_search,
-            add_machine::set_machine_search,
-            agents::agent_hosts,
-            agents::agent_sessions,
-            agents::agent_start,
-            agents::agent_preview,
-            agents::agent_models,
-            agents::agent_view,
-            agents::agent_image,
-            agents::agent_file,
-            agents::agent_file_open,
-            agents::agent_file_save,
-            work_files::agent_tree,
-            work_files::agent_tree_text,
-            work_files::agent_tree_save,
-            work_files::agent_tree_upload,
-            work_diff::work_diff,
-            work_diff::branch_diff,
-            artifacts::agent_artifact,
-            custom_agents::custom_agents,
-            agents::agent_steer,
+            machines::add::create_node_token,
+            platform::editors::editors,
+            platform::editors::open_in_editor,
+            machines::add::revoke_node_token,
+            machines::add::node_token_machine,
+            machines::add::ssh_hosts,
+            machines::add::add_machine_over_ssh,
+            machines::add::machine_search,
+            machines::add::set_machine_search,
+            agents::sessions::agent_hosts,
+            agents::sessions::agent_sessions,
+            agents::sessions::agent_start,
+            agents::sessions::agent_preview,
+            agents::sessions::agent_models,
+            agents::sessions::agent_view,
+            agents::sessions::agent_image,
+            agents::sessions::agent_file,
+            agents::sessions::agent_file_open,
+            agents::sessions::agent_file_save,
+            agents::files::agent_tree,
+            agents::files::agent_tree_text,
+            agents::files::agent_tree_save,
+            agents::files::agent_tree_upload,
+            agents::diff::work_diff,
+            agents::diff::branch_diff,
+            agents::artifacts::agent_artifact,
+            agents::custom::custom_agents,
+            agents::sessions::agent_steer,
             center::open_center,
             center::center_home,
             center::center_cached,
@@ -230,78 +161,78 @@ fn main() {
             palette::center_palette_prs,
             palette::center_palette_sessions,
             palette::center_find,
-            commands::status,
-            commands::link_offer,
-            commands::send_prompt,
-            pasted_image::read_pasted_image,
-            commands::rerun_prompt,
-            commands::answer_approval,
-            commands::active_run,
-            commands::active_runs,
-            commands::follow_run,
-            commands::cancel_run,
-            commands::list_sessions,
-            commands::search_sessions,
-            commands::open_session,
-            commands::session_files,
-            commands::session_sources,
-            commands::new_chat,
-            commands::rename_session,
-            commands::pin_session,
-            commands::delete_session,
-            commands::share_session,
-            commands::unshare_session,
-            commands::list_groups,
-            commands::open_group,
-            commands::close_group,
-            commands::send_to_group,
-            commands::create_group,
-            commands::group_invite,
-            commands::peek_group,
-            commands::join_group,
-            commands::leave_group,
-            commands::pin_group,
-            commands::share_group_apps,
-            commands::list_group_reminders,
-            commands::delete_group_reminder,
-            commands::answer_group_approval,
-            work::answer_work,
-            work::list_questions,
-            grants::list_grants,
-            grants::revoke_grant,
-            machines::list_machines,
-            machines::remove_machine,
-            machines::updatable_machines,
-            machines::update_machine,
-            machine_tools::tool_updates,
-            machine_tools::update_machine_tool,
-            credentials::credential_providers,
-            credentials::list_credentials,
-            credentials::save_credential,
-            credentials::remove_credential,
-            credentials::check_credential,
-            credentials::list_github_accounts,
-            credentials::set_default_github_account,
-            cli_login::cli_logins,
-            cli_login::use_cli_login,
-            cli_login::use_gh_account,
-            gh_sign_in::gh_sign_in,
-            gh_sign_in::cancel_gh_sign_in,
-            agent_accounts::agent_accounts,
-            harnesses::agent_harnesses,
-            harnesses::harness_settings_save,
-            harnesses::harness_settings_all,
-            harnesses::harness_settings_save_all,
-            harnesses::agent_harness_update,
-            flsh_settings::flsh_settings_get,
-            flsh_settings::flsh_settings_save,
-            agent_accounts::save_agent_token,
-            agent_accounts::revoke_agent_token,
-            agent_accounts::claude_sign_in,
-            agent_accounts::cancel_claude_sign_in,
-            agent_accounts::codex_login_start,
-            agent_accounts::codex_login_state,
-            agent_accounts::codex_login_cancel,
+            bar::commands::status,
+            bar::commands::link_offer,
+            bar::commands::send_prompt,
+            bar::pasted_image::read_pasted_image,
+            bar::commands::rerun_prompt,
+            bar::commands::answer_approval,
+            bar::commands::active_run,
+            bar::commands::active_runs,
+            bar::commands::follow_run,
+            bar::commands::cancel_run,
+            bar::commands::list_sessions,
+            bar::commands::search_sessions,
+            bar::commands::open_session,
+            bar::commands::session_files,
+            bar::commands::session_sources,
+            bar::commands::new_chat,
+            bar::commands::rename_session,
+            bar::commands::pin_session,
+            bar::commands::delete_session,
+            bar::commands::share_session,
+            bar::commands::unshare_session,
+            bar::commands::list_groups,
+            bar::commands::open_group,
+            bar::commands::close_group,
+            bar::commands::send_to_group,
+            bar::commands::create_group,
+            bar::commands::group_invite,
+            bar::commands::peek_group,
+            bar::commands::join_group,
+            bar::commands::leave_group,
+            bar::commands::pin_group,
+            bar::commands::share_group_apps,
+            bar::commands::list_group_reminders,
+            bar::commands::delete_group_reminder,
+            bar::commands::answer_group_approval,
+            notices::work::answer_work,
+            notices::work::list_questions,
+            settings::grants::list_grants,
+            settings::grants::revoke_grant,
+            machines::list::list_machines,
+            machines::list::remove_machine,
+            machines::list::updatable_machines,
+            machines::list::update_machine,
+            machines::tools::tool_updates,
+            machines::tools::update_machine_tool,
+            settings::credentials::credential_providers,
+            settings::credentials::list_credentials,
+            settings::credentials::save_credential,
+            settings::credentials::remove_credential,
+            settings::credentials::check_credential,
+            settings::credentials::list_github_accounts,
+            settings::credentials::set_default_github_account,
+            settings::cli_login::cli_logins,
+            settings::cli_login::use_cli_login,
+            settings::cli_login::use_gh_account,
+            settings::gh_sign_in::gh_sign_in,
+            settings::gh_sign_in::cancel_gh_sign_in,
+            agents::accounts::agent_accounts,
+            agents::harnesses::agent_harnesses,
+            agents::harnesses::harness_settings_save,
+            agents::harnesses::harness_settings_all,
+            agents::harnesses::harness_settings_save_all,
+            agents::harnesses::agent_harness_update,
+            agents::flsh_settings::flsh_settings_get,
+            agents::flsh_settings::flsh_settings_save,
+            agents::accounts::save_agent_token,
+            agents::accounts::revoke_agent_token,
+            agents::accounts::claude_sign_in,
+            agents::accounts::cancel_claude_sign_in,
+            agents::accounts::codex_login_start,
+            agents::accounts::codex_login_state,
+            agents::accounts::codex_login_cancel,
             projects::import_project,
             projects::list_machine_folder,
             projects::pick_folder,
@@ -310,61 +241,61 @@ fn main() {
             projects::project_sessions,
             projects::project_machines,
             projects::project_syncthing,
-            file_sync::project_sync,
-            file_sync::project_sync_detail,
-            file_sync::project_sync_pause,
-            file_sync::project_sync_resolve,
-            git_items::git_items,
+            projects::file_sync::project_sync,
+            projects::file_sync::project_sync_detail,
+            projects::file_sync::project_sync_pause,
+            projects::file_sync::project_sync_resolve,
+            projects::git_items::git_items,
             projects::open_folder,
             projects::center_projects,
             projects::projects_on_top,
-            project_groups::project_groups,
-            project_groups::project_group_save,
-            project_groups::project_group_delete,
-            overview::project_overview,
-            instructions::instructions_get,
-            instructions::instructions_save,
-            instructions::instructions_versions,
-            instructions::agent_files_read,
-            instructions::agent_files_sync,
-            terminals::terminals_list,
-            terminals::terminals_all,
-            usage::usage_get,
-            terminals::terminal_start,
-            terminals::terminal_output,
-            terminals::terminal_close,
-            terminals::terminal_open,
-            terminals::terminal_attach,
-            terminals::terminal_input,
-            terminals::terminal_resize,
-            terminals::terminal_detach,
-            threads::center_project_issues,
-            threads::center_track_issue,
-            threads::center_project_threads,
-            threads::center_project_pull_requests,
-            threads::center_pull_request_head,
-            threads::center_reply_thread,
-            threads::center_open_thread_chat,
-            threads::center_thread_chats,
-            threads::center_thread_view,
-            threads::center_thread_detail,
-            runs::center_project_lists,
-            runs::center_project_runs,
-            runs::center_project_run,
-            project_live::follow_project,
-            project_live::unfollow_project,
-            reviews::project_branches,
-            branches::preview_import,
-            branches::find_import_fork,
-            branches::add_branch_worktree,
-            reviews::reviews_list,
-            reviews::review_start,
-            reviews::review_get,
-            reviews::review_check,
-            reviews::review_dismiss,
-            reviews::review_fix,
-            reviews::review_post,
-            reviews::review_merge,
+            projects::groups::project_groups,
+            projects::groups::project_group_save,
+            projects::groups::project_group_delete,
+            projects::overview::project_overview,
+            agents::instructions::instructions_get,
+            agents::instructions::instructions_save,
+            agents::instructions::instructions_versions,
+            agents::instructions::agent_files_read,
+            agents::instructions::agent_files_sync,
+            machines::terminals::terminals_list,
+            machines::terminals::terminals_all,
+            center::usage::usage_get,
+            machines::terminals::terminal_start,
+            machines::terminals::terminal_output,
+            machines::terminals::terminal_close,
+            machines::terminals::terminal_open,
+            machines::terminals::terminal_attach,
+            machines::terminals::terminal_input,
+            machines::terminals::terminal_resize,
+            machines::terminals::terminal_detach,
+            projects::threads::center_project_issues,
+            projects::threads::center_track_issue,
+            projects::threads::center_project_threads,
+            projects::threads::center_project_pull_requests,
+            projects::threads::center_pull_request_head,
+            projects::threads::center_reply_thread,
+            projects::threads::center_open_thread_chat,
+            projects::threads::center_thread_chats,
+            projects::threads::center_thread_view,
+            projects::threads::center_thread_detail,
+            projects::runs::center_project_lists,
+            projects::runs::center_project_runs,
+            projects::runs::center_project_run,
+            projects::live::follow_project,
+            projects::live::unfollow_project,
+            projects::reviews::project_branches,
+            projects::branches::preview_import,
+            projects::branches::find_import_fork,
+            projects::branches::add_branch_worktree,
+            projects::reviews::reviews_list,
+            projects::reviews::review_start,
+            projects::reviews::review_get,
+            projects::reviews::review_check,
+            projects::reviews::review_dismiss,
+            projects::reviews::review_fix,
+            projects::reviews::review_post,
+            projects::reviews::review_merge,
             projects::pin_project_to_top,
             projects::remove_project,
             projects::center_open_project,
@@ -372,87 +303,87 @@ fn main() {
             projects::center_project_send,
             projects::center_update_task,
             projects::center_stop_worker,
-            agents::agent_resume,
-            commands::open_file,
-            commands::picture,
-            commands::save_file,
-            commands::save_picture,
-            commands::reveal_file,
-            commands::unlink,
-            apps::list_apps,
-            apps::connect_app,
-            apps::cancel_app_sign_in,
-            apps::disconnect_app,
-            apps::list_app_accounts,
-            apps::remove_app_account,
-            apps::app_permissions,
-            apps::set_app_permissions,
-            apps::list_mcp_servers,
-            apps::add_mcp_server,
-            apps::connect_mcp_server,
-            apps::remove_mcp_server,
-            apps::list_mcp_tools,
-            apps::set_mcp_tool,
-            devices::use_here,
-            devices::list_devices,
-            devices::invite_phone,
-            devices::remove_device,
-            devices::join_account,
-            commands::settings,
-            commands::set_autostart,
-            commands::mac_control,
-            commands::set_mac_control,
-            commands::allow_mac_permission,
-            commands::set_notice_voice,
-            commands::notice_card,
-            commands::play_notice,
-            commands::open_notice,
-            commands::dismiss_notice,
-            commands::hold_notice,
-            commands::live_tap,
-            commands::leave_live,
-            commands::cancel_live,
-            commands::show_bar,
-            commands::live_approval,
-            commands::open_approval,
-            commands::fit_orb,
-            commands::live_sheet,
-            commands::set_send_on_pause,
-            commands::set_agent_notices,
-            commands::live_chats,
-            commands::start_over,
-            commands::resize_bar,
-            commands::hide_bar,
-            commands::quit,
-            commands::open_url,
-            commands::open_log,
-            logfile::log_webview,
-            commands::group_typing,
-            commands::list_memories,
-            commands::list_memory_scopes,
-            commands::list_memory_reads,
-            commands::update_memory,
-            commands::delete_memory,
-            commands::clear_memories,
-            commands::list_crons,
-            commands::create_cron,
-            commands::toggle_cron,
-            commands::update_cron,
-            commands::delete_cron,
-            commands::run_cron,
-            commands::list_skills,
-            commands::update_skill,
-            commands::delete_skill,
-            commands::undo_skill,
-            commands::get_agents,
-            commands::set_agents,
-            commands::session_agents,
-            commands::get_models,
-            commands::stock_chart,
-            commands::route_card,
-            commands::set_model,
-            commands::set_thinking,
-            commands::set_auto_model,
+            agents::sessions::agent_resume,
+            bar::commands::open_file,
+            bar::commands::picture,
+            bar::commands::save_file,
+            bar::commands::save_picture,
+            bar::commands::reveal_file,
+            bar::commands::unlink,
+            settings::apps::list_apps,
+            settings::apps::connect_app,
+            settings::apps::cancel_app_sign_in,
+            settings::apps::disconnect_app,
+            settings::apps::list_app_accounts,
+            settings::apps::remove_app_account,
+            settings::apps::app_permissions,
+            settings::apps::set_app_permissions,
+            settings::apps::list_mcp_servers,
+            settings::apps::add_mcp_server,
+            settings::apps::connect_mcp_server,
+            settings::apps::remove_mcp_server,
+            settings::apps::list_mcp_tools,
+            settings::apps::set_mcp_tool,
+            beep::devices::use_here,
+            beep::devices::list_devices,
+            beep::devices::invite_phone,
+            beep::devices::remove_device,
+            beep::devices::join_account,
+            bar::commands::settings,
+            bar::commands::set_autostart,
+            bar::commands::mac_control,
+            bar::commands::set_mac_control,
+            bar::commands::allow_mac_permission,
+            bar::commands::set_notice_voice,
+            bar::commands::notice_card,
+            bar::commands::play_notice,
+            bar::commands::open_notice,
+            bar::commands::dismiss_notice,
+            bar::commands::hold_notice,
+            bar::commands::live_tap,
+            bar::commands::leave_live,
+            bar::commands::cancel_live,
+            bar::commands::show_bar,
+            bar::commands::live_approval,
+            bar::commands::open_approval,
+            bar::commands::fit_orb,
+            bar::commands::live_sheet,
+            bar::commands::set_send_on_pause,
+            bar::commands::set_agent_notices,
+            bar::commands::live_chats,
+            bar::commands::start_over,
+            bar::commands::resize_bar,
+            bar::commands::hide_bar,
+            bar::commands::quit,
+            bar::commands::open_url,
+            bar::commands::open_log,
+            platform::logfile::log_webview,
+            bar::commands::group_typing,
+            bar::commands::list_memories,
+            bar::commands::list_memory_scopes,
+            bar::commands::list_memory_reads,
+            bar::commands::update_memory,
+            bar::commands::delete_memory,
+            bar::commands::clear_memories,
+            bar::commands::list_crons,
+            bar::commands::create_cron,
+            bar::commands::toggle_cron,
+            bar::commands::update_cron,
+            bar::commands::delete_cron,
+            bar::commands::run_cron,
+            bar::commands::list_skills,
+            bar::commands::update_skill,
+            bar::commands::delete_skill,
+            bar::commands::undo_skill,
+            bar::commands::get_agents,
+            bar::commands::set_agents,
+            bar::commands::session_agents,
+            bar::commands::get_models,
+            bar::commands::stock_chart,
+            bar::commands::route_card,
+            bar::commands::set_model,
+            bar::commands::set_thinking,
+            bar::commands::set_auto_model,
             research::research_begin,
             research::open_research,
             research::research_sessions,
@@ -476,10 +407,10 @@ fn main() {
                 } => api.prevent_exit(),
                 // However Beep quits, a downloaded update is installed for next time.
                 RunEvent::Exit => {
-                    update::install(app);
+                    platform::update::install(app);
                     // gh, if it is still waiting for a GitHub code, goes too.
-                    app.state::<gh_sign_in::GhSignIn>().stop_on_quit();
-                    app.state::<agent_accounts::ClaudeSignIn>().stop();
+                    app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
+                    app.state::<agents::accounts::ClaudeSignIn>().stop();
                     // Background tasks the agent started here end with the app.
                     beep_node::kill_tasks();
                 }
@@ -497,86 +428,70 @@ fn main() {
         });
 }
 
-fn data_dir(app: &AppHandle) -> anyhow::Result<PathBuf> {
-    let dir = app.path().app_data_dir()?;
-    fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
-    Ok(dir)
-}
-
 fn setup(app: &mut App) -> anyhow::Result<()> {
     app.set_activation_policy(ActivationPolicy::Accessory);
     let handle = app.handle().clone();
-    let dir = data_dir(&handle)?;
+    let dir = beep::identity::data_dir(&handle)?;
     let server: EndpointId = SERVER_NODE_ID
         .parse()
         .context("built without a server node id; set BEEP_NODE_ID")?;
-    let identity = identity::load_or_create(&dir.join("identity.key"))?;
+    let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
-    let chats = sync::Chats::load(dir.join("sync"));
-    let views = Arc::new(view_cache::ViewCache::load(
+    let chats = beep::sync::Chats::load(dir.join("sync"));
+    let views = Arc::new(center::view_cache::ViewCache::load(
         dir.join("views.json"),
         env!("CARGO_PKG_VERSION"),
     ));
-    app.manage(Arc::new(home_sessions::AgentSessions::new(&views)));
+    app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(views);
     let (beep, notices) =
         tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
     app.manage(beep.clone());
-    app.manage(Recent::default());
-    app.manage(project_live::Followed::default());
+    app.manage(tray::Recent::default());
+    app.manage(projects::live::Followed::default());
     app.manage(research::Pending::default());
     app.manage(research::Cache::default());
-    app.manage(apps::SignIn::default());
-    app.manage(gh_sign_in::GhSignIn::default());
-    app.manage(agent_accounts::ClaudeSignIn::default());
-    app.manage(update::Updates::default());
-    app.manage(machine::Machine::new(&dir.join("node")));
+    app.manage(settings::apps::SignIn::default());
+    app.manage(settings::gh_sign_in::GhSignIn::default());
+    app.manage(agents::accounts::ClaudeSignIn::default());
+    app.manage(platform::update::Updates::default());
+    app.manage(machines::this_mac::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
     app.manage(center::AgentsShown::default());
     app.manage(center::Pending::default());
     app.manage(palette::PaletteCache::default());
-    app.manage(waiting::WaitingList::default());
-    app.manage(terminals::Attached::default());
-    app.state::<machine::Machine>().sync(&beep);
+    app.manage(tray::waiting::WaitingList::default());
+    app.manage(machines::terminals::Attached::default());
+    app.state::<machines::this_mac::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
 
-    tauri::async_runtime::spawn(serve_notices(
+    tauri::async_runtime::spawn(notices::serve(
         handle.clone(),
         beep.clone(),
         voice.clone(),
         notices,
     ));
-    tauri::async_runtime::spawn(sync::follow(handle.clone(), beep.clone()));
-    tauri::async_runtime::spawn(update::follow(handle.clone()));
-    tauri::async_runtime::spawn(waiting::follow(handle.clone(), beep.clone()));
-    hotkey::start(move |input| voice.on_input(input));
+    tauri::async_runtime::spawn(beep::sync::follow(handle.clone(), beep.clone()));
+    tauri::async_runtime::spawn(platform::update::follow(handle.clone()));
+    tauri::async_runtime::spawn(tray::waiting::follow(handle.clone(), beep.clone()));
+    voice::hotkey::start(move |input| voice.on_input(input));
 
     // Sign-ins come back as beep:// links, while running or as the reason
     // macOS started Beep.
     let links = handle.clone();
     app.deep_link().on_open_url(move |event| {
         for url in event.urls() {
-            apps::open_link(&links, url.as_str());
+            settings::apps::open_link(&links, url.as_str());
         }
     });
     if let Ok(Some(urls)) = app.deep_link().get_current() {
         for url in urls {
-            apps::open_link(&handle, url.as_str());
+            settings::apps::open_link(&handle, url.as_str());
         }
     }
 
-    let menu = tray_menu(&handle, &beep)?;
-    let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-    TrayIconBuilder::with_id(TRAY)
-        .icon(icon)
-        .icon_as_template(true)
-        .tooltip(waiting::tooltip(0))
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .on_menu_event(on_menu)
-        .build(app)?;
-    tauri::async_runtime::spawn(refresh_recent(handle.clone()));
+    tray::install(app, &beep)?;
 
     // First launch, or a link still to finish: show the code.
     if beep.link_state() != LinkState::Linked {
@@ -603,491 +518,5 @@ fn refresh_login_item(app: &AppHandle) {
         }
         Ok(false) => {}
         Err(e) => log::warn!("reading the login item: {e}"),
-    }
-}
-
-/// The server pushes notices to every key on the account. The first one
-/// this key gets means the phone linked it.
-async fn serve_notices(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, mut notices: Notices) {
-    while let Some(notice) = notices.recv().await {
-        if beep.link_state() == LinkState::Unlinked {
-            beep.set_link_state(LinkState::Linked);
-            became_linked(&app);
-        }
-        // What waits on the user may have changed; the tray looks again.
-        if notice.approval.is_some() || (notice.changed && !notice.group) {
-            app.state::<waiting::WaitingList>().poke();
-        }
-        // Checked before `changed`, which a resolved question also sets.
-        if let Some(query_id) = notice.resolved_question() {
-            let resolved = work::Resolved {
-                session_id: notice.session_id.clone(),
-                query_id: query_id.to_owned(),
-            };
-            let _ = app.emit("work-resolved", resolved);
-            voice.withdrawn(query_id);
-            continue;
-        }
-        if notice.group {
-            group_notice(&app, &beep, notice);
-            continue;
-        }
-        if notice.changed {
-            let _ = app.emit("sessions-changed", notice.session_id);
-            tauri::async_runtime::spawn(refresh_recent(app.clone()));
-            continue;
-        }
-        if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-            agent_notice(&app, &beep, &key, &notice);
-            continue;
-        }
-        // Background work asks only through a notice, so its chat keeps a
-        // card for the question.
-        if let Some(question) =
-            work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
-        {
-            let _ = app.emit("work-question", question);
-        }
-        let showing = focused_center(&app);
-        if center::on_screen(
-            &seen(&app, beep.session(), showing.session),
-            &notice.session_id,
-        ) {
-            continue;
-        }
-        // While live mode is on in the orb, an approval asks there.
-        let Some(notice) = voice.approval_notice(notice) else {
-            continue;
-        };
-        match voice.wants(&notice) {
-            NoticeVoice::Aloud => {
-                tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
-            }
-            NoticeVoice::Ask => voice.offer(notice),
-            NoticeVoice::Off => notify(&app, &notice),
-        }
-    }
-}
-
-/// A message or change in a group. The bar refreshes it, and a message
-/// notifies unless the bar shows that group.
-fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
-    let id = notice.session_id.clone();
-    let _ = app.emit("group-changed", &id);
-    if let Some(pending) = &notice.approval {
-        let _ = app.emit(
-            "group-approval",
-            GroupApproval {
-                group_id: id.clone(),
-                query_id: pending.query_id.clone(),
-                app: pending.approval.app.clone(),
-                action: pending.approval.action.clone(),
-                fields: pending
-                    .approval
-                    .fields
-                    .iter()
-                    .cloned()
-                    .map(Field::from)
-                    .collect(),
-            },
-        );
-    }
-    if notice.changed || notice.title.is_empty() {
-        return;
-    }
-    // An approval still notifies: the bar may be on another chat by then.
-    let showing = focused_center(app);
-    if center::on_screen(&seen(app, beep.group(), showing.group), &id) && notice.approval.is_none()
-    {
-        return;
-    }
-    notify(app, &notice);
-}
-
-/// A coding agent asked something or finished a turn. The tray looks at
-/// what waits again, and the notice shows unless agent notices are off or
-/// the session is on screen.
-fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Notice) {
-    app.state::<waiting::WaitingList>().poke();
-    if !beep.agent_notices() {
-        return;
-    }
-    let focused = focused_center_label(app);
-    let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
-    if bar::is_open(app) {
-        on_screen.push(bar::LABEL);
-    }
-    let shown = app.state::<center::AgentsShown>();
-    if shown.shows(&on_screen, key, Instant::now()) {
-        return;
-    }
-    notify(app, notice);
-}
-
-/// The label of the command center window with focus, the main one or a
-/// project's; nothing while none has focus.
-fn focused_center_label(app: &AppHandle) -> Option<String> {
-    app.webview_windows()
-        .into_iter()
-        .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false))
-        .map(|(label, _)| label)
-}
-
-/// What the command center window with focus shows, the main one or a
-/// project's; nothing while none has focus.
-fn focused_center(app: &AppHandle) -> center::Showing {
-    match focused_center_label(app) {
-        Some(label) => app.state::<center::Shown>().get(&label),
-        None => center::Showing::default(),
-    }
-}
-
-/// What is on screen: the bar's chat while the bar is open, and `window`,
-/// what the focused command center window shows.
-fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center::Seen {
-    center::Seen {
-        bar: bar.filter(|_| bar::is_open(app)),
-        window,
-    }
-}
-
-fn notify(app: &AppHandle, notice: &Notice) {
-    notify::notice(app, notice);
-}
-
-fn notify_text(app: &AppHandle, title: &str, body: &str) {
-    notify::text(app, title, body);
-}
-
-fn tray_menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
-    let link = beep.link_state();
-    let status = match link {
-        LinkState::Linked => "Linked to your phone",
-        LinkState::Unlinked => "Not linked yet",
-        LinkState::Revoked => "Removed from the account",
-    };
-    let menu = Menu::new(app)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "open-center",
-        "Open Beep",
-        true,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "open-bar",
-        "Quick chat",
-        true,
-        None::<&str>,
-    )?)?;
-    // A menu shortcut cannot show a double tap, so it gets a line of its own.
-    menu.append(&MenuItem::with_id(
-        app,
-        "hotkey",
-        "Or press Option twice, anywhere",
-        false,
-        None::<&str>,
-    )?)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "status",
-        status,
-        false,
-        None::<&str>,
-    )?)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    let linked = link == LinkState::Linked;
-    menu.append(&MenuItem::with_id(
-        app,
-        "new",
-        "New chat",
-        linked,
-        Some("cmd+n"),
-    )?)?;
-    let chats = app
-        .state::<Recent>()
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    let recent = Submenu::with_id(app, "recent", "Recent", linked && !chats.is_empty())?;
-    for chat in &chats {
-        let title = if chat.title.is_empty() {
-            "New chat"
-        } else {
-            chat.title.as_str()
-        };
-        recent.append(&MenuItem::with_id(
-            app,
-            format!("{CHAT_ITEM}{}", chat.id),
-            title,
-            true,
-            None::<&str>,
-        )?)?;
-    }
-    menu.append(&recent)?;
-    for (id, title, keys) in [
-        ("memories", "Memories", "cmd+m"),
-        ("routines", "Routines", "cmd+j"),
-        ("skills", "Skills", "cmd+l"),
-        ("research", "Research", "cmd+r"),
-    ] {
-        menu.append(&MenuItem::with_id(app, id, title, linked, Some(keys))?)?;
-    }
-    menu.append(&MenuItem::with_id(
-        app,
-        "apps",
-        "Apps",
-        linked,
-        None::<&str>,
-    )?)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    let waiting = app.state::<waiting::WaitingList>().entries();
-    if linked && !waiting.is_empty() {
-        menu.append(&MenuItem::with_id(
-            app,
-            "waiting",
-            "Waiting",
-            false,
-            None::<&str>,
-        )?)?;
-        for entry in waiting.iter().take(waiting::SHOWN) {
-            menu.append(&MenuItem::with_id(
-                app,
-                entry.id.as_str(),
-                entry.label.as_str(),
-                true,
-                None::<&str>,
-            )?)?;
-        }
-        if waiting.len() > waiting::SHOWN {
-            let more = format!("{} more on Home", waiting.len() - waiting::SHOWN);
-            menu.append(&MenuItem::with_id(
-                app,
-                waiting::MORE,
-                more,
-                true,
-                None::<&str>,
-            )?)?;
-        }
-        menu.append(&PredefinedMenuItem::separator(app)?)?;
-    }
-    if link != LinkState::Linked {
-        menu.append(&MenuItem::with_id(
-            app,
-            "link",
-            "Link to phone…",
-            true,
-            None::<&str>,
-        )?)?;
-    }
-    menu.append(&MenuItem::with_id(
-        app,
-        "settings",
-        "Settings…",
-        true,
-        Some("cmd+,"),
-    )?)?;
-    let (id, title) = match update::ready(app) {
-        Some(_) => ("restart-update", "Restart to Update Beep"),
-        None => ("check-update", "Check for Updates…"),
-    };
-    menu.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "show-logs",
-        "Show Logs",
-        true,
-        None::<&str>,
-    )?)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "quit",
-        "Quit Beep",
-        true,
-        Some("cmd+q"),
-    )?)?;
-    Ok(menu)
-}
-
-fn refresh_tray(app: &AppHandle) {
-    let Some(tray) = app.tray_by_id(TRAY) else {
-        return;
-    };
-    let beep = app.state::<Arc<Beep>>();
-    match tray_menu(app, &beep) {
-        Ok(menu) => {
-            let _ = tray.set_menu(Some(menu));
-        }
-        Err(e) => log::warn!("building the tray menu: {e}"),
-    }
-    // The count beside the icon, while anything waits on the user.
-    let count = if beep.link_state() == LinkState::Linked {
-        app.state::<waiting::WaitingList>().entries().len()
-    } else {
-        0
-    };
-    if let Err(e) = tray.set_title(waiting::badge(count)) {
-        log::warn!("showing what waits beside the tray icon: {e}");
-    }
-    if let Err(e) = tray.set_tooltip(Some(waiting::tooltip(count))) {
-        log::warn!("setting the tray tooltip: {e}");
-    }
-}
-
-/// Tells the bar and the tray this Mac now signs into an account.
-pub fn became_linked(app: &AppHandle) {
-    let _ = app.emit("link-state", LinkState::Linked);
-    app.state::<machine::Machine>()
-        .sync(&app.state::<Arc<Beep>>());
-    refresh_tray(app);
-    tauri::async_runtime::spawn(refresh_recent(app.clone()));
-    app.state::<waiting::WaitingList>().poke();
-}
-
-/// Fetches the latest chats for Recent and rebuilds the menu.
-async fn refresh_recent(app: AppHandle) {
-    let beep = app.state::<Arc<Beep>>().inner().clone();
-    if beep.link_state() != LinkState::Linked {
-        return;
-    }
-    match beep.sessions().await {
-        Ok(mut chats) => {
-            // The server lists pinned chats first; Recent is by time.
-            chats.sort_by_key(|c| Reverse(c.updated_at));
-            chats.truncate(RECENT);
-            *app.state::<Recent>()
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = chats;
-            refresh_tray(&app);
-        }
-        Err(e) => log::warn!("listing chats for the tray: {e}"),
-    }
-}
-
-/// The window view a tray item opens once linked, if it opens one.
-fn tray_target(id: &str) -> Option<center::CenterTarget> {
-    match id {
-        "apps" => Some(center::CenterTarget::Apps),
-        "memories" => Some(center::CenterTarget::Memories),
-        "routines" => Some(center::CenterTarget::Routines),
-        "skills" => Some(center::CenterTarget::Skills),
-        "settings" => Some(center::CenterTarget::Settings),
-        waiting::MORE => Some(center::CenterTarget::Home),
-        _ => None,
-    }
-}
-
-fn on_menu(app: &AppHandle, event: MenuEvent) {
-    // Something waiting opens where it is answered: its chat or agent
-    // session, or Home once it no longer waits.
-    if event.id().as_ref().starts_with(waiting::ITEM) {
-        let target = app
-            .state::<waiting::WaitingList>()
-            .target(event.id().as_ref())
-            .unwrap_or(center::CenterTarget::Home);
-        let pending = app.state::<center::Pending>();
-        if let Err(e) = center::open_on(app, &pending, target) {
-            log::warn!("opening what waits: {e}");
-        }
-        return;
-    }
-    if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
-        app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
-        bar::show(app, Some("open"));
-        return;
-    }
-    if let Some(target) = tray_target(event.id().as_ref())
-        && app.state::<Arc<Beep>>().link_state() == LinkState::Linked
-    {
-        let pending = app.state::<center::Pending>();
-        if let Err(e) = center::open_on(app, &pending, target) {
-            log::warn!("opening the command center: {e}");
-        }
-        return;
-    }
-    match event.id().as_ref() {
-        "open-bar" => bar::show(app, Some("tray")),
-        // Before linking, the bar shows the code to link with.
-        "open-center" if app.state::<Arc<Beep>>().link_state() != LinkState::Linked => {
-            bar::show(app, Some("link"))
-        }
-        "open-center" => {
-            if let Err(e) = center::open(app) {
-                log::warn!("opening the command center: {e}");
-            }
-        }
-        "new" => {
-            app.state::<Arc<Beep>>().set_session(None);
-            bar::show(app, Some("new"));
-        }
-        // Before linking these stay in the bar, which shows the code to link
-        // with instead.
-        view @ ("apps" | "link" | "memories" | "research" | "routines" | "skills" | "settings") => {
-            bar::show(app, Some(view))
-        }
-        "check-update" => {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move { update::check(&app, true).await });
-        }
-        "restart-update" => update::restart(app),
-        "show-logs" => {
-            if let Err(e) = commands::open_log() {
-                log::warn!("showing the logs: {e}");
-            }
-        }
-        "quit" => app.exit(0),
-        _ => {}
-    }
-}
-
-/// The name the phone shows for this Mac.
-pub fn computer_name() -> String {
-    let mut name = Command::new("scutil")
-        .args(["--get", "ComputerName"])
-        .output()
-        .ok()
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .map(|name| name.trim().to_owned())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Mac".into());
-    name.truncate(name.floor_char_boundary(MAX_NAME));
-    name
-}
-
-/// Deletes this computer's key and state, so the next launch makes new ones.
-pub fn forget_identity(app: &AppHandle) -> anyhow::Result<()> {
-    let dir = data_dir(app)?;
-    for file in ["identity.key", "state.json"] {
-        match fs::remove_file(dir.join(file)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tray_items_name_their_view() {
-        assert_eq!(
-            tray_target("memories"),
-            Some(center::CenterTarget::Memories)
-        );
-        assert_eq!(
-            tray_target("settings"),
-            Some(center::CenterTarget::Settings)
-        );
-        assert_eq!(tray_target("research"), None);
-        assert_eq!(tray_target("check-update"), None);
-        assert_eq!(tray_target(waiting::MORE), Some(center::CenterTarget::Home));
     }
 }
