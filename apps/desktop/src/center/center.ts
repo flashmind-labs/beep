@@ -6,7 +6,7 @@ import { initSideResize } from "./sidewidth.ts";
 import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import type { HomeView, MacControl } from "./home-state.ts";
+import { type HomeView, type MacControl, projectOf, repoOf } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
@@ -101,6 +101,10 @@ pane.connect({
   chatTop(session) {
     const t = threadChats?.get(session);
     return t ? threadCard(t) : null;
+  },
+  sessionProject(s) {
+    const projects = state.home?.projects ?? [], p = projectOf(s, projects);
+    return p ? { label: repoOf(s, projects) || p.name, open: () => void openProjects(p.name) } : null;
   },
 });
 

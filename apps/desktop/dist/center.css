@@ -259,7 +259,10 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-tbl td { padding: 7px 14px; border-bottom: 1px solid var(--border) }
 .cc-set .dset-tbl tr:last-child td { border-bottom: 0 }
 .cc-set .dset-rm { padding: 0 }
-.cc-set .dset-rm .nm .dbtn { margin-left: 0 }
+.dset-rm-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border) }
+.dset-rm-row .t { flex: 1; min-width: 0; display: grid; gap: 2px }
+.dset-rm-row b { font-size: 13px; font-weight: 500 }
+.dset-rm-row small { font-size: 12px; color: var(--muted) }
 .cc-set section { scroll-margin-top: 4px }
 @media (max-width: 560px) { .cc-set { grid-template-columns: minmax(0, 1fr) } .cc-set .dset-nav { display: none } }
 
@@ -514,7 +517,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-org.gp { display: flex; align-items: center; gap: 5px }
 .cc-org.gp svg { color: var(--dim) }
 /* A right-click menu, and the group sheet's folders. */
-.cc-menu { position: fixed; z-index: 30; min-width: 150px; padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
+.cc-menu { position: fixed; z-index: 40; min-width: 150px; padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
 .cc-menu button { all: unset; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg); cursor: default }
 .cc-menu button:hover, .cc-menu button:focus-visible { background: color-mix(in srgb, var(--fg) 7%, transparent) }
 .cc-menu button.warn { color: var(--err) }

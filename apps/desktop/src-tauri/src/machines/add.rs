@@ -9,11 +9,10 @@ use crate::{
     projects::needs_update,
 };
 use beep_proto::{
-    AddMachineOverSsh, ApiError, CreateNodeToken, GetMachineSearch, GetNodeToken, ListSshHosts,
-    RevokeNodeToken, SetMachineSearch, SshAdd, setup::setup_command,
+    ApiError, CreateNodeToken, GetMachineSearch, GetNodeToken, RevokeNodeToken, SetMachineSearch,
+    setup::setup_command,
 };
 use serde::Serialize;
-use std::time::Duration;
 
 /// A token as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -52,36 +51,6 @@ pub async fn revoke_node_token(beep: Service<'_>, token: String) -> Result<()> {
         Ok(()) | Err(DesktopError::Api(ApiError::NotFound {})) => Ok(()),
         Err(e) => Err(outdated(e)),
     }
-}
-
-/// Longer than the server gives the node to install and link.
-const SSH_ADD_TIMEOUT: Duration = Duration::from_secs(9 * 60);
-
-/// The hosts `machine_id`'s ssh knows, to pick from.
-#[tauri::command]
-pub async fn ssh_hosts(beep: Service<'_>, machine_id: String) -> Result<Vec<String>> {
-    beep.call(ListSshHosts { machine_id })
-        .await
-        .map_err(outdated)
-}
-
-/// Has `machine_id` install beep-node on `target` over ssh and link it,
-/// looking for projects in `search` (empty for home).
-#[tauri::command]
-pub async fn add_machine_over_ssh(
-    beep: Service<'_>,
-    machine_id: String,
-    target: String,
-    search: String,
-) -> Result<SshAdd> {
-    let add = AddMachineOverSsh {
-        machine_id,
-        target,
-        search,
-    };
-    beep.call_within(add, SSH_ADD_TIMEOUT)
-        .await
-        .map_err(outdated)
 }
 
 /// Where `machine_id` looks for git checkouts, `~/` for home.

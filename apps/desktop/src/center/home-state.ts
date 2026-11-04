@@ -321,10 +321,15 @@ export function remotePath(url: string | null | undefined) {
 /// machine holds it, by its remote's full path ("group/sub/repo"), else by
 /// its short name ("repo" of "org/repo"); else its folder's name.
 export function repoOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: readonly ProjectFolder[] = []) {
-  const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
-  const p = projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
+  const p = projectOf(r, projects);
   if (!p) return base(r.cwd);
   return remotePath(p.url) ?? p.name.split("/").pop();
+}
+
+/// The project whose folder holds a session: the deepest one.
+export function projectOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: readonly ProjectFolder[] = []) {
+  const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
+  return projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
 }
 
 /// A Needs you row: a title, one muted line and its one button. A chat

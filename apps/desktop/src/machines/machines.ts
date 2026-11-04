@@ -91,13 +91,15 @@ interface MachinesHost {
   root: HTMLElement;
   machine: string | null;
   opened(id: string | null): void;
+  /// The list changed: a machine came or went.
+  changed(): void;
 }
 let host: MachinesHost | null = null;
 
 /// Draws Machines into `root` from now on, until `machinesOut` or until
 /// `root` leaves the page. The page's own view (`S.view`) is left alone.
-export function machinesIn(root: HTMLElement, opened: MachinesHost["opened"]) {
-  host = { root, machine: null, opened };
+export function machinesIn(root: HTMLElement, opened: MachinesHost["opened"], changed: MachinesHost["changed"]) {
+  host = { root, machine: null, opened, changed };
 }
 export function machinesOut() {
   host = null;
@@ -248,6 +250,7 @@ async function removeMachine() {
     await invoke("remove_machine", { id: asking.id });
     MC.list = (MC.list || []).filter(m => m.id !== asking.id);
     MC.asking = null;
+    hosted()?.changed();
   } catch (e) {
     asking.busy = false;
     asking.error = String(e);
@@ -324,13 +327,15 @@ function updateLine(m: Machine) {
   return "";
 }
 
+const removeNote = (m: Machine) => m.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
+
 /// Remove on every machine but this Mac, and the question it asks.
 function removeParts(m: Machine) {
   if (m.id === MC.mac) return { button: "", ask: "" };
-  const button = `<button class="dbtn quiet" data-rm="${esc(m.id)}" aria-label="Remove ${esc(m.name)}">Remove…</button>`;
+  const button = `<button class="dbtn warn" data-rm="${esc(m.id)}" aria-label="Remove ${esc(m.name)}">Remove…</button>`;
   const asking = MC.asking?.id === m.id ? MC.asking : null;
   if (!asking) return { button, ask: "" };
-  const what = m.online ? "It stops taking work." : "If it comes back online, it is turned away.";
+  const what = removeNote(m);
   return {
     button: "",
     ask: `<div class="ask"><span>Remove ${esc(m.name)} from your account? ${what} To use it again, add it with a new setup command.</span>
@@ -410,7 +415,7 @@ function machinePage(m: Machine) {
     html += [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([, up]) => errLine(up.error)).join("");
   }
   html += trafficTable(m) + logSection(m);
-  return html + `<div class="dmach dset-rm">${button ? `<span class="nm">${button}</span>` : ""}${ask}</div>`;
+  return html + `<div class="dmach dset-rm">${button ? `<div class="dset-rm-row"><span class="t"><b>Remove this machine</b><small>${removeNote(m)}</small></span>${button}</div>` : ""}${ask}</div>`;
 }
 
 /// What the machine moved per protocol, once it has reported.
@@ -477,7 +482,7 @@ function drawMachines() {
       el.querySelector<HTMLElement>("#rmNo")?.focus();
     });
   }
-  el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) renderMachines(hosted()?.machine ?? null); } }));
+  el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
   if (open) {
     el.querySelector("#mcLog")?.addEventListener("click", () => { void readLog(open.id); });
