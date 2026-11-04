@@ -150,6 +150,10 @@ tray menu; quitting installs it too. The update signing key is the
 `TAURI_SIGNING_PRIVATE_KEY` secret, with its public half in `tauri.conf.json`;
 losing it means installed apps can no longer update.
 
+A session's file reads and tree go through `src-tauri/src/work_copy.rs`: when
+sync (Syncthing or Beep's) keeps a copy of the project on this Mac they come
+from that folder, otherwise from the node. Nothing is compared; sync is trusted.
+
 ### Code map
 
 `apps/desktop/src` is grouped by feature. `foo-state.ts` next to `foo.ts`

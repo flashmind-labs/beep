@@ -11,6 +11,7 @@ use crate::{
     state::{LinkState, NoticeVoice, Saved, StateFile},
     sync::Chats,
     tool_labels,
+    work_copy::Copies,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -478,6 +479,7 @@ pub struct Beep {
     /// The group the bar shows, so its messages do not also notify.
     group: Mutex<Option<String>>,
     chats: Chats,
+    copies: Copies,
 }
 
 /// The notices the server pushes, for the app to show.
@@ -506,9 +508,15 @@ impl Beep {
                 file,
                 group: Mutex::new(None),
                 chats,
+                copies: Copies::default(),
             }),
             rx,
         ))
+    }
+
+    /// The copies of projects sync keeps on this Mac.
+    pub(crate) fn copies(&self) -> &Copies {
+        &self.copies
     }
 
     pub fn id(&self) -> EndpointId {
