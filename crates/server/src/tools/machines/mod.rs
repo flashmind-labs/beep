@@ -8,6 +8,7 @@ use crate::{
     store::NodeRow,
 };
 use flashmind::types::{ToolRegistry, tool::ToolResult};
+use futures::future::join_all;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -216,29 +217,25 @@ impl Machines {
             .await
             .map_err(|e| format!("Could not list the user's machines: {e:#}"))?;
         let online: Vec<Option<Online>> = rows.iter().map(|row| self.online(row)).collect();
-        let candidates: Vec<Candidate<'_>> = rows
-            .iter()
-            .zip(&online)
-            .map(|(row, online)| Candidate {
-                name: &row.name,
-                online: online.is_some(),
-                meets: online.as_ref().is_some_and(|online| need.met(online)),
-                workspace: online
-                    .as_ref()
-                    .is_some_and(|online| online.workspace.is_some()),
-            })
-            .collect();
-        let at = choose(&candidates, name, need.rule(), &need.what())?;
-        let row = &rows[at];
-        let online = online[at]
-            .clone()
-            .ok_or_else(|| format!("{} is offline.", row.name))?;
-        Ok(Picked {
-            name: row.name.clone(),
-            endpoint: row.endpoint.clone(),
-            online,
-            home: row.env.as_ref().map(|env| env.home.clone()),
-        })
+        let picked = pick_from(&rows, &online, name, need);
+        if picked.is_ok() || online.iter().all(Option::is_some) {
+            return picked;
+        }
+        // A machine whose link dropped a moment ago, as one changing
+        // network does, is waited for before the call fails.
+        let back = join_all(rows.iter().zip(online).map(|(row, now)| async move {
+            match now {
+                Some(now) => Some(now),
+                None => self
+                    .app
+                    .nodes
+                    .back_online(&row.endpoint)
+                    .await
+                    .filter(|online| online.user == self.user.id()),
+            }
+        }))
+        .await;
+        pick_from(&rows, &back, name, need)
     }
 
     /// The node's connection, only while it is signed in as this user.
@@ -248,6 +245,39 @@ impl Machines {
             .online(&row.endpoint)
             .filter(|online| online.user == self.user.id())
     }
+}
+
+/// The machine a call runs on among `rows`, with each one's connection in
+/// `online`; the error is for the model.
+fn pick_from(
+    rows: &[NodeRow],
+    online: &[Option<Online>],
+    name: Option<&str>,
+    need: Need<'_>,
+) -> Result<Picked, String> {
+    let candidates: Vec<Candidate<'_>> = rows
+        .iter()
+        .zip(online)
+        .map(|(row, online)| Candidate {
+            name: &row.name,
+            online: online.is_some(),
+            meets: online.as_ref().is_some_and(|online| need.met(online)),
+            workspace: online
+                .as_ref()
+                .is_some_and(|online| online.workspace.is_some()),
+        })
+        .collect();
+    let at = choose(&candidates, name, need.rule(), &need.what())?;
+    let row = &rows[at];
+    let online = online[at]
+        .clone()
+        .ok_or_else(|| format!("{} is offline.", row.name))?;
+    Ok(Picked {
+        name: row.name.clone(),
+        endpoint: row.endpoint.clone(),
+        online,
+        home: row.env.as_ref().map(|env| env.home.clone()),
+    })
 }
 
 /// The node `name` names: by name, ignoring case and spaces against dashes.

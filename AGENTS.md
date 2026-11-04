@@ -85,8 +85,6 @@ Every screen is mocked, one artifact per platform:
 - iOS: https://claude.ai/artifact/SGKUgUgcBfqMimBBGiAEtq
 - Desktop, the tray bar and all screens:
   https://claude.ai/artifact/8BxZSzsXaPqHXkn18rRRSL
-- Desktop skins and the command center:
-  https://claude.ai/artifact/WJG9k3zbmiKAMrZX47S6q7
 
 Before changing an app's UI, update that platform's mock first so it shows
 the new screen or state, then change the app to match.
@@ -170,6 +168,50 @@ tray menu; quitting installs it too. The update signing key is the
 `TAURI_SIGNING_PRIVATE_KEY` secret, with its public half in `tauri.conf.json`;
 losing it means installed apps can no longer update.
 
+A session's file reads and tree go through `src-tauri/src/work_copy.rs`: when
+sync (Syncthing or Beep's) keeps a copy of the project on this Mac they come
+from that folder, otherwise from the node. Nothing is compared; sync is trusted.
+
+### Code map
+
+`apps/desktop/src` is grouped by feature. `foo-state.ts` next to `foo.ts`
+holds its pure, tested logic. Each window's bundle starts at the entry named
+in `build.mjs`.
+
+- `bar/`: the bar's page (entry `app.ts`), its views, keys and live voice.
+- `center/`: the command center window (entry `center.ts`): sidebar, Home.
+- `project/`: the Projects page and one project's page.
+- `addproject/`: the Add a project and Import a project sheets.
+- `review/`: branches, reviews and the diff viewer.
+- `agents/`: coding agents: start form, picker, a session's log, the list.
+- `agentpane/`: a session's side pane: media, files, changes, artifacts.
+- `chat/`: chats, groups, the composer and reply cards.
+- `lists/`: Memories, Routines and Skills.
+- `machines/`: the Machines list, Home's machine table, Add a machine.
+- `terminals/`: terminals kept running on the machines.
+- `settings/`: the Settings pages and sheet.
+- `research/`: the research window (entry `research.ts`) and its lists.
+- `orb/`: the orb window (entry `orb.ts`).
+- `ui/`: shared helpers: Tauri bindings, DOM builders, formatting, menus.
+
+`apps/desktop/src-tauri/src` is grouped by domain. `main.rs` starts the app
+and lists every Tauri command; each `mod.rs` only declares and re-exports.
+
+- `beep/`: the server connection (`Beep`), runs, saved state, chat sync, identity.
+- `bar/`: the bar window and its app-wide, live and window commands.
+- `chat/`: chats, groups, approvals, files, history and reply rendering.
+- `voice/`: live mode, voice notes, audio, the Option hotkey, the orb.
+- `center/`: the command center window, Home, view cache, usage, what is shown.
+- `palette/`: the Cmd+K search.
+- `projects/`: project list, import, page, issues, PRs, runs, reviews, sync.
+- `agents/`: coding agent sessions, files, diffs, artifacts, harnesses, sign-ins.
+- `machines/`: the account's machines, terminals, and this Mac as a node.
+- `settings/`: apps, credentials, git sign-ins, grants, memories, routines, skills, models.
+- `research/`: research windows and their commands.
+- `notices/`: routing server notices, macOS notifications, sub-agent questions.
+- `tray/`: the tray menu and what waits on the user.
+- `platform/`: log file, login `PATH`, editors, app updates.
+
 ## beep-node releases
 
 `just node-release 0.1.1` sets the version in `crates/node/Cargo.toml`,
@@ -208,3 +250,18 @@ to select one; `IOS_TEAM_ID` overrides the local development certificate's team.
 chats|settings|memories|routines` as launch arguments
 (`xcrun simctl launch booted com.flashmind.beep -send "hi"`), so it can be
 tested without tapping.
+
+## Code map: beep-node
+
+`crates/node/src`, one line per top-level module:
+
+- `agents/`: coding agents run over ACP, their sessions and spend, sessions
+  found on disk (`claude/`, `found/`) and the Beep MCP server (`mcp/`).
+- `files/`: shared folders (`Folders`), project sync, Syncthing checks,
+  node-to-node transfers and the git checkout search.
+- `link/`: the node's key and settings (`state`), linking and the control
+  stream, reconnecting, and what carries over a restart.
+- `machine/`: what the machine has (`env`, `stats`), setup, the service,
+  self-update, provisioning, `ssh` and repository webhooks.
+- `run/`: process groups, shell sessions, background tasks and terminals.
+- `lib.rs` declares these; `main.rs` is the command line.

@@ -10,7 +10,10 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use flashmind::types::tool::{Tool, ToolContext, ToolResult};
+use flashmind::{
+    tools::mcp::{McpContent, McpToolCallResult},
+    types::tool::{Tool, ToolContext, ToolResult},
+};
 use iroh::EndpointId;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -416,9 +419,12 @@ pub(crate) async fn fastmail_attachment(
     blob_id: &str,
 ) -> Result<Attachment> {
     let args = json!({ "emailId": email_id, "blobId": blob_id, "format": "original" });
-    let result = user.call_fastmail(account, "read_attachment", args).await?;
-    let attachment = attachment_in(&result)
-        .context("Fastmail only gives the file itself for PDFs and images")?;
+    let server = user.fastmail_server(account).await?;
+    let result = user
+        .call_mcp_content(&server, "read_attachment", args)
+        .await?;
+    let attachment =
+        attachment_in(result).context("Fastmail only gives the file itself for PDFs and images")?;
     if attachment.data.len() as u64 > fetch::MAX_DOWNLOAD {
         bail!("the file is larger than {} MiB", fetch::MAX_DOWNLOAD >> 20);
     }
@@ -433,43 +439,34 @@ pub(crate) struct Attachment {
     pub(crate) data: Vec<u8>,
 }
 
-/// The file in Fastmail's `read_attachment` result, read out of the blocks' Debug text or JSON.
-fn attachment_in(result: &Value) -> Option<Attachment> {
-    match result {
-        Value::String(text) => {
-            let encoded =
-                quoted_after(text, "blob: \"").or_else(|| quoted_after(text, "data: \""))?;
-            let mime = quoted_after(text, "mime_type: Some(\"")
-                .or_else(|| quoted_after(text, "mime_type: \""))
-                .map(str::to_owned);
-            let data = STANDARD.decode(encoded).ok()?;
-            Some(Attachment {
-                name: None,
-                mime,
-                data,
-            })
+/// The file in Fastmail's `read_attachment` result: a file block, or JSON text.
+fn attachment_in(result: McpToolCallResult) -> Option<Attachment> {
+    let mut text = String::new();
+    for content in result.content {
+        match content {
+            McpContent::Blob(blob) => {
+                return Some(Attachment {
+                    name: None,
+                    data: STANDARD.decode(&blob.data).ok()?,
+                    mime: blob.mime_type,
+                });
+            }
+            McpContent::Text(part) | McpContent::Other(part) => text.push_str(&part),
         }
-        Value::Object(fields) => {
-            let field = |keys: &[&str]| {
-                keys.iter()
-                    .find_map(|key| fields.get(*key).and_then(Value::as_str))
-            };
-            let data = STANDARD.decode(field(&["data", "blob"])?).ok()?;
-            Some(Attachment {
-                name: field(&["name"]).map(str::to_owned),
-                mime: field(&["mimeType", "type"]).map(str::to_owned),
-                data,
-            })
-        }
-        _ => None,
     }
-}
-
-/// The text between `prefix` and the next quote (safe for base64 and MIME types).
-fn quoted_after<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
-    let start = text.find(prefix)? + prefix.len();
-    let rest = &text[start..];
-    Some(&rest[..rest.find('"')?])
+    let Value::Object(fields) = serde_json::from_str(&text).ok()? else {
+        return None;
+    };
+    let field = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|key| fields.get(*key).and_then(Value::as_str))
+    };
+    let data = STANDARD.decode(field(&["data", "blob"])?).ok()?;
+    Some(Attachment {
+        name: field(&["name"]).map(str::to_owned),
+        mime: field(&["mimeType", "type"]).map(str::to_owned),
+        data,
+    })
 }
 
 /// A name safe to show and to save under on the phone.
@@ -516,8 +513,8 @@ fn mime_for(name: &str, data: &[u8]) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flashmind::tools::mcp::McpBlob;
     use iroh::SecretKey;
-    use rmcp::model::{ContentBlock, ResourceContents};
 
     #[test]
     fn a_project_copy_lands_only_in_a_checkout() {
@@ -540,21 +537,18 @@ mod tests {
         assert!(copy_reaches(None, &other, "/tmp").is_ok());
     }
 
-    /// What the MCP client gives `call_mcp` for a block that is not text.
-    fn as_seen(block: ContentBlock) -> Value {
-        Value::String(format!("{block:?}"))
-    }
-
     #[test]
-    fn a_pdf_resource_is_read_from_the_debug_text() {
+    fn a_pdf_resource_is_read_from_its_file_block() {
         let pdf = b"%PDF-1.7 pass";
-        let block = ContentBlock::resource(ResourceContents::BlobResourceContents {
-            uri: "fastmail:blob".into(),
-            mime_type: Some("application/pdf".into()),
-            blob: STANDARD.encode(pdf),
-            meta: None,
-        });
-        let found = attachment_in(&as_seen(block)).unwrap();
+        let result = McpToolCallResult {
+            content: vec![McpContent::Blob(McpBlob {
+                uri: Some("fastmail:blob".into()),
+                mime_type: Some("application/pdf".into()),
+                data: STANDARD.encode(pdf),
+            })],
+            is_error: false,
+        };
+        let found = attachment_in(result).expect("a file");
         assert_eq!(found.data, pdf);
         assert_eq!(found.mime.as_deref(), Some("application/pdf"));
     }

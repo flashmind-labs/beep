@@ -25,6 +25,13 @@ pub(super) async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> 
     }
     check_images(&req.images)?;
     check_files(&req.files)?;
+    // A run started now would be cut off by the restart; the app sends it
+    // again to the next server.
+    if cx.app.draining() {
+        return Err(ApiError::Conflict {
+            message: RESTARTING.into(),
+        });
+    }
     let model = match &req.model {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,

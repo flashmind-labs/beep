@@ -1,9 +1,9 @@
-import { body, type ApprovalField, type Decision, forRoutine, keepDown } from "./chat.ts";
+import { body, type ApprovalField, type Decision, forRoutine, keepDown } from "../chat/chat.ts";
 import { esc, h, here, ICON, invoke, listen, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
-import { notice } from "./media.ts";
-import { AnsweredIds } from "../approvals.ts";
-import { appTile, fillAppTiles } from "../applogo.ts";
+import { notice } from "../chat/media.ts";
+import { AnsweredIds } from "../chat/approvals.ts";
+import { appTile, fillAppTiles } from "../chat/applogo.ts";
 
 /// Questions answered in this window. A list fetched before the answer
 /// landed, or a notice repeated, would bring the card back.
@@ -69,7 +69,7 @@ export async function answerWork(id: string | null, q: HeldQuestion | undefined,
   if ((decision === "always" || decision === "session") && forRoutine(q.action)) decision = "allow";
   q.answer = decision;
   answeredWork.mark(q.query_id, id);
-  if (id === S.session) { drawWorkQuestions(); refreshHints(); }
+  redrawIfOpen(id);
   try {
     if (await invoke<"delivered" | "withdrawn">("answer_work", { session: id, queryId: q.query_id, decision }) === "withdrawn") {
       q.answer = null;
@@ -80,7 +80,7 @@ export async function answerWork(id: string | null, q: HeldQuestion | undefined,
     answeredWork.forget(q.query_id);
     if (id === S.session) notice(String(err), { bad: true });
   }
-  if (id === S.session) { drawWorkQuestions(); refreshHints(); }
+  redrawIfOpen(id);
 }
 
 /// After the chat is drawn again from the server: answered questions go,

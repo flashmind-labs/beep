@@ -5,7 +5,7 @@ mod steer;
 mod view;
 use auto::auto;
 pub(super) use steer::steer_agent_session;
-pub(super) use view::get_agent_session;
+pub(super) use view::{get_agent_session, get_agent_session_usage};
 
 use super::{
     Reply,

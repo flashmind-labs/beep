@@ -1,11 +1,11 @@
 import { answers, bar, removed } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { body, follow, newTurn, startRun } from "../src/bar/chat.ts";
-import type { BarEvent } from "../src/bar/chat.ts";
+import { body, follow, newTurn, startRun } from "../src/chat/chat.ts";
+import type { BarEvent } from "../src/chat/chat.ts";
 import { S } from "../src/bar/core.ts";
-import { refreshSession } from "../src/bar/history.ts";
-import type { HistoryTurn } from "../src/bar/history.ts";
+import { refreshSession } from "../src/chat/history.ts";
+import type { HistoryTurn } from "../src/chat/history.ts";
 
 const SESSION = "00000000-0000-4000-8000-000000000001";
 const PROMPT = "Will it rain tomorrow?";
@@ -31,9 +31,12 @@ test("a reply stays the same element from its stream through the chat's redraws"
   const events = follow(SESSION, turn);
   const send = (ev: BarEvent) => events.onmessage(ev);
   send({ kind: "started", run_id: "run-1", session_id: SESSION });
+  // Until words come it thinks, as a coding agent's turn does.
+  assert.ok(turn.querySelector(".tools .dthink.live"), "no Thinking row while it waits");
   send({ kind: "text", html: "<p>No rain</p>" });
+  assert.equal(turn.querySelector(".tools .dthink.live"), null, "Thinking stayed once the answer came");
   send({ kind: "text", html: "<p>No rain tomorrow.</p>" });
-  const reply = turn.querySelector(".reply")!;
+  const reply = turn.querySelector(".dcoderen.agent")!;
   send({ kind: "finished", status: "completed" });
   assert.equal(reply.innerHTML, "<p>No rain tomorrow.</p>");
 
@@ -49,12 +52,12 @@ test("a reply stays the same element from its stream through the chat's redraws"
   const turns = body()!.querySelectorAll(".turn");
   assert.equal(turns.length, 1);
   assert.equal(turns[0], turn, "the turn was drawn again");
-  assert.equal(turn.querySelector(".reply"), reply, "the reply was drawn again");
+  assert.equal(turn.querySelector(".dcoderen.agent"), reply, "the reply was drawn again");
   assert.equal(reply.innerHTML, "<p>No rain tomorrow, 21 degrees.</p>");
   assert.deepEqual([...turn.querySelectorAll(".dreplies button")].map(b => b.textContent), ["And the weekend?", "What about Paris?"]);
   assert.ok(turn.querySelector(".dprod"), "the cards were not added");
   assert.ok(!removed.has(turn) && !removed.has(reply), "the reply was taken out of the page");
-  assert.ok(!turn.querySelector(".ask") || !removed.has(turn.querySelector(".ask")!), "the prompt was taken out of the page");
+  assert.ok(!turn.querySelector(".dcoderen.user") || !removed.has(turn.querySelector(".dcoderen.user")!), "the prompt was taken out of the page");
 });
 
 test("a chat drawn from the server keeps its elements when it is drawn again", async () => {
@@ -66,13 +69,13 @@ test("a chat drawn from the server keeps its elements when it is drawn again", a
   answers.open_session = [prompt, answered, later];
   await refreshSession(SESSION);
   const turns = [...body()!.querySelectorAll(".turn")];
-  assert.deepEqual(turns.map(t => t.querySelector(".ask")?.textContent), [PROMPT, "And the weekend?"]);
-  const reply = turns[0].querySelector(".reply")!;
+  assert.deepEqual(turns.map(t => t.querySelector(".dcoderen.user > span")?.textContent), [PROMPT, "And the weekend?"]);
+  const reply = turns[0].querySelector(".dcoderen.agent")!;
 
   // The second prompt was rerun away.
   answers.open_session = [prompt, answered];
   await refreshSession(SESSION);
   assert.deepEqual([...body()!.querySelectorAll(".turn")], [turns[0]]);
-  assert.equal(turns[0].querySelector(".reply"), reply);
+  assert.equal(turns[0].querySelector(".dcoderen.agent"), reply);
   assert.ok(!removed.has(reply));
 });

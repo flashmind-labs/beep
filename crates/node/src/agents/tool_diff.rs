@@ -1,7 +1,6 @@
-//! An edit's diff as the lines its tool entry shows, so the apps can draw
-//! it under the call: a `[diff]` header with the file and the counts, then
-//! the changed lines marked `-` and `+` with a little context, as in a
-//! unified diff.
+//! An edit's diff as the lines its tool entry shows (`diff_text`): a
+//! `[diff]` header with the file and counts, then the changed lines marked `-`
+//! and `+` with a little context, as in a unified diff.
 
 use std::path::Path;
 

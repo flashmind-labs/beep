@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandDetail, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, runLabel, span, splitTurns, stepLabel, summary, toolKind, toolRuns, withoutDiffs } from "../src/agentturns.ts";
+import { beepCall, beepLine, commandDetail, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, runLabel, span, splitTurns, stepLabel, summary, toolKind, toolRuns, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });

@@ -6,7 +6,8 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use flashmind::{
     tools::mcp::{
-        McpAuthRequired, McpConfigProvider, McpRegistry, McpServerConfig, McpToolCallResult,
+        McpAuthRequired, McpConfigProvider, McpContent, McpRegistry, McpServerConfig,
+        McpToolCallResult,
     },
     types::tool::{Tool, ToolContext, ToolResult},
 };
@@ -445,19 +446,14 @@ impl Tool for AppTool {
             .call(&self.registry, &account.name, self.tool, args)
             .await
         {
-            Ok(result) => {
-                let text = result
-                    .content
-                    .iter()
-                    .filter_map(|content| content.as_text())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let text = format!("{from}{text}");
-                Ok(if result.is_error {
-                    ToolResult::failure(ctx.tool_call_id, text)
-                } else {
-                    ToolResult::success(ctx.tool_call_id, text)
-                })
+            Ok(mut result) => {
+                if !from.is_empty() {
+                    result
+                        .content
+                        .insert(0, McpContent::Text(from.trim_end().to_owned()));
+                }
+                // A file comes as an attachment, or fails the call if the model cannot take it.
+                Ok(result.into_tool_result(ctx.tool_call_id))
             }
             Err(error) => {
                 log::warn!("mcp: {}/{} failed: {error:#}", account.name, self.tool);

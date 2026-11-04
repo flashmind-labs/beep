@@ -1,0 +1,15 @@
+//! The node's identity and its connection to the server: key and settings
+//! (`state`), linking and the control stream (`connection`), staying
+//! connected (`reconnect`), and what carries over a restart (`restart`).
+
+mod connection;
+pub mod local;
+pub(crate) mod local_socket;
+pub(crate) mod note;
+pub mod reconnect;
+pub(crate) mod restart;
+pub mod state;
+
+pub use connection::{
+    Claimed, Linked, Offers, Protocol, Session, claim, connect, open, print_offer, serve, stay,
+};

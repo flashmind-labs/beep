@@ -16,6 +16,7 @@ use super::MAX_RUN;
 use super::MEMORY_RECALL_TIMEOUT;
 use super::SCHEDULED_TASK_CHARS;
 use super::TOOL_IDLE_TIMEOUT;
+use super::failure_message;
 use super::keep_stopped;
 use super::languages_line;
 use super::register_web_tools;
@@ -834,13 +835,11 @@ impl App {
                                 continue;
                             }
                             Some(AgentEvent::Done(_)) => break RunStatus::Completed,
-                            Some(AgentEvent::Error(_)) => {
+                            Some(AgentEvent::Error(error)) => {
                                 // Provider errors can contain upstream response details. Keep them off the wire.
                                 let error = RunEvent::Error {
-                            message:
-                                "The model request failed. Check server provider configuration."
-                                    .to_owned(),
-                        };
+                                    message: failure_message(&error).to_owned(),
+                                };
                                 live.push(error);
                                 break RunStatus::Failed;
                             }
@@ -857,7 +856,8 @@ impl App {
                     }
                 };
                 if matches!(status, RunStatus::Cancelled | RunStatus::Interrupted) {
-                    failed_tools.extend(keep_stopped(&mut conversation, said, thought));
+                    let restarted = status == RunStatus::Interrupted;
+                    failed_tools.extend(keep_stopped(&mut conversation, said, thought, restarted));
                 }
                 // A failed check gets the agent one more pass to fix it.
                 if let Some(since) = quiet_since {

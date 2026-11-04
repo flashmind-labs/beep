@@ -1,6 +1,6 @@
 //! The coding-agent requests a server makes of one online node.
 
-use super::super::{Follower, Online, RECONNECT_WAIT};
+use super::super::{Follower, Online, RECONNECT_WAIT, retry::Unsent};
 use super::DIFF_TIMEOUT;
 use super::Failed;
 use super::Failure;
@@ -468,9 +468,12 @@ impl Online {
         }
     }
 
+    /// Opens a stream for `protocol`; a link that fails first gives an
+    /// `Unsent` error, so the call may go again.
     pub(in crate::nodes) async fn open_stream(&self, protocol: &str) -> Result<(LinkTx, LinkRx)> {
         self.try_open(protocol).await.map_err(|e| match e {
-            Opening::Link(e) | Opening::Refused(e) => e,
+            Opening::Link(e) => Unsent(e).into(),
+            Opening::Refused(e) => e,
         })
     }
 

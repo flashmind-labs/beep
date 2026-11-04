@@ -1,7 +1,7 @@
 // The bar's page, and the pane the command center window shows it in.
-import type { GroupState } from "./groups.ts";
+import type { GroupState } from "../chat/groups.ts";
 
-export { invoke, Channel, listen } from "../tauri.ts";
+export { invoke, Channel, listen } from "../ui/tauri.ts";
 
 export const ICON = {
   check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -110,7 +110,7 @@ export const S: BarState = new Proxy<BarState>({
   },
 });
 
-export { esc } from "../components/format.ts";
+export { esc } from "../ui/format.ts";
 /// The first element of `html`.
 export function h<T extends Element = HTMLElement>(html: string): T {
   const t = document.createElement("template");
@@ -125,8 +125,22 @@ export const $$ = <T extends Element = HTMLElement>(sel: string) => bar.querySel
 /// its turn ends is marked stopped.
 export interface Step {
   id: string;
+  /// The tool's name, for its row's icon.
+  name: string;
   label: string;
   state: "run" | "ok" | "bad" | "stop";
+}
+
+/// The model's thought in a turn: its text so far, when it started and, once
+/// something else came, how long it took. `touched` and `open` keep the
+/// reader's choice of folding it; `ended` that it folded once already.
+export interface TurnThought {
+  text: string;
+  start: number;
+  ms?: number;
+  touched?: boolean;
+  open?: boolean;
+  ended?: boolean;
 }
 
 /// A turn of a chat: a prompt and its reply. The element keeps what the
@@ -143,6 +157,10 @@ export interface Turn extends HTMLDivElement {
   agent?: string;
   model?: string;
   status?: string;
+  /// When this window saw it start and end.
+  begun?: number;
+  ended?: number;
+  thought?: TurnThought;
 }
 
 /// A chat's scrolling body, which knows whether it follows the newest turn.

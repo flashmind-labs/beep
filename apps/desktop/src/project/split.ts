@@ -1,0 +1,198 @@
+// A project page's split: the list of tasks, PRs, issues and machines on
+// the left, the picked row's view on the right.
+import { harnessEl } from "../agents/harnessicon.ts";
+import { ago, plural } from "../ui/format.ts";
+import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts";
+import { runningKey, runningAt, runningLine, byRecent, type RunningAgent } from "../center/home-state.ts";
+import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
+import { el as h, type Kid } from "../ui/dom.ts";
+import { agentFor, tasksSection, workersSection, cardsSection } from "./agent.ts";
+import { terminalTile } from "../terminals/terminals.ts";
+import { branchTile } from "../review/review.ts";
+import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
+import { fileSyncTile } from "./filesync.ts";
+import { issueMeta, prChip, prMeta } from "./threads.ts";
+import { IC, state } from "../center/state.ts";
+import { tag, line } from "../center/pieces.ts";
+import { homeBox } from "../center/home.ts";
+import { terminalLine } from "../terminals/view.ts";
+import { go } from "../center/views.ts";
+import { customAgentsSection, whereSection, agentsSection } from "./projects.ts";
+import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
+import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
+
+/// The split shows for an imported project whose agent's view has loaded.
+export function splitOn(p: Project) {
+  return p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
+}
+
+/// Picks item `key` of the split's list, or the first one with null, and
+/// stops the polling of every other item. With `draw` false the caller
+/// draws.
+export function openTile(key: string | null, draw = true) {
+  pa.tile = key;
+  if (key !== "terminals") terms.stop();
+  if (key !== "sync") fsync.stop();
+  if (key !== "review") revs.stop();
+  if (!draw) return;
+  redrawProjects();
+  projectsEl().querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
+}
+
+/// One row of the split's list: it shows its detail at the right, or with
+/// `open` goes somewhere else (a running agent opens in the pane).
+interface SplitItem {
+  key: string;
+  lead?: Kid;
+  title: string;
+  sub: string;
+  /// Labels, as chips after `sub`.
+  tags?: string[];
+  right?: Kid;
+  open?: () => void;
+  detail?: () => Node[];
+}
+
+/// A list's label filter: the labels its items carry, the one picked, and
+/// what picking one does.
+export type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
+/// A group of the list: its title, rows, and a note in place of rows.
+type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter };
+
+/// The label each list is filtered to, by list key.
+const listLabel = new Map<string, string>();
+
+/// `items` filtered to the label picked for list `key`, and the chips that
+/// pick one; `redraw` runs on a pick. A label gone from every item clears.
+export function labelFilter<T>(key: string, items: T[], tags: (i: T) => string[] | undefined, redraw: () => void) {
+  const all = [...new Set(items.flatMap(i => tags(i) || []))].sort();
+  const pick = listLabel.get(key), on = pick && all.includes(pick) ? pick : undefined;
+  const labels: LabelFilter = { all, on, pick: l => {
+    if (on === l) listLabel.delete(key); else listLabel.set(key, l);
+    redraw();
+  } };
+  return { items: on ? items.filter(i => tags(i)?.includes(on)) : items, labels };
+}
+
+/// A label chip: a click filters its list to it, a second click clears it.
+export function labelChip(label: string, f: LabelFilter, tag: "button" | "i") {
+  const c = h(tag, `pj-tag lab${label === f.on ? " on" : ""}`, label);
+  if (c instanceof HTMLButtonElement) c.type = "button";
+  c.addEventListener("click", e => { e.stopPropagation(); f.pick(label); });
+  return c;
+}
+
+/// The note of a code host list: why it could not be read, or that it reads.
+function hostNote(list: unknown[] | null | undefined, error: string, none: string) {
+  if (error) return error;
+  if (list === undefined) return "Reading…";
+  if (list === null) return "The server needs an update before it lists these.";
+  return list.length ? undefined : none;
+}
+
+/// The project page: everything going on in one list at the left, the
+/// picked row's detail and actions at the right.
+export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): Node[] {
+  const view = state.pview.get(p.name)!.view!;
+  const agent = agentFor(state.agents, p.name)!;
+  const pid = agent.project_id;
+  const sessions = state.sessions.get(p.name);
+  if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
+  if (terms.list(p.name) === undefined) terms.load(p.name);
+  revs.ensure(p.name);
+  thr.ensure(pid);
+  const acts = repoActs(p);
+  const sync = state.sync.filter(s => s.project === p.name);
+  const cards = cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
+  const groups: SplitGroup[] = [];
+  if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
+  const runItems: SplitItem[] = byRecent(running).map(r => ({
+    key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
+    right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
+  }));
+  if (runItems.length) groups.push({ title: "Running", items: runItems });
+  const past = sessions ? pastSessions(sessions, running) : [];
+  groups.push({ title: "Work", items: [
+    { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] },
+    { key: "agents", title: "Agents", sub: agentTile(running, past).count || "None running", detail: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)] },
+    { key: "branches", title: "Branches", sub: branchTile(revs.branches(p.name), revs.reviews(p.name), ago).count || "", detail: () => revs.branchesPanel(p.name) },
+  ] });
+  const num = (n: number) => h("span", "num", `#${n}`);
+  const prs = thr.prs(pid), issues = thr.issues(pid);
+  const prItems: SplitItem[] = thr.prLines(agent, acts).map(l => {
+    const chip = prChip(l), pr = l.pr;
+    return {
+      key: `pr:${pr.number}`, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
+      right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
+      detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
+    };
+  });
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), ...labelFilter(`${p.name}:prs`, prItems, i => i.tags, redrawProjects) });
+  const issueItems: SplitItem[] = thr.issueLines(agent, acts).map(l => ({
+    key: `issue:${l.number}`, lead: num(l.number), title: l.title,
+    sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
+    right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
+    detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
+      [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
+  }));
+  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), ...labelFilter(`${p.name}:issues`, issueItems, i => i.tags, redrawProjects) });
+  const project: SplitItem[] = [
+    { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
+    { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
+    { key: "terminals", title: "Terminals", sub: terminalTile(terms.list(p.name), ago).count || "None open", detail: () => terms.panel(p.name, rows) },
+    { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
+  ];
+  const threads = thr.threads(pid);
+  if (threads?.length) {
+    const waiting = threads.filter(t => t.needs_reply).length;
+    project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
+  }
+  groups.push({ title: "Project", items: project });
+  const overview = projectOverview(p, runItems, prItems, issueItems, machineTile(rows, sync));
+  groups.unshift({ title: "", items: [{ key: "overview", title: "Overview", sub: overview.sub, detail: () => [overview.body] }] });
+  // A review opens from Branches and keeps it lit.
+  const all = groups.flatMap(g => g.items);
+  const picked = pa.tile === "review"
+    ? { key: "branches", detail: () => revs.reviewPanel(p.name) }
+    : all.find(i => i.key === pa.tile && i.detail) || all[0];
+  const list = h("div", "pj-list");
+  for (const g of groups) {
+    if (g.title) list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
+    if (g.note) list.append(h("div", "note", g.note));
+    const f = g.labels;
+    if (f?.all.length) list.append(h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))));
+    for (const i of g.items) {
+      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l)))), h("span", "r", i.right));
+      row.type = "button";
+      row.title = i.title;
+      if (i.key === picked.key) row.setAttribute("aria-current", "true");
+      row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
+      list.append(row);
+    }
+  }
+  const error = state.pview.get(p.name)?.error;
+  const det = h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
+  return [h("div", "pj-split", list, det)];
+}
+
+/// The project's Overview: a box per list, each title opening that row of
+/// the list, and its one line for the list.
+function projectOverview(p: Project, run: SplitItem[], prs: SplitItem[], issues: SplitItem[], where: ReturnType<typeof machineTile>) {
+  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead : null, i.title, i.sub, [i.right], i.open || (() => openTile(i.key))));
+  const box = (title: string, items: SplitItem[], key: string) => items.length ? homeBox("", title, items.length, () => openTile(key), rowsOf(items)) : null;
+  const list = terms.list(p.name) || [];
+  const machines = where.rows.map(r => {
+    const row = line(h("span", `ddot${r.dot ? " off" : ""}`), r.text || "", r.note || "", [], () => openTile("machines"));
+    row.title = r.title || r.text || "";
+    return row;
+  });
+  const boxes = [
+    box("Running", run, "agents"),
+    box("Pull requests", prs, prs[0]?.key),
+    box("Issues", issues, issues[0]?.key),
+    list.length ? homeBox("", "Terminals", list.length, () => openTile("terminals"), list.map(t => terminalLine(t, () => openTile("terminals")))) : null,
+    machines.length ? homeBox("", "Machines", where.count, () => openTile("machines"), machines) : null,
+  ].filter(b => b !== null);
+  const sub = [run.length ? `${run.length} running` : "", prs.length ? plural(prs.length, "PR", "PRs") : "", issues.length ? plural(issues.length, "issue", "issues") : ""].filter(Boolean).join(" · ");
+  return { sub, body: boxes.length ? h("div", "cc-hgrid", ...boxes) : emptyPanel(h("span", "", "Nothing running or open here.")) };
+}

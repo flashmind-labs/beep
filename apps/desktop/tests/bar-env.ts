@@ -1,6 +1,6 @@
 // Just enough of the webview for the bar's modules to load under Node:
 // `#bar`, Tauri's globals and the observers some modules make at load.
-// Import it before any `src/bar` module. `calls` records every `invoke`;
+// Import it before any module of the bar's page. `calls` records every `invoke`;
 // `answers` holds what a command returns (null when absent).
 
 export const calls: { cmd: string; args: unknown }[] = [];

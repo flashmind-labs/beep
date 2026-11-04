@@ -91,6 +91,8 @@ pub struct App {
     group_actions: Mutex<HashMap<String, group_tools::GroupAction>>,
     /// Set once the server starts stopping.
     shutting_down: AtomicBool,
+    /// Set once the server stops taking prompts, to let running turns end.
+    draining: AtomicBool,
     /// Research teams at work, by research id.
     teams: AsyncMutex<HashMap<Uuid, CancellationToken>>,
     /// The nodes connected now.
@@ -231,6 +233,7 @@ impl App {
             groups_busy: Mutex::new(HashSet::new()),
             group_actions: Mutex::new(HashMap::new()),
             shutting_down: AtomicBool::new(false),
+            draining: AtomicBool::new(false),
             teams: AsyncMutex::new(HashMap::new()),
             nodes: crate::nodes::Nodes::default(),
             projects: crate::projects::Projects::default(),

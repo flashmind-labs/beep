@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { withoutResearch } from "../src/research-list.ts";
+import { withoutResearch } from "../src/research/research-list.ts";
 
 test("research chats leave the Chats list, other chats and groups stay", () => {
   const chats = [

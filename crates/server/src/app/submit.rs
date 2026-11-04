@@ -128,6 +128,32 @@ impl App {
         }
     }
 
+    /// Stops taking prompts and waits up to `limit` for the running turns
+    /// to end, so a restart does not cut them off.
+    pub async fn drain(&self, limit: Duration) {
+        self.draining.store(true, Ordering::Relaxed);
+        let running = self.runs.lock().await.len();
+        if running == 0 {
+            return;
+        }
+        log::info!("shutdown: waiting up to {limit:?} for {running} runs to end");
+        let ended = timeout(limit, async {
+            while !self.runs.lock().await.is_empty() {
+                sleep(Duration::from_millis(250)).await;
+            }
+        })
+        .await;
+        if ended.is_err() {
+            let left = self.runs.lock().await.len();
+            log::warn!("shutdown: interrupting {left} runs still going");
+        }
+    }
+
+    /// Whether the server stopped taking prompts because it is restarting.
+    pub fn draining(&self) -> bool {
+        self.draining.load(Ordering::Relaxed)
+    }
+
     pub async fn shutdown(&self) {
         // Read by runs as they stop, so they end as interrupted, not cancelled.
         self.shutting_down.store(true, Ordering::Relaxed);

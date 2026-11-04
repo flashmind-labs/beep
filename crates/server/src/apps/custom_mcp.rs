@@ -712,24 +712,19 @@ impl Tool for CustomTool {
         reap_later(&self.registry, &self.user);
         match result {
             Ok(result) => {
-                let text = result
-                    .content
-                    .iter()
-                    .filter_map(|content| content.as_text())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if result.is_error {
-                    let limited = limited_text(&text.to_ascii_lowercase());
-                    permit.finish(if limited {
-                        Outcome::Limited
-                    } else {
-                        Outcome::Ok
-                    });
-                    Ok(ToolResult::failure(ctx.tool_call_id, text))
+                let limited = result.is_error
+                    && result
+                        .content
+                        .iter()
+                        .filter_map(|content| content.as_text())
+                        .any(|text| limited_text(&text.to_ascii_lowercase()));
+                permit.finish(if limited {
+                    Outcome::Limited
                 } else {
-                    permit.finish(Outcome::Ok);
-                    Ok(ToolResult::success(ctx.tool_call_id, text))
-                }
+                    Outcome::Ok
+                });
+                // A file comes as an attachment, or fails the call if the model cannot take it.
+                Ok(result.into_tool_result(ctx.tool_call_id))
             }
             Err(error) => {
                 log::warn!("mcp: {server}/{} failed: {error:#}", self.tool);

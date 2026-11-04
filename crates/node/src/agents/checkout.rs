@@ -3,7 +3,7 @@
 //! before the agent starts.
 
 use super::folder;
-use crate::found;
+use crate::agents::found;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{
     CheckoutPlan, prompt_branch, valid_branch, valid_ref, worktree_path,
@@ -404,8 +404,12 @@ pub(super) mod tests {
         (dir, work)
     }
 
+    pub(in crate::agents) fn has_git() -> bool {
+        Command::new("git").arg("--version").output().is_ok()
+    }
+
     /// Runs git with a fixed identity, as a test sets a repository up.
-    fn run(dir: &Path, args: &[&str]) -> String {
+    pub(in crate::agents) fn run(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")
             .args(args)
             .current_dir(dir)

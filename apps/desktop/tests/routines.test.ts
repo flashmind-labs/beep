@@ -2,7 +2,7 @@ import { calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { GR, grantClick, grantKeys, type Grant } from "../src/bar/routines.ts";
+import { GR, grantClick, grantKeys, type Grant } from "../src/lists/routines.ts";
 
 const grant = (id: string): Grant => ({ id, routine_id: id, routine: id, app: "gmail", action: "Send email", fields: [], per_run: 1, expires_at: 0, created_at: 0, last_used_at: null });
 /// A click on row `i` of the grants list.

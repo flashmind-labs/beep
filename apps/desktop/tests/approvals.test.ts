@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AnsweredIds, OrbAsks } from "../src/approvals.ts";
+import { AnsweredIds, OrbAsks } from "../src/chat/approvals.ts";
 
 const ask = (query_id: string, session = "chat-a", work = false) => ({ session, approval: { query_id }, work });
 
