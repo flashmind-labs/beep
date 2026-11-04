@@ -49,6 +49,7 @@ pub(crate) use reviews::{
 };
 pub(crate) use terminals::TerminalRow;
 mod location;
+mod machine_removal;
 mod memories;
 mod merge;
 mod messages;

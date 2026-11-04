@@ -16,9 +16,9 @@ use super::{
         cross_place, delete_place, list_places, set_timezone, update_location, update_place,
     },
     machines::{
-        create_node_token, get_machine_log, get_node_token, list_machine_details,
-        list_machine_stats, list_machines, list_updatable_machines, remove_machine,
-        revoke_node_token, update_machine,
+        add_machine_over_ssh, create_node_token, get_machine_log, get_node_token,
+        list_machine_details, list_machine_stats, list_machines, list_ssh_hosts,
+        list_updatable_machines, remove_machine, revoke_node_token, update_machine,
     },
     memories::{
         clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
@@ -238,10 +238,10 @@ pub fn router() -> Router {
         .call(get_node_token)
         .call(machine_tools::list_tool_updates)
         .call(machine_tools::update_machine_tool)
-        .call(ssh::list_ssh_hosts)
-        .call(ssh::add_machine_over_ssh)
-        .call(ssh::get_machine_search)
-        .call(ssh::set_machine_search)
+        .call(list_ssh_hosts)
+        .call(add_machine_over_ssh)
+        .call(machine_search::get_machine_search)
+        .call(machine_search::set_machine_search)
         .call(credentials::list_credentials)
         .call(credentials::save_credential)
         .call(credentials::remove_credential)
