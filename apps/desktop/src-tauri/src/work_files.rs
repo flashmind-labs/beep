@@ -7,6 +7,7 @@ use crate::{
     beep::Beep,
     commands::{GONE, file_name, free_name},
     error::{DesktopError, Result},
+    work_copy,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -62,6 +63,11 @@ pub struct TreeText {
 
 /// One `ReadWorkFile`, with a file the machine no longer has as `GONE`.
 pub(crate) async fn read_part(beep: &Beep, read: ReadWorkFile) -> Result<AgentFileChunk> {
+    let full = work_copy::joined(&read.root, &read.path);
+    if let Some(part) = work_copy::read(beep, &read.machine_id, &full, read.offset, read.len).await
+    {
+        return Ok(part);
+    }
     match beep.call(read).await {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
@@ -86,15 +92,17 @@ pub async fn agent_tree(
     path: String,
     ignored: bool,
 ) -> Result<Tree> {
-    let tree = beep
-        .call(ListWorkTree {
-            machine_id,
-            root,
-            path,
-            ignored,
-            depth: TREE_DEPTH,
-        })
-        .await?;
+    let ask = ListWorkTree {
+        machine_id,
+        root,
+        path,
+        ignored,
+        depth: TREE_DEPTH,
+    };
+    let tree = match work_copy::tree(&beep, &ask).await {
+        Some(tree) => tree,
+        None => beep.call(ask).await?,
+    };
     let folders = tree
         .folders
         .into_iter()
