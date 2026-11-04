@@ -46,6 +46,8 @@ pub fn kill_tasks() {
     terminal::kill_all();
 }
 
+#[cfg(all(unix, feature = "cli"))]
+pub use terminal::host::in_process as terminal_host_in_process;
 /// Runs `beep-node pty-host`, which keeps the node's terminals.
 #[cfg(all(unix, feature = "cli"))]
 pub use terminal::host::run as run_terminal_host;
