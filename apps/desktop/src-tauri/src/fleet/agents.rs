@@ -227,7 +227,7 @@ pub(crate) async fn start(fleet: &Fleet, start: StartAgentSession) -> Result<Sta
     let (host, why) = match &start.machine_id {
         Some(id) => {
             let machine = fleet.member(id).ok_or_else(not_found)?;
-            let host = fleet.agent_host(machine).await?.ok_or_else(|| {
+            let host = fleet.agent_host(machine).ok_or_else(|| {
                 ApiError::bad_request(format!(
                     "{} offers no coding agent.",
                     fleet.name_of(machine)
