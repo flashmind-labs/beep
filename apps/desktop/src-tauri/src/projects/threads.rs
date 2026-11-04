@@ -204,7 +204,7 @@ pub async fn center_project_issues(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<IssueRow>>> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await {
+    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
         let issues = desk.issues(&name).await?;
         return Ok(Some(issues.into_iter().map(Into::into).collect()));
     }
@@ -254,7 +254,7 @@ pub async fn center_project_pull_requests(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<PullRequestRow>>> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await {
+    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
         let prs = desk.pull_requests(&name).await?;
         return Ok(Some(prs.into_iter().map(Into::into).collect()));
     }
@@ -272,7 +272,7 @@ pub async fn center_pull_request_head(
     project_id: Uuid,
     number: u64,
 ) -> Result<PullRequestHead> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await {
+    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
         return Ok(desk.pr_head(&name, number).await?);
     }
     beep.call(GetPullRequestHead { project_id, number })

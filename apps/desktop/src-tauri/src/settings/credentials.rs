@@ -6,12 +6,9 @@
 use crate::{
     beep::{Beep, Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::{
-        Fleet,
-        projects::{FleetState, desk},
-    },
+    fleet::projects::{FleetState, desk},
 };
-use beep_fleet::FleetError;
+use beep_fleet::{FleetError, Session};
 use beep_proto::{
     ApiError, ApiProvider, Credential, CredentialCheck, CredentialKind, GITHUB_ENV_VAR,
     GitHubAccount, SaveCredential, SecretText,
@@ -176,7 +173,7 @@ pub async fn save_credential(
 /// is saved as the account it signs in as, beside the others. A key that is
 /// not for the machines is the server's to keep, so it goes there.
 pub(crate) async fn save(
-    fleet: &Arc<Fleet>,
+    fleet: &Arc<Session>,
     beep: &Beep,
     kind: Kind,
     secret: SecretText,

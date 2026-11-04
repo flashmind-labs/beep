@@ -2,11 +2,7 @@
 //! agent's plan is used, and what the agents cost today, this week and
 //! this month.
 
-use crate::{
-    beep::epoch_ms,
-    error::Result,
-    fleet::projects::{FleetState, desk},
-};
+use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
     AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelSpend, PeriodSpend, PlanLimits,
     PlanWindow, ProjectBill, ProjectSpend, SpendPeriod, SpendReport, UsageReport, UsageView,
@@ -260,8 +256,9 @@ impl From<UsageView> for UsageRow {
 }
 
 /// The plans and spending, summed over every machine that is online. Each
-/// machine reads its plans again on every call, so `refresh` changes nothing.
+/// machine reads its plans again on every read. The last report comes at
+/// once, with a new one collected behind it; `refresh` waits for a new one.
 #[tauri::command]
-pub async fn usage_get(fleet: FleetState<'_>, _refresh: bool) -> Result<Option<UsageRow>> {
-    Ok(Some(desk(&fleet).await?.spend().await?.into()))
+pub async fn usage_get(fleet: FleetState<'_>, refresh: bool) -> Result<Option<UsageRow>> {
+    Ok(Some(fleet.spend(refresh).await?.into()))
 }

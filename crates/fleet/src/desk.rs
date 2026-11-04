@@ -10,6 +10,7 @@ use beep_mesh::{DeviceStatus, Mesh};
 use beep_projects::{
     imports::{hosts::Hosts, machine::Machine},
     model::ForgejoUrl,
+    repo_watch::http::HostCalls,
 };
 use beep_proto::node::{EnvReport, agent::SESSIONS_PROTOCOL, shell};
 use futures::future::join_all;
@@ -27,6 +28,8 @@ pub struct Desk {
     pub(crate) peers: Arc<dyn Peers>,
     pub(crate) mesh: Mesh,
     pub(crate) hosts: DesktopHosts,
+    /// This Mac's own node, which answers at once.
+    pub(crate) local: EndpointId,
     /// How long a usage read waits on a quiet node.
     pub(crate) settle: Duration,
     /// Where GitHub's API is, when it is not github.com.
@@ -36,11 +39,17 @@ pub struct Desk {
 impl Desk {
     /// A desk over `peers`, once its mesh is open.
     pub async fn open(peers: Arc<dyn Peers>) -> Result<Self> {
+        Self::with(peers, DesktopHosts::new()?).await
+    }
+
+    /// A desk over `peers` that shares `hosts` with the others: one client for the session.
+    pub(crate) async fn with(peers: Arc<dyn Peers>, hosts: DesktopHosts) -> Result<Self> {
         let mesh = peers.mesh().await?;
         Ok(Self {
+            local: peers.me(),
             peers,
             mesh,
-            hosts: DesktopHosts::new()?,
+            hosts,
             settle: crate::usage::SETTLE,
             github_api: None,
         })
@@ -68,6 +77,16 @@ impl Desk {
     /// Every machine of the mesh with what it said about itself.
     pub(crate) async fn seen(&self) -> Vec<Seen> {
         join_all(self.mesh.devices().into_iter().map(|d| self.look(d))).await
+    }
+
+    /// Only this Mac's own machine, without asking the others anything.
+    pub(crate) async fn local_machine(&self) -> Option<Machine> {
+        let status = self
+            .mesh
+            .devices()
+            .into_iter()
+            .find(|status| status.device.id == self.local)?;
+        Some(self.look(status).await.machine)
     }
 
     async fn look(&self, status: DeviceStatus) -> Seen {
@@ -114,14 +133,17 @@ pub(crate) struct Seen {
     pub(crate) env: Option<EnvReport>,
 }
 
-/// Calls to git hosts from this Mac: its own network is the user's, so every host may be called.
+/// Calls to git hosts from this Mac, shared by every call of the session: one client, one limit
+/// on calls in flight, and the replies and rate limits kept for the runs.
+#[derive(Clone)]
 pub(crate) struct DesktopHosts {
     client: Client,
     calls: Arc<Semaphore>,
+    kept: Arc<HostCalls>,
 }
 
 impl DesktopHosts {
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let client = Client::builder()
             .timeout(HOST_TIMEOUT)
             .user_agent("beep-desktop")
@@ -132,7 +154,20 @@ impl DesktopHosts {
         Ok(Self {
             client,
             calls: Arc::new(Semaphore::new(MAX_CALLS)),
+            kept: Arc::default(),
         })
+    }
+
+    pub(crate) fn reqwest(&self) -> Result<Client> {
+        Ok(self.client.clone())
+    }
+
+    pub(crate) fn semaphore(&self) -> &Arc<Semaphore> {
+        &self.calls
+    }
+
+    pub(crate) fn host_calls(&self) -> &HostCalls {
+        &self.kept
     }
 }
 
@@ -146,6 +181,9 @@ impl Hosts for DesktopHosts {
         &self.calls
     }
 
+    /// Every address is called: the desktop is on the user's own network, which is the point of
+    /// calling a Forgejo server there. The server refuses private addresses because it must not
+    /// probe the network it runs in; a desktop has no such network to protect.
     async fn is_public(&self, _: &ForgejoUrl) -> bool {
         true
     }

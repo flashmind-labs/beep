@@ -8,15 +8,13 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::{
-        Fleet,
-        projects::{FleetState, desk},
-    },
+    fleet::projects::{FleetState, desk},
     projects::unknown_op,
     settings::cli_login::{find_tool, refused},
     settings::credentials::plain,
 };
 use anyhow::Context;
+use beep_fleet::Session;
 use beep_proto::{
     AgentAccount, AgentAccounts, AgentMachine, AgentToken, CancelCodexLogin, CodexLogin,
     CodexLoginState, GetCodexLogin, SecretText, StartCodexLogin,
@@ -170,7 +168,7 @@ pub async fn save_agent_token(
     save(&fleet, agent, SecretText::new(secret)).await
 }
 
-async fn save(fleet: &Arc<Fleet>, agent: AgentAccount, secret: SecretText) -> Result<TokenView> {
+async fn save(fleet: &Arc<Session>, agent: AgentAccount, secret: SecretText) -> Result<TokenView> {
     let saved = desk(fleet)
         .await?
         .save_agent_token(agent.slug(), &secret)

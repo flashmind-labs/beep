@@ -11,10 +11,10 @@ use crate::{
 };
 use beep_fleet::project_id;
 use beep_proto::{
-    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectSessions,
-    ListProjectTasks, ListProjectWorkers, PendingApproval, ProjectAgent, ProjectCopy,
-    ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
-    StopProjectWorker, SyncthingPlace, UpdateProjectTask,
+    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines,
+    ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers,
+    PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask, ProjectTaskState,
+    ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -67,9 +67,18 @@ impl From<ProjectMachine> for ProjectMachineRow {
 #[tauri::command]
 pub async fn project_machines(
     fleet: FleetState<'_>,
+    beep: Service<'_>,
     project: String,
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
-    let machines = desk(&fleet).await?.project_machines(&project).await?;
+    let desk = desk(&fleet).await?;
+    // A project only the server has: until it is moved into the mesh, the server answers.
+    if !desk.has_project(&project) && beep.server().is_some() {
+        let machines = known(beep.call(ListProjectMachines { project }).await)?;
+        return Ok(
+            machines.map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect())
+        );
+    }
+    let machines = desk.project_machines(&project).await?;
     Ok(Some(
         machines.into_iter().map(ProjectMachineRow::from).collect(),
     ))
@@ -101,9 +110,14 @@ pub async fn project_copy(
 #[tauri::command]
 pub async fn project_syncthing(
     fleet: FleetState<'_>,
+    beep: Service<'_>,
     project: String,
 ) -> Result<Vec<SyncthingPlace>> {
-    Ok(desk(&fleet).await?.syncthing(&project).await)
+    let desk = desk(&fleet).await?;
+    if !desk.has_project(&project) && beep.server().is_some() {
+        return Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default());
+    }
+    Ok(desk.syncthing(&project).await)
 }
 
 /// The project agent of `name` (`org/repo`), made with its chat on the

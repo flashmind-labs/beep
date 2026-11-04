@@ -121,6 +121,8 @@ struct FakeNode {
     prints: Vec<(&'static str, &'static str)>,
     /// What `FollowUsage` says.
     usage: Vec<SessionsReply>,
+    /// The tools its `status/1` reports.
+    tools: Vec<&'static str>,
 }
 
 impl FakeNode {
@@ -152,10 +154,14 @@ impl FakeNode {
                 let env = EnvReport {
                     os: "linux".into(),
                     home: "/home/user".into(),
-                    tools: vec![ToolInfo {
-                        name: "gh".into(),
-                        version: None,
-                    }],
+                    tools: ["gh"]
+                        .iter()
+                        .chain(&self.tools)
+                        .map(|name| ToolInfo {
+                            name: (*name).into(),
+                            version: None,
+                        })
+                        .collect(),
                     ..EnvReport::default()
                 };
                 if tx.send(&Report::Offers(offers)).await.is_err()
@@ -206,7 +212,10 @@ impl FakeNode {
 /// in for the machines' own sessions.
 struct Peering {
     mesh: Mesh,
+    me: EndpointId,
     nodes: HashMap<EndpointId, SessionFn>,
+    /// Machines that never answer, to show a call does not wait on them.
+    stuck: Vec<EndpointId>,
 }
 
 #[async_trait]
@@ -215,7 +224,14 @@ impl Peers for Peering {
         Ok(self.mesh.clone())
     }
 
+    fn me(&self) -> EndpointId {
+        self.me
+    }
+
     async fn client(&self, machine: EndpointId) -> Result<PeerClient, FleetError> {
+        if self.stuck.contains(&machine) {
+            std::future::pending::<()>().await;
+        }
         Ok(match self.nodes.get(&machine) {
             Some(session) => PeerClient::local(session.clone()),
             None => PeerClient::over(self.mesh.clone(), machine),
@@ -223,17 +239,22 @@ impl Peers for Peering {
     }
 }
 
-async fn desk(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)]) -> Desk {
-    let nodes = nodes
-        .iter()
-        .map(|(dev, node)| (dev.id, node.session()))
-        .collect();
-    Desk::open(Arc::new(Peering {
+fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<Peering> {
+    Arc::new(Peering {
         mesh: dev.mesh.clone(),
-        nodes,
-    }))
-    .await
-    .expect("the desk opens")
+        me: dev.id,
+        nodes: nodes
+            .iter()
+            .map(|(dev, node)| (dev.id, node.session()))
+            .collect(),
+        stuck: stuck.iter().map(|dev| dev.id).collect(),
+    })
+}
+
+async fn desk(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)]) -> Desk {
+    Desk::open(peering(dev, nodes, &[]))
+        .await
+        .expect("the desk opens")
 }
 
 /// Two desktops and a machine, all online to each other.
@@ -291,10 +312,8 @@ async fn a_project_imported_on_one_desktop_shows_on_the_other() {
     assert_eq!(clones.len(), 1, "{clones:?}");
 
     // The other desktop was not asked anything: the project reaches it through the mesh.
-    until(&f.laptop.mesh, |m| {
-        m.get(&Key::Project("acme/widget".into())).is_some()
-    })
-    .await;
+    // The project and its checkout, which are two keys.
+    until(&f.laptop.mesh, |m| m.scan("project/").len() == 2).await;
     let laptop = desk(&f.laptop, &[]).await;
     let seen = laptop.imported().await;
     assert_eq!(seen.len(), 1, "{seen:?}");
@@ -349,10 +368,17 @@ async fn github() -> String {
             let mut head = vec![0; 2048];
             let read = socket.read(&mut head).await.unwrap_or(0);
             let head = String::from_utf8_lossy(&head[..read]);
+            const RUN: &str = r#"{"id":77,"name":"CI","run_number":5,"event":"push","status":"in_progress","head_branch":"main","actor":{"login":"octo"}}"#;
             let body = if head.starts_with("GET /user/orgs") {
-                r#"[{"login":"acme"}]"#
+                r#"[{"login":"acme"}]"#.to_owned()
+            } else if head.starts_with("GET /repos/acme/widget/actions/runs/77/jobs") {
+                r#"{"jobs":[{"id":3,"name":"Build","status":"in_progress","steps":[{"name":"Run tests","status":"in_progress","number":1}]}]}"#.to_owned()
+            } else if head.starts_with("GET /repos/acme/widget/actions/runs/77") {
+                RUN.to_owned()
+            } else if head.starts_with("GET /repos/acme/widget/actions/runs") {
+                format!(r#"{{"total_count":1,"workflow_runs":[{RUN}]}}"#)
             } else {
-                r#"{"login":"octo"}"#
+                r#"{"login":"octo"}"#.to_owned()
             };
             let reply = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -452,10 +478,8 @@ async fn issues_and_pull_requests_read_with_no_server() {
         .await
         .expect("the import works");
     // The other desktop reads them: the project came through the mesh, the host through the machine.
-    until(&f.laptop.mesh, |m| {
-        m.get(&Key::Project("acme/widget".into())).is_some()
-    })
-    .await;
+    // The project and its checkout, which are two keys.
+    until(&f.laptop.mesh, |m| m.scan("project/").len() == 2).await;
     let laptop = desk(&f.laptop, &[(&f.build, &node)]).await;
     let issues = laptop.issues("acme/widget").await.expect("issues read");
     assert_eq!(issues.len(), 1);
@@ -559,7 +583,7 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
             "codex",
             beep_proto::HarnessSettings {
                 enabled: true,
-                program: String::new(),
+                program: "/opt/codex".into(),
                 home: String::new(),
                 args: vec!["--profile".into(), "work".into()],
                 env: vec![beep_proto::HarnessEnv {
@@ -567,7 +591,6 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
                     value: Some(SecretText::new("proxy-secret-1")),
                 }],
             },
-            true,
         )
         .await
         .expect("settings are saved");
@@ -579,7 +602,7 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let stale = studio.save_instructions("again", None, "").await;
     assert!(stale.is_err(), "a save from an old base is refused");
     until(&f.laptop.mesh, |m| {
-        m.get(&Key::Instructions).is_some()
+        !m.scan("group/instructions.").is_empty()
             && m.get(&Key::Harness("codex".into())).is_some()
             && m.get(&Key::Pin("acme/widget".into())).is_some()
     })
@@ -594,6 +617,16 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let shown = laptop.harness_settings("codex").expect("settings read");
     assert_eq!(shown.len(), 3, "one row per machine");
     assert_eq!(shown[0].settings.args, ["--profile", "work"]);
+    // The path is the machine's own: no other machine has it.
+    let build_id = f.build.id.to_string();
+    for row in &shown {
+        let want = if row.machine_id == build_id {
+            "/opt/codex"
+        } else {
+            ""
+        };
+        assert_eq!(row.settings.program, want, "{}", row.machine_name);
+    }
     // The value never comes back, and a save without one keeps it.
     assert_eq!(shown[0].settings.env[0].value, None);
     laptop
@@ -607,7 +640,6 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
                 }],
                 ..shown[0].settings.clone()
             },
-            true,
         )
         .await
         .expect("settings are saved again");
@@ -619,5 +651,218 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let config = beep_proto::node::harness::HarnessConfig::from_bytes(&bytes).expect("reads");
     assert_eq!(config.env[0].value.expose(), "proxy-secret-1");
     laptop.delete_group(group.id).await.expect("deleted");
-    until(&f.studio.mesh, |m| m.scan("group/").is_empty()).await;
+    until(&f.studio.mesh, |m| {
+        m.get(&Key::Group(group.id.to_string())).is_none()
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_node_cannot_write_a_credential() {
+    let f = fleet().await;
+    let key = Key::Credential("gh.1.octo".into());
+    let value = Credential::Env(beep_proto::node::EnvSecret {
+        name: "GH_TOKEN".into(),
+        value: SecretText::new(SECRET),
+    })
+    .to_bytes()
+    .expect("encodes");
+    f.build
+        .mesh
+        .set(key.clone(), Some(value))
+        .await
+        .expect_err("a node may not write state");
+    assert!(f.studio.mesh.get(&key).is_none());
+}
+
+#[tokio::test]
+async fn a_removed_token_leaves_every_node() {
+    let f = fleet().await;
+    let api = github().await;
+    let studio = desk(&f.studio, &[]).await.github_api(&api);
+    let saved = studio
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .await
+        .expect("the token is saved");
+    until(&f.build.mesh, |m| m.scan("credential/").len() == 2).await;
+    studio
+        .remove_credential(&saved.id)
+        .await
+        .expect("it is removed");
+    until(&f.build.mesh, |m| m.scan("credential/").is_empty()).await;
+    assert!(studio.credentials().is_empty());
+    studio
+        .remove_credential(&saved.id)
+        .await
+        .expect_err("it is gone");
+}
+
+#[tokio::test]
+async fn a_forgejo_token_is_checked_from_a_machine_that_reaches_the_server() {
+    let f = fleet().await;
+    let node = Arc::new(FakeNode {
+        tools: vec!["teacli"],
+        prints: vec![("teacli", r#"{"id":1,"login":"octo"}"#)],
+        ..FakeNode::default()
+    });
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await;
+    // Nothing answers here, so this Mac cannot check it and it is saved unchecked.
+    let saved = studio
+        .save_credential(
+            &CredentialKind::Forgejo {
+                url: "http://127.0.0.1:9".into(),
+            },
+            &SecretText::new("forge-token-5521"),
+            true,
+        )
+        .await
+        .expect("an unreachable server is saved unchecked");
+    let checked = studio
+        .check_credential(&saved.id)
+        .await
+        .expect("it is checked");
+    assert_eq!(
+        checked,
+        beep_proto::CredentialCheck::Valid {
+            account: "octo".into(),
+            machine: Some("build-box".into()),
+        }
+    );
+    assert_eq!(node.ran.lock().expect("log").len(), 1);
+}
+
+#[tokio::test]
+async fn two_desktops_importing_a_project_on_different_machines_keep_both() {
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    until(&f.laptop.mesh, |m| online(m, second.id)).await;
+    let (build, mac) = (Arc::new(FakeNode::default()), Arc::new(FakeNode::default()));
+    let studio = desk(&f.studio, &[(&f.build, &build), (&second, &mac)]).await;
+    let laptop = desk(&f.laptop, &[(&f.build, &build), (&second, &mac)]).await;
+    let (a, b) = (f.build.id.to_string(), second.id.to_string());
+    let job = |machine: &'static str| ImportJob {
+        repo: "acme/widget",
+        machine_id: Some(machine),
+        folder: None,
+        parent: None,
+        worktrees: &[],
+    };
+    let (one, two) = tokio::join!(studio.import(job(a.leak())), laptop.import(job(b.leak())));
+    one.expect("the first import works");
+    two.expect("the second import works");
+    for dev in [&f.studio, &f.laptop] {
+        until(&dev.mesh, |m| m.scan("project/").len() == 3).await;
+        let seen = desk(dev, &[]).await.imported().await;
+        let mut names: Vec<_> = seen.iter().map(|p| p.machine_name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["build-box", "mac-box"]);
+    }
+}
+
+#[tokio::test]
+async fn two_desktops_saving_instructions_at_once_keep_both_versions() {
+    let f = fleet().await;
+    let (studio, laptop) = (desk(&f.studio, &[]).await, desk(&f.laptop, &[]).await);
+    let (one, two) = tokio::join!(
+        studio.save_instructions("from the studio", None, ""),
+        laptop.save_instructions("from the laptop", None, ""),
+    );
+    one.expect("the studio saves");
+    two.expect("the laptop saves");
+    for dev in [&f.studio, &f.laptop] {
+        until(&dev.mesh, |m| m.scan("group/instructions.").len() == 2).await;
+        let versions = desk(dev, &[]).await.instructions_versions();
+        assert_eq!(versions.len(), 2);
+        let mut texts: Vec<_> = versions.iter().map(|v| v.text.as_str()).collect();
+        texts.sort_unstable();
+        assert_eq!(texts, ["from the laptop", "from the studio"]);
+    }
+    // The groups list does not mistake a version for a group.
+    assert!(desk(&f.studio, &[]).await.groups().is_empty());
+}
+
+#[tokio::test]
+async fn a_cached_list_comes_at_once_and_a_cold_one_asks_only_this_mac() {
+    let f = fleet().await;
+    let node = Arc::new(FakeNode {
+        prints: vec![
+            (
+                "issue list",
+                r#"[{"number":7,"title":"Crash","labels":[],"author":"octo","createdAt":"2026-10-01T10:00:00Z","comments":0,"url":"https://github.com/acme/widget/issues/7"}]"#,
+            ),
+            ("pr list", "[]"),
+            ("api user", "octo\n"),
+        ],
+        ..FakeNode::default()
+    });
+    // The project is checked out on this Mac.
+    desk(&f.studio, &[(&f.studio, &node)])
+        .await
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.studio.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    // The other machines never answer: a read that asked them would never end.
+    let session = beep_fleet::Session::new(
+        peering(&f.studio, &[(&f.studio, &node)], &[&f.laptop, &f.build]),
+        beep_fleet::Options::default(),
+        |_| {},
+    )
+    .expect("a session");
+    let cold = timeout(Duration::from_secs(20), session.lists("acme/widget", false))
+        .await
+        .expect("a cold read waits on no other machine")
+        .expect("the lists read");
+    assert_eq!(cold.lists.issues.len(), 1);
+    let ran = node.ran.lock().expect("log").len();
+    let warm = timeout(
+        Duration::from_millis(500),
+        session.lists("acme/widget", false),
+    )
+    .await
+    .expect("a warm read does not wait")
+    .expect("the lists read");
+    assert_eq!(warm, cold);
+    assert_eq!(
+        node.ran.lock().expect("log").len(),
+        ran,
+        "no host was asked"
+    );
+}
+
+#[tokio::test]
+async fn a_projects_runs_read_with_the_hosts_token() {
+    let f = fleet().await;
+    let api = github().await;
+    let node = Arc::new(FakeNode::default());
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
+    studio
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .await
+        .expect("the token is saved");
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let runs = studio.runs("acme/widget").await.expect("the runs read");
+    assert_eq!(runs.error, None);
+    assert_eq!(runs.runs.len(), 1);
+    assert_eq!(runs.runs[0].run.id, 77);
+    assert_eq!(runs.hosts[0].repo, "acme/widget");
+    assert!(runs.hosts[0].primary && runs.hosts[0].error.is_none());
+    let one = studio.run("acme/widget", 77).await.expect("the run reads");
+    assert_eq!(one.jobs.len(), 1);
+    assert!(one.run.progress.is_some(), "a running run shows its step");
 }

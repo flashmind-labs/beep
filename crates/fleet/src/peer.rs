@@ -26,6 +26,9 @@ pub trait Peers: Send + Sync {
     /// The mesh, waiting for it to open.
     async fn mesh(&self) -> Result<Mesh>;
 
+    /// This Mac's own id.
+    fn me(&self) -> EndpointId;
+
     /// A client for `machine`, which may be this Mac's own node.
     async fn client(&self, machine: EndpointId) -> Result<PeerClient>;
 }

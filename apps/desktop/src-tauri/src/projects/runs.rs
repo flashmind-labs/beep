@@ -8,7 +8,7 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::Result,
-    fleet::projects::{FleetState, mesh_project},
+    fleet::projects::{FleetState, desk},
     projects::known,
     projects::threads::{IssueRow, PullRequestRow},
 };
@@ -37,9 +37,10 @@ pub struct ListsRow {
     synced_at: Option<u64>,
 }
 
-/// The pull requests and issues from the server's copy; `refresh` reads the
-/// host now, at most twice a minute. `None` from a server too old to keep
-/// them, which the page then lists the older way.
+/// The pull requests and issues as last read, at once, with a newer read
+/// behind it when they are stale (the page hears of it as `project-live`);
+/// `refresh` reads the host now. `None` from a server too old to keep them,
+/// which the page then lists the older way.
 #[tauri::command]
 pub async fn center_project_lists(
     fleet: FleetState<'_>,
@@ -47,8 +48,8 @@ pub async fn center_project_lists(
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
-    let found = match mesh_project(&fleet, project_id).await {
-        Some((desk, name)) => Some(desk.lists(&name).await?),
+    let found = match desk(&fleet).await?.project_name(project_id) {
+        Some(name) => Some(fleet.lists(&name, refresh).await?),
         None => known(
             beep.call(GetLabeledProjectLists {
                 project_id,
@@ -268,10 +269,14 @@ impl From<HostedRuns> for RunsRow {
 /// on a server that reads one; `None` from a server too old to read them.
 #[tauri::command]
 pub async fn center_project_runs(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<RunsRow>> {
+    if let Some(name) = desk(&fleet).await?.project_name(project_id) {
+        return Ok(Some(fleet.runs(&name, refresh).await?.into()));
+    }
     let all = ListProjectRunsAll {
         project_id,
         refresh,
@@ -359,11 +364,18 @@ impl From<ProjectRunDetail> for RunDetailRow {
 /// that reads one host, from the primary host.
 #[tauri::command]
 pub async fn center_project_run(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     project_id: Uuid,
     run_id: u64,
     host: Option<String>,
 ) -> Result<RunDetailRow> {
+    let desk = desk(&fleet).await?;
+    if let Some(name) = desk.project_name(project_id) {
+        let mut row: RunDetailRow = desk.run(&name, run_id).await?.into();
+        row.run.host = host;
+        return Ok(row);
+    }
     if let Some(host) = host {
         let on = GetProjectRunOn {
             project_id,

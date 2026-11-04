@@ -214,7 +214,7 @@ pub async fn harness_settings_save(
 ) -> Result<()> {
     desk(&fleet)
         .await?
-        .save_harness_settings(&machine_id, &agent, settings.into(), true)
+        .save_harness_settings(&machine_id, &agent, settings.into())
         .await?;
     Ok(())
 }
@@ -258,6 +258,6 @@ pub async fn harness_settings_save_all(
 ) -> Result<u32> {
     Ok(desk(&fleet)
         .await?
-        .save_harness_settings(&from_machine, &agent, settings.into(), include_program)
+        .save_harness_settings_all(&from_machine, &agent, settings.into(), include_program)
         .await?)
 }

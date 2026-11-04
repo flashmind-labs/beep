@@ -4,7 +4,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    records::{ProjectRecord, WRITES, read, scan, write},
+    records::{WRITES, find_project, read, scan, write},
 };
 use beep_mesh::Key;
 use beep_proto::{
@@ -15,8 +15,12 @@ use beep_proto::{
         sync::{Keep, PROTOCOL, ProjectStatus, Reply, Request, State},
     },
 };
-use futures::future::join_all;
+use futures::{StreamExt, stream};
 use iroh::EndpointId;
+use std::collections::{BTreeSet, HashMap};
+
+/// Machines asked about their sync at once.
+const MACHINES_AT_ONCE: usize = 8;
 
 fn status_of(state: State, error: bool) -> SyncStatus {
     match state {
@@ -30,12 +34,12 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 }
 
 impl Desk {
-    /// What `machine` says of `project`; `None` when it is offline or does not answer.
-    async fn node_status(&self, machine: EndpointId, project: &str) -> Option<ProjectStatus> {
+    /// What `machine` says of every project it syncs; `None` when it is offline or does not answer.
+    async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         let client = self.peers.client(machine).await.ok()?;
         let reply: Reply = client.call(PROTOCOL, &Request::Status {}).await.ok()?;
         match reply {
-            Reply::Status { projects } => projects.into_iter().find(|p| p.name == project),
+            Reply::Status { projects } => Some(projects),
             _ => None,
         }
     }
@@ -51,14 +55,31 @@ impl Desk {
             )
     }
 
-    /// One machine's sync of `project`, and what it reports in detail.
-    async fn machine_sync(
+    /// Asks each of `machines` once, a few at a time, for all its projects.
+    async fn statuses(
+        &self,
+        machines: BTreeSet<EndpointId>,
+    ) -> HashMap<EndpointId, Vec<ProjectStatus>> {
+        stream::iter(machines)
+            .map(|machine| async move { (machine, self.node_statuses(machine).await) })
+            .buffer_unordered(MACHINES_AT_ONCE)
+            .filter_map(|(machine, said)| async move { Some((machine, said?)) })
+            .collect()
+            .await
+    }
+
+    /// One machine's sync of `project`, from what it said of all of them.
+    fn machine_sync(
         &self,
         machine: EndpointId,
         folder: &str,
         project: &str,
+        said: &HashMap<EndpointId, Vec<ProjectStatus>>,
     ) -> (MachineSync, Option<ProjectStatus>) {
-        let seen = self.node_status(machine, project).await;
+        let seen = said
+            .get(&machine)
+            .and_then(|all| all.iter().find(|status| status.name == project))
+            .cloned();
         let sync = match &seen {
             Some(status) => MachineSync {
                 machine_id: machine.to_string(),
@@ -90,38 +111,44 @@ impl Desk {
         (sync, seen)
     }
 
-    /// Every synced project with each machine's standing.
+    /// Every synced project with each machine's standing. Each machine is asked once.
     pub async fn sync(&self) -> Vec<ProjectSync> {
-        let specs = scan::<SyncSpec>(&self.mesh, "sync/");
-        join_all(specs.into_iter().filter_map(|(key, spec)| {
-            let Key::Sync(project) = key else { return None };
-            Some(async move {
-                let machines = join_all(
-                    spec.folders
-                        .iter()
-                        .map(|(machine, folder)| self.machine_sync(*machine, folder, &project)),
-                )
-                .await;
-                ProjectSync {
-                    project,
-                    pinned: false,
-                    machines: machines.into_iter().map(|(sync, _)| sync).collect(),
-                }
+        let specs: Vec<(String, SyncSpec)> = scan::<SyncSpec>(&self.mesh, "sync/")
+            .into_iter()
+            .filter_map(|(key, spec)| match key {
+                Key::Sync(project) => Some((project, spec)),
+                _ => None,
             })
-        }))
-        .await
+            .collect();
+        let machines = specs
+            .iter()
+            .flat_map(|(_, spec)| spec.folders.keys().copied())
+            .collect();
+        let said = self.statuses(machines).await;
+        specs
+            .into_iter()
+            .map(|(project, spec)| ProjectSync {
+                machines: spec
+                    .folders
+                    .iter()
+                    .map(|(machine, folder)| self.machine_sync(*machine, folder, &project, &said).0)
+                    .collect(),
+                project,
+                pinned: false,
+            })
+            .collect()
     }
 
     /// `project`'s sync in detail.
     pub async fn sync_detail(&self, project: &str) -> Result<ProjectSyncDetail> {
         let spec = read::<SyncSpec>(&self.mesh, &Key::Sync(project.to_owned()))
             .ok_or(FleetError::NotFound)?;
-        let machines = join_all(
-            spec.folders
-                .iter()
-                .map(|(machine, folder)| self.machine_sync(*machine, folder, project)),
-        )
-        .await;
+        let said = self.statuses(spec.folders.keys().copied().collect()).await;
+        let machines: Vec<(MachineSync, Option<ProjectStatus>)> = spec
+            .folders
+            .iter()
+            .map(|(machine, folder)| self.machine_sync(*machine, folder, project, &said))
+            .collect();
         Ok(ProjectSyncDetail {
             project: project.to_owned(),
             pinned: false,
@@ -196,14 +223,8 @@ impl Desk {
     }
 
     /// The machines Syncthing keeps a folder of `project` in step on.
-    pub async fn syncthing(&self, project: &str) -> Vec<SyncthingPlace> {
-        let Some(record) = scan::<ProjectRecord>(&self.mesh, "project/")
-            .into_iter()
-            .find_map(|(key, record)| match key {
-                Key::Project(name) if name.eq_ignore_ascii_case(project) => Some(record),
-                _ => None,
-            })
-        else {
+    pub async fn syncthing(&self, name: &str) -> Vec<SyncthingPlace> {
+        let Some(record) = find_project(&self.mesh, name) else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -226,14 +247,8 @@ impl Desk {
     }
 
     /// Every machine as `project`'s page lists it, with its checkout when it has one.
-    pub async fn project_machines(&self, project: &str) -> Result<Vec<ProjectMachine>> {
-        let record = scan::<ProjectRecord>(&self.mesh, "project/")
-            .into_iter()
-            .find_map(|(key, record)| match key {
-                Key::Project(name) if name.eq_ignore_ascii_case(project) => Some(record),
-                _ => None,
-            })
-            .ok_or(FleetError::NotFound)?;
+    pub async fn project_machines(&self, name: &str) -> Result<Vec<ProjectMachine>> {
+        let record = find_project(&self.mesh, name).ok_or(FleetError::NotFound)?;
         Ok(self
             .mesh
             .devices()

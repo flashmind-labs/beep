@@ -8,7 +8,7 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, desk, mirror_remove},
 };
-use beep_proto::{ImportedProject, ListProjects, ProjectAgent};
+use beep_proto::{ImportedProject, ListProjects, ProjectAgent, RemoveProject};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
@@ -85,7 +85,15 @@ pub async fn remove_project(
     beep: Service<'_>,
     project: String,
 ) -> Result<()> {
-    desk(&fleet).await?.remove(&project).await?;
-    mirror_remove(&beep, &project).await;
-    Ok(())
+    match desk(&fleet).await?.remove(&project).await {
+        Ok(()) => {
+            mirror_remove(&beep, &project).await;
+            Ok(())
+        }
+        // A project only the server has, until it is moved into the mesh.
+        Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
+            beep.call(RemoveProject { project }).await
+        }
+        Err(e) => Err(e.into()),
+    }
 }
