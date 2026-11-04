@@ -8,6 +8,7 @@
 
 mod carry;
 mod mesh;
+mod status;
 
 use crate::{
     beep::AsyncMutex,
@@ -262,11 +263,11 @@ mod tests {
     };
     use tempfile::TempDir;
 
-    const LIMIT: Duration = Duration::from_secs(60);
+    pub(super) const LIMIT: Duration = Duration::from_secs(60);
 
     /// An endpoint on loopback with no relay and no discovery: nothing here
     /// can reach a network.
-    async fn bind(key: &SecretKey) -> Endpoint {
+    pub(super) async fn bind(key: &SecretKey) -> Endpoint {
         Endpoint::builder(presets::Minimal)
             .secret_key(key.clone())
             .transport_config(transport_config())
@@ -275,18 +276,18 @@ mod tests {
             .expect("the endpoint binds")
     }
 
-    fn offers(dir: &TempDir) -> Offers {
+    pub(super) fn offers(dir: &TempDir) -> Offers {
         Offers::local(&[], Provision::new(dir.path()), false)
     }
 
-    struct Mac {
-        fleet: Arc<Fleet>,
-        endpoint: Endpoint,
-        dir: TempDir,
+    pub(super) struct Mac {
+        pub(super) fleet: Arc<Fleet>,
+        pub(super) endpoint: Endpoint,
+        pub(super) dir: TempDir,
     }
 
     /// A Mac that has started, with its mesh open and serving.
-    async fn start(name: &str) -> Mac {
+    pub(super) async fn start(name: &str) -> Mac {
         let dir = TempDir::new().expect("a temp dir");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Arc::new(Fleet::new(endpoint.clone(), dir.path(), name, offers(&dir)));
@@ -298,7 +299,7 @@ mod tests {
         }
     }
 
-    async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
+    pub(super) async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
         let mut updates = mesh.updates();
         timeout(LIMIT, async {
             loop {
@@ -313,13 +314,13 @@ mod tests {
         .expect("the condition came true in time");
     }
 
-    fn online(mesh: &Mesh, id: EndpointId) -> bool {
+    pub(super) fn online(mesh: &Mesh, id: EndpointId) -> bool {
         mesh.devices().iter().any(|d| d.device.id == id && d.online)
     }
 
     /// A device that joins the mesh of `host` as `kind`, serving its own
     /// side of the mesh so the two connect.
-    async fn join(host: &Fleet, kind: DeviceKind, name: &str) -> (Mesh, Router, Endpoint) {
+    pub(super) async fn join(host: &Fleet, kind: DeviceKind, name: &str) -> (Mesh, Router, Endpoint) {
         let ticket = host
             .mesh()
             .expect("the host is in a mesh")
