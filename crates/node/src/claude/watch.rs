@@ -4,7 +4,8 @@
 
 use super::{
     discover::Store,
-    hooks::HookMessage,
+    hooks::{HookEvent, HookMessage},
+    live::Live,
     transcript::{Digest, read_from},
 };
 use crate::local_socket::{self as socket, Listener, Stream};
@@ -56,13 +57,13 @@ impl Hub {
 }
 
 /// Takes hook events on `socket` until the node stops, one connection at a
-/// time, each a single line.
-pub(crate) async fn listen(socket: &Path, hub: &Hub) -> Result<()> {
+/// time, each a single line answered with what the hook prints.
+pub(crate) async fn listen(socket: &Path, hub: &Hub, live: &Live) -> Result<()> {
     let mut listener = Listener::bind(socket)?;
     log::info!("taking Claude Code hooks on {}", socket::shown(socket));
     loop {
         let stream = listener.accept().await?;
-        match timeout(HOOK_READ, read_hook(stream)).await {
+        match timeout(HOOK_READ, read_hook(stream, live)).await {
             Ok(Ok(Some(activity))) => {
                 log::debug!(
                     "hook: session {} {}",
@@ -78,13 +79,22 @@ pub(crate) async fn listen(socket: &Path, hub: &Hub) -> Result<()> {
     }
 }
 
-async fn read_hook(stream: Stream) -> Result<Option<Activity>> {
-    use tokio::io::AsyncReadExt;
+async fn read_hook(mut stream: Stream, live: &Live) -> Result<Option<Activity>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut line = String::new();
-    BufReader::new(stream.take(MAX_HOOK_LINE))
+    BufReader::new((&mut stream).take(MAX_HOOK_LINE))
         .read_line(&mut line)
         .await?;
     let message: HookMessage = serde_json::from_str(&line).context("not a hook message")?;
+    let answer = live.hear(&message);
+    if let Some(answer) = &answer {
+        stream.write_all(answer.to_string().as_bytes()).await?;
+        stream.shutdown().await?;
+    }
+    // A blocked stop goes on with the turn, so the turn did not end.
+    if message.event == HookEvent::Stop && answer.is_some() {
+        return Ok(None);
+    }
     Ok(message.activity())
 }
 
@@ -283,7 +293,7 @@ mod tests {
         let mut events = hub.0.subscribe();
         let listening = {
             let socket = socket.clone();
-            async move { listen(&socket, &hub).await }
+            async move { listen(&socket, &hub, &Live::default()).await }
         };
         let sent = async {
             // The listener binds before its first await, so a failed
@@ -294,6 +304,11 @@ mod tests {
                     session_id: ID.into(),
                     message: Some("Claude needs your permission to use Bash".into()),
                     notification_type: Some("permission_prompt".into()),
+                    tool: None,
+                    detail: None,
+                    file: None,
+                    todos: None,
+                    error: None,
                 };
                 if send(&socket, &message).await.is_ok() {
                     return events.recv().await.unwrap();

@@ -1390,6 +1390,10 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
                 Err(e) => failed(e),
             }
         }
+        SessionsRequest::Live { session } => live_reply(&agents, &session, None).await,
+        SessionsRequest::Steer { session, steer } => {
+            live_reply(&agents, &session, Some(steer)).await
+        }
         SessionsRequest::Watch { sessions } => {
             return agents.external.watch(tx, rx, sessions).await;
         }
@@ -1539,6 +1543,15 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
 }
 
 /// The reply saying `e`, with its causes.
+async fn live_reply(agents: &Agents, session: &str, steer: Option<agent::Steer>) -> SessionsReply {
+    match agents.external.live(session, steer, agents.owned()).await {
+        Ok(status) => SessionsReply::Live {
+            status: Box::new(status),
+        },
+        Err(e) => failed(e),
+    }
+}
+
 fn failed(e: impl Display) -> SessionsReply {
     SessionsReply::Error {
         message: format!("{e:#}"),

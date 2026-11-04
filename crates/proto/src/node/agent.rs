@@ -501,6 +501,21 @@ pub enum SessionsRequest {
     Diff {
         ask: DiffAsk,
     },
+    /// How Claude Code session `session`, started outside Beep, is doing
+    /// now, as its hooks report it. Answered with `Live`, or `Error`. A
+    /// node from before it closes the stream.
+    Live {
+        session: String,
+    },
+    /// Queues `steer` on the node for the next hook of `session` to
+    /// deliver: a message after the current tool call or at the turn's
+    /// end, a stop at the next tool call. Answered with `Live`, or `Error`
+    /// saying why it cannot, such as a session idle at its prompt. A node
+    /// from before it closes the stream.
+    Steer {
+        session: String,
+        steer: Steer,
+    },
 }
 
 impl SessionsRequest {
@@ -522,8 +537,10 @@ impl SessionsRequest {
             | Self::Folder { .. }
             | Self::ReadFile { .. }
             | Self::CustomAgents { .. }
-            | Self::Diff { .. } => true,
+            | Self::Diff { .. }
+            | Self::Live { .. } => true,
             Self::Watch { .. }
+            | Self::Steer { .. }
             | Self::UpdateHarness { .. }
             | Self::FollowImages {}
             | Self::FollowUsage { .. }
@@ -643,6 +660,10 @@ pub enum SessionsReply {
     /// The answer to `Diff`.
     Diff {
         diff: crate::WorkDiff,
+    },
+    /// The answer to `Live` and `Steer`.
+    Live {
+        status: Box<LiveStatus>,
     },
 }
 
@@ -978,6 +999,64 @@ pub struct ExternalSession {
     pub last_message: String,
     /// The node session it runs as, once Beep took it over.
     pub taken_over: Option<String>,
+}
+
+/// An external Claude Code session as its hooks report it, for
+/// `SessionsRequest::Live`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveStatus {
+    pub session: ExternalSession,
+    pub state: LiveState,
+    /// What it waits for, as Claude Code put it, while `Asking`.
+    pub waiting_for: String,
+    /// The tool call running now.
+    pub tool: Option<LiveTool>,
+    /// The last tool call that failed.
+    pub error: Option<String>,
+    /// Its todo list, when it keeps one.
+    pub todos: Vec<PlanEntry>,
+    /// Files its tools wrote since the node heard of it.
+    pub files: Vec<String>,
+    /// What waits for the next hook to deliver it.
+    pub queued: Option<Steer>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveTool {
+    pub name: String,
+    /// What it works on: a command, a file, a pattern.
+    pub detail: String,
+    pub secs: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum LiveState {
+    /// It runs a turn.
+    Working,
+    /// It waits for the user to answer in the terminal, such as a
+    /// permission prompt.
+    Asking,
+    /// It waits at its prompt: no hook is left to fire, so it cannot be
+    /// steered.
+    Idle,
+    Ended,
+    /// No hook reported on it since the node started.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// What Beep sends a running external session through its hooks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Steer {
+    /// Delivered after the current tool call, or instead of ending the turn.
+    Message { text: String },
+    /// Denies every tool call until the turn ends.
+    Stop {},
 }
 
 /// Whether anything runs an external session now.
