@@ -320,11 +320,12 @@ pub struct Offers {
 impl Offers {
     /// What every node serves, the CLI and the Mac app alike: the coding
     /// agents found on the PATH (with `agents` from `node.toml`) and their
-    /// sessions, and `provision`. A host adds its own protocols to `extra`.
+    /// sessions, `provision`, and `ssh/1` to add machines. A host adds its
+    /// own protocols to `extra`.
     pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
         Self {
             agents: Arc::new(Agents::new(crate::agents::detect(agents))),
-            extra: Vec::new(),
+            extra: vec![Arc::new(crate::ssh::Ssh::default())],
             provision: Some(provision),
             tools: Upstream::default(),
         }

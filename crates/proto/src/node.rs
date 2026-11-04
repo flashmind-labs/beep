@@ -28,6 +28,7 @@ pub mod files;
 pub mod harness;
 pub mod process;
 pub mod shell;
+pub mod ssh;
 pub mod sync;
 pub mod terminal;
 pub mod tools;

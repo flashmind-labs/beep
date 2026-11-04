@@ -49,6 +49,7 @@ mod reviews;
 mod sessions;
 mod settings;
 mod spend_report;
+mod ssh;
 mod terminals;
 mod threads;
 mod transcribe;
@@ -287,6 +288,8 @@ pub fn router() -> Router {
         .call(update_machine)
         .call(list_updatable_machines)
         .call(get_node_token)
+        .call(ssh::list_ssh_hosts)
+        .call(ssh::add_machine_over_ssh)
         .call(credentials::list_credentials)
         .call(credentials::save_credential)
         .call(credentials::remove_credential)
