@@ -387,6 +387,21 @@ export function injectStyle() {
     + " .ap-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }"
     + " .ap-ways button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--fg); font: inherit; cursor: pointer }"
     + " .ap-ways button > span { display: grid; gap: 2px }"
-    + " .ap-ways button span span { font-size: 12px; color: var(--muted) }";
+    + " .ap-ways button span span { font-size: 12px; color: var(--muted) }"
+    + " .ap-sheet .am-label { margin: 18px 0 8px }"
+    + " .ap-sheet .am-head + .am-label { margin-top: 4px }"
+    + " .ap-q { padding: 8px 12px }"
+    + " .ap-bar { margin: 10px 0 }"
+    + " .ap-bar .dbtn { padding: 6px 12px }"
+    + " .ap-list { padding: 4px 14px }"
+    + " .ap-row { gap: 6px 14px; padding: 12px 0 }"
+    + " .ap-row .m { gap: 5px 12px }"
+    + " .ap-row.ap-pick { column-gap: 12px }"
+    + " .ap-row .acts { gap: 8px; padding-left: 4px }"
+    + " .ap-ag { padding: 1px 8px }"
+    + " .ap-rm { gap: 14px; padding: 9px 0 }"
+    + " .ap-remote .ap-list { max-height: 220px }"
+    + " .ap-ways { gap: 10px; margin-top: 18px }"
+    + " .ap-ways button { padding: 12px 14px }";
   document.head.append(style);
 }
