@@ -378,6 +378,8 @@ export function groupMatches(rows: readonly { machines?: readonly { folder: stri
 /// An org's heading among the sidebar's projects.
 export interface OrgHeading {
   org: string;
+  /// Folded: the projects it hides.
+  folded?: string[];
   group?: undefined;
   name?: undefined;
   repo?: undefined;
@@ -387,6 +389,8 @@ export interface OrgHeading {
 /// A group's heading among the sidebar's projects.
 export interface GroupHeading {
   group: ProjectGroup;
+  /// Folded: the projects it hides.
+  folded?: string[];
   org?: undefined;
   name?: undefined;
   repo?: undefined;
@@ -395,7 +399,7 @@ export interface GroupHeading {
 
 /// A project row in the sidebar: `repo` is what shows under its heading,
 /// the name after the org's slash, or the whole name under a group's.
-export type SideProject<T> = Placed<T> & { repo?: string; org?: undefined; group?: undefined };
+export type SideProject<T> = Placed<T> & { repo?: string; org?: undefined; group?: undefined; folded?: undefined };
 
 /// A project row that groups can place: its name and where it is.
 type Groupable = { name: string; i?: number; machines?: readonly { folder: string }[] | null };
@@ -403,8 +407,9 @@ type Groupable = { name: string; i?: number; machines?: readonly { folder: strin
 /// The sidebar's project rows: each group with projects in it, as a `{ group }`
 /// heading then its projects by full name, then by GitHub org or user, an `{
 /// org }` heading then that org's projects with `repo` set to the name after
-/// the slash.
-export function sideProjects<T extends Groupable>(rows: readonly T[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = []): (OrgHeading | GroupHeading | SideProject<T>)[] {
+/// the slash. A heading whose `foldKey` is in `folded` stands alone, naming
+/// the projects it hides.
+export function sideProjects<T extends Groupable>(rows: readonly T[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = [], folded: ReadonlySet<string> = new Set()): (OrgHeading | GroupHeading | SideProject<T>)[] {
   const inGroup = new Map<string, SideProject<T>[]>(), orgs = new Map<string, SideProject<T>[]>(), loose: SideProject<T>[] = [];
   (rows || []).forEach((p, at) => {
     const i = p.i ?? at;
@@ -419,8 +424,32 @@ export function sideProjects<T extends Groupable>(rows: readonly T[] | null | un
     if (!orgs.has(org)) orgs.set(org, []);
     orgs.get(org)!.push({ ...p, i, repo: p.name.slice(cut + 1) });
   });
-  const grouped = (groups || []).filter(g => inGroup.has(g.id)).flatMap(group => [{ group }, ...inGroup.get(group.id)!]);
-  return [...grouped, ...[...orgs].flatMap(([org, list]) => [{ org }, ...list]), ...loose];
+  const under = <H extends OrgHeading | GroupHeading>(head: H, list: SideProject<T>[]): (H | SideProject<T>)[] =>
+    folded.has(foldKey(head)) ? [{ ...head, folded: list.map(p => p.name) }] : [head, ...list];
+  const grouped = (groups || []).filter(g => inGroup.has(g.id)).flatMap(group => under({ group }, inGroup.get(group.id)!));
+  return [...grouped, ...[...orgs].flatMap(([org, list]) => under({ org }, list)), ...loose];
+}
+
+/// What remembers a heading as folded; a group's survives a rename.
+export function foldKey(head: OrgHeading | GroupHeading) {
+  return head.group ? `group:${head.group.id}` : `org:${head.org}`;
+}
+
+/// The folded headings as saved; anything unreadable folds nothing.
+export function parseFolded(text: string | null): Set<string> {
+  try {
+    const v: unknown = JSON.parse(text ?? "[]");
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/// What keeps project `name` in step, for its card: Beep's sync when a
+/// `project_sync` row names it, Syncthing when `where`, the machines its page
+/// last read, says so; "" for neither.
+export function syncedBy(name: string, rows: readonly { project: string }[], where: readonly { syncthing?: string | null }[] | null | undefined) {
+  return [rows.some(r => r.project === name) && "Beep sync", where?.some(m => m.syncthing) && "Syncthing"].filter(Boolean).join(" · ");
 }
 
 /// A row of a project's "Where it lives". `kind` is:
