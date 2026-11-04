@@ -25,8 +25,9 @@ import Observation
         self.client = client
         installAccount = account
         let savedAccount = UserDefaults.standard.string(forKey: "workspace.account." + account) ?? account
-        preferenceKey = "workspace.showAll." + savedAccount
-        showAll = UserDefaults.standard.bool(forKey: preferenceKey)
+        let key = "workspace.showAll." + savedAccount
+        preferenceKey = key
+        showAll = UserDefaults.standard.bool(forKey: key)
     }
 
     var needsWorkspace: Bool {
