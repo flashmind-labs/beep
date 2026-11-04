@@ -76,6 +76,10 @@ impl Membership {
         self.0.send_replace(Some(mesh));
     }
 
+    pub(crate) fn clear(&self) {
+        self.0.send_replace(None);
+    }
+
     pub(crate) fn get(&self) -> Option<Mesh> {
         self.0.borrow().clone()
     }

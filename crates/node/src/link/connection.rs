@@ -453,6 +453,11 @@ impl Offers {
         }
     }
 
+    /// Whether the node has a server, which holds the memory tools.
+    pub fn has_server(&self) -> bool {
+        self.tools.has_server()
+    }
+
     /// Only `extra`, no agents or provisioning: a host that serves its own
     /// protocols, as tests do.
     pub fn with_protocols(extra: Vec<Arc<dyn Protocol>>) -> Self {
@@ -771,11 +776,27 @@ pub(crate) async fn session(
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    let (mut tx, mut rx) = link(send, recv);
-    let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
+    let (tx, mut rx) = link(send, recv);
+    let open = read_open(&mut rx).await?;
+    serve_open(tx, rx, open, offers, who).await
+}
+
+/// Reads the protocol a session stream opens with.
+pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
+    timeout(OPEN_TIMEOUT, rx.recv())
         .await
         .context("the session did not say its protocol")??
-        .context("the session closed before its protocol")?;
+        .context("the session closed before its protocol")
+}
+
+/// Serves a session stream that opened with `open`, if `who` may use it.
+pub(crate) async fn serve_open(
+    mut tx: LinkTx,
+    rx: LinkRx,
+    open: Open,
+    offers: Offers,
+    who: Who,
+) -> Result<()> {
     if matches!(who, Who::Node { .. })
         && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL)
     {

@@ -10,6 +10,18 @@ pub enum DesktopError {
     Unlinked,
     #[error("this computer was removed from the account")]
     Revoked,
+    /// A call that only a server answers, made with none.
+    #[error("no server")]
+    NoServer,
+    /// The mesh is not open: still opening, or it could not be.
+    #[error("the mesh is not open: {0}")]
+    NoMesh(String),
+    /// A mesh operation failed; the text is the mesh's own.
+    #[error("{0}")]
+    Mesh(#[from] beep_mesh::MeshError),
+    /// A machine of the mesh that is not connected.
+    #[error("{0} is offline")]
+    Offline(String),
     #[error("{0}")]
     BadRequest(String),
     #[error("{0:#}")]

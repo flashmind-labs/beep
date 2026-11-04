@@ -15,7 +15,8 @@ use beep_proto::node::{
 };
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
-    protocol::{Router, RouterBuilder},
+    endpoint::Connection,
+    protocol::{AcceptError, ProtocolHandler, Router, RouterBuilder},
 };
 use iroh_blobs::{
     BlobsProtocol, Hash, HashAndFormat,
@@ -31,7 +32,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, OwnedSemaphorePermit, Semaphore},
+    sync::{Notify, OwnedSemaphorePermit, Semaphore, watch},
     task::spawn_blocking,
     time::{Instant, timeout},
 };
@@ -185,6 +186,110 @@ pub(crate) struct Received {
 pub struct Served {
     blobs: BlobsProtocol,
     sync: PeerHandler,
+}
+
+#[derive(Clone)]
+enum Slot {
+    Waiting,
+    Ready {
+        blobs: BlobsProtocol,
+        sync: PeerHandler,
+    },
+    Failed,
+}
+
+/// The blobs and sync protocols for a router built before `Transfers` is
+/// up: a connection on either waits for the services, and is closed if they
+/// never come.
+pub struct Late {
+    slot: watch::Sender<Slot>,
+    /// Connections waiting for the services; more are closed.
+    waiting: Arc<Semaphore>,
+}
+
+/// How many connections may wait for the services at once.
+const MAX_WAITING: usize = 16;
+/// How long a connection waits for the services before it is closed.
+const WAIT_LIMIT: Duration = Duration::from_secs(30);
+
+impl Default for Late {
+    fn default() -> Self {
+        Self {
+            slot: watch::channel(Slot::Waiting).0,
+            waiting: Arc::new(Semaphore::new(MAX_WAITING)),
+        }
+    }
+}
+
+impl Late {
+    pub fn add_to(&self, router: RouterBuilder) -> RouterBuilder {
+        let waiting = |blobs| Waiting {
+            slot: self.slot.subscribe(),
+            waiting: self.waiting.clone(),
+            blobs,
+        };
+        router
+            .accept(iroh_blobs::ALPN, waiting(true))
+            .accept(sync::ALPN, waiting(false))
+    }
+
+    /// The services are up.
+    pub fn serve(&self, served: Served) {
+        self.slot.send_replace(Slot::Ready {
+            blobs: served.blobs,
+            sync: served.sync,
+        });
+    }
+
+    /// The services will not start, unless they already have.
+    pub fn fail(&self) {
+        self.slot.send_if_modified(|slot| {
+            let waiting = matches!(slot, Slot::Waiting);
+            if waiting {
+                *slot = Slot::Failed;
+            }
+            waiting
+        });
+    }
+}
+
+/// One of `Late`'s two protocols.
+struct Waiting {
+    slot: watch::Receiver<Slot>,
+    waiting: Arc<Semaphore>,
+    blobs: bool,
+}
+
+impl std::fmt::Debug for Waiting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Waiting")
+    }
+}
+
+impl ProtocolHandler for Waiting {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let mut slot = self.slot.clone();
+        // The permit is held while waiting, and no longer.
+        let ready = match self.waiting.clone().try_acquire_owned() {
+            Ok(_permit) => timeout(
+                WAIT_LIMIT,
+                slot.wait_for(|slot| !matches!(slot, Slot::Waiting)),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(|ready| ready.clone()),
+            Err(_) => None,
+        };
+        match ready {
+            Some(Slot::Ready { blobs, .. }) if self.blobs => blobs.accept(connection).await,
+            Some(Slot::Ready { sync, .. }) => sync.accept(connection).await,
+            _ => {
+                connection.close(1u32.into(), b"not serving");
+                Ok(())
+            }
+        }
+    }
 }
 
 impl Served {

@@ -4,7 +4,7 @@
 
 /// A failure waiting will not fix, as the window says it.
 export interface ConnectProblem {
-  kind: "unlinked" | "revoked" | "refused";
+  kind: "unlinked" | "revoked" | "refused" | "noserver";
   title: string;
   text: string;
   /// The button that leads to the fix, and the pane page it opens.
@@ -23,6 +23,15 @@ export function connectProblem(error: unknown): ConnectProblem | null {
       text: "Link it to your phone to see your chats, machines and approvals here.",
       action: "Link to your phone",
       view: "link",
+    };
+  }
+  if (e === "no server") {
+    return {
+      kind: "noserver",
+      title: "No server",
+      text: "Chats and the assistant need one. Machines and sessions work without.",
+      action: null,
+      view: null,
     };
   }
   if (e === "this computer was removed from the account") {
