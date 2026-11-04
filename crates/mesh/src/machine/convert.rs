@@ -2,10 +2,14 @@
 
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentModel, AgentModelPick, AgentModels, AgentOption,
-    AgentPlanStatus, AgentPlanStep, AgentQuestion, AgentSessionView, AgentStatus, MachineSession,
-    node::agent::{
-        self, AnswerOption, ExternalSession, ModelList, OptionKind, PlanStatus, Presence, Question,
-        SessionInfo, Status,
+    AgentPlanStatus, AgentPlanStep, AgentQuestion, AgentSessionView, AgentStatus,
+    MachineCapability, MachineSession,
+    node::{
+        Capability,
+        agent::{
+            self, AnswerOption, ExternalSession, ModelList, OptionKind, PlanStatus, Presence,
+            Question, SessionInfo, Status,
+        },
     },
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -196,6 +200,19 @@ fn entry(entry: agent::Entry) -> AgentEntry {
     AgentEntry {
         kind,
         text: entry.text,
+    }
+}
+
+/// What an app calls a capability a machine reports.
+pub fn machine_capability(capability: Capability) -> MachineCapability {
+    match capability {
+        Capability::Gpu => MachineCapability::Gpu {},
+        Capability::Cuda => MachineCapability::Cuda {},
+        Capability::Blender => MachineCapability::Blender {},
+        Capability::Unreal => MachineCapability::Unreal {},
+        Capability::Xcode => MachineCapability::Xcode {},
+        Capability::Android => MachineCapability::Android {},
+        Capability::Docker => MachineCapability::Docker {},
     }
 }
 

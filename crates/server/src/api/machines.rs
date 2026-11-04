@@ -5,7 +5,7 @@ use crate::{
     api::router::Cx,
     nodes::{self, Sampled, TokenRefusal},
     protocol::{
-        node::{AppInfo, AppName, Capability, DiskUsage, EnvReport, GpuInfo},
+        node::{AppInfo, AppName, DiskUsage, EnvReport, GpuInfo},
         setup::SetupToken,
         *,
     },
@@ -275,17 +275,7 @@ fn machine_gpu(gpu: GpuInfo) -> MachineGpu {
     }
 }
 
-pub(super) fn machine_capability(capability: Capability) -> MachineCapability {
-    match capability {
-        Capability::Gpu => MachineCapability::Gpu {},
-        Capability::Cuda => MachineCapability::Cuda {},
-        Capability::Blender => MachineCapability::Blender {},
-        Capability::Unreal => MachineCapability::Unreal {},
-        Capability::Xcode => MachineCapability::Xcode {},
-        Capability::Android => MachineCapability::Android {},
-        Capability::Docker => MachineCapability::Docker {},
-    }
-}
+pub(super) use beep_mesh::machine::machine_capability;
 
 fn machine_stats(id: String, Sampled { at, report }: Sampled) -> MachineStats {
     MachineStats {
