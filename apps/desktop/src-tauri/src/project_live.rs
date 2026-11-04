@@ -4,20 +4,15 @@
 //! them as `project-live` events.
 
 use crate::{beep::Beep, projects::unknown_op};
+use beep_node::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
-use std::{
-    sync::{Arc, Mutex, PoisonError},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex, PoisonError};
 use tauri::{AppHandle, Emitter, State, async_runtime::JoinHandle};
 use uuid::Uuid;
 
 /// Project pages followed at once; the oldest goes for a new one.
 const MAX_FOLLOWED: usize = 8;
-/// The first wait before following again after the stream broke.
-const RETRY: Duration = Duration::from_secs(5);
-const MAX_RETRY: Duration = Duration::from_secs(60);
 
 /// What the page hears of one project.
 #[derive(Debug, Clone, Serialize)]
@@ -96,7 +91,7 @@ pub fn unfollow_project(followed: State<'_, Followed>, project_id: Option<Uuid>)
 }
 
 async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
-    let mut wait = RETRY;
+    let mut backoff = Backoff::eager();
     let mut again = false;
     loop {
         let mut replies = match beep.stream(WatchProject { project_id }).await {
@@ -116,15 +111,14 @@ async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
             }
             Err(e) => {
                 log::info!("following a project page: {e}");
-                tokio::time::sleep(wait).await;
-                wait = (wait * 2).min(MAX_RETRY);
+                tokio::time::sleep(backoff.pause()).await;
                 continue;
             }
         };
         loop {
             match replies.next().await {
                 Ok(Some(change)) => {
-                    wait = RETRY;
+                    backoff.reset();
                     let mut row = LiveRow::of(project_id, change);
                     // Back after a break: what changed meanwhile was missed.
                     if again {
@@ -142,8 +136,7 @@ async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
             }
         }
         again = true;
-        tokio::time::sleep(wait).await;
-        wait = (wait * 2).min(MAX_RETRY);
+        tokio::time::sleep(backoff.pause()).await;
     }
 }
 

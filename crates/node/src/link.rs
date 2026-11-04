@@ -7,6 +7,7 @@ use crate::{
     files::Folders,
     mcp::{self, Upstream},
     provision::Provision,
+    reconnect::{self, Backoff},
     restart::{self, Reopen},
     shell,
     state::State,
@@ -25,7 +26,9 @@ use beep_proto::{
 };
 use iroh::{
     Endpoint, EndpointAddr,
-    endpoint::{Connection, ConnectionError, RecvStream, SendStream, VarInt, presets},
+    endpoint::{
+        ConnectOptions, Connection, ConnectionError, RecvStream, SendStream, VarInt, presets,
+    },
 };
 use std::{
     future::Future,
@@ -41,8 +44,6 @@ use tokio::{
 use tokio_util::task::AbortOnDropHandle;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-const FIRST_RETRY: Duration = Duration::from_secs(1);
-const LAST_RETRY: Duration = Duration::from_secs(60);
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
 /// How often free disk and memory are sampled.
@@ -89,10 +90,8 @@ pub async fn serve(
     workspace: Option<&Path>,
     stop: impl Future<Output = ()>,
 ) -> Result<()> {
-    let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(state.key.clone())
-        .bind()
-        .await?;
+    let builder = || Endpoint::builder(presets::N0).secret_key(state.key.clone());
+    let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
     log::info!("node key {}", endpoint.id());
     // Made once, so agent sessions outlive each connection.
     // Installs gh, teacli and the agent skills beside serving; the work
@@ -189,20 +188,7 @@ pub async fn serve(
         agents.reopen(reopen.sessions).await;
         restart::keep(&note_dir, &agents).await;
     }));
-    let stay = async {
-        let mut wait = FIRST_RETRY;
-        loop {
-            match connect_as(&endpoint, state.server.into(), &hello, &offers).await {
-                Ok(()) => {
-                    log::info!("the server closed the connection");
-                    wait = FIRST_RETRY;
-                }
-                Err(e) => log::warn!("connection lost: {e:#}"),
-            }
-            sleep(wait).await;
-            wait = (wait * 2).min(LAST_RETRY);
-        }
-    };
+    let stay = stay_as(&endpoint, state.server.into(), &hello, &offers);
     tokio::select! {
         () = stay => {}
         () = stop => {}
@@ -263,6 +249,35 @@ pub async fn connect(
         setup: None,
     };
     connect_as(endpoint, server, &hello, offers).await
+}
+
+/// Stays connected to `server` as `name`, connecting again after each
+/// drop. Never returns.
+pub async fn stay(endpoint: &Endpoint, server: EndpointAddr, name: &str, offers: &Offers) {
+    let hello = Hello {
+        name,
+        workspace: None,
+        setup: None,
+    };
+    stay_as(endpoint, server, &hello, offers).await
+}
+
+async fn stay_as(endpoint: &Endpoint, server: EndpointAddr, hello: &Hello<'_>, offers: &Offers) {
+    let mut backoff = Backoff::default();
+    loop {
+        let link = async {
+            let linked = open_as(endpoint, server.clone(), hello, offers).await?;
+            // Welcomed: the link worked, however long it lasts, so a drop
+            // is tried again at once and not after the last failure's wait.
+            backoff.reset();
+            linked.serve().await
+        };
+        match link.await {
+            Ok(()) => log::info!("the server closed the connection"),
+            Err(e) => log::warn!("connection lost: {e:#}"),
+        }
+        sleep(backoff.pause()).await;
+    }
 }
 
 /// What the hello says about this node beside its offers.
@@ -401,7 +416,16 @@ async fn open_as(
     offers: &Offers,
 ) -> Result<Linked> {
     let name = hello.name;
-    let connection = timeout(CONNECT_TIMEOUT, endpoint.connect(server, NODE_ALPN))
+    let options = ConnectOptions::new().with_transport_config(reconnect::transport());
+    let connect = async {
+        anyhow::Ok(
+            endpoint
+                .connect_with_opts(server, NODE_ALPN, options)
+                .await?
+                .await?,
+        )
+    };
+    let connection = timeout(CONNECT_TIMEOUT, connect)
         .await
         .context("connect timed out")??;
     let (send, recv) = connection.open_bi().await?;
@@ -522,6 +546,8 @@ async fn serve_linked(
     let mut sampling: Option<AbortOnDropHandle<StatsReport>> = None;
     // Streams end with the connection: dropping the set stops them.
     let mut sessions = JoinSet::new();
+    let woke = reconnect::woke();
+    tokio::pin!(woke);
     loop {
         tokio::select! {
             stream = connection.accept_bi() => {
@@ -551,6 +577,9 @@ async fn serve_linked(
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
                 Err(e) => return Err(e),
             },
+            // The server dropped this link while the machine slept; this
+            // side's timers stopped with it and have yet to notice.
+            () = &mut woke => bail!("woke from sleep"),
             _ = reprobe.tick(), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
             }

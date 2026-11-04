@@ -159,7 +159,10 @@ https://releases.flashmind.com/beep/node/. Machines install it with:
 
     curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh
 
-then link with `beep-node setup <token>`. Rerunning the installer upgrades
+then link with `beep-node setup <token>`. A node binds UDP port 47120 for
+iroh (`port` in `node.toml`; 0 is random), so a firewall can allow that one
+port; if it is taken the node warns and binds a random one. The server
+binds 47121 (`port` in its config). Rerunning the installer upgrades
 in place and restarts the service. There is no Intel Mac build.
 `beep-node update` does the same from the node itself: it checks
 `latest.txt`, verifies the archive against `SHA256SUMS`, swaps its own binary
