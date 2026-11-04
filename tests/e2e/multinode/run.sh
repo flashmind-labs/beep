@@ -105,7 +105,7 @@ done
 wait
 if converged 300 "changes from every node"; then
   pass "all four hold one manifest after changes from every node"
-  measure "multinode: convergence (800 files, 80 MB)" "$(since "$t0")" s max "${E2E_BUDGET_MULTI_CONVERGE-240}"
+  measure "multinode: convergence (800 files, 80 MB)" "$(since "$t0")" s max "${E2E_BUDGET_MULTI_CONVERGE-90}"
   odd="$(on node-a "cd $P/conv && ls s?-1.txt s?-2.txt 2> /dev/null; find . -name '*(conflict*'")"
   if [[ -z "$odd" ]]; then pass "deletes and renames held, no conflict copies"; else
     fail "left after different-file changes: $odd"
@@ -204,6 +204,18 @@ for c in add edit tie del gone; do
   printf '   %-6s %8s %10s %12s %12s %9s\n' "$c" "${PATHS[$c]}" "${DIVERGED[$c]}" "${NEWEST[$c]}" "${COPIES[$c]}" "${LOST[$c]}"
 done
 
+# The conflict copies now make each node's status more than a datagram. A node
+# that is up must answer every time, not once in a while.
+offline=0
+for i in $(seq 1 30); do
+  n="$(probe sync-status "$PROJECT" | awk '$2 == "offline" { n++ } END { print n + 0 }')"
+  offline=$((offline + n))
+  sleep 1
+done
+if (( offline == 0 )); then pass "no node looked offline in 30 status polls"; else
+  fail "nodes looked offline $offline times in 30 status polls, all of them up"
+fi
+
 fd_mark
 
 step "3. node-d offline while the others change the project"
@@ -265,7 +277,7 @@ while awk -v s="$(since "$t0")" 'BEGIN { exit !(s < 900) }'; do
 done
 if [[ -n "$real_sync" ]]; then
   pass "node-d holds the others' manifest and the server says in sync, after $real_sync s"
-  measure "multinode: offline catch-up" "$real_sync" s max "${E2E_BUDGET_MULTI_CATCHUP-300}"
+  measure "multinode: offline catch-up" "$real_sync" s max "${E2E_BUDGET_MULTI_CATCHUP-60}"
 else
   fail "node-d did not reach a real in sync (have $(digest node-d), want $want)"
   show_manifests

@@ -90,37 +90,31 @@ pub(super) fn look(root: &Folder, path: &str) -> io::Result<Found> {
     }
 }
 
-/// A file written into a partial folder, not yet in place.
-pub(super) struct Written<'a> {
-    /// The open partial folder.
-    pub(super) dir: &'a Dir,
-    /// Its name there.
-    pub(super) name: &'a OsStr,
-    pub(super) file: File,
-    pub(super) mtime_ms: i64,
-}
-
-/// Finishes `written`: sets its mtime, flushes it, and moves it to `path`
-/// in the project folder if what is there is still `expected`. Gives what
-/// the placed file looks like.
-pub(super) fn place(
-    root: &Folder,
-    written: Written<'_>,
-    path: &str,
-    expected: Option<&Stat>,
-) -> Result<Stat> {
-    let Written {
-        dir: from,
-        name: temp,
-        file,
-        mtime_ms,
-    } = written;
+/// Finishes the file written into a partial folder and closes it. Only where
+/// `Dir::sync_disk` does nothing is it flushed here, on its own.
+pub(super) fn seal(file: File, mtime_ms: i64, path: &str) -> Result<()> {
     let mtime = UNIX_EPOCH + Duration::from_millis(u64::try_from(mtime_ms).unwrap_or(0));
     file.set_modified(mtime)
         .with_context(|| format!("setting the time of {path}"))?;
-    file.sync_data()
-        .with_context(|| format!("writing {path}"))?;
-    drop(file);
+    if !cfg!(target_os = "linux") {
+        file.sync_data()
+            .with_context(|| format!("writing {path}"))?;
+    }
+    Ok(())
+}
+
+/// Moves `temp`, sealed and on disk, from the partial folder `from` to `path`
+/// in the project folder if what is there is still `expected`. It must reach
+/// the disk first: a crash after the rename could otherwise leave a file that
+/// looks like an edit at `path` and holds nothing. Gives what the placed file
+/// looks like.
+pub(super) fn place(
+    root: &Folder,
+    from: &Dir,
+    temp: &OsStr,
+    path: &str,
+    expected: Option<&Stat>,
+) -> Result<Stat> {
     let (parent, name) = split(path);
     let dir =
         make_dirs_at(root.dir(), parent).with_context(|| format!("making the folder of {path}"))?;
@@ -222,13 +216,8 @@ mod tests {
         expected: Option<&Stat>,
     ) -> Result<Stat> {
         let (fd, file) = temp(dir, data);
-        let written = Written {
-            dir: &fd,
-            name: OsStr::new("t"),
-            file,
-            mtime_ms,
-        };
-        place(folder, written, path, expected)
+        seal(file, mtime_ms, path)?;
+        place(folder, &fd, OsStr::new("t"), path, expected)
     }
 
     fn temp(dir: &TempDir, data: &str) -> (Dir, File) {

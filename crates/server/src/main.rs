@@ -157,7 +157,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    let builder = || Endpoint::builder(presets::N0).secret_key(secret_key.clone());
+    let builder = || {
+        Endpoint::builder(presets::N0)
+            .secret_key(secret_key.clone())
+            .transport_config(beep_proto::port::transport().build())
+    };
     let port = config.port.unwrap_or(beep_proto::port::SERVER_PORT);
     let endpoint = beep_proto::port::bind_on(builder, port).await?;
 

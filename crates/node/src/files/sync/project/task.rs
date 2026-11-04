@@ -1,6 +1,6 @@
 //! The project's task: its loop, and how it saves and publishes its state.
 
-use super::shared::Shared;
+use super::{fetch::Fetcher, shared::Shared};
 use crate::files::sync::{
     Parts,
     map::is_conflict,
@@ -10,13 +10,9 @@ use crate::files::sync::{
 };
 use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
-use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
-use iroh_blobs::{BlobFormat, Hash, api::TempTag, hashseq::HashSeq};
-use std::{
-    collections::{BTreeSet, HashMap},
-    sync::Arc,
-    time::Duration,
-};
+use iroh::EndpointAddr;
+use iroh_blobs::{BlobFormat, Hash, hashseq::HashSeq};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tokio::{
     sync::mpsc,
     task::{JoinSet, spawn_blocking},
@@ -48,7 +44,7 @@ pub(super) struct Task {
     pub(super) first: bool,
     /// The hashes the store's tag for the project protects now.
     protected: Option<Hash>,
-    pub(super) blobs: HashMap<EndpointId, Connection>,
+    pub(super) fetcher: Arc<Fetcher>,
     pub(super) pending: u64,
     pub(super) error: Option<String>,
     /// The last scan failed, so nothing on disk is recorded.
@@ -59,11 +55,6 @@ pub(super) struct Task {
     pub(super) held: BTreeSet<String>,
     /// The paths the last round could not bring, tried again later.
     pub(super) waiting: Vec<String>,
-    /// Tags on what those fetches got so far: without one, the store's
-    /// collector deletes it between rounds and the file starts over.
-    pub(super) unfinished: HashMap<Hash, TempTag>,
-    /// When a dial to a peer last failed, until one succeeds.
-    pub(super) down: HashMap<EndpointId, Instant>,
 }
 
 /// When held deletes are due: once the folder was quiet for
@@ -138,6 +129,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             task.save(false).await;
             if !*paused.borrow() {
                 while woken.try_recv().is_ok() {}
+                shared.listen_again();
                 task.scan().await;
                 last_scan = Instant::now();
                 task.apply().await;
@@ -204,7 +196,9 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                     break;
                 }
                 pulls = JoinSet::new();
+                shared.listen_again();
                 start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+                apply = true;
             }
             Some(ended) = pulls.join_next() => if let Err(e) = ended {
                 log::warn!("a pull of {} failed: {e}", shared.name);
@@ -241,21 +235,19 @@ fn start_pulls(
 impl Task {
     pub(super) fn new(shared: Arc<Shared>, parts: Parts, watcher: Watcher, mode: Mode) -> Self {
         Self {
+            fetcher: Arc::new(Fetcher::new(shared.clone(), parts.clone())),
             shared,
             parts,
             watcher,
             mode,
             first: true,
             protected: None,
-            blobs: HashMap::new(),
             pending: 0,
             error: None,
             scan_failed: false,
             saved_at: Instant::now(),
             held: BTreeSet::new(),
             waiting: Vec::new(),
-            unfinished: HashMap::new(),
-            down: HashMap::new(),
         }
     }
 
@@ -353,7 +345,7 @@ impl Task {
             SyncState::Paused
         } else if self.scan_failed {
             SyncState::Failed
-        } else if self.pending > 0 {
+        } else if self.pending > 0 || !self.shared.heard_all() {
             SyncState::Syncing
         } else {
             SyncState::Idle

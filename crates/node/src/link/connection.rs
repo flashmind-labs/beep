@@ -101,6 +101,7 @@ pub async fn serve(
     let builder = || {
         Endpoint::builder(presets::N0)
             .secret_key(state.key.clone())
+            .transport_config(beep_proto::port::transport().build())
             .hooks(traffic.clone())
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;

@@ -88,7 +88,7 @@ put node-a "$E2E/scale/make-tree.sh" beep/make-tree.sh || abort "could not copy 
 put node-b "$E2E/scale/make-tree.sh" beep/make-tree.sh || abort "could not copy make-tree.sh"
 
 step "1. $SMALL small files 8 folders deep and $MB_FILES files of 1 MB, node-a to node-b"
-grow node-a node-b tree-a "scale a->b" "${E2E_BUDGET_SCALE_FIRST-60}" "${E2E_BUDGET_SCALE_ALL-1200}" \
+grow node-a node-b tree-a "scale a->b" "${E2E_BUDGET_SCALE_FIRST-30}" "${E2E_BUDGET_SCALE_ALL-240}" \
   || abort "tree-a did not reach node-b"
 fd_mark
 
@@ -113,8 +113,8 @@ done
 gone="$(since "$t0")"
 if [[ "$files" == 0 && "$folders" == 0 ]]; then
   pass "tree-a is gone from node-b, folders and all, after $gone s"
-  measure "scale delete: first file gone" "$first" s max "${E2E_BUDGET_SCALE_DELETE_FIRST-45}"
-  measure "scale delete: all gone" "$gone" s max "${E2E_BUDGET_SCALE_DELETE-60}"
+  measure "scale delete: first file gone" "$first" s max "${E2E_BUDGET_SCALE_DELETE_FIRST-20}"
+  measure "scale delete: all gone" "$gone" s max "${E2E_BUDGET_SCALE_DELETE-30}"
 else
   fail "node-b still holds $files files and $folders folders of tree-a"
   on node-b "cd ~/ws/$PROJECT && find tree-a | head -20" | sed 's/^/   /'
@@ -132,7 +132,7 @@ wait_for 120 "both in sync" in_sync && pass "the server sees both in sync" \
 fd_mark
 
 step "3. the same tree made on node-b reaches node-a"
-grow node-b node-a tree-b "scale b->a" "${E2E_BUDGET_SCALE_FIRST-60}" "${E2E_BUDGET_SCALE_ALL-1200}"
+grow node-b node-a tree-b "scale b->a" "${E2E_BUDGET_SCALE_FIRST-30}" "${E2E_BUDGET_SCALE_ALL-240}"
 
 fd_mark
 
