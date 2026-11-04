@@ -282,6 +282,7 @@ sample_struct! {
     MachineUpdate { from, to, restarting, note }
     UpdatableMachine { id, agent_sessions }
     ToolUpdate { machine_id, tool, version, latest }
+    SshAdd { machine_id, system, error, output }
 }
 
 macro_rules! sample_values {
