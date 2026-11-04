@@ -149,8 +149,7 @@ internal fun RecRow(cards: List<RecCard>) {
 @Composable
 private fun RecCardView(card: RecCard, modifier: Modifier) {
     val context = LocalContext.current
-    val open = LocalOpenLink.current
-    val openPage = { url: String -> open?.invoke(url) ?: ExternalBrowser.open(context, url) }
+    val openPage = { url: String -> ExternalBrowser.open(context, url) }
     val place = card.place.takeIf { card.kind == "place" }
     val media = card.media.takeIf { card.kind == "media" }
     val event = card.event.takeIf { card.kind == "event" }

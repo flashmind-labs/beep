@@ -137,13 +137,13 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
         draftCursor = null
     }
     // Each chat gets its own list that opens at the latest message.
-    val openLink = LocalOpenLink.current ?: repository::openBrowser
     // The reply with text that ends the chat; a turn of only tool calls after it does not count.
     val newestReply = chat.messages.indexOfLast { it.role == "assistant" && it.text.isNotBlank() }
         .takeIf { at -> at >= 0 && chat.messages.drop(at).none { it.role == "user" } }?.let { chat.messages[it].id }
     val list = remember(chat.id) { LazyListState(chat.messages.lastIndex.coerceAtLeast(0)) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val openLink = { url: String -> ExternalBrowser.open(context, url) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES)) { uris ->
         if (uris.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {

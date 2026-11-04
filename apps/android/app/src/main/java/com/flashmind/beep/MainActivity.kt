@@ -235,10 +235,7 @@ open class MainActivity : ComponentActivity() {
         // A recreated activity (theme or font change) keeps the chat it was on.
         if (savedInstanceState == null) takeIntent(intent)
         setContent {
-            BeepTheme { CompositionLocalProvider(LocalUriHandler provides OutsideUriHandler(this), LocalOpenLink provides { url: String ->
-                // The bubble has no room for the browser, so its links go to the phone's own.
-                if (bubble) ExternalBrowser.open(this, url) else repository.openBrowser(url)
-            }) {
+            BeepTheme { CompositionLocalProvider(LocalUriHandler provides OutsideUriHandler(this)) {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, openRead = pendingOpenRead, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
@@ -255,12 +252,12 @@ open class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!bubble) Bubble.appShown(true)
-        (application as BeepApplication).repository.chatScreenShown(true, bubble)
+        (application as BeepApplication).repository.chatScreenShown(true)
     }
     override fun onStop() {
         super.onStop()
         if (!bubble) Bubble.appShown(false)
-        (application as BeepApplication).repository.chatScreenShown(false, bubble)
+        (application as BeepApplication).repository.chatScreenShown(false)
     }
     /** Float Beep: the overlay bubble when picked and allowed, otherwise the system bubble. */
     private fun float() {
@@ -341,7 +338,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val connected by repository.connected.collectAsStateWithLifecycle()
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
     val pendingAlarm by repository.pendingAlarm.collectAsStateWithLifecycle()
-    val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
     // The system bubble lives in the notification shade, so it is checked again each time the app comes back.
@@ -895,12 +891,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     inviting?.let { invite ->
         GroupInviteSheet(repository, invite.id, invite.name, onDismiss = { inviting = null })
-    }
-    // Browser overlay, never in the bubble
-    AnimatedVisibility(visible = browserOpen && !bubble,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it }) {
-        BrowserScreen(onClose = { repository.closeBrowser() })
     }
 }
 
