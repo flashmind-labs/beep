@@ -1,13 +1,14 @@
 //! Bringing the folder in line with the list.
 
 use super::{
-    fetch::{Ahead, Fetched, Wanted, copy_out},
+    fetch::{Ahead, Fetched, Wanted, copy_out, read_store},
     list::{Work, move_target, plan, turn},
     state::Seen,
     task::Task,
 };
 use crate::files::sync::{
     disk::{self},
+    gitconfig,
     gitdir::{self, Kind, Oid, RefMove, Repo, Stay, ref_stat},
     map::{FileMeta, is_conflict, original_of},
     progress::{self, Meter},
@@ -393,21 +394,28 @@ impl Task {
         let mut out = AsyncFile::from_std(created);
         let (store, stop) = (self.parts.store.clone(), self.shared.stop.clone());
         let path = work.path.clone();
-        copy_out(
-            &store,
-            hash,
-            &mut out,
-            &stop,
-            async |out: &mut AsyncFile| {
-                log::info!(
-                    "{}: the copy of {path} on this machine changed or cannot be read; \
-                 fetching it again",
-                    self.shared.name
-                );
-                self.fetcher.copy_from_peers(hash, out).await
-            },
-        )
-        .await?;
+        if gitdir::is_config(&path) {
+            // A peer's config only brings what gitconfig keeps: some keys
+            // make git run a program.
+            let raw = read_store(&store, hash, gitconfig::MAX_BYTES).await?;
+            out.write_all(gitconfig::kept(&raw).as_bytes()).await?;
+        } else {
+            copy_out(
+                &store,
+                hash,
+                &mut out,
+                &stop,
+                async |out: &mut AsyncFile| {
+                    log::info!(
+                        "{}: the copy of {path} on this machine changed or cannot be read; \
+                     fetching it again",
+                        self.shared.name
+                    );
+                    self.fetcher.copy_from_peers(hash, out).await
+                },
+            )
+            .await?;
+        }
         out.flush().await?;
         let out = out.into_std().await;
         // An object must not look old enough for this machine's next

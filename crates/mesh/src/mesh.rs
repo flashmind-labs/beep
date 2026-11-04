@@ -341,6 +341,13 @@ impl Mesh {
         Self::run(endpoint, core, addrs)
     }
 
+    /// Deletes the mesh in `dir`, so the device is in none. `close` the `Mesh`
+    /// first.
+    pub async fn forget(dir: &Path) -> Result<(), MeshError> {
+        let dir = dir.to_owned();
+        blocking(move || Core::forget(&dir)).await
+    }
+
     /// Stops this mesh and waits until its files are no longer written, so
     /// another can take the directory. It must be the only handle: with
     /// another clone alive the mesh is handed back in `InUse`, still running.
@@ -355,7 +362,7 @@ impl Mesh {
     }
 
     /// Joins the mesh `ticket` names in place of the one in `dir`, which
-    /// must hold no device but this one. `close` the old `Mesh` first. Nothing
+    /// must hold no device but this one, or have removed this one. `close` the old `Mesh` first. Nothing
     /// changes on disk until the ticket is redeemed (a ticket is spent by
     /// then: a crash after that needs a fresh one). The swap moves the old
     /// files aside and removes them once the new ones are on disk, and a
@@ -375,7 +382,11 @@ impl Mesh {
             blocking(move || {
                 Core::recover(&dir)?;
                 match Core::load(&dir)? {
-                    Some(devices) if devices.members().iter().any(|d| d.id != me) => {
+                    // A device that was removed has nothing to keep.
+                    Some(devices)
+                        if devices.is_member(me)
+                            && devices.members().iter().any(|d| d.id != me) =>
+                    {
                         Err(MeshError::NotLone)
                     }
                     _ => Ok(()),

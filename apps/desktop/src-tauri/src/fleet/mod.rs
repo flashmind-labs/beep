@@ -241,7 +241,8 @@ impl Fleet {
     pub async fn join(&self, ticket: &JoinTicket, name: &str) -> Result<()> {
         let _one = self.joining.lock().await;
         let old = self.ready().await?;
-        if old.devices().len() > 1 {
+        // A mesh that removed this Mac has nothing to keep.
+        if old.is_member(old.me()) && old.devices().len() > 1 {
             return Err(DesktopError::BadRequest(
                 "this Mac is in a mesh with other devices".into(),
             ));

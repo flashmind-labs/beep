@@ -24,7 +24,7 @@ use beep_proto::node::{
 use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{fmt::Write, time::Duration};
+use std::{collections::BTreeSet, fmt::Write, time::Duration};
 use tokio::time::timeout;
 
 /// How long a call waits for the link to a machine the mesh holds but is
@@ -101,8 +101,10 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
             .map(str::to_owned)
     };
     match request.tool {
-        // The server's list has more to say, so it answers when there is one.
-        Tool::ListMachines if offers.tools.connected() => None,
+        // The server's list has more to say, so it leads when there is one.
+        Tool::ListMachines if offers.tools.connected() => {
+            Some(merged_list(offers, mesh, request).await)
+        }
         Tool::ListMachines => Some(list(mesh).await),
         Tool::RunOn | Tool::MachineLog | Tool::SendFiles => {
             let name = machine(&args)?;
@@ -112,10 +114,7 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
             else {
                 return missing(offers, mesh, &name);
             };
-            if request.tool == Tool::SendFiles {
-                return Some(send_files(offers, mesh, &target, request, &args).await);
-            }
-            Some(to_machine(offers, mesh, &target, request).await)
+            Some(to_target(offers, mesh, &target, request, &args).await)
         }
         Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
         Tool::JobStatus | Tool::Cancel => {
@@ -130,6 +129,53 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
         }
         _ => None,
     }
+}
+
+/// Sends `request` to `target`, which the mesh holds.
+async fn to_target(
+    offers: &Offers,
+    mesh: &Mesh,
+    target: &Machine,
+    request: &Request,
+    args: &Value,
+) -> Reply {
+    if request.tool == Tool::SendFiles {
+        return send_files(offers, mesh, target, request, args).await;
+    }
+    to_machine(offers, mesh, target, request).await
+}
+
+/// The reply for a call the server would otherwise answer, when its target
+/// is a machine only the mesh knows (one that joined by ticket): the server
+/// has no such machine, so the call goes direct. `None` when the server
+/// knows the target, which keeps its rules, or the mesh does not hold it.
+pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -> Option<Reply> {
+    if !matches!(
+        request.tool,
+        Tool::RunOn | Tool::MachineLog | Tool::SendFiles
+    ) {
+        return None;
+    }
+    let args: Value = serde_json::from_str(&request.args).ok()?;
+    let name = command_name(args.get("machine")?.as_str()?);
+    let target = machines(mesh).into_iter().find(|m| m.name == name)?;
+    let listing = Request {
+        tool: Tool::ListMachines,
+        args: "{}".to_owned(),
+        ..request.clone()
+    };
+    // An answer that is not a list leaves the call to the server, which says why.
+    let Ok(Reply::Done {
+        text,
+        failed: false,
+    }) = offers.tools.call(&listing).await
+    else {
+        return None;
+    };
+    if listed(&text).contains(&name) {
+        return None;
+    }
+    Some(to_target(offers, mesh, &target, request, &args).await)
 }
 
 /// The most paths one `send_files` call takes.
@@ -158,7 +204,7 @@ async fn send_files(
             true,
         );
     }
-    let Some(transfers) = &offers.transfers else {
+    let Some(transfers) = offers.transfers.get() else {
         return done(
             "This machine shares no folders, so it sends no files.",
             true,
@@ -170,7 +216,7 @@ async fn send_files(
     let mut lines = Vec::new();
     let mut failed = false;
     for path in &paths {
-        let sent = send_one(transfers, mesh, target, request, path, dest.clone()).await;
+        let sent = send_one(&transfers, mesh, target, request, path, dest.clone()).await;
         failed |= sent.is_err();
         let (Ok(text) | Err(text)) = sent;
         lines.push(format!("- {path}: {text}"));
@@ -259,7 +305,7 @@ async fn sync_project(
     };
     let me = mesh.me();
     let mut notes = Vec::new();
-    if let Some(transfers) = &offers.transfers
+    if let Some(transfers) = offers.transfers.get()
         && spec.folders.contains_key(&me)
         && let Err(e) = transfers.syncs().rescan(name).await
     {
@@ -324,8 +370,26 @@ fn missing(offers: &Offers, mesh: &Mesh, name: &str) -> Option<Reply> {
 /// The mesh's devices, each with what its own status report says of it
 /// when it answers in time.
 async fn list(mesh: &Mesh) -> Reply {
+    let lines = device_lines(mesh).await;
+    done(
+        lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        false,
+    )
+}
+
+/// One device of the mesh as the list shows it.
+struct Line {
+    name: String,
+    text: String,
+}
+
+async fn device_lines(mesh: &Mesh) -> Vec<Line> {
     let me = mesh.me();
-    let lines = futures::future::join_all(mesh.devices().into_iter().map(|status| async move {
+    futures::future::join_all(mesh.devices().into_iter().map(|status| async move {
         let env = if status.device.id == me {
             Some(env::probe().await)
         } else if status.online {
@@ -351,10 +415,53 @@ async fn list(mesh: &Mesh) -> Reply {
             // Writing to a string cannot fail.
             let _ = write!(line, "\n  {}", describe(&env));
         }
-        line
+        Line {
+            name: command_name(&status.device.name),
+            text: line,
+        }
     }))
-    .await;
-    done(lines.join("\n"), false)
+    .await
+}
+
+/// The server's list with the mesh's devices it does not name added, so a
+/// machine that joined by ticket shows. Without a usable server list, the
+/// mesh's alone.
+async fn merged_list(offers: &Offers, mesh: &Mesh, request: &Request) -> Reply {
+    match offers.tools.call(request).await {
+        Ok(Reply::Done {
+            text,
+            failed: false,
+        }) => done(merge(&text, device_lines(mesh).await), false),
+        _ => list(mesh).await,
+    }
+}
+
+/// `server`'s list with each of `lines` it does not name added.
+fn merge(server: &str, lines: Vec<Line>) -> String {
+    let known = listed(server);
+    let mut extra: Vec<String> = lines
+        .into_iter()
+        .filter(|line| !known.contains(&line.name))
+        .map(|line| line.text)
+        .collect();
+    if extra.is_empty() {
+        return server.to_owned();
+    }
+    if known.is_empty() {
+        return extra.join("\n");
+    }
+    extra.insert(0, server.trim_end().to_owned());
+    extra.join("\n")
+}
+
+/// The machine names a server list shows, one per `- name: ...` line.
+fn listed(server: &str) -> BTreeSet<String> {
+    server
+        .lines()
+        .filter_map(|line| line.strip_prefix("- "))
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, _)| command_name(name))
+        .collect()
 }
 
 /// One line on what the machine is and can do.
@@ -570,6 +677,44 @@ mod tests {
         for tool in [Tool::JobStatus, Tool::Cancel, Tool::SyncProject] {
             assert_eq!(route(tool, true, true), Route::Direct, "{tool:?}");
         }
+    }
+
+    fn mesh_line(name: &str) -> Line {
+        Line {
+            name: name.to_owned(),
+            text: format!("- {name}: online, node"),
+        }
+    }
+
+    const SERVER_LIST: &str = "The user's machines, by the name the other tools take:\n\n\
+        - build-box: online; this machine, where you run\n  Linux x86_64\n\n- mac: offline";
+
+    #[test]
+    fn the_servers_list_names_its_machines() {
+        let names: Vec<String> = listed(SERVER_LIST).into_iter().collect();
+        assert_eq!(names, ["build-box", "mac"]);
+    }
+
+    #[test]
+    fn a_machine_only_the_mesh_knows_joins_the_servers_list() {
+        let merged = merge(
+            SERVER_LIST,
+            vec![mesh_line("build-box"), mesh_line("laptop")],
+        );
+        assert!(merged.starts_with(SERVER_LIST), "{merged}");
+        assert!(merged.ends_with("\n- laptop: online, node"), "{merged}");
+        assert_eq!(merged.matches("- build-box:").count(), 1, "{merged}");
+        // Nothing to add: the server's text as it is.
+        assert_eq!(merge(SERVER_LIST, vec![mesh_line("mac")]), SERVER_LIST);
+    }
+
+    #[test]
+    fn a_server_with_no_machines_leaves_the_mesh_list() {
+        let merged = merge(
+            "The user has no machines running beep-node.",
+            vec![mesh_line("laptop")],
+        );
+        assert_eq!(merged, "- laptop: online, node");
     }
 
     #[test]

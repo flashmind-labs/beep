@@ -361,6 +361,25 @@ pub(super) async fn copy_store(
     Ok(*hasher.finalize().as_bytes())
 }
 
+/// Reads blob `hash` from the store, at most `limit` bytes of it.
+pub(super) async fn read_store(store: &Store, hash: Hash, limit: u64) -> Result<Vec<u8>> {
+    let mut raw = Vec::new();
+    store
+        .blobs()
+        .reader(hash)
+        .take(limit + 1)
+        .read_to_end(&mut raw)
+        .await
+        .context("reading the store")?;
+    if raw.len() as u64 > limit {
+        bail!("the file is larger than {limit} bytes");
+    }
+    if *blake3::hash(&raw).as_bytes() != *hash.as_bytes() {
+        bail!("the copy in the store changed");
+    }
+    Ok(raw)
+}
+
 /// Copies blob `hash` from a peer into `out`, giving the hash of what was
 /// written. The blobs protocol checks every chunk against `hash`.
 /// Fetches `content` into `store` over `connection`, failing when no data
