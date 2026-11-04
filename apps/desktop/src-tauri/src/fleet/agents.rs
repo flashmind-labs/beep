@@ -30,7 +30,6 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use std::{
-    cmp::Reverse,
     future::Future,
     time::{Duration, UNIX_EPOCH},
 };
@@ -89,27 +88,75 @@ pub(crate) fn hosts(fleet: &Fleet) -> Vec<AgentHost> {
     found
 }
 
-/// The sessions on the mesh's online machines, newest activity first.
-pub(crate) async fn list_sessions(fleet: &Fleet) -> Vec<MachineSession> {
-    let asks: Vec<_> = fleet
-        .online()
+/// How long one machine gets, all told, to answer a listing: its
+/// connection, then its answer.
+const MACHINE_LIMIT: Duration = Duration::from_secs(5);
+/// How long a scan of what a machine's agents keep may take.
+const SCAN_LIMIT: Duration = Duration::from_secs(8);
+
+/// What each online machine of `machines` gives from `ask`, concurrently
+/// and a few at a time. One that is slow or off is left out after `limit`.
+async fn each<T, F, Fut>(
+    fleet: &Fleet,
+    machines: Vec<EndpointId>,
+    limit: Duration,
+    ask: F,
+) -> Vec<T>
+where
+    F: Fn(PeerClient, Host) -> Fut,
+    Fut: Future<Output = Vec<T>>,
+{
+    let asks: Vec<_> = machines
         .into_iter()
-        .map(|machine| async move {
-            match fleet.client(machine).await {
-                Ok(client) => listing::node_sessions(&client, &fleet.host_of(machine)).await,
-                Err(_) => Vec::new(),
-            }
+        .map(|machine| {
+            let one = async {
+                match fleet.client(machine).await {
+                    Ok(client) => ask(client, fleet.host_of(machine)).await,
+                    Err(_) => Vec::new(),
+                }
+            };
+            async move { timeout(limit, one).await.unwrap_or_default() }
         })
         .collect();
-    let mut sessions: Vec<MachineSession> = stream::iter(asks)
+    stream::iter(asks)
         .buffer_unordered(IN_FLIGHT)
         .collect::<Vec<_>>()
         .await
         .into_iter()
         .flatten()
-        .collect();
-    sessions.sort_by_key(|session| Reverse(session.last_activity));
-    sessions
+        .collect()
+}
+
+/// Beep's sessions on this Mac, from the node in this process.
+pub(crate) async fn local_sessions(fleet: &Fleet) -> Vec<MachineSession> {
+    each(
+        fleet,
+        vec![fleet.id()],
+        MACHINE_LIMIT,
+        |client, host| async move { listing::beep_sessions(&client, &host).await },
+    )
+    .await
+}
+
+/// Beep's sessions on the other online machines of the mesh.
+pub(crate) async fn peer_sessions(fleet: &Fleet) -> Vec<MachineSession> {
+    let me = fleet.id();
+    let peers = fleet.online().into_iter().filter(|m| *m != me).collect();
+    each(fleet, peers, MACHINE_LIMIT, |client, host| async move {
+        listing::beep_sessions(&client, &host).await
+    })
+    .await
+}
+
+/// The sessions started outside Beep that run now, on every online machine.
+pub(crate) async fn scanned_sessions(fleet: &Fleet) -> Vec<MachineSession> {
+    each(
+        fleet,
+        fleet.online(),
+        SCAN_LIMIT,
+        |client, host| async move { listing::outside_sessions(&client, &host).await },
+    )
+    .await
 }
 
 /// One session in full; a transcript that cannot be read leaves `entries` empty.

@@ -175,7 +175,7 @@ pub async fn branch_diff(
     lockfiles: bool,
 ) -> Result<DiffView> {
     if let Some(place) = places(&beep, &fleet, &project).await.into_iter().next() {
-        let diff = direct::branch_diff(&fleet, &place, "main", &branch, only, lockfiles).await?;
+        let diff = direct::branch_diff(&fleet, &place, &branch, only, lockfiles).await?;
         return Ok(view(diff));
     }
     let diff = beep

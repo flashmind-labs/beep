@@ -10,6 +10,7 @@ use crate::{
     projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, ApiError, GetAgentFile, GetAgentImage,
     GetAgentThumb, MAX_AGENT_FILE, image_key,
@@ -51,15 +52,18 @@ pub async fn agent_thumb(
     session: String,
     key: String,
 ) -> Result<String> {
-    // On this Mac's own machines there is no wire to save, so the picture
-    // comes whole.
+    // A remote picture crosses the network whole and is made small here.
     if let Some(machine) = fleet.member(&machine_id) {
         let request = GetAgentImage {
             machine_id,
             session,
             key,
         };
-        return picture_url(direct::image(&fleet, machine, &request).await);
+        let image = direct::image(&fleet, machine, &request).await;
+        return picture_url(match image {
+            Ok(image) => Ok(small(image).await),
+            Err(e) => Err(e),
+        });
     }
     let thumb = beep
         .call(GetAgentThumb {
@@ -80,6 +84,20 @@ pub async fn agent_thumb(
         other => other,
     };
     picture_url(image)
+}
+
+/// `image` made small, for the log to draw.
+async fn small(image: AgentImageData) -> AgentImageData {
+    let made = thumb_of(Picture {
+        mime: image.mime,
+        data: image.data,
+    })
+    .await;
+    AgentImageData {
+        key: image.key,
+        mime: made.mime,
+        data: made.data,
+    }
 }
 
 /// A data URL the bar can draw, with a picture the server no longer has as

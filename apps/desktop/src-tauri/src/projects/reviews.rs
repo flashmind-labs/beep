@@ -5,7 +5,10 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::{Machines, files as direct},
+    fleet::{
+        Machines,
+        files::{self as direct, FALLBACK_DEFAULT},
+    },
     projects::{branches::places, known, needs_update},
 };
 use beep_proto::{
@@ -244,7 +247,7 @@ pub async fn project_branches(
     project: String,
 ) -> Result<Option<BranchesView>> {
     if let Some(place) = places(&beep, &fleet, &project).await.into_iter().next() {
-        let (default_branch, branches) = direct::branches(&fleet, &place, "main").await?;
+        let (default_branch, branches) = direct::branches(&fleet, &place, FALLBACK_DEFAULT).await?;
         return Ok(Some(
             ProjectBranches {
                 machine_id: place.machine.to_string(),

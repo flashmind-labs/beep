@@ -10,6 +10,7 @@ use crate::{
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
     fleet::Fleet,
+    machines::list::Outside,
 };
 use anyhow::anyhow;
 use beep_proto::MachineSession;
@@ -84,7 +85,13 @@ impl AgentSessions {
             // Another window is asking already; its answer redraws this one.
             return match last {
                 Some(listed) => Ok(listed.sessions),
-                None => Ok(machine_sessions(beep, &app.state::<Arc<Fleet>>()).await),
+                None => Ok(machine_sessions(
+                    app,
+                    beep,
+                    &app.state::<Arc<Fleet>>(),
+                    &app.state::<Outside>(),
+                )
+                .await),
             };
         };
         let (tx, rx) = oneshot::channel();
@@ -95,7 +102,8 @@ impl AgentSessions {
         let cache = cache.clone();
         tauri::async_runtime::spawn(async move {
             let _asking = asking;
-            let listed: Result<Vec<MachineSession>> = Ok(machine_sessions(&beep, &fleet).await);
+            let listed: Result<Vec<MachineSession>> =
+                Ok(machine_sessions(&app, &beep, &fleet, &app.state::<Outside>()).await);
             let answered = listed.is_ok();
             if let Ok(sessions) = &listed {
                 cache_view(&cache, View::AgentSessions, sessions);

@@ -7,6 +7,7 @@ use crate::{
     center::{self, AgentTarget, CenterTarget, NeedsYou},
     error::{DesktopError, Result},
     fleet::Fleet,
+    machines::list::Outside,
 };
 use beep_proto::ListPendingApprovals;
 use std::{
@@ -170,7 +171,7 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
         // Timing out is the usual way round: nothing poked.
         let _ = timeout(EVERY, list.wake.notified()).await;
         {
-            match fetch(&beep, &fleet).await {
+            match fetch(&app, &beep, &fleet).await {
                 Ok(entries) => {
                     if list.set(entries) {
                         crate::tray::refresh(&app);
@@ -184,9 +185,10 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     }
 }
 
-async fn fetch(beep: &Beep, fleet: &Fleet) -> Result<Vec<Entry>> {
+async fn fetch(app: &AppHandle, beep: &Arc<Beep>, fleet: &Arc<Fleet>) -> Result<Vec<Entry>> {
+    let held = app.state::<Outside>();
     let (sessions, approvals) = join!(
-        machine_sessions(beep, fleet),
+        machine_sessions(app, beep, fleet, &held),
         beep.call(ListPendingApprovals {}),
     );
     // With no server, or none linked, nothing waits there.

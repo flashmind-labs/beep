@@ -11,15 +11,16 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    AgentHost, Call, GetMachineLog, ListMachineDetails, ListMachineStats, ListMachineTraffic,
-    ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv, MachineStats,
-    MachineTraffic, MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
-    node::logs::MAX_LINES,
+    AgentHost, Call, FoundProject, GetMachineLog, ListMachineDetails, ListMachineStats,
+    ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv,
+    MachineSession, MachineStats, MachineTraffic, MachineUpdate, RemoveMachine, Terminal,
+    TrafficCounter, UpdatableMachine, UpdateMachine, node::logs::MAX_LINES,
 };
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
     fs,
+    future::Future,
     path::PathBuf,
     sync::{
         Arc, Mutex, PoisonError,
@@ -87,7 +88,7 @@ impl<T> Drop for Refresh<T> {
 }
 
 impl<T: Clone + Send + 'static> Held<T> {
-    fn last(&self) -> Vec<T> {
+    pub(crate) fn last(&self) -> Vec<T> {
         self.list
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -118,6 +119,42 @@ impl<T: Clone + Send + 'static> Held<T> {
         }
     }
 
+    /// Reads the list again with `ask` in the background, one at a time;
+    /// the windows redraw when `same` tells the new list from the last.
+    fn refresh_with(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        same: fn(&T, &T) -> bool,
+    ) {
+        let Some(refresh) = self.begin() else {
+            return;
+        };
+        let (held, app) = (self.clone(), app.clone());
+        // Ends with `ask`, which the caller bounds; nothing else owns it.
+        tauri::async_runtime::spawn(async move {
+            let _refresh = refresh;
+            let listed = ask.await;
+            if held.finish(listed, same)
+                && let Err(e) = app.emit(HOME_CHANGED, ())
+            {
+                log::warn!("telling the windows a list changed: {e}");
+            }
+        });
+    }
+
+    /// What `ask` listed last, at once, and `ask` run again in the
+    /// background for the next call.
+    pub(crate) fn refreshed(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        same: fn(&T, &T) -> bool,
+    ) -> Vec<T> {
+        self.refresh_with(app, ask, same);
+        self.last()
+    }
+
     /// `mesh` and the machines the server last listed that it lacks, at
     /// once. With a server, the list is read again in the background, and
     /// the windows redraw when `same` tells the new list from the last.
@@ -136,19 +173,7 @@ impl<T: Clone + Send + 'static> Held<T> {
         if beep.server().is_none() {
             return mesh;
         }
-        if let Some(refresh) = self.begin() {
-            let (held, app) = (self.clone(), app.clone());
-            // Ends with the call, which times out; nothing else owns it.
-            tauri::async_runtime::spawn(async move {
-                let _refresh = refresh;
-                let listed = beep.call(request).await;
-                if held.finish(listed, same)
-                    && let Err(e) = app.emit(HOME_CHANGED, ())
-                {
-                    log::warn!("telling the windows the machines changed: {e}");
-                }
-            });
-        }
+        self.refresh_with(app, async move { beep.call(request).await }, same);
         outside(mesh, &self.last(), id)
     }
 }
@@ -173,6 +198,16 @@ pub struct Outside {
     traffic: Arc<Held<MachineTraffic>>,
     updatable: Arc<Held<UpdatableMachine>>,
     pub(crate) hosts: Arc<Held<AgentHost>>,
+    /// Beep's sessions on the other machines of the mesh, and the server's.
+    pub(crate) sessions: Arc<Held<MachineSession>>,
+    /// The sessions started outside Beep, found by scanning every machine.
+    pub(crate) scans: Arc<Held<MachineSession>>,
+    /// The terminals on the other machines of the mesh, as they stand.
+    pub(crate) terminals: Arc<Held<Terminal>>,
+    /// The terminals the server keeps.
+    pub(crate) server_terminals: Arc<Held<Terminal>>,
+    /// The checkouts agents worked in, on every machine and the server's.
+    pub(crate) found: Arc<Held<FoundProject>>,
 }
 
 /// The machines of the mesh, and those only the server lists. A machine

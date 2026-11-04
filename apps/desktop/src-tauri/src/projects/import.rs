@@ -6,6 +6,7 @@ use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
     fleet::{Machines, extra, files as direct},
+    machines::list::Outside,
 };
 use beep_proto::{
     ApiError, BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos,
@@ -17,7 +18,7 @@ use std::{
     process::Command,
     time::Duration,
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
 
@@ -61,16 +62,29 @@ impl From<FoundProject> for FoundRow {
 /// The checkouts the user's coding agents worked in that are not projects
 /// yet; none from a server too old to look.
 #[tauri::command]
-pub async fn found_projects(beep: Service<'_>, fleet: Machines<'_>) -> Result<Vec<FoundRow>> {
-    let here = direct::found_folders(&fleet).await;
-    let mut found = beep_projects::imports::found::group(here, &[], &[]);
-    let others = extra(beep.call(ListFoundFolders {}).await);
-    found.extend(others.into_iter().filter(|project| {
-        project
-            .places
-            .iter()
-            .all(|place| fleet.member(&place.machine_id).is_none())
-    }));
+pub async fn found_projects(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    held: State<'_, Outside>,
+) -> Result<Vec<FoundRow>> {
+    let (b, f) = (beep.inner().clone(), fleet.inner().clone());
+    let found = held.found.refreshed(
+        &app,
+        async move {
+            let here = direct::found_folders(&f).await;
+            let mut found = beep_projects::imports::found::group(here, &[], &[]);
+            let others = extra(b.call(ListFoundFolders {}).await);
+            found.extend(others.into_iter().filter(|project| {
+                project
+                    .places
+                    .iter()
+                    .all(|place| f.member(&place.machine_id).is_none())
+            }));
+            Ok(found)
+        },
+        |old, new| old.project == new.project && old.places.len() == new.places.len(),
+    );
     Ok(found.into_iter().map(FoundRow::from).collect())
 }
 

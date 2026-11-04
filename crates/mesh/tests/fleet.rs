@@ -3,12 +3,12 @@
 //! Mac, and answers the requests the apps used to send through the server.
 
 use beep_mesh::{
-    PeerClient,
+    DeviceKind, JOIN_ALPN, Mesh, PEER_ALPN, PeerClient, PeerStream, StreamHandler,
     machine::{
         self, NodeWork, open_agent, order, sessions,
         terminals::{self, Heard, Kept},
     },
-    transport_config,
+    transport_config, with_deadline,
 };
 use beep_node::{
     agents::AgentKind,
@@ -18,13 +18,16 @@ use beep_node::{
 use beep_proto::{
     TerminalEvent,
     node::{
+        Open, Opened,
         agent::{DiffAsk, Event, Request, Status},
+        link,
+        process::TaskId,
         terminal::{Reply as PtyReply, Request as PtyRequest, Size},
     },
 };
-use iroh::{Endpoint, SecretKey, endpoint::presets};
+use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
 use serde_bytes::ByteBuf;
-use std::{collections::BTreeMap, fs, path::Path, process::Command, time::Duration};
+use std::{collections::BTreeMap, fs, path::Path, process::Command, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::time::timeout;
 
@@ -301,4 +304,127 @@ async fn a_terminal_opens_and_echoes_with_no_server() {
     terminals::stop(&node.client, &kept)
         .await
         .expect("it stops");
+}
+
+#[tokio::test]
+async fn a_path_that_escapes_the_folder_is_refused_on_read_and_write() {
+    let node = machine(true).await;
+    let outer = TempDir::new().expect("a temp dir");
+    let root = outer.path().join("work");
+    fs::create_dir(&root).expect("a work folder");
+    fs::write(outer.path().join("secret.txt"), "private").expect("a file outside");
+    let root_text = root.display().to_string();
+
+    let read = sessions::read_file(
+        &node.client,
+        sessions::WorkRead {
+            root: &root_text,
+            path: "../secret.txt",
+            offset: 0,
+            len: 100,
+        },
+    )
+    .await
+    .expect("the node answers");
+    assert!(
+        !matches!(read, sessions::NodeFile::Chunk { .. }),
+        "the file outside the folder was read"
+    );
+
+    let wrote = sessions::write_file(
+        &node.client,
+        sessions::WorkWrite {
+            root: root_text.clone(),
+            path: "../escape.txt".into(),
+            offset: 0,
+            size: 3,
+            data: b"bad".to_vec(),
+        },
+    )
+    .await
+    .expect("the node answers");
+    assert!(matches!(wrote, NodeWork::Refused(_)));
+    assert!(!outer.path().join("escape.txt").exists());
+}
+
+/// A node that serves `terminal/1` only: it sends one line of output on an
+/// attach and then says no more.
+fn terminal_handler() -> StreamHandler {
+    Arc::new(|stream: PeerStream| {
+        Box::pin(async move {
+            let (mut tx, mut rx) = link(stream.send, stream.recv);
+            let Ok(Some(_)) = rx.recv::<Open>().await else {
+                return;
+            };
+            tx.send(&Opened::Ready {}).await.ok();
+            let Ok(Some(PtyRequest::Attach { .. })) = rx.recv::<PtyRequest>().await else {
+                return;
+            };
+            tx.send(&PtyReply::Output {
+                at: 0,
+                data: ByteBuf::from(b"hello".to_vec()),
+            })
+            .await
+            .ok();
+            std::future::pending::<()>().await;
+        })
+    })
+}
+
+async fn serve_mesh(endpoint: Endpoint, mesh: &Mesh) -> Router {
+    let (peer, join) = mesh.protocols();
+    Router::builder(endpoint)
+        .accept(PEER_ALPN, peer)
+        .accept(JOIN_ALPN, join)
+        .spawn()
+}
+
+#[tokio::test]
+async fn a_terminal_attach_ends_when_the_peer_goes_away() {
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("a temp dir");
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(key.clone())
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let desktop = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .expect("the mesh is made");
+    let _desktop_router = serve_mesh(endpoint, &desktop).await;
+    let ticket = desktop
+        .invite(DeviceKind::Node, Duration::from_secs(3600))
+        .await
+        .expect("a ticket");
+    let node_dir = TempDir::new().expect("a temp dir");
+    let node_endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let node = Mesh::join(node_dir.path(), node_endpoint.clone(), &ticket, "node")
+        .await
+        .expect("the node joins");
+    node.protocols().0.on_stream(terminal_handler());
+    let node_id = node_endpoint.id();
+    let node_router = serve_mesh(node_endpoint, &node).await;
+    let client = timeout(LIMIT, with_deadline(node_id, &desktop))
+        .await
+        .expect("answered in time")
+        .expect("the node is online");
+    let (_tx, mut rx) = terminals::attach(&client, TaskId(1), 0, Size::clamped(80, 24))
+        .await
+        .expect("it attaches");
+    let first = timeout(LIMIT, rx.recv::<PtyReply>())
+        .await
+        .expect("answered in time")
+        .expect("it reads");
+    assert!(matches!(first, Some(PtyReply::Output { .. })), "{first:?}");
+    node_router.shutdown().await.expect("the node stops");
+    let after = timeout(LIMIT, rx.recv::<PtyReply>())
+        .await
+        .expect("the stream did not hang");
+    assert!(matches!(after, Ok(None) | Err(_)), "{after:?}");
 }
