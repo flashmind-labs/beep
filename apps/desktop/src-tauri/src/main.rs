@@ -389,12 +389,12 @@ fn main() {
             settings::skills::list_skills,
             settings::skills::undo_skill,
             settings::skills::update_skill,
-            settingsels::get_agents,
-            settingsels::get_models,
-            settingsels::set_agents,
-            settingsels::set_auto_model,
-            settingsels::set_model,
-            settingsels::set_thinking,
+            settings::models::get_agents,
+            settings::models::get_models,
+            settings::models::set_agents,
+            settings::models::set_auto_model,
+            settings::models::set_model,
+            settings::models::set_thinking,
         ])
         .build(tauri::generate_context!())
         .expect("the app failed to start")

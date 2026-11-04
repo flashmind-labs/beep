@@ -5,7 +5,7 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
-    projects::{needs_update, unknown_op},
+    projects::needs_update,
 };
 use beep_proto::{
     GetInstructions, InstructionsVersion, ListInstructionsVersions, MachineAgentFiles,

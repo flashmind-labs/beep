@@ -6,4 +6,4 @@ pub(crate) mod live;
 pub(crate) mod pasted_image;
 pub(crate) mod window;
 
-pub(crate) use window::{LABEL, dismiss, hide, is_focused, is_open, show, toggle};
+pub(crate) use window::{LABEL, hide, is_focused, is_open, show, toggle};
