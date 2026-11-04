@@ -602,7 +602,7 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let stale = studio.save_instructions("again", None, "").await;
     assert!(stale.is_err(), "a save from an old base is refused");
     until(&f.laptop.mesh, |m| {
-        !m.scan("group/instructions.").is_empty()
+        !m.scan("instructions/").is_empty()
             && m.get(&Key::Harness("codex".into())).is_some()
             && m.get(&Key::Pin("acme/widget".into())).is_some()
     })
@@ -771,7 +771,7 @@ async fn two_desktops_saving_instructions_at_once_keep_both_versions() {
     one.expect("the studio saves");
     two.expect("the laptop saves");
     for dev in [&f.studio, &f.laptop] {
-        until(&dev.mesh, |m| m.scan("group/instructions.").len() == 2).await;
+        until(&dev.mesh, |m| m.scan("instructions/").len() == 2).await;
         let versions = desk(dev, &[]).await.instructions_versions();
         assert_eq!(versions.len(), 2);
         let mut texts: Vec<_> = versions.iter().map(|v| v.text.as_str()).collect();

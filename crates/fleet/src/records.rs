@@ -52,9 +52,8 @@ pub struct PinRecord {
     pub at_ms: u64,
 }
 
-/// One saved version of the user's instructions. Each is its own key, `group/instructions.<ms>.<id>`
-/// (a group key whose id is not a uuid, which the groups list skips, because a new kind of key
-/// would break the nodes already running), so two desktops saving at once keep both.
+/// One saved version of the user's instructions. Each is its own key, `instructions/<ms>.<id>`, so
+/// two desktops saving at once keep both.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedVersion {
     pub text: String,
@@ -146,22 +145,6 @@ pub(crate) fn read<T: StateValue>(mesh: &Mesh, key: &Key) -> Option<T> {
 pub(crate) fn scan<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
     mesh.scan(prefix)
         .into_iter()
-        .filter_map(|(key, bytes)| {
-            let value = decode(&key, &bytes)?;
-            Some((key, value))
-        })
-        .collect()
-}
-
-/// As [`scan`], decoding only the keys `keep` accepts.
-pub(crate) fn scan_where<T: StateValue>(
-    mesh: &Mesh,
-    prefix: &str,
-    keep: impl Fn(&Key) -> bool,
-) -> Vec<(Key, T)> {
-    mesh.scan(prefix)
-        .into_iter()
-        .filter(|(key, _)| keep(key))
         .filter_map(|(key, bytes)| {
             let value = decode(&key, &bytes)?;
             Some((key, value))
