@@ -15,7 +15,14 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 use tempfile::TempDir;
-use tokio::time::{sleep, timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    sync::watch,
+    task::JoinSet,
+    time::{sleep, timeout},
+};
+use tokio_util::task::AbortOnDropHandle;
 
 const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
@@ -56,9 +63,12 @@ impl Node {
             .await
             .expect("a test endpoint binds");
         let folders = Folders::new(&[self.shared.path().to_owned()]);
-        // No Syncthing config: only a marker in the shared folder says
-        // Syncthing keeps the project in step.
-        let syncthing = Syncthing::at(Vec::new(), Some(self.shared.path().to_owned()));
+        // Without a config in `syncthing_home`, only a marker in the shared
+        // folder says Syncthing keeps the project in step.
+        let syncthing = Syncthing::at(
+            vec![self.syncthing_home()],
+            Some(self.shared.path().to_owned()),
+        );
         let transfers = Transfers::start_with(&endpoint, self.state.path(), folders, syncthing)
             .await
             .expect("the transfers start");
@@ -73,6 +83,11 @@ impl Node {
             running.transfers.shutdown().await.expect("the node stops");
             running.endpoint.close().await;
         }
+    }
+
+    /// Where the node looks for Syncthing's `config.xml`.
+    fn syncthing_home(&self) -> PathBuf {
+        self.state.path().join("syncthing")
     }
 
     fn running(&self) -> &Running {
@@ -613,4 +628,123 @@ async fn a_node_restarting_on_a_folder_syncthing_took_holds_it() {
         read(&b.path("notes.txt")).as_deref(),
         Some(b"keep me".as_slice())
     );
+}
+
+/// What a fake Syncthing says of its one folder: paused or not, and the
+/// number of its last event.
+#[derive(Clone, Copy)]
+struct FakeFolder {
+    paused: bool,
+    event: u64,
+}
+
+fn set_paused(folder: &watch::Sender<FakeFolder>, paused: bool) {
+    folder.send_modify(|folder| {
+        folder.paused = paused;
+        folder.event += 1;
+    });
+}
+
+/// A fake Syncthing GUI listing one folder at `path`, with `/rest/events`
+/// held open until the folder changes, and the `config.xml` in `home` that
+/// points a node at it.
+async fn fake_syncthing(
+    home: &Path,
+    path: &Path,
+    folder: watch::Sender<FakeFolder>,
+) -> AbortOnDropHandle<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    fs::create_dir_all(home).unwrap();
+    let config = format!(
+        r#"<configuration><gui tls="false"><address>{addr}</address><apikey>fake-key</apikey></gui></configuration>"#
+    );
+    fs::write(home.join("config.xml"), config).unwrap();
+    let path = serde_json::to_string(&path.to_string_lossy()).unwrap();
+    let task = tokio::spawn(async move {
+        let mut answering = JoinSet::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            answering.spawn(fake_answer(stream, folder.subscribe(), path.clone()));
+        }
+    });
+    AbortOnDropHandle::new(task)
+}
+
+async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFolder>, path: String) {
+    let mut request = Vec::new();
+    let mut buf = [0; 1024];
+    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+        match stream.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => request.extend_from_slice(&buf[..n]),
+        }
+    }
+    let text = String::from_utf8_lossy(&request);
+    let line = text.lines().next().unwrap_or_default();
+    let body = if let Some((_, query)) = line.split_once("since=") {
+        let since: u64 = query.split('&').next().unwrap().parse().unwrap();
+        let event = folder
+            .wait_for(|folder| folder.event > since)
+            .await
+            .unwrap()
+            .event;
+        format!(r#"[{{"id":{event},"type":"FolderResumed"}}]"#)
+    } else {
+        let paused = folder.borrow().paused;
+        format!(r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{paused}}}]"#)
+    };
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(reply.as_bytes()).await.unwrap();
+}
+
+/// Waits for the error on the project to be `want`.
+/// The limit is well under the check's one minute: only the event can do it.
+async fn settles_on(node: &Node, want: Option<&str>) {
+    let settled = timeout(
+        Duration::from_secs(10),
+        eventually("the check to follow Syncthing", || {
+            let status = node.running().transfers.syncs().status();
+            status.len() == 1 && status[0].error.as_deref() == want
+        }),
+    )
+    .await;
+    assert!(settled.is_ok(), "the check did not follow the event");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_paused_in_syncthing_syncs_through_beep_until_resumed() {
+    let mut a = Node::new().await;
+    let b = Node::new().await;
+    let (folder, _) = watch::channel(FakeFolder {
+        paused: true,
+        event: 0,
+    });
+    let _api = fake_syncthing(&a.syncthing_home(), &a.folder(), folder.clone()).await;
+    // Started again to find the config, as a node started after Syncthing.
+    a.stop().await;
+    a.start().await;
+    // Syncthing's marker, which must not reach the peer.
+    write(&a.path(".stfolder/syncthing-folder-1.txt"), "game-1");
+    a.sync_with(&b).await;
+    b.sync_with(&a).await;
+    synced_file(&a, &b).await;
+    assert!(!b.path(".stfolder").exists());
+
+    // Resumed: Beep's sync stops as soon as Syncthing says so.
+    set_paused(&folder, false);
+    settles_on(&a, Some("Already synced by Syncthing (Game)")).await;
+    write(&a.path("meanwhile.txt"), "Syncthing's to carry");
+
+    // Paused again: Beep takes it back, and what changed meanwhile arrives.
+    set_paused(&folder, true);
+    settles_on(&a, None).await;
+    write(&a.path("later.txt"), "while paused");
+    eventually("the files written since to arrive", || {
+        read(&b.path("later.txt")).as_deref() == Some(b"while paused".as_slice())
+            && read(&b.path("meanwhile.txt")).is_some()
+    })
+    .await;
 }

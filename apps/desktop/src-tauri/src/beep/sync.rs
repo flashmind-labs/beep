@@ -10,6 +10,7 @@ use crate::{
     chat::history::{self, Turn},
     chat::markdown,
     error::Result,
+    palette::PaletteCache,
 };
 use beep_node::link::reconnect::Backoff;
 use beep_proto::{
@@ -25,7 +26,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 /// How often to look again while the app is not linked.
@@ -578,6 +579,7 @@ async fn catch_up(app: &AppHandle, beep: &Beep) -> Result<()> {
         }
         if !more {
             if sessions_changed {
+                app.state::<PaletteCache>().chats_changed();
                 tauri::async_runtime::spawn(crate::tray::refresh_recent(app.clone()));
             }
             return Ok(());
