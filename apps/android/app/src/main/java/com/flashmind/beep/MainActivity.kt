@@ -588,7 +588,8 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             // Chats and groups (keyed by groupKey) picked for bulk delete; selection mode is on while it is not null.
             var picked by remember { mutableStateOf<Set<String>?>(null) }
             var confirmBulkDelete by remember { mutableStateOf(false) }
-            LaunchedEffect(drawerOpen) { if (!drawerOpen) picked = null }
+            var moreOpen by remember { mutableStateOf(false) }
+            LaunchedEffect(drawerOpen) { if (!drawerOpen) { picked = null; moreOpen = false } }
             BackHandler(enabled = picked != null) { picked = null }
             val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
                 .sortedWith(compareByDescending<Conversation> { it.pinned }.thenByDescending { it.lastActive })
@@ -769,30 +770,35 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }
             // A search shows the chats alone.
             val searching = historyQuery.isNotBlank()
-            if (!bubble && !cover && !searching) {
-                HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
-                Row(Modifier.padding(horizontal = BeepSpace.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
-                    DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
-                    DrawerTile("Skills", Icons.Outlined.AutoAwesome, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Skills; drawerOpen = false }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.padding(horizontal = BeepSpace.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Places; drawerOpen = false }
-                    DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
-                    DrawerTile("Research", Icons.Outlined.Science, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Researches; drawerOpen = false }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
+            if (!bubble && !cover && !searching) HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
             if (!searching) Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!bubble) TextButton(onClick = { screen = Screen.Settings; drawerOpen = false }) {
                     Icon(Icons.Outlined.Settings, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
                     Text("Settings", color = TextMuted)
                 }
+                if (!bubble && !cover) TextButton(onClick = { moreOpen = true }) {
+                    Icon(Icons.Outlined.MoreHoriz, null, Modifier.size(18.dp), tint = TextMuted); Spacer(Modifier.width(8.dp))
+                    Text("More", color = TextMuted)
+                }
                 Spacer(Modifier.weight(1f))
                 ConnectionDot(connected, status); Spacer(Modifier.width(6.dp))
                 Text(status, fontSize = 11.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 12.dp).widthIn(max = 140.dp))
+            }
+            if (moreOpen) ModalBottomSheet(onDismissRequest = { moreOpen = false }, containerColor = Beep.colors.surface) {
+                val open = { to: Screen -> screen = to; drawerOpen = false }
+                Column(Modifier.padding(start = BeepSpace.page, end = BeepSpace.page, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { open(Screen.Memories) }
+                        DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { open(Screen.Crons) }
+                        DrawerTile("Skills", Icons.Outlined.AutoAwesome, Beep.colors.tints[2], Modifier.weight(1f)) { open(Screen.Skills) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[1], Modifier.weight(1f)) { open(Screen.Places) }
+                        DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { open(Screen.Integrations) }
+                        DrawerTile("Research", Icons.Outlined.Science, Beep.colors.tints[2], Modifier.weight(1f)) { open(Screen.Researches) }
+                    }
+                }
             }
         }
     }) {

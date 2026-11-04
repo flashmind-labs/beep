@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The chat list as Android has it: a sheet from the left over the chat, with the chats and
-/// groups, the tiles for the other screens, settings and the connection.
+/// groups, settings, the sheet with the other screens and the connection.
 struct ChatsDrawer<Content: View>: View {
     @Environment(AppModel.self) private var model
     @Binding var open: Bool
@@ -25,6 +25,7 @@ struct ChatsDrawer<Content: View>: View {
     /// The rows picked for bulk delete, by `HomeItem.id`; selection mode is on while it is set.
     @State private var picked: Set<String>?
     @State private var confirmingBulk = false
+    @State private var more = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -113,7 +114,9 @@ struct ChatsDrawer<Content: View>: View {
         .sheet(item: $sharing) { session in
             ShareChatSheet(session: session)
         }
+        .sheet(isPresented: $more) { moreSheet }
         .closesForLive {
+            more = false
             sharing = nil
             renaming = nil
             deleting = nil
@@ -168,29 +171,9 @@ struct ChatsDrawer<Content: View>: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Mint.soft).frame(height: 1).padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    tile("Memories", "brain", Mint.tints[0], .memories)
-                    tile("Routines", "clock", Mint.tints[1], .routines)
-                    tile("Skills", "sparkles", Mint.tints[2], .skills)
-                }
-                HStack(spacing: 8) {
-                    tile("Places", "mappin.and.ellipse", Mint.tints[1], .places)
-                    tile("Apps", "puzzlepiece.extension", Mint.tints[0], .apps)
-                    tile("Research", "flask", Mint.tints[2], .researches)
-                }
-            }
-            .padding(.horizontal, Mint.pageInset).padding(.bottom, 8)
             HStack(spacing: 6) {
-                Button { show(.settings) } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "gearshape").font(.system(size: 16))
-                        Text("Settings").font(.body(14, .medium))
-                    }
-                    .foregroundStyle(Mint.muted)
-                    .padding(.horizontal, 12).frame(minHeight: 40).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                footerButton("Settings", "gearshape") { show(.settings) }
+                footerButton("More", "ellipsis") { if !swiping { more = true } }
                 Spacer()
                 ConnectionDot(connected: model.connected)
                 Text(model.connected ? "Connected" : "Disconnected").font(.body(11)).foregroundStyle(Mint.muted)
@@ -198,6 +181,38 @@ struct ChatsDrawer<Content: View>: View {
             }
             .padding(.horizontal, 10).padding(.bottom, 12)
         }
+    }
+
+    private func footerButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 16))
+                Text(title).font(.body(14, .medium)).lineLimit(1)
+            }
+            .foregroundStyle(Mint.muted)
+            .padding(.horizontal, 12).frame(minHeight: 40).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var moreSheet: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                tile("Memories", "brain", Mint.tints[0], .memories)
+                tile("Routines", "clock", Mint.tints[1], .routines)
+                tile("Skills", "sparkles", Mint.tints[2], .skills)
+            }
+            HStack(spacing: 8) {
+                tile("Places", "mappin.and.ellipse", Mint.tints[1], .places)
+                tile("Apps", "puzzlepiece.extension", Mint.tints[0], .apps)
+                tile("Research", "flask", Mint.tints[2], .researches)
+            }
+        }
+        .padding(.horizontal, Mint.pageInset).padding(.top, 28)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Mint.surface)
+        .presentationDetents([.height(230)])
+        .presentationDragIndicator(.visible)
     }
 
     private func selectionBar(_ ids: Set<String>) -> some View {
@@ -403,7 +418,10 @@ struct ChatsDrawer<Content: View>: View {
     }
 
     private func tile(_ title: String, _ icon: String, _ tint: Color, _ route: Route) -> some View {
-        Button { show(route) } label: {
+        Button {
+            more = false
+            show(route)
+        } label: {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 19)).frame(height: 24)
                 Text(title).font(.body(12, .semibold)).lineLimit(1)
