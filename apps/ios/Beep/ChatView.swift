@@ -817,8 +817,7 @@ struct MessageView: View {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 11))
                     Text("Background work came back").lineLimit(1)
                 } else {
-                    Image(systemName: "clock").font(.system(size: 11))
-                    Text(message.text.isEmpty ? "Scheduled" : "Scheduled · \(message.text)").lineLimit(1)
+                    Text(message.text.isEmpty ? "Scheduled" : message.text).lineLimit(1)
                 }
             }
             .font(.body(11)).foregroundStyle(Mint.dim)
