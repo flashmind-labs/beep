@@ -17,7 +17,8 @@ use beep_proto::{
     ListInstructionsVersions, MachineAgentFiles, ReadAgentFiles, SaveInstructions,
 };
 use beep_proto::{
-    AttachTerminal, MAX_TERMINAL_INPUT, OpenTerminal, TerminalEvent, TerminalInput,
+    AttachTerminal, ChatApproval, GetProjectSyncDetail, ListPendingApprovals, MAX_TERMINAL_INPUT,
+    OpenTerminal, ProjectSyncDetail, TerminalEvent, TerminalInput,
     client::{Replies, Uplink},
 };
 use std::{sync::Arc, time::SystemTime};
@@ -237,6 +238,14 @@ impl BeepClient {
         project: String,
     ) -> Result<Vec<ProjectMachine>, BeepError> {
         self.call(ListProjectMachines { project }).await
+    }
+
+    pub async fn workspace_approvals(&self) -> Result<Vec<ChatApproval>, BeepError> {
+        self.call(ListPendingApprovals {}).await
+    }
+
+    pub async fn project_sync(&self, project: String) -> Result<ProjectSyncDetail, BeepError> {
+        self.call(GetProjectSyncDetail { project }).await
     }
 
     pub async fn project_branches(&self, project: String) -> Result<ProjectBranches, BeepError> {
