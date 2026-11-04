@@ -264,7 +264,7 @@ internal fun GroupChatPane(repository: ChatRepository, groupId: String, onMenu: 
         }
     }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = {
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = {
             Column(Modifier.clickable(enabled = group != null, onClick = onInfo)) {
                 Text(displayText(group?.name ?: "Group"), style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 group?.let {
@@ -822,7 +822,7 @@ internal fun GroupInfoScreen(repository: ChatRepository, groupId: String, onBack
     }
     val joinedFormat = remember { DateTimeFormatter.ofPattern("d MMM") }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Group info"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Group info"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->

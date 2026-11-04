@@ -203,6 +203,8 @@ class ChatRepository(private val storage: LocalStorage) {
     private fun api(config: ConnectionSettings = settings.value, identity: ByteArray = storage.identity()): BeepClient =
         BeepClients.client(config, identity)
 
+    internal fun workspaceApi(): BeepClient = api()
+
     /** On a new phone, takes the identity back from the Google account backup. */
     private suspend fun restoreIdentity() {
         if (storage.storedIdentity() != null) return
