@@ -1,6 +1,6 @@
 import "./keys.ts";
 import { chartClick } from "../chat/charts.ts";
-import { answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
+import { ANSWER, answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
 import { copy, loadChats } from "../chat/chats.ts";
 import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState, PANE, S, type Turn } from "./core.ts";
 import { drawGroup, type GroupApproval, loadGroup } from "../chat/groups.ts";
@@ -13,6 +13,7 @@ import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "../chat/rerun.ts";
 import { routeClick } from "../chat/routes.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
+import { copyCode } from "../chat/turnrows.ts";
 
 /// A button that says what it did for a moment, then goes back.
 interface UndoButton extends HTMLElement {
@@ -73,16 +74,18 @@ bar.addEventListener("click", e => {
   if (!t.closest(".dmenu")) closeRerunMenu();
   const copyReply = t.closest<UndoButton>('[data-act="copyReply"]');
   if (copyReply) {
-    copy(copyReply.closest(".turn")!.querySelector<HTMLElement>(".reply")?.innerText.trim() ?? "");
+    copy(copyReply.closest(".turn")!.querySelector<HTMLElement>(ANSWER)?.innerText.trim() ?? "");
     return flash(copyReply, ICON.check + "Copied", COPY_ICON + "Copy");
   }
+  const code = t.closest<HTMLElement>(".dcoderen.agent [data-copy]");
+  if (code) return copyCode(code);
   const c = t.closest<UndoButton>("[data-copy]");
   if (c) {
     e.preventDefault();
     copy(c.dataset.copy!);
     return flash(c, ICON.check, COPY_ICON);
   }
-  const img = t.closest<HTMLImageElement>(".reply img");
+  const img = t.closest<HTMLImageElement>(".dcoderen.agent img");
   if (img && !img.closest("a, .dprods, .drecs")) {
     return openViewer([{ url: img.currentSrc || img.src, caption: img.alt }], 0);
   }
