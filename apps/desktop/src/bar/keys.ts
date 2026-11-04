@@ -1,4 +1,5 @@
 import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.ts";
+import { keyHidden } from "../settings/subscription.ts";
 import { agentBack, agentKeys } from "../agents/agents.ts";
 import { A, addServer, drawApps, drawMcpTools, renderApps } from "../settings/apps.ts";
 import { attachedCount, unattach } from "../chat/attach.ts";
@@ -150,6 +151,8 @@ document.addEventListener("keydown", e => {
   }
   // These views live in the window now; before linking the bar keeps them.
   const linked = S.link === "linked";
+  // Without a subscription the assistant's pages are not there, so their keys do nothing.
+  if (cmd && keyHidden(key, linked)) { e.preventDefault(); return; }
   if (cmd && e.key === ",") { e.preventDefault(); return linked ? toWindow("settings") : renderSettings(); }
   if (cmd && key === "q") { e.preventDefault(); return invoke("quit"); }
   if (cmd && key === "m") { e.preventDefault(); return linked ? toWindow("memories") : renderMemories(); }

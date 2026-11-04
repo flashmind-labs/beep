@@ -75,6 +75,7 @@ export function scopeTag(session: string | null) {
 /// The project agents alone, so a chat's header knows its project before
 /// any project page has loaded them.
 export async function loadAgents() {
+  if (!state.subscribed) return;
   try {
     state.agents = await invoke<ProjectAgent[] | null>("center_projects");
   } catch (e) {

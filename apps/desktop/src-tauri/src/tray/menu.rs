@@ -68,34 +68,37 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     separator()?;
     item("status", status, false, None)?;
     separator()?;
-    item("new", "New chat", linked, Some("cmd+n"))?;
-    let chats = app
-        .state::<Recent>()
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    let recent = Submenu::with_id(app, "recent", "Recent", linked && !chats.is_empty())?;
-    for chat in &chats {
-        let title = if chat.title.is_empty() {
-            "New chat"
-        } else {
-            chat.title.as_str()
-        };
-        let id = format!("{CHAT_ITEM}{}", chat.id);
-        recent.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
+    // Without a subscription the assistant's items are not there at all.
+    if linked {
+        item("new", "New chat", true, Some("cmd+n"))?;
+        let chats = app
+            .state::<Recent>()
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let recent = Submenu::with_id(app, "recent", "Recent", !chats.is_empty())?;
+        for chat in &chats {
+            let title = if chat.title.is_empty() {
+                "New chat"
+            } else {
+                chat.title.as_str()
+            };
+            let id = format!("{CHAT_ITEM}{}", chat.id);
+            recent.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
+        }
+        menu.append(&recent)?;
+        for (id, title, keys) in [
+            ("memories", "Memories", "cmd+m"),
+            ("routines", "Routines", "cmd+j"),
+            ("skills", "Skills", "cmd+l"),
+            ("research", "Research", "cmd+r"),
+        ] {
+            item(id, title, true, Some(keys))?;
+        }
+        item("apps", "Apps", true, None)?;
+        separator()?;
     }
-    menu.append(&recent)?;
-    for (id, title, keys) in [
-        ("memories", "Memories", "cmd+m"),
-        ("routines", "Routines", "cmd+j"),
-        ("skills", "Skills", "cmd+l"),
-        ("research", "Research", "cmd+r"),
-    ] {
-        item(id, title, linked, Some(keys))?;
-    }
-    item("apps", "Apps", linked, None)?;
-    separator()?;
     let waiting = app.state::<WaitingList>().entries();
     if linked && !waiting.is_empty() {
         item("waiting", "Waiting", false, None)?;

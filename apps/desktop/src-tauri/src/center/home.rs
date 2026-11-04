@@ -271,7 +271,7 @@ pub async fn center_home(
 
 /// The projects the mesh holds, one row per machine of it that has one; none while the mesh is
 /// not open, so Home never waits for it.
-async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec<ImportedProject> {
+pub(crate) async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec<ImportedProject> {
     if fleet.mesh().is_none() {
         return Vec::new();
     }
@@ -287,7 +287,7 @@ async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec<ImportedPr
 /// The mesh's projects, then the server's on machines the mesh does not hold. With no server, or
 /// one that does not answer, the mesh's alone; the server's failure shows only when the mesh has
 /// nothing, so a cached Home is kept rather than shown empty.
-fn with_server(
+pub(crate) fn with_server(
     mut mesh: Vec<ImportedProject>,
     server: Result<Vec<ImportedProject>>,
 ) -> Result<Vec<ImportedProject>> {

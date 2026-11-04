@@ -50,15 +50,13 @@ const USED: &str = "This ticket expired or was already used. Ask for a new one."
 /// Joins the mesh a ticket from another desktop names, under this Mac's name. A Mac that is
 /// alone in its own mesh leaves it and brings its settings along.
 #[tauri::command]
-pub async fn mesh_join(
-    app: AppHandle,
-    fleet: State<'_, Arc<Fleet>>,
-    ticket: String,
-) -> Result<()> {
-    let ticket =
-        JoinTicket::decode_string(ticket.trim()).map_err(|_| DesktopError::BadRequest(USED.into()))?;
+pub async fn mesh_join(app: AppHandle, fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
+    let ticket = JoinTicket::decode_string(ticket.trim())
+        .map_err(|_| DesktopError::BadRequest(USED.into()))?;
     let joined = match fleet.join(&ticket, &computer_name()).await {
-        Err(DesktopError::Mesh(MeshError::Refused(_))) => Err(DesktopError::BadRequest(USED.into())),
+        Err(DesktopError::Mesh(MeshError::Refused(_))) => {
+            Err(DesktopError::BadRequest(USED.into()))
+        }
         other => other,
     };
     // The move was cancelled to let the mesh close; it runs again on whichever mesh is open.
