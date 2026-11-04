@@ -16,6 +16,7 @@ anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
 beep-proto = { path = "../proto", features = ["logging"] }
+beep-projects = { path = "../projects" }
 blake3 = "1"
 bytes = "1"
 chacha20poly1305 = "0.10"

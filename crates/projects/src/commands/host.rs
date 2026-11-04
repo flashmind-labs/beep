@@ -1,20 +1,21 @@
 //! `gh` and `tea` command lines for one host operation.
 
-use super::{
-    super::model::{IssueHost, RepoName},
-    gh_account,
+use super::gh_account;
+use crate::{
+    leak::PublicText,
+    model::{IssueHost, RepoName},
+    quote,
 };
-use crate::{memory::leak::PublicText, projects::quote};
 use serde_json::{Value, json};
 
 /// The label every issue Beep files carries.
-pub(crate) const LABEL_OWNED: &str = "beep";
+pub const LABEL_OWNED: &str = "beep";
 
-pub(crate) const LABEL_RUNNING: &str = "beep:running";
+pub const LABEL_RUNNING: &str = "beep:running";
 
-pub(crate) const LABEL_BLOCKED: &str = "beep:blocked";
+pub const LABEL_BLOCKED: &str = "beep:blocked";
 
-pub(crate) const LABEL_REVIEW: &str = "beep:review";
+pub const LABEL_REVIEW: &str = "beep:review";
 
 /// The labels [`HostCommand::EnsureLabels`] creates, with their colours.
 pub(super) const LABELS: [(&str, &str); 4] = [
@@ -28,7 +29,7 @@ pub(super) const LABEL_DESCRIPTION: &str = "Managed by the project agent";
 
 /// What Beep asks a code host for.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum HostCommand<'a> {
+pub enum HostCommand<'a> {
     EnsureLabels,
     CreateIssue {
         title: &'a str,
@@ -99,10 +100,10 @@ pub(crate) enum HostCommand<'a> {
 
 /// A comment on one line of a pull request's diff.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InlineComment {
-    pub(crate) path: String,
-    pub(crate) line: u32,
-    pub(crate) body: String,
+pub struct InlineComment {
+    pub path: String,
+    pub line: u32,
+    pub body: String,
 }
 
 /// The pieces of a command, quoted when joined.
@@ -125,7 +126,7 @@ impl Parts {
 
 impl HostCommand<'_> {
     /// The shell command that runs this against `repo` on `host`.
-    pub(crate) fn render(&self, host: &IssueHost, repo: &RepoName) -> String {
+    pub fn render(&self, host: &IssueHost, repo: &RepoName) -> String {
         match host {
             IssueHost::Github => self.gh(&repo.to_string()),
             IssueHost::Forgejo(host) => self.teacli(host.as_str(), &repo.to_string()),
@@ -150,7 +151,7 @@ impl HostCommand<'_> {
     }
 
     /// The private details in the text this command would publish, each once.
-    pub(crate) fn leaks(&self, public_text: &PublicText) -> Vec<String> {
+    pub fn leaks(&self, public_text: &PublicText) -> Vec<String> {
         let mut found: Vec<String> = Vec::new();
         for hit in self
             .outgoing()

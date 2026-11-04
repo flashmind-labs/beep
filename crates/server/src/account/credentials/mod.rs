@@ -13,6 +13,8 @@ use crate::protocol::{
     node::{EnvSecret, ForgejoLogin, MachineCredentials},
 };
 use reqwest::Url;
+
+pub use beep_projects::github_owner_var;
 use secrecy::{ExposeSecret, SecretString};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
@@ -177,28 +179,6 @@ pub fn github_for<'a>(opened: &'a [Opened], owner: &str) -> Option<&'a Opened> {
         .or_else(|| accounts().find(|(_, login)| login.owns(owner)))
         .or_else(|| accounts().find(|(_, login)| login.default))
         .map(|(opened, _)| opened)
-}
-
-/// What [`github_owner_var`] names start with.
-const GITHUB_OWNER_PREFIX: &str = "BEEP_GH_TOKEN_";
-
-/// The env var for `owner`'s token when not the default account's, such as `BEEP_GH_TOKEN_ACME_LABS`.
-pub fn github_owner_var(owner: &str) -> Option<String> {
-    let valid = !owner.is_empty()
-        && owner.len() <= 39
-        && owner
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
-    valid.then(|| {
-        let name: String = owner
-            .chars()
-            .map(|c| match c {
-                '-' => '_',
-                c => c.to_ascii_uppercase(),
-            })
-            .collect();
-        format!("{GITHUB_OWNER_PREFIX}{name}")
-    })
 }
 
 /// What the machines get: `GH_TOKEN` for the default, plus a [`github_owner_var`] per owner on another account.

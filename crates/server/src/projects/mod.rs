@@ -21,6 +21,7 @@ pub(crate) mod lifecycle;
 pub(crate) mod model;
 #[cfg(test)]
 mod node_tests;
+mod online_shell;
 mod personas;
 pub(crate) mod place;
 pub(crate) mod policy;

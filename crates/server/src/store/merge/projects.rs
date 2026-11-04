@@ -122,13 +122,14 @@ mod tests {
             place::{Folders, checkout_folder},
             repo::RepoRef,
         },
+        projects::model::memory_scope,
     };
 
     /// Every rule a project name must pass across imports, sync, memory and checkout folders.
     fn passes_every_rule(name: &str) {
         let repo = RepoName::parse(name).unwrap_or_else(|e| panic!("{name}: {e}"));
         // A project's memories are scoped by its repository part.
-        repo.memory_scope().expect("a memory scope");
+        memory_scope(&repo).expect("a memory scope");
         assert_eq!(project_name(name).ok(), Some(name));
         let import = RepoRef::parse(name, &[]).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_eq!(import.project(), name);
