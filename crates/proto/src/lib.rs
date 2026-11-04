@@ -1427,6 +1427,11 @@ requests! {
     /// `GetMachineSearch` does; `BadRequest` saying why when the machine has
     /// no such folder. Errors as for `ListSshHosts`.
     405 SetMachineSearch { machine_id: String, search: String } => Call<String>
+    /// `GetProjectLists` with the labels of each pull request. Errors as
+    /// for `GetProjectLists`.
+    406 GetLabeledProjectLists { project_id: Uuid, refresh: bool } => Call<LabeledProjectLists>
+    /// `ListGitItems` with the labels of each item.
+    407 ListLabeledGitItems {} => Call<LabeledGitItems>
 }
 
 /// A tool on a machine with a newer release (`ListToolUpdates`).
@@ -1653,6 +1658,14 @@ pub struct ProjectLists {
     /// When the host was last read; `None` before the first read and for a
     /// project without a GitHub or Forgejo host.
     pub synced_at: Option<SystemTime>,
+}
+
+/// What `GetLabeledProjectLists` gives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LabeledProjectLists {
+    pub lists: ProjectLists,
+    /// The label names of each of `lists.pull_requests`, in its order.
+    pub pr_labels: Vec<Vec<String>>,
 }
 
 /// What `ListProjectRuns` gives.
@@ -2753,6 +2766,15 @@ pub struct GitItems {
     /// Every git host in the caller's credentials, whether it answered or
     /// not. Empty when the caller has none.
     pub hosts: Vec<GitHost>,
+}
+
+/// What `ListLabeledGitItems` found.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LabeledGitItems {
+    pub found: GitItems,
+    /// The label names of each of `found.items`, in its order.
+    pub labels: Vec<Vec<String>>,
 }
 
 /// One git host `ListGitItems` asked.

@@ -106,10 +106,11 @@ pub struct PullRequestRow {
     created_at: u64,
     /// In milliseconds since the Unix epoch.
     updated_at: u64,
+    labels: Vec<String>,
 }
 
-impl From<ProjectPullRequest> for PullRequestRow {
-    fn from(p: ProjectPullRequest) -> Self {
+impl PullRequestRow {
+    pub(crate) fn labeled(p: ProjectPullRequest, labels: Vec<String>) -> Self {
         Self {
             number: p.number,
             title: p.title,
@@ -119,7 +120,14 @@ impl From<ProjectPullRequest> for PullRequestRow {
             mine: p.mine,
             created_at: epoch_ms(p.created_at),
             updated_at: epoch_ms(p.updated_at),
+            labels,
         }
+    }
+}
+
+impl From<ProjectPullRequest> for PullRequestRow {
+    fn from(p: ProjectPullRequest) -> Self {
+        Self::labeled(p, Vec::new())
     }
 }
 

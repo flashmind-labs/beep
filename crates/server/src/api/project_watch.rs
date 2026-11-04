@@ -24,6 +24,13 @@ pub(super) async fn get_project_lists(cx: Cx, req: GetProjectLists) -> Reply<Pro
     project_lists(&cx.app, &cx.user, ProjectId(req.project_id), req.refresh).await
 }
 
+pub(super) async fn get_labeled_project_lists(
+    cx: Cx,
+    req: GetLabeledProjectLists,
+) -> Reply<LabeledProjectLists> {
+    labeled_lists(&cx.app, &cx.user, ProjectId(req.project_id), req.refresh).await
+}
+
 pub(super) async fn list_project_runs(cx: Cx, req: ListProjectRuns) -> Reply<ProjectRuns> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
     Ok(cx
@@ -123,15 +130,29 @@ pub(super) async fn project_lists(
     id: ProjectId,
     refresh: bool,
 ) -> Reply<ProjectLists> {
+    Ok(labeled_lists(app, user, id, refresh).await?.lists)
+}
+
+/// The lists of `id` as `GetLabeledProjectLists` gives them.
+async fn labeled_lists(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    id: ProjectId,
+    refresh: bool,
+) -> Reply<LabeledProjectLists> {
     let project = project_of(user, id).await?;
     let copy = app.repo_watch.lists(app, user, &project, refresh).await;
     let issues = untracked(user, &project, &copy).await?;
-    Ok(ProjectLists {
-        pull_requests: copy.prs.into_iter().map(pull_request_view).collect(),
-        prs_error: copy.prs_error,
-        issues,
-        issues_error: copy.issues_error,
-        synced_at: copy.synced_at,
+    let pr_labels = copy.prs.iter().map(|pr| pr.pr.labels.clone()).collect();
+    Ok(LabeledProjectLists {
+        lists: ProjectLists {
+            pull_requests: copy.prs.into_iter().map(pull_request_view).collect(),
+            prs_error: copy.prs_error,
+            issues,
+            issues_error: copy.issues_error,
+            synced_at: copy.synced_at,
+        },
+        pr_labels,
     })
 }
 

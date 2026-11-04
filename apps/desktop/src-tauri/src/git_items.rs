@@ -5,7 +5,7 @@ use crate::{
     error::Result,
     projects::unknown_op,
 };
-use beep_proto::{GitHost, GitHostKind, GitItem, GitItems, ListGitItems};
+use beep_proto::{GitHost, GitHostKind, GitItem, LabeledGitItems, ListLabeledGitItems};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
@@ -46,6 +46,7 @@ struct GitItemRow {
     review: &'static str,
     checks_failing: bool,
     comments: u32,
+    labels: Vec<String>,
 }
 
 impl From<GitHost> for GitHostRow {
@@ -59,8 +60,8 @@ impl From<GitHost> for GitHostRow {
     }
 }
 
-impl From<GitItem> for GitItemRow {
-    fn from(item: GitItem) -> Self {
+impl GitItemRow {
+    fn labeled(item: GitItem, labels: Vec<String>) -> Self {
         Self {
             host: item.host,
             repo: item.repo,
@@ -76,14 +77,20 @@ impl From<GitItem> for GitItemRow {
             review: item.review.into(),
             checks_failing: item.checks_failing,
             comments: item.comments,
+            labels,
         }
     }
 }
 
-impl From<GitItems> for GitItemsView {
-    fn from(found: GitItems) -> Self {
+impl From<LabeledGitItems> for GitItemsView {
+    fn from(LabeledGitItems { found, labels }: LabeledGitItems) -> Self {
         Self {
-            items: found.items.into_iter().map(GitItemRow::from).collect(),
+            items: found
+                .items
+                .into_iter()
+                .zip(labels)
+                .map(|(item, labels)| GitItemRow::labeled(item, labels))
+                .collect(),
             hosts: found.hosts.into_iter().map(GitHostRow::from).collect(),
         }
     }
@@ -92,7 +99,7 @@ impl From<GitItems> for GitItemsView {
 /// The open PRs and issues; `None` from a server too old to list them.
 #[tauri::command]
 pub async fn git_items(beep: Service<'_>) -> Result<Option<GitItemsView>> {
-    match beep.call(ListGitItems {}).await {
+    match beep.call(ListLabeledGitItems {}).await {
         Ok(found) => Ok(Some(found.into())),
         Err(e) if unknown_op(&e) => Ok(None),
         Err(e) => Err(e),
