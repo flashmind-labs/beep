@@ -26,6 +26,7 @@ import type { FoundRow, Kid, OverviewCard, OverviewCardRow, OverviewGroup, Place
 import { openGroupSheet } from "./groupsheet.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
+import { editorTools } from "./editors.ts";
 import { NEW_WINDOW, mainTarget, opensNewWindow, route, startView, windowTitle } from "./projectwindow.ts";
 import type { CenterTarget, ProjectScope } from "./projectwindow.ts";
 import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
@@ -3000,7 +3001,8 @@ async function loadWhere(name: string) {
       if (shown === "projects" && state.picked === name) loadWhere(name);
     }, 3000);
   }
-  if (state.picked === name) redrawProjects();
+  // The header's Open in follows this Mac's checkout.
+  if (state.picked === name) redrawProjectsPage();
 }
 
 /// The sessions your coding agents ran in the project's folders, newest first,
@@ -3178,6 +3180,8 @@ registerView("projects", {
       if (label) tools.push(button(label.replace(/^Open on /, ""), "small", () => openUrl(url)));
     }
     if (p) {
+      const here = whereRows(p, state.where.get(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
+      tools.push(...editorTools(here?.folder, redrawProjectsPage));
       // The rest goes in one menu, so the header keeps to a line.
       const more = button("⋯", "quiet small", e => {
         const on = state.top.includes(p.name);
