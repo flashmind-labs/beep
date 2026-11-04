@@ -4,7 +4,7 @@
 //! once when no node listens.
 #![cfg(unix)]
 
-use beep_node::claude::External;
+use beep_node::agents::claude::External;
 use beep_proto::node::agent::{LiveState, Steer};
 use serde_json::{Value, json};
 use std::{

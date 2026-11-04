@@ -1,9 +1,6 @@
-//! What tokens cost at the providers' list prices, for the sessions whose
-//! logs say only how many tokens they used (see `super::spend`).
-//!
-//! Prices are US dollars per million tokens, taken from the providers'
-//! published API prices and OpenRouter's catalog in November 2026. A model
-//! not listed stays unpriced: its tokens are counted, not costed.
+//! What tokens cost at the providers' list prices (`price`), for sessions
+//! whose logs give only token counts (see `super::spend`). A model not listed
+//! stays unpriced: its tokens are counted, not costed.
 
 use serde::{Deserialize, Serialize};
 
@@ -86,7 +83,9 @@ impl Price {
     }
 }
 
-/// Each model by its name as `normalize` writes it.
+/// Each model by its name as `normalize` writes it, in US dollars per
+/// million tokens: the providers' API prices and OpenRouter's catalog as of
+/// November 2026.
 const PRICES: &[(&str, Price)] = &[
     ("claude-fable-5-1", Price::anthropic(10.0, 50.0, 0.25)),
     ("claude-mythos-5-1", Price::anthropic(10.0, 50.0, 0.25)),

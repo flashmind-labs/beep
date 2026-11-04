@@ -1,7 +1,6 @@
-//! Keeping agent sessions across a node restart: an update holds new
-//! prompts until no turn runs, the node notes the sessions it has open or
-//! stopped, and the next start resumes each by the agent's own id, which
-//! the server knows it by, with the prompts that still waited.
+//! Keeping agent sessions across a node restart: an update holds prompts
+//! until no turn runs (`Hold`), and the next start resumes each noted
+//! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use super::{Agents, Begin, Command, Prompt, session::NODE_STOPPED};
 use anyhow::{Context, Result};
@@ -148,12 +147,9 @@ impl Agents {
             &kind,
             Some(&cwd),
             Begin {
-                prompt: None,
                 resume: Some(open.session),
-                model: None,
-                effort: None,
                 note: Some(RESUMED.to_owned()),
-                brief: None,
+                ..Begin::default()
             },
         )?;
         for prompt in open.held {
@@ -171,7 +167,7 @@ mod tests {
     use super::*;
     use crate::{
         agents::{AgentKind, Session, live::Live},
-        restart::{self, Reopen},
+        link::restart::{self, Reopen},
     };
     use std::{collections::BTreeMap, path::Path, sync::Arc};
 
@@ -214,11 +210,7 @@ done
     fn begin(prompt: &str) -> Begin {
         Begin {
             prompt: Some(prompt.into()),
-            resume: None,
-            model: None,
-            effort: None,
-            note: None,
-            brief: None,
+            ..Begin::default()
         }
     }
 

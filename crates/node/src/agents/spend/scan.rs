@@ -9,7 +9,7 @@ use super::{
     ledger::{Database, Ledger, LogFile, Part, SessionKey, Stamp},
     pi,
 };
-use crate::found::{self, Agent, LogRoots};
+use crate::agents::found::{self, Agent, LogRoots};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -50,7 +50,7 @@ impl Roots {
     pub(crate) fn locate() -> Self {
         let logs = LogRoots::locate();
         let accounts = AccountFiles {
-            claude: crate::claude::config_dir(),
+            claude: crate::agents::claude::config_dir(),
             codex: logs.codex.as_ref().map(|home| home.join("auth.json")),
             pi: logs.pi_agent.as_ref().map(|dir| dir.join("auth.json")),
             opencode: logs.opencode.as_deref().map(|root| {
@@ -63,7 +63,7 @@ impl Roots {
             }),
         };
         Self {
-            claude: crate::claude::projects_dir(),
+            claude: crate::agents::claude::projects_dir(),
             codex: logs.codex.map(|home| home.join("sessions")),
             pi: logs.pi,
             flsh: logs.flsh,

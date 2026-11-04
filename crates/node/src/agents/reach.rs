@@ -1,14 +1,9 @@
 //! Which folders the server may reach on this node through the file
-//! requests (`SessionsRequest::File`, `Folder`, `ReadFile`, `WriteFile`).
-//! Read and written: the node's workspace and shared folders, and the
-//! folders coding agent sessions work in. Only read: the harnesses' session
-//! logs and Claude Code's temp folder, where it keeps the files it makes.
-//! The custom agents list (`SessionsRequest::CustomAgents`) and diffs
-//! (`SessionsRequest::Diff`) read only in the work folders.
-//! Every path is checked with its links and `..` resolved.
+//! requests (`Reach`, `Access`). Every path is checked with its links and
+//! `..` resolved.
 
 use super::{Agents, SIGHTING_WAIT, media_file::resolve};
-use crate::{claude, found::LogRoots};
+use crate::{agents::claude, agents::found::LogRoots};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -17,7 +12,10 @@ use std::{
 };
 use tokio::{task::spawn_blocking, time::timeout};
 
-/// What a request does with what it names.
+/// What a request does with what it names. Read and written: the node's
+/// workspace and shared folders, and the folders sessions work in. Only
+/// read: the harnesses' session logs and Claude Code's temp folder, where
+/// it keeps the files it makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Access {
     Read,
