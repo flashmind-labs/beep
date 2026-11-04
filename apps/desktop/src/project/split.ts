@@ -31,7 +31,7 @@ export function splitOn(p: Project) {
 /// draws.
 export function openTile(key: string | null, draw = true) {
   pa.tile = key;
-  if (key !== "terminals") terms.stop();
+  if (key !== "machines") terms.stop();
   if (key !== "sync") fsync.stop();
   if (key !== "review") revs.stop();
   if (!draw) return;
@@ -118,8 +118,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
-    { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
-    { key: "terminals", title: "Terminals", sub: terminalTile(terms.list(p.name), ago).count || "None open", detail: () => terms.panel(p.name, rows) },
+    // A machine's terminals sit below it, as on Home.
+    { key: "machines", title: "Machines", sub: [machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [whereSection(p, rows, known), ...terms.panel(p.name, rows)] },
     { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
   ];
   const threads = thr.threads(pid);
@@ -204,7 +204,7 @@ function projectOverview(p: Project, run: SplitItem[], prs: SplitItem[], issues:
     box("Running", run, "agents"),
     box("Pull requests", prs, prs[0]?.key),
     box("Issues", issues, issues[0]?.key),
-    list.length ? homeBox("", "Terminals", list.length, () => openTile("terminals"), list.map(t => terminalLine(t, () => openTile("terminals")))) : null,
+    list.length ? homeBox("", "Terminals", list.length, () => openTile("machines"), list.map(t => terminalLine(t, () => openTile("machines")))) : null,
     machines.length ? homeBox("", "Machines", where.count, () => openTile("machines"), machines) : null,
   ].filter(b => b !== null);
   const sub = [run.length ? `${run.length} running` : "", prs.length ? plural(prs.length, "PR", "PRs") : "", issues.length ? plural(issues.length, "issue", "issues") : ""].filter(Boolean).join(" · ");
