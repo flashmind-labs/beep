@@ -1,5 +1,5 @@
 //! The Beep MCP server's tools (`tools/1`), called by node agents one stream per call.
-//! `run_on` and `send_files` act, so under ask first they answer `Reply::Ask`.
+//! `send_files` acts, so under ask first it answers `Reply::Ask`.
 
 use super::{
     Machines, Need,
@@ -112,6 +112,8 @@ impl Calls {
         ) {
             (Check::Run, _) => None,
             (Check::Refuse(text), _) => Some(done(Err(text))),
+            // A command on the user's own machine does not ask, like `exec` in a chat.
+            (Check::Ask(_), _) if request.tool == Call::RunOn => None,
             (Check::Ask(approval), Approved::No) => Some(Reply::Ask {
                 app: approval.app,
                 action: approval.action,
@@ -776,33 +778,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_acting_call_asks_first_then_runs_once_allowed() {
+    async fn run_on_runs_without_asking() {
         let harness = Harness::new(Scripted::default()).await;
-        let calls = calls(&harness);
         let args = json!({ "machine": "build-box", "command": "uname" });
-        let asked = calls
-            .answer(&request(Call::RunOn, args.clone(), Approved::No))
+        let ran = calls(&harness)
+            .answer(&request(Call::RunOn, args, Approved::No))
             .await;
-        let Reply::Ask {
-            app,
-            action,
-            fields,
-        } = asked
-        else {
-            panic!("run_on ran without asking: {asked:?}");
-        };
-        assert_eq!((app.as_str(), action.as_str()), ("Your machines", "run on"));
-        assert!(
-            fields.iter().any(|field| field.value == "uname"),
-            "{fields:?}"
-        );
-        // Allowed, it runs: there is no such machine, which it says.
-        let ran = calls
-            .answer(&request(Call::RunOn, args, Approved::Once))
-            .await;
+        // It ran: there is no such machine, which it says.
         assert!(
             matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine called build-box")),
             "{ran:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_files_asks_first() {
+        let harness = Harness::new(Scripted::default()).await;
+        let args = json!({ "machine": "build-box", "paths": ["a.txt"] });
+        let asked = calls(&harness)
+            .answer(&request(Call::SendFiles, args, Approved::No))
+            .await;
+        assert!(
+            matches!(&asked, Reply::Ask { app, .. } if app == "Your machines"),
+            "{asked:?}"
         );
     }
 }
