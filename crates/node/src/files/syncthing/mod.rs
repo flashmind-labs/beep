@@ -1,32 +1,32 @@
 //! Whether the machine's Syncthing keeps a folder in step
-//! (`Syncthing::managed`). Beep's own sync leaves such a folder alone, since
-//! two tools syncing one folder fight over every change.
+//! (`Syncthing::check`). Beep's own sync leaves such a folder alone, since
+//! two tools syncing one folder fight over every change. A folder paused in
+//! Syncthing is not kept in step, so Beep syncs it until Syncthing resumes it.
 
-use crate::lock;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::SyncthingFolder;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    sync::Arc,
+    time::Duration,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     task::spawn_blocking,
-    time::timeout,
+    time::{sleep, timeout},
 };
 
 /// The longest a call to Syncthing may take.
 const TIMEOUT: Duration = Duration::from_secs(2);
-/// How long an answer about one folder stands.
-const FRESH: Duration = Duration::from_secs(60);
-/// Folders whose answers are kept at once.
-const MAX_CACHED: usize = 256;
+/// The longest between looks at Syncthing's folders when no event says to.
+const CHANGE_WAIT: Duration = Duration::from_secs(60);
+/// The events that can change which folders Syncthing keeps in step. They
+/// arrive within milliseconds of the change.
+const EVENTS: &str = "FolderPaused,FolderResumed,ConfigSaved";
 /// The most bytes read from the folder list.
 const MAX_REPLY: usize = 8 << 20;
 /// What Syncthing leaves in the root of each folder it syncs.
@@ -59,17 +59,11 @@ struct Gui {
     key: SecretString,
 }
 
-struct Cached {
-    at: Instant,
-    managed: Option<Managed>,
-}
-
 struct Inner {
     /// Folders that may hold `config.xml`; the first that does is read.
     homes: Vec<PathBuf>,
     /// The user's home: what `~` means, and where the marker search stops.
     home: Option<PathBuf>,
-    cache: Mutex<HashMap<PathBuf, Cached>>,
 }
 
 /// The machine's Syncthing, as far as it can be found.
@@ -88,51 +82,59 @@ impl Syncthing {
     /// one, for a user whose home is `home`.
     pub fn at(homes: Vec<PathBuf>, home: Option<PathBuf>) -> Self {
         Self {
-            inner: Arc::new(Inner {
-                homes,
-                home,
-                cache: Mutex::default(),
-            }),
+            inner: Arc::new(Inner { homes, home }),
         }
     }
 
-    /// The Syncthing folder that keeps `folder` in step, if any, as last
-    /// found within a minute.
-    pub async fn managed(&self, folder: &Path) -> Option<Managed> {
-        if let Some(cached) = lock(&self.inner.cache).get(folder)
-            && cached.at.elapsed() < FRESH
-        {
-            return cached.managed.clone();
-        }
-        self.check(folder).await
-    }
-
-    /// The same as `managed`, asked again now. Asks Syncthing's REST API,
-    /// with the address and key from its `config.xml`; when it does not
+    /// The Syncthing folder that keeps `folder` in step, if any. Asks
+    /// Syncthing's REST API, with the address and key from its `config.xml`; when it does not
     /// answer, a `.stfolder` marker in the folder or above it, up to home,
     /// counts. Never fails: what cannot be read counts as not managed.
     pub async fn check(&self, folder: &Path) -> Option<Managed> {
         let listed = self.api_folders().await;
-        let managed = self.decide(folder, listed).await;
-        let mut cache = lock(&self.inner.cache);
-        if cache.len() >= MAX_CACHED {
-            cache.retain(|_, cached| cached.at.elapsed() < FRESH);
-            if cache.len() >= MAX_CACHED {
-                cache.clear();
-            }
-        }
-        cache.insert(
-            folder.to_owned(),
-            Cached {
-                at: Instant::now(),
-                managed: managed.clone(),
-            },
-        );
-        managed
+        self.decide(folder, listed).await
     }
 
-    /// Every folder Syncthing keeps in step, as its API lists them; empty
-    /// when it does not answer.
+    /// Waits until Syncthing pauses, resumes or reconfigures a folder, or
+    /// `CHANGE_WAIT` has passed. `since` is the last event seen, 0 at first.
+    /// When its events cannot be read, waits out `CHANGE_WAIT`.
+    pub(crate) async fn changed(&self, since: &mut u64) {
+        match self.next_event(*since).await {
+            Ok(last) => *since = last.unwrap_or(*since),
+            Err(e) => {
+                log::debug!("Syncthing's events did not read: {e:#}");
+                // Its event numbers start over when it restarts.
+                *since = 0;
+                sleep(CHANGE_WAIT).await;
+            }
+        }
+    }
+
+    /// The last event after `since`, once there is one, or `None` when
+    /// `CHANGE_WAIT` passes without any.
+    async fn next_event(&self, since: u64) -> Result<Option<u64>> {
+        let gui = self.gui().await?;
+        let wait = CHANGE_WAIT.as_secs();
+        let path = format!("/rest/events?events={EVENTS}&since={since}&timeout={wait}");
+        let events = timeout(CHANGE_WAIT + TIMEOUT, get(&gui, &path))
+            .await
+            .context("waiting for Syncthing's events")??;
+        let events: Vec<RawEvent> =
+            serde_json::from_slice(&events).context("Syncthing's events do not read")?;
+        Ok(events.iter().map(|event| event.id).max())
+    }
+
+    /// The GUI to ask, from `config.xml`.
+    async fn gui(&self) -> Result<Gui> {
+        let homes = self.inner.homes.clone();
+        spawn_blocking(move || find_gui(&homes))
+            .await
+            .context("reading Syncthing's config did not finish")??
+            .context("Syncthing has no config here")
+    }
+
+    /// Every folder Syncthing keeps in step, as its API lists them less the
+    /// paused ones; empty when it does not answer.
     pub async fn folders(&self) -> Vec<SyncthingFolder> {
         self.api_folders().await.unwrap_or_default()
     }
@@ -160,15 +162,10 @@ impl Syncthing {
 
     /// The folders the API lists, or `None` when it cannot be asked.
     async fn api_folders(&self) -> Option<Vec<SyncthingFolder>> {
-        let homes = self.inner.homes.clone();
-        let gui = match spawn_blocking(move || find_gui(&homes)).await {
-            Ok(Ok(gui)) => gui?,
-            Ok(Err(e)) => {
-                log::debug!("Syncthing's config is unreadable: {e:#}");
-                return None;
-            }
+        let gui = match self.gui().await {
+            Ok(gui) => gui,
             Err(e) => {
-                log::warn!("reading Syncthing's config did not finish: {e}");
+                log::debug!("Syncthing cannot be asked: {e:#}");
                 return None;
             }
         };
@@ -276,16 +273,29 @@ struct RawFolder {
     id: String,
     label: String,
     path: String,
+    paused: bool,
 }
 
-/// `GET /rest/config/folders`. HTTP/1.0, so the reply is neither chunked
-/// nor kept open: it ends when the connection closes.
+/// One event as `/rest/events` lists it.
+#[derive(Debug, Deserialize)]
+struct RawEvent {
+    id: u64,
+}
+
+/// `GET /rest/config/folders`.
 async fn fetch(gui: &Gui) -> Result<Vec<RawFolder>> {
+    let body = get(gui, "/rest/config/folders").await?;
+    serde_json::from_slice(&body).context("Syncthing's folder list does not read")
+}
+
+/// The body of `GET path`. HTTP/1.0, so the reply is neither chunked nor
+/// kept open: it ends when the connection closes.
+async fn get(gui: &Gui, path: &str) -> Result<Vec<u8>> {
     let mut stream = TcpStream::connect(&gui.addr)
         .await
         .context("reaching Syncthing")?;
     let request = format!(
-        "GET /rest/config/folders HTTP/1.0\r\nHost: {}\r\nX-API-Key: {}\r\nAccept: application/json\r\n\r\n",
+        "GET {path} HTTP/1.0\r\nHost: {}\r\nX-API-Key: {}\r\nAccept: application/json\r\n\r\n",
         gui.addr,
         gui.key.expose_secret()
     );
@@ -301,7 +311,7 @@ async fn fetch(gui: &Gui) -> Result<Vec<RawFolder>> {
         .await
         .context("reading Syncthing's reply")?;
     if reply.len() > MAX_REPLY {
-        bail!("Syncthing's folder list is over {MAX_REPLY} bytes");
+        bail!("Syncthing's reply is over {MAX_REPLY} bytes");
     }
     let split = reply
         .windows(4)
@@ -316,13 +326,13 @@ async fn fetch(gui: &Gui) -> Result<Vec<RawFolder>> {
     if status != "200" {
         bail!("Syncthing answered {status}");
     }
-    serde_json::from_slice(&reply[split + 4..]).context("Syncthing's folder list does not read")
+    Ok(reply.split_off(split + 4))
 }
 
-/// The folders with `~` expanded and symlinks resolved.
+/// The folders not paused, with `~` expanded and symlinks resolved.
 fn resolve(raw: Vec<RawFolder>, home: Option<&Path>) -> Vec<SyncthingFolder> {
     raw.into_iter()
-        .filter(|folder| !folder.path.is_empty())
+        .filter(|folder| !folder.path.is_empty() && !folder.paused)
         .map(|folder| {
             let path = real(&expand(&folder.path, home));
             SyncthingFolder {
