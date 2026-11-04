@@ -2,6 +2,7 @@
 //! their instructions. They are the same on every machine, so they are one value each in the
 //! mesh (`harness/<agent>`, `flsh`, `instructions`), which the nodes read.
 
+use crate::migrate::{Unmoved, unmoved_env};
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
@@ -68,6 +69,18 @@ impl Desk {
         Key::Harness(format!("{agent}/{machine}"))
     }
 
+    /// The names of the env vars of `agent` the account move left to enter again.
+    fn unmoved_env(&self, agent: &str) -> Vec<String> {
+        let prefix = format!("unmoved/harness/{agent}/");
+        scan::<Unmoved>(&self.mesh, &prefix)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Unmoved::HarnessEnv { name, .. } => Some(name),
+                Unmoved::Credential(_) => None,
+            })
+            .collect()
+    }
+
     /// Each machine's settings for `agent`: the same on all of them, but for its own program path
     /// and home folder.
     pub fn harness_settings(&self, agent: &str) -> Result<Vec<MachineHarnessSettings>> {
@@ -83,6 +96,12 @@ impl Desk {
                     &Self::harness_device_key(agent, status.device.id),
                 );
                 let mut settings = settings_of(shared.as_ref());
+                // Variables the account move could not bring, to enter again.
+                for name in self.unmoved_env(agent) {
+                    if !settings.env.iter().any(|var| var.name == name) {
+                        settings.env.push(HarnessEnv { name, value: None });
+                    }
+                }
                 settings.program = own
                     .as_ref()
                     .and_then(|own| own.program.clone())
@@ -173,6 +192,13 @@ impl Desk {
             env: merged_env(kept, settings.env),
         };
         write(&self.mesh, key, Some(&config)).await?;
+        // A variable with a value is in the mesh now, so its record goes.
+        for var in &config.env {
+            let record = unmoved_env(agent, &var.name);
+            if self.mesh.get(&record).is_some() {
+                self.mesh.set(record, None).await?;
+            }
+        }
         let blank = |text: String| Some(text).filter(|text| !text.is_empty());
         for (machine, program, home) in paths {
             let own = HarnessConfig {

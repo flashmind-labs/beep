@@ -9,7 +9,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    migrate::{UNMOVED, Unmoved, unmoved_key},
+    migrate::{UNMOVED_CREDENTIAL, Unmoved, unmoved_credential},
     peer::probe,
     records::{WRITES, now_ms, time},
 };
@@ -269,9 +269,10 @@ impl Desk {
     /// enter again, until one is saved for the same slot.
     fn unmoved(&self, listed: &[Credential]) -> Vec<Credential> {
         let held: Vec<Slot> = self.saved().into_iter().map(|saved| saved.slot).collect();
-        let mut kept: Vec<Credential> = crate::records::scan::<Unmoved>(&self.mesh, UNMOVED)
+        let mut kept: Vec<Credential> = self
+            .unmoved_credentials()
             .into_iter()
-            .map(|(_, Unmoved(credential))| credential)
+            .map(|(_, credential)| credential)
             .filter(|credential| {
                 Slot::from_wire(&credential.kind).is_ok_and(|slot| !held.contains(&slot))
             })
@@ -279,6 +280,28 @@ impl Desk {
             .collect();
         kept.sort_by(|a, b| a.id.cmp(&b.id));
         kept
+    }
+
+    /// The records of credentials the account move left to enter again.
+    fn unmoved_credentials(&self) -> Vec<(Key, Credential)> {
+        crate::records::scan::<Unmoved>(&self.mesh, UNMOVED_CREDENTIAL)
+            .into_iter()
+            .filter_map(|(key, record)| match record {
+                Unmoved::Credential(credential) => Some((key, credential)),
+                Unmoved::HarnessEnv { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Drops the records of credentials for `slot`: its value is saved now, so nodes may take the
+    /// mesh's.
+    async fn settle_unmoved(&self, slot: &Slot) -> Result<()> {
+        for (key, credential) in self.unmoved_credentials() {
+            if Slot::from_wire(&credential.kind).is_ok_and(|held| held == *slot) {
+                self.mesh.set(key, None).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Checks `secret` with its host and saves it. A GitHub token is saved as the account it signs
@@ -328,6 +351,7 @@ impl Desk {
             self.drop_keys(&old.id).await?;
         }
         crate::records::write(&self.mesh, key(&id), Some(&value)).await?;
+        self.settle_unmoved(&slot).await?;
         Ok(Credential {
             id,
             kind: kind.clone(),
@@ -386,6 +410,7 @@ impl Desk {
             },
         ));
         self.write_github(kept).await?;
+        self.settle_unmoved(&Slot::GitHub).await?;
         self.github_accounts()
             .into_iter()
             .find(|account| account.id == id)
@@ -504,7 +529,7 @@ impl Desk {
         let saved = self.saved();
         let Some(removed) = saved.iter().find(|saved| saved.id == id) else {
             // One an account move left to enter again.
-            let record = unmoved_key(id);
+            let record = unmoved_credential(id);
             if self.mesh.get(&record).is_none() {
                 return Err(FleetError::NotFound);
             }

@@ -617,7 +617,7 @@ impl Linked {
         offers.tools.set(None);
         // What the mesh owns is the mesh's, which the server's link does not
         // touch.
-        if !offers.mesh.owns(Family::Credentials) {
+        if !offers.mesh.owns(Family::Credentials, offers.has_server()) {
             // Revoked or only cut off, the node keeps no token it cannot hear
             // about being removed; the server sends them again on reconnecting.
             if let Some(provision) = &offers.provision {
@@ -627,10 +627,10 @@ impl Linked {
         // The harnesses' env vars may be secrets too; the server sends the
         // settings again on reconnecting. Each half goes unless the mesh owns it.
         let mut settings = offers.agents.settings();
-        if !offers.mesh.owns(Family::Harnesses) {
+        if !offers.mesh.owns(Family::Harnesses, offers.has_server()) {
             settings.harnesses.clear();
         }
-        if !offers.mesh.owns(Family::Flsh) {
+        if !offers.mesh.owns(Family::Flsh, offers.has_server()) {
             settings.flsh = None;
         }
         offers.agents.set_settings(settings);
@@ -725,7 +725,7 @@ async fn serve_linked(
 
 /// The server's credentials, unless the mesh owns them.
 async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
-    if offers.mesh.owns(Family::Credentials) {
+    if offers.mesh.owns(Family::Credentials, offers.has_server()) {
         log::info!("ignored credentials from the server: this node takes them from its mesh");
         return;
     }
@@ -738,8 +738,8 @@ async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
 /// The server's agent settings, except the parts the mesh owns.
 fn take_settings(offers: &Offers, mut settings: AgentSettings) {
     let (harnesses, flsh) = (
-        offers.mesh.owns(Family::Harnesses),
-        offers.mesh.owns(Family::Flsh),
+        offers.mesh.owns(Family::Harnesses, offers.has_server()),
+        offers.mesh.owns(Family::Flsh, offers.has_server()),
     );
     if harnesses || flsh {
         log::info!("ignored agent settings from the server: this node takes them from its mesh");
@@ -897,7 +897,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("a temp folder");
         let offers = Offers::local(&[], Provision::new(dir.path()), true);
         assert!(offers.mesh.get().is_none());
-        assert!(!offers.mesh.owns(Family::Harnesses));
+        assert!(!offers.mesh.owns(Family::Harnesses, offers.has_server()));
         let off = HarnessConfig {
             enabled: false,
             ..HarnessConfig::new("codex")

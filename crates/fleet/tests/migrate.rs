@@ -8,7 +8,7 @@ use beep_fleet::{
 };
 use beep_mesh::{Key, Mesh, transport_config};
 use beep_proto::{
-    Credential, CredentialKind, FlshSettings, HarnessSettings, ImportedProject,
+    Credential, CredentialKind, FlshSettings, HarnessEnv, HarnessSettings, ImportedProject,
     InstructionsVersion, MachineHarnessSettings, MachineSync, ProjectGroup, ProjectSync,
     SyncStatus,
     node::mesh_state::{StateValue, SyncSpec},
@@ -52,12 +52,16 @@ fn harness_settings(machine: EndpointId, program: &str, args: &[&str]) -> Machin
             program: program.into(),
             home: String::new(),
             args: args.iter().map(|arg| (*arg).to_owned()).collect(),
-            env: Vec::new(),
+            env: vec![HarnessEnv {
+                name: "OPENAI_API_KEY".into(),
+                value: None,
+            }],
         },
     }
 }
 
 struct Server {
+    account: &'static str,
     box_id: EndpointId,
     group: Uuid,
     down: AtomicBool,
@@ -66,6 +70,7 @@ struct Server {
 impl Server {
     fn new() -> Self {
         Self {
+            account: ACCOUNT,
             box_id: machine(),
             group: Uuid::new_v4(),
             down: AtomicBool::new(false),
@@ -82,6 +87,11 @@ impl Server {
 
 #[async_trait]
 impl Source for Server {
+    async fn account(&self) -> Result<String> {
+        self.reach()?;
+        Ok(self.account.to_owned())
+    }
+
     async fn imports(&self) -> Result<Vec<ImportedProject>> {
         self.reach()?;
         Ok(vec![ImportedProject {
@@ -194,7 +204,7 @@ async fn moving_an_account_keeps_its_projects_and_credentials() {
     let dir = TempDir::new().expect("temp dir");
     let mesh = mesh(&dir).await;
     let server = Server::new();
-    let report = migrate::run(&mesh, &server, ACCOUNT).await.expect("moves");
+    let report = migrate::run(&mesh, &server).await.expect("moves");
     assert!(!report.already);
     assert_eq!(report.unmoved, 1);
 
@@ -209,7 +219,8 @@ async fn moving_an_account_keeps_its_projects_and_credentials() {
         "flsh".to_owned(),
         "harness/codex".to_owned(),
         format!("harness/codex/{}", server.box_id),
-        "unmoved/7".to_owned(),
+        "unmoved/credential/7".to_owned(),
+        "unmoved/harness/codex/OPENAI_API_KEY".to_owned(),
     ] {
         assert!(keys.contains(&want), "{want} is in the mesh: {keys:?}");
     }
@@ -228,8 +239,13 @@ async fn moving_an_account_keeps_its_projects_and_credentials() {
 
     // No secret travels: the mesh holds no credential value, only the record with its last4.
     assert!(mesh.scan("credential/").is_empty());
+    // The harness record names the variable and holds no value.
+    let var = mesh
+        .get(&Key::Unmoved("harness/codex/OPENAI_API_KEY".into()))
+        .expect("the variable's record");
+    assert!(!String::from_utf8_lossy(&var).contains("sk-"));
     let record = mesh
-        .get(&Key::Other("unmoved/7".into()))
+        .get(&Key::Unmoved("credential/7".into()))
         .expect("the record");
     assert!(String::from_utf8_lossy(&record).contains("9f3a"));
 }
@@ -239,10 +255,10 @@ async fn running_the_move_twice_changes_nothing() {
     let dir = TempDir::new().expect("temp dir");
     let mesh = mesh(&dir).await;
     let server = Server::new();
-    let first = migrate::run(&mesh, &server, ACCOUNT).await.expect("moves");
+    let first = migrate::run(&mesh, &server).await.expect("moves");
     assert!(first.written > 0);
     let after_first = snapshot(&mesh);
-    let second = migrate::run(&mesh, &server, ACCOUNT).await.expect("moves");
+    let second = migrate::run(&mesh, &server).await.expect("moves");
     assert_eq!(
         second,
         Report {
@@ -282,7 +298,7 @@ async fn a_newer_mesh_value_is_never_overwritten() {
         .await
         .expect("written");
 
-    migrate::run(&mesh, &server, ACCOUNT).await.expect("moves");
+    migrate::run(&mesh, &server).await.expect("moves");
 
     assert_eq!(mesh.get(&Key::Sync("acme/widget".into())), Some(newer));
     assert_eq!(mesh.get(&Key::Flsh), Some(flsh));
@@ -297,27 +313,68 @@ async fn a_server_that_cannot_be_reached_leaves_the_mesh_alone_and_the_next_try_
     let server = Server::new();
     let before = snapshot(&mesh);
     server.down.store(true, Ordering::Relaxed);
-    migrate::run(&mesh, &server, ACCOUNT)
+    migrate::run(&mesh, &server)
         .await
         .expect_err("the server is down");
     assert_eq!(snapshot(&mesh), before);
 
     server.down.store(false, Ordering::Relaxed);
-    let report = migrate::run(&mesh, &server, ACCOUNT).await.expect("moves");
+    let report = migrate::run(&mesh, &server).await.expect("moves");
     assert!(!report.already);
     assert!(report.written > 0);
 }
 
 #[tokio::test]
-async fn another_server_is_another_move() {
+async fn two_logins_on_one_server_are_two_moves() {
     let dir = TempDir::new().expect("temp dir");
     let mesh = mesh(&dir).await;
-    let server = Server::new();
-    migrate::run(&mesh, &server, ACCOUNT).await.expect("moves");
-    let other = migrate::run(&mesh, &server, "server-two")
-        .await
-        .expect("moves");
+    let first = Server::new();
+    migrate::run(&mesh, &first).await.expect("moves");
+    let second = Server {
+        account: "account-two",
+        ..Server::new()
+    };
+    let other = migrate::run(&mesh, &second).await.expect("moves");
     assert!(!other.already);
-    // Everything was already there: only the mark is new.
-    assert_eq!(other.written, 1);
+    // The same login again is done.
+    assert!(migrate::run(&mesh, &first).await.expect("moves").already);
+}
+
+#[tokio::test]
+async fn a_join_carrying_a_moved_account_keeps_the_meshes_newer_values() {
+    // The lone mesh moved an account; the mesh being joined has its own newer values.
+    let (lone_dir, joined_dir) = (TempDir::new().expect("dir"), TempDir::new().expect("dir"));
+    let (lone, joined) = (mesh(&lone_dir).await, mesh(&joined_dir).await);
+    let server = Server::new();
+    migrate::run(&lone, &server).await.expect("moves");
+
+    let flsh = FlshSettings {
+        zdr: Some(false),
+        ..FlshSettings::default()
+    }
+    .to_bytes()
+    .expect("encodes");
+    joined
+        .set(Key::Flsh, Some(flsh.clone()))
+        .await
+        .expect("written");
+    // A pin the user removed in the joined mesh stays removed.
+    joined
+        .set(Key::Pin("acme/widget".into()), Some(vec![1]))
+        .await
+        .expect("written");
+    joined
+        .set(Key::Pin("acme/widget".into()), None)
+        .await
+        .expect("deleted");
+
+    for (key, value) in lone.scan("") {
+        joined.set_if_new(key, value).await.expect("carried");
+    }
+
+    assert_eq!(joined.get(&Key::Flsh), Some(flsh));
+    assert_eq!(joined.get(&Key::Pin("acme/widget".into())), None);
+    // What the joined mesh lacked came along.
+    assert!(joined.get(&Key::Sync("acme/widget".into())).is_some());
+    assert!(joined.get(&Key::Project("acme/widget".into())).is_some());
 }

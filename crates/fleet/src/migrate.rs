@@ -8,14 +8,15 @@
 //! reached leaves the mesh untouched and the move tries again on the next launch.
 //!
 //! The server never sends a secret back. A credential is copied without its value: the mesh holds
-//! a record with its last four characters (`unmoved/<id>`), which Settings lists as one to enter
-//! again. The same goes for the values of a harness's env vars, which are left out.
+//! a record with its last four characters (`unmoved/credential/<id>`), which Settings lists as one
+//! to enter again. A harness's env vars are the same, name only (`unmoved/harness/<agent>/<VAR>`). A node
+//! keeps the server's values of a family while any record of it remains.
 
 use crate::{
     error::Result,
     records::{
         GroupRecord, PinRecord, Place, ProjectRecord, SavedVersion, WRITES, find_project, now_ms,
-        place_key, project_key, time_ms, write,
+        place_key, project_key, time_ms,
     },
 };
 use async_trait::async_trait;
@@ -36,6 +37,8 @@ use uuid::Uuid;
 /// What an account has on its server: the reads the move makes.
 #[async_trait]
 pub trait Source: Send + Sync {
+    /// Who the account is: the id of its own key, the same on every login of every server.
+    async fn account(&self) -> Result<String>;
     async fn imports(&self) -> Result<Vec<ImportedProject>>;
     async fn sync(&self) -> Result<Vec<ProjectSync>>;
     async fn groups(&self) -> Result<Vec<ProjectGroup>>;
@@ -68,20 +71,29 @@ struct Moved {
 
 impl StateValue for Moved {}
 
-/// `unmoved/<id>`: a credential the server holds that the mesh has no value for.
+/// What an `unmoved/...` record says: a value the server holds that the mesh has none of.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Unmoved(pub(crate) Credential);
+pub(crate) enum Unmoved {
+    /// A credential, shown with its last four characters.
+    Credential(Credential),
+    /// The name of an env var of a harness, never its value.
+    HarnessEnv { agent: String, name: String },
+}
 
 impl StateValue for Unmoved {}
 
-pub(crate) const UNMOVED: &str = "unmoved/";
+pub(crate) const UNMOVED_CREDENTIAL: &str = "unmoved/credential/";
 
 fn moved_key(account: &str) -> Key {
     Key::Other(format!("moved/{account}"))
 }
 
-pub(crate) fn unmoved_key(id: &str) -> Key {
-    Key::Other(format!("{UNMOVED}{id}"))
+pub(crate) fn unmoved_credential(id: &str) -> Key {
+    Key::Unmoved(format!("credential/{id}"))
+}
+
+pub(crate) fn unmoved_env(agent: &str, name: &str) -> Key {
+    Key::Unmoved(format!("harness/{agent}/{name}"))
 }
 
 /// Everything read from the server, before any of it is written.
@@ -120,21 +132,20 @@ struct Writer<'a> {
 }
 
 impl Writer<'_> {
-    /// Whether the key was written.
+    /// Whether the key was written. A key the mesh holds or deleted is left as it is.
     async fn absent<T: StateValue>(&mut self, key: Key, value: &T) -> Result<bool> {
-        if self.mesh.get(&key).is_some() {
-            return Ok(false);
-        }
-        write(self.mesh, key, Some(value)).await?;
-        self.written += 1;
-        Ok(true)
+        let bytes = value.to_bytes().map_err(anyhow::Error::from)?;
+        let wrote = self.mesh.set_if_new(key, bytes).await?;
+        self.written += usize::from(wrote);
+        Ok(wrote)
     }
 }
 
-/// Moves `account` into `mesh`. A desktop calls it once its mesh is open; `account` names the
-/// server's account, so a different server is a different move.
-pub async fn run(mesh: &Mesh, source: &dyn Source, account: &str) -> Result<Report> {
-    if mesh.get(&moved_key(account)).is_some() {
+/// Moves the source's account into `mesh`. A desktop calls it once its mesh is open. The move is
+/// kept per account, so another login, on the same server or not, is another move.
+pub async fn run(mesh: &Mesh, source: &dyn Source) -> Result<Report> {
+    let account = source.account().await?;
+    if mesh.get(&moved_key(&account)).is_some() {
         return Ok(Report {
             already: true,
             ..Report::default()
@@ -165,7 +176,7 @@ pub async fn run(mesh: &Mesh, source: &dyn Source, account: &str) -> Result<Repo
     harness(&mut out, &found.harness).await?;
     out.absent(Key::Flsh, &found.flsh).await?;
     instructions(&mut out, &found.instructions).await?;
-    out.absent(moved_key(account), &Moved { at_ms: base })
+    out.absent(moved_key(&account), &Moved { at_ms: base })
         .await?;
     Ok(Report {
         already: false,
@@ -239,7 +250,10 @@ async fn unmoved(out: &mut Writer<'_>, credentials: &[Credential]) -> Result<usi
         let mut shown = credential.clone();
         shown.unreadable = true;
         if out
-            .absent(unmoved_key(&credential.id), &Unmoved(shown))
+            .absent(
+                unmoved_credential(&credential.id),
+                &Unmoved::Credential(shown),
+            )
             .await?
         {
             count += 1;
@@ -259,6 +273,13 @@ async fn harness(
         // On or off and the launch arguments are the same on every machine. The values of its env
         // vars never come back from the server, so a variable cannot be copied.
         let shared = &first.settings;
+        for var in &shared.env {
+            let record = Unmoved::HarnessEnv {
+                agent: (*agent).to_owned(),
+                name: var.name.clone(),
+            };
+            out.absent(unmoved_env(agent, &var.name), &record).await?;
+        }
         if !shared.enabled || !shared.args.is_empty() {
             let config = HarnessConfig {
                 enabled: shared.enabled,
