@@ -813,7 +813,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dthink > button { all: unset; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 1px 0; font-size: 12.5px; color: var(--muted); cursor: pointer }
 .dthink > button:hover { color: var(--fg) } .dthink > button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
 .dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
-.dthink.live .lb i { font-style: normal; color: var(--dim); animation: dthinkletter 1.5s ease-in-out infinite; animation-delay: calc(var(--i) * 125ms - var(--ph, 0ms)) }
+.dthink.live .lb i { font-style: normal; color: var(--dim); animation: dthinkletter 1.5s ease-in-out infinite; animation-delay: calc(var(--i) * 125ms) }
 @keyframes dthinkletter { 0%, 30%, 100% { color: var(--dim) } 6% { color: var(--fg) } }
 .dlive { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 4px 0; background: var(--surface); font-size: 12.5px }
 .dlive .since { flex: none; color: var(--dim); font-variant-numeric: tabular-nums }

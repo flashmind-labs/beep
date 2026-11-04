@@ -6,12 +6,8 @@ import { copy } from "../ui/parts.ts";
 import { esc, ICON } from "../bar/core.ts";
 import { endedHtml, liveHtml } from "../agents/thoughtlive.ts";
 
-/// One pass of the "Thinking" letters, as in the CSS: 8 letters a second.
-const SWEEP_MS = 1500;
-
-/// `word`, its letters lit one after another in a loop that keeps its phase
-/// across redraws.
-const sweptLabel = (word: string) => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
+/// `word`, its letters lit one after another in a loop.
+const sweptLabel = (word: string) => `<span class="lb">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
 /// A running turn's one live line: what it is at, its letters sweeping, how
 /// long it has run, and what it does now. Waiting on the user does not sweep.
