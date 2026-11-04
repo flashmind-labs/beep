@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -161,9 +160,9 @@ private fun TranslateScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(Beep.shapes.smallRadius))
                     .background(elevated)
-                    .border(1.dp, border, RoundedCornerShape(12.dp))
+                    .border(1.dp, border, RoundedCornerShape(Beep.shapes.smallRadius))
                     .padding(12.dp)
             ) {
                 Text("Original", color = textMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
@@ -187,9 +186,9 @@ private fun TranslateScreen(
                     Box(
                         Modifier
                             .menuAnchor()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             .background(elevated)
-                            .border(1.dp, border, RoundedCornerShape(8.dp))
+                            .border(1.dp, border, RoundedCornerShape(Beep.shapes.smallRadius))
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(
@@ -224,7 +223,7 @@ private fun TranslateScreen(
                     Button(
                         onClick = { doTranslate() },
                         colors = ButtonDefaults.buttonColors(containerColor = moss, contentColor = ink),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(Beep.shapes.smallRadius),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Text("Translate", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -239,7 +238,7 @@ private fun TranslateScreen(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             .background(elevated)
                             .padding(20.dp),
                         contentAlignment = Alignment.Center
@@ -251,9 +250,9 @@ private fun TranslateScreen(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             .background(elevated)
-                            .border(1.dp, coral.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .border(1.dp, coral.copy(alpha = 0.3f), RoundedCornerShape(Beep.shapes.smallRadius))
                             .padding(12.dp)
                     ) {
                         Text(error, color = coral, fontSize = 13.sp)
@@ -269,9 +268,9 @@ private fun TranslateScreen(
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             .background(elevated)
-                            .border(1.dp, moss.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .border(1.dp, moss.copy(alpha = 0.3f), RoundedCornerShape(Beep.shapes.smallRadius))
                             .padding(12.dp)
                     ) {
                         Text("Translation", color = textMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
@@ -291,7 +290,7 @@ private fun TranslateScreen(
                         OutlinedButton(
                             onClick = { onCopy(translatedText!!) },
                             border = BorderStroke(1.dp, border),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(Beep.shapes.smallRadius),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                         ) {
                             Text("Copy", color = textPrimary, fontSize = 13.sp)
@@ -300,7 +299,7 @@ private fun TranslateScreen(
                             Button(
                                 onClick = { onReplace(translatedText!!) },
                                 colors = ButtonDefaults.buttonColors(containerColor = moss, contentColor = ink),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(Beep.shapes.smallRadius),
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                             ) {
                                 Text("Replace", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -318,29 +317,7 @@ private fun TranslateScreen(
 
 @Composable
 private fun TranslatePulsingDots(color: Color) {
-    val infiniteTransition = rememberInfiniteTransition(label = "translate-dots")
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { index ->
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.25f, targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(450, easing = EaseInOutCubic, delayMillis = index * 160),
-                    repeatMode = RepeatMode.Reverse
-                ), label = "dot-alpha-$index"
-            )
-            val scale by infiniteTransition.animateFloat(
-                initialValue = 0.7f, targetValue = 1.15f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(450, easing = EaseInOutCubic, delayMillis = index * 160),
-                    repeatMode = RepeatMode.Reverse
-                ), label = "dot-scale-$index"
-            )
-            Box(
-                Modifier
-                    .size(6.dp)
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .background(color.copy(alpha = alpha), CircleShape)
-            )
-        }
+        repeat(3) { Box(Modifier.size(6.dp).background(color, CircleShape)) }
     }
 }

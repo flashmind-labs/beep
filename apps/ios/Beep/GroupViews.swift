@@ -2,7 +2,7 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// The name text of members, by the order they joined; their avatars use the tints.
-private let nameColors = [Color(hex: 0xB8574B), Color(hex: 0x2F7D5B), Color(hex: 0x8A6A12)]
+private var nameColors: [Color] { Mint.nameColors }
 
 /// The name the user last went by in a group, offered again for the next one.
 private var lastMemberName: String {
@@ -63,8 +63,10 @@ struct GroupAvatar: View {
     var beep = false
 
     var body: some View {
-        Text(letter)
-            .font(.system(size: size * 0.4, weight: .bold))
+        SwiftUI.Group {
+            if beep { Image(systemName: "bubble.left") } else { Text(letter) }
+        }
+            .font(.system(size: size * 0.4, weight: .medium))
             .foregroundStyle(beep ? .white : Mint.ink)
             .frame(width: size, height: size)
             .background(Circle().fill(color))
@@ -143,7 +145,7 @@ struct GroupChatView: View {
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Mint.pageInset)
             }
             if let group { MentionPicker(group: group, draft: $draft) }
             if let replying, let group { replyBar(replying, group) }
@@ -193,7 +195,7 @@ struct GroupChatView: View {
             ProgressView()
         } else if chat?.messages.isEmpty == true, outgoing.isEmpty {
             Text("No messages yet.\nSay hi. Beep joins in when it can help.")
-                .font(.body(15)).foregroundStyle(Mint.muted).lineSpacing(6)
+                .font(.body(14)).foregroundStyle(Mint.muted).lineSpacing(6)
                 .multilineTextAlignment(.center).padding(32)
         }
     }
@@ -301,14 +303,14 @@ struct GroupChatView: View {
                 .accessibilityLabel("Conversations")
             Button(action: info) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(group?.name ?? "Group").font(.display(24)).foregroundStyle(Mint.ink).lineLimit(1)
+                    Text(group?.name ?? "Group").font(.display(18)).foregroundStyle(Mint.ink).lineLimit(1)
                     if let group {
                         HStack(spacing: 6) {
                             HStack(spacing: -6) {
                                 ForEach(Array(group.members.sorted { $0.you && !$1.you }.prefix(4)), id: \.name) { member in
                                     GroupAvatar(letter: initial(member.name), color: memberTint(memberIndex(group, member.name)), size: 18)
                                 }
-                                GroupAvatar(letter: "b", color: Mint.brand, size: 18, beep: true)
+                                GroupAvatar(letter: "", color: Mint.brand, size: 18, beep: true)
                             }
                             Text(groupPeople(group)).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
                         }
@@ -348,7 +350,7 @@ struct GroupChatView: View {
             .accessibilityLabel("Cancel reply")
         }
         .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Mint.surface))
+        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
         .overlay(alignment: .leading) { UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10).fill(Mint.brand).frame(width: 3) }
         .padding(.horizontal, 14).padding(.top, 4)
     }
@@ -358,13 +360,13 @@ struct GroupChatView: View {
         return HStack(alignment: .bottom, spacing: 8) {
             TextField("", text: $draft, prompt: Text("Message").foregroundStyle(Mint.dim), axis: .vertical)
                 .id(field)
-                .font(.body(15))
+                .font(.body(14))
                 .foregroundStyle(Mint.ink)
                 .tint(Mint.ink)
                 .lineLimit(1...6)
                 .focused($typing)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.horizontal, Mint.pageInset)
+                .padding(.vertical, 10)
                 .frame(minHeight: 50)
                 .chunky()
                 .blocksChatSwipe()
@@ -464,7 +466,7 @@ private struct GroupBubble: View {
             ownBody(parts)
             .chunky(Mint.user, shape: UnevenRoundedRectangle(
                 topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: last ? 4 : 6,
-                topTrailingRadius: first ? 18 : 6), drop: 0)
+                topTrailingRadius: first ? 18 : 6))
             .contextMenu { menu }
             .padding(.leading, 48)
         case .beep:
@@ -474,7 +476,7 @@ private struct GroupBubble: View {
                 MarkdownText(text: withMentions(parts.body))
             }
             .padding(4)
-            .background(RoundedRectangle(cornerRadius: 12).fill(flash ? Mint.tints[2] : .clear))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(flash ? Mint.tints[2] : .clear))
             .padding(-4)
             .contextMenu { menu }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -491,7 +493,7 @@ private struct GroupBubble: View {
             .padding(.horizontal, 12).padding(.top, 7).padding(.bottom, 9)
             .chunky(flash ? Mint.tints[2] : Mint.surface, shape: UnevenRoundedRectangle(
                 topLeadingRadius: first ? 18 : 6, bottomLeadingRadius: last ? 4 : 6, bottomTrailingRadius: 18,
-                topTrailingRadius: 18), drop: 0)
+                topTrailingRadius: 18))
             .contextMenu { menu }
             .padding(.trailing, 48)
         }
@@ -532,7 +534,7 @@ private struct GroupBubble: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 9).padding(.trailing, 9).padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Mint.page))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
             .overlay(alignment: .leading) {
                 UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8).fill(Mint.brand).frame(width: 3)
             }
@@ -570,11 +572,11 @@ private struct MentionPicker: View {
                     ForEach(choices) { choice in
                         Button { pick(choice.name, typed: typed) } label: {
                             HStack(spacing: 12) {
-                                GroupAvatar(letter: choice.beep ? "b" : initial(choice.name),
+                                GroupAvatar(letter: choice.beep ? "" : initial(choice.name),
                                             color: choice.beep ? Mint.brand : memberTint(memberIndex(group, choice.name)),
                                             size: 30, beep: choice.beep)
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(choice.beep ? "Beep" : choice.name).font(.body(15, choice.beep ? .semibold : .medium))
+                                    Text(choice.beep ? "Beep" : choice.name).font(.body(14, choice.beep ? .semibold : .medium))
                                         .foregroundStyle(Mint.ink)
                                     Text(choice.note).font(.body(12)).foregroundStyle(Mint.muted)
                                 }
@@ -618,9 +620,9 @@ struct SheetHeader: View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 22)).foregroundStyle(Mint.ink)
                 .frame(width: 52, height: 52)
-                .background(RoundedRectangle(cornerRadius: 14).fill(tint))
+                .background(RoundedRectangle(cornerRadius: Mint.radius).fill(tint))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.display(24)).foregroundStyle(Mint.ink)
+                Text(title).font(.display(18)).foregroundStyle(Mint.ink)
                 Text(subtitle).font(.body(13)).foregroundStyle(Mint.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -640,15 +642,15 @@ private struct NameField: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.body(12, .medium)).foregroundStyle(Mint.muted)
             TextField("", text: $text)
-                .font(mono ? .system(size: 18, weight: .medium, design: .monospaced) : .body(15))
+                .font(mono ? .system(size: 18, weight: .medium, design: .monospaced) : .body(14))
                 .foregroundStyle(Mint.ink)
                 .tint(Mint.ink)
                 .textInputAutocapitalization(mono ? .characters : .words)
                 .autocorrectionDisabled(mono)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 50)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(error == nil ? Mint.soft : Mint.error, lineWidth: 1.5))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(error == nil ? Mint.soft : Mint.error, lineWidth: 1.5))
                 .onChange(of: text) { if text.count > limit { text = String(text.prefix(limit)) } }
             if let note = error ?? hint {
                 Text(note).font(.body(12)).foregroundStyle(error == nil ? Mint.muted : Mint.error)
@@ -742,7 +744,7 @@ struct GroupInviteSheet: View {
             }
             .frame(width: 156, height: 156)
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
             .frame(maxWidth: .infinity)
             SwiftUI.Group {
                 if let code {
@@ -753,7 +755,7 @@ struct GroupInviteSheet: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 56)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
             HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = link?.url
@@ -924,10 +926,10 @@ struct GroupJoinView: View {
             VStack(spacing: 16) {
                 if expired {
                     TintIcon(system: "link.badge.plus", tint: Mint.tints[0], size: 64)
-                    Text("This code no longer works").font(.display(30)).foregroundStyle(Mint.ink)
+                    Text("This code no longer works").font(.display(24)).foregroundStyle(Mint.ink)
                         .multilineTextAlignment(.center)
                     Text("Whoever sent it reset the group's code. Ask them for a new one.")
-                        .font(.body(15)).foregroundStyle(Mint.muted).multilineTextAlignment(.center)
+                        .font(.body(14)).foregroundStyle(Mint.muted).multilineTextAlignment(.center)
                     Button("Back to Beep", action: back).buttonStyle(PrimaryButton())
                 } else if let preview {
                     details(preview)
@@ -951,12 +953,12 @@ struct GroupJoinView: View {
             ForEach(Array(group.members.prefix(4).enumerated()), id: \.offset) { index, member in
                 GroupAvatar(letter: initial(member), color: memberTint(index), size: 56)
             }
-            GroupAvatar(letter: "b", color: Mint.brand, size: 56, beep: true)
+            GroupAvatar(letter: "", color: Mint.brand, size: 56, beep: true)
         }
         VStack(spacing: 6) {
-            Text("Join \(group.name)?").font(.display(32)).foregroundStyle(Mint.ink)
+            Text("Join \(group.name)?").font(.display(24)).foregroundStyle(Mint.ink)
             Text((group.members + ["Beep"]).dropLast().joined(separator: ", ") + " and Beep are in it.")
-                .font(.body(15)).foregroundStyle(Mint.muted)
+                .font(.body(14)).foregroundStyle(Mint.muted)
         }
         .multilineTextAlignment(.center)
         VStack(alignment: .leading, spacing: 10) {
@@ -964,7 +966,7 @@ struct GroupJoinView: View {
             PrivacyLine(icon: "shield", text: "Beep reads the messages to see when it can help. When it answers you, it runs with your apps and your account, never someone else's.")
             PrivacyLine(icon: "bell", text: "You get a notification for each new message.")
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .card()
         NameField(label: "Your name in the group", text: $name,
                   error: taken.map { "Someone in the group already goes by \($0)" },
@@ -1042,7 +1044,7 @@ struct GroupInfoView: View {
             ScrollView {
                 if let group {
                     VStack(alignment: .leading, spacing: 10) { content(group) }
-                        .padding(.horizontal, 16).padding(.bottom, 24)
+                        .padding(.horizontal, Mint.pageInset).padding(.bottom, 24)
                 } else {
                     ProgressView().padding(.top, 40)
                 }
@@ -1072,7 +1074,7 @@ struct GroupInfoView: View {
             HStack(spacing: 14) {
                 GroupAvatar(letter: initial(member.name), color: memberTint(memberIndex(group, member.name)), size: 56)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(member.name).font(.display(24)).foregroundStyle(Mint.ink)
+                    Text(member.name).font(.display(18)).foregroundStyle(Mint.ink)
                     Text(joined(member)).font(.body(13)).foregroundStyle(Mint.muted)
                 }
             }
@@ -1083,7 +1085,7 @@ struct GroupInfoView: View {
                     Text("\(mine)").font(.body(13, .semibold)).foregroundStyle(Mint.ink)
                 }
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .card()
             Button {
                 self.member = nil
@@ -1109,8 +1111,7 @@ struct GroupInfoView: View {
     @ViewBuilder private func content(_ group: Group) -> some View {
         VStack(spacing: 6) {
             ChatAvatar(text: groupInitials(group.name), fill: Mint.tint(for: group.id), size: 84)
-                .dropShadow(Circle())
-            Text(group.name).font(.display(28)).foregroundStyle(Mint.ink).multilineTextAlignment(.center)
+            Text(group.name).font(.display(18)).foregroundStyle(Mint.ink).multilineTextAlignment(.center)
             Text("Group · \(group.members.count + 1) members").font(.body(13)).foregroundStyle(Mint.muted)
         }
         .frame(maxWidth: .infinity)
@@ -1123,7 +1124,7 @@ struct GroupInfoView: View {
                         GroupAvatar(letter: initial(member.name), color: memberTint(memberIndex(group, member.name)), size: 36)
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 6) {
-                                Text(member.you ? "You" : member.name).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                                Text(member.you ? "You" : member.name).font(.body(14, .medium)).foregroundStyle(Mint.ink)
                                 if member.creator {
                                     Text("Made it").font(.body(10, .semibold)).foregroundStyle(Mint.ink)
                                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -1142,7 +1143,7 @@ struct GroupInfoView: View {
                 }
                 .buttonStyle(.plain)
             }
-            memberLine(GroupAvatar(letter: "b", color: Mint.brand, size: 36, beep: true),
+            memberLine(GroupAvatar(letter: "", color: Mint.brand, size: 36, beep: true),
                        "Beep", "Joins in when it can help, or when someone writes @beep")
             Button { invite(group) } label: {
                 Label("Invite with a link", systemImage: "link").frame(maxWidth: .infinity)
@@ -1160,7 +1161,7 @@ struct GroupInfoView: View {
             Task { await model.shareGroupApps(group.id, shared: shared) }
         })) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Share my apps with Beep here").font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                Text("Share my apps with Beep here").font(.body(14, .medium)).foregroundStyle(Mint.ink)
                 Text(group.appsShared
                     ? "Beep can read your calendar, mail, files and tasks to plan for the group, and never shows them here. Creating or sending anything asks you first."
                     : "Beep uses your apps here only when you ask it yourself.")
@@ -1175,13 +1176,13 @@ struct GroupInfoView: View {
             PrivacyLine(icon: "brain", text: "Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.")
             PrivacyLine(icon: "shield", text: "Beep's thinking and tool calls are hidden in groups. Members only see its replies.")
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .card()
         Button { confirmLeave = true } label: {
             Label("Leave group", systemImage: "rectangle.portrait.and.arrow.right")
-                .font(.body(15, .semibold)).foregroundStyle(Mint.error)
+                .font(.body(14, .semibold)).foregroundStyle(Mint.error)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Mint.error, lineWidth: 1.5))
+                .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.error, lineWidth: 1.5))
         }
         .buttonStyle(.plain)
         .padding(.top, 12)
@@ -1196,7 +1197,7 @@ struct GroupInfoView: View {
         HStack(spacing: 12) {
             avatar
             VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                Text(name).font(.body(14, .medium)).foregroundStyle(Mint.ink)
                 Text(note).font(.body(12)).foregroundStyle(Mint.muted)
             }
         }
@@ -1260,7 +1261,7 @@ private struct GroupRemindersCard: View {
         return HStack(spacing: 12) {
             TintIcon(system: "clock", tint: tint, size: 36)
             VStack(alignment: .leading, spacing: 1) {
-                Text(reminder.label).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                Text(reminder.label).font(.body(14, .medium)).foregroundStyle(Mint.ink)
                 Text(reminder.message).font(.body(12)).foregroundStyle(Mint.muted).lineSpacing(2)
                 Text("\(time) · set by \(by)").font(.body(12)).foregroundStyle(Mint.muted)
             }

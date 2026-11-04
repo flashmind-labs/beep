@@ -64,7 +64,7 @@ object Notices : NoticeListener {
             .setContentText(body)
             .setContentIntent(pending)
             .setAutoCancel(true)
-            .setColor(0xFF3B9B7A.toInt())
+            .setColor(LINEAR_ACCENT.toInt())
             .setStyle(Notification.BigTextStyle().bigText(body))
         app.getSystemService(NotificationManager::class.java).notify(nextId.getAndIncrement(), builder.build())
     }

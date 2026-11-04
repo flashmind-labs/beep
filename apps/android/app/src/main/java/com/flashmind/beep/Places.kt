@@ -163,7 +163,7 @@ internal fun PlacesScreen(store: PlaceStore, onBack: () -> Unit, onLocationAlway
             containerColor = Beep.colors.surface)
     }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Places"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Places"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
@@ -177,7 +177,7 @@ internal fun PlacesScreen(store: PlaceStore, onBack: () -> Unit, onLocationAlway
             } else {
                 if (!locationAlways(context)) item {
                     Row(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.raised).clickable(onClick = onLocationAlways)
-                        .padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        .padding(BeepSpace.row), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Icon(Icons.Outlined.Place, null, Modifier.size(20.dp))
                         Text("Beep can't notice arrivals yet. Allow location all the time.", Modifier.weight(1f), fontSize = 13.sp, lineHeight = 18.sp)
                         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(20.dp), tint = Beep.colors.muted)
@@ -208,7 +208,7 @@ private fun PlaceRow(place: Place, onDelete: () -> Unit) {
 
 @Composable
 internal fun PlaceLogo(tint: Color, size: Int = 40) {
-    Box(Modifier.size(size.dp).background(tint, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size.dp).background(tint, RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
         Icon(Icons.Outlined.Place, null, Modifier.size((size / 2).dp), tint = Beep.colors.ink)
     }
 }
@@ -223,7 +223,7 @@ private fun PlacesHint() {
         append(".")
     }
     BeepCard(Modifier.fillMaxWidth(), color = Beep.colors.tints[1]) {
-        Text(text, Modifier.padding(14.dp), fontSize = 13.sp, lineHeight = 19.sp, color = Beep.colors.ink)
+        Text(text, Modifier.padding(BeepSpace.row), fontSize = 13.sp, lineHeight = 19.sp, color = Beep.colors.ink)
     }
 }
 
@@ -269,10 +269,10 @@ internal fun BackgroundLocationScreen(onDone: () -> Unit, onPlaces: () -> Unit) 
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (allowed) {
             Spacer(Modifier.weight(1f))
-            Box(Modifier.size(64.dp).background(Beep.colors.tints[1], RoundedCornerShape(18.dp)).align(Alignment.CenterHorizontally), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(64.dp).background(Beep.colors.tints[1], RoundedCornerShape(Beep.shapes.radius)).align(Alignment.CenterHorizontally), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Check, null, tint = Beep.colors.ok)
             }
-            Text(displayText("Beep will notice when you arrive."), style = displayStyle(30.sp), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text(displayText("Beep will notice when you arrive."), style = displayStyle(24.sp), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             Text("Your places work with the app closed. Turn it off any time in Settings, Apps, Beep, Location.", color = Beep.colors.muted,
                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
             ChunkyButton(onClick = onPlaces, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), color = Beep.colors.accent) { Text("See your places", fontWeight = FontWeight.SemiBold) }
@@ -280,21 +280,21 @@ internal fun BackgroundLocationScreen(onDone: () -> Unit, onPlaces: () -> Unit) 
             return@Column
         }
         PlaceLogo(Beep.colors.tints[0], 56)
-        Text(displayText("Notice when you arrive?"), style = displayStyle(30.sp))
+        Text(displayText("Notice when you arrive?"), style = displayStyle(24.sp))
         Text(buildAnnotatedString {
             append("For routines like \"when I get to the gym\", the phone watches your saved places and tells Beep when you arrive or leave. That needs location set to ")
             withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = Beep.colors.ink)) { append("Allow all the time") }
             append(".")
         }, color = Beep.colors.muted, lineHeight = 22.sp)
         BeepCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(BeepSpace.row), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ExplainLine(Icons.Outlined.Place, "Works with the app closed, only for places you saved.")
                 ExplainLine(Icons.Outlined.NotificationsNone, "You only get a notification when a routine has something to say.")
                 ExplainLine(Icons.Outlined.Shield, "Uses the phone's geofencing, so the battery cost is small.")
             }
         }
         if (sentToSettings) BeepCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(BeepSpace.row), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Android asks for this in Settings", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text("1. Tap Open settings", fontSize = 13.sp)
                 Text("2. Permissions, then Location", fontSize = 13.sp)

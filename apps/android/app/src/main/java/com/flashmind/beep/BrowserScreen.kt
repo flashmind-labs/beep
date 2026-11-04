@@ -57,7 +57,7 @@ fun BrowserScreen(onClose: () -> Unit) {
                     }
                     Surface(
                         color = Beep.colors.raised,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(Beep.shapes.smallRadius),
                         modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                     ) {
                         Text(

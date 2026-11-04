@@ -8,11 +8,7 @@ import UIKit
 private let pollBusy: Duration = .milliseconds(2500)
 private let pollIdle: Duration = .seconds(10)
 private let workingStatuses: Set<ResearchStatus> = [.researching, .reviewing, .writing]
-private let scoutColors: [Color] = [
-    Color(red: 0x5C / 255, green: 0xC4 / 255, blue: 0x9C / 255), Color(red: 0x8F / 255, green: 0xB8 / 255, blue: 0xE8 / 255),
-    Color(red: 0xE8 / 255, green: 0xC4 / 255, blue: 0x6D / 255), Color(red: 0xE8 / 255, green: 0x9A / 255, blue: 0x6D / 255),
-    Color(red: 0x9A / 255, green: 0xD0 / 255, blue: 0xD8 / 255),
-]
+private var scoutColors: [Color] { [Mint.brand, Mint.ok, Mint.warn, Mint.error, Mint.muted] }
 
 /// A research as last fetched, without its log, and every log entry so far.
 struct ResearchLive: Equatable {
@@ -158,8 +154,8 @@ func researchHint(_ live: ResearchLive?) -> String {
 
 private func agentColor(_ id: String) -> Color {
     switch id {
-    case "lead": Color(red: 0xF0 / 255, green: 0x7A / 255, blue: 0x6A / 255)
-    case "critic": Color(red: 0xC5 / 255, green: 0x9A / 255, blue: 0xE8 / 255)
+    case "lead": Mint.accent
+    case "critic": Mint.brand
     case "writer": Mint.ink
     default: scoutColors[((Int(id.dropFirst("scout-".count)) ?? 1) - 1 + scoutColors.count * 8) % scoutColors.count]
     }
@@ -180,7 +176,7 @@ private struct AgentDot: View {
 
     var body: some View {
         Text(agentInitial(id)).font(.system(size: size / 2, weight: .bold))
-            .foregroundStyle(id == "writer" ? Mint.page : Color(red: 0x0A / 255, green: 0x0E / 255, blue: 0x0C / 255))
+            .foregroundStyle(id == "writer" ? Mint.page : Mint.page)
             .frame(width: size, height: size)
             .background(Circle().fill(agentColor(id)))
     }
@@ -307,9 +303,9 @@ struct PaperNotice: View {
             if !failed { ProgressView().controlSize(.small).tint(Mint.page) }
             Text(text).font(.body(13, .medium)).foregroundStyle(failed ? .white : Mint.page)
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(failed ? Mint.error : Mint.ink))
-        .padding(.horizontal, 16).padding(.bottom, 24)
+        .padding(.horizontal, Mint.pageInset).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(failed ? Mint.error : Mint.ink))
+        .padding(.horizontal, Mint.pageInset).padding(.bottom, 24)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 }
@@ -364,7 +360,7 @@ struct ResearchWorkspace: View {
                             FilterChip(label: t == .sources && count > 0 ? "Sources \(count)" : t.rawValue, selected: t == tab) { chosen = t }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Mint.pageInset)
                 }
                 .padding(.bottom, 8)
             }
@@ -519,7 +515,7 @@ private struct SourcesView: View {
                             HStack(alignment: .top, spacing: 10) {
                                 Text("\(s.number)").font(.body(14, .semibold)).foregroundStyle(Mint.brand).frame(width: 22, alignment: .leading)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(s.title.isEmpty ? s.url : s.title).font(.body(15, .medium)).foregroundStyle(Mint.brand)
+                                    Text(s.title.isEmpty ? s.url : s.title).font(.body(14, .medium)).foregroundStyle(Mint.brand)
                                         .multilineTextAlignment(.leading)
                                     Text("\(host(s.url)), kept by \(live.agent(s.agent).name)").font(.body(12)).foregroundStyle(Mint.muted)
                                     if !s.quote.isEmpty {
@@ -579,7 +575,7 @@ private struct TeamView: View {
                         Text("#").font(.system(size: 12, weight: .bold)).foregroundStyle(Mint.ink)
                             .frame(width: 22, height: 22).background(Circle().fill(Mint.soft))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("Room").font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                            Text("Room").font(.body(14, .medium)).foregroundStyle(Mint.ink)
                             Text(planning ? "Opens when the team starts" : "\(said) message\(said == 1 ? "" : "s")")
                                 .font(.body(12)).foregroundStyle(Mint.muted)
                         }
@@ -592,7 +588,7 @@ private struct TeamView: View {
                 .disabled(planning)
                 .opacity(planning ? 0.5 : 1)
             }
-            .padding(.horizontal, 16).padding(.bottom, 32)
+            .padding(.horizontal, Mint.pageInset).padding(.bottom, 32)
         }
     }
 }
@@ -609,7 +605,7 @@ private struct AgentRow: View {
             HStack(spacing: 12) {
                 AgentDot(id: agent.id)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(agent.name).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                    Text(agent.name).font(.body(14, .medium)).foregroundStyle(Mint.ink)
                     Text(now.isEmpty ? agent.role : now).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
                     if !agent.model.isEmpty { Text(agent.model).font(.body(11)).foregroundStyle(Mint.dim) }
                 }
@@ -736,21 +732,21 @@ struct ResearchList: View {
             BackBar(title: "Research", back: back)
             HStack(alignment: .bottom, spacing: 8) {
                 TextField("", text: $topic, prompt: Text("What should the team research?").foregroundStyle(Mint.dim), axis: .vertical)
-                    .font(.body(15)).foregroundStyle(Mint.ink).tint(Mint.ink)
+                    .font(.body(14)).foregroundStyle(Mint.ink).tint(Mint.ink)
                     .lineLimit(1...4)
                     .submitLabel(.go)
                     .onSubmit(send)
-                    .padding(.vertical, 14).padding(.horizontal, 16)
+                    .padding(.vertical, 10).padding(.horizontal, Mint.pageInset)
                     .frame(minHeight: 50)
                     .chunky()
                 Button(action: send) { Image(systemName: "arrow.up") }
                     .buttonStyle(ChunkyButton(fill: Mint.user, size: 50, radius: 18))
                     .accessibilityLabel("Research")
             }
-            .padding(.horizontal, 16).padding(.bottom, 8)
+            .padding(.horizontal, Mint.pageInset).padding(.bottom, 8)
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
             if let list {
                 if list.isEmpty {
@@ -762,7 +758,7 @@ struct ResearchList: View {
                                 ResearchRow(research: r) { open(r.sessionId) }.padding(.trailing, 3).padding(.bottom, 3)
                             }
                         }
-                        .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 24)
+                        .padding(.horizontal, Mint.pageInset).padding(.top, 8).padding(.bottom, 24)
                     }
                     .refreshable { await load() }
                 }
@@ -823,7 +819,7 @@ private struct ResearchRow: View {
                 }
                 .frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r.topic).font(.body(15, .medium)).foregroundStyle(Mint.ink).lineLimit(3)
+                    Text(r.topic).font(.body(14, .medium)).foregroundStyle(Mint.ink).lineLimit(3)
                         .multilineTextAlignment(.leading)
                     Text(line).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
                 }

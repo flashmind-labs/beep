@@ -170,9 +170,8 @@ struct ProductCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Mint.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Mint.ledge, lineWidth: 1.5))
-        .dropShadow(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: Mint.radius))
+        .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.ledge, lineWidth: 1.5))
     }
 
     @ViewBuilder private var picture: some View {
@@ -198,7 +197,7 @@ struct ProductCard: View {
     @ViewBuilder private var price: some View {
         if let price = product.price, !price.isEmpty {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(price).font(.body(17, .semibold)).foregroundStyle(Mint.ink)
+                Text(price).font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                 if let was = product.was, !was.isEmpty {
                     Text(was).font(.body(12)).foregroundStyle(Mint.muted).strikethrough()
                 }

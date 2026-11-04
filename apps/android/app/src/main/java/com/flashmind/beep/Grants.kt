@@ -120,7 +120,7 @@ internal fun GrantsScreen(repository: ChatRepository, routineId: String?, onBack
     LaunchedEffect(Unit) { refresh() }
     asking?.let { grant ->
         AlertDialog(onDismissRequest = { asking = null }, containerColor = Beep.colors.surface,
-            title = { Text(displayText("Revoke this grant?"), style = displayStyle(22.sp)) },
+            title = { Text(displayText("Revoke this grant?"), style = displayStyle(18.sp)) },
             text = { Text("${grant.routine.ifBlank { "This routine" }} will ask before each ${grant.action} again.", fontSize = 14.sp, lineHeight = 20.sp, color = Beep.colors.muted) },
             confirmButton = {
                 ChunkyButton(onClick = { asking = null; revoke(grant) }, color = Beep.colors.error, contentColor = Beep.colors.page) {
@@ -130,7 +130,7 @@ internal fun GrantsScreen(repository: ChatRepository, routineId: String?, onBack
             dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } })
     }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Routine grants"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Routine grants"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
@@ -165,7 +165,7 @@ internal fun GrantsScreen(repository: ChatRepository, routineId: String?, onBack
 private fun GrantCard(grant: Grant, now: Instant, onRevoke: () -> Unit) {
     val t = Beep.colors
     BeepCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(BeepSpace.row), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AppLogo(grant.app.lowercase().replace(" ", ""), grant.app, size = 32.dp)
                 Spacer(Modifier.width(10.dp))
