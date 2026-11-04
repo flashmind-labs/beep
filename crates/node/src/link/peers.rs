@@ -280,7 +280,11 @@ impl Peers {
         Arc::new(move |tx: LinkTx, rx: LinkRx| {
             let peers = peers.clone();
             Box::pin(async move {
-                if let Err(e) = peers.inner.serve(tx, rx, Who::Everything).await {
+                if let Err(e) = peers
+                    .inner
+                    .serve(tx, rx, Who::Everything(peers.inner.endpoint.id()))
+                    .await
+                {
                     log::debug!("a local session ended: {e:#}");
                 }
             })
@@ -308,7 +312,7 @@ impl Peers {
                     recv,
                 } = stream;
                 let who = match kind {
-                    DeviceKind::Desktop => Who::Everything,
+                    DeviceKind::Desktop => Who::Everything(peer),
                     DeviceKind::Node => Who::Node { peer, desktop_here },
                 };
                 let (tx, rx) = link(send, recv);

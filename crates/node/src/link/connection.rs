@@ -672,7 +672,7 @@ async fn serve_linked(
                     log::warn!("refused a session: {MAX_SESSIONS} already open");
                     continue;
                 }
-                sessions.spawn(session(send, recv, offers.clone(), Who::Everything));
+                sessions.spawn(session(send, recv, offers.clone(), Who::Everything(connection.remote_id())));
             }
             Some(ended) = sessions.join_next() => match ended {
                 Ok(Ok(())) => {}
@@ -758,8 +758,9 @@ fn take_settings(offers: &Offers, mut settings: AgentSettings) {
 /// Who opened a session, and so what it may use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Who {
-    /// The server, or a desktop of the mesh: every protocol the node offers.
-    Everything,
+    /// The server, or a desktop of the mesh, by its key: every protocol the
+    /// node offers. A desktop in this process has the node's own key.
+    Everything(EndpointId),
     /// Another node of the mesh: its status and agent tools, nothing else.
     Node {
         peer: EndpointId,
@@ -767,6 +768,15 @@ pub(crate) enum Who {
         /// stream opened.
         desktop_here: bool,
     },
+}
+
+impl Who {
+    /// The key of the caller.
+    pub(crate) fn id(self) -> EndpointId {
+        match self {
+            Self::Everything(id) | Self::Node { peer: id, .. } => id,
+        }
+    }
 }
 
 /// Serves one session stream in the protocol it opens with, if `who` may use it.
@@ -818,7 +828,7 @@ pub(crate) async fn serve_open(
         tools::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             let caller = match who {
-                Who::Everything => Caller::local(&offers),
+                Who::Everything(_) => Caller::local(&offers),
                 Who::Node { peer, desktop_here } => Caller {
                     table: tasks::Table::Peer(peer),
                     may_run_on_here: !desktop_here,
@@ -845,7 +855,7 @@ pub(crate) async fn serve_open(
         }
         agent::SESSIONS_PROTOCOL if !offers.agents.offers().is_empty() => {
             tx.send(&Opened::Ready {}).await?;
-            crate::agents::serve_sessions(tx, rx, offers.agents).await
+            crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
         }
         other => match offers.agents.kind(other).cloned() {
             Some(kind) => {
