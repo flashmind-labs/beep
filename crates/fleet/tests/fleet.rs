@@ -1157,6 +1157,7 @@ async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
         .await
         .expect("removes the record");
     assert!(desk.credentials().is_empty());
+}
 
 #[tokio::test]
 async fn a_branch_diff_of_a_mesh_project_is_read_from_its_checkout_with_no_server() {
