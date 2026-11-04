@@ -490,7 +490,7 @@ impl Terminals {
     }
 
     // A terminal host lets its terminals outlive it.
-    #[cfg_attr(all(unix, feature = "cli", not(test)), expect(dead_code))]
+    #[cfg_attr(all(unix, feature = "cli"), expect(dead_code))]
     fn kill_all(&self) {
         for term in &mut lock(&self.inner).terms {
             if term.live.is_running() {
