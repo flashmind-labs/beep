@@ -39,7 +39,7 @@ pub(crate) enum Direct {
     /// A stream to a machine opened: what the app shows from machines may
     /// have changed while it was closed.
     Connected,
-    Notice(Notice),
+    Notice(Box<Notice>),
 }
 
 /// What follows every machine of the mesh, now and as it changes, and the
@@ -167,7 +167,7 @@ async fn stream(
             changed: false,
             group: false,
         };
-        if out.send(Direct::Notice(notice)).await.is_err() {
+        if out.send(Direct::Notice(Box::new(notice))).await.is_err() {
             return Ok(());
         }
     }
@@ -340,7 +340,7 @@ cat > /dev/null
         timeout(LIMIT, async {
             loop {
                 match heard.recv().await.expect("the stream follows") {
-                    Direct::Notice(notice) => return notice,
+                    Direct::Notice(notice) => return *notice,
                     Direct::Connected => {}
                 }
             }
@@ -367,7 +367,7 @@ cat > /dev/null
 
         // A session starts on this Mac and asks, with no server anywhere.
         let client = fleet.client(fleet.id()).await.expect("this Mac is local");
-        let (mut tx, mut rx) = client.open(&protocol("pi")).await.expect("pi opens");
+        let (mut tx, rx) = client.open(&protocol("pi")).await.expect("pi opens");
         tx.send(&Request::Start {
             cwd: Some(work.path().display().to_string()),
             prompt: "go".into(),

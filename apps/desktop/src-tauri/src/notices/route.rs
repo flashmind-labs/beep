@@ -35,7 +35,7 @@ pub(crate) async fn serve(
         let (notice, via) = select! {
             Some(notice) = notices.recv() => (notice, Via::Server),
             Some(direct) = direct.recv() => match direct {
-                Direct::Notice(notice) => (notice, Via::Machine),
+                Direct::Notice(notice) => (*notice, Via::Machine),
                 // Connected again: what the bar shows from outside the log,
                 // such as questions from background work, may have changed
                 // meanwhile, and so may what waits on the user.
@@ -51,10 +51,10 @@ pub(crate) async fn serve(
             beep.set_link_state(LinkState::Linked);
             tray::became_linked(&app);
         }
-        if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-            if !heard.first(&key, via, Instant::now()) {
-                continue;
-            }
+        if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>()
+            && !heard.first(&key, via, Instant::now())
+        {
+            continue;
         }
         route(&app, &beep, &voice, notice);
     }
