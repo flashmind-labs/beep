@@ -1,6 +1,6 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
-import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../machines/addmachine.ts";
 import { button, el } from "./dom.ts";
 import { present, reason } from "../addproject/importproject-state.ts";
 
@@ -78,7 +78,6 @@ export interface ConfirmOptions {
 /// Asks before `options.run`: Esc or Cancel closes the sheet, the action
 /// button runs it and closes the sheet once it worked.
 export function confirmSheet(options: ConfirmOptions) {
-  linkSheetStyle();
   closeMenu();
   const back = document.activeElement;
   const { root, sheet } = sheetShell(options.title, "am-sheet");

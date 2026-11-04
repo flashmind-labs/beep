@@ -2,10 +2,9 @@
 // a token, or Local only), its owner and visibility, and the machines that
 // get a checkout. The server creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../machines/addmachine.ts";
 import { button, el } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
-import { injectStyle as importStyle } from "./importproject.ts";
 import { cleanError, present } from "./importproject-state.ts";
 import { canCreate, creatingText, goesText, landedLines, pickHost, shownName, startForm, toggleMachine } from "./newproject-state.ts";
 import type { Created, Forge, NewProjectForm } from "./newproject-state.ts";
@@ -48,8 +47,6 @@ export function openNewProject(options: NewProjectOptions = {}) {
   creating = false;
   error = null;
   created = null;
-  linkSheetStyle();
-  importStyle();
   ({ root, sheet } = sheetShell("New project", "am-sheet ip-sheet"));
   root.addEventListener("mousedown", e => { if (e.target === root) closeNewProject(); });
   document.body.append(root);

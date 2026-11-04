@@ -8,7 +8,7 @@
 // repository…", which open the Import a project sheet, and "New project…",
 // which opens the New project sheet.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../machines/addmachine.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
 import { agentLabel, foundSessions, importPlan, lookingText } from "../project/projects-state.ts";
@@ -99,7 +99,6 @@ export function openAddProject(options: AddProjectOptions = {}) {
   picked = new Set();
   status.clear();
   batch = false;
-  injectStyle();
   ({ root, sheet } = sheetShell("Add a project", "am-sheet ap-sheet"));
   root.addEventListener("mousedown", e => { if (e.target === root && !busy()) closeAddProject(); });
   build();
@@ -350,63 +349,4 @@ function ago(ms: number, now = Date.now()) {
   if (d === 1) return "yesterday";
   if (d < 7) return `${d} days ago`;
   return d < 14 ? "last week" : `${Math.round(d / 7)} weeks ago`;
-}
-
-/// Loads the sheet's styles once: the Add a machine sheet's, plus the rows.
-export function injectStyle() {
-  linkSheetStyle();
-  if (document.querySelector("style[data-ap]")) return;
-  const style = document.createElement("style");
-  style.dataset.ap = "";
-  style.textContent = ".ap-sheet { width: min(640px, 88vw) } .ap-sheet .am-sub { margin-top: 0 }"
-    + " .ap-list { border: 1px solid var(--border); border-radius: 10px; background: var(--elev); padding: 2px 12px; max-height: 300px; overflow: auto }"
-    + " .ap-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border) }"
-    + " .ap-row:first-child { border-top: 0 }"
-    + " .ap-row .n { font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
-    + " .ap-row .m { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); min-width: 0 }"
-    + " .ap-row .m > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
-    + " .ap-row .m b { font-weight: 500; color: var(--fg) }"
-    + " .ap-row .m code { font-size: 11.5px }"
-    + " .ap-row .m.bad { color: var(--err); white-space: normal }"
-    + " .ap-row .acts { grid-row: 1 / span 4; grid-column: 2; display: flex; gap: 6px }"
-    + " .ap-ag { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-radius: 6px; border: 1px solid var(--border); font-size: 11px; line-height: 17px; color: var(--fg) }"
-    + " .ap-q { width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--fg); font: inherit; font-size: 13px }"
-    + " .ap-q[hidden], .ap-bar[hidden] { display: none }"
-    + " .ap-bar { display: flex; flex: none; align-items: center; gap: 10px; min-height: 30px; margin-bottom: 6px; font-size: 12.5px; color: var(--muted) }"
-    + " .ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer }"
-    + " .ap-bar .dbtn { margin-left: auto; flex: none; display: inline-flex; align-items: center; white-space: nowrap }"
-    + " .ap-bar .dbtn kbd { margin-left: 6px; padding: 0 4px; font-size: 10.5px; line-height: 15px; border: 0; background: none; opacity: .7 }"
-    + " .ap-row.ap-pick { grid-template-columns: 18px minmax(0,1fr) auto }"
-    + " .ap-row.ap-pick > input { grid-row: 1 / span 4; grid-column: 1; align-self: start; margin: 3px 0 0 }"
-    + " .ap-row.ap-pick .n, .ap-row.ap-pick .m { grid-column: 2 }"
-    + " .ap-row.ap-pick .acts { grid-column: 3; align-items: center }"
-    + " .ap-row:focus { outline: none } .ap-row:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 6px }"
-    + " .ap-st { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center }"
-    + " .ap-st.ok { color: var(--ok) }"
-    + " .ap-sheet { max-height: calc(100vh - 80px); overflow: auto }"
-    + " .ap-remote .ap-list { max-height: 180px }"
-    + " .ap-rm { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px }"
-    + " .ap-rm:first-child { border-top: 0 }"
-    + " .ap-rm .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
-    + " .ap-rm .m { font-size: 12px; color: var(--muted) }"
-    + " .ap-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }"
-    + " .ap-ways button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--fg); font: inherit; cursor: pointer }"
-    + " .ap-ways button > span { display: grid; gap: 2px }"
-    + " .ap-ways button span span { font-size: 12px; color: var(--muted) }"
-    + " .ap-sheet .am-label { margin: 18px 0 8px }"
-    + " .ap-sheet .am-head + .am-label { margin-top: 4px }"
-    + " .ap-q { padding: 8px 12px }"
-    + " .ap-bar { margin: 10px 0 }"
-    + " .ap-bar .dbtn { padding: 6px 12px }"
-    + " .ap-list { padding: 4px 14px }"
-    + " .ap-row { gap: 6px 14px; padding: 12px 0 }"
-    + " .ap-row .m { gap: 5px 12px }"
-    + " .ap-row.ap-pick { column-gap: 12px }"
-    + " .ap-row .acts { gap: 8px; padding-left: 4px }"
-    + " .ap-ag { padding: 1px 8px }"
-    + " .ap-rm { gap: 14px; padding: 9px 0 }"
-    + " .ap-remote .ap-list { max-height: 220px }"
-    + " .ap-ways { gap: 10px; margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)) }"
-    + " .ap-ways button { padding: 12px 14px }";
-  document.head.append(style);
 }

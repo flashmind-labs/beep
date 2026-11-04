@@ -6,7 +6,7 @@ import { MACHINE_REFRESH_MS, SWITCH_MS } from "./pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
 import { base, machineSync, type RunningAgent } from "../center/home-state.ts";
-import { foundRow, injectStyle as injectAddProjectStyle } from "../addproject/addproject.ts";
+import { foundRow } from "../addproject/addproject.ts";
 import { withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -332,7 +332,6 @@ export async function loadSessions(name: string) {
 /// three, each with Import; the sheet lists them all.
 export function foundSection() {
   if (!state.found?.length) return null;
-  injectAddProjectStyle();
   const list = state.found.slice(0, 3).map(row => foundRow(row,
     { busy: state.importing, error: state.foundError?.name === row.name ? state.foundError.message : null }, importFromPage));
   const more = state.found.length > 3 ? button(`All ${state.found.length}`, "quiet small", addProject) : null;

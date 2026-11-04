@@ -41,17 +41,6 @@ export function focusBack(was: Element | null) {
   (was as HTMLElement | null)?.focus?.();
 }
 
-/// Loads the sheets' shared styles once, so the window only has to import
-/// the sheets.
-export function linkSheetStyle() {
-  if (document.querySelector("link[data-am]")) return;
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = new URL("./addmachine.css", import.meta.url).href;
-  link.dataset.am = "";
-  document.head.append(link);
-}
-
 function copyButton(text: string) {
   const b = button("Copy", "dbtn", async () => {
     try {
@@ -75,7 +64,6 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   if (root) return;
   onClose = options.onClose || null;
   back = document.activeElement;
-  linkSheetStyle();
   ({ root, sheet } = sheetShell("Add a machine", "am-sheet"));
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);
