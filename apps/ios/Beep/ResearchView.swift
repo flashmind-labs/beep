@@ -337,6 +337,7 @@ private enum Opened: Equatable {
 /// and notes are selectable, and Quote in the selection menu sends the text to `quote` for the chat.
 struct ResearchWorkspace: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     let id: String
     let start: WorkspaceTab?
     let back: () -> Void
@@ -372,7 +373,7 @@ struct ResearchWorkspace: View {
                     switch tab {
                     case .paper: PaperView(live: live, quote: quote)
                     case .notes: NotesView(live: live, quote: quote)
-                    case .sources: SourcesView(live: live) { model.openBrowser($0) }
+                    case .sources: SourcesView(live: live) { openURL($0) }
                     case .team: TeamView(live: live) { opened = .agent($0) } room: { opened = .room }
                     }
                 }

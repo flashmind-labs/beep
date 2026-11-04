@@ -273,7 +273,7 @@ struct RootView: View {
     }
 
     /// Live voice talks in the chat, so starting it closes what covers the chat: pushed screens,
-    /// the drawer, sheets, full screen covers and the browser. Views further in close their own
+    /// the drawer, sheets and full screen covers. Views further in close their own
     /// with `closesForLive`.
     private func uncoverChat() {
         path = []
@@ -281,7 +281,6 @@ struct RootView: View {
         sheet = nil
         joining = nil
         reading = nil
-        model.browserOpen = false
     }
 
     /// Opens the chat or group a tapped notification belongs to.
