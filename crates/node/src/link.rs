@@ -119,7 +119,8 @@ pub async fn serve(
     // The agents' logs read once ahead, so the first file request for a
     // session started outside Beep does not wait for them.
     let agents = offers.agents.clone();
-    let _warm = AbortOnDropHandle::new(tokio::spawn(async move { agents.warm().await }));
+    let dir = state.dir.clone();
+    let _warm = AbortOnDropHandle::new(tokio::spawn(async move { agents.warm(dir).await }));
     // The workspace as the node resolved it, only once it is shared.
     let workspace = workspace
         .and_then(|dir| dir.canonicalize().ok())
