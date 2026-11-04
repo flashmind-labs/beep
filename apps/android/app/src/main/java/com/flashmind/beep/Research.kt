@@ -353,7 +353,7 @@ internal fun ResearchWorkspace(repository: ChatRepository, sessionId: String, st
     var notice by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val openLink = LocalOpenLink.current ?: repository::openBrowser
+    val openLink = { url: String -> ExternalBrowser.open(context, url) }
     BackHandler { if (opened != null) opened = null else onBack() }
     LaunchedEffect(notice) { if (notice?.second == true) { delay(8_000); notice = null } }
     val agent = (opened as? Opened.Agent)?.let { live?.agent(it.id) }

@@ -116,7 +116,6 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
     val context = androidx.compose.ui.platform.LocalContext.current
     val buttonsArr = data.optJSONArray("buttons") ?: return
     val buttons = (0 until buttonsArr.length()).mapNotNull { buttonsArr.optJSONObject(it) }
-    val openLink = LocalOpenLink.current ?: repository::openBrowser
 
     // Room below for the hard shadow, which the scroll container would otherwise clip.
     Row(
@@ -130,7 +129,7 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
             ChunkyButton(
                 onClick = {
                     when (action) {
-                        "open_browser" -> openLink(button.optString("url", ""))
+                        "open_browser" -> ExternalBrowser.open(context, button.optString("url", ""))
                         "open_maps" -> {
                             val query = button.optString("query", label)
                             AppLauncher.start(context, Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")))
@@ -214,9 +213,10 @@ internal fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.Imag
 
 @Composable
 internal fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     when (card.type) {
         "place" -> PlaceCard(card.data, compact)
-        "link" -> LinkCard(card.data, onBrowse = LocalOpenLink.current ?: repository::openBrowser, compact)
+        "link" -> LinkCard(card.data, onBrowse = { ExternalBrowser.open(context, it) }, compact)
         "action_buttons" -> ActionButtonRow(card.data, repository)
     }
 }
