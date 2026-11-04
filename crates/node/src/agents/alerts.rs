@@ -5,8 +5,9 @@
 //! The hub keeps the last `MAX_KEPT` alerts, numbered. Each follower, known
 //! by its key, has a cursor into them, so it gets each alert once while the
 //! node runs, whenever it connects, and a follower that is away or slow
-//! holds nobody else up. A follower never seen starts at the oldest alert
-//! kept; one that fell behind the oldest resumes from it.
+//! holds nobody else up. A follower never seen starts at the alerts of the
+//! last `FRESH` minutes, so a desktop that joins does not replay old news;
+//! one that fell behind the oldest alert kept resumes from it.
 
 use crate::lock;
 use beep_proto::node::agent::Alert;
@@ -14,11 +15,14 @@ use iroh::EndpointId;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Mutex,
+    time::{Duration, Instant},
 };
 use tokio::sync::Notify;
 
 /// The most alerts kept; the oldest go.
 const MAX_KEPT: usize = 50;
+/// How far back a follower seen for the first time starts.
+const FRESH: Duration = Duration::from_secs(10 * 60);
 /// The most followers whose place is remembered; the least recently seen
 /// goes first.
 const MAX_FOLLOWERS: usize = 64;
@@ -47,6 +51,7 @@ struct Held {
 struct Numbered {
     number: u64,
     alert: Alert,
+    at: Instant,
 }
 
 #[derive(Debug)]
@@ -65,10 +70,14 @@ pub(crate) struct Follow<'a> {
 impl AlertHub {
     /// Keeps `alert` for every follower to read.
     pub(crate) fn record(&self, alert: Alert) {
+        self.record_at(alert, Instant::now());
+    }
+
+    fn record_at(&self, alert: Alert, at: Instant) {
         let mut held = lock(&self.held);
         let number = held.next;
         held.next += 1;
-        held.kept.push_back(Numbered { number, alert });
+        held.kept.push_back(Numbered { number, alert, at });
         while held.kept.len() > MAX_KEPT {
             held.kept.pop_front();
         }
@@ -102,11 +111,29 @@ impl Held {
         self.kept.iter().find(|kept| kept.number >= from)
     }
 
+    /// Gives a follower never seen its place: the oldest alert of the last
+    /// `FRESH`, or the next one to come.
+    fn start(&mut self, id: EndpointId, now: Instant) {
+        if self.cursors.contains_key(&id) {
+            return;
+        }
+        let from = self
+            .kept
+            .iter()
+            .find(|kept| now.saturating_duration_since(kept.at) <= FRESH)
+            .map_or(self.next, |kept| kept.number);
+        self.place(id, from);
+    }
+
     /// Notes that `id` has had everything up to `number`.
     fn had(&mut self, id: EndpointId, number: u64) {
+        self.place(id, number + 1);
+    }
+
+    fn place(&mut self, id: EndpointId, next: u64) {
         self.clock += 1;
         let cursor = Cursor {
-            next: number + 1,
+            next,
             seen: self.clock,
         };
         if self.cursors.len() >= MAX_FOLLOWERS && !self.cursors.contains_key(&id) {
@@ -130,8 +157,12 @@ impl Follow<'_> {
         loop {
             // Made before looking, so an alert that comes between is not missed.
             let arrived = self.hub.arrived.notified();
-            if let Some(kept) = lock(&self.hub.held).after(self.id) {
-                return kept.alert.clone();
+            {
+                let mut held = lock(&self.hub.held);
+                held.start(self.id, Instant::now());
+                if let Some(kept) = held.after(self.id) {
+                    return kept.alert.clone();
+                }
             }
             arrived.await;
         }
@@ -183,6 +214,37 @@ mod tests {
         timeout(Duration::from_millis(50), follow.next())
             .await
             .is_err()
+    }
+
+    #[tokio::test]
+    async fn a_new_follower_starts_at_the_last_ten_minutes_and_a_returning_one_where_it_left() {
+        let hub = AlertHub::default();
+        let (new, returning) = (follower(), follower());
+        let ago = |minutes: u64| Instant::now() - Duration::from_secs(minutes * 60);
+        hub.record_at(alert("stale"), ago(30));
+        hub.record_at(alert("older"), ago(9));
+        hub.record_at(alert("newer"), ago(1));
+        // A follower with a place before the stale alert still gets it.
+        lock(&hub.held).place(returning, 0);
+        let (new, returning) = (hub.follow(new), hub.follow(returning));
+        assert_eq!(take(&new).await, "older");
+        assert_eq!(take(&new).await, "newer");
+        assert!(nothing(&new).await);
+        assert_eq!(take(&returning).await, "stale");
+        assert_eq!(take(&returning).await, "older");
+    }
+
+    #[tokio::test]
+    async fn a_new_follower_with_only_stale_alerts_waits_for_the_next() {
+        let hub = AlertHub::default();
+        hub.record_at(
+            alert("stale"),
+            Instant::now() - FRESH - Duration::from_secs(1),
+        );
+        let new = hub.follow(follower());
+        assert!(nothing(&new).await);
+        hub.record(alert("now"));
+        assert_eq!(take(&new).await, "now");
     }
 
     #[tokio::test]
