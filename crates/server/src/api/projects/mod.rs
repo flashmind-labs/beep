@@ -18,8 +18,7 @@ use crate::{
     store::{ProjectRow, TaskRow, WorkerRow},
 };
 use beep_projects::issues::SourceError;
-use beep_projects::issues::{ListedPr, pull_request_head};
-use beep_projects::{commands::OpenIssue, model::RepoName};
+use beep_projects::{issues::pull_request_head, model::RepoName};
 use chrono::{Duration as TimeDelta, Utc};
 use iroh::EndpointId;
 use std::{
@@ -119,32 +118,6 @@ pub(super) fn issue_refusal(error: IssueError) -> ApiError {
             message: tracked.to_string(),
         },
         IssueError::Source(SourceError::Store(error)) => error.into(),
-    }
-}
-
-pub(super) fn issue_view(issue: OpenIssue) -> ProjectIssue {
-    ProjectIssue {
-        number: issue.number,
-        title: issue.title,
-        labels: issue.labels,
-        author: issue.author,
-        opened_at: issue.opened_at.into(),
-        comments: issue.comments,
-        url: issue.url,
-    }
-}
-
-pub(super) fn pull_request_view(listed: ListedPr) -> ProjectPullRequest {
-    let pr = listed.pr;
-    ProjectPullRequest {
-        number: pr.number,
-        title: pr.title,
-        url: pr.url,
-        author: pr.author,
-        draft: pr.draft,
-        mine: listed.mine,
-        created_at: pr.created_at.into(),
-        updated_at: pr.updated_at.into(),
     }
 }
 

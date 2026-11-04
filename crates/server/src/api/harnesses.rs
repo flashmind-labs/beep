@@ -16,22 +16,7 @@ use crate::{
     store::{AgentTokenRow, HarnessRow, SaveHarness},
 };
 use anyhow::Context;
-use std::{
-    collections::HashSet,
-    time::{Duration, UNIX_EPOCH},
-};
-
-/// The longest program path or home folder taken.
-const MAX_PATH: usize = 1024;
-/// The most launch arguments, and the longest one.
-const MAX_ARGS: usize = 32;
-const MAX_ARG: usize = 1024;
-/// The most env vars, the longest name and the longest value.
-const MAX_ENV: usize = 32;
-const MAX_ENV_NAME: usize = 128;
-const MAX_ENV_VALUE: usize = 8 * 1024;
-/// The longest agent slug, for one a machine's `node.toml` adds.
-const MAX_AGENT: usize = 32;
+use std::time::{Duration, UNIX_EPOCH};
 
 pub(super) async fn list_agent_harnesses(
     cx: Cx,
@@ -62,8 +47,8 @@ pub(super) async fn save_harness_settings(
     if !nodes.iter().any(|node| node.endpoint == machine_id) {
         return Err(ApiError::NotFound {});
     }
-    checked_agent(&agent)?;
-    let settings = checked(settings)?;
+    check_agent(&agent)?;
+    let settings = check_settings(settings)?;
     let key = &cx.app.credential_key;
     let env = env_to_save(&cx.user, key, &machine_id, &agent, settings.env).await?;
     cx.user
@@ -90,7 +75,7 @@ pub(super) async fn list_harness_settings(
     cx: Cx,
     ListHarnessSettings { agent }: ListHarnessSettings,
 ) -> Reply<Vec<MachineHarnessSettings>> {
-    checked_agent(&agent)?;
+    check_agent(&agent)?;
     let rows = cx.user.harness_settings_of(&agent).await?;
     Ok(cx
         .user
@@ -127,8 +112,8 @@ pub(super) async fn save_harness_settings_all(
     if !machines.contains(&from_machine) {
         return Err(ApiError::NotFound {});
     }
-    checked_agent(&agent)?;
-    let settings = checked(settings)?;
+    check_agent(&agent)?;
+    let settings = check_settings(settings)?;
     let everywhere = Everywhere {
         machines: &machines,
         from_machine: &from_machine,
@@ -246,7 +231,7 @@ pub(super) async fn update_agent_harness(
     cx: Cx,
     UpdateAgentHarness { machine_id, agent }: UpdateAgentHarness,
 ) -> Reply<AgentHarnesses> {
-    checked_agent(&agent)?;
+    check_agent(&agent)?;
     let machine = online_machine(&cx, &machine_id).await?;
     let report = machine
         .online
@@ -372,93 +357,6 @@ fn settings_of(row: Option<&HarnessRow>) -> HarnessSettings {
     )
 }
 
-/// A slug Beep knows, or one a machine's `node.toml` could add.
-fn checked_agent(agent: &str) -> Reply<()> {
-    let plain = !agent.is_empty()
-        && agent.len() <= MAX_AGENT
-        && agent
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
-    if harness(agent).is_some() || plain {
-        Ok(())
-    } else {
-        Err(ApiError::bad_request(format!(
-            "{agent:?} is not a coding agent."
-        )))
-    }
-}
-
-/// `settings` trimmed, or why they cannot be saved.
-fn checked(settings: HarnessSettings) -> Reply<HarnessSettings> {
-    let line = |what: &str, text: &str, max: usize| -> Reply<String> {
-        let text = text.trim();
-        if text.len() > max {
-            return Err(ApiError::bad_request(format!("The {what} is too long.")));
-        }
-        if text.chars().any(char::is_control) {
-            return Err(ApiError::bad_request(format!(
-                "The {what} cannot hold a line break or control character."
-            )));
-        }
-        Ok(text.to_owned())
-    };
-    let program = line("binary path", &settings.program, MAX_PATH)?;
-    let home = line("home folder", &settings.home, MAX_PATH)?;
-    if settings.args.len() > MAX_ARGS {
-        return Err(ApiError::bad_request(format!(
-            "At most {MAX_ARGS} launch arguments."
-        )));
-    }
-    let args = settings
-        .args
-        .iter()
-        .map(|arg| line("launch argument", arg, MAX_ARG))
-        .filter(|arg| !matches!(arg, Ok(arg) if arg.is_empty()))
-        .collect::<Reply<Vec<String>>>()?;
-    if settings.env.len() > MAX_ENV {
-        return Err(ApiError::bad_request(format!(
-            "At most {MAX_ENV} environment variables."
-        )));
-    }
-    let mut seen = HashSet::new();
-    let mut env = Vec::new();
-    for var in settings.env {
-        let name = var.name.trim().to_owned();
-        if name.is_empty() && var.value.is_none() {
-            continue;
-        }
-        let valid = name.len() <= MAX_ENV_NAME
-            && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-        if !valid {
-            return Err(ApiError::bad_request(format!(
-                "{name:?} is not an environment variable name."
-            )));
-        }
-        if !seen.insert(name.clone()) {
-            return Err(ApiError::bad_request(format!("{name} is set twice.")));
-        }
-        if let Some(value) = &var.value
-            && (value.expose().len() > MAX_ENV_VALUE || value.expose().contains('\0'))
-        {
-            return Err(ApiError::bad_request(format!(
-                "The value of {name} is too long or not text."
-            )));
-        }
-        env.push(HarnessEnv {
-            name,
-            value: var.value,
-        });
-    }
-    Ok(HarnessSettings {
-        enabled: settings.enabled,
-        program,
-        home,
-        args,
-        env,
-    })
-}
-
 /// The env vars to save; saved vars that do not open stop the save rather than being dropped.
 async fn env_to_save(
     user: &User,
@@ -475,24 +373,6 @@ async fn env_to_save(
         Vec::new()
     };
     Ok(merged_env(kept, wanted))
-}
-
-/// Each of `wanted` with its new value, or `kept`'s for that name; one with neither is dropped.
-fn merged_env(kept: Vec<EnvSecret>, wanted: Vec<HarnessEnv>) -> Vec<EnvSecret> {
-    wanted
-        .into_iter()
-        .filter_map(|var| {
-            let value = var.value.or_else(|| {
-                kept.iter()
-                    .find(|old| old.name == var.name)
-                    .map(|old| old.value.clone())
-            })?;
-            Some(EnvSecret {
-                name: var.name,
-                value,
-            })
-        })
-        .collect()
 }
 
 /// Whether the caller turned `agent` off on `machine_id`.
@@ -662,7 +542,7 @@ mod tests {
             &user,
             &key,
             &everywhere,
-            checked(settings(vec![var("HTTPS_PROXY", None)])).unwrap(),
+            check_settings(settings(vec![var("HTTPS_PROXY", None)])).unwrap(),
         )
         .await
         .unwrap();
