@@ -56,8 +56,9 @@ Set one in the environment to change it, or to empty to only report it.
 
 | Env | Default | First real run |
 | --- | --- | --- |
-| `E2E_BUDGET_SYNC_FIRST` | 30 s | 6.1 s |
-| `E2E_BUDGET_SYNC_ALL` | 45 s | 8.0 s |
+| `E2E_BUDGET_SYNC_LISTED` | 30 s, to node-a's own list | 1 to 11 s |
+| `E2E_BUDGET_SYNC_FIRST` | 120 s, to node-b | 1.5 to 82 s |
+| `E2E_BUDGET_SYNC_ALL` | 150 s | 8 to 87 s |
 | `E2E_BUDGET_SYNC_MBPS` | at least 6 MB/s | 18.3 MB/s |
 | `E2E_BUDGET_SCALE_FIRST` | 60 s | 8.4 s, 15.2 s back |
 | `E2E_BUDGET_SCALE_ALL` | 1200 s, each way | 67 to 903 s |
