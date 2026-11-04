@@ -62,6 +62,7 @@ mod view_cache;
 mod voice;
 mod waiting;
 mod work;
+mod work_copy;
 mod work_diff;
 mod work_files;
 
