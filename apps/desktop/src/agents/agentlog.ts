@@ -165,6 +165,12 @@ const MEDIA_PATH = new RegExp(`(^|[\\s(])((?:~|\\.{1,2})?\\/?[\\w@%+-][\\w@%+.\\
 /// `s` escaped for a quoted HTML attribute.
 export const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
+/// A reply's paragraphs that start `Warning: `, as Codex writes them, marked
+/// to show in the warning color.
+export function markWarnings(html: string) {
+  return html.replace(/<p>(?=Warning: )/g, '<p class="agwarn">');
+}
+
 /// The agent's reply as HTML with each media file it names (relative to its
 /// folder or absolute) as a link.
 export function linkImagePaths(html: string) {

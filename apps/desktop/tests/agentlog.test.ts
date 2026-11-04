@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, imageLines, linkImagePaths, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
+import { answeredQuestions, imageLines, linkImagePaths, markWarnings, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -73,4 +73,8 @@ test("image files a reply names become links, numbered as first named", () => {
   assert.match(html, /<a class="imgl" data-img="1"[^>]*>\/srv\/project\/b.JPG<\/a>,/);
   assert.match(html, /<pre>x.png<\/pre>/, "code blocks stay as they are");
   assert.equal(linkImagePaths("no pictures here.").paths.length, 0);
+});
+
+test("a paragraph starting Warning: is marked, others are not", () => {
+  assert.equal(markWarnings("<p>Warning: slow</p><p>No Warning: here</p>"), '<p class="agwarn">Warning: slow</p><p>No Warning: here</p>');
 });
