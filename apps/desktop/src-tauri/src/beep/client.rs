@@ -321,12 +321,17 @@ impl Beep {
         }
     }
 
-    /// Searches the local copy, or the server before the copy is ready.
-    pub async fn search(&self, query: String) -> Result<Vec<SessionMatch>> {
-        if let Some(found) = self.chats.search(&query) {
-            return Ok(found);
+    /// Searches the local copy, off the async workers since it walks every
+    /// message, or the server before the copy is ready.
+    pub async fn search(self: &Arc<Self>, query: String) -> Result<Vec<SessionMatch>> {
+        let (me, words) = (Arc::clone(self), query.clone());
+        let copy = tauri::async_runtime::spawn_blocking(move || me.chats.search(&words))
+            .await
+            .map_err(anyhow::Error::from)?;
+        match copy {
+            Some(found) => Ok(found),
+            None => self.call(SearchSessions { query }).await,
         }
-        self.call(SearchSessions { query }).await
     }
 
     /// Downloads a sent file to `dest`, part by part. It lands under a

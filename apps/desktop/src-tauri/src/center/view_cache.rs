@@ -47,6 +47,8 @@ pub enum View {
     /// saves it (`pagecache.ts`), with the account it belongs to and its
     /// size capped there.
     Pages,
+    /// The lists Cmd+K searches, which this side reads and ranks from.
+    Palette,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -226,8 +228,9 @@ pub fn center_cached(
         return None;
     }
     let mut views = cache.views();
-    // Home's own head start, not the page's.
+    // This side's own head starts, not the page's.
     views.remove(&View::AgentSessions);
+    views.remove(&View::Palette);
     Some(views)
 }
 

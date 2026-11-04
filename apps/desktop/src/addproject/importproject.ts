@@ -336,7 +336,7 @@ function form() {
     el("div", "am-sub", folderHelp(state, machines)),
     ...branchesBlock(),
     state.error ? el("div", "am-msg bad", state.error) : null,
-    el("div", "am-line", go, button("Cancel", "dbtn quiet", closeImportProject)),
+    el("div", "am-line ip-foot", go, button("Cancel", "dbtn quiet", closeImportProject)),
   ];
 }
 
@@ -358,7 +358,9 @@ function branchesBlock() {
   const { default_branch } = preview;
   const choices = placeChoices(preview, machines);
   const rows = preview.branches.map(b => {
-    const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", previewLine(b, default_branch)));
+    const meta = previewLine(b, default_branch);
+    const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", meta));
+    line.title = `${b.name}  ${meta}`;
     if (b.name !== default_branch && !b.worktree) {
       const pick = (id: string | null, label: string) => {
         const x = button(label, "", () => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); });
@@ -553,13 +555,15 @@ function injectStyle() {
     + " .ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }"
     + " .ip-browse .foot .note { flex: 1; min-width: 0 }"
     + " .ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px } .ip-fork { font-size: 12px; color: var(--muted) }"
-    + " .ip-branches { display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow: auto }"
+    + " .ip-sheet { max-height: calc(100vh - 48px); overflow: auto }"
+    + " .ip-foot { position: sticky; bottom: -18px; margin: 12px -20px -18px; padding: 12px 20px 18px; background: var(--surface); border-top: 1px solid var(--border) }"
+    + " .ip-branches { display: flex; flex-direction: column; gap: 2px }"
     + " .ip-branch { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--border) }"
     + " .ip-branch:last-child { border-bottom: 0 }"
     + " .ip-branch code { font-family: var(--mono) } .ip-branch .m { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
-    + " .ip-branch .lbl { color: var(--muted); font-size: 11.5px }"
+    + " .ip-branch .lbl { margin-left: auto; color: var(--muted); font-size: 11.5px }"
     + " .ip-branch .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden }"
     + " .ip-branch .seg button { all: unset; cursor: pointer; padding: 3px 9px; font-size: 12px } .ip-branch .seg button + button { border-left: 1px solid var(--border) }"
-    + " .ip-branch .seg button[aria-pressed=true] { background: rgba(52, 211, 153, .14); color: var(--fg) }";
+    + " .ip-branch .seg button[aria-pressed=true] { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg) }";
   document.head.append(style);
 }
