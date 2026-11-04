@@ -775,6 +775,8 @@ class ChatRepository(private val storage: LocalStorage) {
             // The server takes the chat's next message once it has the stop.
             stopped?.join()
             var failures = 0
+            // Seven tries, about a minute of pauses: long enough for a server restart.
+            val tries = 7
             while (isActive) {
                 val chat = state.value.conversations.find { it.id == id } ?: break
                 if (!chat.busy && !startQueued(chat)) break
@@ -826,9 +828,9 @@ class ChatRepository(private val storage: LocalStorage) {
                     }
                     failures++
                     connected.value = false; connection.value = "Connection interrupted"
-                    updateChat(id) { it.copy(status = "", error = if (failures < 4) "Reconnecting…" else userMessage(error)) }
+                    updateChat(id) { it.copy(status = "", error = if (failures < tries) "Reconnecting…" else userMessage(error)) }
                     val current = state.value.conversations.find { it.id == id }
-                    if (failures >= 4) {
+                    if (failures >= tries) {
                         current?.let(::liveFailed)
                         reconnect(); break
                     }

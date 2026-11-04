@@ -510,6 +510,7 @@ export function follow(id: string | null, turn: Turn) {
       case "finished":
         turn.status = ev.status;
         if (ev.status === "cancelled") stoppedRow(turn);
+        if (ev.status === "interrupted") stoppedRow(turn, "Cut off by a server restart");
         finish(id, turn);
         break;
     }

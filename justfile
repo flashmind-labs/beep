@@ -252,9 +252,10 @@ deploy-onprem-config container="beep-onprem-server-1":
     sleep 3
     docker logs --since 10s {{container}} 2>&1 | tail -5
 
-# Tail the remote server's logs
+# Tail the remote server's log file, which outlives the container: it is in
+# the beep_data volume, where `docker compose logs` is lost on every deploy
 remote-logs:
-    DOCKER_HOST={{remote_docker}} docker compose logs -f
+    DOCKER_HOST={{remote_docker}} docker compose exec server tail -n 200 -F /data/logs/beep.log
 
 # Android only: rebuild, install, launch
 android: bake-profile build-android install-apk launch-app
