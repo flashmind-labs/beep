@@ -100,11 +100,12 @@ pub(super) struct Merge {
 }
 
 /// Which of two concurrent entries keeps the path: a file before a
-/// tombstone, then the later mtime, then the larger hash.
-fn rank(entry: &Entry) -> (bool, i64, [u8; 32]) {
+/// tombstone, then the later mtime, then the larger hash, then the executable
+/// one, so that no two different files tie and each node keeps its own.
+fn rank(entry: &Entry) -> (bool, i64, [u8; 32], bool) {
     match &entry.file {
-        Some(file) => (true, file.mtime_ms, file.hash),
-        None => (false, 0, [0; 32]),
+        Some(file) => (true, file.mtime_ms, file.hash, file.executable),
+        None => (false, 0, [0; 32], false),
     }
 }
 
@@ -248,6 +249,9 @@ struct Stored {
     seq: u64,
 }
 
+/// More changes than a node makes between two saves.
+const LOAD_GAP: u64 = 1 << 32;
+
 /// One node's copy of a project's list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Map {
@@ -279,8 +283,13 @@ impl Map {
         }
     }
 
-    /// Rebuilds what is not saved, after loading.
+    /// Rebuilds what is not saved, after loading. A crash can load a list
+    /// older than what peers already got from it: moving its counts past any
+    /// it gave out keeps a peer's cursor from skipping the next changes, and
+    /// an old edit from passing for newer than the next ones.
     pub(super) fn loaded(mut self) -> Self {
+        self.seq += LOAD_GAP;
+        self.clock += LOAD_GAP;
         self.by_seq = self
             .entries
             .iter()
@@ -321,12 +330,15 @@ impl Map {
         self.clock = self.clock.max(incoming.version.get(self.replica));
         let merged = merge(self.get(&incoming.path), incoming);
         let mut changed = Vec::new();
+        // The copy first, so a peer reading the changes in order never sees
+        // the path settled without it, and replaces the only file it has of
+        // the losing edit before it knows where that edit went.
+        if let Some(copy) = merged.copy {
+            changed.extend(self.merge(&copy));
+        }
         if let Some(entry) = merged.entry {
             changed.push(entry.path.clone());
             self.put(entry);
-        }
-        if let Some(copy) = merged.copy {
-            changed.extend(self.merge(&copy));
         }
         changed
     }
@@ -519,6 +531,49 @@ mod tests {
         let bytes = rmp_serde::to_vec_named(&map).unwrap();
         let loaded = rmp_serde::from_slice::<Map>(&bytes).unwrap().loaded();
         assert_eq!(loaded.since(first.upto, 10).entries, rest.entries);
+    }
+
+    #[test]
+    fn files_differing_only_in_the_executable_bit_settle_alike() {
+        let plain = entry("a", &[(1, 1)], file(1, 5));
+        let mut exec = entry("a", &[(2, 1)], file(1, 5));
+        if let Some(file) = &mut exec.file {
+            file.executable = true;
+        }
+        let mut one = Map::new(1);
+        one.merge(&plain);
+        one.merge(&exec);
+        let mut other = Map::new(2);
+        other.merge(&exec);
+        other.merge(&plain);
+        assert_eq!(one.get("a"), other.get("a"));
+    }
+
+    #[test]
+    fn a_peer_gets_a_conflict_copy_before_the_entry_that_settles_it() {
+        let mut map = Map::new(1);
+        map.merge(&entry("a", &[(1, 1)], file(1, 1)));
+        let before = map.seq();
+        map.merge(&entry("a", &[(2, 1)], file(2, 2)));
+        let first = map.since(before, 1).entries;
+        assert_eq!(first[0].path, "a (conflict 01010101)");
+    }
+
+    #[test]
+    fn a_list_loaded_after_a_crash_reuses_nothing_peers_got() {
+        let mut map = Map::new(1);
+        map.edit("a", &Version::default(), file(1, 1));
+        let saved = rmp_serde::to_vec_named(&map).unwrap();
+        // What the crash loses, and a peer already has.
+        let lost = map.edit("b", &Version::default(), file(2, 2));
+        let cursor = map.seq();
+
+        let mut loaded = rmp_serde::from_slice::<Map>(&saved).unwrap().loaded();
+        let again = loaded.edit("b", &Version::default(), file(3, 3));
+        assert_eq!(again.compare(&lost), Order::Newer);
+        let sent = loaded.since(cursor, 10).entries;
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].file, file(3, 3));
     }
 
     #[test]

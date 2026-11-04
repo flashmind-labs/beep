@@ -41,6 +41,8 @@ use tokio_util::task::AbortOnDropHandle;
 mod disk;
 mod gitdir;
 mod map;
+#[cfg(test)]
+mod map_sim;
 mod peer;
 mod progress;
 mod project;
