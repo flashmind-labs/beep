@@ -184,6 +184,29 @@ async fn the_api_says_which_folder_holds_a_project_nested_or_through_a_link() {
 }
 
 #[tokio::test]
+async fn a_project_nested_under_a_paused_folder_is_beeps_to_sync() {
+    let home = Home::new();
+    let project = home.mkdir("share/work/project");
+    let kept = home.mkdir("kept/project");
+    home.mkdir("kept/inner");
+    fs::write(home.path().join("share").join(MARKER), "").unwrap();
+    let (addr, _server) = fake_api(serde_json::json!([
+        {"id": "share-1", "label": "Share", "path": "~/share", "paused": true},
+        {"id": "kept-2", "label": "Kept", "path": "~/kept"},
+        {"id": "inner-3", "label": "Inner", "path": "~/kept/inner", "paused": true},
+    ]))
+    .await;
+    home.write_config(&addr.to_string());
+    let syncthing = home.syncthing();
+    // The share's marker stays while it is paused, and does not count.
+    assert_eq!(syncthing.check(&project).await, None);
+    assert_eq!(syncthing.check(&kept).await.unwrap().label, "Kept");
+    // A folder syncing around a paused one still carries what is inside.
+    let inner = syncthing.check(&home.path().join("kept/inner")).await;
+    assert_eq!(inner.unwrap().label, "Kept");
+}
+
+#[tokio::test]
 async fn without_the_api_a_marker_up_to_home_says_it() {
     let home = Home::new();
     let sync = home.mkdir("sync");

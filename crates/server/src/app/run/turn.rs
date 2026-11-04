@@ -250,7 +250,7 @@ impl App {
         // once the rules are loaded.
         let project = project.filter(|_| use_machines);
         if use_machines && project.is_none() {
-            tools::machines::register(&mut registry, self, user, chat);
+            tools::machines::register(&mut registry, self, user);
         }
         registry.register(Arc::new(events::tools::EventTopicsTool {
             user: user.clone(),
@@ -399,6 +399,10 @@ impl App {
                 app: self.clone(),
                 user: user.clone(),
             };
+            // Starting a coding agent asks too; a project chat starts workers instead.
+            if project.is_none() {
+                tools.extend(tools::machines::code_agent_tool(&machines, chat));
+            }
             tools.push(Arc::new(tools::machines::add::AddMachineTool {
                 machines: machines.clone(),
             }));

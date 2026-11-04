@@ -166,6 +166,7 @@ pub fn router() -> Router {
         .call(findings::update_finding)
         .call(list_machine_details)
         .call(list_machine_stats)
+        .call(machine_traffic::list_machine_traffic)
         .call(agent_sessions::list_agent_sessions)
         .call(agent_sessions::answer_agent_question)
         .call(agent_control::list_agent_hosts)

@@ -7,7 +7,10 @@ use crate::{
     protocol::node::agent,
     store::NodeRow,
 };
-use flashmind::types::{ToolRegistry, tool::ToolResult};
+use flashmind::types::{
+    ToolRegistry,
+    tool::{Tool, ToolResult},
+};
 use futures::future::join_all;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -22,8 +25,8 @@ pub(crate) mod mcp;
 pub(crate) mod process;
 pub(crate) mod transfer;
 
-/// Registers each tool some machine of the user's online now can serve.
-pub(crate) fn register(registry: &mut ToolRegistry, app: &Arc<App>, user: &Arc<User>, chat: Uuid) {
+/// Registers each tool some machine of the user's online now can serve, but for [`code_agent_tool`].
+pub(crate) fn register(registry: &mut ToolRegistry, app: &Arc<App>, user: &Arc<User>) {
     let online = app.nodes.of_user(user.id());
     let machines = Machines {
         app: app.clone(),
@@ -39,13 +42,19 @@ pub(crate) fn register(registry: &mut ToolRegistry, app: &Arc<App>, user: &Arc<U
     }
     // A Mac offers desktop/1 only while the user lets Beep use it.
     if online.iter().any(|node| node.offers(DESKTOP)) {
-        registry.register(Arc::new(desktop::DesktopTool {
+        registry.register(Arc::new(desktop::DesktopTool { machines }));
+    }
+}
+
+/// `code_agent` when a machine online offers an agent, for the caller to put under the rules.
+pub(crate) fn code_agent_tool(machines: &Machines, chat: Uuid) -> Option<Arc<dyn Tool>> {
+    let online = machines.app.nodes.of_user(machines.user.id());
+    online.iter().any(offers_an_agent).then(|| {
+        Arc::new(code_agent::CodeAgentTool {
             machines: machines.clone(),
-        }));
-    }
-    if online.iter().any(offers_an_agent) {
-        registry.register(Arc::new(code_agent::CodeAgentTool { machines, chat }));
-    }
+            chat,
+        }) as Arc<dyn Tool>
+    })
 }
 
 fn offers_an_agent(online: &Online) -> bool {

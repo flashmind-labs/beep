@@ -93,7 +93,9 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
       turn.dataset.at = String(t.at);
       ranOn(turn, t.model, t.thinking);
     } else if (t.role === "scheduled") {
-      turn = drawTurn(t.label || "Routine");
+      // The server started this turn: a small line, not a message the user sent.
+      turn = drawTurn("");
+      turn.prepend(h(`<div class="dsystem">${esc(t.label || "Routine")}</div>`));
       turn.user = false;
     } else if (t.role === "assistant") {
       turn ??= drawTurn("");
@@ -170,10 +172,12 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
 }
 
 /// Whether `old`, on screen, is the turn the server lists as `fresh`. One
-/// drawn live has no `at` yet, so its prompt says.
+/// drawn live has no `at` yet, so its prompt says, or the line of a turn the
+/// server started.
 function sameTurn(old: Turn, fresh: Turn) {
   if (old.dataset.at && fresh.dataset.at) return old.dataset.at === fresh.dataset.at;
-  return askText(old) === askText(fresh);
+  const said = (t: Turn) => askText(t) || (t.querySelector(":scope > .dsystem")?.textContent ?? "");
+  return said(old) === said(fresh);
 }
 
 /// Parts of a turn that stay the element they are: the prompt with its

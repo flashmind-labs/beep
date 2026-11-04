@@ -411,6 +411,74 @@ fn a_peer_cannot_name_paths_outside_the_folder_or_in_git() {
 }
 
 #[test]
+fn only_refs_are_removed_from_git_and_git_comes_in_the_order_it_needs() {
+    let mut map = Map::new(1);
+    let dir = TempDir::new().unwrap();
+    let rules = Rules::load(dir.path()).unwrap();
+    let seen_here = [
+        ".git/objects/ab/0123456789012345678901234567890123456f",
+        ".git/config",
+        ".git/HEAD",
+        ".git/refs/heads/gone",
+    ];
+    let mut state = State::new(Saved::default());
+    for path in seen_here {
+        map.edit(path, &Version::default(), Some(meta(1)));
+        state.set_seen(
+            path,
+            Seen {
+                stat: Stat {
+                    size: 1,
+                    mtime_ns: 0,
+                    ctime_ns: 0,
+                    inode: 1,
+                    device: 1,
+                    executable: false,
+                },
+                hash: [1; 32],
+                version: map.get(path).unwrap().version.clone(),
+            },
+        );
+    }
+    // A peer deleted all of it, as `git gc` or `rm -rf .git` would.
+    for path in seen_here {
+        let base = map.get(path).unwrap().version.clone();
+        map.edit(path, &base, None);
+    }
+    state.saved.map = map;
+    let planned = plan(&state, &rules);
+    let paths: Vec<_> = planned.iter().map(|work| work.path.as_str()).collect();
+    assert_eq!(paths, [".git/refs/heads/gone"]);
+
+    let mut map = Map::new(1);
+    for path in [
+        ".git/refs/heads/a",
+        ".git/HEAD",
+        ".git/objects/pack/pack-0a.idx",
+        ".git/objects/pack/pack-0a.pack",
+        "src/lib.rs",
+    ] {
+        map.edit(path, &Version::default(), Some(meta(2)));
+    }
+    let state = State::new(Saved {
+        map,
+        ..Saved::default()
+    });
+    let planned = plan(&state, &rules);
+    let paths: Vec<_> = planned.iter().map(|work| work.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            ".git/objects/pack/pack-0a.pack",
+            ".git/objects/pack/pack-0a.idx",
+            "src/lib.rs",
+            ".git/HEAD",
+            ".git/refs/heads/a",
+        ]
+    );
+}
+
+#[test]
 fn a_peer_cannot_grow_the_list_past_the_file_limit() {
     let mut map = Map::new(1);
     for n in 0..MAX_FILES {

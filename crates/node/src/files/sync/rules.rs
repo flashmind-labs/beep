@@ -1,7 +1,8 @@
 //! Which paths of a project sync: `Rules::load` reads a project's rules and
 //! `Rules::skip` applies them. Everything here blocks.
 
-use anyhow::{Context, Result, bail};
+use super::{gitdir, stignore::Stignore};
+use anyhow::{Context, Result};
 use beep_proto::node::sync::Rule;
 use ignore::{
     Match,
@@ -11,7 +12,6 @@ use std::{
     collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
-    process::Command,
 };
 
 /// The project's own ignore file.
@@ -154,6 +154,44 @@ const DEFAULTS: &[Defaults] = &[
     },
 ];
 
+/// Left out of every project, whatever its kind: build output and caches
+/// nothing wants carried, and folders that belong to the machine that made
+/// them (a linked worktree's `.git` file names that machine's paths).
+const ALWAYS: &[&str] = &[
+    "target",
+    "node_modules",
+    ".DS_Store",
+    ".gradle",
+    ".cxx",
+    ".externalNativeBuild",
+    ".build",
+    "DerivedData",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".next",
+    ".nuxt",
+    ".output",
+    ".svelte-kit",
+    ".turbo",
+    ".astro",
+    ".vite",
+    ".open-next",
+    ".cache",
+    ".parcel-cache",
+    ".nyc_output",
+    "**/android/build",
+    "**/android/**/build",
+    "**/ios/build",
+    "**/.worktrees",
+    "**/.claude/worktrees",
+    "*.sync-conflict-*",
+];
+
 fn is_marker(name: &str, marker: &str) -> bool {
     match marker.strip_prefix('*') {
         Some(ext) => name.len() > ext.len() && name.ends_with(ext),
@@ -180,25 +218,34 @@ impl Skip {
     }
 }
 
-/// One marker's rules.
+/// One set of default rules.
 #[derive(Debug)]
 struct Found {
-    marker: String,
+    /// The marker file that brought them; `None` for `ALWAYS`.
+    marker: Option<String>,
     matcher: Gitignore,
 }
 
 /// A project's rules, read from its folder, applied in this order:
-/// 1. `.git` never syncs; in a git repository only files git ignores do,
-///    since git carries the rest.
-/// 2. Defaults for the project kinds its marker files show (`target/`
-///    beside `Cargo.toml`), git or not. A `.gitignore` outside git is not
-///    read, as it would also leave out `.env` and other files worth keeping.
+/// 1. `.git` in the project's root syncs as `gitdir` says; a `.git` further
+///    down never does, and a folder whose `.git` is a file (a linked worktree
+///    or a submodule) stays on its machine (see `scan::walk`).
+/// 2. The `.stignore` of every folder at or above the project: what the user
+///    told Syncthing to leave out stays out once Syncthing pauses.
 /// 3. `.beepignore` (`.gitignore` syntax) adds rules; a `!` rule keeps a
-///    path the rules above leave out.
+///    path the rules below leave out.
+/// 4. `ALWAYS`, and the defaults for the project kinds its marker files show
+///    (`target/` beside `Cargo.toml`). A file git tracks stays in spite of
+///    them, or `git status` would call it deleted elsewhere. A `.gitignore`
+///    is not read, as it would also leave out `.env` and other files worth
+///    keeping.
 #[derive(Debug)]
 pub(super) struct Rules {
-    /// The folder is a git repository.
-    git: bool,
+    /// What git tracks here, and the folders that hold it.
+    tracked: HashSet<String>,
+    /// Why the root's `.git` stays here: it is a file, or a rule says so.
+    git_stays: Option<Skip>,
+    stignores: Vec<Stignore>,
     defaults: Vec<Found>,
     beepignore: Option<Gitignore>,
 }
@@ -213,40 +260,74 @@ pub(super) fn is_own(name: &str) -> bool {
         || (name.starts_with(".beep-") && (name.ends_with(".partial") || name.ends_with(".tmp")))
 }
 
-/// Whether `name` is a folder Syncthing keeps for itself. Its marker would
-/// tell a peer that Syncthing keeps the project there.
+/// Whether `name` is Syncthing's own: its folders, whose marker would tell a
+/// peer that Syncthing keeps the project there, its temporary files, and
+/// its ignore file, which each machine keeps for itself.
 pub(super) fn is_syncthings(name: &str) -> bool {
-    name == ".stfolder" || name == ".stversions"
+    name == ".stfolder"
+        || name == ".stversions"
+        || name == ".stignore"
+        || name.starts_with(".syncthing")
+        || name.starts_with("~syncthing~")
 }
 
 impl Rules {
     /// Reads the rules of the project in `root`: the defaults for the
-    /// marker files in it and its first-level folders, and its
-    /// `.beepignore`.
+    /// marker files in it and its first-level folders, its `.beepignore`,
+    /// and the `.stignore` files at or above it. Fails on a `.stignore` it
+    /// cannot read, since syncing then could send what the user left out.
     pub(super) fn load(root: &Path) -> Result<Self> {
-        let git = root.join(".git").exists();
-        Ok(Self {
-            git,
+        let mut rules = Self {
+            tracked: tracked(root),
+            git_stays: None,
+            stignores: Stignore::load_above(root)?,
             defaults: defaults(root)?,
             beepignore: read_ignore(root, BEEPIGNORE)?,
-        })
+        };
+        let git = Path::new(gitdir::GIT);
+        rules.git_stays = if fs::symlink_metadata(root.join(git)).is_ok_and(|meta| !meta.is_dir()) {
+            Some(Skip::rule(Rule::Git))
+        } else if rules.stignored(git, true) {
+            Some(Skip::rule(Rule::Other))
+        } else if rules.beepignored(git, true).is_ignore() {
+            Some(Skip::rule(Rule::BeepIgnore))
+        } else {
+            None
+        };
+        Ok(rules)
     }
 
-    /// Whether the folder is a git repository.
-    pub(super) fn is_git(&self) -> bool {
-        self.git
+    fn stignored(&self, path: &Path, is_dir: bool) -> bool {
+        self.stignores.iter().any(|st| st.ignores(path, is_dir))
+    }
+
+    fn beepignored(&self, path: &Path, is_dir: bool) -> Match<()> {
+        match &self.beepignore {
+            Some(ignore) => ignore.matched_path_or_any_parents(path, is_dir).map(|_| ()),
+            None => Match::None,
+        }
+    }
+
+    /// Whether the project's `.git` syncs here.
+    pub(super) fn syncs_git(&self) -> bool {
+        self.git_stays.is_none()
     }
 
     /// Why `path`, relative to the project folder, is left out, or `None`
-    /// when it syncs as far as these rules go. In a git repository a kept
-    /// path must also be one git ignores (`GitIgnored`).
+    /// when it syncs.
     pub(super) fn skip(&self, path: &Path, is_dir: bool) -> Option<Skip> {
         let mut parts = path.components().peekable();
+        if parts
+            .peek()
+            .is_some_and(|part| part.as_os_str() == gitdir::GIT)
+        {
+            return self.skip_in_git(path, is_dir);
+        }
         while let Some(part) = parts.next() {
             let Component::Normal(name) = part else {
                 return Some(Skip::Own);
             };
-            if name == ".git" {
+            if name == gitdir::GIT {
                 return Some(Skip::rule(Rule::Git));
             }
             if name.to_str().is_some_and(is_syncthings) {
@@ -256,20 +337,46 @@ impl Rules {
                 return Some(Skip::Own);
             }
         }
-        if let Some(beepignore) = &self.beepignore {
-            match beepignore.matched(path, is_dir) {
-                Match::Ignore(_) => return Some(Skip::rule(Rule::BeepIgnore)),
-                Match::Whitelist(_) => return None,
-                Match::None => {}
-            }
+        if self.stignored(path, is_dir) {
+            return Some(Skip::rule(Rule::Other));
+        }
+        match self.beepignored(path, is_dir) {
+            Match::Ignore(()) => return Some(Skip::rule(Rule::BeepIgnore)),
+            Match::Whitelist(()) => return None,
+            Match::None => {}
+        }
+        if !self.tracked.is_empty()
+            && self
+                .tracked
+                .contains(&*path.to_string_lossy().replace('\\', "/"))
+        {
+            return None;
         }
         self.defaults
             .iter()
-            .find(|found| found.matcher.matched(path, is_dir).is_ignore())
+            .find(|found| {
+                found
+                    .matcher
+                    .matched_path_or_any_parents(path, is_dir)
+                    .is_ignore()
+            })
             .map(|found| Skip::Rule {
                 rule: Rule::Default,
-                marker: Some(found.marker.clone()),
+                marker: found.marker.clone(),
             })
+    }
+
+    fn skip_in_git(&self, path: &Path, is_dir: bool) -> Option<Skip> {
+        if self.git_stays.is_some() {
+            return self.git_stays.clone();
+        }
+        let text = path.to_string_lossy().replace('\\', "/");
+        let keep = if is_dir {
+            gitdir::walks(&text)
+        } else {
+            gitdir::kind(&text).is_some()
+        };
+        (!keep).then_some(Skip::Own)
     }
 
     /// Whether `path` or a folder it lies in is left out; `is_dir` says
@@ -290,7 +397,10 @@ impl Rules {
     /// The marker files whose defaults apply.
     #[cfg(test)]
     fn markers(&self) -> Vec<&str> {
-        self.defaults.iter().map(|f| f.marker.as_str()).collect()
+        self.defaults
+            .iter()
+            .filter_map(|f| f.marker.as_deref())
+            .collect()
     }
 }
 
@@ -354,64 +464,47 @@ fn defaults(root: &Path) -> Result<Vec<Found>> {
                 .with_context(|| format!("the default rule {rule}"))?;
         }
         found.push(Found {
-            marker: marker.clone(),
+            marker: Some(marker.clone()),
             matcher: builder.build()?,
         });
     }
+    let mut builder = GitignoreBuilder::new(root);
+    for rule in ALWAYS {
+        builder
+            .add_line(None, rule)
+            .with_context(|| format!("the default rule {rule}"))?;
+    }
+    found.push(Found {
+        marker: None,
+        matcher: builder.build()?,
+    });
     Ok(found)
 }
 
-/// What git ignores in a repository: files, and folders it ignores whole,
-/// by path relative to the repository, folders without their `/`.
-#[derive(Debug, Default)]
-pub(super) struct GitIgnored {
-    files: HashSet<String>,
-    folders: HashSet<String>,
-}
-
-impl GitIgnored {
-    /// Asks git in `root`.
-    pub(super) fn read(root: &Path) -> Result<Self> {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args([
-                "ls-files",
-                "-z",
-                "--others",
-                "--ignored",
-                "--exclude-standard",
-                "--directory",
-            ])
-            .output()
-            .context("running git, which a git repository needs to sync")?;
-        if !output.status.success() {
-            bail!(
-                "git could not list the ignored files: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
+/// What git tracks in `root`, and every folder above a tracked file; empty
+/// when there is no repository to ask yet.
+fn tracked(root: &Path) -> HashSet<String> {
+    let listed = gitdir::Repo::open(root).map(|repo| repo.tracked());
+    let files = match listed {
+        Some(Ok(files)) => files,
+        Some(Err(e)) => {
+            log::debug!("no list of tracked files in {}: {e:#}", root.display());
+            return HashSet::new();
         }
-        let mut ignored = Self::default();
-        for path in output.stdout.split(|&b| b == 0).filter(|p| !p.is_empty()) {
-            let Ok(path) = std::str::from_utf8(path) else {
-                continue;
-            };
-            match path.strip_suffix('/') {
-                Some(folder) => ignored.folders.insert(folder.to_owned()),
-                None => ignored.files.insert(path.to_owned()),
-            };
+        None => return HashSet::new(),
+    };
+    let mut tracked = HashSet::with_capacity(files.len());
+    for file in files {
+        let mut folder = file.as_str();
+        while let Some(at) = folder.rfind('/') {
+            folder = &folder[..at];
+            if !tracked.insert(folder.to_owned()) {
+                break;
+            }
         }
-        Ok(ignored)
+        tracked.insert(file);
     }
-
-    /// Whether git ignores `path`, a file, or a folder it lies in.
-    pub(super) fn contains(&self, path: &str) -> bool {
-        if self.files.contains(path) || self.folders.contains(path) {
-            return true;
-        }
-        path.match_indices('/')
-            .any(|(at, _)| self.folders.contains(&path[..at]))
-    }
+    tracked
 }
 
 #[cfg(test)]
@@ -452,7 +545,7 @@ mod tests {
         );
         assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
         // Two folders down is too deep for a marker.
-        assert_eq!(skipped(&rules, ".venv", true), None);
+        assert_eq!(skipped(&rules, "build", true), None);
         let Some(Skip::Rule { marker, .. }) = rules.skip(Path::new("target"), true) else {
             panic!("target is left out");
         };
@@ -460,10 +553,26 @@ mod tests {
     }
 
     #[test]
-    fn git_never_syncs_and_own_partials_are_hidden() {
+    fn only_the_roots_git_syncs_and_own_partials_are_hidden() {
         let dir = project(&["notes.txt"]);
         let rules = Rules::load(dir.path()).unwrap();
-        assert_eq!(skipped(&rules, ".git", true), Some(Rule::Git));
+        assert_eq!(skipped(&rules, ".git", true), None);
+        assert_eq!(skipped(&rules, ".git/objects/pack", true), None);
+        assert_eq!(skipped(&rules, ".git/HEAD", false), None);
+        for file in [
+            ".git/index",
+            ".git/index.lock",
+            ".git/FETCH_HEAD",
+            ".git/ORIG_HEAD",
+            ".git/hooks/pre-commit",
+            ".git/refs/heads/main.lock",
+            ".git/objects/pack/tmp_pack_x",
+        ] {
+            assert_eq!(skipped(&rules, file, false), Some(Rule::Other), "{file}");
+        }
+        for folder in [".git/logs", ".git/worktrees", ".git/hooks"] {
+            assert_eq!(skipped(&rules, folder, true), Some(Rule::Other), "{folder}");
+        }
         assert_eq!(skipped(&rules, "sub/.git", false), Some(Rule::Git));
         assert_eq!(skipped(&rules, "sub/.git/config", false), Some(Rule::Git));
         assert_eq!(
@@ -474,12 +583,43 @@ mod tests {
     }
 
     #[test]
+    fn generic_build_output_and_syncthings_files_stay_in_any_project() {
+        let dir = project(&["notes.txt"]);
+        let rules = Rules::load(dir.path()).unwrap();
+        for path in [
+            "target",
+            "app/node_modules",
+            ".DS_Store",
+            "a/__pycache__",
+            "a/b/.cache",
+            "mobile/android/build",
+            "mobile/android/app/build",
+            "mobile/ios/build",
+            ".worktrees",
+            "sub/.claude/worktrees",
+            "notes.sync-conflict-20260101-000000-ABCDEFG.txt",
+        ] {
+            assert_eq!(skipped(&rules, path, true), Some(Rule::Default), "{path}");
+        }
+        assert_eq!(skipped(&rules, "src/build", true), None);
+        for own in [
+            ".stfolder",
+            ".stignore",
+            ".syncthing.a.tmp",
+            "~syncthing~a.tmp",
+        ] {
+            assert_eq!(rules.skip(Path::new(own), false), Some(Skip::Own), "{own}");
+        }
+    }
+
+    #[test]
     fn a_path_inside_a_skipped_folder_is_skipped() {
         let dir = project(&["Cargo.toml"]);
         let rules = Rules::load(dir.path()).unwrap();
         assert!(rules.skips_any(Path::new("target/debug/app"), false));
         assert!(rules.skips_any(Path::new("crates/x/target"), true));
         assert!(rules.skips_any(Path::new(".git/index"), false));
+        assert!(!rules.skips_any(Path::new(".git/refs/heads/main"), false));
         assert!(!rules.skips_any(Path::new("src/main.rs"), false));
     }
 
@@ -488,7 +628,6 @@ mod tests {
         let dir = project(&["Cargo.toml", ".env", "run.log"]);
         fs::write(dir.path().join(".gitignore"), ".env\n*.log\ntarget/\n").unwrap();
         let rules = Rules::load(dir.path()).unwrap();
-        assert!(!rules.is_git());
         assert_eq!(skipped(&rules, ".env", false), None);
         assert_eq!(skipped(&rules, "run.log", false), None);
         assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
@@ -511,20 +650,10 @@ mod tests {
     }
 
     #[test]
-    fn a_git_repository_keeps_the_defaults_and_asks_git() {
-        if Command::new("git").arg("--version").output().is_err() {
-            return;
-        }
-        let dir = project(&[
-            "Cargo.toml",
-            "src/main.rs",
-            "target/debug/app",
-            ".env",
-            "data/big.bin",
-        ]);
-        fs::write(dir.path().join(".gitignore"), "target/\n.env\ndata/\n").unwrap();
+    fn a_tracked_file_stays_in_spite_of_the_defaults() {
+        let dir = project(&["package.json", "dist/kept.js", "dist/built.js", "target/a"]);
         let git = |args: &[&str]| {
-            let status = Command::new("git")
+            let status = std::process::Command::new("git")
                 .arg("-C")
                 .arg(dir.path())
                 .args(args)
@@ -533,16 +662,26 @@ mod tests {
             assert!(status.status.success(), "{status:?}");
         };
         git(&["init", "-q"]);
-        git(&["add", "Cargo.toml", "src/main.rs", ".gitignore"]);
+        git(&["add", "-f", "package.json", "dist/kept.js"]);
         let rules = Rules::load(dir.path()).unwrap();
-        assert!(rules.is_git());
-        // The defaults still leave out build output git ignores.
+        assert_eq!(skipped(&rules, "dist", true), None);
+        assert_eq!(skipped(&rules, "dist/kept.js", false), None);
+        assert_eq!(skipped(&rules, "dist/built.js", false), Some(Rule::Default));
         assert_eq!(skipped(&rules, "target", true), Some(Rule::Default));
-        let ignored = GitIgnored::read(dir.path()).unwrap();
-        assert!(ignored.contains(".env"));
-        assert!(ignored.contains("data/big.bin"));
-        assert!(ignored.contains("target/debug/app"));
-        assert!(!ignored.contains("src/main.rs"));
-        assert!(!ignored.contains("Cargo.toml"));
+    }
+
+    #[test]
+    fn a_git_file_or_a_rule_keeps_git_here() {
+        let dir = project(&["notes.txt"]);
+        fs::write(dir.path().join(".git"), "gitdir: /path/to/work\n").unwrap();
+        let rules = Rules::load(dir.path()).unwrap();
+        assert!(!rules.syncs_git());
+        assert_eq!(skipped(&rules, ".git", false), Some(Rule::Git));
+
+        let dir = project(&["notes.txt", ".git/HEAD"]);
+        fs::write(dir.path().join(".beepignore"), ".git/\n").unwrap();
+        let rules = Rules::load(dir.path()).unwrap();
+        assert!(!rules.syncs_git());
+        assert_eq!(skipped(&rules, ".git/HEAD", false), Some(Rule::BeepIgnore));
     }
 }

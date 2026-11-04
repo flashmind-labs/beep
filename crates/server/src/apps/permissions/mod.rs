@@ -17,6 +17,7 @@ use crate::{
         CATALOG, CatalogApp, catalog_app, custom_mcp::PREFIX as ADDED_PREFIX, mcp::FASTMAIL_TOOLS,
         read,
     },
+    nodes::agent_name,
     protocol::{AppAction, AppKind, AppPermissions, Approval, ApprovalField, PermissionLevel},
     store::{AppPermissionRow, ChatAllow},
     tools::media::{self, MediaKind},
@@ -39,8 +40,8 @@ pub(crate) enum Acts {
     WhenMoving,
     /// Only when `to` names one of the user's machines.
     WhenToMachine,
-    /// Only when it steers a coding agent session the user runs.
-    WhenSteering,
+    /// Only when it starts a coding agent session or gives one work.
+    WhenDirectingAgent,
 }
 
 impl Acts {
@@ -54,9 +55,10 @@ impl Acts {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .is_some_and(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user")),
-            Acts::WhenSteering => matches!(
+            // `answer` counts: text that is no option goes to the agent as its next prompt.
+            Acts::WhenDirectingAgent => matches!(
                 args.get("action").and_then(Value::as_str),
-                Some("steer" | "interrupt")
+                Some("start" | "takeover" | "prompt" | "answer" | "steer" | "interrupt")
             ),
         }
     }
@@ -69,7 +71,7 @@ impl Acts {
 
 /// `send_file` as rules keep it.
 const SEND_FILE: &str = "SEND_FILE";
-/// `code_agent` as rules keep it: steering a session the user runs acts.
+/// `code_agent` as rules keep it: starting a session or giving one work acts.
 const CODE_AGENT: &str = "CODE_AGENT";
 /// `add_machine` as rules keep it: a setup token grants account access, so it acts.
 const ADD_MACHINE: &str = "ADD_MACHINE";
@@ -183,7 +185,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
         return Some((ToolApp::Machines, Acts::WhenToMachine));
     }
     if tool == CODE_AGENT {
-        return Some((ToolApp::Machines, Acts::WhenSteering));
+        return Some((ToolApp::Machines, Acts::WhenDirectingAgent));
     }
     if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
         return Some((ToolApp::Machines, Acts::Always));
@@ -256,8 +258,44 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
 fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
     match (app, MediaKind::from_tool(tool)) {
         (ToolApp::Media, Some(kind)) => media::approval_fields(kind, args),
+        _ if ToolSlug::new(tool).as_str() == CODE_AGENT => code_agent_fields(args),
         _ => fields(args),
     }
+}
+
+/// A `code_agent` card; "Default" is what the call left for the server to pick when it runs.
+fn code_agent_fields(args: &Value) -> Vec<ApprovalField> {
+    const DEFAULT: &str = "Default";
+    let text = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let action = text("action").unwrap_or_default();
+    let starting = action == "start";
+    [
+        ("Action", Some(capitalize(action))),
+        (
+            "Agent",
+            Some(text("agent").map_or(DEFAULT, agent_name).to_owned()),
+        ),
+        ("Machine", Some(text("in").unwrap_or(DEFAULT).to_owned())),
+        (
+            "Folder",
+            starting.then(|| text("cwd").unwrap_or(DEFAULT).to_owned()),
+        ),
+        ("Session", text("id").map(str::to_owned)),
+        ("Prompt", text("prompt").map(str::to_owned)),
+    ]
+    .into_iter()
+    .filter_map(|(label, value)| {
+        Some(ApprovalField {
+            label: label.to_owned(),
+            value: shorten(&value?, MAX_VALUE_CHARS),
+        })
+    })
+    .collect()
 }
 
 /// The tools of `app` that can act; every project tool counts.
