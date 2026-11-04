@@ -32,7 +32,8 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
-    time::{MissedTickBehavior, interval},
+    task::JoinSet,
+    time::{MissedTickBehavior, interval, timeout},
 };
 
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
@@ -131,6 +132,14 @@ impl Peers {
         Ok(())
     }
 
+    /// Whether this device is a desktop in the current device list.
+    pub(crate) fn is_desktop(&self) -> bool {
+        let me = self.inner.endpoint.id();
+        self.devices()
+            .iter()
+            .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop)
+    }
+
     pub(crate) fn is_member(&self) -> bool {
         self.active().is_some()
     }
@@ -162,10 +171,15 @@ impl Peers {
 
     /// Serves each stream a peer opens, by what the peer is now.
     fn stream_handler(&self) -> StreamHandler {
-        let offers = self.inner.offers.clone();
+        // Weak: the mesh holds this handler, and the node holds the mesh.
+        let peers = Arc::downgrade(&self.inner);
         Arc::new(move |stream: PeerStream| {
-            let offers = offers.clone();
+            let peers = peers.clone();
             Box::pin(async move {
+                let Some(inner) = peers.upgrade() else {
+                    return;
+                };
+                let (offers, desktop_here) = (inner.offers.clone(), Peers { inner }.is_desktop());
                 let PeerStream {
                     peer,
                     kind,
@@ -174,7 +188,7 @@ impl Peers {
                 } = stream;
                 let who = match kind {
                     DeviceKind::Desktop => Who::Everything,
-                    DeviceKind::Node => Who::Node,
+                    DeviceKind::Node => Who::Node { peer, desktop_here },
                 };
                 if let Err(e) = session(send, recv, offers, who).await {
                     log::debug!("a stream from {peer} ended: {e:#}");
@@ -265,14 +279,32 @@ pub(crate) async fn status(mut tx: LinkTx, mut rx: LinkRx, offers: Offers) -> Re
 /// Takes the mesh commands on the node's socket until the node stops.
 pub(crate) async fn listen(dir: &Path, peers: Peers) -> Result<()> {
     let mut listener = Listener::bind(&dir.join(SOCKET))?;
+    let mut commands = JoinSet::new();
     log::info!("taking mesh commands on the control socket");
     loop {
         let stream = listener.accept().await.context("taking a mesh command")?;
-        if let Err(e) = answer(stream, &peers).await {
-            log::debug!("a mesh command failed: {e:#}");
+        if commands.len() >= MAX_COMMANDS {
+            log::warn!("refused a mesh command: {MAX_COMMANDS} already open");
+            continue;
         }
+        let peers = peers.clone();
+        commands.spawn(async move {
+            match timeout(COMMAND_LIMIT, answer(stream, &peers)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::debug!("a mesh command failed: {e:#}"),
+                Err(_) => log::debug!("a mesh command took too long"),
+            }
+        });
+        // Finished commands are collected as they come.
+        while commands.try_join_next().is_some() {}
     }
 }
+
+/// The most mesh commands open at once.
+const MAX_COMMANDS: usize = 8;
+/// How long a command may take; a join dials a desktop, which has its own
+/// shorter limits.
+const COMMAND_LIMIT: Duration = Duration::from_secs(60);
 
 async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
     let (read, mut write) = split(stream);
@@ -336,7 +368,6 @@ pub async fn devices(dir: &Path) -> Result<Vec<String>> {
 #[cfg(feature = "cli")]
 async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
     use crate::link::local_socket;
-    use tokio::time::timeout;
     /// How long a command waits for the running node.
     const ASK_LIMIT: Duration = Duration::from_secs(60);
     let stream = local_socket::connect(&dir.join(SOCKET))
