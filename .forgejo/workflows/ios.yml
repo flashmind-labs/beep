@@ -1,9 +1,10 @@
-# Uploads each main build to TestFlight for invited beta testers.
+# Uploads a tag ios-vX.Y.Z (made by `just ios-release`) to TestFlight for
+# invited beta testers.
 name: ios
 
 on:
   push:
-    branches: [main]
+    tags: ["ios-v*"]
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +19,16 @@ jobs:
       IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF" == refs/tags/ios-v* ]]; then
+            name=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"$/\1/p' apps/ios/project.yml | sort -u)
+            [ "$name" = "${REF#refs/tags/ios-v}" ] || { echo "Tag does not match MARKETING_VERSION $name"; exit 1; }
+          fi
 
       - name: Check configuration
         env:
