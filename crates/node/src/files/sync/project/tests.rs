@@ -1,5 +1,5 @@
 use super::{
-    fetch::{copy_out, copy_store, fetch_within},
+    fetch::{copy_out, copy_store, fetch_within, peers_to_ask},
     list::{Merged, merge_peer, move_target, plan, record},
     scanning::has_baseline,
     shared::{Shared, Start},
@@ -19,11 +19,13 @@ use crate::{
 };
 use anyhow::Result;
 use beep_proto::node::sync::{Keep, State as SyncState};
+use futures::StreamExt as _;
 use iroh::endpoint::Connection;
-use iroh::{Endpoint, endpoint::presets};
+use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{Hash, HashAndFormat};
 use std::{
+    collections::HashMap,
     fs,
     io::{SeekFrom, Write as _},
     path::PathBuf,
@@ -150,6 +152,63 @@ impl iroh::protocol::ProtocolHandler for Silent {
         connection.closed().await;
         Ok(())
     }
+}
+
+#[test]
+fn a_peer_that_is_off_does_not_hold_up_every_file() {
+    let addr = |seed: u8| {
+        let id = SecretKey::from_bytes(&[seed; 32]).public();
+        EndpointAddr::new(id)
+    };
+    let (off, on) = (addr(1), addr(2));
+    let peers = [off.clone(), on.clone()];
+    let ids = |ask: Vec<EndpointAddr>| ask.iter().map(|peer| peer.id).collect::<Vec<_>>();
+    let now = Instant::now() + Duration::from_secs(3600);
+
+    let nobody_down = HashMap::new();
+    assert_eq!(
+        ids(peers_to_ask(&peers, &nobody_down, now)),
+        [off.id, on.id]
+    );
+
+    // Just failed: not dialled again while another file waits.
+    let down = HashMap::from([(off.id, now)]);
+    assert_eq!(ids(peers_to_ask(&peers, &down, now)), [on.id]);
+
+    // Worth another try, once the peers that answer had their turn.
+    let later = now + Duration::from_secs(30);
+    assert_eq!(ids(peers_to_ask(&peers, &down, later)), [on.id, off.id]);
+}
+
+/// What the store's collector keeps, apart from named tags.
+async fn temp_roots(project: &Project) -> Vec<Hash> {
+    let tags = project.task.parts.store.tags();
+    let roots = tags.list_temp_tags().await.unwrap();
+    roots.map(|root| root.hash).collect().await
+}
+
+#[tokio::test]
+async fn a_failed_fetch_keeps_what_came_until_the_file_is_not_wanted() {
+    let mut project = Project::new(&["notes.txt"]).await;
+    let mut peer = Map::new(7);
+    let version = peer.edit("big.bin", &Version::default(), Some(meta(5)));
+    let added = peer.since(0, usize::MAX).entries;
+    merge_peer(&mut project.task.shared.lock().saved.map, &added);
+    let hash = Hash::from_bytes([5; 32]);
+
+    // No machine can send it, so the next round has to pick it up, and the
+    // collector may run before that.
+    project.task.apply().await;
+    assert_eq!(project.task.pending, 1);
+    assert!(temp_roots(&project).await.contains(&hash));
+
+    // The peer deleted it: what came is no use any more.
+    peer.edit("big.bin", &version, None);
+    let deleted = peer.since(0, usize::MAX).entries;
+    merge_peer(&mut project.task.shared.lock().saved.map, &deleted);
+    project.task.apply().await;
+    assert!(!temp_roots(&project).await.contains(&hash));
+    project.stop().await;
 }
 
 #[tokio::test]

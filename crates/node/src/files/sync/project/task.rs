@@ -11,7 +11,7 @@ use crate::files::sync::{
 use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
-use iroh_blobs::{BlobFormat, Hash, hashseq::HashSeq};
+use iroh_blobs::{BlobFormat, Hash, api::TempTag, hashseq::HashSeq};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
@@ -34,7 +34,7 @@ const SETTLE: Duration = Duration::from_millis(300);
 /// delete within seconds.
 pub(super) const DELETE_SETTLE: Duration = Duration::from_secs(5);
 /// How soon files that could not be fetched are tried again.
-const RETRY: Duration = Duration::from_secs(30);
+pub(super) const RETRY: Duration = Duration::from_secs(30);
 /// How often a changing state is saved; it is saved on stop as well.
 const SAVE_EVERY: Duration = Duration::from_secs(2);
 
@@ -59,6 +59,11 @@ pub(super) struct Task {
     pub(super) held: BTreeSet<String>,
     /// The paths the last round could not bring, tried again later.
     pub(super) waiting: Vec<String>,
+    /// Tags on what those fetches got so far: without one, the store's
+    /// collector deletes it between rounds and the file starts over.
+    pub(super) unfinished: HashMap<Hash, TempTag>,
+    /// When a dial to a peer last failed, until one succeeds.
+    pub(super) down: HashMap<EndpointId, Instant>,
 }
 
 /// When held deletes are due: once the folder was quiet for
@@ -249,6 +254,8 @@ impl Task {
             saved_at: Instant::now(),
             held: BTreeSet::new(),
             waiting: Vec::new(),
+            unfinished: HashMap::new(),
+            down: HashMap::new(),
         }
     }
 

@@ -10,7 +10,9 @@
 # sync on each, as the app does (SetProjectSync). Then, checking after each
 # step that node-b holds exactly node-a's files (sha256 of every file) and
 # that the server reports both machines in sync:
-#   1. new files on node-a: small ones, a nested tree, a large random file
+#   1. new files on node-a: small ones, a nested tree, a large random file,
+#      timed to the first file and to all of them on node-b; then a
+#      200 MB file timed for MB/s
 #   2. edits (a small file, the middle of the large one), a deleted file, a
 #      deleted folder, a renamed file and a renamed folder
 #   3. a file written on node-b reaches node-a
@@ -25,20 +27,42 @@ source "$E2E/lib/common.sh"
 source "$E2E/lib/beep.sh"
 
 BIG_MB="${E2E_BIG_MB:-48}"
+SPEED_MB="${E2E_SPEED_MB:-200}"
 # Expanded on the VM, also inside quotes there.
 P="\$HOME/ws/$PROJECT"
 
 fresh_world
 turn_on_sync
 
+# Whether node-a's own list holds files: its scan saw them.
+listed(){
+  probe sync-status "$PROJECT" | awk -v id="${MACHINE[node-a]}" '$1 == id && /files=[1-9]/ { ok = 1 } END { exit !ok }'
+}
+
 step "1. new files on node-a reach node-b"
+t0="$(now)"
 on node-a "cd $P && printf 'hello\n' > hello.txt && printf 'first\n' > notes.txt
 mkdir -p tree/a/b/c tree/d
 for i in \$(seq 1 40); do head -c \$((i * 1000)) /dev/urandom > tree/a/file-\$i.dat; done
 for i in \$(seq 1 10); do echo \"deep \$i\" > tree/a/b/c/deep-\$i.txt; done
 echo spaced > 'tree/d/with space.txt'
 head -c ${BIG_MB}M /dev/urandom > big.bin" || abort "could not write on node-a"
-synced 300 "${BIG_MB} MB file, nested tree and small files on node-b"
+# Apart from the first file arriving, so a slow first file shows whether the
+# scan or the way to the peer took the time.
+if poll 300 listed; then
+  measure "sync: in node-a's list" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_LISTED-30}"
+fi
+if poll 300 on node-b "find $P -type f ! -name '.beep-*' | grep -q ."; then
+  measure "sync: first file" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_FIRST-120}"
+fi
+if poll 300 same_files; then
+  measure "sync: all files" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_ALL-150}"
+fi
+synced 60 "${BIG_MB} MB file, nested tree and small files on node-b"
+
+step "1b. a ${SPEED_MB} MB file, node-a to node-b"
+file_rate node-a node-b speed.bin "$SPEED_MB" "sync: $SPEED_MB MB file, MB/s" "${E2E_BUDGET_SYNC_MBPS-6}"
+synced 60 "node-b holds node-a's files"
 
 step "2. edits, deletes and renames on node-a"
 on node-a "cd $P && printf 'second\n' > hello.txt
