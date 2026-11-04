@@ -20,33 +20,63 @@ use std::{
 use tokio::{task::spawn_blocking, time::Instant};
 
 impl Agents {
-    /// Reads the agents' logs and the checkouts saved in the node's folder
-    /// `dir` ahead of the first requests, which then find them read. `root`
-    /// is walked only when no checkouts are saved yet.
+    /// Reads the checkouts saved in the node's folder `dir` and the agents'
+    /// logs ahead of the first requests, then walks `root` so checkouts made
+    /// or removed since count. The saved list answers during the walk; with
+    /// none saved, `disk_checkouts` refuses until it ends.
     pub async fn warm(&self, root: Option<PathBuf>, dir: PathBuf) {
         let mut on_disk = self.on_disk.lock().await;
+        let Some(root) = root else {
+            *on_disk = Some(Arc::default());
+            drop(on_disk);
+            self.read_logs_ahead().await;
+            return;
+        };
+        let reading = dir.clone();
+        let saved = spawn_blocking(move || found::saved_checkouts(&reading))
+            .await
+            .unwrap_or_else(|e| {
+                log::warn!("the saved checkouts were not read: {e}");
+                None
+            });
+        let first_walk = match saved {
+            Some(saved) => {
+                *on_disk = Some(Arc::new(saved));
+                drop(on_disk);
+                None
+            }
+            None => Some(on_disk),
+        };
+        self.read_logs_ahead().await;
+        let walk = match spawn_blocking(move || found::walk(&root, &dir)).await {
+            Ok(walk) => walk,
+            Err(e) => {
+                log::warn!("the checkouts on disk were not walked: {e}");
+                return;
+            }
+        };
+        match first_walk {
+            Some(mut on_disk) => *on_disk = Some(Arc::new(walk.found)),
+            None if walk.whole => *self.on_disk.lock().await = Some(Arc::new(walk.found)),
+            None => log::info!("the walk for checkouts was cut short; kept the saved list"),
+        }
+    }
+
+    async fn read_logs_ahead(&self) {
         if let Err(e) = self.sighted_folders().await {
             log::debug!("the agents' logs were not read ahead: {e:#}");
         }
-        let found = match root {
-            Some(root) => spawn_blocking(move || found::saved_checkouts(&root, &dir))
-                .await
-                .unwrap_or_else(|e| {
-                    log::warn!("the checkouts on disk were not read: {e}");
-                    Vec::new()
-                }),
-            None => Vec::new(),
-        };
-        *on_disk = Some(Arc::new(found));
     }
 
-    /// The checkouts under home `warm` read. None while the first walk
-    /// runs, which can take minutes: requests do not wait for it.
-    async fn disk_checkouts(&self) -> Arc<Vec<found::Checkout>> {
-        match self.on_disk.try_lock() {
-            Ok(on_disk) => on_disk.clone().unwrap_or_default(),
-            Err(_) => Arc::default(),
-        }
+    /// The checkouts under the search folder `warm` read. An error until it
+    /// read some, which the first walk can make minutes: requests do not wait,
+    /// and an answer without them would say a checkout is not there.
+    fn disk_checkouts(&self) -> Result<Arc<Vec<found::Checkout>>> {
+        self.on_disk
+            .try_lock()
+            .ok()
+            .and_then(|on_disk| on_disk.clone())
+            .context("still looking for checkouts on this machine")
     }
 
     /// The folders sessions started outside Beep worked in, read from the
@@ -103,8 +133,8 @@ impl Agents {
             0 => DEFAULT_FOLDERS,
             limit => limit.min(MAX_FOLDERS),
         };
-        let (seen, on_disk) = tokio::join!(self.sightings(), self.disk_checkouts());
-        let seen = seen?;
+        let on_disk = self.disk_checkouts()?;
+        let seen = self.sightings().await?;
         let home = dirs::home_dir();
         spawn_blocking(move || {
             let mut out = found::folders(&seen, home.as_deref(), limit, found::checkout);

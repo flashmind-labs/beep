@@ -76,7 +76,7 @@ const MAX_KEPT: usize = 64;
 const MAX_TRANSCRIPT: u32 = 200;
 /// The most folders `Folders` answers, and how many when the server names
 /// no number.
-const MAX_FOLDERS: usize = 200;
+const MAX_FOLDERS: usize = 800;
 const DEFAULT_FOLDERS: usize = 100;
 /// The most sessions `InFolders` answers, and how many by default.
 const MAX_IN_FOLDERS: usize = 100;
