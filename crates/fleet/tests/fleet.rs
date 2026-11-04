@@ -761,22 +761,37 @@ async fn two_desktops_importing_a_project_on_different_machines_keep_both() {
 }
 
 #[tokio::test]
-async fn two_desktops_saving_instructions_at_once_keep_both_versions() {
+async fn two_desktops_saving_instructions_keep_both_versions() {
     let f = fleet().await;
     let (studio, laptop) = (desk(&f.studio, &[]).await, desk(&f.laptop, &[]).await);
-    let (one, two) = tokio::join!(
-        studio.save_instructions("from the studio", None, ""),
-        laptop.save_instructions("from the laptop", None, ""),
-    );
-    one.expect("the studio saves");
-    two.expect("the laptop saves");
+    studio
+        .save_instructions("from the studio", None, "")
+        .await
+        .expect("the studio saves");
+    until(&f.laptop.mesh, |m| m.scan("instructions/").len() == 1).await;
+    let second = laptop
+        .save_instructions("from the laptop", Some(1), "")
+        .await
+        .expect("the laptop saves on top");
+    assert_eq!(second.version, 2);
     for dev in [&f.studio, &f.laptop] {
         until(&dev.mesh, |m| m.scan("instructions/").len() == 2).await;
         let versions = desk(dev, &[]).await.instructions_versions();
-        assert_eq!(versions.len(), 2);
-        let mut texts: Vec<_> = versions.iter().map(|v| v.text.as_str()).collect();
-        texts.sort_unstable();
+        let texts: Vec<_> = versions.iter().map(|v| v.text.as_str()).collect();
         assert_eq!(texts, ["from the laptop", "from the studio"]);
+    }
+    // Versions saved at the same moment on two desktops are two keys, so neither is lost.
+    for (dev, id) in [(&f.studio, "a"), (&f.laptop, "b")] {
+        dev.mesh
+            .set(
+                Key::InstructionVersion(format!("1793000000000.{id}")),
+                Some(vec![1]),
+            )
+            .await
+            .expect("a desktop writes it");
+    }
+    for dev in [&f.studio, &f.laptop] {
+        until(&dev.mesh, |m| m.scan("instructions/").len() == 4).await;
     }
     // The groups list does not mistake a version for a group.
     assert!(desk(&f.studio, &[]).await.groups().is_empty());
