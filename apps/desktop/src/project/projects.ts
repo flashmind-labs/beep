@@ -4,9 +4,8 @@ import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { byRecent, type RunningAgent } from "../center/home-state.ts";
-import { whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { awaitsView, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { agentFor } from "./agent.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { IC, pages, state, warm, pageFresh } from "../center/state.ts";
@@ -163,8 +162,8 @@ export function projectDetail(p: Project) {
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
-  // The project agent's view is on its way.
-  if (p.imported && agentFor(state.agents, p.name)) {
+  // The project agent's view is on its way, or who has an agent is not known yet.
+  if (awaitsView(p, state.agents)) {
     const error = state.pview.get(p.name)?.error;
     return [error ? errorNote(`Could not read the project: ${error}`) : emptyPanel(h("span", "", "Reading the project…"))];
   }

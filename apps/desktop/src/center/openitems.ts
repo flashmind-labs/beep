@@ -6,14 +6,15 @@ import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
 import { folderUnder, reason } from "../addproject/importproject-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
-import { type ProjectRow } from "../project/projects-state.ts";
+import { foundFor, type ProjectRow } from "../project/projects-state.ts";
+import { importFound } from "../addproject/addproject.ts";
 import { openMenu } from "../ui/menu.ts";
 import { ITEMS_SHOWN, itemChips, projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { IC, state } from "./state.ts";
 import { projectDot, section, tag, rowButton, line } from "./pieces.ts";
 import { draw } from "./home.ts";
 import { shown, go } from "./views.ts";
-import { reloadChats, projectRows, openProjects } from "./sidebar.ts";
+import { reloadChats, projectRows, openProjects, loadFound } from "./sidebar.ts";
 import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
 
@@ -138,8 +139,11 @@ async function quickImport(p: OpenRepo) {
   rowImports.set(p.key, "busy");
   draw();
   try {
-    const project = await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder, worktrees: [] });
-    keepLastImport(project);
+    // A checkout the machines found imports as it is, not as a second clone.
+    if (!state.found) await loadFound();
+    const here = foundFor(state.found, p.repo);
+    if (here) await importFound(here);
+    else keepLastImport(await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder, worktrees: [] }));
     rowImports.delete(p.key);
     await refresh();
   } catch (e) {
