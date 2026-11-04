@@ -9,13 +9,13 @@ use crate::{
     account::user::User,
     app::App,
     nodes::push_sync,
-    projects::branches::{READ_LIMIT, run_script},
     protocol::{
         ProjectCopy,
         node::files::{Reply, Request},
     },
     store::{ImportRow, NewImport, SyncRow},
 };
+use beep_projects::branches::{READ_LIMIT, run_script};
 use beep_projects::imports::place;
 use beep_projects::{
     imports::{ImportError, folder::FolderPath, place::Folders, repo::RepoRef},

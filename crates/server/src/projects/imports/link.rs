@@ -1,11 +1,8 @@
 //! Links an existing checkout of the repo or fork instead of cloning: adds missing remotes and PR branches.
 
 use super::preview::{FolderRemotes, parse_remotes, remotes_script, repo_remote};
-use crate::{
-    nodes::Online,
-    projects::branches::{READ_LIMIT, run_script},
-    store::NodeRow,
-};
+use crate::{nodes::Online, store::NodeRow};
+use beep_projects::branches::{READ_LIMIT, run_script};
 use beep_projects::imports::clone;
 use beep_projects::imports::{
     clone::{Link, NewRemote},

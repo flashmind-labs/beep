@@ -7,9 +7,10 @@ use super::{
 };
 use crate::{
     api::router::Cx,
-    projects::{branches::add_worktree, imports::checkout_for_worktree},
+    projects::imports::checkout_for_worktree,
     protocol::{AddBranchWorktree, ApiError, BranchPlace, ImportedProject, ProjectBranch},
 };
+use beep_projects::branches::add_worktree;
 use beep_projects::model::branch_name;
 
 /// The most worktrees one import adds.
@@ -48,7 +49,7 @@ pub(super) async fn add_branch_worktree(
     })?;
     let node = online(&cx, &request.machine_id)
         .ok_or_else(|| ApiError::bad_request(format!("{name} is offline.")))?;
-    add_worktree(&node, &folder, branch, &project.default_branch)
+    add_worktree(&node, &node.name, &folder, branch, &project.default_branch)
         .await
         .map_err(|why| ApiError::bad_request(format!("{name}: {why}")))
 }
@@ -80,7 +81,7 @@ pub(super) async fn add_import_worktrees(
             log::info!("import: worktree skipped, no checkout online; node={endpoint}");
             continue;
         };
-        if let Err(why) = add_worktree(&node, &folder, branch, FALLBACK_DEFAULT).await {
+        if let Err(why) = add_worktree(&node, &node.name, &folder, branch, FALLBACK_DEFAULT).await {
             log::info!("import: worktree not added; node={endpoint}: {why}");
         }
     }
