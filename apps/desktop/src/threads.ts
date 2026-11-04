@@ -85,11 +85,10 @@ export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
   return t.kind === "pr" ? `PR #${t.number}` : `#${t.number}`;
 }
 
-/// The line under an issue: who opened it, when, its labels and comments.
-export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "labels" | "comments">>, ago: Ago) {
+/// The line under an issue: who opened it, when, and its comments.
+export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "comments">>, ago: Ago) {
   const out = [`opened by ${i.author || "someone"}`];
   if (i.opened_at) out.push(ago(i.opened_at));
-  out.push(...(i.labels || []));
   if (i.comments) out.push(plural(i.comments, "comment", "comments"));
   return out.join(" · ");
 }

@@ -2182,6 +2182,8 @@ interface SplitItem {
   lead?: Kid;
   title: string;
   sub: string;
+  /// Labels, as chips after `sub`.
+  tags?: string[];
   right?: Kid;
   open?: () => void;
   detail?: () => Node[];
@@ -2238,7 +2240,7 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
   }) });
   groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), items: thr.issueLines(agent, acts).map(l => ({
     key: `issue:${l.number}`, lead: num(l.number), title: l.title,
-    sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`,
+    sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
@@ -2265,7 +2267,7 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
     list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
     if (g.note) list.append(h("div", "note", g.note));
     for (const i of g.items) {
-      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub)), h("span", "r", i.right));
+      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => h("i", "pj-tag", l)))), h("span", "r", i.right));
       row.type = "button";
       row.title = i.title;
       if (i.key === picked.key) row.setAttribute("aria-current", "true");
