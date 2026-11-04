@@ -327,7 +327,11 @@ impl Backend for Node {
                         return Ok(reply);
                     }
                 }
-                machines::Route::Server => {}
+                machines::Route::Server => {
+                    if let Some(reply) = machines::mesh_only(&self.offers, &mesh, request).await {
+                        return Ok(reply);
+                    }
+                }
             }
         }
         self.offers.tools.call(request).await
