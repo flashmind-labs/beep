@@ -1,17 +1,6 @@
-//! Subagents in a live session: the tool call that started one, and what
-//! its entry says of it.
-//!
-//! Claude Code's adapter stamps a subagent's own calls with the call that
-//! started it (see `live`), and names its type in the call's
-//! `subagent_type`. codex-acp sends none of a subagent's own calls: it
-//! reports `spawnAgent` with the threads it started (`receiverThreadIds`)
-//! and, as each one starts and ends, an activity call naming its thread
-//! and path (`agentThreadId`, `agentPath`). Their steps are read from the
-//! thread's rollout on disk (`crate::found::Stores::codex_run`).
-//!
-//! An entry that shows a subagent reads `<title> [<status>]`, `[steps] N`,
-//! a `[step <status>] <title>` line for each of the last steps, `[agent]
-//! <name>` when it has one, then what it answered.
+//! Subagents in a live session (`Subagent`, `Activity`, `Run`): the tool
+//! call that started one, and what its entry says of it (written in
+//! `super::live`).
 
 use serde_json::Value;
 
@@ -23,7 +12,8 @@ const MAX_NAME: usize = 120;
 /// What a tool call that started a subagent says of it.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Subagent {
-    /// Its type or custom agent's name, such as `Explore`.
+    /// Its type or custom agent's name, such as `Explore` (Claude Code's
+    /// `subagent_type`).
     pub(crate) name: Option<String>,
     /// The Codex threads it runs in.
     pub(crate) threads: Vec<String>,
@@ -80,7 +70,11 @@ impl Subagent {
     }
 }
 
-/// codex-acp's report that a subagent started, ended or was talked to.
+/// codex-acp's report that a subagent started, ended or was talked to
+/// (`agentThreadId`, `agentPath`). codex-acp sends none of a subagent's own
+/// calls, only `spawnAgent` with the threads it started
+/// (`receiverThreadIds`), so its steps are read from the thread's rollout
+/// (`crate::agents::found::Stores::codex_run`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Activity {
     pub(crate) thread: String,

@@ -112,6 +112,9 @@ export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress
 /// "1 change waiting", "3 changes waiting".
 function changes(n: number) { return `${n} ${n === 1 ? "change" : "changes"} waiting`; }
 
+/// "1 conflict", "3 conflicts".
+export function conflictCount(n: number) { return `${n} ${n === 1 ? "conflict" : "conflicts"}`; }
+
 /// The muted line under a machine: files and bytes, or how far it is with
 /// the rate and time left, or what waits.
 export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "bytes" | "pending" | "waiting">) {
@@ -127,7 +130,9 @@ export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progre
   const left = Math.max(m.pending, m.waiting.length);
   // An offline machine's counts are not known.
   if (m.status === "offline") return left ? [changes(left)] : [];
-  const out = [`${m.files.toLocaleString("en-US")} ${m.files === 1 ? "file" : "files"}`, bytes(m.bytes)];
+  const out = [`${m.files.toLocaleString("en-US")} ${m.files === 1 ? "file" : "files"}`];
+  // A `project_sync` row has no size.
+  if (m.bytes) out.push(bytes(m.bytes));
   if (left) out.push(changes(left));
   return out;
 }
@@ -161,19 +166,24 @@ export function waitingList(d: Pick<SyncDetail, "machines"> | null | undefined) 
   return [...out].map(([path, machines]) => ({ path, machines }));
 }
 
-type RowLike = Pick<SyncRow, "machine_id" | "status" | "files" | "pending">;
+type RowLike = Pick<SyncRow, "machine_id" | "status" | "files" | "pending"> & Partial<Pick<SyncRow, "error">>;
+
+/// A machine's sync as far as its `project_sync` row tells.
+export function rowDetail(r: RowLike, name = "Machine"): MachineDetail {
+  return {
+    machine_id: r.machine_id, machine_name: name, folder: "", status: r.status,
+    files: r.files, bytes: 0, pending: r.pending, conflicts: [], error: r.error ?? null, hint: null, paused: false, progress: null, waiting: [], can_resolve: false,
+  };
+}
 
 /// The board's File sync tile: one row per machine with its chip, from the
 /// detail once it is read, else from the `project_sync` rows.
 export function fileSyncTile(d: SyncDetail | null | undefined, rows?: readonly RowLike[] | null, names?: ReadonlyMap<string, string> | null): TileData {
-  const machines: MachineDetail[] = d ? d.machines : (rows || []).map(r => ({
-    machine_id: r.machine_id, machine_name: names?.get(r.machine_id) || "Machine", folder: "", status: r.status,
-    files: r.files, bytes: 0, pending: r.pending, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: false,
-  }));
+  const machines: MachineDetail[] = d ? d.machines : (rows || []).map(r => rowDetail(r, names?.get(r.machine_id)));
   if (d === undefined && !machines.length) return { count: "", rows: [], empty: "Loading…" };
   const moving = machines.filter(m => !m.paused && (m.status === "syncing" || m.status === "scanning")).length;
   const conflicts = conflictList({ machines }).length;
-  const count = d?.paused ? "paused" : moving ? `${moving} syncing` : conflicts ? `${conflicts} ${conflicts === 1 ? "conflict" : "conflicts"}` : machines.length ? "in sync" : "";
+  const count = d?.paused ? "paused" : moving ? `${moving} syncing` : conflicts ? conflictCount(conflicts) : machines.length ? "in sync" : "";
   const out: TileRow[] = machines.map(m => {
     const chip = stateChip(m);
     return {
@@ -354,6 +364,7 @@ export function makeFileSync(deps: FileSyncDeps) {
 
   return {
     ensure,
+    detail: (name: string) => of(name).detail,
     forTile,
     panel,
     stop: () => watch(null),

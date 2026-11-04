@@ -1,7 +1,9 @@
 //! The `beep-node` command line.
 
 use beep_node::{
-    agents::Agents, claude::hooks, env, link, local, mcp, service, setup, state, update,
+    agents::{Agents, claude::hooks, mcp},
+    link::{self, local, state},
+    machine::{env, service, setup, update},
 };
 
 use anyhow::{Context, Result};

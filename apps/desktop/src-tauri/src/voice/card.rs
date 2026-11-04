@@ -5,7 +5,7 @@
 //! `CARD_FOR` it goes, and the notice shows as its banner instead.
 
 use super::Voice;
-use crate::{bar, orb};
+use crate::{bar, voice::orb};
 use beep_proto::Notice;
 use serde::Serialize;
 use std::{
@@ -68,7 +68,7 @@ impl Voice {
             held: false,
         });
         if let Some(before) = before {
-            crate::notify(&self.app, &before.notice);
+            crate::notices::notify::notice(&self.app, &before.notice);
         }
         if let Err(e) = orb::show(&self.app) {
             log::warn!("showing the orb for a notice: {e}");
@@ -143,7 +143,7 @@ impl Voice {
         let shown = bar::is_open(&self.app)
             && self.beep.session().as_deref() == Some(card.notice.session_id.as_str());
         if !shown {
-            crate::notify(&self.app, &card.notice);
+            crate::notices::notify::notice(&self.app, &card.notice);
         }
     }
 

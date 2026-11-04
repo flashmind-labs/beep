@@ -1,9 +1,6 @@
-//! Image files an agent made during a turn: ones it names by path in what
-//! it says, that its edits wrote, or that its commands wrote and named. The node reads them once the turn
-//! ends and shows them in the transcript like any other picture.
-//!
-//! Only files inside the session's folder are read, at most
-//! `MAX_PER_TURN` a turn and `MAX_FILE` bytes each.
+//! Image files an agent made during a turn, named in what it says
+//! (`named_in`), written by its edits or saved by its commands, read when
+//! the turn ends (`read`, `read_since`), only inside the session's folder.
 
 use super::images::Picture;
 use beep_proto::sniff_image;
@@ -87,7 +84,7 @@ fn read_one(cwd: &Path, path: &Path, since: SystemTime) -> std::io::Result<Optio
     if !path.starts_with(cwd) {
         return Ok(None);
     }
-    let file = crate::fsat::open_read(&path)?;
+    let file = crate::files::fsat::open_read(&path)?;
     let meta = file.metadata()?;
     let limit = u64::try_from(MAX_FILE).unwrap_or(u64::MAX);
     if !meta.is_file() || meta.len() > limit || meta.modified()? < since {
