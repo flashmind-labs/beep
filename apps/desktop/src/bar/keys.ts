@@ -141,7 +141,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && $("#keys")) { e.preventDefault(); return toggleKeys(); }
   if (e.key === "Escape" && closeRerunMenu()) { e.preventDefault(); return; }
   if (e.key === "Escape") { e.preventDefault(); return back(); }
-  if (S.view === "link" || S.view === "revoked") return;
+  if (S.view === "link" || S.view === "login" || S.view === "revoked") return;
   if (agentKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
   if (cmd && e.shiftKey && key === "a" && S.link === "linked") {

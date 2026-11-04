@@ -49,3 +49,9 @@ provider_key = "sk-or-v1-YOUR-KEY-HERE"
 # enabled = true
 # model = "openrouter:z-ai/glm-5.3-flash"
 # timeout_secs = 120
+
+# Hosted sign-in through a website. Unknown keys then sign in there instead of
+# making their own account. Not with [instance].
+# [login]
+# website = "https://example.com"
+# website_key = "<the website's Ed25519 public key, 32 bytes as hex>"

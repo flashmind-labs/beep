@@ -89,6 +89,8 @@ const MOVED: &[(&str, &[&str])] = &[
     // The webhooks Beep made, so they are removed later. Their secrets stay
     // sealed to the old owner: the server never opens them again.
     ("project_webhooks", &[]),
+    // A website login stays on whichever account the person ends up with.
+    ("user_logins", &[]),
 ];
 
 /// Tables `merge_into` handles specially; with the other lists, every user table (a test checks the schema).

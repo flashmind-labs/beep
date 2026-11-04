@@ -422,6 +422,11 @@ pub(super) const MIGRATIONS: &[(i64, &str, &str)] = &[
         "node traffic",
         include_str!("../../migrations/0099_node_traffic.sql"),
     ),
+    (
+        100,
+        "logins",
+        include_str!("../../migrations/0100_logins.sql"),
+    ),
 ];
 
 /// The last migration before the transcript backfill runs.

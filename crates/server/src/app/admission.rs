@@ -2,7 +2,7 @@
 
 use super::{Admission, App, SignedIn};
 use crate::{
-    account::instance::Instance,
+    account::{instance::Instance, login::LoginConfig},
     protocol::DeviceKind,
     store::{Account, LinkKey, NewKey, SignIn},
 };
@@ -22,7 +22,15 @@ impl App {
     /// Who `endpoint` signs in as; an unlinked key makes its own account unless single-user rules forbid.
     pub async fn admit(self: &Arc<Self>, endpoint: &EndpointId) -> Result<Admission> {
         let Some(instance) = &self.instance else {
-            return Ok(match self.store.sign_in(endpoint).await? {
+            let sign_in = if self.login.is_some() {
+                match self.store.linked_sign_in(endpoint).await? {
+                    Some(sign_in) => sign_in,
+                    None => return Ok(Admission::Guest),
+                }
+            } else {
+                self.store.sign_in(endpoint).await?
+            };
+            return Ok(match sign_in {
                 SignIn::Account {
                     account,
                     device,
@@ -93,6 +101,11 @@ impl App {
             device,
             primary,
         }
+    }
+
+    /// The website keys sign in through, on a hosted server.
+    pub fn login(&self) -> Option<&LoginConfig> {
+        self.login.as_ref()
     }
 
     /// The single-user settings, when the server runs for one owner.
