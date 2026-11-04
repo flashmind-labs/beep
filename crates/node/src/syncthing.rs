@@ -7,6 +7,9 @@
 //! not answer, a `.stfolder` marker in the folder or above it, up to home,
 //! says the same. Nothing here fails its caller: what cannot be read counts
 //! as not managed.
+//!
+//! A folder paused in Syncthing is not kept in step, so Beep syncs it until
+//! Syncthing resumes it.
 
 use anyhow::{Context, Result, bail};
 use beep_proto::node::SyncthingFolder;
@@ -133,8 +136,8 @@ impl Syncthing {
         managed
     }
 
-    /// Every folder Syncthing keeps in step, as its API lists them; empty
-    /// when it does not answer.
+    /// Every folder Syncthing keeps in step, as its API lists them less the
+    /// paused ones; empty when it does not answer.
     pub async fn folders(&self) -> Vec<SyncthingFolder> {
         self.api_folders().await.unwrap_or_default()
     }
@@ -285,6 +288,7 @@ struct RawFolder {
     id: String,
     label: String,
     path: String,
+    paused: bool,
 }
 
 /// `GET /rest/config/folders`. HTTP/1.0, so the reply is neither chunked
@@ -328,10 +332,10 @@ async fn fetch(gui: &Gui) -> Result<Vec<RawFolder>> {
     serde_json::from_slice(&reply[split + 4..]).context("Syncthing's folder list does not read")
 }
 
-/// The folders with `~` expanded and symlinks resolved.
+/// The folders not paused, with `~` expanded and symlinks resolved.
 fn resolve(raw: Vec<RawFolder>, home: Option<&Path>) -> Vec<SyncthingFolder> {
     raw.into_iter()
-        .filter(|folder| !folder.path.is_empty())
+        .filter(|folder| !folder.path.is_empty() && !folder.paused)
         .map(|folder| {
             let path = real(&expand(&folder.path, home));
             SyncthingFolder {

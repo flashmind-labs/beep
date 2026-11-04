@@ -439,7 +439,7 @@ impl Syncs {
     /// Checks the synced folders against Syncthing's now: a project whose
     /// folder Syncthing keeps in step stops, as one turned off does, which
     /// deletes nothing anywhere, and is held; a held one whose folder
-    /// Syncthing let go of starts again, from a fresh scan.
+    /// Syncthing let go of or paused starts again, from a fresh scan.
     pub async fn check_syncthing(&self) {
         let _one = self.inner.configuring.lock().await;
         let running: Vec<Project> = self
@@ -479,7 +479,10 @@ impl Syncs {
             }
             match self.run(&project).await {
                 Ok(running) => {
-                    log::info!("syncing {} again: Syncthing let go of it", project.name);
+                    log::info!(
+                        "syncing {}: Syncthing let go of it or paused it",
+                        project.name
+                    );
                     self.inner.held().remove(&project.name);
                     self.inner.lock().insert(project.name.clone(), running);
                 }

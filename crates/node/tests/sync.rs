@@ -12,10 +12,19 @@ use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, UNIX_EPOCH},
 };
 use tempfile::TempDir;
-use tokio::time::{sleep, timeout};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    time::{sleep, timeout},
+};
+use tokio_util::task::AbortOnDropHandle;
 
 const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
@@ -56,9 +65,12 @@ impl Node {
             .await
             .expect("a test endpoint binds");
         let folders = Folders::new(&[self.shared.path().to_owned()]);
-        // No Syncthing config: only a marker in the shared folder says
-        // Syncthing keeps the project in step.
-        let syncthing = Syncthing::at(Vec::new(), Some(self.shared.path().to_owned()));
+        // Without a config in `syncthing_home`, only a marker in the shared
+        // folder says Syncthing keeps the project in step.
+        let syncthing = Syncthing::at(
+            vec![self.syncthing_home()],
+            Some(self.shared.path().to_owned()),
+        );
         let transfers = Transfers::start_with(&endpoint, self.state.path(), folders, syncthing)
             .await
             .expect("the transfers start");
@@ -73,6 +85,11 @@ impl Node {
             running.transfers.shutdown().await.expect("the node stops");
             running.endpoint.close().await;
         }
+    }
+
+    /// Where the node looks for Syncthing's `config.xml`.
+    fn syncthing_home(&self) -> PathBuf {
+        self.state.path().join("syncthing")
     }
 
     fn running(&self) -> &Running {
@@ -613,4 +630,75 @@ async fn a_node_restarting_on_a_folder_syncthing_took_holds_it() {
         read(&b.path("notes.txt")).as_deref(),
         Some(b"keep me".as_slice())
     );
+}
+
+/// A fake Syncthing GUI listing one folder at `path`, paused while `paused`
+/// holds, and the `config.xml` in `home` that points a node at it.
+async fn fake_syncthing(
+    home: &Path,
+    path: &Path,
+    paused: Arc<AtomicBool>,
+) -> AbortOnDropHandle<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    fs::create_dir_all(home).unwrap();
+    let config = format!(
+        r#"<configuration><gui tls="false"><address>{addr}</address><apikey>fake-key</apikey></gui></configuration>"#
+    );
+    fs::write(home.join("config.xml"), config).unwrap();
+    let path = serde_json::to_string(&path.to_string_lossy()).unwrap();
+    let task = tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut request = Vec::new();
+            let mut buf = [0; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => request.extend_from_slice(&buf[..n]),
+                }
+            }
+            let body = format!(
+                r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{}}}]"#,
+                paused.load(Ordering::Relaxed)
+            );
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(reply.as_bytes()).await;
+        }
+    });
+    AbortOnDropHandle::new(task)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_paused_in_syncthing_syncs_through_beep_until_resumed() {
+    let a = Node::new().await;
+    let b = Node::new().await;
+    let paused = Arc::new(AtomicBool::new(true));
+    let _api = fake_syncthing(&a.syncthing_home(), &a.folder(), paused.clone()).await;
+    // Syncthing's marker, which must not reach the peer.
+    write(&a.path(".stfolder/syncthing-folder-1.txt"), "game-1");
+    a.sync_with(&b).await;
+    b.sync_with(&a).await;
+    synced_file(&a, &b).await;
+    assert!(!b.path(".stfolder").exists());
+
+    // Resumed: Syncthing has the folder again and Beep lets go.
+    paused.store(false, Ordering::Relaxed);
+    a.running().transfers.syncs().check_syncthing().await;
+    assert_eq!(
+        a.status().error.as_deref(),
+        Some("Already synced by Syncthing (Game)")
+    );
+
+    // Paused again: Beep takes it back.
+    paused.store(true, Ordering::Relaxed);
+    a.running().transfers.syncs().check_syncthing().await;
+    assert_eq!(a.status().error, None);
+    write(&a.path("later.txt"), "while paused");
+    eventually("the file written while paused to arrive", || {
+        read(&b.path("later.txt")).as_deref() == Some(b"while paused".as_slice())
+    })
+    .await;
 }

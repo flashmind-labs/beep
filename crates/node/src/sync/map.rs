@@ -11,7 +11,7 @@
 //! every node derives the same way, so nodes that make it independently
 //! make the same entry.
 
-use super::rules::is_own;
+use super::rules::{is_own, is_syncthings};
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Write as _};
 
@@ -136,7 +136,7 @@ pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> String {
 const MAX_PATH: usize = 4096;
 
 /// Whether a peer may name `path`: plain names joined with `/`, none of
-/// them `.git`, in any case, or a name sync keeps for itself.
+/// them `.git`, in any case, or a name sync or Syncthing keeps for itself.
 pub(super) fn valid_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= MAX_PATH
@@ -147,6 +147,7 @@ pub(super) fn valid_path(path: &str) -> bool {
                 && !part.contains(['\\', '\0'])
                 && !part.eq_ignore_ascii_case(".git")
                 && !is_own(part)
+                && !is_syncthings(part)
         })
 }
 

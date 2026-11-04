@@ -148,6 +148,7 @@ async fn the_api_says_which_folder_holds_a_project_nested_or_through_a_link() {
         {"id": "sync-1", "label": "Sync", "path": "~/sync", "type": "sendreceive"},
         {"id": "game-2", "label": "", "path": home.path().join("game-link")},
         {"id": "gone-3", "label": "Gone", "path": "~/not-there"},
+        {"id": "off-4", "label": "Off", "path": "~/other", "paused": true},
     ]))
     .await;
     home.write_config(&addr.to_string());
@@ -172,7 +173,7 @@ async fn the_api_says_which_folder_holds_a_project_nested_or_through_a_link() {
         assert_eq!(linked.id.as_deref(), Some("sync-1"));
     }
 
-    // The API answered: a marker elsewhere does not count.
+    // The API answered: a paused folder and a marker elsewhere do not count.
     fs::write(home.path().join("other/.stfolder"), "").unwrap();
     assert_eq!(syncthing.managed(&home.path().join("other")).await, None);
     assert_eq!(syncthing.managed(&home.path().join("syncing")).await, None);
