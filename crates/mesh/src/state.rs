@@ -130,7 +130,7 @@ impl Entry {
         Ok(msg)
     }
 
-    fn sign(
+    pub(crate) fn sign(
         secret: &SecretKey,
         mesh: EndpointId,
         key: Key,

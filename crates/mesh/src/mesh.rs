@@ -1,24 +1,30 @@
 //! `Mesh`: one device's membership. An owner task keeps a dialer per other
 //! member; `link` runs each connection; `join` handles tickets.
 
+use crate::state::now_ms;
 use crate::store::{Core, SharedView, Store, View};
 use crate::{Device, DeviceKind, JoinTicket, Key, MeshError, link};
-use iroh::endpoint::Connection;
+use iroh::endpoint::{
+    Connection, IdleTimeout, QuicTransportConfig, RecvStream, SendStream, VarInt,
+};
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh::{Endpoint, EndpointAddr, EndpointId};
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore, broadcast, watch};
-use tokio::task::{AbortHandle, JoinHandle, JoinSet};
+use tokio::task::{AbortHandle, JoinHandle, JoinSet, spawn_blocking};
 use tokio::time::{Instant, sleep, timeout};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
+/// How long a ticket lives unless the caller says otherwise.
+pub const DEFAULT_TICKET_TTL: Duration = Duration::from_secs(60 * 60);
 pub const PEER_ALPN: &[u8] = b"beep-peer/1";
 pub const JOIN_ALPN: &[u8] = b"beep-join/1";
 
@@ -28,6 +34,13 @@ const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// A connection that lasted this long counts as having worked.
 const STABLE: Duration = Duration::from_secs(5);
 const CHANGES: usize = 256;
+/// A removed peer's link may take this long to deliver the news before it
+/// is cut.
+const GRACE: Duration = Duration::from_secs(3);
+/// The larger id lets the smaller dial first, so one dial does the work.
+const HEAD_START: Duration = Duration::from_millis(300);
+const KEEP_ALIVE: Duration = Duration::from_secs(3);
+const IDLE_MS: u32 = 10_000;
 /// Further streams one peer may have open at once.
 pub(crate) const MAX_STREAMS: usize = 64;
 /// Addresses taken from one message.
@@ -55,12 +68,28 @@ pub struct PeerStream {
     pub peer: EndpointId,
     /// What the peer is, from the signed device list.
     pub kind: DeviceKind,
-    pub send: iroh::endpoint::SendStream,
-    pub recv: iroh::endpoint::RecvStream,
+    pub send: SendStream,
+    pub recv: RecvStream,
+}
+
+/// The transport settings a mesh endpoint should be built with: idle links
+/// are pinged and a dead one is given up on after ten seconds.
+pub fn transport_config() -> QuicTransportConfig {
+    QuicTransportConfig::builder()
+        .keep_alive_interval(KEEP_ALIVE)
+        .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(IDLE_MS))))
+        .build()
 }
 
 pub type StreamHandler =
     Arc<dyn Fn(PeerStream) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// An address and the owner's counter for it. Higher replaces lower.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AddrNote {
+    pub addr: EndpointAddr,
+    pub generation: u64,
+}
 
 #[derive(Clone, Debug)]
 pub struct DeviceStatus {
@@ -73,17 +102,26 @@ pub(crate) struct Live {
     pub conn: Connection,
     /// Who opened the connection: the smaller id's wins when both did.
     pub dialer: EndpointId,
+    /// The peer's `session` from its hello.
+    pub session: u64,
 }
 
 pub(crate) struct Inner {
     pub endpoint: Endpoint,
     pub me: EndpointId,
+    /// Random per start: peers tell a restart from a second dial by it.
+    pub session: u64,
     pub store: Store,
     view: SharedView,
     pub rev: Arc<watch::Sender<u64>>,
     pub changes: broadcast::Sender<Key>,
     pub conns: Mutex<BTreeMap<EndpointId, Live>>,
-    pub addrs: Mutex<BTreeMap<EndpointId, EndpointAddr>>,
+    pub addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
+    pub addr_updates: AtomicU64,
+    /// Our own address and its counter.
+    own_addr: Mutex<AddrNote>,
+    /// Rung when any address changes, for dialers waiting out a backoff.
+    pub addr_wake: Notify,
     /// Rung when a connection, an address or the device list changes.
     pub wake: Notify,
     pub handler: Mutex<Option<StreamHandler>>,
@@ -107,11 +145,11 @@ impl Inner {
         self.closed.load(Ordering::Relaxed)
     }
 
-    pub fn conns(&self) -> std::sync::MutexGuard<'_, BTreeMap<EndpointId, Live>> {
+    pub fn conns(&self) -> MutexGuard<'_, BTreeMap<EndpointId, Live>> {
         self.conns.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub fn addrs(&self) -> std::sync::MutexGuard<'_, BTreeMap<EndpointId, EndpointAddr>> {
+    pub fn addrs(&self) -> MutexGuard<'_, BTreeMap<EndpointId, AddrNote>> {
         self.addrs.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -125,35 +163,53 @@ impl Inner {
             .then(|| live.conn.clone())
     }
 
-    /// Addresses to hand a peer: ours and the ones we have seen.
-    pub fn addr_list(&self) -> Vec<EndpointAddr> {
+    /// Addresses to hand a peer: ours, with a counter that rises when it
+    /// changes, and the others with the counters their owners gave them.
+    pub fn addr_list(&self) -> Vec<AddrNote> {
+        let current = self.endpoint.addr();
+        let own = {
+            let mut own = self.own_addr.lock().unwrap_or_else(PoisonError::into_inner);
+            if own.addr != current {
+                own.generation = own.generation.saturating_add(1).max(now_ms());
+                own.addr = current;
+            }
+            own.clone()
+        };
         let mut list: Vec<_> = self.addrs().values().cloned().collect();
-        list.push(self.endpoint.addr());
+        list.push(own);
         list.truncate(MAX_ADDRS);
         list
     }
 
-    /// Remembers where members were last reached.
-    pub async fn learn(&self, list: Vec<EndpointAddr>) {
+    /// Remembers where members were last reached. A note replaces what we
+    /// hold only with a higher counter, so two peers that hold different
+    /// notes for a third settle on the newest instead of trading them.
+    pub async fn learn(&self, list: Vec<AddrNote>) {
         let view = self.view();
         let mut changed = false;
         {
             let mut known = self.addrs();
-            for addr in list.into_iter().take(MAX_ADDRS) {
-                if addr.id == self.me || !view.devices.is_member(addr.id) {
+            for note in list.into_iter().take(MAX_ADDRS) {
+                let id = note.addr.id;
+                if id == self.me || !view.devices.is_member(id) {
                     continue;
                 }
-                if known.get(&addr.id) != Some(&addr) {
-                    known.insert(addr.id, addr);
+                if known
+                    .get(&id)
+                    .is_none_or(|old| note.generation > old.generation)
+                {
+                    known.insert(id, note);
                     changed = true;
                 }
             }
         }
         if changed {
+            self.addr_updates.fetch_add(1, Ordering::Relaxed);
             let all: Vec<_> = self.addrs().values().cloned().collect();
             if let Err(e) = self.store.run(move |core| core.save_addrs(&all)).await {
                 debug!("could not save peer addresses: {e}");
             }
+            self.addr_wake.notify_waiters();
             self.bump();
         }
     }
@@ -167,6 +223,7 @@ impl Inner {
 struct Guard {
     inner: Arc<Inner>,
     owner: AbortHandle,
+    _supervisor: JoinHandle<()>,
 }
 
 impl Drop for Guard {
@@ -250,7 +307,10 @@ impl Mesh {
         let welcome = crate::join::redeem(&endpoint, ticket, name).await?;
         let key = endpoint.secret_key().clone();
         let mut addrs = welcome.addrs;
-        addrs.push(ticket.addr.clone());
+        addrs.push(AddrNote {
+            addr: ticket.addr.clone(),
+            generation: 0,
+        });
         let core = {
             let (dir, addrs) = (dir.clone(), addrs.clone());
             blocking(move || {
@@ -263,34 +323,58 @@ impl Mesh {
         Self::run(endpoint, core, addrs)
     }
 
-    fn run(endpoint: Endpoint, core: Core, addrs: Vec<EndpointAddr>) -> Result<Mesh, MeshError> {
+    fn run(endpoint: Endpoint, core: Core, addrs: Vec<AddrNote>) -> Result<Mesh, MeshError> {
         let me = endpoint.id();
         let view = core.view();
         let rev = core.rev();
-        let known = addrs
-            .into_iter()
-            .filter(|a| a.id != me)
-            .map(|a| (a.id, a))
-            .collect();
+        let mut known: BTreeMap<EndpointId, AddrNote> = BTreeMap::new();
+        for note in addrs.into_iter().filter(|n| n.addr.id != me) {
+            let id = note.addr.id;
+            if known
+                .get(&id)
+                .is_none_or(|old| note.generation > old.generation)
+            {
+                known.insert(id, note);
+            }
+        }
+        let first = AddrNote {
+            addr: endpoint.addr(),
+            generation: now_ms(),
+        };
         let inner = Arc::new(Inner {
             endpoint,
             me,
+            session: fastrand::u64(..),
             store: Store::spawn(core)?,
             view,
             rev,
             changes: broadcast::channel(CHANGES).0,
             conns: Mutex::default(),
             addrs: Mutex::new(known),
+            addr_updates: AtomicU64::new(0),
+            own_addr: Mutex::new(first),
+            addr_wake: Notify::new(),
             wake: Notify::new(),
             handler: Mutex::new(None),
             joins: Semaphore::new(8),
             closed: AtomicBool::new(false),
         });
-        let owner: JoinHandle<()> = tokio::spawn(own(inner.clone()));
+        let owner = tokio::spawn(own(inner.clone()));
+        let stop = owner.abort_handle();
+        // The owner's handle lives in the supervisor, which says so if the
+        // owner panics instead of letting the mesh go quiet.
+        let supervisor = tokio::spawn(async move {
+            if let Err(e) = owner.await
+                && e.is_panic()
+            {
+                error!("the mesh owner task panicked: {e}");
+            }
+        });
         Ok(Mesh {
             _guard: Arc::new(Guard {
                 inner: inner.clone(),
-                owner: owner.abort_handle(),
+                owner: stop,
+                _supervisor: supervisor,
             }),
             inner,
         })
@@ -327,7 +411,7 @@ impl Mesh {
                     addr: if me {
                         Some(self.inner.endpoint.addr())
                     } else {
-                        addrs.get(&device.id).cloned()
+                        addrs.get(&device.id).map(|n| n.addr.clone())
                     },
                     device,
                 }
@@ -362,7 +446,9 @@ impl Mesh {
             .collect()
     }
 
-    /// Keys that changed, written here or taken from a peer.
+    /// Keys that changed, written here or taken from a peer. A receiver that
+    /// falls behind gets `Lagged` and must rescan; subscribe before the first
+    /// `scan` so nothing falls between the two.
     pub fn changes(&self) -> broadcast::Receiver<Key> {
         self.inner.changes.subscribe()
     }
@@ -370,6 +456,18 @@ impl Mesh {
     /// Rises whenever the device list, the state or who is online changes.
     pub fn updates(&self) -> watch::Receiver<u64> {
         self.inner.rev.subscribe()
+    }
+
+    /// Feeds an address for a member that did not come from the peer
+    /// itself, such as one found on the local network. Higher `generation`
+    /// wins.
+    pub async fn hint_addr(&self, addr: EndpointAddr, generation: u64) {
+        self.inner.learn(vec![AddrNote { addr, generation }]).await;
+    }
+
+    /// How many times the address table has changed.
+    pub fn addr_updates(&self) -> u64 {
+        self.inner.addr_updates.load(Ordering::Relaxed)
     }
 
     pub fn peer(&self, id: EndpointId) -> Option<Connection> {
@@ -391,9 +489,7 @@ impl Mesh {
 async fn blocking<R: Send + 'static>(
     f: impl FnOnce() -> Result<R, MeshError> + Send + 'static,
 ) -> Result<R, MeshError> {
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|_| MeshError::Closed)?
+    spawn_blocking(f).await.map_err(|_| MeshError::Closed)?
 }
 
 /// Serves `beep-peer/1`: members only.
@@ -458,15 +554,19 @@ impl ProtocolHandler for JoinProtocol {
     }
 }
 
-/// Keeps one dialer per other member.
+/// Keeps one dialer per other member and cuts the links of devices that
+/// are no longer members.
 async fn own(inner: Arc<Inner>) {
     let mut dialers: JoinSet<EndpointId> = JoinSet::new();
     let mut running: BTreeMap<EndpointId, AbortHandle> = BTreeMap::new();
+    let mut closers: JoinSet<usize> = JoinSet::new();
+    let mut cutting: BTreeSet<usize> = BTreeSet::new();
     let mut rev = inner.rev.subscribe();
     loop {
         rev.borrow_and_update();
         let view = inner.view();
-        let wanted: Vec<EndpointId> = if view.devices.is_member(inner.me) {
+        let member = view.devices.is_member(inner.me);
+        let wanted: Vec<EndpointId> = if member {
             view.devices
                 .members()
                 .into_iter()
@@ -474,15 +574,37 @@ async fn own(inner: Arc<Inner>) {
                 .filter(|id| *id != inner.me)
                 .collect()
         } else {
+            for handle in running.values() {
+                handle.abort();
+            }
             Vec::new()
         };
-        // A dialer for a removed member ends on its own once its connection
-        // has told the peer; aborting it would cut that short.
+        // A dialer for a removed member ends on its own once its link has
+        // told the peer; aborting it would cut that short.
         running.retain(|id, _| wanted.contains(id));
         for id in wanted {
             running
                 .entry(id)
                 .or_insert_with(|| dialers.spawn(dial(inner.clone(), id)));
+        }
+        let doomed: Vec<Connection> = inner
+            .conns()
+            .iter()
+            .filter(|(id, _)| !member || !view.devices.is_member(**id))
+            .map(|(_, live)| live.conn.clone())
+            .collect();
+        for conn in doomed {
+            let id = conn.stable_id();
+            if cutting.insert(id) {
+                // The link tells the peer first when it can; this ends it
+                // when the peer will not read, and with it the peer's streams.
+                let wait = if member { GRACE } else { Duration::ZERO };
+                closers.spawn(async move {
+                    sleep(wait).await;
+                    conn.close(2u32.into(), b"removed");
+                    id
+                });
+            }
         }
         tokio::select! {
             changed = rev.changed() => {
@@ -495,18 +617,24 @@ async fn own(inner: Arc<Inner>) {
                 Err(e) if e.is_cancelled() => {}
                 Err(e) => warn!("a dialer failed: {e}"),
             },
+            Some(ended) = closers.join_next() => {
+                if let Ok(id) = ended {
+                    cutting.remove(&id);
+                }
+            }
         }
     }
 }
 
-/// Keeps a connection to `peer` up while it is a member.
+/// Keeps a connection to `peer` up while it is a member and so are we.
 async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
     let mut backoff = Backoff(FIRST_RETRY);
+    let mut waited = false;
     loop {
         let notified = inner.wake.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
-        if !inner.is_member(peer) || inner.is_closed() {
+        if !inner.is_member(peer) || !inner.is_member(inner.me) || inner.is_closed() {
             return peer;
         }
         if let Some(conn) = inner.live(peer) {
@@ -516,19 +644,39 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             }
             continue;
         }
-        let addr = inner
-            .addrs()
-            .get(&peer)
-            .cloned()
-            .unwrap_or_else(|| EndpointAddr::new(peer));
+        if inner.me > peer && !waited {
+            waited = true;
+            tokio::select! {
+                () = &mut notified => {}
+                () = sleep(HEAD_START) => {}
+            }
+            continue;
+        }
+        let tried = inner.addrs().get(&peer).cloned();
+        let addr = tried
+            .as_ref()
+            .map_or_else(|| EndpointAddr::new(peer), |n| n.addr.clone());
         let started = Instant::now();
-        let dialed = tokio::select! {
-            () = &mut notified => continue,
-            dialed = timeout(DIAL_TIMEOUT, inner.endpoint.connect(addr, PEER_ALPN)) => dialed,
+        let connect = timeout(DIAL_TIMEOUT, inner.endpoint.connect(addr, PEER_ALPN));
+        tokio::pin!(connect);
+        // Unrelated changes wake us; only a link that appeared cancels the dial.
+        let dialed = loop {
+            tokio::select! {
+                dialed = &mut connect => break Some(dialed),
+                () = &mut notified => {
+                    if inner.live(peer).is_some() {
+                        break None;
+                    }
+                    notified.set(inner.wake.notified());
+                    notified.as_mut().enable();
+                }
+            }
         };
+        let Some(dialed) = dialed else { continue };
         match dialed {
             Ok(Ok(conn)) => {
                 link::serve(inner.clone(), conn, inner.me).await;
+                waited = false;
                 if started.elapsed() >= STABLE {
                     backoff.reset();
                     continue;
@@ -537,12 +685,21 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             Ok(Err(e)) => debug!("dial failed: {e}"),
             Err(_) => debug!("dial timed out"),
         }
-        let notified = inner.wake.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
-        tokio::select! {
-            () = &mut notified => {}
-            () = sleep(backoff.pause()) => {}
+        // Only a new address for this peer ends the wait early.
+        let pause = sleep(backoff.pause());
+        tokio::pin!(pause);
+        loop {
+            let moved = inner.addr_wake.notified();
+            tokio::pin!(moved);
+            moved.as_mut().enable();
+            let now = inner.addrs().get(&peer).cloned();
+            if now != tried {
+                break;
+            }
+            tokio::select! {
+                () = &mut pause => break,
+                () = &mut moved => {}
+            }
         }
     }
 }
