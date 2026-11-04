@@ -9,12 +9,12 @@ use super::{
     },
 };
 use crate::{
+    account::user::User,
     app::App,
     nodes::Online,
     projects::commands::Shell,
     protocol::node::agent::{EntryKind, Request as AgentRequest, SessionInfo, Status},
     store::{Judged, ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict},
-    user::User,
 };
 use anyhow::Result;
 use chrono::Utc;

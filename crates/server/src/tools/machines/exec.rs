@@ -2,8 +2,8 @@
 
 use super::{Machines, Need, command_name, in_parameter};
 use crate::{
+    apps::permissions::shorten,
     nodes::Exited,
-    permissions::shorten,
     protocol::node::process::{MAX_LINES, Reply, Request},
 };
 use async_trait::async_trait;

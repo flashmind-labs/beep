@@ -2,9 +2,9 @@
 
 use super::memory::{arg, reply};
 use crate::{
-    memories::clip,
+    account::user::User,
+    memory::memories::clip,
     store::{StoredBody, StoredMessage},
-    user::User,
 };
 use anyhow::Result;
 use async_trait::async_trait;

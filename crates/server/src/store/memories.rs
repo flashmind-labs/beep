@@ -9,8 +9,8 @@ use super::{
     MEMORY_CATEGORIES, MemoryRow, Origin, Store, UNFILED, Validity, format_date, parse_date,
 };
 use crate::{
+    account::user::UserKey,
     protocol::{Memory, MemorySource},
-    user::UserKey,
 };
 use anyhow::{Result, bail, ensure};
 use async_trait::async_trait;

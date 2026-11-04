@@ -10,7 +10,7 @@
 
 use super::model::{MachinePath, RepoName, Visibility};
 use crate::{
-    leak::PublicText,
+    memory::leak::PublicText,
     protocol::node::agent::{MAX_QUESTION_LINE, Question},
 };
 

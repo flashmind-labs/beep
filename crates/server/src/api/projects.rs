@@ -2,6 +2,8 @@
 
 use super::Reply;
 use crate::{
+    account::user::User,
+    api::router::Cx,
     app::App,
     projects::{
         fleet::NodeFleet,
@@ -11,9 +13,7 @@ use crate::{
         worker::stop_worker,
     },
     protocol::*,
-    router::Cx,
     store::{ProjectRow, TaskRow, WorkerRow},
-    user::User,
 };
 use chrono::{Duration as TimeDelta, Utc};
 use iroh::EndpointId;

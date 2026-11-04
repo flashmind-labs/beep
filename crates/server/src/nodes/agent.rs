@@ -2,6 +2,7 @@
 
 use super::{Ask, Follower, Online, RECONNECT_WAIT};
 use crate::{
+    api::transport::READ_TIMEOUT,
     protocol::node::{
         LinkRx, LinkTx, Open, Opened,
         agent::{
@@ -12,7 +13,6 @@ use crate::{
         link,
     },
     protocol::{CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree, node::agent::DiffAsk},
-    transport::READ_TIMEOUT,
 };
 use anyhow::{Context, Result, bail};
 use std::{

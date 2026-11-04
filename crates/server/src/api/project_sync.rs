@@ -5,12 +5,12 @@ use super::{
     own_nodes::{self, linked_keys},
 };
 use crate::{
+    api::router::Cx,
     nodes::{Online, push_sync},
     protocol::{
         node::sync::{Keep, Progress, ProjectStatus, Rule, SkippedPath, State},
         *,
     },
-    router::Cx,
     store::{ImportRow, NodeRow, SyncRow},
 };
 use futures::{StreamExt, stream};

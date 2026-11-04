@@ -2,9 +2,9 @@
 
 use super::Reply;
 use crate::{
+    api::router::{Closed, Cx, Sink, Uplink},
     protocol::{ApiError, MAX_TRANSCRIBE_BYTES, TRANSCRIBE_RATE, Transcribe, Transcription},
-    router::{Closed, Cx, Sink, Uplink},
-    stt::{Heard, Session, SttError},
+    voice::stt::{Heard, Session, SttError},
 };
 use serde_bytes::ByteBuf;
 use std::time::Duration;
@@ -146,7 +146,7 @@ pub(super) async fn relay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stt::{RealtimeStt, fake};
+    use crate::voice::stt::{RealtimeStt, fake};
     use std::sync::Mutex;
 
     struct List(Vec<ByteBuf>);

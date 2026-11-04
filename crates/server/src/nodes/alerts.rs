@@ -3,6 +3,7 @@
 
 use super::Online;
 use crate::{
+    account::user::User,
     app::{Reach, UserNotice},
     nodes::deliver::agent_name,
     protocol::{
@@ -12,7 +13,6 @@ use crate::{
         },
     },
     store::SessionOn,
-    user::User,
 };
 use anyhow::{Result, bail};
 use iroh::EndpointId;

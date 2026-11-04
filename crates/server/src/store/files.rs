@@ -5,8 +5,8 @@ use super::{
     updates::{Readers, UpdateOp, log_messages},
 };
 use crate::{
+    account::user::UserKey,
     protocol::{FilePart, FileRef, ImageRef, SentFiles, SentImages},
-    user::UserKey,
 };
 use anyhow::Result;
 use sqlx::{Row, postgres::PgRow};
@@ -383,8 +383,8 @@ fn by_message(rows: &[PgRow]) -> Result<Vec<SentImages>> {
 mod tests {
     use super::*;
     use crate::{
+        account::user::User,
         store::{Blobs, NewMessage, PgBlobs, TestDb, TurnsToDelete, test_chat, test_turn},
-        user::User,
     };
     use async_trait::async_trait;
     use std::sync::{

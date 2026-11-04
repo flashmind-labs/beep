@@ -4,7 +4,7 @@
 use super::model::{
     IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility, remote_parts,
 };
-use crate::{credentials::github_owner_var, leak::PublicText, nodes::Online};
+use crate::{account::credentials::github_owner_var, memory::leak::PublicText, nodes::Online};
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

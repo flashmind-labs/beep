@@ -4,6 +4,7 @@ use super::{state, state_of};
 use crate::api::own_nodes::online;
 use crate::{
     api::Reply,
+    api::router::{Closed, Cx, Sink, Uplink},
     protocol::{
         ApiError, AttachTerminal, MAX_TERMINAL_INPUT, TerminalEvent, TerminalInput, TerminalState,
         node::{
@@ -12,7 +13,6 @@ use crate::{
             terminal::{Reply as PtyReply, Request as PtyRequest, Size},
         },
     },
-    router::{Closed, Cx, Sink, Uplink},
 };
 use anyhow::Result;
 

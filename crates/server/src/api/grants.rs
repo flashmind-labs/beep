@@ -1,7 +1,7 @@
 //! Grants: the standing permissions the user gave routines.
 
 use super::{Reply, found};
-use crate::{grants, protocol::*, router::Cx};
+use crate::{api::router::Cx, apps::grants, protocol::*};
 use uuid::Uuid;
 
 pub(super) async fn list_grants(cx: Cx, _: ListGrants) -> Reply<Vec<Grant>> {

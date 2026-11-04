@@ -1,21 +1,21 @@
-//! A project's pull requests, issues and workflow runs from `crate::repo_watch`'s copy.
+//! A project's pull requests, issues and workflow runs from `crate::projects::repo_watch`'s copy.
 
 use super::{
     Reply, SEND_TIMEOUT,
     projects::{issue_view, project_of, pull_request_view},
 };
 use crate::{
+    account::user::User,
+    api::router::{Cx, Sink},
     app::App,
+    projects::repo_watch::ListsCopy,
+    projects::repo_watch::{Changed, LiveState},
     projects::{
         issues,
         model::{IssueHost, ProjectId},
     },
     protocol::*,
-    repo_watch::ListsCopy,
-    repo_watch::{Changed, LiveState},
-    router::{Cx, Sink},
     store::ProjectRow,
-    user::User,
 };
 use std::sync::Arc;
 use tokio::{sync::broadcast::error::RecvError, time::timeout};

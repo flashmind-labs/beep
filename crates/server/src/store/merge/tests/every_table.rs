@@ -2,14 +2,14 @@
 
 use super::{account, key};
 use crate::{
-    credentials::CredentialKey,
+    account::credentials::CredentialKey,
+    account::user::UserKey,
     projects::model::RepoName,
     store::{
         NewImport, Store, TestDb,
         merge::{Merge, MergeInto, handled, projects, summed},
         test_chat, test_turn,
     },
-    user::UserKey,
 };
 use sqlx::PgPool;
 use std::{

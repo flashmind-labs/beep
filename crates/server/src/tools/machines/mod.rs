@@ -1,11 +1,11 @@
 //! Tools that use the user's machines; each takes `in`, else picks one the way `Need` says.
 
 use crate::{
+    account::user::User,
     app::App,
     nodes::{DESKTOP, FILES, Online, SHELL, agent_name},
     protocol::node::agent,
     store::NodeRow,
-    user::User,
 };
 use flashmind::types::{ToolRegistry, tool::ToolResult};
 use std::sync::Arc;

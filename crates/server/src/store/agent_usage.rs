@@ -2,11 +2,11 @@
 
 use super::Store;
 use crate::{
+    account::user::UserKey,
     protocol::{
         AgentSlug, ModelId,
         node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage, TurnUsage},
     },
-    user::UserKey,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, NaiveDate, Utc};

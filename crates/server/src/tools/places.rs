@@ -1,8 +1,8 @@
 use super::args::text;
 use crate::{
-    places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
+    account::user::User,
+    routines::places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger, Point},
     store::{Location, NewPlace, NewPlaceRoutine, SavedPlace},
-    user::User,
 };
 use async_trait::async_trait;
 use chrono::{TimeDelta, Utc};

@@ -4,7 +4,7 @@ use super::{
     messages::{Step, StepBody, TurnRecord, insert_steps},
     updates::{Readers, UpdateOp, log_messages},
 };
-use crate::{permissions, protocol::HistoryEntry, steps};
+use crate::{agent::steps, apps::permissions, protocol::HistoryEntry};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
@@ -156,9 +156,9 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use crate::{
+        account::user::UserKey,
         protocol::{MessageBody, Update},
         store::{StoredBody, TestDb},
-        user::UserKey,
     };
     use chrono::DateTime;
     use flashmind::{

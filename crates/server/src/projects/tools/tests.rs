@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    permissions::{ApprovalPayload, Rules},
+    apps::permissions::{ApprovalPayload, Rules},
     projects::{
         gate::GatedProcess,
         model::{IssueRef, RepoName, Roles},

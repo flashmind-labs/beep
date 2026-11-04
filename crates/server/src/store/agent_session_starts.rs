@@ -1,7 +1,7 @@
 //! Which device started each coding-agent session, so its alerts go to that device only.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::{Context, Result};
 use iroh::EndpointId;
 

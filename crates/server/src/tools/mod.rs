@@ -6,6 +6,7 @@ mod cards;
 mod charts;
 mod chat;
 mod contacts;
+pub mod fetch;
 pub(crate) mod file;
 pub(crate) mod group_memory;
 mod habits;
@@ -22,6 +23,7 @@ mod products;
 mod progress;
 pub(crate) mod projects;
 mod route;
+pub mod search;
 pub(crate) mod skills;
 pub(crate) mod stocks;
 pub(crate) mod suggest;
@@ -38,9 +40,9 @@ pub(crate) use suggest::{
 };
 
 use crate::{
+    account::user::User,
     app::{App, Draws},
     protocol::{DeviceAnswer, DeviceKind, Run},
-    user::User,
 };
 use flashmind::{
     tools::time::TimeTool,
@@ -84,7 +86,7 @@ pub fn registry(
             chat,
         }));
     }
-    crate::cron::register_tools(
+    crate::routines::cron::register_tools(
         &mut registry,
         app.store.clone(),
         user.id(),

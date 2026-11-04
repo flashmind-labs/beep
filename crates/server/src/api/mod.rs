@@ -1,12 +1,15 @@
 //! Request handlers, one function per request type.
 
+pub mod router;
+pub mod transport;
+
 use crate::{
+    agent::images::{MAX_IMAGE_BYTES, MAX_IMAGES},
+    agent::live::Subscription,
+    api::router::{Cx, Router, Sink},
     app::{Answer, Draws, Message},
-    images::{MAX_IMAGE_BYTES, MAX_IMAGES},
-    live::Subscription,
-    permissions,
+    apps::permissions,
     protocol::*,
-    router::{Cx, Router, Sink},
     store::CreateRun,
     tools::stocks::{self, StockError, Symbol},
 };

@@ -1,7 +1,7 @@
 //! Webhooks Beep made on user repositories for live updates, kept until their node reports them gone.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::{Context, Result};
 use sqlx::Row;
 use uuid::Uuid;

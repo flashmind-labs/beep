@@ -1,7 +1,7 @@
 //! Remote MCP servers each user connects with OAuth, starting with Fastmail.
 //! Tokens live in `mcp_servers` and never reach the phone.
 
-use crate::{AsyncMutex, permissions::Acts, user::User};
+use crate::{AsyncMutex, account::user::User, apps::permissions::Acts};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use flashmind::{

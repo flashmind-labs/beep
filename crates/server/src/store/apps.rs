@@ -1,7 +1,7 @@
 //! Per-user app settings: server-managed MCP servers and app permissions.
 
 use super::Store;
-use crate::{protocol::PermissionLevel, user::UserKey};
+use crate::{account::user::UserKey, protocol::PermissionLevel};
 use anyhow::Result;
 use serde_json::Value;
 use sqlx::Row;

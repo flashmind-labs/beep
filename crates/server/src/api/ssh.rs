@@ -3,9 +3,9 @@
 
 use super::Reply;
 use crate::{
+    api::router::Cx,
     nodes::{self, Online, TokenRefusal},
     protocol::*,
-    router::Cx,
 };
 use std::time::Duration;
 use tokio::time::{Instant, sleep};

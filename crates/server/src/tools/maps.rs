@@ -1,4 +1,4 @@
-use crate::user::User;
+use crate::account::user::User;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Serialize;

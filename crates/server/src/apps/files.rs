@@ -1,6 +1,6 @@
 //! Saves files linked from app tool results (Composio's short-lived `s3url`) into the user's home folder.
 
-use crate::{paging, workspace::Workspace};
+use crate::{agent::paging, nodes::workspace::Workspace};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Map, Value};

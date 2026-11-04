@@ -11,31 +11,35 @@ use super::{
     memory_context, research,
 };
 use crate::{
+    account::user::User,
+    agent::followups,
+    agent::gates,
+    agent::images,
+    agent::live::LiveRun,
+    agent::metering,
+    agent::repeat::{self, RepeatGuard},
+    agent::sources::ReplySources,
+    agent::steps::{self, TurnsByTime},
+    agent::timing::{Output, TurnTimer},
+    agent::tool_attachments,
+    agent::tool_cost,
+    apps::grants::{RequestGrantTool, RoutineGrants},
+    apps::permissions::{self, ApprovalPayload, Approved, Rules},
     apps::{files, markdown},
-    attachments::{self, Handed},
-    cron, events, followups, gates,
-    grants::{RequestGrantTool, RoutineGrants},
-    images,
-    live::LiveRun,
-    memories::{Exchange, Turn, clip},
-    metering,
-    permissions::{self, ApprovalPayload, Approved, Rules},
+    memory::memories::{Exchange, Turn, clip},
+    nodes::attachments::{self, Handed},
+    nodes::workspace::Workspace,
     projects::{
         self,
         gate::ProjectGate,
         turn::{self as project_turn, TurnKind},
     },
     protocol::{ApprovalDecision, AutoPick, Run, RunEvent, Usage},
-    repeat::{self, RepeatGuard},
-    sources::ReplySources,
-    steps::{self, TurnsByTime},
+    routines::cron,
+    routines::events,
+    routines::wake,
     store::{FinishedTurn, PicturesOf, RunStatus, SessionRef, Step, StepBody, TurnRecord},
-    timing::{Output, TurnTimer},
-    tool_attachments, tool_cost,
     tools::{self, media},
-    user::User,
-    wake,
-    workspace::Workspace,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -420,7 +424,9 @@ impl App {
                 machines: machines.clone(),
             }));
             // Cloning writes to a machine with the user's tokens.
-            tools.push(Arc::new(crate::imports::ImportProjectTool { machines }));
+            tools.push(Arc::new(crate::projects::imports::ImportProjectTool {
+                machines,
+            }));
         }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
@@ -1243,7 +1249,7 @@ impl App {
         }
         // A routine's turns were written once, not asked, so they teach no skill.
         if status == RunStatus::Completed && !background {
-            let calls = crate::skills::tool_calls(
+            let calls = crate::memory::skills::tool_calls(
                 conversation
                     .entries()
                     .iter()

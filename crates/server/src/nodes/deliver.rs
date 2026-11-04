@@ -3,13 +3,13 @@
 
 use super::Follower;
 use crate::{
+    account::user::User,
     app::{App, Draws, Message},
     protocol::{
         Approval, ApprovalField, DeviceKind,
         node::agent::{OptionKind, Question, Request},
     },
     store::CreateRun,
-    user::User,
 };
 use flashmind::types::GateAnswer;
 use std::{

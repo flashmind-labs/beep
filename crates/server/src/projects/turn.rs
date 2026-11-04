@@ -9,10 +9,10 @@ use super::{
     threads,
 };
 use crate::{
+    account::user::User,
     app::{App, Message},
     protocol::node::files::{FileKind, Reply, Request},
     store::{CheckoutRow, ProjectRow, TaskRow, ThreadChatRow},
-    user::User,
 };
 use std::{fmt::Write, sync::Arc, time::Duration};
 use tokio::time::timeout;

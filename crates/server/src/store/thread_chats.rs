@@ -6,8 +6,8 @@ use super::{
     projects::end,
 };
 use crate::{
+    account::user::UserKey,
     projects::{model::ProjectId, threads::ThreadKind},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use sqlx::{PgConnection, Row, postgres::PgRow};
