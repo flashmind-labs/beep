@@ -1325,6 +1325,9 @@ requests! {
     /// say. `NotFound` as for `GetAgentSession`, and for a session started
     /// outside Beep.
     408 GetAgentSessionUsage { machine_id: String, agent: String, session: String } => Call<AgentSessionUsage>
+    /// What each of the caller's machines moved over iroh since it first
+    /// reported, online or not. A machine that never reported is left out.
+    409 ListMachineTraffic {} => Call<Vec<MachineTraffic>>
 }
 
 /// How long the model reasons before it answers. `Off` sends no reasoning

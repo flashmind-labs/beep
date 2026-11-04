@@ -34,6 +34,7 @@ pub mod sync;
 pub mod terminal;
 pub mod tool_update;
 pub mod tools;
+pub mod traffic;
 pub mod transfer;
 pub mod update;
 pub mod usage;
@@ -123,6 +124,9 @@ pub enum Up {
     /// first `Env` and about once a minute after. A server from before it
     /// skips it.
     Stats(StatsReport),
+    /// The bytes the node moved over iroh, about once a minute. A server
+    /// from before it skips it.
+    Traffic(traffic::TrafficReport),
 }
 
 /// What the server sends on the control stream.

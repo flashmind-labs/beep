@@ -47,6 +47,7 @@ mod memories;
 mod merge;
 mod messages;
 mod node_tokens;
+mod node_traffic;
 mod nodes;
 mod places;
 mod profile;
@@ -537,6 +538,11 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
         98,
         "agent session starts",
         include_str!("../../migrations/0098_agent_session_starts.sql"),
+    ),
+    (
+        99,
+        "node traffic",
+        include_str!("../../migrations/0099_node_traffic.sql"),
     ),
 ];
 

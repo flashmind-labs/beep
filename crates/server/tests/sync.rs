@@ -207,6 +207,7 @@ impl Server {
             extra,
             provision: None,
             tools: Default::default(),
+            traffic: Default::default(),
         };
         let addr = self.router.endpoint().addr();
         let task =

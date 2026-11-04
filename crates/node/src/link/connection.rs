@@ -10,6 +10,7 @@ use crate::{
     link::reconnect::{self, Backoff},
     link::restart::{self, Reopen},
     link::state::State,
+    link::traffic::Traffic,
     machine::env,
     machine::provision::Provision,
     machine::stats,
@@ -51,6 +52,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REPROBE: Duration = Duration::from_secs(10 * 60);
 /// How often free disk and memory are sampled.
 const RESAMPLE: Duration = Duration::from_secs(60);
+/// How often the traffic counters are reported.
+const REPORT_TRAFFIC: Duration = Duration::from_secs(60);
 /// How long the server has to name a session's protocol.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The most sessions open at once; more are refused.
@@ -93,8 +96,14 @@ pub async fn serve(
     workspace: Option<&Path>,
     stop: impl Future<Output = ()>,
 ) -> Result<()> {
-    let builder = || Endpoint::builder(presets::N0).secret_key(state.key.clone());
+    let traffic = Traffic::default();
+    let builder = || {
+        Endpoint::builder(presets::N0)
+            .secret_key(state.key.clone())
+            .hooks(traffic.clone())
+    };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
+    traffic.measure_endpoint(endpoint.metrics().clone());
     log::info!("node key {}", endpoint.id());
     // Made once, so agent sessions outlive each connection.
     // Installs gh, teacli and the agent skills beside serving; the work
@@ -102,6 +111,7 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision);
+    offers.traffic = traffic;
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
     offers
@@ -350,6 +360,8 @@ pub struct Offers {
     /// The server's connection for the Beep MCP server's calls, set while
     /// one that takes them is connected.
     pub tools: Upstream,
+    /// What the node moved, reported over each link.
+    pub traffic: Traffic,
 }
 
 impl Offers {
@@ -363,6 +375,7 @@ impl Offers {
             extra: vec![Arc::new(crate::machine::ssh::Ssh::default())],
             provision: Some(provision),
             tools: Upstream::default(),
+            traffic: Traffic::default(),
         }
     }
 
@@ -429,6 +442,7 @@ async fn open_as(
     let connection = timeout(CONNECT_TIMEOUT, connect)
         .await
         .context("connect timed out")??;
+    offers.traffic.watch(&connection);
     let (send, recv) = connection.open_bi().await?;
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&NodeHello {
@@ -545,6 +559,8 @@ async fn serve_linked(
     let mut resample = interval(RESAMPLE);
     resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut sampling: Option<AbortOnDropHandle<StatsReport>> = None;
+    let mut report_traffic = interval(REPORT_TRAFFIC);
+    report_traffic.set_missed_tick_behavior(MissedTickBehavior::Delay);
     // Streams end with the connection: dropping the set stops them.
     let mut sessions = JoinSet::new();
     let woke = reconnect::woke();
@@ -588,6 +604,7 @@ async fn serve_linked(
             () = tool_changed(offers.provision.as_deref()), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(env::probe())));
             }
+            _ = report_traffic.tick() => tx.send(&Up::Traffic(offers.traffic.report())).await?,
             _ = resample.tick(), if sampling.is_none() => {
                 sampling = Some(AbortOnDropHandle::new(tokio::spawn(stats::sample(measured.to_vec()))));
             }
