@@ -7,6 +7,8 @@ import { bar, esc, ICON, invoke, S } from "../bar/core.ts";
 import { bytes } from "../center/home-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
+import { copy } from "../chat/chats.ts";
+import { notice } from "../chat/media.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
 
@@ -66,6 +68,10 @@ export const MC: {
 /// changing it.
 let search: { id: string; folder: string | null; draft: string | null; busy: boolean; error: string } | null = null;
 
+/// The open machine's log (GetMachineLog): `text` is null until read.
+interface MachineLog { id: string; text: string | null; busy: boolean; error: string }
+let log: MachineLog | null = null;
+
 /// A tool on a machine with a newer release (ToolUpdate).
 interface ToolUpdate {
   machine_id: string;
@@ -111,6 +117,7 @@ export async function renderMachines(id: string | null = null) {
     invoke("close_group").catch(() => {});
   }
   MC.asking = null;
+  if (log?.id !== id) log = null;
   if (id) void loadSearch(id);
   drawMachines();
   try {
@@ -175,6 +182,41 @@ function searchRow(m: Machine) {
     ? `<span class="dmono">${esc(at.folder)}</span>${m.online ? ' <button class="dbtn" id="mcSearchEdit">Change</button>' : ""}`
     : `<span class="dfield" style="display:flex;gap:6px;align-items:center"><input class="dmono" id="mcSearch" value="${esc(at.draft)}" aria-label="Search for projects in" spellcheck="false"${at.busy ? " disabled" : ""}><button class="dbtn pri" id="mcSearchSave"${at.busy ? " disabled" : ""}>Save</button><button class="dbtn quiet" id="mcSearchNo">Cancel</button></span>`;
   return `<span>Projects in</span><span>${value}</span>`;
+}
+
+/// Reads machine `id`'s log.
+async function readLog(id: string) {
+  const at: MachineLog = log = { id, text: log?.id === id ? log.text : null, busy: true, error: "" };
+  drawMachines();
+  try {
+    at.text = await invoke<string>("machine_log", { id });
+  } catch (e) {
+    at.error = errorText(e);
+  }
+  at.busy = false;
+  if (shown()) drawMachines();
+}
+
+async function saveLog(m: Machine) {
+  try {
+    const path = await invoke<string>("save_machine_log", { name: m.name, text: log?.text ?? "" });
+    notice(`Saved ${path.split("/").pop()} to Downloads`, { path });
+  } catch (e) {
+    notice(`Could not save it. ${e}`, { bad: true });
+  }
+}
+
+/// The Log section: Show, then the lines with Refresh, Copy and Save.
+function logSection(m: Machine) {
+  const at = log?.id === m.id ? log : null;
+  if (!at && !m.online) return "";
+  const read = (label: string) => `<button class="dbtn" id="mcLog"${at?.busy ? " disabled" : ""}>${label}</button>`;
+  let body = at ? "" : read("Show");
+  if (at?.busy && at.text === null) body = '<div class="dmuted">Reading…</div>';
+  else if (at?.error) body = errLine(at.error) + read("Try again");
+  else if (at?.text === "") body = `<div class="dmuted">Nothing logged lately.</div>${read("Refresh")}`;
+  else if (at?.text) body = `<pre class="dlog dmono">${esc(at.text)}</pre><div class="dlog-acts">${read("Refresh")}<button class="dbtn" id="mcLogCopy">Copy</button><button class="dbtn" id="mcLogSave">Save</button></div>`;
+  return `<div class="dset-h">Log</div>${body}`;
 }
 
 /// Installs the newest release of `tool` on machine `id`.
@@ -367,7 +409,7 @@ function machinePage(m: Machine) {
     html += `<div class="dset-h">Tools</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
     html += [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([, up]) => errLine(up.error)).join("");
   }
-  html += trafficTable(m);
+  html += trafficTable(m) + logSection(m);
   return html + `<div class="dmach dset-rm">${button ? `<span class="nm">${button}</span>` : ""}${ask}</div>`;
 }
 
@@ -437,6 +479,13 @@ function drawMachines() {
   }
   el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) renderMachines(hosted()?.machine ?? null); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
+  if (open) {
+    el.querySelector("#mcLog")?.addEventListener("click", () => { void readLog(open.id); });
+    el.querySelector<HTMLElement>("#mcLogCopy")?.addEventListener("click", e => { void copy(log?.text ?? "", e.currentTarget as HTMLElement); });
+    el.querySelector("#mcLogSave")?.addEventListener("click", () => { void saveLog(open); });
+    const lines = el.querySelector(".dlog");
+    if (lines) lines.scrollTop = lines.scrollHeight;
+  }
   for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
   for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });

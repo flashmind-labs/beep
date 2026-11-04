@@ -13,6 +13,7 @@ use crate::{
     link::traffic::Traffic,
     machine::env,
     machine::provision::Provision,
+    machine::service::logs::Logs,
     machine::stats,
     machine::webhook::Webhooks,
     run::shell,
@@ -112,6 +113,7 @@ pub async fn serve(
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision);
     offers.traffic = traffic;
+    offers.extra.push(Arc::new(Logs::service()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
     offers

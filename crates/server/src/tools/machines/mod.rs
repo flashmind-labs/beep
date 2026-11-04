@@ -4,7 +4,7 @@ use crate::{
     account::user::User,
     app::App,
     nodes::{DESKTOP, FILES, Online, SHELL, agent_name},
-    protocol::node::agent,
+    protocol::node::{agent, logs},
     store::NodeRow,
 };
 use flashmind::types::{
@@ -21,6 +21,7 @@ mod code_agent;
 pub(crate) mod copy;
 mod desktop;
 pub(crate) mod exec;
+mod log;
 pub(crate) mod mcp;
 pub(crate) mod process;
 pub(crate) mod transfer;
@@ -37,6 +38,11 @@ pub(crate) fn register(registry: &mut ToolRegistry, app: &Arc<App>, user: &Arc<U
             machines: machines.clone(),
         }));
         registry.register(Arc::new(process::ProcessTool {
+            machines: machines.clone(),
+        }));
+    }
+    if online.iter().any(|node| node.offers(logs::PROTOCOL)) {
+        registry.register(Arc::new(log::MachineLogTool {
             machines: machines.clone(),
         }));
     }

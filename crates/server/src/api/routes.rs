@@ -16,8 +16,9 @@ use super::{
         cross_place, delete_place, list_places, set_timezone, update_location, update_place,
     },
     machines::{
-        create_node_token, get_node_token, list_machine_details, list_machine_stats, list_machines,
-        list_updatable_machines, remove_machine, revoke_node_token, update_machine,
+        create_node_token, get_machine_log, get_node_token, list_machine_details,
+        list_machine_stats, list_machines, list_updatable_machines, remove_machine,
+        revoke_node_token, update_machine,
     },
     memories::{
         clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
@@ -233,6 +234,7 @@ pub fn router() -> Router {
         .call(remove_machine)
         .call(update_machine)
         .call(list_updatable_machines)
+        .call(get_machine_log)
         .call(get_node_token)
         .call(machine_tools::list_tool_updates)
         .call(machine_tools::update_machine_tool)
