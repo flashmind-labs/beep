@@ -3,25 +3,25 @@
 use std::time::{Duration, Instant};
 
 /// How old a copy may get before an ask or the background sync rereads the host.
-pub(crate) const FRESH: Duration = Duration::from_secs(180);
+pub const FRESH: Duration = Duration::from_secs(180);
 /// As `FRESH`, after the last read failed.
-pub(crate) const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
+pub const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
 /// How long after the last ask the background sync keeps a project fresh.
-pub(crate) const VIEWED_FOR: Duration = Duration::from_secs(30 * 60);
+pub const VIEWED_FOR: Duration = Duration::from_secs(30 * 60);
 /// The shortest time between two reads Refresh forces.
-pub(crate) const FORCE_EVERY: Duration = Duration::from_secs(30);
+pub const FORCE_EVERY: Duration = Duration::from_secs(30);
 /// How long after an ask the page counts as open; it asks about every 10 seconds during a run.
-pub(crate) const OPEN_FOR: Duration = Duration::from_secs(30);
+pub const OPEN_FOR: Duration = Duration::from_secs(30);
 /// The shortest time between two reads of a running run's jobs.
-pub(crate) const POLL_EVERY: Duration = Duration::from_secs(10);
+pub const POLL_EVERY: Duration = Duration::from_secs(10);
 /// The shortest gap between webhook-driven reads, so a burst of events reads once or twice.
-pub(crate) const HOOK_GAP: Duration = Duration::from_secs(5);
+pub const HOOK_GAP: Duration = Duration::from_secs(5);
 /// A project nobody asked about for this long is dropped from memory.
-pub(crate) const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
+pub const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 
 /// What an ask does about the host before it answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AskRead {
+pub enum AskRead {
     /// The copy is fresh: it is the answer.
     Copy,
     /// The copy is old: answer with it, and the background sync rereads and notifies followers.
@@ -32,7 +32,7 @@ pub(crate) enum AskRead {
 
 /// One copy's asks and reads.
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Timing {
+pub struct Timing {
     viewed: Option<Instant>,
     synced: Option<Instant>,
     failed: bool,
@@ -49,24 +49,24 @@ fn recent(then: Option<Instant>, now: Instant, within: Duration) -> bool {
 
 impl Timing {
     /// Someone asked for the copy.
-    pub(crate) fn view(&mut self, now: Instant) {
+    pub fn view(&mut self, now: Instant) {
         self.viewed = Some(now);
     }
 
     /// The host was read, successfully or not.
-    pub(crate) fn synced(&mut self, now: Instant, ok: bool) {
+    pub fn synced(&mut self, now: Instant, ok: bool) {
         self.synced = Some(now);
         self.failed = !ok;
         self.poked = false;
     }
 
     /// A webhook said the host changed: reread once the copy is `HOOK_GAP` old.
-    pub(crate) fn poke(&mut self) {
+    pub fn poke(&mut self) {
         self.poked = true;
     }
 
     /// Whether the copy is missing or old enough to read again.
-    pub(crate) fn stale(&self, now: Instant) -> bool {
+    pub fn stale(&self, now: Instant) -> bool {
         if self.poked && !recent(self.synced, now, HOOK_GAP) {
             return true;
         }
@@ -79,7 +79,7 @@ impl Timing {
     }
 
     /// What an ask does; `forced` when Refresh may read now, `has_copy` once a read succeeded.
-    pub(crate) fn ask_read(&self, now: Instant, forced: bool, has_copy: bool) -> AskRead {
+    pub fn ask_read(&self, now: Instant, forced: bool, has_copy: bool) -> AskRead {
         if forced || (!has_copy && self.stale(now)) {
             AskRead::Host
         } else if self.stale(now) {
@@ -90,7 +90,7 @@ impl Timing {
     }
 
     /// Whether a Refresh may read the host now; records it when it may.
-    pub(crate) fn force(&mut self, now: Instant) -> bool {
+    pub fn force(&mut self, now: Instant) -> bool {
         if recent(self.forced, now, FORCE_EVERY) {
             return false;
         }
@@ -99,17 +99,17 @@ impl Timing {
     }
 
     /// Whether the background sync reads it: asked in the last half hour and the copy is old.
-    pub(crate) fn background_due(&self, now: Instant) -> bool {
+    pub fn background_due(&self, now: Instant) -> bool {
         recent(self.viewed, now, VIEWED_FOR) && self.stale(now)
     }
 
     /// Whether the page counts as open now.
-    pub(crate) fn open(&self, now: Instant) -> bool {
+    pub fn open(&self, now: Instant) -> bool {
         recent(self.viewed, now, OPEN_FOR)
     }
 
     /// Whether running jobs may be read now (page open, last poll `POLL_EVERY` old); records the poll.
-    pub(crate) fn poll(&mut self, now: Instant) -> bool {
+    pub fn poll(&mut self, now: Instant) -> bool {
         if !self.open(now) || recent(self.polled, now, POLL_EVERY) {
             return false;
         }
@@ -118,7 +118,7 @@ impl Timing {
     }
 
     /// Whether nobody asked for so long that the copy can go.
-    pub(crate) fn forgotten(&self, now: Instant) -> bool {
+    pub fn forgotten(&self, now: Instant) -> bool {
         !recent(self.viewed, now, FORGET_AFTER)
     }
 }

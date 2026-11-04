@@ -2,6 +2,7 @@
 //! 10 seconds while a run is going and the page is open, and not while the rate limit is low.
 
 mod runs_copy;
+use beep_projects::repo_watch::runs as host_runs;
 pub(crate) use runs_copy::RunsCopy;
 use runs_copy::{HostCopy, HostSlot, KeptLog};
 
@@ -9,8 +10,7 @@ mod detail;
 
 use super::{
     hosts::{self, Tokens},
-    runs::{self, Target, credentials, target},
-    timing::AskRead,
+    runs::{credentials, target},
     watch::{Entry, RepoWatch},
 };
 use crate::{
@@ -21,6 +21,7 @@ use crate::{
     store::ProjectRow,
 };
 use beep_projects::git_items::HostError;
+use beep_projects::repo_watch::{runs::Target, timing::AskRead};
 use futures::future::join_all;
 use reqwest::Client;
 use std::{
@@ -210,7 +211,7 @@ impl RepoWatch {
         target: &Target,
         copy: &mut HostCopy,
     ) {
-        match runs::list(&self.calls, caller, target).await {
+        match host_runs::list(&self.calls, caller, target).await {
             Ok(runs) => {
                 copy.jobs
                     .retain(|id, _| runs.iter().any(|listed| listed.run.id == *id));
@@ -237,7 +238,7 @@ impl RepoWatch {
             .map(|listed| listed.run.id)
             .collect();
         for id in running {
-            match runs::jobs(&self.calls, caller, target, id).await {
+            match host_runs::jobs(&self.calls, caller, target, id).await {
                 Ok(jobs) => {
                     copy.jobs.insert(id, jobs);
                 }

@@ -1,9 +1,6 @@
 //! The copy of a project's open pull requests and issues, read with its host's CLI on a project machine.
 
-use super::{
-    timing::AskRead,
-    watch::{Entry, OpenHead, RepoWatch},
-};
+use super::watch::{Entry, OpenHead, RepoWatch};
 use crate::{
     account::user::User,
     app::App,
@@ -11,6 +8,7 @@ use crate::{
     store::ProjectRow,
 };
 use beep_projects::issues::{HostIssues, ListedPr, SourceError, list_open_prs, read_open};
+use beep_projects::repo_watch::timing::AskRead;
 use std::{
     sync::Arc,
     time::{Instant, SystemTime},

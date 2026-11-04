@@ -1,12 +1,10 @@
-use super::{super::http::Who, *};
+use super::*;
 use crate::{
-    projects::repo_watch::{
-        hosts::RepoOnHost,
-        test_host::{Reply, TestHost},
-        watch::OpenHead,
-    },
+    projects::repo_watch::{hosts::RepoOnHost, watch::OpenHead},
     protocol::{GitHostKind, RunState},
 };
+use beep_projects::repo_watch::http::Who;
+use beep_projects::repo_watch::test_host::{Reply, TestHost};
 use beep_projects::{
     git_items::forks::Api,
     model::{ForgejoHost, IssueHost, RepoName},
@@ -235,7 +233,7 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
 
 #[test]
 fn a_run_cancelled_before_it_started_sorts_by_when_it_ended() {
-    let reply: crate::projects::repo_watch::actions::RunsReply = serde_json::from_str(
+    let reply: beep_projects::repo_watch::actions::RunsReply = serde_json::from_str(
         r#"{"workflow_runs": [
           {"id": 1, "status": "cancelled", "stopped": "2026-11-01T09:00:00Z"},
           {"id": 2, "status": "running", "started": "2026-11-01T10:00:00Z"},

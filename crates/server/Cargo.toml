@@ -66,6 +66,7 @@ typst-pdf = { version = "0.15", optional = true }
 typst-kit = { version = "0.15", default-features = false, features = ["embedded-fonts"], optional = true }
 
 [dev-dependencies]
+beep-projects = { path = "../projects", features = ["testing"] }
 async-stream = "0.3"
 # The node tests run a real node against the server.
 beep-node = { path = "../node" }

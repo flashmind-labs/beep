@@ -1,7 +1,7 @@
 //! Rate-limit-friendly Actions API calls: replies are cached by ETag (a 304 is free on GitHub),
 //! and each token's reported rate limit pauses polling while low.
 
-use beep_projects::git_items::{Caller, HostError, send_error, status_error};
+use crate::git_items::{Caller, HostError, send_error, status_error};
 use bytes::Bytes;
 use reqwest::{StatusCode, Url, header, header::HeaderMap};
 use secrecy::ExposeSecret;
@@ -15,7 +15,7 @@ use std::{
 /// Replies kept for `If-None-Match`, server-wide.
 const MAX_TAGGED: usize = 1024;
 /// Below this many calls left, polling waits for the limit to reset.
-pub(crate) const LOW_REMAINING: u64 = 200;
+pub const LOW_REMAINING: u64 = 200;
 /// How long to wait after a rate-limited reply that says no reset time.
 const LIMITED_WAIT: Duration = Duration::from_secs(60);
 
@@ -29,14 +29,14 @@ struct Tagged {
 
 /// What a host said about a token's rate limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Limit {
-    pub(crate) remaining: u64,
-    pub(crate) reset: SystemTime,
+pub struct Limit {
+    pub remaining: u64,
+    pub reset: SystemTime,
 }
 
 /// Who a call is for; cache and rate limit are kept per user and account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct Who(pub(crate) String);
+pub struct Who(pub String);
 
 #[derive(Default)]
 struct Kept {
@@ -47,7 +47,7 @@ struct Kept {
 
 /// The kept replies and rate limits.
 #[derive(Default)]
-pub(crate) struct HostCalls {
+pub struct HostCalls {
     kept: Mutex<Kept>,
 }
 
@@ -57,7 +57,7 @@ impl HostCalls {
     }
 
     /// Until when polling for `who` waits, when its rate limit runs low.
-    pub(crate) fn limited_until(&self, who: &Who, now: SystemTime) -> Option<SystemTime> {
+    pub fn limited_until(&self, who: &Who, now: SystemTime) -> Option<SystemTime> {
         let limit = *self.kept().limits.get(who)?;
         (limit.remaining < LOW_REMAINING && limit.reset > now).then_some(limit.reset)
     }
@@ -69,7 +69,7 @@ impl HostCalls {
     }
 
     /// `GET url` as JSON, from the cached copy when unchanged.
-    pub(crate) async fn get_json<T: DeserializeOwned>(
+    pub async fn get_json<T: DeserializeOwned>(
         &self,
         caller: &Caller<'_>,
         who: &Who,
@@ -182,7 +182,7 @@ impl HostCalls {
     }
 
     /// The last `keep` bytes of `url`, reading at most `max`; a redirect is followed once without the token.
-    pub(crate) async fn tail(
+    pub async fn tail(
         &self,
         caller: &Caller<'_>,
         url: &str,
@@ -249,17 +249,17 @@ impl HostCalls {
 
 /// How much of a log `HostCalls::tail` keeps and reads.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TailLimits {
-    pub(crate) keep: usize,
-    pub(crate) max: usize,
+pub struct TailLimits {
+    pub keep: usize,
+    pub max: usize,
 }
 
 /// The end of a text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Tail {
-    pub(crate) text: String,
+pub struct Tail {
+    pub text: String,
     /// Bytes before `text` were left out.
-    pub(crate) cut: bool,
+    pub cut: bool,
 }
 
 /// The rate limit `headers` report, if they do.
