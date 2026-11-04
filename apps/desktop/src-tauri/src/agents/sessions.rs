@@ -205,9 +205,13 @@ pub async fn agent_hosts(
             .is_some_and(|config| !config.enabled)
     };
     let hosts = fleet.status().agent_hosts(is_off);
-    let hosts = held
-        .hosts
-        .merged(&app, hosts, ListAgentHosts {}, |host| &host.machine_id);
+    let hosts = held.hosts.merged(
+        &app,
+        hosts,
+        ListAgentHosts {},
+        |host| &host.machine_id,
+        |old, new| old == new,
+    );
     Ok(hosts.into_iter().map(HostRow::from).collect())
 }
 
