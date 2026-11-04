@@ -4,7 +4,7 @@
 //! `beep-node mcp --session <id>`.
 
 use crate::{
-    agents::{Agents, Answered, Asking},
+    agents::{Answered, Asking},
     link::Offers,
     link::local_socket::{self, Listener},
 };
@@ -32,6 +32,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 pub(crate) mod calls;
 mod catalog;
+mod machines;
 mod server;
 mod socket;
 
@@ -57,8 +58,8 @@ const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 /// How long a starting session waits for the user's standing rules.
 const RULES_LIMIT: Duration = Duration::from_secs(3);
 
-/// What the agent hears ahead of its first prompt when it has the server.
-pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
+/// What the agent hears ahead of its first prompt about the machine tools.
+const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
     machines. list_machines says which machines there are, whether each is online, its OS, \
     what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
     machine whose OS and tools fit the work, such as a macOS machine with Xcode for iOS and \
@@ -66,9 +67,22 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     coding agent there with a prompt; job_status and cancel follow what it started. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. machine_log reads a machine's beep-node log. ask_user asks the user a question and waits \
-    for the answer. Running and sending may wait for the user to allow it. remember saves a \
-    lasting instruction or preference the user states, for every agent on every machine; recall \
-    looks up what they said, before a decision it may speak to.";
+    for the answer. Running and sending may wait for the user to allow it.";
+
+/// The memory tools, which only the server holds.
+const MEMORY_BRIEF: &str = " remember saves a lasting instruction or preference the user \
+    states, for every agent on every machine; recall looks up what they said, before a \
+    decision it may speak to.";
+
+/// What the agent hears ahead of its first prompt; the memory tools only
+/// when `memory`.
+pub(crate) fn brief(memory: bool) -> String {
+    if memory {
+        format!("{MACHINES_BRIEF}{MEMORY_BRIEF}")
+    } else {
+        MACHINES_BRIEF.to_owned()
+    }
+}
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
@@ -183,9 +197,9 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
     };
     let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     let launch = Arc::new(Launch::new(exe, dir));
-    let (agents, upstream) = (offers.agents.clone(), offers.tools.clone());
+    let offers = offers.clone();
     Some(AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = listen(launch, agents, upstream).await {
+        if let Err(e) = listen(launch, offers).await {
             log::warn!("not serving the Beep MCP server: {e:#}");
         }
     })))
@@ -194,17 +208,38 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
 /// The server's connection, for the calls it runs: set while the node is
 /// connected to a server that takes `tools/1`.
 #[derive(Clone)]
-pub struct Upstream(Arc<watch::Sender<Option<Connection>>>);
+pub struct Upstream {
+    connection: Arc<watch::Sender<Option<Connection>>>,
+    /// The node has a server to link to at all.
+    has_server: bool,
+}
 
 impl Default for Upstream {
     fn default() -> Self {
-        Self(Arc::new(watch::Sender::new(None)))
+        Self::new(true)
     }
 }
 
 impl Upstream {
+    /// For a node that has a server (`server` in `node.toml`) or not.
+    pub fn new(has_server: bool) -> Self {
+        Self {
+            connection: Arc::new(watch::Sender::new(None)),
+            has_server,
+        }
+    }
+
+    pub(crate) fn has_server(&self) -> bool {
+        self.has_server
+    }
+
+    /// Whether the link to the server is up now.
+    pub(crate) fn connected(&self) -> bool {
+        self.connection.borrow().is_some()
+    }
+
     pub(crate) fn set(&self, connection: Option<Connection>) {
-        self.0.send_replace(connection);
+        self.connection.send_replace(connection);
     }
 
     /// The user's standing rules for the first prompt of `session`. `None`
@@ -237,7 +272,7 @@ impl Upstream {
 
     /// Runs `request` on the server.
     pub async fn call(&self, request: &Request) -> Result<Reply> {
-        let connection = self.0.borrow().clone().context(
+        let connection = self.connection.borrow().clone().context(
             "this machine is not connected to Beep's server now, or the server is too old \
              for these tools",
         )?;
@@ -262,20 +297,50 @@ impl Upstream {
     }
 }
 
-/// What `server` uses on a node: the server for calls, the sessions for
-/// questions.
+/// What `server` uses on a node: the mesh or the server for calls, the
+/// sessions for questions.
 struct Node {
-    agents: Arc<Agents>,
-    upstream: Upstream,
+    offers: Offers,
 }
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
-        self.upstream.call(request).await
+        // In a mesh the machines answer for themselves; the server still
+        // takes what is not between machines, and machines the mesh lacks.
+        if let Some(mesh) = self.offers.mesh.get() {
+            let route = machines::route(
+                request.tool,
+                self.offers.tools.has_server(),
+                self.offers.tools.connected(),
+            );
+            match route {
+                machines::Route::Refuse => {
+                    return Ok(Reply::Done {
+                        text: "send_files needs the user's approval from the server, which is not \
+                               connected now. Try again when it is."
+                            .to_owned(),
+                        failed: true,
+                    });
+                }
+                machines::Route::Direct => {
+                    if let Some(reply) = machines::call(&self.offers, &mesh, request).await {
+                        return Ok(reply);
+                    }
+                }
+                machines::Route::Server => {}
+            }
+        }
+        self.offers.tools.call(request).await
     }
 
     async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
-        self.agents.ask(session, question).await
+        self.offers.agents.ask(session, question).await
+    }
+
+    /// The memory tools live on the server: a node with none has nothing to
+    /// remember with, in a mesh or not, as its brief says.
+    fn memory_tools(&self) -> bool {
+        self.offers.tools.has_server()
     }
 }
 
@@ -292,7 +357,7 @@ struct Hello {
 /// checks the session's token and serves MCP itself. `ask_user` and
 /// approvals become questions in the session; every other call goes to the
 /// server over `tools/1`.
-pub async fn listen(launch: Arc<Launch>, agents: Arc<Agents>, upstream: Upstream) -> Result<()> {
+pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
     let socket = &launch.socket;
     socket::prepare(socket, &launch.dir)?;
     let mut listener = Listener::bind(socket)?;
@@ -300,8 +365,10 @@ pub async fn listen(launch: Arc<Launch>, agents: Arc<Agents>, upstream: Upstream
         "serving the Beep MCP server on {}",
         local_socket::shown(socket)
     );
-    agents.serve_mcp(launch.clone(), upstream.clone());
-    let node = Arc::new(Node { agents, upstream });
+    offers
+        .agents
+        .serve_mcp(launch.clone(), offers.tools.clone());
+    let node = Arc::new(Node { offers });
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -349,7 +416,7 @@ async fn connection(
             hello.session
         );
     }
-    if !node.agents.runs(&hello.session) {
+    if !node.offers.agents.runs(&hello.session) {
         bail!(
             "refused an MCP connection: session {} does not run",
             hello.session

@@ -12,6 +12,7 @@ use crate::{
     link::state::State,
     link::traffic::Traffic,
     link::{
+        from_mesh::{Family, Membership},
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
@@ -30,8 +31,9 @@ use beep_proto::{
     client::CLOSE_REVOKED,
     link::LinkOffer,
     node::{
-        CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
-        Open, Opened, StatsReport, Up, agent, link, status, tool_update, tools,
+        CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
+        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, harness::AgentSettings, link,
+        status, tool_update, tools,
     },
 };
 use iroh::{
@@ -134,7 +136,7 @@ pub async fn serve(
     // stops with the node.
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
-    let mut offers = Offers::local(&state.agents, provision);
+    let mut offers = Offers::local(&state.agents, provision, state.server.is_some());
     offers.traffic = traffic;
     offers.extra.push(Arc::new(Logs::service()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
@@ -186,6 +188,7 @@ pub async fn serve(
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
+                offers.transfers = Some(transfers.clone());
                 started = Some(transfers);
             }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
@@ -426,19 +429,27 @@ pub struct Offers {
     pub tools: Upstream,
     /// What the node moved, reported over each link.
     pub traffic: Traffic,
+    /// The mesh the node belongs to, once it does.
+    pub(crate) mesh: Membership,
+    /// The node's transfers and synced projects, when it shares folders.
+    pub(crate) transfers: Option<Transfers>,
 }
 
 impl Offers {
     /// What every node serves, the CLI and the Mac app alike: the coding
     /// agents found on the PATH (with `agents` from `node.toml`) and their
     /// sessions, and `provision`. A host adds its own protocols to `extra`.
-    pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
+    /// `has_server` says whether the node has a server to link to; without
+    /// one the memory tools are left out of what agents are told and see.
+    pub fn local(agents: &[AgentKind], provision: Arc<Provision>, has_server: bool) -> Self {
         Self {
             agents: Arc::new(Agents::new(crate::agents::detect(agents))),
             extra: Vec::new(),
             provision: Some(provision),
-            tools: Upstream::default(),
+            tools: Upstream::new(has_server),
             traffic: Traffic::default(),
+            mesh: Membership::default(),
+            transfers: None,
         }
     }
 
@@ -590,14 +601,25 @@ impl Linked {
         }
         let served = serve_linked(&connection, &mut tx, &mut rx, &offers, &measured).await;
         offers.tools.set(None);
-        // Revoked or only cut off, the node keeps no token it cannot hear
-        // about being removed; the server sends them again on reconnecting.
-        if let Some(provision) = &offers.provision {
-            provision.forget().await;
+        // What the mesh owns is the mesh's, which the server's link does not
+        // touch.
+        if !offers.mesh.owns(Family::Credentials) {
+            // Revoked or only cut off, the node keeps no token it cannot hear
+            // about being removed; the server sends them again on reconnecting.
+            if let Some(provision) = &offers.provision {
+                provision.forget().await;
+            }
         }
         // The harnesses' env vars may be secrets too; the server sends the
-        // settings again on reconnecting.
-        offers.agents.set_settings(Default::default());
+        // settings again on reconnecting. Each half goes unless the mesh owns it.
+        let mut settings = offers.agents.settings();
+        if !offers.mesh.owns(Family::Harnesses) {
+            settings.harnesses.clear();
+        }
+        if !offers.mesh.owns(Family::Flsh) {
+            settings.flsh = None;
+        }
+        offers.agents.set_settings(settings);
         served
     }
 }
@@ -644,14 +666,8 @@ async fn serve_linked(
                 Err(e) => log::warn!("session task failed: {e}"),
             },
             message = rx.recv::<Down>() => match message {
-                Ok(Some(Down::Credentials(credentials))) => match &offers.provision {
-                    Some(provision) => provision.apply(credentials).await,
-                    None => log::debug!("credentials came to a node that does not take them"),
-                },
-                Ok(Some(Down::AgentSettings(settings))) => {
-                    offers.agents.set_settings(settings);
-                    offers.agents.settings_arrived();
-                }
+                Ok(Some(Down::Credentials(credentials))) => take_credentials(offers, credentials).await,
+                Ok(Some(Down::AgentSettings(settings))) => take_settings(offers, settings),
                 Ok(Some(message)) => log::debug!("server sent {message:?}"),
                 Ok(None) => return Ok(()),
                 Err(e) if connection.close_reason().is_none() => log::debug!("skipped a message: {e:#}"),
@@ -691,6 +707,38 @@ async fn serve_linked(
             }
         }
     }
+}
+
+/// The server's credentials, unless the mesh owns them.
+async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
+    if offers.mesh.owns(Family::Credentials) {
+        log::info!("ignored credentials from the server: this node takes them from its mesh");
+        return;
+    }
+    match &offers.provision {
+        Some(provision) => provision.apply(credentials).await,
+        None => log::debug!("credentials came to a node that does not take them"),
+    }
+}
+
+/// The server's agent settings, except the parts the mesh owns.
+fn take_settings(offers: &Offers, mut settings: AgentSettings) {
+    let (harnesses, flsh) = (
+        offers.mesh.owns(Family::Harnesses),
+        offers.mesh.owns(Family::Flsh),
+    );
+    if harnesses || flsh {
+        log::info!("ignored agent settings from the server: this node takes them from its mesh");
+        let now = offers.agents.settings();
+        if harnesses {
+            settings.harnesses = now.harnesses;
+        }
+        if flsh {
+            settings.flsh = now.flsh;
+        }
+    }
+    offers.agents.set_settings(settings);
+    offers.agents.settings_arrived();
 }
 
 /// Who opened a session, and so what it may use.
@@ -733,14 +781,11 @@ pub(crate) async fn session(
         tools::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             let caller = match who {
-                Who::Everything => Caller {
-                    table: tasks::Table::Shared,
-                    // Lift this one check to let a desktop take RunOn from nodes.
-                    may_run_on_here: true,
-                },
+                Who::Everything => Caller::local(&offers),
                 Who::Node { peer, desktop_here } => Caller {
                     table: tasks::Table::Peer(peer),
                     may_run_on_here: !desktop_here,
+                    transfers: offers.transfers.clone(),
                 },
             };
             peer_tools::serve(tx, rx, caller).await
@@ -792,4 +837,31 @@ async fn tool_changed(provision: Option<&Provision>) {
 
 pub(crate) fn changed(before: &EnvReport, now: &EnvReport) -> bool {
     before != now
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beep_proto::node::harness::HarnessConfig;
+
+    /// A node with no mesh takes whatever the server pushes, as it always did.
+    #[tokio::test]
+    async fn a_node_with_no_mesh_takes_the_servers_agent_settings() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(&[], Provision::new(dir.path()), true);
+        assert!(offers.mesh.get().is_none());
+        assert!(!offers.mesh.owns(Family::Harnesses));
+        let off = HarnessConfig {
+            enabled: false,
+            ..HarnessConfig::new("codex")
+        };
+        take_settings(
+            &offers,
+            AgentSettings {
+                harnesses: vec![off.clone()],
+                flsh: None,
+            },
+        );
+        assert_eq!(offers.agents.settings().harnesses, [off]);
+    }
 }

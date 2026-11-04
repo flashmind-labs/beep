@@ -38,6 +38,10 @@ pub(crate) trait Backend: Sync {
     /// Puts `question` to the user in `session` and waits for the answer.
     fn ask(&self, session: &str, question: Asking)
     -> impl Future<Output = Result<Answered>> + Send;
+    /// Whether `remember`, `recall` and the other memory tools are offered.
+    fn memory_tools(&self) -> bool {
+        true
+    }
 }
 
 /// Serves MCP for `session` until the reader ends and every call is
@@ -115,12 +119,15 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": super::BRIEF,
+                    "instructions": super::brief(backend.memory_tools()),
                 }),
             )
         }
         "ping" => success(id, json!({})),
-        "tools/list" => success(id, json!({ "tools": catalog::tools() })),
+        "tools/list" => success(
+            id,
+            json!({ "tools": catalog::tools(backend.memory_tools()) }),
+        ),
         "tools/call" => {
             let name = params
                 .get("name")

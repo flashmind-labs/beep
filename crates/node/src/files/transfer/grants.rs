@@ -25,6 +25,12 @@ const EVENT_QUEUE: usize = 32;
 /// Who may fetch beyond the open offers: the peers of a synced project,
 /// for the files this node holds of it.
 pub(crate) trait Access: Send + Sync {
+    /// Whether `peer` may fetch anything at all: a device the node's mesh
+    /// lists as removed may not, whatever is open for it. Others are left
+    /// to the grants.
+    fn allows(&self, _peer: &EndpointId) -> bool {
+        true
+    }
     fn may_connect(&self, peer: &EndpointId) -> bool;
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool;
 }
@@ -91,6 +97,9 @@ impl Grants {
     }
 
     fn connect(&self, connection: u64, peer: Option<EndpointId>) -> Result<(), AbortReason> {
+        if peer.is_some_and(|peer| !self.allows(&peer)) {
+            return Err(AbortReason::Permission);
+        }
         let synced = peer.is_some_and(|peer| {
             self.access
                 .get()
@@ -106,6 +115,10 @@ impl Grants {
         }
     }
 
+    fn allows(&self, peer: &EndpointId) -> bool {
+        self.access.get().is_none_or(|access| access.allows(peer))
+    }
+
     fn closed(&self, connection: u64) {
         lock(&self.inner).connections.remove(&connection);
     }
@@ -118,6 +131,9 @@ impl Grants {
             .connections
             .get(&connection)
             .ok_or(AbortReason::Permission)?;
+        if !self.allows(peer) {
+            return Err(AbortReason::Permission);
+        }
         let allowed = inner.grants.values().any(|grant| {
             grant.peer == *peer
                 && grant.content.hash == request.hash
@@ -230,6 +246,53 @@ mod tests {
         fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
             *peer == self.0 && *hash == self.1
         }
+    }
+
+    /// A mesh from which `gone` was removed.
+    struct Removed(EndpointId);
+
+    impl Access for Removed {
+        fn allows(&self, peer: &EndpointId) -> bool {
+            *peer != self.0
+        }
+        fn may_connect(&self, _: &EndpointId) -> bool {
+            false
+        }
+        fn may_get(&self, _: &EndpointId, _: &Hash) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn a_removed_device_cannot_fetch_an_open_offer() {
+        let grants = Arc::new(Grants::default());
+        let gone = SecretKey::generate().public();
+        let kept = SecretKey::generate().public();
+        let file = Hash::new(b"offered");
+        let _gone_guard = grants.grant(gone, HashAndFormat::raw(file));
+        let _kept_guard = grants.grant(kept, HashAndFormat::raw(file));
+        // Admitted before the removal, then removed while connected.
+        assert!(grants.connect(1, Some(gone)).is_ok());
+        grants.set_access(Arc::new(Removed(gone)));
+        assert!(grants.get(1, &GetRequest::blob(file)).is_err());
+        assert!(grants.connect(2, Some(gone)).is_err());
+        assert!(grants.connect(3, Some(kept)).is_ok());
+        assert!(grants.get(3, &GetRequest::blob(file)).is_ok());
+    }
+
+    #[test]
+    fn a_device_outside_the_mesh_keeps_the_grant_the_server_issued() {
+        let grants = Arc::new(Grants::default());
+        let gone = SecretKey::generate().public();
+        let stranger = SecretKey::generate().public();
+        let nobody = SecretKey::generate().public();
+        let file = Hash::new(b"brokered");
+        grants.set_access(Arc::new(Removed(gone)));
+        let _guard = grants.grant(stranger, HashAndFormat::raw(file));
+        assert!(grants.connect(1, Some(stranger)).is_ok());
+        assert!(grants.get(1, &GetRequest::blob(file)).is_ok());
+        // With no grant, it is refused as before.
+        assert!(grants.connect(2, Some(nobody)).is_err());
     }
 
     #[test]
