@@ -7,7 +7,7 @@ import { drawPane } from "../agentpane/media.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
-import { answerHtml, errorCardHtml, KIND_ICONS, stepMark, stopFace, thinkingRow, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "../chat/turnrows.ts";
+import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "../chat/turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
@@ -346,13 +346,11 @@ function turnsHtml(p: AgentPage) {
     const doing = s.doing?.split("\n")[0].trim() ?? "";
     if (running) thinking = liveAt != null || doing === "Thinking";
     const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
-    const thought = running && state === "working" && doing && doing !== shownTitle && liveAt == null
-      // A thought without text yet (or one the agent keeps to itself) sweeps
-      // like one that has it, with nothing to open.
-      ? doing === "Thinking"
-        ? thinkingRow()
-        : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
-    return user + head + work + thought + t.answer.map(row).join("");
+    const live = running ? liveLineHtml({
+      state, thinking: thinking, start,
+      doing: state === "working" && doing !== "Thinking" && doing !== shownTitle && liveAt == null ? doing : "",
+    }) : "";
+    return user + head + work + t.answer.map(row).join("") + live;
   }).join("");
   m.wasLive = liveAt;
   return html;

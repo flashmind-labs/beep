@@ -22,7 +22,7 @@ import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
-import { answerHtml, errorCardHtml, queueRowHtml, stepMark, thinkingRow, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
+import { answerHtml, errorCardHtml, queueRowHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
@@ -292,10 +292,12 @@ export function drawWork(turn: Turn) {
     if (!live) th.ended = true;
     thought = thoughtHtml({ key: `chat:${box.dataset.key}`, text: th.text, ms: th.ms, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding });
   }
-  const waiting = running && !(th && th.ms == null) && !turn.querySelector(ANSWER) && !steps.some(t => t.state === "run");
+  // Once the answer streams it says the turn is alive.
+  const live = running && !turn.querySelector(ANSWER);
+  const thinking = (th != null && th.ms == null) || !steps.some(t => t.state === "run");
   const ms = turn.begun == null ? null : (turn.ended ?? Date.now()) - turn.begun;
   box.innerHTML = turnHeadHtml({ state: running ? "working" : "done", start: turn.begun, ms, stats: steps.length ? plural(steps.length, "tool call", "tool calls") : "", key: steps.length ? box.dataset.key! : null, opened })
-    + thought + shown.map(stepRow).join("") + (waiting ? thinkingRow() : "");
+    + thought + shown.map(stepRow).join("") + (live ? liveLineHtml({ state: "working", thinking, start: turn.begun }) : "");
   attachLive(box, () => { if (turn.thought) turn.thought.touched = true; });
   tickTurns();
 }
