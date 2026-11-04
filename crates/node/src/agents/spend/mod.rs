@@ -4,10 +4,7 @@
 
 use beep_proto::node::usage::{Billing, SessionSpend};
 use ledger::{Ledger, SessionKey};
-use std::{
-    path::PathBuf,
-    sync::{Mutex, PoisonError},
-};
+use std::{path::PathBuf, sync::Mutex};
 
 mod billing;
 mod claude;
@@ -19,7 +16,7 @@ mod scan;
 
 pub(crate) use scan::Roots;
 
-use crate::{agents::found::Agent, agents::prices::Tokens};
+use crate::{agents::found::Agent, agents::prices::Tokens, lock};
 
 /// How far back the logs are read: a month and a bit.
 const WINDOW_SECS: u64 = 35 * 24 * 3600;
@@ -102,7 +99,7 @@ impl Spend {
         // On an hour: the server replaces each reported hour whole, so a
         // window starting within one would shrink it to what came after.
         let since = now.saturating_sub(WINDOW_SECS) / 3600 * 3600;
-        let mut guard = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = lock(&self.ledger);
         let ledger = guard.get_or_insert_with(|| match &self.path {
             Some(path) => Ledger::load(path),
             None => Ledger::default(),
@@ -135,7 +132,7 @@ impl Spend {
         let Some(agent) = Agent::from_name(spend.agent.as_str()) else {
             return;
         };
-        let mut guard = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = lock(&self.ledger);
         if let Some(ledger) = guard.as_mut() {
             let key = SessionKey {
                 agent,

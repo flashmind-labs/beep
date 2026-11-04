@@ -33,6 +33,12 @@ const REPLY: &str = r#"
 log() { printf '%s\n' "$line" >> "$1"; }
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
 reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+handshake() {
+    read -r line; log "$1"
+    reply '{"protocolVersion":1,"agentCapabilities":{}}'
+    read -r line; log "$1"
+    reply '{"sessionId":"s"}'
+}
 "#;
 
 /// An ACP adapter in a few lines of shell: it can resume sessions and
@@ -57,10 +63,7 @@ cat > /dev/null
 /// An adapter that puts a choice to the user on its first prompt, as a
 /// pi extension's select does, and waits.
 const ASKING_ADAPTER: &str = r#"
-read -r line; log "$1"
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line; log "$1"
-reply '{"sessionId":"s"}'
+handshake "$1"
 read -r line; log "$1"
 echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"},{"optionId":"choice-1","name":"other.txt","kind":"allow_once"}]}}'
 cat > /dev/null
@@ -84,13 +87,6 @@ fn script(name: &str, script: &str, log: &Path) -> AgentKind {
     }
 }
 
-fn temp(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("beep-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 async fn settle(session: &Session) {
     let mut live = session.live.clone();
     tokio::time::timeout(
@@ -107,24 +103,14 @@ async fn settle(session: &Session) {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_takeover_resumes_without_permission_prompts() {
-    let dir = temp("takeover");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let session = Session::start(Start {
-        id: "a3f9c1".into(),
-        kind: &fake("claude", &log),
-        cwd: &dir,
         prompt: Some("carry on".into()),
         resume: Some(id.into()),
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
+        ..start_on(&fake("claude", &log), dir, None)
     })
     .unwrap();
     settle(&session).await;
@@ -156,15 +142,11 @@ async fn a_takeover_resumes_without_permission_prompts() {
             .iter()
             .any(|entry| entry.text == "Allowed: Run cargo test")
     );
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that starts a session and ends its first turn at once.
 const PLAIN_ADAPTER: &str = r#"
-read -r line; log "$1"
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line; log "$1"
-reply '{"sessionId":"s"}'
+handshake "$1"
 read -r line; log "$1"
 reply '{"stopReason":"end_turn"}'
 cat > /dev/null
@@ -173,23 +155,12 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
-    let dir = temp("node-asks");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let session = Session::start(Start {
-        id: "a3f9c1".into(),
-        kind: &script("fake", PLAIN_ADAPTER, &log),
-        cwd: &dir,
         prompt: Some("hello".into()),
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
+        ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None)
     })
     .unwrap();
     settle(&session).await;
@@ -234,31 +205,15 @@ async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
     );
     // Nothing went to the agent: the node asked, not the agent.
     assert_eq!(sent(&log).len(), 3);
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn a_choice_is_still_asked() {
-    let dir = temp("asks");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let session = Session::start(Start {
-        id: "b4e0d3".into(),
-        kind: &script("pi", ASKING_ADAPTER, &log),
-        cwd: &dir,
-        prompt: Some("go".into()),
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
-    })
-    .unwrap();
+    let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
     settle(&session).await;
     let info = session.info();
     assert_eq!(info.state.status, Status::Asking);
@@ -267,31 +222,15 @@ async fn a_choice_is_still_asked() {
     assert_eq!(question.options.len(), 2);
     let sent = std::fs::read_to_string(&log).unwrap();
     assert!(!sent.contains("session/set_mode"));
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn a_declining_answer_waits_only_where_there_is_room() {
-    let dir = temp("asks-full");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let session = Session::start(Start {
-        id: "b4e0d5".into(),
-        kind: &script("pi", ASKING_ADAPTER, &log),
-        cwd: &dir,
-        prompt: Some("go".into()),
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
-    })
-    .unwrap();
+    let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question").id;
     for n in 0..MAX_QUEUED {
@@ -306,7 +245,6 @@ async fn a_declining_answer_waits_only_where_there_is_room() {
     assert_eq!(session.info().state.queued as usize, MAX_QUEUED);
     assert!(session.info().question.is_some(), "still open");
     session.close().await;
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that puts a choice to the user, then ends its turn without
@@ -324,25 +262,11 @@ read -r line; log "$1"
 #[cfg(unix)]
 #[tokio::test]
 async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
-    let dir = temp("abandons");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let session = Session::start(Start {
-        id: "b4e0d4".into(),
-        kind: &script("pi", ABANDONING_ADAPTER, &log),
-        cwd: &dir,
-        prompt: Some("go".into()),
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
-    })
-    .unwrap();
+    let session =
+        Session::start(start_on(&script("pi", ABANDONING_ADAPTER, &log), dir, None)).unwrap();
     let mut live = session.live.clone();
     // The adapter exits once it hears the answer; without one it waits.
     tokio::time::timeout(
@@ -356,7 +280,6 @@ async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
     let answer: Value = serde_json::from_str(sent.trim()).unwrap();
     assert_eq!(answer["id"], "p1");
     assert_eq!(answer["result"]["outcome"]["outcome"], "cancelled");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that answers with whatever id each request carries, then
@@ -379,23 +302,12 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
-    let dir = temp("burst");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("unused");
     let session = Session::start(Start {
-        id: "c5f1e3".into(),
-        kind: &script("codex", BURSTING_ADAPTER, &log),
-        cwd: &dir,
         prompt: Some("y".repeat(4 * 1024 * 1024)),
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
+        ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None)
     })
     .unwrap();
     let mut live = session.live.clone();
@@ -410,7 +322,6 @@ async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
     let info = session.info();
     assert_eq!(info.turns, 1, "{:?}", info.state.error);
     assert_eq!(info.last_message.len(), 4 * 1024, "the burst was read");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Starts the adapter `body` (after the handshake, with `$line` holding
@@ -427,22 +338,11 @@ read -r line; reply '{"sessionId":"s"}'
 read -r line
 "#;
     Session::start_within(
-        Start {
-            id: "d6a2f4".into(),
-            kind: &script("codex", &format!("{handshake}{body}"), &dir.join("log")),
-            cwd: dir,
-            prompt: Some("go".into()),
-            resume: None,
-            model: None,
-            effort: None,
-            note: None,
-            brief: None,
-            mcp: None,
-            images: Arc::default(),
-            usage: Arc::default(),
-            alerts: Arc::default(),
-            node: NodeMode::default(),
-        },
+        start_on(
+            &script("codex", &format!("{handshake}{body}"), &dir.join("log")),
+            dir,
+            None,
+        ),
         within,
     )
     .unwrap()
@@ -463,7 +363,8 @@ const UPDATE: &str =
 #[cfg(unix)]
 #[tokio::test]
 async fn an_oversized_message_is_dropped_and_the_session_goes_on() {
-    let dir = temp("oversized");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let body = format!(
         r#"
 printf '%s{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"' '{UPDATE}'
@@ -474,7 +375,7 @@ cat > /dev/null
 "#,
         acp::MAX_MESSAGE + 1
     );
-    let session = started(&dir, &body);
+    let session = started(dir, &body);
     until(&session, |live| {
         live.info.state.summary == "Still here" || live.status() == Status::Ended
     })
@@ -483,13 +384,13 @@ cat > /dev/null
     assert_eq!(info.state.status, Status::Working);
     let error = info.state.error.unwrap_or_default();
     assert!(error.contains("dropped a 16 MiB message"), "{error}");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn an_update_of_an_unknown_kind_is_skipped() {
-    let dir = temp("unknown");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let body = format!(
         r#"
 echo '{UPDATE}{{"sessionUpdate":"something_new","detail":1}}}}}}'
@@ -498,7 +399,7 @@ reply '{{"stopReason":"end_turn"}}'
 cat > /dev/null
 "#
     );
-    let session = started(&dir, &body);
+    let session = started(dir, &body);
     until(&session, |live| {
         live.info.turns >= 1 || live.status() == Status::Ended
     })
@@ -506,7 +407,6 @@ cat > /dev/null
     let info = session.info();
     assert_eq!(info.turns, 1, "{:?}", info.state.error);
     assert_eq!(info.last_message, "done");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Claude Code saving a plot from a shell command and never opening
@@ -527,12 +427,13 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_plot_a_command_saved_shows_once_the_turn_ends() {
-    let dir = temp("plot");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let old = std::fs::File::create(dir.join("old.png")).unwrap();
     std::io::Write::write_all(&mut &old, b"\x89PNG\r\n\x1a\nold").unwrap();
     old.set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
         .unwrap();
-    let session = started(&dir, &PLOTTING_ADAPTER.replace("UPDATE", UPDATE));
+    let session = started(dir, &PLOTTING_ADAPTER.replace("UPDATE", UPDATE));
     until(&session, |live| {
         live.info.turns >= 1
             && live
@@ -553,13 +454,13 @@ async fn a_plot_a_command_saved_shows_once_the_turn_ends() {
         format!("Plotted it.\n{plot}"),
         "only the new plot"
     );
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn closing_stops_the_agent_with_sigterm() {
-    let dir = temp("close");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let marker = dir.join("terminated");
     let body = format!(
         r#"
@@ -569,13 +470,12 @@ while :; do sleep 1; done
 "#,
         marker.display()
     );
-    let session = started(&dir, &body);
+    let session = started(dir, &body);
     until(&session, |live| live.info.state.summary == "Listening").await;
     session.close().await;
     assert_eq!(session.info().state.status, Status::Ended);
     assert_eq!(session.info().state.error, None, "closed, not failed");
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "bye\n");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that says whether it takes images (`$2`), then ends each
@@ -593,20 +493,8 @@ async fn image_session(dir: &Path, images: bool) -> Session {
     let mut kind = script("codex", IMAGES_ADAPTER, &dir.join("sent.jsonl"));
     kind.args.push(images.to_string());
     let session = Session::start(Start {
-        id: "e7b3a5".into(),
-        kind: &kind,
-        cwd: dir,
         prompt: None,
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
+        ..start_on(&kind, dir, None)
     })
     .unwrap();
     until(&session, |live| {
@@ -631,8 +519,9 @@ fn shot() -> Prompt {
 #[cfg(unix)]
 #[tokio::test]
 async fn images_go_to_an_agent_that_takes_them() {
-    let dir = temp("images");
-    let session = image_session(&dir, true).await;
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let session = image_session(dir, true).await;
     session.order(Command::Prompt(shot())).await.unwrap();
     until(&session, |live| {
         live.info.turns >= 1 || live.status() == Status::Ended
@@ -661,7 +550,6 @@ async fn images_go_to_an_agent_that_takes_them() {
         kept.map(|picture| picture.data.clone()),
         Some(data.to_vec())
     );
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[cfg(unix)]
@@ -757,10 +645,11 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
 #[cfg(unix)]
 #[tokio::test]
 async fn a_new_session_switches_to_its_model_before_the_first_prompt() {
-    let dir = temp("model-switch");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", MODEL_ADAPTER, &log);
-    let session = Session::start(start_on(&kind, &dir, Some("deep"))).unwrap();
+    let session = Session::start(start_on(&kind, dir, Some("deep"))).unwrap();
     settle(&session).await;
     let info = session.info();
     assert_eq!(info.turns, 1, "{:?}", info.state.error);
@@ -772,7 +661,6 @@ async fn a_new_session_switches_to_its_model_before_the_first_prompt() {
     assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
     let args = std::fs::read_to_string(dir.join("sent.jsonl.args")).unwrap();
     assert_eq!(args.trim(), "", "no flag on the command line");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that offers two models, ends its first turn, then
@@ -792,10 +680,11 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_running_session_switches_its_model_for_the_next_turn() {
-    let dir = temp("model-later");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SWITCH_LATER_ADAPTER, &log);
-    let session = Session::start(start_on(&kind, &dir, None)).unwrap();
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
     settle(&session).await;
     // It cannot think at another level: refused, nothing sent.
     let refused = session
@@ -826,7 +715,6 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
     let sent = sent(&log);
     assert_eq!(sent[3]["method"], "session/set_model");
     assert_eq!(sent[3]["params"]["modelId"], "deep");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Codex resuming a session: its `session/load` answer offers the model
@@ -846,12 +734,13 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_resumed_session_switches_its_model_with_what_load_offers() {
-    let dir = temp("model-resumed");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
     let start = Start {
         resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()),
-        ..start_on(&kind, &dir, None)
+        ..start_on(&kind, dir, None)
     };
     let session = Session::start(start).unwrap();
     settle(&session).await;
@@ -874,7 +763,6 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
     assert_eq!(sent[3]["method"], "session/set_config_option");
     assert_eq!(sent[3]["params"]["configId"], "model");
     assert_eq!(sent[3]["params"]["value"], "deep");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter whose `session/new` offers a thinking option, answers
@@ -895,20 +783,18 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)"
 cat > /dev/null
 "#;
 
-fn thinking_at<'a>(kind: &'a AgentKind, dir: &'a Path, effort: Effort) -> Start<'a> {
-    Start {
-        effort: Some(effort),
-        ..start_on(kind, dir, None)
-    }
-}
-
 #[cfg(unix)]
 #[tokio::test]
 async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
-    let dir = temp("effort-set");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", THINKING_ADAPTER, &log);
-    let session = Session::start(thinking_at(&kind, &dir, Effort::Max)).unwrap();
+    let session = Session::start(Start {
+        effort: Some(Effort::Max),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
     let sent = sent(&log);
@@ -916,17 +802,13 @@ async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
     assert_eq!(sent[2]["params"]["configId"], "effort");
     assert_eq!(sent[2]["params"]["value"], "max");
     assert_eq!(sent[3]["method"], "session/prompt", "the prompt waits");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that ends its first turn with `/compact` advertised and
 /// the window at 85%, reports a finished compaction for the second
 /// prompt, then ends the third turn.
 const COMPACTING_ADAPTER: &str = r#"
-read -r line; log "$1"
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line; log "$1"
-reply '{"sessionId":"s"}'
+handshake "$1"
 update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
 read -r line; log "$1"
 update '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"Compact"}]}'
@@ -960,10 +842,11 @@ fn prompts(log: &Path) -> Vec<String> {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_full_window_is_compacted_before_the_next_prompt() {
-    let dir = temp("compact");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", COMPACTING_ADAPTER, &log);
-    let session = Session::start(start_on(&kind, &dir, None)).unwrap();
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
     settle(&session).await;
     assert_eq!(prompts(&log), ["go"], "nothing is compacted mid-turn");
     session
@@ -993,16 +876,12 @@ async fn a_full_window_is_compacted_before_the_next_prompt() {
         !entries.iter().any(|entry| entry.text == COMPACT_PROMPT),
         "the node's /compact is not shown as the user's"
     );
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter that puts a choice to the user on its first prompt,
 /// then ends that turn and the next one.
 const TWO_TURN_ADAPTER: &str = r#"
-read -r line; log "$1"
-reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line; log "$1"
-reply '{"sessionId":"s"}'
+handshake "$1"
 say() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\n' "$1"; }
 read -r line; log "$1"
 prompt=$(id)
@@ -1019,14 +898,14 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
-    let dir = temp("alerts");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("pi", TWO_TURN_ADAPTER, &log);
     let alerts = Arc::new(AlertHub::default());
     let session = Session::start(Start {
         alerts: alerts.clone(),
-        node: NodeMode::default(),
-        ..start_on(&kind, &dir, None)
+        ..start_on(&kind, dir, None)
     })
     .unwrap();
     settle(&session).await;
@@ -1074,7 +953,6 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     );
     session.close().await;
     assert_eq!(alerts.drain(), [], "closing it is no news");
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// An adapter whose first turn runs one tool call, which finishes only
@@ -1099,7 +977,8 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
 #[cfg(unix)]
 #[tokio::test]
 async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
-    let dir = temp("steer");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let fifo = dir.join("go");
     let made = std::process::Command::new("mkfifo")
@@ -1109,23 +988,7 @@ async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
     assert!(made.success());
     let mut kind = script("codex", STEERING_ADAPTER, &log);
     kind.args.push(fifo.display().to_string());
-    let session = Session::start(Start {
-        id: "f8c4b6".into(),
-        kind: &kind,
-        cwd: &dir,
-        prompt: Some("go".into()),
-        resume: None,
-        model: None,
-        effort: None,
-        note: None,
-        brief: None,
-        mcp: None,
-        images: Arc::default(),
-        usage: Arc::default(),
-        alerts: Arc::default(),
-        node: NodeMode::default(),
-    })
-    .unwrap();
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
     until(&session, |live| {
         live.info.state.summary == "Running tests" || live.status() == Status::Ended
     })
@@ -1178,7 +1041,6 @@ async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
     let info = session.info();
     assert_eq!(info.state.status, Status::Idle);
     assert_eq!(info.state.queued, 0);
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1203,14 +1065,15 @@ fn steers_waiting_together_go_as_one_prompt_within_the_image_limit() {
 #[cfg(unix)]
 #[tokio::test]
 async fn stop_shows_at_once_and_an_agent_that_ignores_it_is_stopped() {
-    let dir = temp("ignores-cancel");
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
     let body = format!(
         r#"
 echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Building","status":"in_progress"}}}}}}'
 while read -r line; do log "$1"; done
 "#
     );
-    let session = started_within(&dir, &body, Duration::from_millis(200));
+    let session = started_within(dir, &body, Duration::from_millis(200));
     until(&session, |live| {
         live.info.state.summary == "Building" || live.status() == Status::Ended
     })
@@ -1228,5 +1091,4 @@ while read -r line; do log "$1"; done
         .filter(|line| line["method"] == "session/cancel")
         .count();
     assert_eq!(cancels, 1);
-    std::fs::remove_dir_all(&dir).unwrap();
 }

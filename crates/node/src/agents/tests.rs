@@ -25,6 +25,17 @@ reply '{}'
 while read -r line; do reply '{}'; done
 "#;
 
+/// An agent that runs `script` in sh.
+#[cfg(unix)]
+fn sh_agent(name: &str, script: &str) -> AgentKind {
+    AgentKind {
+        name: name.into(),
+        program: "sh".into(),
+        args: vec!["-c".into(), script.into()],
+        env: BTreeMap::new(),
+    }
+}
+
 #[cfg(unix)]
 fn png(fill: u8) -> Vec<u8> {
     let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
@@ -107,12 +118,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
     );
 
     // A session this node runs, read from what it kept of the turn.
-    let kind = AgentKind {
-        name: "codex".into(),
-        program: "sh".into(),
-        args: vec!["-c".into(), THINKING_ADAPTER.into()],
-        env: BTreeMap::new(),
-    };
+    let kind = sh_agent("codex", THINKING_ADAPTER);
     let begin = Begin {
         prompt: Some("is 391 prime?".into()),
         ..Begin::default()
@@ -333,12 +339,7 @@ fn another_machines_home_folder_maps_here() {
 #[tokio::test]
 async fn one_session_cannot_be_taken_over_twice() {
     // An adapter that never answers: the session stays starting.
-    let kind = AgentKind {
-        name: "claude".into(),
-        program: "sh".into(),
-        args: vec!["-c".into(), "cat > /dev/null".into()],
-        env: BTreeMap::new(),
-    };
+    let kind = sh_agent("claude", "cat > /dev/null");
     let agents = Agents::new(vec![kind.clone()]);
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = || Begin {
@@ -359,12 +360,7 @@ async fn one_session_cannot_be_taken_over_twice() {
 #[cfg(unix)]
 #[tokio::test]
 async fn an_ended_node_session_resumes_from_the_agents_session() {
-    let kind = AgentKind {
-        name: "claude".into(),
-        program: "sh".into(),
-        args: vec!["-c".into(), "cat > /dev/null".into()],
-        env: BTreeMap::new(),
-    };
+    let kind = sh_agent("claude", "cat > /dev/null");
     let agents = Agents::new(vec![kind.clone()]);
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = Begin {
@@ -399,12 +395,7 @@ while read -r line; do reply '{}'; done
 #[tokio::test]
 async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
-    let kind = AgentKind {
-        name: "codex".into(),
-        program: "sh".into(),
-        args: vec!["-c".into(), NAMING_ADAPTER.into()],
-        env: BTreeMap::new(),
-    };
+    let kind = sh_agent("codex", NAMING_ADAPTER);
     let agents = Agents::new(vec![kind.clone()]);
     let begin = Begin::default();
     let session = agents.start(&kind, Some("/"), begin).unwrap();
@@ -428,12 +419,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
 #[tokio::test]
 async fn a_refused_start_makes_no_branch() {
     let (_dir, work) = checkout::tests::repo("refused");
-    let kind = AgentKind {
-        name: "codex".into(),
-        program: "sh".into(),
-        args: vec!["-c".into(), "cat > /dev/null".into()],
-        env: BTreeMap::new(),
-    };
+    let kind = sh_agent("codex", "cat > /dev/null");
     let agents = Agents::new(vec![kind.clone()]);
     agents.set_settings(AgentSettings {
         harnesses: vec![beep_proto::node::harness::HarnessConfig {
@@ -458,12 +444,7 @@ async fn a_refused_start_makes_no_branch() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_session_resumes_only_on_its_own_agent() {
-    let kind = |name: &str| AgentKind {
-        name: name.into(),
-        program: "sh".into(),
-        args: vec!["-c".into(), "cat > /dev/null".into()],
-        env: BTreeMap::new(),
-    };
+    let kind = |name: &str| sh_agent(name, "cat > /dev/null");
     let (claude, codex) = (kind("claude"), kind("codex"));
     let agents = Agents::new(vec![claude.clone(), codex.clone()]);
     let begin = Begin {

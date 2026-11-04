@@ -41,7 +41,9 @@ pub(super) struct Fetched {
 impl Task {
     /// Fetches `file`'s blob from the first peer that has it.
     pub(super) async fn fetch(&mut self, path: &str, file: &FileMeta) -> Result<Fetched> {
-        ensure_size(file.size)?;
+        if file.size > MAX_BYTES {
+            bail!("the file is larger than {} GiB", MAX_BYTES >> 30);
+        }
         let room = {
             let (store_dir, root, room) = (
                 self.parts.store_dir.clone(),
@@ -246,11 +248,4 @@ async fn copy_blob(
             None => bail!("the blob ended early"),
         }
     }
-}
-
-fn ensure_size(size: u64) -> Result<()> {
-    if size > MAX_BYTES {
-        bail!("the file is larger than {} GiB", MAX_BYTES >> 30);
-    }
-    Ok(())
 }

@@ -379,28 +379,9 @@ fn error_text(stderr: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::checkout::tests::{has_git, run as run_git};
     use beep_proto::{DiffLeftOut, DiffStatus};
     use tempfile::TempDir;
-
-    fn has_git() -> bool {
-        Command::new("git").arg("--version").output().is_ok()
-    }
-
-    fn run_git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .status()
-            .expect("git runs")
-            .success();
-        assert!(ok, "git {args:?}");
-    }
 
     fn ask(base: &str, head: &str) -> DiffAsk {
         DiffAsk {

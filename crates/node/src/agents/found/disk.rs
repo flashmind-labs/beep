@@ -3,7 +3,7 @@
 //! (`saved_checkouts`).
 
 use super::git::{self, Checkout};
-use crate::link::note;
+use crate::{link::note, lock};
 use anyhow::{Context, Result};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use std::{
@@ -94,7 +94,7 @@ fn checkouts(home: &Path) -> Vec<Checkout> {
                     root: root.to_owned(),
                     origin: git::origin(root),
                 };
-                let mut found = found.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut found = lock(&found);
                 found.push(checkout);
                 if found.len() >= MAX_CHECKOUTS {
                     WalkState::Quit
@@ -126,12 +126,12 @@ fn walked(entry: &DirEntry) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::found::git::tests::run;
-    use std::{fs, process::Command};
+    use crate::agents::found::git::tests::{has_git, run};
+    use std::fs;
 
     #[test]
     fn main_checkouts_are_found_and_the_rest_left_out() {
-        if Command::new("git").arg("--version").output().is_err() {
+        if !has_git() {
             eprintln!("skipped: no git");
             return;
         }

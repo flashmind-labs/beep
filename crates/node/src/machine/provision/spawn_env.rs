@@ -2,12 +2,13 @@
 //! folders first on `PATH` and, per [`Scope`], the user's credentials. Entry
 //! points are `apply` and `vars`.
 
+use crate::{read_lock, write_lock};
 use beep_proto::{AgentAccount, GITHUB_ENV_VAR, node::EnvSecret};
 use std::{
     env,
     ffi::{OsStr, OsString},
     path::PathBuf,
-    sync::{PoisonError, RwLock},
+    sync::RwLock,
 };
 use tokio::process::Command;
 
@@ -61,19 +62,13 @@ pub(super) static TEST_LOCK: crate::AsyncMutex<()> = crate::AsyncMutex::const_ne
 /// Puts `dirs` before the inherited `PATH` of every process started from
 /// now on.
 pub(super) fn set_path(dirs: Vec<PathBuf>) {
-    SPAWN_ENV
-        .write()
-        .unwrap_or_else(PoisonError::into_inner)
-        .path = dirs;
+    write_lock(&SPAWN_ENV).path = dirs;
 }
 
 /// Sets `vars` on every process started from now on, in place of the
 /// credentials set before.
 pub(super) fn set_vars(vars: Vec<EnvSecret>) {
-    SPAWN_ENV
-        .write()
-        .unwrap_or_else(PoisonError::into_inner)
-        .vars = vars;
+    write_lock(&SPAWN_ENV).vars = vars;
 }
 
 /// Gives `command` the tools' folders and the credentials `scope` admits.
@@ -86,7 +81,7 @@ pub(crate) fn apply(command: &mut Command, scope: Scope) {
 /// What `apply` sets, as names and values, for a process started some
 /// other way, such as in a pseudo-terminal.
 pub(crate) fn vars(scope: Scope) -> Vec<(OsString, OsString)> {
-    let spawn = SPAWN_ENV.read().unwrap_or_else(PoisonError::into_inner);
+    let spawn = read_lock(&SPAWN_ENV);
     let path = merged_path(&spawn.path, env::var_os("PATH").as_deref())
         .map(|path| (OsString::from("PATH"), path));
     path.into_iter()
@@ -107,7 +102,7 @@ pub(crate) fn vars(scope: Scope) -> Vec<(OsString, OsString)> {
 
 /// The `PATH` processes get, for finding a tool as they would.
 pub(crate) fn search_path() -> Option<OsString> {
-    let spawn = SPAWN_ENV.read().unwrap_or_else(PoisonError::into_inner);
+    let spawn = read_lock(&SPAWN_ENV);
     merged_path(&spawn.path, env::var_os("PATH").as_deref()).or_else(|| env::var_os("PATH"))
 }
 

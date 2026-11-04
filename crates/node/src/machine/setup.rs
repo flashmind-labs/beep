@@ -90,32 +90,24 @@ async fn host_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("beep-node-setup-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        dir
-    }
 
     #[test]
     fn a_token_for_another_server_is_refused_before_connecting() {
-        let dir = temp_dir("other-server");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let ours = SecretKey::generate().public();
         let theirs = SecretKey::generate().public();
-        let first = State::create(&dir, &ours.to_string(), "box").unwrap();
+        let first = State::create(dir, &ours.to_string(), "box").unwrap();
 
         let elsewhere = SetupToken::generate(theirs).to_string();
-        let refused = prepare(&dir, &elsewhere).err().expect("refused");
+        let refused = prepare(dir, &elsewhere).err().expect("refused");
         assert!(
             format!("{refused:#}").contains("another server"),
             "{refused:#}"
         );
 
         // A token for its own server keeps the machine's key.
-        let again = prepare(&dir, &SetupToken::generate(ours).to_string()).unwrap();
+        let again = prepare(dir, &SetupToken::generate(ours).to_string()).unwrap();
         assert_eq!(again.key.public(), first.key.public());
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

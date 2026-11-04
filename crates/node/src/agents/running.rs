@@ -21,7 +21,7 @@ use std::{
     env,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
-    sync::{Arc, MutexGuard, PoisonError, atomic::Ordering},
+    sync::{Arc, MutexGuard, atomic::Ordering},
 };
 use tokio::{sync::oneshot, task::spawn_blocking};
 
@@ -193,7 +193,7 @@ impl Agents {
     }
 
     pub(super) fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<Session>>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::lock(&self.sessions)
     }
 
     /// The protocols to offer: one per agent, and `agents/1` when there are any.

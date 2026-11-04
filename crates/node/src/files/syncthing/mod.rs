@@ -2,6 +2,7 @@
 //! (`Syncthing::managed`). Beep's own sync leaves such a folder alone, since
 //! two tools syncing one folder fight over every change.
 
+use crate::lock;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::SyncthingFolder;
 use secrecy::{ExposeSecret, SecretString};
@@ -10,7 +11,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::{
@@ -98,7 +99,7 @@ impl Syncthing {
     /// The Syncthing folder that keeps `folder` in step, if any, as last
     /// found within a minute.
     pub async fn managed(&self, folder: &Path) -> Option<Managed> {
-        if let Some(cached) = self.cache().get(folder)
+        if let Some(cached) = lock(&self.inner.cache).get(folder)
             && cached.at.elapsed() < FRESH
         {
             return cached.managed.clone();
@@ -113,7 +114,7 @@ impl Syncthing {
     pub async fn check(&self, folder: &Path) -> Option<Managed> {
         let listed = self.api_folders().await;
         let managed = self.decide(folder, listed).await;
-        let mut cache = self.cache();
+        let mut cache = lock(&self.inner.cache);
         if cache.len() >= MAX_CACHED {
             cache.retain(|_, cached| cached.at.elapsed() < FRESH);
             if cache.len() >= MAX_CACHED {
@@ -134,13 +135,6 @@ impl Syncthing {
     /// when it does not answer.
     pub async fn folders(&self) -> Vec<SyncthingFolder> {
         self.api_folders().await.unwrap_or_default()
-    }
-
-    fn cache(&self) -> MutexGuard<'_, HashMap<PathBuf, Cached>> {
-        self.inner
-            .cache
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 
     async fn decide(&self, folder: &Path, listed: Option<Vec<SyncthingFolder>>) -> Option<Managed> {

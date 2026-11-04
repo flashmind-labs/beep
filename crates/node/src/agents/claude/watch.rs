@@ -239,13 +239,6 @@ mod tests {
 
     const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
 
-    fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("beep-watch-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
     fn append(path: &Path, text: &str) {
         let mut file = fs::OpenOptions::new().append(true).open(path).unwrap();
         file.write_all(text.as_bytes()).unwrap();
@@ -253,7 +246,8 @@ mod tests {
 
     #[test]
     fn a_turn_end_in_the_transcript_is_sent_one_check_later() {
-        let dir = temp("tracker");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let path = dir.join(format!("{ID}.jsonl"));
         fs::write(&path, "{\"type\":\"permission-mode\"}\n").unwrap();
         let mut tracker = Tracker::new(ID.into(), path.clone());
@@ -282,12 +276,12 @@ mod tests {
         tracker.poll();
         tracker.hook();
         assert!(tracker.poll().is_empty());
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[tokio::test]
     async fn a_hook_reaches_the_hub_over_the_socket() {
-        let dir = temp("socket");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let socket = dir.join("hooks.sock");
         let hub = Hub::default();
         let mut events = hub.0.subscribe();
@@ -324,6 +318,5 @@ mod tests {
         assert_eq!(activity.session, ID);
         assert_eq!(activity.kind, ActivityKind::NeedsInput);
         assert!(activity.from_hook);
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

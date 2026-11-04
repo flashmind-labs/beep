@@ -2,11 +2,12 @@
 //! file's modification time and length stay the same, so listing again reads
 //! only the files that changed.
 
+use crate::lock;
 use std::{
     collections::HashMap,
     fs::{self, Metadata},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::Mutex,
     time::SystemTime,
 };
 
@@ -97,7 +98,7 @@ impl<V: Clone> Memo<V> {
     }
 
     fn kept_value(&self, key: &Path, stamps: &[Option<Stamp>]) -> Option<V> {
-        let mut kept = self.lock();
+        let mut kept = lock(&self.kept);
         kept.clock += 1;
         let now = kept.clock;
         let entry = kept.entries.get_mut(key)?;
@@ -109,7 +110,7 @@ impl<V: Clone> Memo<V> {
     }
 
     fn keep(&self, key: PathBuf, stamps: Vec<Option<Stamp>>, value: V) {
-        let mut kept = self.lock();
+        let mut kept = lock(&self.kept);
         let used = kept.clock;
         kept.entries.insert(
             key,
@@ -125,10 +126,6 @@ impl<V: Clone> Memo<V> {
             let (_, &mut oldest_kept, _) = ages.select_nth_unstable(middle);
             kept.entries.retain(|_, entry| entry.used >= oldest_kept);
         }
-    }
-
-    fn lock(&self) -> MutexGuard<'_, Kept<V>> {
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

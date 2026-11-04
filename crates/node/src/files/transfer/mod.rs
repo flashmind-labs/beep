@@ -287,10 +287,7 @@ async fn serve_request(
             let checked = check_fetch(inner, &name, &folder).await;
             let folder = match checked {
                 Ok(folder) => folder,
-                Err(e) => {
-                    let message = format!("{e:#}");
-                    return tx.send(&Reply::Error { message }).await;
-                }
+                Err(e) => return tx.send(&failed(&e)).await,
             };
             let hash = Hash::from_bytes(content.hash);
             let job = fetch::Job {
@@ -311,6 +308,12 @@ async fn serve_request(
             let message = format!("this node cannot do {other:?} yet");
             tx.send(&Reply::Error { message }).await
         }
+    }
+}
+
+fn failed(e: &anyhow::Error) -> Reply {
+    Reply::Error {
+        message: format!("{e:#}"),
     }
 }
 
@@ -336,10 +339,7 @@ async fn serve_offer(
     };
     let resolved = match resolved {
         Ok(resolved) => resolved,
-        Err(e) => {
-            let message = format!("{e:#}");
-            return tx.send(&Reply::Error { message }).await;
-        }
+        Err(e) => return tx.send(&failed(&e)).await,
     };
     let from = inner.endpoint.addr();
     // Dropping the import when the server goes away leaves only blobs no
@@ -350,10 +350,7 @@ async fn serve_offer(
     };
     let offered = match offered {
         Ok(offered) => offered,
-        Err(e) => {
-            let message = format!("{e:#}");
-            return tx.send(&Reply::Error { message }).await;
-        }
+        Err(e) => return tx.send(&failed(&e)).await,
     };
     let _grant = inner.grants.grant(peer, offered.content);
     tx.send(&offered.reply).await?;

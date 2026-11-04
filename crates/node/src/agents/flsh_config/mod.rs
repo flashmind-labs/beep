@@ -2,15 +2,17 @@
 //! flsh starts (`apply`). flsh reads routing and compaction from that file
 //! only: it has no flag, variable or second config file for them.
 
+use crate::lock;
 use anyhow::{Context, Result, bail};
 use beep_proto::{FlshAutoCompact, FlshModel, FlshSettings};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
+    fmt::Display,
     fs,
     io::{self, Read, Write},
     path::Path,
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
 };
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, value};
 
@@ -61,7 +63,7 @@ struct Owned {
 /// Writes `settings` into the `config.toml` in flsh's config folder `dir`,
 /// making it when there is none. Blocking.
 pub(super) fn apply(dir: &Path, settings: &FlshSettings) -> Result<()> {
-    let _writing = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
+    let _writing = lock(&WRITING);
     let path = dir.join(CONFIG);
     let text = read_capped(&path)?;
     let mut doc: DocumentMut = text
@@ -226,24 +228,19 @@ fn read_capped(path: &Path) -> Result<String> {
 /// What Beep set last time. A record that does not read counts as none:
 /// Beep then leaves every key it does not set now as it is.
 fn read_owned(path: &Path) -> Owned {
-    let text = match fs::read(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Owned::default(),
-        Err(e) => {
-            log::warn!(
-                "flsh settings record not read; path={} error={e}",
-                path.display()
-            );
-            return Owned::default();
-        }
-    };
-    serde_json::from_slice(&text).unwrap_or_else(|e| {
+    let ignored = |e: &dyn Display| {
         log::warn!(
             "flsh settings record not read; path={} error={e}",
             path.display()
         );
         Owned::default()
-    })
+    };
+    let text = match fs::read(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Owned::default(),
+        Err(e) => return ignored(&e),
+    };
+    serde_json::from_slice(&text).unwrap_or_else(|e| ignored(&e))
 }
 
 /// Replaces `path` with `bytes` in one rename, so flsh never reads half a

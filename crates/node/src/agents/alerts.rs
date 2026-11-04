@@ -2,11 +2,9 @@
 //! queued, a failed session), held in `AlertHub` for the server's
 //! `FollowAlerts` stream.
 
+use crate::lock;
 use beep_proto::node::agent::Alert;
-use std::{
-    collections::VecDeque,
-    sync::{Mutex, MutexGuard, PoisonError},
-};
+use std::{collections::VecDeque, sync::Mutex};
 use tokio::sync::Notify;
 
 /// The most alerts waiting for the server; the oldest go.
@@ -20,13 +18,9 @@ pub(crate) struct AlertHub {
 }
 
 impl AlertHub {
-    fn unsent(&self) -> MutexGuard<'_, VecDeque<Alert>> {
-        self.unsent.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Has `alert` wait for the server.
     pub(crate) fn record(&self, alert: Alert) {
-        let mut unsent = self.unsent();
+        let mut unsent = lock(&self.unsent);
         unsent.push_back(alert);
         while unsent.len() > MAX_UNSENT {
             unsent.pop_front();
@@ -39,7 +33,7 @@ impl AlertHub {
     pub(crate) async fn next(&self) -> Alert {
         loop {
             let arrived = self.arrived.notified();
-            if let Some(alert) = self.unsent().pop_front() {
+            if let Some(alert) = lock(&self.unsent).pop_front() {
                 return alert;
             }
             arrived.await;
@@ -49,6 +43,6 @@ impl AlertHub {
     /// Every alert waiting, oldest first, taken out.
     #[cfg(test)]
     pub(crate) fn drain(&self) -> Vec<Alert> {
-        self.unsent().drain(..).collect()
+        lock(&self.unsent).drain(..).collect()
     }
 }

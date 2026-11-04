@@ -307,7 +307,7 @@ fn git_status(dir: &Path) -> Option<GitStatus> {
 
 /// What `git <args>` printed in `dir`, when it succeeded. Takes no locks,
 /// so a running agent's own git commands are never in its way.
-fn git(dir: &Path, args: &[&str]) -> Option<String> {
+pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
         .args(args)
         .current_dir(dir)
@@ -501,6 +501,7 @@ fn keep_out_of_git(beep: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::checkout::tests::{has_git, run as run_git};
     use tempfile::TempDir;
 
     fn root_in(dir: &TempDir) -> WorkRoot {
@@ -510,26 +511,6 @@ mod tests {
 
     fn names_of(folder: &WorkFolder) -> Vec<&str> {
         folder.entries.iter().map(|e| e.name.as_str()).collect()
-    }
-
-    fn has_git() -> bool {
-        Command::new("git").arg("--version").output().is_ok()
-    }
-
-    fn run_git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .status()
-            .expect("git runs")
-            .success();
-        assert!(ok, "git {args:?}");
     }
 
     #[test]

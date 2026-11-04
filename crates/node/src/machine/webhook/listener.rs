@@ -2,13 +2,14 @@
 //! route, `/beep/webhook/<token>`, and one secret per watch.
 
 use super::signature;
+use crate::lock;
 use anyhow::{Context, Result};
 use beep_proto::node::webhook::MAX_EVENT;
 use secrecy::SecretString;
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -83,10 +84,6 @@ impl Drop for RouteGuard {
     fn drop(&mut self) {
         lock(&self.routes).remove(&self.token);
     }
-}
-
-fn lock(routes: &Routes) -> std::sync::MutexGuard<'_, HashMap<String, Route>> {
-    routes.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Listeners {

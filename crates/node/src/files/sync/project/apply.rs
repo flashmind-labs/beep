@@ -13,11 +13,11 @@ use crate::files::sync::{
     rules::MARKER,
     scan::{self, Found, Stat},
 };
-use crate::files::transfer::place::Partial;
+use crate::{files::transfer::place::Partial, read_lock};
 use anyhow::{Result, anyhow, bail};
 use beep_proto::node::sync::{MAX_WAITING, State as SyncState};
 use iroh_blobs::Hash;
-use std::{ffi::OsString, sync::PoisonError, time::Duration};
+use std::{ffi::OsString, time::Duration};
 use tokio::{fs::File as AsyncFile, io::AsyncWriteExt, task::spawn_blocking, time::Instant};
 
 /// How often progress is published while files are brought in line.
@@ -52,11 +52,7 @@ impl Task {
         }
         let work = {
             let state = self.shared.lock();
-            let rules = self
-                .shared
-                .rules
-                .read()
-                .unwrap_or_else(PoisonError::into_inner);
+            let rules = read_lock(&self.shared.rules);
             plan(&state, &rules)
         };
         if work.is_empty() {
@@ -219,11 +215,7 @@ impl Task {
     /// wants that content at and that is not on disk.
     fn moves_to(&self, path: &str) -> Option<String> {
         let state = self.shared.lock();
-        let rules = self
-            .shared
-            .rules
-            .read()
-            .unwrap_or_else(PoisonError::into_inner);
+        let rules = read_lock(&self.shared.rules);
         move_target(&state, &rules, path)
     }
 

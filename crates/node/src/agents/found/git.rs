@@ -2,11 +2,9 @@
 //! is the checkout it was added to, a subfolder's the top) and its `origin`
 //! remote.
 
+use crate::agents::work_folder::git;
 use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-};
+use std::path::{Path, PathBuf};
 
 /// A git checkout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,42 +62,12 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
     }
 }
 
-/// What `git <args>` printed in `dir`, when it succeeded.
-fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use std::fs;
 
-    pub(in crate::agents::found) fn run(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .status()
-            .expect("git runs")
-            .success();
-        assert!(ok, "git {args:?}");
-    }
+    pub(in crate::agents::found) use crate::agents::checkout::tests::{has_git, run};
 
     #[test]
     fn a_main_folder_comes_from_the_shared_git_dir() {
@@ -116,7 +84,7 @@ pub(super) mod tests {
 
     #[test]
     fn subfolders_and_worktrees_lead_to_the_checkout() {
-        if Command::new("git").arg("--version").output().is_err() {
+        if !has_git() {
             eprintln!("skipped: no git");
             return;
         }

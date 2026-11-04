@@ -3,6 +3,7 @@
 //! queued message.
 
 use super::hooks::{HookEvent, HookMessage, WAITING};
+use crate::lock;
 use beep_proto::node::agent::{ExternalSession, LiveState, LiveStatus, LiveTool, PlanEntry, Steer};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Mutex, time::Instant};
@@ -16,7 +17,8 @@ const STOPPED: &str = "The user asked you to stop.";
 
 /// Each tracked session's state and queued message. A queued stop denies
 /// every tool call until the turn ends. A session idle at its prompt fires
-/// no hook, so nothing can be queued for it.
+/// no hook, so nothing can be queued for it. The map stays whole even if a
+/// holder panicked.
 #[derive(Default)]
 pub(crate) struct Live(Mutex<HashMap<String, Tracked>>);
 
@@ -75,17 +77,10 @@ fn deny(reason: &str) -> Value {
 }
 
 impl Live {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Tracked>> {
-        // The map stays whole even if a holder panicked.
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     /// Takes in one hook event; returns what the hook prints for Claude
     /// Code, if anything.
     pub(super) fn hear(&self, message: &HookMessage) -> Option<Value> {
-        let mut sessions = self.lock();
+        let mut sessions = lock(&self.0);
         if !sessions.contains_key(&message.session_id)
             && sessions.len() >= MAX_TRACKED
             && let Some(oldest) = sessions
@@ -178,12 +173,12 @@ impl Live {
 
     /// Whether a hook spoke for `session` since the node started.
     pub(super) fn knows(&self, session: &str) -> bool {
-        self.lock().contains_key(session)
+        lock(&self.0).contains_key(session)
     }
 
     /// `found` as its hooks report it.
     pub(super) fn status(&self, mut found: ExternalSession) -> LiveStatus {
-        let sessions = self.lock();
+        let sessions = lock(&self.0);
         let Some(tracked) = sessions.get(&found.id) else {
             return LiveStatus {
                 session: found,
@@ -216,7 +211,7 @@ impl Live {
     /// Queues `steer` for `session`'s next hook; the error says why it
     /// cannot be.
     pub(super) fn steer(&self, session: &str, steer: Steer) -> Result<(), String> {
-        let mut sessions = self.lock();
+        let mut sessions = lock(&self.0);
         let Some(tracked) = sessions.get_mut(session) else {
             return Err(format!(
                 "no hook reported on session {session} since the node started, so nothing \

@@ -5,6 +5,7 @@
 use crate::{
     files::Folders,
     files::fsat::{self, Dir},
+    lock,
 };
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::transfer::{ContentKind, MAX_SUFFIX, numbered};
@@ -15,7 +16,7 @@ use std::{
     io::{self, ErrorKind},
     path::{Component, Path, PathBuf},
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -369,7 +370,7 @@ pub(crate) struct Reserved {
 
 impl Drop for Reserved {
     fn drop(&mut self) {
-        let mut reserved = self.room.lock();
+        let mut reserved = lock(&self.room.reserved);
         for want in &self.held {
             if let Some(bytes) = reserved.get_mut(&want.space.device) {
                 *bytes = bytes.saturating_sub(want.bytes);
@@ -382,10 +383,6 @@ impl Drop for Reserved {
 }
 
 impl Room {
-    fn lock(&self) -> MutexGuard<'_, HashMap<u64, u64>> {
-        self.reserved.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Holds room for a fetch of `need` bytes: the store holds it once and
     /// the folder once, on one disk or two, with `margin` left on each
     /// beside what the other running fetches hold.
@@ -413,7 +410,7 @@ impl Room {
                 },
             ]
         };
-        let mut reserved = self.lock();
+        let mut reserved = lock(&self.reserved);
         for (at, want) in held.iter().enumerate() {
             let others = reserved.get(&want.space.device).copied().unwrap_or(0);
             let free = want.space.free.saturating_sub(others);
@@ -458,22 +455,11 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    struct Dir(PathBuf);
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            // Only a leftover in the temp folder if this fails.
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn temp_dir(name: &str) -> Dir {
-        let dir =
-            std::env::temp_dir().join(format!("beep-node-place-{name}-{}", std::process::id()));
-        // A leftover from an earlier run with the same process id.
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("made");
-        Dir(dir.canonicalize().expect("exists"))
+    /// A temporary folder and its real path, which the checks compare against.
+    fn temp_dir() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("made");
+        let real = dir.path().canonicalize().expect("exists");
+        (dir, real)
     }
 
     fn target(dir: &Path, folder: &str) -> Arc<Folder> {
@@ -507,11 +493,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_target_folder_is_absolute_existing_and_shared() {
-        let dir = temp_dir("target");
-        let shared = dir.0.join("shared");
+        let (_temp, dir) = temp_dir();
+        let shared = dir.join("shared");
         fs::create_dir_all(shared.join("in/deep")).expect("made");
         fs::write(shared.join("file.txt"), "x").expect("written");
-        let outside = dir.0.join("outside");
+        let outside = dir.join("outside");
         fs::create_dir_all(&outside).expect("made");
         std::os::unix::fs::symlink(shared.join("in"), shared.join("link")).expect("linked");
         let folders = Folders::new(std::slice::from_ref(&shared));
@@ -535,13 +521,13 @@ mod tests {
 
     #[test]
     fn placing_keeps_both_and_never_replaces() {
-        let dir = temp_dir("keep-both");
-        let folder = dir.0.join("in");
+        let (_temp, dir) = temp_dir();
+        let folder = dir.join("in");
         fs::create_dir_all(&folder).expect("made");
         fs::write(folder.join("render.png"), "old").expect("written");
         fs::write(folder.join("render (2).png"), "older").expect("written");
-        let journal = Journal::open(dir.0.join("journal")).unwrap();
-        let target = target(&dir.0, "in");
+        let journal = Journal::open(dir.join("journal")).unwrap();
+        let target = target(&dir, "in");
 
         let partial = written(&journal, &target, "render.png", "new");
         let placed = place(&partial, "render.png", ContentKind::File).unwrap();
@@ -563,26 +549,26 @@ mod tests {
         partial.finish().unwrap();
         assert_eq!(placed, folder.join("frames (3)"));
         assert!(placed.join("1.png").is_file());
-        assert_eq!(fs::read_dir(dir.0.join("journal")).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(dir.join("journal")).unwrap().count(), 0);
     }
 
     #[test]
     fn a_partial_folder_fits_a_long_name_and_reads_as_partial() {
-        let dir = temp_dir("long");
-        fs::create_dir_all(dir.0.join("in")).expect("made");
-        let journal = Journal::open(dir.0.join("journal")).unwrap();
-        let target = target(&dir.0, "in");
+        let (_temp, dir) = temp_dir();
+        fs::create_dir_all(dir.join("in")).expect("made");
+        let journal = Journal::open(dir.join("journal")).unwrap();
+        let target = target(&dir, "in");
         let long = format!("{}.bin", "r".repeat(250));
         let partial = written(&journal, &target, &long, "x");
-        let hidden = entries(&dir.0.join("in"));
+        let hidden = entries(&dir.join("in"));
         assert!(
             hidden[0].starts_with(".beep-") && hidden[0].ends_with(".partial"),
             "{hidden:?}"
         );
         let placed = place(&partial, &long, ContentKind::File).unwrap();
         partial.finish().unwrap();
-        assert_eq!(placed, dir.0.join("in").join(&long));
-        assert_eq!(entries(&dir.0.join("in")), [long]);
+        assert_eq!(placed, dir.join("in").join(&long));
+        assert_eq!(entries(&dir.join("in")), [long]);
     }
 
     fn entries(dir: &Path) -> Vec<String> {
@@ -596,20 +582,20 @@ mod tests {
 
     #[test]
     fn a_stopped_nodes_partial_folders_are_swept() {
-        let dir = temp_dir("sweep");
-        let folder = dir.0.join("in");
+        let (_temp, dir) = temp_dir();
+        let folder = dir.join("in");
         fs::create_dir_all(&folder).expect("made");
-        let journal = Journal::open(dir.0.join("journal")).unwrap();
-        let target = target(&dir.0, "in");
+        let journal = Journal::open(dir.join("journal")).unwrap();
+        let target = target(&dir, "in");
         let partial = written(&journal, &target, "big.bin", "half");
         // As if the node was killed: nothing removes it now.
         std::mem::forget(partial);
         assert_eq!(entries(&folder).len(), 1);
         // An entry that cannot be read is skipped, not fatal.
-        fs::create_dir(dir.0.join("journal/unreadable")).expect("made");
+        fs::create_dir(dir.join("journal/unreadable")).expect("made");
         journal.sweep().unwrap();
         assert!(entries(&folder).is_empty());
-        assert_eq!(entries(&dir.0.join("journal")), ["unreadable"]);
+        assert_eq!(entries(&dir.join("journal")), ["unreadable"]);
 
         let partial = journal.start(target.clone()).unwrap();
         let deep = make_dirs_at(partial.dir(), Path::new("a/b/c")).unwrap();

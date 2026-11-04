@@ -8,13 +8,14 @@ use super::{
 use crate::{
     agents::Agents,
     link::{Protocol, Session},
+    lock,
     machine::service::{self, Restart},
 };
 use beep_proto::node::{LinkRx, LinkTx, update};
 use futures::FutureExt;
 use std::{
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
     },
     time::Duration,
@@ -114,7 +115,7 @@ async fn serve(
         }
         UPDATING.store(false, AtomicOrdering::SeqCst);
     });
-    *waiting.lock().unwrap_or_else(PoisonError::into_inner) = Some(AbortOnDropHandle::new(restart));
+    *lock(&waiting) = Some(AbortOnDropHandle::new(restart));
     Ok(())
 }
 
