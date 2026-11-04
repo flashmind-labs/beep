@@ -1,5 +1,5 @@
 //! Image files an agent made during a turn: ones it names by path in what
-//! it says, or that its edits wrote. The node reads them once the turn
+//! it says, that its edits wrote, or that its commands wrote and named. The node reads them once the turn
 //! ends and shows them in the transcript like any other picture.
 //!
 //! Only files inside the session's folder are read, at most
@@ -10,6 +10,7 @@ use beep_proto::sniff_image;
 use std::{
     io::Read,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 /// The most image files shown for one turn.
@@ -56,13 +57,18 @@ pub(crate) fn resolve(cwd: &Path, path: &str) -> Option<PathBuf> {
 /// `cwd`) that are inside `cwd`, small enough, and hold the image their
 /// extension says. Reads the disk: run it off the async workers.
 pub(crate) fn read(cwd: &Path, paths: &[PathBuf]) -> Vec<Picture> {
+    read_since(cwd, paths, SystemTime::UNIX_EPOCH)
+}
+
+/// `read`, leaving out files last written before `since`.
+pub(crate) fn read_since(cwd: &Path, paths: &[PathBuf], since: SystemTime) -> Vec<Picture> {
     let Ok(cwd) = cwd.canonicalize() else {
         return Vec::new();
     };
     paths
         .iter()
         .take(MAX_PER_TURN)
-        .filter_map(|path| match read_one(&cwd, path) {
+        .filter_map(|path| match read_one(&cwd, path, since) {
             Ok(picture) => picture,
             Err(e) => {
                 log::debug!("image file not read; path={} error={e}", path.display());
@@ -72,7 +78,7 @@ pub(crate) fn read(cwd: &Path, paths: &[PathBuf]) -> Vec<Picture> {
         .collect()
 }
 
-fn read_one(cwd: &Path, path: &Path) -> std::io::Result<Option<Picture>> {
+fn read_one(cwd: &Path, path: &Path, since: SystemTime) -> std::io::Result<Option<Picture>> {
     let Some(mime) = path.to_str().and_then(mime_of) else {
         return Ok(None);
     };
@@ -84,7 +90,7 @@ fn read_one(cwd: &Path, path: &Path) -> std::io::Result<Option<Picture>> {
     let file = crate::fsat::open_read(&path)?;
     let meta = file.metadata()?;
     let limit = u64::try_from(MAX_FILE).unwrap_or(u64::MAX);
-    if !meta.is_file() || meta.len() > limit {
+    if !meta.is_file() || meta.len() > limit || meta.modified()? < since {
         return Ok(None);
     }
     let mut data = Vec::new();

@@ -39,7 +39,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant, SystemTime},
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -110,6 +110,8 @@ pub(crate) struct Live {
     turn_start: u64,
     /// Image files the agent linked to this turn, as it named them.
     turn_links: Vec<String>,
+    /// When the running turn started, by the clock files are stamped with.
+    turn_began: Option<SystemTime>,
     /// Where finished turns' spending and plan limits go, shared by the
     /// node's sessions.
     usage: Arc<UsageHub>,
@@ -158,6 +160,11 @@ pub(crate) struct TurnFiles {
     pub(crate) cwd: PathBuf,
     /// Each joined to `cwd`, at most `image_files::MAX_PER_TURN`.
     pub(crate) paths: Vec<PathBuf>,
+    /// Files only shell commands or their output named: read when written
+    /// since `since`, so a listing does not show old pictures. Within the
+    /// same `MAX_PER_TURN` as `paths`.
+    pub(crate) made: Vec<PathBuf>,
+    pub(crate) since: SystemTime,
     /// The turn's last agent message, which shows them; a new entry when
     /// there is none.
     pub(crate) entry: Option<u64>,
@@ -330,6 +337,7 @@ impl Live {
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
         self.turn_images.clear();
+        self.turn_began = Some(SystemTime::now());
         // A tool whose entry left the transcript has nothing left to show.
         let dropped = self.dropped;
         self.tools.retain(|_, tool| tool.entry >= dropped);
@@ -607,10 +615,11 @@ impl Live {
     }
 
     /// The image files the turn that just ended named: in the agent's
-    /// messages, its links, the files its finished edits wrote, and the
-    /// ones its finished reads looked at without showing them. Files a
-    /// read showed as pictures are left out, and so is the room those
-    /// pictures took. `None` when there are none.
+    /// messages, its links, the files its finished edits wrote, the ones
+    /// its finished reads looked at without showing them, and those its
+    /// finished commands named, such as a plot one saved. Files a read
+    /// showed as pictures are left out, and so is the room those pictures
+    /// took. `None` when there are none.
     pub(crate) fn turn_files(&mut self) -> Option<TurnFiles> {
         let cwd = PathBuf::from(&self.info.cwd);
         let start = self.turn_start;
@@ -630,6 +639,7 @@ impl Live {
             .collect();
         done.sort_by_key(|tool| tool.entry);
         let mut shown: Vec<PathBuf> = Vec::new();
+        let mut ran: Vec<&str> = Vec::new();
         for tool in done {
             let read = tool.kind == ToolKind::Read;
             if read && !tool.pictures.is_empty() {
@@ -640,6 +650,9 @@ impl Live {
                 );
             } else if read || EDIT_KINDS.contains(&tool.kind) {
                 named.extend(tool.paths.iter().cloned());
+            } else if tool.kind == ToolKind::Execute {
+                ran.extend(image_files::named_in(&tool.title));
+                ran.extend(image_files::named_in(&tool.output));
             }
         }
         let room = image_files::MAX_PER_TURN.saturating_sub(self.turn_images.len());
@@ -655,7 +668,28 @@ impl Live {
                 paths.push(path);
             }
         }
-        (!paths.is_empty()).then_some(TurnFiles { cwd, paths, entry })
+        let mut made: Vec<PathBuf> = Vec::new();
+        for path in ran
+            .into_iter()
+            .filter_map(|name| image_files::resolve(&cwd, name))
+        {
+            if paths.len() + made.len() >= room {
+                break;
+            }
+            if !paths.contains(&path) && !made.contains(&path) && !shown.contains(&path) {
+                made.push(path);
+            }
+        }
+        // Some file systems stamp to the second.
+        let began = self.turn_began.unwrap_or_else(SystemTime::now);
+        let since = began.checked_sub(Duration::from_secs(2)).unwrap_or(began);
+        (!paths.is_empty() || !made.is_empty()).then_some(TurnFiles {
+            cwd,
+            paths,
+            made,
+            since,
+            entry,
+        })
     }
 
     /// Shows `pictures`, read from the files `turn_files` gave, after the
