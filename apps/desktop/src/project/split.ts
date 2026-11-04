@@ -178,7 +178,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
 /// The project's Overview: a box per list, each title opening that row of
 /// the list, and its one line for the list.
 function projectOverview(p: Project, run: SplitItem[], prs: SplitItem[], issues: SplitItem[], where: ReturnType<typeof machineTile>) {
-  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead : null, i.title, i.sub, [i.right], i.open || (() => openTile(i.key))));
+  // A copy: the list beside it takes the lead node itself.
+  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead.cloneNode(true) : null, i.title, i.sub, [i.right], i.open || (() => openTile(i.key))));
   const box = (title: string, items: SplitItem[], key: string) => items.length ? homeBox("", title, items.length, () => openTile(key), rowsOf(items)) : null;
   const list = terms.list(p.name) || [];
   const machines = where.rows.map(r => {
