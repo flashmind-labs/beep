@@ -1,4 +1,4 @@
-import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
+import { AGENT_IMAGE_TYPES, AGENT_MAX_IMAGE } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
@@ -160,15 +160,26 @@ document.addEventListener("paste", e => {
   agent ? agentDrop(files) : attach(files);
 });
 
+/// `file` as a shrunk JPEG, for an agent that cannot take it as it is.
+async function agentJpeg(file: File) {
+  const data = (await shrinkPic(file)).split(",")[1];
+  const name = (file.name || "image").replace(/\.[^.]*$/, "");
+  return new File([Uint8Array.from(atob(data), c => c.charCodeAt(0))], `${name}.jpg`, { type: "image/jpeg" });
+}
+
 /// Files pasted or dropped on a coding agent session: the pictures it
-/// takes attach to the message; anything else uploads into the session's
-/// folder and is mentioned.
-function agentDrop(files: Iterable<File>) {
-  const all = [...files];
-  const pics = all.filter(f => AGENT_IMAGE_TYPES.includes(f.type));
-  const rest = all.filter(f => !pics.includes(f));
+/// takes attach to the message, converted when too big or in another format;
+/// anything else, or a picture that cannot be drawn, uploads into the
+/// session's folder and is mentioned.
+async function agentDrop(files: Iterable<File>) {
+  const pics: File[] = [], rest: File[] = [];
+  for (const f of files) {
+    if (AGENT_IMAGE_TYPES.includes(f.type) && f.size <= AGENT_MAX_IMAGE) pics.push(f);
+    else if (f.type.startsWith("image/")) await agentJpeg(f).then(jpeg => pics.push(jpeg), () => rest.push(f));
+    else rest.push(f);
+  }
   if (rest.length) uploadDropped(rest);
-  return pics.length ? agentAttach(pics) : Promise.resolve();
+  if (pics.length) await agentAttach(pics);
 }
 
 // Dropping images and files on the chat attaches them too; a path dragged
