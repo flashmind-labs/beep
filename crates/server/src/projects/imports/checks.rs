@@ -1,13 +1,20 @@
-//! Finds an imported project's checkouts on the user's other machines, by `origin` remote, through
-//! the found-folders scan. Looks run in the background under [`Checkouts`], bounded per machine,
-//! server-wide and in queue.
+//! Finds an imported project's checkouts on the user's other machines, by `origin` remote: first at
+//! the paths its folders on other machines suggest, then through the found-folders scan. Looks run
+//! in the background under [`Checkouts`], bounded per machine, server-wide and in queue.
 
-use super::{remove, repo::same_repo};
+use super::{
+    folder::FolderPath,
+    preview::{parse_remotes, remotes_script},
+    remove,
+    repo::same_repo,
+};
 use crate::{
     account::credentials::ForgejoUrl,
     account::user::User,
     app::App,
     lock,
+    nodes::SHELL,
+    projects::{branches::run_script, commands::Shell},
     protocol::{
         ProjectMachine,
         node::agent::{SESSIONS_PROTOCOL, SessionFolder},
@@ -17,6 +24,7 @@ use crate::{
 use anyhow::Context;
 use chrono::{DateTime, TimeDelta, Utc};
 use std::{
+    cmp::Reverse,
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex, Weak},
     time::Duration,
@@ -27,6 +35,10 @@ use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
 const FOLDERS_PER_MACHINE: u32 = 800;
 /// The longest one machine's look may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(60);
+/// The most suggested paths tried in a look.
+const SIMILAR_PATHS: usize = 40;
+/// The longest trying them may take.
+const SIMILAR_LIMIT: Duration = Duration::from_secs(10);
 /// How long a look at a machine stands before the page asks again.
 const RECHECK: TimeDelta = TimeDelta::minutes(10);
 /// Machines looked through at once, server-wide.
@@ -169,7 +181,8 @@ async fn look(app: &Weak<App>, user: &Arc<User>, endpoint: &str) {
     }
 }
 
-/// Drops the machine from projects whose folder is gone, records its checkouts, and returns the count.
+/// Drops the machine from projects whose folder is gone, records its checkouts at suggested paths,
+/// then those the full look finds, and returns that last count.
 async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyhow::Result<usize> {
     let Some(online) = app
         .nodes
@@ -187,17 +200,28 @@ async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyho
         // A look that failed proves nothing is gone.
         Err(e) => log::info!("checkouts not looked at; node={endpoint} error={e:#}"),
     }
-    if !online.offers(SESSIONS_PROTOCOL) {
+    if user.imports().await?.is_empty() {
         return Ok(0);
     }
-    if user.imports().await?.is_empty() {
+    let servers = forgejo_servers(app, user).await?;
+    if online.offers(SHELL) {
+        match link_similar(user, &online, endpoint, &servers).await {
+            Ok(0) => {}
+            Ok(linked) => log::info!(
+                "checkouts found at similar paths; user={} node={endpoint} linked={linked}",
+                user.id()
+            ),
+            // The full look still finds them.
+            Err(e) => log::info!("similar paths not tried; node={endpoint} error={e:#}"),
+        }
+    }
+    if !online.offers(SESSIONS_PROTOCOL) {
         return Ok(0);
     }
     let started = Utc::now();
     let folders = timeout(LOOK_LIMIT, online.found_folders(FOLDERS_PER_MACHINE))
         .await
         .context("the node did not answer in time")??;
-    let servers = forgejo_servers(app, user).await?;
     record(user, endpoint, &folders, &servers, started).await
 }
 
@@ -208,13 +232,99 @@ pub(super) async fn forgejo_servers(app: &App, user: &User) -> anyhow::Result<Ve
     ))
 }
 
-/// Records `folders` found on `endpoint` as new project folders there; returns how many.
+/// Tries the paths [`similar_paths`] suggests through `shell` and records the checkouts there.
+async fn link_similar(
+    user: &User,
+    shell: &dyn Shell,
+    endpoint: &str,
+    servers: &[ForgejoUrl],
+) -> anyhow::Result<usize> {
+    let paths = similar_paths(&user.imports().await?, &user.nodes().await?, endpoint);
+    if paths.is_empty() {
+        return Ok(0);
+    }
+    let out = run_script(shell, &remotes_script(&paths), SIMILAR_LIMIT).await?;
+    let folders: Vec<SessionFolder> = parse_remotes(&out)
+        .into_iter()
+        .filter_map(|folder| {
+            let (_, origin) = folder
+                .remotes
+                .into_iter()
+                .find(|(name, _)| name == "origin")?;
+            Some(SessionFolder {
+                path: folder.folder,
+                origin,
+                agents: Vec::new(),
+                last_activity: 0,
+            })
+        })
+        .collect();
+    link_found(user, endpoint, &folders, servers).await
+}
+
+/// `path` when it is absolute in the form a Unix machine takes, cleaned up.
+fn absolute(path: &str) -> Option<String> {
+    match FolderPath::parse(path) {
+        Ok(Some(FolderPath::Absolute(path))) => Some(path),
+        _ => None,
+    }
+}
+
+/// Where projects not on `endpoint` may be, newest import first: their folders on other machines,
+/// with that machine's home swapped for this one's. A path that does not parse, such as a Windows
+/// one, suggests nothing.
+fn similar_paths(imports: &[ImportRow], nodes: &[NodeRow], endpoint: &str) -> Vec<String> {
+    let homes: HashMap<&str, String> = nodes
+        .iter()
+        .filter_map(|node| Some((node.endpoint.as_str(), absolute(&node.env.as_ref()?.home)?)))
+        .collect();
+    let Some(home) = homes.get(endpoint) else {
+        return Vec::new();
+    };
+    let here: HashSet<&str> = imports
+        .iter()
+        .filter(|row| row.endpoint == endpoint)
+        .map(|row| row.project.as_str())
+        .collect();
+    let mut elsewhere: Vec<&ImportRow> = imports
+        .iter()
+        .filter(|row| !here.contains(row.project.as_str()))
+        .collect();
+    elsewhere.sort_by_key(|row| Reverse(row.imported_at));
+    let mut seen = HashSet::new();
+    elsewhere
+        .into_iter()
+        .filter_map(|row| {
+            let folder = absolute(&row.folder)?;
+            let below = folder
+                .strip_prefix(homes.get(row.endpoint.as_str())?.as_str())?
+                .strip_prefix('/')?;
+            Some(format!("{}/{below}", home.trim_end_matches('/')))
+        })
+        .filter(|path| seen.insert(path.clone()))
+        .take(SIMILAR_PATHS)
+        .collect()
+}
+
+/// Records `folders` found on `endpoint` by the full look, and notes the look; returns how many are new.
 pub(crate) async fn record(
     user: &User,
     endpoint: &str,
     folders: &[SessionFolder],
     servers: &[ForgejoUrl],
     started: DateTime<Utc>,
+) -> anyhow::Result<usize> {
+    let linked = link_found(user, endpoint, folders, servers).await?;
+    user.save_checkout_check(endpoint, started).await?;
+    Ok(linked)
+}
+
+/// Records `folders` on `endpoint` as new project folders there; returns how many.
+async fn link_found(
+    user: &User,
+    endpoint: &str,
+    folders: &[SessionFolder],
+    servers: &[ForgejoUrl],
 ) -> anyhow::Result<usize> {
     // Read after the look, so a project imported during it is matched too.
     let imports = user.imports().await?;
@@ -232,7 +342,6 @@ pub(crate) async fn record(
             linked += 1;
         }
     }
-    user.save_checkout_check(endpoint, started).await?;
     Ok(linked)
 }
 
@@ -365,8 +474,13 @@ mod tests {
     use super::*;
     use crate::{
         memory::watchers::testing::{Harness, Scripted},
-        protocol::node::agent::AgentSessions,
+        projects::commands::CommandOutput,
+        protocol::node::{EnvReport, agent::AgentSessions},
+        store::NewNode,
     };
+    use async_trait::async_trait;
+    use iroh::SecretKey;
+    use std::{path::Path, process::Command};
 
     fn import(project: &str, endpoint: &str, folder: &str) -> ImportRow {
         ImportRow {
@@ -505,6 +619,141 @@ mod tests {
                 .expect("recorded"),
             1
         );
+    }
+
+    /// Runs commands here, as a node would.
+    struct Local;
+
+    #[async_trait]
+    impl Shell for Local {
+        async fn run(&self, command: &str, _limit: Duration) -> anyhow::Result<CommandOutput> {
+            let ran = Command::new("sh").arg("-c").arg(command).output()?;
+            Ok(CommandOutput {
+                code: ran.status.code(),
+                out: String::from_utf8_lossy(&ran.stdout).into_owned(),
+            })
+        }
+    }
+
+    fn checkout(folder: &Path, origin: &str) {
+        std::fs::create_dir_all(folder).expect("a folder");
+        for args in [
+            &["init", "-q"][..],
+            &["remote", "add", "origin", origin][..],
+        ] {
+            let ok = Command::new("git")
+                .args(args)
+                .current_dir(folder)
+                .status()
+                .expect("git runs")
+                .success();
+            assert!(ok, "git {args:?}");
+        }
+    }
+
+    /// A machine of `user` with this home; returns its key.
+    async fn machine(user: &User, home: &str) -> String {
+        let endpoint = SecretKey::generate().public();
+        user.node_connected(NewNode {
+            endpoint,
+            name: "box",
+            version: "0.1.0",
+        })
+        .await
+        .expect("connected");
+        let env = EnvReport {
+            home: home.into(),
+            ..EnvReport::default()
+        };
+        user.save_node_env(&endpoint, &env).await.expect("saved");
+        endpoint.to_string()
+    }
+
+    /// Alice with acme/widget at `code/widget` under a laptop's home, and another machine holding a
+    /// checkout of `origin` at that place under its own. Returns what was linked and that machine.
+    async fn try_similar(harness: &Harness, origin: &str) -> (usize, String) {
+        let user = &harness.alice;
+        let laptop = machine(user, "/srv/someone").await;
+        user.save_import(NewImport {
+            project: "acme/widget",
+            endpoint: &laptop,
+            folder: "/srv/someone/code/widget",
+            url: "https://github.com/acme/widget",
+        })
+        .await
+        .expect("saved");
+        let home = tempfile::tempdir().expect("a temp folder");
+        checkout(&home.path().join("code/widget"), origin);
+        let build = machine(user, &home.path().to_string_lossy()).await;
+        let linked = link_similar(user, &Local, &build, &[])
+            .await
+            .expect("tried");
+        (linked, build)
+    }
+
+    #[tokio::test]
+    async fn a_similar_path_is_found_without_a_full_look() {
+        let harness = Harness::new(Scripted::default()).await;
+        let user = &harness.alice;
+        let (linked, build) = try_similar(&harness, "git@github.com:Acme/Widget.git").await;
+        assert_eq!(linked, 1);
+        let imports = user.imports().await.expect("read");
+        let here = imports
+            .iter()
+            .find(|row| row.endpoint == build)
+            .expect("linked");
+        assert!(here.folder.ends_with("/code/widget"), "{}", here.folder);
+        assert!(
+            !user
+                .checkout_checks()
+                .await
+                .expect("read")
+                .contains_key(&build),
+            "the full look is still to come"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_folder_at_a_similar_path_with_another_remote_is_not_linked() {
+        let harness = Harness::new(Scripted::default()).await;
+        let (linked, build) = try_similar(&harness, "git@github.com:acme/other.git").await;
+        assert_eq!(linked, 0);
+        let imports = harness.alice.imports().await.expect("read");
+        assert!(imports.iter().all(|row| row.endpoint != build));
+    }
+
+    #[test]
+    fn similar_paths_skip_what_does_not_parse_and_stay_bounded() {
+        let with_home = |endpoint: &str, home: &str| NodeRow {
+            env: Some(EnvReport {
+                home: home.into(),
+                ..EnvReport::default()
+            }),
+            ..node(endpoint, endpoint)
+        };
+        let nodes = [
+            with_home("here", "/home/b"),
+            with_home("linux", "/srv/a"),
+            with_home("windows", r"C:\Users\a"),
+        ];
+        let imports = [
+            import("acme/widget", "linux", "/srv/a/code/widget"),
+            import("acme/outside", "linux", "/opt/outside"),
+            import("acme/home", "linux", "/srv/a"),
+            import("acme/win", "windows", r"C:\Users\a\code\win"),
+            import("acme/kept", "linux", "/srv/a/code/kept"),
+            import("acme/kept", "here", "/home/b/kept"),
+        ];
+        assert_eq!(
+            similar_paths(&imports, &nodes, "here"),
+            ["/home/b/code/widget"]
+        );
+        assert!(similar_paths(&imports, &nodes, "windows").is_empty());
+
+        let many: Vec<ImportRow> = (0..SIMILAR_PATHS * 2)
+            .map(|n| import(&format!("acme/r{n}"), "linux", &format!("/srv/a/r{n}")))
+            .collect();
+        assert_eq!(similar_paths(&many, &nodes, "here").len(), SIMILAR_PATHS);
     }
 
     #[tokio::test]
