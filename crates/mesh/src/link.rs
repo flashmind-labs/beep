@@ -8,16 +8,16 @@
 //! heads: it sends `since(what the peer holds)` and keeps going.
 
 use crate::frame::{self, MAX_FRAME};
-use crate::mesh::{Inner, Live, MAX_STREAMS, PeerStream};
+use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream};
 use crate::{DeviceOp, Entry, Heads, MeshError};
-use iroh::EndpointAddr;
 use iroh::EndpointId;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::mem::take;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
-use tokio::sync::{Semaphore, oneshot};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::{debug, warn};
@@ -27,16 +27,21 @@ const ENTRIES_PER_FRAME: usize = 256;
 const BYTES_PER_FRAME: usize = 512 * 1024;
 const SETUP: Duration = Duration::from_secs(10);
 const FLUSH: Duration = Duration::from_secs(2);
+/// Refused items on one link before it is dropped.
+const MAX_REFUSED: usize = 16;
 
 #[derive(Serialize, Deserialize)]
-enum Frame {
+pub(crate) enum Frame {
+    /// Both sides send one first, before anything else.
     Hello {
-        addrs: Vec<EndpointAddr>,
+        addrs: Vec<AddrNote>,
         heads: Heads,
+        /// Random per start of a `Mesh`: a new one means the peer restarted.
+        session: u64,
     },
     Ops(Vec<DeviceOp>),
     /// Addresses that are new since the last send.
-    Addrs(Vec<EndpointAddr>),
+    Addrs(Vec<AddrNote>),
     Entries(Vec<Entry>),
     /// The sender removed the receiver.
     Removed,
@@ -48,10 +53,6 @@ type Known = Arc<Mutex<Heads>>;
 /// Runs a connection until it ends, then unregisters it.
 pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointId) {
     let peer = conn.remote_id();
-    if !register(&inner, &conn, peer, dialer) {
-        conn.close(3u32.into(), b"duplicate");
-        return;
-    }
     if let Err(e) = run(&inner, &conn, peer, dialer).await {
         debug!("link ended: {e}");
     }
@@ -72,6 +73,12 @@ pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointI
 pub(crate) async fn tell_removed(inner: &Inner, conn: Connection) {
     let work = async {
         let (mut send, _recv) = conn.accept_bi().await.map_err(frame::net)?;
+        let hello = Frame::Hello {
+            addrs: Vec::new(),
+            heads: Heads::new(),
+            session: inner.session,
+        };
+        frame::send(&mut send, &hello).await?;
         let ops = inner.store.run(|core| Ok(core.ops())).await?;
         send_ops(&mut send, &ops).await?;
         frame::send(&mut send, &Frame::Removed).await?;
@@ -87,13 +94,15 @@ pub(crate) async fn tell_removed(inner: &Inner, conn: Connection) {
     conn.close(1u32.into(), b"removed");
 }
 
-/// Keeps one connection per peer: the one the smaller id dialed.
-fn register(inner: &Inner, conn: &Connection, peer: EndpointId, dialer: EndpointId) -> bool {
+/// Keeps one connection per peer. When both sides of one instance dialed,
+/// the one the smaller id dialed stays. A connection from a new instance of
+/// the peer (a restart) always replaces the old, which may be a dead link.
+fn register(inner: &Inner, conn: &Connection, peer: EndpointId, who: Dialed, session: u64) -> bool {
     let mut conns = inner.conns();
     if let Some(old) = conns.get(&peer)
         && old.conn.close_reason().is_none()
     {
-        if old.dialer <= dialer {
+        if old.session == session && old.dialer < who.0 {
             return false;
         }
         old.conn.close(3u32.into(), b"duplicate");
@@ -102,13 +111,18 @@ fn register(inner: &Inner, conn: &Connection, peer: EndpointId, dialer: Endpoint
         peer,
         Live {
             conn: conn.clone(),
-            dialer,
+            dialer: who.0,
+            session,
         },
     );
     drop(conns);
     inner.bump();
     true
 }
+
+/// Who opened a connection.
+#[derive(Clone, Copy)]
+struct Dialed(EndpointId);
 
 async fn run(
     inner: &Arc<Inner>,
@@ -123,27 +137,39 @@ async fn run(
             conn.accept_bi().await.map_err(frame::net)
         }
     };
-    let (send, recv) = timeout(SETUP, opened)
+    let (mut send, mut recv) = timeout(SETUP, opened)
         .await
         .map_err(|_| frame::net("no sync stream"))??;
-    let known: Known = Arc::default();
-    let (hello_tx, hello_rx) = oneshot::channel();
+    let heads = inner.store.run(|core| Ok(core.heads())).await?;
+    let first = inner.addr_list();
+    let hello = Frame::Hello {
+        addrs: first.clone(),
+        heads,
+        session: inner.session,
+    };
+    frame::send(&mut send, &hello).await?;
+    let theirs = timeout(SETUP, frame::recv::<Frame>(&mut recv, MAX_FRAME))
+        .await
+        .map_err(|_| frame::net("no hello"))??;
+    let Some(Frame::Hello {
+        addrs,
+        heads,
+        session,
+    }) = theirs
+    else {
+        return Err(frame::net("the first frame was not a hello"));
+    };
+    inner.learn(addrs).await;
+    // Only now can a caller reach the connection through `peer()`, so no
+    // stream of theirs can be taken for the sync stream.
+    if !register(inner, conn, peer, Dialed(dialer), session) {
+        conn.close(3u32.into(), b"duplicate");
+        return Ok(());
+    }
+    let known: Known = Arc::new(Mutex::new(heads));
     let mut tasks: JoinSet<Result<(), MeshError>> = JoinSet::new();
-    tasks.spawn(read(
-        inner.clone(),
-        conn.clone(),
-        recv,
-        known.clone(),
-        hello_tx,
-    ));
-    tasks.spawn(write(
-        inner.clone(),
-        conn.clone(),
-        peer,
-        send,
-        known,
-        hello_rx,
-    ));
+    tasks.spawn(read(inner.clone(), conn.clone(), recv, known.clone()));
+    tasks.spawn(write(inner.clone(), conn.clone(), peer, send, known, first));
     tasks.spawn(streams(inner.clone(), conn.clone(), peer));
     // The first task to end ends the link; dropping the set stops the rest.
     match tasks.join_next().await {
@@ -158,24 +184,17 @@ async fn read(
     conn: Connection,
     mut recv: RecvStream,
     known: Known,
-    hello_tx: oneshot::Sender<()>,
 ) -> Result<(), MeshError> {
-    let mut hello_tx = Some(hello_tx);
+    let mut refused = 0;
     while let Some(frame) = frame::recv::<Frame>(&mut recv, MAX_FRAME).await? {
         match frame {
-            Frame::Hello { addrs, heads } => {
-                inner.learn(addrs).await;
-                *known.lock().unwrap_or_else(PoisonError::into_inner) = heads;
-                if let Some(tx) = hello_tx.take() {
-                    // The writer is gone only when the link is ending.
-                    tx.send(()).ok();
-                }
-            }
+            Frame::Hello { .. } => return Err(frame::net("a second hello")),
             Frame::Addrs(addrs) => inner.learn(addrs).await,
             Frame::Ops(ops) => {
                 let merged = inner.store.run(move |core| core.merge(&ops)).await?;
                 if !merged.rejected.is_empty() {
                     debug!("refused {} device ops from a peer", merged.rejected.len());
+                    refused += merged.rejected.len();
                 }
             }
             Frame::Entries(entries) => {
@@ -202,6 +221,9 @@ async fn read(
                 conn.close(2u32.into(), b"removed");
                 return Ok(());
             }
+        }
+        if refused >= MAX_REFUSED {
+            return Err(frame::net("too many refused items"));
         }
     }
     Ok(())
@@ -241,7 +263,7 @@ async fn flush(
     if page.is_empty() {
         return Ok(());
     }
-    let page = std::mem::take(page);
+    let page = take(page);
     {
         let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
         for e in &page {
@@ -258,25 +280,14 @@ async fn write(
     peer: EndpointId,
     mut send: SendStream,
     known: Known,
-    hello_rx: oneshot::Receiver<()>,
+    first: Vec<AddrNote>,
 ) -> Result<(), MeshError> {
     let mut rev = inner.rev.subscribe();
-    let heads = inner.store.run(|core| Ok(core.heads())).await?;
-    let first = inner.addr_list();
-    let mut sent_addrs: BTreeMap<EndpointId, EndpointAddr> =
-        first.iter().map(|a| (a.id, a.clone())).collect();
-    let hello = Frame::Hello {
-        addrs: first,
-        heads,
-    };
-    frame::send(&mut send, &hello).await?;
+    let mut sent_addrs: BTreeMap<EndpointId, AddrNote> =
+        first.iter().map(|n| (n.addr.id, n.clone())).collect();
     let ops = inner.store.run(|core| Ok(core.ops())).await?;
     let mut sent_ops = ops.len();
     send_ops(&mut send, &ops).await?;
-    timeout(SETUP, hello_rx)
-        .await
-        .map_err(|_| frame::net("no hello"))?
-        .map_err(|_| frame::net("link ended"))?;
     loop {
         rev.borrow_and_update();
         let view = inner.view();
@@ -290,21 +301,26 @@ async fn write(
             return Ok(());
         }
         if !view.devices.is_member(peer) {
-            frame::send(&mut send, &Frame::Removed).await?;
-            send.finish().map_err(frame::net)?;
             // The peer closes once it has read the news; a close sooner
-            // would discard what it has not read.
-            timeout(FLUSH, conn.closed()).await.ok();
+            // would discard what it has not read. A peer that stalls is
+            // cut off by `own` after a grace period either way.
+            let tell = async {
+                frame::send(&mut send, &Frame::Removed).await?;
+                send.finish().map_err(frame::net)?;
+                conn.closed().await;
+                Ok::<(), MeshError>(())
+            };
+            timeout(FLUSH, tell).await.ok();
             conn.close(2u32.into(), b"removed");
             return Ok(());
         }
         let fresh: Vec<_> = inner
             .addr_list()
             .into_iter()
-            .filter(|a| sent_addrs.get(&a.id) != Some(a))
+            .filter(|n| sent_addrs.get(&n.addr.id) != Some(n))
             .collect();
         if !fresh.is_empty() {
-            sent_addrs.extend(fresh.iter().map(|a| (a.id, a.clone())));
+            sent_addrs.extend(fresh.iter().map(|n| (n.addr.id, n.clone())));
             frame::send(&mut send, &Frame::Addrs(fresh)).await?;
         }
         let theirs = known.lock().unwrap_or_else(PoisonError::into_inner).clone();

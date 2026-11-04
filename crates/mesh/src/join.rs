@@ -2,16 +2,19 @@
 //! it spends the secret, signs the `Add` and answers with every op.
 
 use crate::frame::{self, MAX_FRAME, MAX_REQUEST};
-use crate::mesh::Inner;
+use crate::mesh::{AddrNote, Inner};
 use crate::{DeviceOp, Devices, JOIN_ALPN, JoinSecret, JoinTicket, MeshError};
+use iroh::Endpoint;
 use iroh::endpoint::Connection;
-use iroh::{Endpoint, EndpointAddr};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tokio::time::error::Elapsed;
 use tokio::time::timeout;
 use tracing::debug;
 
 const STEP: Duration = Duration::from_secs(15);
+/// How long a stranger gets to send its request.
+const READ: Duration = Duration::from_secs(3);
 const MAX_NAME: usize = 64;
 
 #[derive(Serialize, Deserialize)]
@@ -24,19 +27,25 @@ struct Request {
 enum Reply {
     Welcome {
         ops: Vec<DeviceOp>,
-        addrs: Vec<EndpointAddr>,
+        addrs: Vec<AddrNote>,
     },
     Refused(String),
 }
 
-pub(crate) struct Welcome {
-    pub devices: Devices,
-    pub addrs: Vec<EndpointAddr>,
+/// A device name as shown to people: no control characters, bounded.
+fn clean(name: &str) -> String {
+    name.chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_NAME)
+        .collect()
 }
 
-fn elapsed<T>(
-    r: Result<Result<T, MeshError>, tokio::time::error::Elapsed>,
-) -> Result<T, MeshError> {
+pub(crate) struct Welcome {
+    pub devices: Devices,
+    pub addrs: Vec<AddrNote>,
+}
+
+fn elapsed<T>(r: Result<Result<T, MeshError>, Elapsed>) -> Result<T, MeshError> {
     r.map_err(|_| frame::net("timed out"))?
 }
 
@@ -54,7 +63,7 @@ pub(crate) async fn redeem(
         let (mut send, mut recv) = conn.open_bi().await.map_err(frame::net)?;
         let request = Request {
             secret: ticket.secret.clone(),
-            name: name.chars().take(MAX_NAME).collect(),
+            name: clean(name),
         };
         frame::send(&mut send, &request).await?;
         send.finish().map_err(frame::net)?;
@@ -89,13 +98,17 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
     };
     let joiner = conn.remote_id();
     let work = async {
-        let (mut send, mut recv) = conn.accept_bi().await.map_err(frame::net)?;
-        let request = frame::recv::<Request>(&mut recv, MAX_REQUEST)
-            .await?
+        let (mut send, mut recv) = timeout(READ, conn.accept_bi())
+            .await
+            .map_err(|_| frame::net("no stream in time"))?
+            .map_err(frame::net)?;
+        let request = timeout(READ, frame::recv::<Request>(&mut recv, MAX_REQUEST))
+            .await
+            .map_err(|_| frame::net("no request in time"))??
             .ok_or_else(|| frame::net("no request"))?;
         let outcome = inner
             .store
-            .run(move |core| core.redeem(&request.secret, joiner, &request.name))
+            .run(move |core| core.redeem(&request.secret, joiner, &clean(&request.name)))
             .await;
         let reply = match outcome {
             Ok(ops) => Reply::Welcome {

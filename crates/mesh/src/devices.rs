@@ -41,7 +41,7 @@ pub struct Device {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum OpBody {
+pub(crate) enum OpBody {
     Genesis(Device),
     Add(Device),
     Remove { id: EndpointId, at_ms: u64 },
@@ -62,7 +62,7 @@ impl DeviceOp {
         Ok(msg)
     }
 
-    fn sign(key: &SecretKey, mesh: EndpointId, body: OpBody) -> Result<Self, MeshError> {
+    pub(crate) fn sign(key: &SecretKey, mesh: EndpointId, body: OpBody) -> Result<Self, MeshError> {
         let sig = key.sign(&Self::message(mesh, &body)?);
         Ok(Self {
             author: key.public(),

@@ -5,13 +5,18 @@ use crate::MeshError;
 use iroh::endpoint::{ReadExactError, RecvStream, SendStream};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::fmt::Display;
+use std::time::Duration;
+use tokio::time::timeout;
 
 /// The largest frame either side accepts.
 pub(crate) const MAX_FRAME: usize = 4 * 1024 * 1024;
 /// The largest frame a stranger may send, such as a join request.
 pub(crate) const MAX_REQUEST: usize = 4 * 1024;
+/// A peer that takes this long to accept a frame is stalled.
+const WRITE: Duration = Duration::from_secs(10);
 
-pub(crate) fn net(e: impl std::fmt::Display) -> MeshError {
+pub(crate) fn net(e: impl Display) -> MeshError {
     MeshError::Net(e.to_string())
 }
 
@@ -27,7 +32,10 @@ pub(crate) async fn send<T: Serialize>(
     let mut out = Vec::with_capacity(body.len() + 4);
     out.extend(len.to_be_bytes());
     out.extend(body);
-    stream.write_all(&out).await.map_err(net)
+    timeout(WRITE, stream.write_all(&out))
+        .await
+        .map_err(|_| net("write timed out"))?
+        .map_err(net)
 }
 
 /// The next frame, or `None` when the peer finished the stream cleanly

@@ -3,18 +3,19 @@
 //! code sends it closures and awaits the answer, so a slow disk delays the
 //! caller but never an async worker. Readers use the published `View`.
 
+use crate::mesh::AddrNote;
 use crate::state::{now_ms, private_dir, private_options, sync_dir};
 use crate::{
     Applied, Device, DeviceKind, DeviceOp, Devices, Entry, Heads, JoinSecret, JoinTicket, Key,
-    Merged, MeshError, State,
+    Merged, MeshError, State, WriteLimit,
 };
 use iroh::{EndpointAddr, EndpointId, SecretKey};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -46,7 +47,7 @@ impl Core {
         let state = State::open(dir, &key, devices.mesh())?;
         let tickets = match fs::read(dir.join("mesh").join("tickets.bin")) {
             Ok(bytes) => postcard::from_bytes(&bytes)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e.into()),
         };
         let view = Arc::new(View {
@@ -74,14 +75,14 @@ impl Core {
     pub(crate) fn load(dir: &Path) -> Result<Option<Devices>, MeshError> {
         let bytes = match fs::read(dir.join("mesh").join("devices.bin")) {
             Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
         let ops: Vec<DeviceOp> = postcard::from_bytes(&bytes)?;
         Ok(Some(Devices::from_ops(&ops)?.0))
     }
 
-    pub(crate) fn load_addrs(dir: &Path) -> Vec<EndpointAddr> {
+    pub(crate) fn load_addrs(dir: &Path) -> Vec<AddrNote> {
         fs::read(dir.join("mesh").join("peers.bin"))
             .ok()
             .and_then(|bytes| postcard::from_bytes(&bytes).ok())
@@ -153,7 +154,7 @@ impl Core {
         let me = self.me();
         if self.devices.is_desktop(me) {
             Ok(())
-        } else if self.devices.write_limit(&me) == crate::WriteLimit::Refused {
+        } else if self.devices.write_limit(&me) == WriteLimit::Refused {
             Err(MeshError::NotDesktop(me))
         } else {
             Err(MeshError::Removed(me))
@@ -267,7 +268,7 @@ impl Core {
     }
 
     /// Best effort: a lost address file only costs a rediscovery.
-    pub(crate) fn save_addrs(&self, addrs: &[EndpointAddr]) -> Result<(), MeshError> {
+    pub(crate) fn save_addrs(&self, addrs: &[AddrNote]) -> Result<(), MeshError> {
         self.write("peers.bin", &postcard::to_stdvec(addrs)?, false)
     }
 }
@@ -276,24 +277,22 @@ type Job = Box<dyn FnOnce(&mut Core) + Send>;
 
 /// The owner thread of a `Core`. It ends when the store drops.
 pub(crate) struct Store {
-    jobs: Option<mpsc::Sender<Job>>,
-    thread: Option<JoinHandle<()>>,
+    jobs: mpsc::Sender<Job>,
 }
 
 impl Store {
     pub(crate) fn spawn(mut core: Core) -> Result<Store, MeshError> {
         let (jobs, mut queue) = mpsc::channel::<Job>(QUEUE);
-        let thread = thread::Builder::new()
+        thread::Builder::new()
             .name("mesh-store".to_owned())
             .spawn(move || {
                 while let Some(job) = queue.blocking_recv() {
                     job(&mut core);
                 }
             })?;
-        Ok(Store {
-            jobs: Some(jobs),
-            thread: Some(thread),
-        })
+        // The thread ends when the last sender drops. It is not joined: a
+        // drop on an async worker must not wait for a disk.
+        Ok(Store { jobs })
     }
 
     /// Runs `f` on the owner thread and returns its answer.
@@ -306,23 +305,7 @@ impl Store {
             // The caller may have gone away; the work is already done.
             tx.send(f(core)).ok();
         });
-        self.jobs
-            .as_ref()
-            .ok_or(MeshError::Closed)?
-            .send(job)
-            .await
-            .map_err(|_| MeshError::Closed)?;
+        self.jobs.send(job).await.map_err(|_| MeshError::Closed)?;
         rx.await.map_err(|_| MeshError::Closed)?
-    }
-}
-
-impl Drop for Store {
-    fn drop(&mut self) {
-        self.jobs.take();
-        if let Some(thread) = self.thread.take()
-            && thread.join().is_err()
-        {
-            tracing::warn!("the mesh store thread panicked");
-        }
     }
 }
