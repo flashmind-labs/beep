@@ -154,6 +154,7 @@ fn main() {
             agents::sessions::agent_sessions,
             agents::sessions::agent_start,
             agents::sessions::agent_usage,
+            agents::sessions::session_folder_here,
             agents::sessions::agent_modes,
             agents::sessions::agent_view,
             agents::steer::agent_steer,

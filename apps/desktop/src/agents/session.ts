@@ -15,6 +15,7 @@ import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./ima
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
+import { editorTools } from "../project/editors.ts";
 import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
@@ -188,6 +189,16 @@ async function readUsage(o: OpenAgent, page: AgentPage) {
   }
 }
 
+/// Open in an editor, in the head, when this Mac has the session's folder.
+async function drawEditors(s: AgentRow) {
+  const folder = await invoke<string | null>("session_folder_here", { machineId: s.machine_id, cwd: s.cwd })
+    .catch(e => { console.warn("session folder not read", e); return null; });
+  const draw = () => {
+    if (AG.page && usageKey(AG.page.session) === usageKey(s)) $("#agedit")?.replaceChildren(...editorTools(folder, draw));
+  };
+  draw();
+}
+
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
@@ -196,13 +207,14 @@ export function drawAgentFrame() {
     : `<div id="agplan"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button> · ` : ""}<span class="dmono" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</span></small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span></div>
+  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button> · ` : ""}<span class="dmono" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</span></small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
   startPane(s);
+  void drawEditors(s);
   const msg = $<HTMLTextAreaElement>("#agmsg");
   if (msg) composeField(msg, { images: agentAttach, grow: 156 });
   drawAgentAttached();
