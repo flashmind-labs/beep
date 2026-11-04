@@ -71,6 +71,7 @@ mod events;
 mod mcp;
 mod memories;
 mod starters;
+mod traffic;
 mod usage;
 
 pub use apps::AppTools;

@@ -4,6 +4,7 @@ import { PageCache, freshness, type PageSection, type SectionStore } from "../pr
 import { invoke } from "../ui/tauri.ts";
 import { pane, type PaneTarget } from "../bar/pane.ts";
 import type { HomeView, MacControl, SyncRow } from "./home-state.ts";
+import type { MachineTraffic } from "../machines/traffic-state.ts";
 import type { FoundRow, OverviewCard, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow } from "../project/projects-state.ts";
 import type { GitItemsView } from "./openitems-state.ts";
 import type { ProjectAgent, ProjectView } from "../project/agent.ts";
@@ -84,6 +85,7 @@ export const state = {
   agents: undefined as ProjectAgent[] | null | undefined,
   pview: new Map<string, { view: ProjectView | null; error: string | null }>(),
   sync: [] as SyncRow[],
+  traffic: [] as MachineTraffic[],
   git: null as GitItemsView | null,
   gitAll: new Set<string>(),
   top: [] as string[],

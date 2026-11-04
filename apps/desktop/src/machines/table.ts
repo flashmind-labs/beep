@@ -5,6 +5,7 @@ import { dbtn as button, emptyPanel, note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineProjects, thisMacRow, type MacControl, type MachineCard, type MachineProject, type MacRow } from "../center/home-state.ts";
 import { el as h } from "../ui/dom.ts";
+import { trafficRows, trafficSummary } from "./traffic-state.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
 import { ALL, byMachine } from "../terminals/terminals.ts";
 import { OFFLINE_NOTE_MS, state } from "../center/state.ts";
@@ -52,6 +53,8 @@ function machineTable(machines: MachineCard[]) {
     machineMenu(m, name, agents, disk, memory, can, now, act);
     for (const t of terms.find(x => x.id === m.id)?.terms || []) table.append(terminalRow(t, m.online));
     for (const p of machineProjects(m.id, state.sync, fsync.detail)) table.append(projectRow(p));
+    const traffic = trafficRow(m.id);
+    if (traffic) table.append(traffic);
   }
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
@@ -87,6 +90,14 @@ function projectRow(p: MachineProject) {
     openTile("sync");
   });
   return row;
+}
+
+/// What machine `id` moved, per protocol, once it has reported.
+function trafficRow(id: string) {
+  const rows = trafficRows(state.traffic.find(t => t.id === id));
+  if (!rows.length) return null;
+  const { each, total } = trafficSummary(rows);
+  return h("div", "cc-row tl-row", h("span", "ddot off"), h("span", "t", h("b", "", "Traffic"), h("span", "", each)), h("span", "r", total));
 }
 
 /// This Mac's row while the server does not list it: its state across the

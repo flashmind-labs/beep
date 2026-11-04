@@ -47,6 +47,7 @@ mod memories;
 mod merge;
 mod messages;
 mod node_tokens;
+mod node_traffic;
 mod nodes;
 mod places;
 mod profile;
