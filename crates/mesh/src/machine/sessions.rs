@@ -1,0 +1,388 @@
+//! `agents/1`: one request, one reply, about all of a node's sessions.
+//! `Sessions` is anything that can send one; the typed requests below are
+//! written once for every caller.
+
+use super::{said, unexpected};
+use crate::{CALL_TIMEOUT, MeshError, PeerClient};
+use beep_proto::{
+    CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
+    node::{
+        agent::{
+            DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, SESSIONS_PROTOCOL,
+            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
+        },
+        harness::HarnessReport,
+    },
+};
+use std::{future::Future, time::Duration};
+
+/// How long a node has to list models: it may start the agent first.
+pub const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a node has to read a diff: git may walk a large checkout.
+pub const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a node may take to report its harnesses: it asks npm for versions.
+pub const REPORT_TIMEOUT: Duration = Duration::from_secs(45);
+/// How long an install or update may take on the node, and a little more.
+pub const UPDATE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
+
+/// Sends one `agents/1` request and gives the node's reply within `limit`.
+pub trait Sessions {
+    fn sessions(
+        &self,
+        request: SessionsRequest,
+        limit: Duration,
+    ) -> impl Future<Output = Result<SessionsReply, MeshError>> + Send;
+}
+
+impl Sessions for PeerClient {
+    async fn sessions(
+        &self,
+        request: SessionsRequest,
+        limit: Duration,
+    ) -> Result<SessionsReply, MeshError> {
+        self.call_within(limit, SESSIONS_PROTOCOL, &request).await
+    }
+}
+
+/// An ordinary read.
+async fn ask<S: Sessions + ?Sized>(
+    node: &S,
+    request: SessionsRequest,
+) -> Result<SessionsReply, MeshError> {
+    node.sessions(request, CALL_TIMEOUT).await
+}
+
+/// A picture of a session's transcript, as the node gave it.
+pub struct NodeImage {
+    pub mime: String,
+    pub data: Vec<u8>,
+}
+
+/// What a node answered when asked for part of a file.
+pub enum NodeFile {
+    Chunk {
+        size: u64,
+        mime: String,
+        data: Vec<u8>,
+    },
+    /// There is no file at that path.
+    Missing,
+    /// The node would not read it, saying why.
+    Refused(String),
+}
+
+/// What a node answered when asked to work in a session's folder.
+pub enum NodeWork<T> {
+    Done(T),
+    /// The node would not, saying why.
+    Refused(String),
+}
+
+/// A read of part of a file in a session's folder.
+pub struct WorkRead<'a> {
+    pub root: &'a str,
+    pub path: &'a str,
+    pub offset: u64,
+    pub len: u32,
+}
+
+/// One part of a file written into a session's folder.
+pub struct WorkWrite {
+    pub root: String,
+    pub path: String,
+    pub offset: u64,
+    pub size: u64,
+    pub data: Vec<u8>,
+}
+
+/// Every agent session on the node.
+pub async fn list<S: Sessions + ?Sized>(node: &S) -> Result<Vec<SessionInfo>, MeshError> {
+    match ask(node, SessionsRequest::List {}).await? {
+        SessionsReply::Sessions { sessions } => Ok(sessions),
+        SessionsReply::Error { message } => Err(said(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The last `last` transcript entries of `session` and how many came before them.
+pub async fn transcript<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+    last: u32,
+    thoughts: bool,
+) -> Result<(Vec<Entry>, u32), MeshError> {
+    let request = SessionsRequest::Transcript {
+        session: session.to_owned(),
+        last,
+        thoughts,
+    };
+    match ask(node, request).await? {
+        SessionsReply::Transcript { entries, earlier } => Ok((entries, earlier)),
+        SessionsReply::Error { message } => Err(said(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Sessions of `agent` started outside Beep, newest first: at most `limit`, or only `only`.
+pub async fn external<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+    limit: u32,
+    only: Option<String>,
+) -> Result<Vec<ExternalSession>, MeshError> {
+    let request = SessionsRequest::External {
+        agent: agent.to_owned(),
+        limit,
+        session: only,
+    };
+    external_reply(ask(node, request).await?)
+}
+
+/// The sessions coding agents ran in `folders` or below, newest first.
+pub async fn in_folders<S: Sessions + ?Sized>(
+    node: &S,
+    folders: Vec<String>,
+    limit: u32,
+) -> Result<Vec<ExternalSession>, MeshError> {
+    external_reply(ask(node, SessionsRequest::InFolders { folders, limit }).await?)
+}
+
+fn external_reply(reply: SessionsReply) -> Result<Vec<ExternalSession>, MeshError> {
+    match reply {
+        SessionsReply::External { sessions } => Ok(sessions),
+        SessionsReply::Error { message } => Err(said(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// How Claude Code session `session`, started outside Beep, does now, after
+/// queuing `steer` for its next hook when given.
+pub async fn live<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+    steer: Option<Steer>,
+) -> Result<LiveStatus, MeshError> {
+    let session = session.to_owned();
+    let request = match steer {
+        Some(steer) => SessionsRequest::Steer { session, steer },
+        None => SessionsRequest::Live { session },
+    };
+    match ask(node, request).await? {
+        SessionsReply::Live { status } => Ok(*status),
+        SessionsReply::Error { message } => Err(said(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The git checkouts coding agents worked in on the node, newest first.
+pub async fn found_folders<S: Sessions + ?Sized>(
+    node: &S,
+    limit: u32,
+) -> Result<Vec<SessionFolder>, MeshError> {
+    match ask(node, SessionsRequest::Folders { limit }).await? {
+        SessionsReply::Folders { folders } => Ok(folders),
+        SessionsReply::Error { message } => Err(said(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The models `agent` can run on the node; `None` from a node too old to say.
+pub async fn models<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+) -> Result<Option<ModelList>, MeshError> {
+    let request = SessionsRequest::Models {
+        agent: agent.to_owned(),
+    };
+    match node.sessions(request, MODELS_TIMEOUT).await {
+        Ok(SessionsReply::Models { models }) => Ok(Some(models)),
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        // A node from before models closes the stream.
+        Err(MeshError::Link(e)) if format!("{e:#}").contains("closed the stream") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The picture `key` of `session`'s transcript; `None` when the node no longer has it.
+pub async fn image<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+    key: &str,
+) -> Result<Option<NodeImage>, MeshError> {
+    let request = SessionsRequest::Image {
+        session: session.to_owned(),
+        key: key.to_owned(),
+    };
+    match ask(node, request).await? {
+        SessionsReply::Image { mime, data } => Ok(Some(NodeImage { mime, data })),
+        SessionsReply::Error { .. } => Ok(None),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Part of the media file `path` on the node, from `offset`.
+pub async fn media<S: Sessions + ?Sized>(
+    node: &S,
+    path: &str,
+    offset: u64,
+) -> Result<NodeFile, MeshError> {
+    let request = SessionsRequest::File {
+        path: path.to_owned(),
+        offset,
+    };
+    file_reply(ask(node, request).await?)
+}
+
+/// Part of a file inside a session folder on the node.
+pub async fn read_file<S: Sessions + ?Sized>(
+    node: &S,
+    read: WorkRead<'_>,
+) -> Result<NodeFile, MeshError> {
+    let request = SessionsRequest::ReadFile {
+        root: read.root.to_owned(),
+        path: read.path.to_owned(),
+        offset: read.offset,
+        len: read.len,
+    };
+    file_reply(ask(node, request).await?)
+}
+
+fn file_reply(reply: SessionsReply) -> Result<NodeFile, MeshError> {
+    match reply {
+        SessionsReply::File { size, mime, data } => Ok(NodeFile::Chunk { size, mime, data }),
+        SessionsReply::NoFile {} => Ok(NodeFile::Missing),
+        SessionsReply::Error { message } => Ok(NodeFile::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The folder `path` inside the session folder `root` on the node.
+pub async fn folder<S: Sessions + ?Sized>(
+    node: &S,
+    root: &str,
+    path: &str,
+    ignored: bool,
+) -> Result<NodeWork<WorkFolder>, MeshError> {
+    let request = SessionsRequest::Folder {
+        root: root.to_owned(),
+        path: path.to_owned(),
+        ignored,
+        depth: 0,
+    };
+    match ask(node, request).await? {
+        SessionsReply::Folder { folder } => Ok(NodeWork::Done(folder)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The folder `ask.path` inside `ask.root` and those under it, `ask.depth`
+/// levels in all; `ask.path` alone from a node from before trees.
+pub async fn tree<S: Sessions + ?Sized>(
+    node: &S,
+    list: &ListWorkTree,
+) -> Result<NodeWork<WorkTree>, MeshError> {
+    let request = SessionsRequest::Folder {
+        root: list.root.clone(),
+        path: list.path.clone(),
+        ignored: list.ignored,
+        depth: list.depth.max(1),
+    };
+    match ask(node, request).await? {
+        SessionsReply::Tree { tree } => Ok(NodeWork::Done(tree)),
+        SessionsReply::Folder { folder } => Ok(NodeWork::Done(WorkTree {
+            folders: vec![folder],
+            truncated: false,
+        })),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Writes one part of a file into a session folder on the node; gives the path it went to.
+pub async fn write_file<S: Sessions + ?Sized>(
+    node: &S,
+    write: WorkWrite,
+) -> Result<NodeWork<String>, MeshError> {
+    let request = SessionsRequest::WriteFile {
+        root: write.root,
+        path: write.path,
+        offset: write.offset,
+        size: write.size,
+        data: write.data,
+    };
+    match ask(node, request).await? {
+        SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The custom agents the harnesses define for `folder` on the node and in its home.
+pub async fn custom_agents<S: Sessions + ?Sized>(
+    node: &S,
+    folder: &str,
+) -> Result<NodeWork<Vec<CustomAgent>>, MeshError> {
+    let request = SessionsRequest::CustomAgents {
+        folder: folder.to_owned(),
+    };
+    match ask(node, request).await? {
+        SessionsReply::CustomAgents { agents } => Ok(NodeWork::Done(agents)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// What changed in the checkout `ask.root` on the node.
+pub async fn diff<S: Sessions + ?Sized>(
+    node: &S,
+    ask_for: DiffAsk,
+) -> Result<NodeWork<WorkDiff>, MeshError> {
+    match node
+        .sessions(SessionsRequest::Diff { ask: ask_for }, DIFF_TIMEOUT)
+        .await?
+    {
+        SessionsReply::Diff { diff } => Ok(NodeWork::Done(diff)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// What the node finds of each harness; `None` from a node too old to say.
+pub async fn harnesses<S: Sessions + ?Sized>(
+    node: &S,
+    refresh: bool,
+) -> Result<Option<HarnessReport>, MeshError> {
+    harness_reply(
+        node.sessions(SessionsRequest::Harnesses { refresh }, REPORT_TIMEOUT)
+            .await,
+    )
+}
+
+/// Installs or updates `agent` on the node; `None` from a node too old to.
+pub async fn update_harness<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+) -> Result<Option<HarnessReport>, MeshError> {
+    let request = SessionsRequest::UpdateHarness {
+        agent: agent.to_owned(),
+    };
+    harness_reply(node.sessions(request, UPDATE_TIMEOUT).await)
+}
+
+fn harness_reply(
+    reply: Result<SessionsReply, MeshError>,
+) -> Result<Option<HarnessReport>, MeshError> {
+    match reply {
+        Ok(SessionsReply::Harnesses { report }) => Ok(Some(report)),
+        // A node from before harnesses says it does not serve them.
+        Ok(SessionsReply::Error { message }) if message.starts_with("this node does not serve") => {
+            Ok(None)
+        }
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        Err(MeshError::Link(e)) if format!("{e:#}").contains("closed the stream") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
