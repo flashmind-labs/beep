@@ -420,6 +420,8 @@ pub async fn agent_resume(
 
 /// One session in full. The calling webview's session view shows it, so
 /// its notices stay quiet while the view keeps reading it.
+// The arguments are the fields of the window's `invoke` call.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_view(
     window: WebviewWindow,
