@@ -1,5 +1,7 @@
 //! Checks a token with its host before it is saved, and learns its login.
 
+pub mod machines;
+
 use crate::model::ForgejoUrl;
 use reqwest::{Client, StatusCode, header};
 use secrecy::{ExposeSecret, SecretString};

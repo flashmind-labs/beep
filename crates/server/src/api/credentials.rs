@@ -2,10 +2,7 @@
 
 use super::Reply;
 use crate::{
-    account::credentials::{
-        host_client, is_public,
-        machines::{MAX_MACHINES, Reach, check_from},
-    },
+    account::credentials::{host_client, is_public},
     api::router::Cx,
     nodes::SHELL,
     protocol::{
@@ -16,7 +13,10 @@ use crate::{
     store::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount},
 };
 use beep_projects::{
-    credential_check::{Checked, Checker},
+    credential_check::{
+        Checked, Checker,
+        machines::{MAX_MACHINES, Reach, check_from},
+    },
     credentials::{Slot, last4},
 };
 use secrecy::{ExposeSecret, SecretString};
