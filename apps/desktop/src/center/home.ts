@@ -291,7 +291,7 @@ function connecting() {
     const retry = retryButton("Try again", p.action ? "" : "pri");
     retry.classList.add("retry");
     acts.append(retry, logButton());
-    const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
+    const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
     box.dataset.problem = `${p.kind}:${p.text}`;
     return box;
   }

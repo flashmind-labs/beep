@@ -82,21 +82,43 @@ struct NodeHome {
     /// gh, teacli and the skills, and the credentials the server sends
     /// while the link is up.
     provision: Arc<Provision>,
+    /// What this node serves, to the server and to the mesh alike: the same
+    /// as `beep-node` serves, with agents found on the login shell's PATH
+    /// (the app adopts it at start), plus desktop control.
+    offers: Offers,
 }
 
 impl Machine {
     /// The machine whose node keeps its tools, teacli config and sockets
     /// in `dir`.
     pub fn new(dir: &Path) -> Self {
+        let provision = Provision::new(dir);
+        let mut offers = Offers::local(&[], provision.clone());
+        offers.extra.push(Arc::new(desktop::Desktop));
+        // The embedded node logs to the app's own file.
+        if let Some(log) = logfile::current() {
+            offers.extra.push(Arc::new(Logs::file(log)));
+        }
         Self {
             task: Mutex::default(),
             link: Arc::default(),
             name: crate::beep::identity::computer_name(),
             home: Arc::new(NodeHome {
                 dir: dir.to_path_buf(),
-                provision: Provision::new(dir),
+                provision,
+                offers,
             }),
         }
+    }
+
+    /// What this node serves.
+    pub fn offers(&self) -> Offers {
+        self.home.offers.clone()
+    }
+
+    /// The name this Mac has in the mesh and on the account.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     fn link(&self) -> MutexGuard<'_, Link> {
@@ -118,7 +140,8 @@ impl Machine {
     /// Starts or stops the link to match the setting and the link state.
     pub fn sync(&self, beep: &Arc<Beep>) {
         let mut task = self.task.lock().unwrap_or_else(PoisonError::into_inner);
-        let wanted = beep.use_mac() && beep.link_state() == LinkState::Linked;
+        let wanted =
+            beep.use_mac() && beep.link_state() == LinkState::Linked && beep.server().is_some();
         let running = task
             .as_ref()
             .is_some_and(|task| !task.inner().is_finished());
@@ -170,24 +193,22 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
     // Installs gh, teacli and the agent skills, and takes the credentials
     // the server sends; the work stops with this task.
     let _provision = home.provision.start();
-    // The same as `beep-node` serves, with agents found on the login
-    // shell's PATH (the app adopts it at start), plus desktop control.
-    let mut offers = Offers::local(&[], home.provision.clone());
-    offers.extra.push(Arc::new(desktop::Desktop));
-    // The embedded node logs to the app's own file.
-    if let Some(log) = logfile::current() {
-        offers.extra.push(Arc::new(Logs::file(log)));
-    }
+    let offers = &home.offers;
     // The agents' Beep MCP server: sessions run this app's executable as
     // its command (`mcp_command`), which pipes to the socket the node
     // bound, named in the session's environment. It stops with this task.
     if let Err(e) = std::fs::create_dir_all(&home.dir) {
         log::warn!("not serving the Beep MCP server: {e}");
     }
-    let _mcp = mcp::start(&home.dir, &offers);
+    let _mcp = mcp::start(&home.dir, offers);
     let mut backoff = Backoff::eager();
     loop {
-        // A Mac removed from the account has nothing to sign in with.
+        // A Mac removed from the account has nothing to sign in with, and
+        // one with no server has nowhere to.
+        let Some(server) = beep.server() else {
+            set(Status::Unlinked);
+            return;
+        };
         if beep.link_state() != LinkState::Linked {
             set(Status::Unlinked);
             return;
@@ -197,7 +218,7 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
             set(Status::Connecting);
         }
         log::info!("opening this Mac's node link as {name:?}");
-        match link::open(beep.endpoint(), beep.server().into(), &name, &offers).await {
+        match link::open(beep.endpoint(), server.into(), &name, offers).await {
             Ok(linked) => {
                 log::info!("this Mac's node link is open");
                 set(Status::Connected);

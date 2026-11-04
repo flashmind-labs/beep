@@ -137,7 +137,7 @@ export function drawSide() {
 
 function footer(machines: MachineCard[] | null | undefined): Kid[] {
   const p = problem();
-  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "revoked" ? "Removed" : "Refused"}`)];
+  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused"}`)];
   if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
   if (!machines) return ["Machines unavailable"];
   if (!machines.length) return ["No machines linked"];
