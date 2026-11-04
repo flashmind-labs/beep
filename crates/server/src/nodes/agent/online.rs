@@ -11,17 +11,17 @@ use crate::{
     protocol::{
         CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
         node::{
-            LinkRx, LinkTx, Open, Opened,
+            LinkRx, LinkTx,
             agent::{
                 self, DiffAsk, Entry, Event, ExternalSession, LiveStatus, ModelList, Request,
                 SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest,
                 Steer,
             },
-            link,
         },
     },
 };
 use anyhow::{Context, Result, bail};
+use beep_mesh::{MeshError, PeerClient};
 use std::{
     sync::{Arc, atomic::AtomicUsize},
     time::Duration,
@@ -474,33 +474,12 @@ impl Online {
                 self.name
             )));
         }
-        let link_error = |e: anyhow::Error| Opening::Link(e);
-        let (send, recv) = self
-            .connection
-            .open_bi()
+        PeerClient::new(self.connection.clone())
+            .open(protocol)
             .await
-            .map_err(|e| link_error(e.into()))?;
-        let (mut tx, mut rx) = link(send, recv);
-        tx.send(&Open {
-            protocol: protocol.to_owned(),
-        })
-        .await
-        .map_err(link_error)?;
-        let opened: Opened = timeout(READ_TIMEOUT, rx.recv())
-            .await
-            .context("the node did not open the stream")
-            .map_err(link_error)?
-            .map_err(link_error)?
-            .context("the node closed the stream")
-            .map_err(link_error)?;
-        match opened {
-            Opened::Ready {} => Ok((tx, rx)),
-            Opened::Refused { reason } => Err(Opening::Refused(anyhow::anyhow!(
-                "the node refused {protocol}: {reason}"
-            ))),
-            other => Err(Opening::Refused(anyhow::anyhow!(
-                "the node answered {other:?}"
-            ))),
-        }
+            .map_err(|e| match e {
+                MeshError::Declined { .. } | MeshError::Unexpected(_) => Opening::Refused(e.into()),
+                e => Opening::Link(e.into()),
+            })
     }
 }
