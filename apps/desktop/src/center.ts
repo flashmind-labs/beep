@@ -310,33 +310,24 @@ function line(lead: Node | null, title: string, sub: string, right: Kid[], open:
 
 const addMachineButton = (cls: string) => plusLabel("Add a machine", cls, openAddMachine);
 
-/// One machine per row: name and OS, agents, free disk, memory in use,
-/// what it can run and what it is doing now.
-function machineTable(machines: MachineCard[]) {
-  const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Can run", "Now"].map(t => h("span", "th", t)));
-  for (const m of machines) {
-    const off = m.online ? "" : " off";
-    const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", machineOs(m)));
-    name.id = `m-${m.id}`;
-    name.title = m.name;
-    const caps = machineCaps(m);
-    const can = h("span", `caps${off}`, caps.join(" · ") || "–");
-    if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
-    const sync = m.online ? machineSync(m.id, state.sync) : null;
-    const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
-    if (!m.online) now.title = `Seen ${since(m.seen_at)}`;
-    const d = machineDisk(m), mem = machineMemory(m);
-    const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
-    if (d.title) disk.title = d.title;
-    const memory = h("span", `num${off}`, mem.text);
-    if (mem.title) memory.title = mem.title;
-    const agents = h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–");
-    table.append(name, agents, disk, memory, can, now);
-    machineMenu(m, name, agents, disk, memory, can, now);
-  }
-  const mac = thisMacRow(state.mac, machines);
-  if (mac) table.append(...thisMacCells(mac));
-  return table;
+/// A machine's box on the Machines tab: what it is and has and what it does
+/// now, then its terminals, with New terminal in the header. Right-click to
+/// remove it.
+function machineBox(m: MachineCard, terms: TerminalRow[]) {
+  const d = machineDisk(m), mem = machineMemory(m), caps = machineCaps(m);
+  const facts = [machineOs(m), m.online && m.agents ? plural(m.agents, "agent", "agents") : "",
+    d.text === "–" ? "" : d.text, mem.text === "–" ? "" : `${mem.text} memory`].filter(Boolean).join(" · ");
+  const sync = m.online ? machineSync(m.id, state.sync) : null;
+  const now = sync ? syncCell(sync) : h("span", "", m.online ? machineNow(m) : `seen ${since(m.seen_at)}`);
+  const info = h("div", `cc-row mb-info${m.online ? "" : " off"}${d.low ? " low" : ""}`, dot(m),
+    h("span", "t", h("b", "", facts || m.name), h("span", "", caps.join(" · ") || "–")), h("span", "r", now));
+  info.title = [d.title, mem.title, ...m.gpus.map(g => g.model)].filter(Boolean).join("\n");
+  const add = button("New terminal", "small", () => openTerminals({ newOn: m.id }));
+  add.disabled = !m.online;
+  const count = terms.length ? plural(terms.length, "terminal", "terminals") : "";
+  const box = section(`m-${m.id}`, m.name, count, add, h("div", "cc-panel tl-mp mbox", info, ...terms.map(t => terminalRow(t, m.online))));
+  machineMenu(m, box);
+  return box;
 }
 
 /// The Now cell of a machine fetching a synced project: a bar and how far.
@@ -348,15 +339,14 @@ function syncCell(sync: MachineSyncing) {
   return cell;
 }
 
-/// This Mac's row while the server does not list it: its state across the
-/// middle columns and, while it is off, Add under Now.
-function thisMacCells(mac: MacRow) {
-  const name = h("span", "nm off", h("b", "", h("span", "ddot off"), h("span", "", mac.name)), h("span", "os", mac.sub));
-  name.id = "m-this-mac";
-  const st = h("span", `caps mac-state${mac.bad ? " bad" : ""}`, mac.state);
-  st.title = mac.title;
-  const now = h("span", "num", mac.action ? rowButton(mac.action, "pri small", useThisMac) : "–");
-  return [name, st, now];
+/// This Mac's box while the server does not list it: its state and, while it
+/// is off, Add.
+function thisMacBox(mac: MacRow) {
+  const row = h("div", "cc-row mb-info", h("span", "ddot off"),
+    h("span", "t", h("b", "", mac.sub), h("span", mac.bad ? "bad" : "", mac.state)),
+    h("span", "r", mac.action ? rowButton(mac.action, "pri small", useThisMac) : null));
+  row.title = mac.title;
+  return section("m-this-mac", mac.name, "", null, h("div", "cc-panel mbox", row));
 }
 
 /// Turns on Let Beep use this Mac, so it joins as a machine.
@@ -411,14 +401,19 @@ function removeMachine(m: Removable) {
   });
 }
 
+/// Home's Machines: a box per machine, its terminals listed under it.
 function machinesSection(machines: MachineCard[]) {
-  if (!machines.length && !thisMacRow(state.mac, machines)) {
+  const mac = thisMacRow(state.mac, machines);
+  if (!machines.length && !mac) {
     return section("sec-machines", "Machines", "", addMachineButton("small"),
       emptyPanel(h("b", "", "No machines linked yet"), addMachineButton("pri")));
   }
-  const online = machines.filter(m => m.online).length;
-  const count = machines.length ? `${online} of ${machines.length} online` : "";
-  return section("sec-machines", "Machines", count, addMachineButton("small"), machineTable(machines));
+  const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
+  const boxes = machines.map(m => machineBox(m, terms.find(t => t.id === m.id)?.terms || []));
+  if (mac) boxes.push(thisMacBox(mac));
+  const grid = h("div", "cc-hgrid", ...boxes);
+  grid.id = "sec-machines";
+  return grid;
 }
 
 function offlineNote(machines: MachineCard[]) {
@@ -473,15 +468,17 @@ function terminalsPanel(m: MachineTerminals<TerminalRow>) {
   add.disabled = !m.online;
   const head = h("div", "cc-row tl-mh", h("span", "t", h("b", "", m.name),
     h("span", "", !m.online ? "Offline" : m.terms.length ? `${running} running` : "No terminals")), h("span", "r", add));
-  const rows = m.terms.map(t => {
-    const row = h("button", "cc-row tl-row", h("span", `ddot${t.state === "running" && m.online ? "" : " off"}`),
-      h("span", "t", h("b", "", t.name), h("span", "", terminalWhere(t))), h("span", "r", terminalNote(t, ago)));
-    row.type = "button";
-    row.title = `${t.machine_name}: ${t.command} in ${t.cwd}`;
-    row.addEventListener("click", () => openTerminals({ id: t.id }));
-    return row;
-  });
-  return h("div", "cc-panel tl-mp", head, ...rows);
+  return h("div", "cc-panel tl-mp", head, ...m.terms.map(t => terminalRow(t, m.online)));
+}
+
+/// A terminal under its machine; clicking opens it.
+function terminalRow(t: TerminalRow, online: boolean) {
+  const row = h("button", "cc-row tl-row", h("span", `ddot${t.state === "running" && online ? "" : " off"}`),
+    h("span", "t", h("b", "", t.name), h("span", "", terminalWhere(t))), h("span", "r", terminalNote(t, ago)));
+  row.type = "button";
+  row.title = `${t.machine_name}: ${t.command} in ${t.cwd}`;
+  row.addEventListener("click", () => openTerminals({ id: t.id }));
+  return row;
 }
 
 /// A terminal in an Overview box: its name, machine and folder, how it stands.
@@ -1027,7 +1024,7 @@ function drawSide() {
   head.setAttribute("data-tauri-drag-region", "");
   const top = h("div", "cc-grp",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
-    sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
+    sideItem(IC.home, "App", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   // Terminals on every machine, once the server lists them.
@@ -1678,25 +1675,26 @@ function homeBox(id: string, title: string, count: number | string, open: () => 
   return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, BOX_ROWS)));
 }
 
-/// What needs you, then a box per list, as many across as fit. A list
-/// with nothing in it is left out.
+/// What needs you, then boxes two by two: Running and Projects, Pull
+/// requests and Issues, Terminals and Coming up. A list with nothing in it
+/// leaves its place empty; a row with nothing in it is left out.
 function overview(home: HomeView) {
   const { running, coming_up: coming, needs_you: needs, updates } = home;
   const items = [...(state.git?.items || [])].sort(waitingFirst);
   const prs = items.filter(i => i.kind === "pull_request"), issues = items.filter(i => i.kind === "issue");
   const terms = home.machines?.length ? allTerms.list(ALL) || [] : [], projects = projectRows() || [];
-  const boxes = [
-    updates?.length ? updatesSection(updates) : null,
-    running?.length ? homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow)) : null,
-    prs.length ? homeBox("", "Pull requests", prs.length, () => openHomeTab("git"), prs.map(itemLine)) : null,
-    issues.length ? homeBox("", "Issues", issues.length, () => openHomeTab("git"), issues.map(itemLine)) : null,
-    terms.length ? homeBox("", "Terminals", terms.length, () => openHomeTab("terminals"), terms.map(t => terminalLine(t, () => openTerminals({ id: t.id })))) : null,
-    projects.length ? homeBox("", "Projects", projects.length, () => openHomeTab("projects"), projects.map((p, i) => homeProjectRow(p, i))) : null,
-    coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)) : null,
-  ].filter(b => b !== null);
+  const rows = [
+    [running?.length ? homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow)) : null,
+      projects.length ? homeBox("", "Projects", projects.length, () => openHomeTab("projects"), projects.map((p, i) => homeProjectRow(p, i))) : null],
+    [prs.length ? homeBox("", "Pull requests", prs.length, () => openHomeTab("git"), prs.map(itemLine)) : null,
+      issues.length ? homeBox("", "Issues", issues.length, () => openHomeTab("git"), issues.map(itemLine)) : null],
+    [terms.length ? homeBox("", "Terminals", terms.length, () => openHomeTab("terminals"), terms.map(t => terminalLine(t, () => openTerminals({ id: t.id })))) : null,
+      coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)) : null],
+  ].filter(r => r.some(b => b));
   const out: HTMLElement[] = [];
   if (needs.length) out.push(needsSection(needs));
-  if (boxes.length) out.push(h("div", "cc-hgrid", ...boxes));
+  if (updates?.length) out.push(updatesSection(updates));
+  for (const [a, b] of rows) out.push(h("div", "cc-cols", a, b));
   if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
   return out;
 }
@@ -1782,7 +1780,7 @@ function draw() {
 
 registerView("home", {
   el: $("#home-box"),
-  title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
+  title: () => ({ title: "App", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
   mount() { refresh(); refreshGit(); },
 });
 
