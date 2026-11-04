@@ -71,6 +71,10 @@ pub struct Saved {
     /// Coding agents notify when they ask something or finish a turn.
     #[serde(default = "on")]
     pub agent_notices: bool,
+    /// Machines removed from the mesh that the server may still list. Each
+    /// stays until the server dropped it, and is retried at launch.
+    #[serde(default)]
+    pub unlinks: Vec<String>,
 }
 
 fn on() -> bool {
@@ -106,6 +110,18 @@ impl Saved {
         self.use_mac = on;
     }
 
+    /// Notes that the server still has to drop `machine`.
+    pub fn owe_unlink(&mut self, machine: &str) {
+        if !self.unlinks.iter().any(|owed| owed == machine) {
+            self.unlinks.push(machine.to_owned());
+        }
+    }
+
+    /// The server dropped `machine`, or never had it.
+    pub fn settle_unlink(&mut self, machine: &str) {
+        self.unlinks.retain(|owed| owed != machine);
+    }
+
     pub fn set_notice_voice(&mut self, choice: NoticeVoice) {
         self.notice_voice = Some(choice);
         self.voice_notes = choice != NoticeVoice::Off;
@@ -126,6 +142,7 @@ impl Default for Saved {
             send_on_pause: true,
             live_chats: Vec::new(),
             agent_notices: true,
+            unlinks: Vec::new(),
         }
     }
 }
@@ -190,6 +207,17 @@ mod tests {
             fs::remove_file(&path).expect("an earlier run's file is removed");
         }
         StateFile::new(path)
+    }
+
+    #[test]
+    fn an_unlink_is_kept_once_until_settled() {
+        let mut saved = parse("{}");
+        saved.owe_unlink("a");
+        saved.owe_unlink("a");
+        saved.owe_unlink("b");
+        assert_eq!(saved.unlinks, ["a", "b"]);
+        saved.settle_unlink("a");
+        assert_eq!(saved.unlinks, ["b"]);
     }
 
     #[test]
