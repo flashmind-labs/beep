@@ -570,7 +570,7 @@ export function makeReviews(deps: ReviewDeps) {
       right.append(b);
     }
     return h("div", `rv-find${dropped || f.dismissed ? " gone" : ""}`,
-      h("span", `rv-sev ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
+      h("span", `chip ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
   }
 
   function reviewPanel(name: string) {

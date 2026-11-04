@@ -55,7 +55,7 @@ export function drawAgentAttached() {
   // Paths dragged in from the Files tab and files uploaded, after the images.
   const mentions = mentionChips();
   const el = AG.att.length || AG.attError || mentions ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
-    `<span class="chip"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${mentions}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
+    `<span class="att"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${mentions}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
   el?.querySelectorAll<HTMLElement>("[data-agatt]").forEach(b => b.addEventListener("click", () => {
     AG.att.splice(Number(b.dataset.agatt), 1);
     drawAgentAttached();

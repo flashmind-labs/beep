@@ -529,7 +529,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dmach + .dmach { border-top: 1px solid var(--border) }
 .dmach .nm { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600 }
 .dmach small { font-size: 12px; color: var(--muted); line-height: 17px }
-.dmach .cd { font-size: 12.5px; line-height: 18px }
 .dmach .nm .dbtn { margin-left: auto; padding: 1px 9px; font-size: 11.5px; min-height: 0; font-weight: 400 }
 .dmach .ask { display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 12.5px }
 .dmach .ask .acts { display: flex; gap: 8px }
@@ -916,11 +915,11 @@ button.dachip:hover { border-color: var(--border-hi) }
 #agentGo { flex: none; align-self: center; font-size: 12.5px }
 /* Images waiting to go to a coding agent, and those sent, as in the mock. */
 .ag-att { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; align-items: center }
-.ag-att .chip { position: relative; display: flex; align-items: center; gap: 8px; max-width: 240px; padding: 4px 26px 4px 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); font-size: 12px; color: var(--muted) }
-.ag-att .chip img { display: block; width: 36px; height: 26px; border-radius: 5px; object-fit: cover; flex: none }
-.ag-att .chip .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.ag-att .chip button { position: absolute; right: 5px; border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid }
-.ag-att .chip button:hover { color: var(--fg) }
+.ag-att .att { position: relative; display: flex; align-items: center; gap: 8px; max-width: 240px; padding: 4px 26px 4px 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); font-size: 12px; color: var(--muted) }
+.ag-att .att img { display: block; width: 36px; height: 26px; border-radius: 5px; object-fit: cover; flex: none }
+.ag-att .att .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ag-att .att button { position: absolute; right: 5px; border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid }
+.ag-att .att button:hover { color: var(--fg) }
 .dcoderen .pics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; white-space: normal }
 .dcoderen .pic { display: block; max-width: 160px; max-height: 110px; border-radius: var(--radius-sm); border: 1px solid var(--border); object-fit: cover; cursor: zoom-in }
 .dcoderen .pic.none { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); background: var(--surface) }

@@ -63,9 +63,9 @@ export function scopeTag(session: string | null) {
   // A chat about one thread runs as its project's agent too.
   const thread = session ? threadChats?.get(session) : undefined;
   const agent = chatProject(state.agents, session) ?? (thread ? { name: thread.project } : null);
-  if (!agent) return h("span", "cc-tag", "General");
+  if (!agent) return h("span", "chip", "General");
   const i = (projectRows() || []).findIndex(p => p.name === agent.name);
-  const b = h("button", "cc-tag pj-scope", projectDot(i >= 0 ? i : undefined), shortName(agent.name));
+  const b = h("button", "chip pj-scope", projectDot(i >= 0 ? i : undefined), shortName(agent.name));
   b.type = "button";
   b.title = `${agent.name}: open the project`;
   b.addEventListener("click", () => openProjects(agent.name));
