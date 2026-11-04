@@ -164,7 +164,7 @@ impl Peers {
         }
         let offers = self.inner.offers().clone();
         offers.mesh.clear();
-        if let Some(transfers) = &offers.transfers {
+        if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().unfollow();
         }
         self.inner
@@ -301,7 +301,7 @@ impl Peers {
         };
         let offers = self.inner.offers().clone();
         offers.mesh.set(active.mesh.clone());
-        if let Some(transfers) = &offers.transfers {
+        if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().follow(active.mesh.clone());
         }
         let follow = from_mesh::follow(active.mesh, self.inner.endpoint.id(), offers);
@@ -310,7 +310,7 @@ impl Peers {
 
     /// The node's transfer and sync services started: the mesh drives them.
     pub fn serve_transfers(&self, transfers: Transfers) {
-        self.inner.offers().transfers = Some(transfers);
+        self.inner.offers().transfers.set(transfers);
         self.follow();
     }
 
@@ -644,6 +644,37 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[tokio::test]
+    async fn transfers_served_to_the_mesh_reach_the_offers_it_was_made_from() {
+        use crate::files::{Folders, syncthing::Syncthing};
+        use iroh::{SecretKey, endpoint::presets};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        let offers = Offers::default();
+        let peers = Peers::new(
+            endpoint.clone(),
+            dir.path().to_owned(),
+            "box".to_owned(),
+            offers.clone(),
+        );
+        let transfers = Transfers::start_with(
+            &endpoint,
+            &dir.path().join("blobs"),
+            Folders::new(&[]),
+            Syncthing::at(vec![dir.path().join("syncthing")], None),
+        )
+        .await
+        .expect("the transfers start");
+        peers.serve_transfers(transfers.clone());
+        // The host's own copy, which its agents' tools read, sees them too.
+        assert!(offers.transfers.get().is_some());
+        transfers.shutdown().await.expect("the transfers stop");
     }
 
     #[tokio::test]

@@ -204,7 +204,7 @@ async fn send_files(
             true,
         );
     }
-    let Some(transfers) = &offers.transfers else {
+    let Some(transfers) = offers.transfers.get() else {
         return done(
             "This machine shares no folders, so it sends no files.",
             true,
@@ -216,7 +216,7 @@ async fn send_files(
     let mut lines = Vec::new();
     let mut failed = false;
     for path in &paths {
-        let sent = send_one(transfers, mesh, target, request, path, dest.clone()).await;
+        let sent = send_one(&transfers, mesh, target, request, path, dest.clone()).await;
         failed |= sent.is_err();
         let (Ok(text) | Err(text)) = sent;
         lines.push(format!("- {path}: {text}"));
@@ -305,7 +305,7 @@ async fn sync_project(
     };
     let me = mesh.me();
     let mut notes = Vec::new();
-    if let Some(transfers) = &offers.transfers
+    if let Some(transfers) = offers.transfers.get()
         && spec.folders.contains_key(&me)
         && let Err(e) = transfers.syncs().rescan(name).await
     {
