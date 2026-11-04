@@ -27,8 +27,11 @@ pub(crate) use group::group_message;
 use crate::{
     AsyncMutex,
     account::credentials::CredentialKey,
-    account::instance::{Instance, InstanceConfig},
     account::user::{Shared, User},
+    account::{
+        instance::{Instance, InstanceConfig},
+        login::LoginConfig,
+    },
     agent::compaction::{self, Summarizer},
     agent::decision::DecisionTool,
     agent::images::Describer,
@@ -113,6 +116,8 @@ pub struct App {
     pub subagents: crate::agent::subagents::Subagents,
     /// Set when the server runs for one owner (see `crate::account::instance`).
     instance: Option<Instance>,
+    /// Set when keys sign in through a website (see `crate::account::login`).
+    login: Option<LoginConfig>,
     /// Agents that read finished chats over (see `crate::memory::watchers`).
     pub watchers: crate::memory::watchers::Hub,
     /// Seals and opens users' credentials.
@@ -146,6 +151,8 @@ pub struct ServerTools {
     pub mistral: Option<Arc<dyn LlmProvider>>,
     /// Runs the server for one owner; `None` serves everyone.
     pub instance: Option<InstanceConfig>,
+    /// Hosted sign-in; `None` lets an unknown key make its own account.
+    pub login: Option<LoginConfig>,
     /// Seals users' credentials; `None` makes a process-lifetime key, for tests.
     pub credential_key: Option<CredentialKey>,
 }
@@ -173,7 +180,8 @@ pub enum Admission {
     Revoked,
     /// A single-user server's key that is not one of its owner's.
     NotInvited,
-    /// An unlinked key on a single-user server with an owner: it may only join with a code.
+    /// An unlinked key that may only sign in: with a join code on a single-user server with an
+    /// owner, or also through the website on a hosted one.
     Guest,
 }
 
@@ -196,6 +204,7 @@ impl App {
             realtime,
             mistral,
             instance,
+            login,
             credential_key,
         } = tools;
         let (notifications, _) = broadcast::channel(64);
@@ -244,6 +253,7 @@ impl App {
             events: crate::routines::events::Hub::default(),
             subagents,
             instance: instance.map(Instance::new),
+            login,
             watchers: crate::memory::watchers::Hub::default(),
             credential_key: credential_key.unwrap_or_else(CredentialKey::random),
             git_items: crate::projects::git_items::GitBoard::new(),

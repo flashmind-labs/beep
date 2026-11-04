@@ -24,9 +24,21 @@ export type LinkState = "waiting" | "linked" | "expired";
 /// The link offer on screen, with when it runs out in milliseconds.
 let offer: (LinkView & { until: number }) | null = null;
 
+/// The screen of a hosted server's sign-in, kept while the bar is hidden for the browser.
+type LoginStep = "signin" | "browser" | "signfail" | "ownserver";
+let login: LoginStep = "signin";
+/// What the failed step says.
+let loginError = "";
+
+/// Sign-in on a hosted server, today's link screens on any other.
 export async function renderLink() {
-  S.view = "link";
+  S.view = "login";
   clearInterval(S.timer);
+  bar.innerHTML = '<div class="dwin"><div class="wait"><span class="dspin"></span></div></div>';
+  const hosted = await invoke<boolean>("login_hosted").catch(() => false);
+  if (S.view !== "login") return;
+  if (hosted) return drawLogin();
+  S.view = "link";
   try {
     const view = await invoke<LinkView>("link_offer");
     offer = Object.assign(view, { until: Date.now() + view.expires_in * 1000 });
@@ -67,6 +79,67 @@ export function drawLink(state: LinkState) {
   $("#again")?.addEventListener("click", renderLink);
   $("#here")?.addEventListener("click", useHere);
   $("#havecode")?.addEventListener("click", () => renderJoinCode());
+}
+
+function drawLogin() {
+  S.view = "login";
+  const own = '<button class="dbtn quiet" id="lown">Use my own server</button>';
+  const parts: Record<LoginStep, string> = {
+    signin: `<h4>Sign in to Beep</h4><p>Your browser opens to sign in or create an account.</p>
+      <button class="dbtn pri" id="lgo">Sign in</button>${own}`,
+    browser: `<h4>Sign in to Beep</h4><div class="wait"><span class="dspin"></span>Waiting for your browser…</div>
+      <label class="dfield" style="width:100%;text-align:left">Token<input id="ltoken" class="mono" autocomplete="off" spellcheck="false" placeholder="Paste it if the link did not open"></label>
+      <div style="display:flex;gap:8px"><button class="dbtn" id="lagain">Open again</button><button class="dbtn quiet" id="lcancel">Cancel</button></div>`,
+    signfail: `<h4>Sign in to Beep</h4><p class="derr">${esc(loginError)}</p>
+      <button class="dbtn pri" id="lgo">Try again</button>${own}`,
+    ownserver: `<h4>Use my own server</h4>
+      <label class="dfield${loginError ? " err" : ""}" style="width:100%;text-align:left">Link code<input id="lcode" class="mono" autocomplete="off" spellcheck="false" placeholder="From beep-server link">
+        <span class="note">${esc(loginError || "Run beep-server link on your server and paste its code.")}</span></label>
+      <div style="display:flex;gap:8px"><button class="dbtn" id="lback">Back</button><button class="dbtn pri" id="lconnect">Connect<kbd>${ICON.ret}</kbd></button></div>`,
+  };
+  bar.innerHTML = `<div class="dwin">${parts[login]}</div>`;
+  const to = (step: LoginStep) => () => { login = step; loginError = ""; drawLogin(); };
+  $("#lgo")?.addEventListener("click", openBrowser);
+  $("#lagain")?.addEventListener("click", openBrowser);
+  $("#lown")?.addEventListener("click", to("ownserver"));
+  $("#lcancel")?.addEventListener("click", to("signin"));
+  $("#lback")?.addEventListener("click", to("signin"));
+  const token = $<HTMLInputElement>("#ltoken");
+  token?.addEventListener("input", () => {
+    const text = token.value.trim();
+    if (!/^[\w-]+\.[\w-]+$/.test(text)) return;
+    token.disabled = true;
+    invoke("complete_login", { token: text }).catch(loginFailed);
+  });
+  const code = $<HTMLInputElement>("#lcode");
+  const connect = () => {
+    $<HTMLButtonElement>("#lconnect")!.disabled = true;
+    // On success the app restarts on that server.
+    invoke("use_own_server", { code: code!.value }).catch(e => { loginError = String(e); drawLogin(); });
+  };
+  $("#lconnect")?.addEventListener("click", connect);
+  code?.addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
+  code?.focus();
+}
+
+async function openBrowser(e: Event) {
+  (e.currentTarget as HTMLButtonElement).disabled = true;
+  try {
+    await invoke("start_login");
+    login = "browser";
+    loginError = "";
+    drawLogin();
+  } catch (err) {
+    loginFailed(err);
+  }
+}
+
+/// Shows why a sign-in failed. The server says the same for every bad token.
+export function loginFailed(error: unknown) {
+  const e = String(error);
+  loginError = e.startsWith("bad request:") ? "That sign-in expired or was for another device." : e;
+  login = "signfail";
+  if (S.view === "login") drawLogin();
 }
 
 async function useHere(e: Event) {

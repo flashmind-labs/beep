@@ -142,6 +142,7 @@ const BOTH: &[&str] = &[
     "INSERT INTO projects_on_top (user_id, project) VALUES ($1, 'acme/app')",
     "INSERT INTO project_webhooks (id, user_id, host, repo, endpoint_id, hook_id, secret)
      VALUES (gen_random_uuid(), $1, 'github', 'acme/app', 'e', 7, decode('00', 'hex'))",
+    "INSERT INTO user_logins (sub, user_id) VALUES ('google:{t}', $1)",
     "INSERT INTO places (user_id, id, name, latitude, longitude, radius)
      VALUES ($1, 'place-{t}', 'Home', 1, 1, 100)",
     "INSERT INTO plan_usage (user_id, agent, endpoint_id, windows, read_at)

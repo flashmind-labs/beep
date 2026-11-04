@@ -20,6 +20,11 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 /// `beep/1` clients sent a token first; `beep/2` ones never do.
 pub const ALPN: &[u8] = b"beep/2";
 
+/// Only a server with hosted sign-in accepts this, and closes at once. It lets
+/// an app with no account find out without connecting on `ALPN`, where a
+/// server without sign-in would make that key an account.
+pub const LOGIN_ALPN: &[u8] = b"beep-login/1";
+
 /// Connections the server dials to the phone. They only carry notices: the
 /// server opens a bi stream, sends one `Notice` frame and waits for an empty
 /// reply as the ack. The same exchange runs on `ALPN` connections too.

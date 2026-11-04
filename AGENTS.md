@@ -50,7 +50,7 @@ without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
 `crates/server/src`, one line per top-level module:
 
-- `account`: `User`, single-user instance mode, guest keys, credentials.
+- `account`: `User`, single-user instance mode, hosted `login`, guest keys, credentials.
 - `agent`: around a turn: models, metering, compaction, gates, titles, sub-agents.
 - `api`: request handlers, `routes`, the op `router`, the iroh `transport`.
 - `app`: the `App` hub: admission, `submit`, the turn itself in `run/turn.rs`.
@@ -65,6 +65,14 @@ without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 - `store`: Postgres queries, one file per kind of row, `migrations`.
 - `tools`: the agent's tools, plus web `search` and `fetch`.
 - `voice`: voice notes, live transcription (`stt`), filler lines.
+
+## Hosted login
+
+A `[login]` config section (`website`, `website_key`) makes the server hosted:
+an unknown key is a guest that may call `StartLogin` and `CompleteLogin`
+(`crates/server/src/account/login.rs`, contract in issue #196). It also accepts
+`LOGIN_ALPN`, which is how an app with no account tells a hosted server from
+one that would make its key an account on connecting. Not with `[instance]`.
 
 ## Deploying the server
 
