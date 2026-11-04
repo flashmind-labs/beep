@@ -5,13 +5,19 @@ use crate::{
     desk::Desk,
     error::Result,
     projects::{DeskMachines, DeskProject},
-    records::scan,
+    records::{now_ms, scan, time},
 };
 use beep_mesh::Key;
-use beep_projects::issues::{
-    issue_view, list_open, list_open_prs, pull_request_head, pull_request_view,
+use beep_projects::{
+    credentials::Slot,
+    git_items::board::{Login, read},
+    issues::{issue_view, list_open, list_open_prs, pull_request_head, pull_request_view},
 };
-use beep_proto::{ProjectIssue, ProjectPullRequest, PullRequestHead};
+use beep_proto::{
+    LabeledGitItems, LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest,
+    PullRequestHead,
+};
+use secrecy::ExposeSecret;
 use uuid::Uuid;
 
 /// A project's id on this desktop. The apps address a project by an id, and with no server to
@@ -62,5 +68,58 @@ impl Desk {
             branch: head.branch,
             fork: head.fork,
         })
+    }
+}
+
+impl Desk {
+    /// The project's open pull requests, with their labels, and its issues no task tracks. A list
+    /// that cannot be read says why beside the other.
+    pub async fn lists(&self, project: &str) -> Result<LabeledProjectLists> {
+        let (store, machines) = self.host_reads(project).await?;
+        let (prs, issues) = tokio::join!(
+            beep_projects::issues::list_open_prs(&store, &machines),
+            list_open(&store, &machines),
+        );
+        let (mut pull_requests, mut pr_labels) = (Vec::new(), Vec::new());
+        let prs_error = match prs {
+            Ok(listed) => {
+                for one in listed {
+                    pr_labels.push(one.pr.labels.clone());
+                    pull_requests.push(pull_request_view(one));
+                }
+                None
+            }
+            Err(e) => Some(e.to_string()),
+        };
+        let (issues, issues_error) = match issues {
+            Ok(open) => (open.into_iter().map(issue_view).collect(), None),
+            Err(e) => (Vec::new(), Some(e.to_string())),
+        };
+        Ok(LabeledProjectLists {
+            lists: ProjectLists {
+                pull_requests,
+                prs_error,
+                issues,
+                issues_error,
+                synced_at: Some(time(now_ms())),
+            },
+            pr_labels,
+        })
+    }
+
+    /// The user's open pull requests and issues on every git host they have a token for.
+    pub async fn git_items(&self) -> Result<LabeledGitItems> {
+        let opened = self.opened();
+        let logins: Vec<Login<'_>> = opened
+            .iter()
+            .map(|opened| Login {
+                slot: &opened.slot,
+                secret: &opened.secret,
+                account: opened.github.as_ref().map(|github| github.login.as_str()),
+            })
+            .filter(|login| matches!(login.slot, Slot::GitHub | Slot::Forgejo(_)))
+            .filter(|login| !login.secret.expose_secret().is_empty())
+            .collect();
+        Ok(read(&self.hosts, &logins).await?)
     }
 }

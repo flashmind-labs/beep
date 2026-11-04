@@ -1,27 +1,25 @@
 //! The Add a project sheet: checkouts and host repositories to pick from,
 //! the folder choice, and importing a project onto a machine.
 
-use super::{known, list::ProjectRow, needs_update};
+use super::{list::ProjectRow, needs_update};
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::projects::{FleetState, desk, mirror_import},
 };
+use beep_fleet::ImportJob;
 use beep_proto::{
     ApiError, BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos,
-    ImportProject, ListFoundFolders, ListHostRepos, ListMachineFolder, MachineFolder,
+    MachineFolder,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     process::Command,
-    time::Duration,
 };
 use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
-
-/// The server stops a clone after 30 minutes; this leaves it time to say so.
-pub(super) const IMPORT_TIMEOUT: Duration = Duration::from_secs(31 * 60);
 
 /// A branch the import sheet gives a worktree, on `machine_id` or, without
 /// one, the machine the project lands on.
@@ -58,11 +56,11 @@ impl From<FoundProject> for FoundRow {
 }
 
 /// The checkouts the user's coding agents worked in that are not projects
-/// yet; none from a server too old to look.
+/// yet.
 #[tauri::command]
-pub async fn found_projects(beep: Service<'_>) -> Result<Vec<FoundRow>> {
-    let found = known(beep.call(ListFoundFolders {}).await)?;
-    Ok(found.into_iter().flatten().map(FoundRow::from).collect())
+pub async fn found_projects(fleet: FleetState<'_>) -> Result<Vec<FoundRow>> {
+    let found = desk(&fleet).await?.found().await?;
+    Ok(found.into_iter().map(FoundRow::from).collect())
 }
 
 /// One git host's repositories to clone, as the Add a project sheet lists
@@ -104,16 +102,11 @@ impl From<HostRepos> for HostReposRow {
     }
 }
 
-/// The user's repositories on their git hosts, to clone; none from a
-/// server too old to list them.
+/// The user's repositories on their git hosts, to clone.
 #[tauri::command]
-pub async fn host_repos(beep: Service<'_>) -> Result<Vec<HostReposRow>> {
-    let hosts = known(beep.call(ListHostRepos {}).await)?;
-    Ok(hosts
-        .into_iter()
-        .flatten()
-        .map(HostReposRow::from)
-        .collect())
+pub async fn host_repos(fleet: FleetState<'_>) -> Result<Vec<HostReposRow>> {
+    let hosts = desk(&fleet).await?.host_repos().await?;
+    Ok(hosts.into_iter().map(HostReposRow::from).collect())
 }
 
 /// Shows a project's folder on this Mac in Finder.
@@ -136,11 +129,12 @@ fn openable(path: &Path) -> bool {
     path.is_absolute() && path.is_dir()
 }
 
-/// Clones `repo` onto `machine_id`, or the machine the server picks, into
+/// Clones `repo` onto `machine_id`, or the machine that fits best, into
 /// `folder` when the user chose one, else the machine's projects folder,
 /// then gives each of `worktrees` its worktree.
 #[tauri::command]
 pub async fn import_project(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     repo: String,
     machine_id: Option<String>,
@@ -159,19 +153,18 @@ pub async fn import_project(
             machine_id: w.machine_id.filter(|id| !id.is_empty()),
         })
         .collect();
-    beep.call_within(
-        ImportProject {
-            repo,
-            machine_id,
-            folder,
-            worktrees,
-            parent,
-        },
-        IMPORT_TIMEOUT,
-    )
-    .await
-    .map(ProjectRow::from)
-    .map_err(outdated)
+    let imported = desk(&fleet)
+        .await?
+        .import(ImportJob {
+            repo: &repo,
+            machine_id: machine_id.as_deref(),
+            folder: folder.as_deref(),
+            parent: parent.as_deref(),
+            worktrees: &worktrees,
+        })
+        .await?;
+    mirror_import(&beep, &imported).await;
+    Ok(imported.into())
 }
 
 /// One folder on `machine_id`, for the sheet's folder browser and to see
@@ -179,13 +172,14 @@ pub async fn import_project(
 /// machine's workspace, else its home.
 #[tauri::command]
 pub async fn list_machine_folder(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     machine_id: String,
     path: Option<String>,
 ) -> Result<MachineFolder> {
-    beep.call(ListMachineFolder { machine_id, path })
-        .await
-        .map_err(outdated)
+    Ok(desk(&fleet)
+        .await?
+        .browse(&machine_id, path.as_deref())
+        .await?)
 }
 
 /// The macOS folder picker, opened at `start`; `None` when the user

@@ -1,18 +1,30 @@
 //! Follows the project pages that show (`WatchProject`): the server says
 //! whether a project is live through a webhook or polling, and when its
 //! pull requests, issues or runs were read again, and the page redraws
-//! them as `project-live` events.
+//! them as `project-live` events. A project of the mesh has no server to
+//! say: the desktop polls the host itself, and tells the page to read
+//! again every [`POLL_EVERY`] while it shows. Repository webhooks wait
+//! for the server, so such a project is never live.
 
 use crate::{
     beep::{Beep, Service},
+    error::Result,
+    fleet::projects::{FleetState, mesh_project},
     projects::unknown_op,
 };
 use beep_node::link::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::{
+    sync::{Arc, Mutex, PoisonError},
+    time::Duration,
+};
 use tauri::{AppHandle, Emitter, State, async_runtime::JoinHandle};
+use tokio::time::interval;
 use uuid::Uuid;
+
+/// How often a polled project's page reads the host again.
+const POLL_EVERY: Duration = Duration::from_secs(120);
 
 /// Project pages followed at once; the oldest goes for a new one.
 const MAX_FOLLOWED: usize = 8;
@@ -60,24 +72,31 @@ impl Drop for Following {
 /// Follows `project_id` while its page shows. Following it again keeps
 /// the stream it has.
 #[tauri::command]
-pub fn follow_project(
+pub async fn follow_project(
     app: AppHandle,
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     followed: State<'_, Followed>,
     project_id: Uuid,
-) {
+) -> Result<()> {
+    let on_mesh = mesh_project(&fleet, project_id).await.is_some();
     let mut tasks = followed
         .tasks
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     if tasks.iter().any(|f| f.project_id == project_id) {
-        return;
+        return Ok(());
     }
     if tasks.len() >= MAX_FOLLOWED {
         tasks.remove(0);
     }
-    let task = tauri::async_runtime::spawn(follow(app, beep.inner().clone(), project_id));
+    let task = if on_mesh {
+        tauri::async_runtime::spawn(poll(app, project_id))
+    } else {
+        tauri::async_runtime::spawn(follow(app, beep.inner().clone(), project_id))
+    };
     tasks.push(Following { project_id, task });
+    Ok(())
 }
 
 /// Stops following `project_id`, or every project without one.
@@ -90,6 +109,29 @@ pub fn unfollow_project(followed: State<'_, Followed>, project_id: Option<Uuid>)
     match project_id {
         Some(id) => tasks.retain(|f| f.project_id != id),
         None => tasks.clear(),
+    }
+}
+
+/// Tells the page of a mesh project that it polls, then to read again every [`POLL_EVERY`].
+async fn poll(app: AppHandle, project_id: Uuid) {
+    let mut row = LiveRow {
+        project_id,
+        live: Some(false),
+        polling_why: Some(
+            "Beep reads the host every couple of minutes while this page shows.".to_owned(),
+        ),
+        lists: false,
+        runs: false,
+    };
+    emit(&app, &row);
+    row.lists = true;
+    row.runs = true;
+    let mut ticks = interval(POLL_EVERY);
+    // The first tick is at once, and the page has just read.
+    ticks.tick().await;
+    loop {
+        ticks.tick().await;
+        emit(&app, &row);
     }
 }
 

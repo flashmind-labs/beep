@@ -1,11 +1,11 @@
 //! The user's open pull requests and issues on their git hosts, for Home.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::epoch_ms,
     error::Result,
-    projects::known,
+    fleet::projects::{FleetState, desk},
 };
-use beep_proto::{GitHost, GitHostKind, GitItem, LabeledGitItems, ListLabeledGitItems};
+use beep_proto::{GitHost, GitHostKind, GitItem, LabeledGitItems};
 use serde::Serialize;
 
 /// What Home lists.
@@ -92,8 +92,8 @@ impl From<LabeledGitItems> for GitItemsView {
     }
 }
 
-/// The open PRs and issues; `None` from a server too old to list them.
+/// The open PRs and issues on every host the user has a token for.
 #[tauri::command]
-pub async fn git_items(beep: Service<'_>) -> Result<Option<GitItemsView>> {
-    Ok(known(beep.call(ListLabeledGitItems {}).await)?.map(Into::into))
+pub async fn git_items(fleet: FleetState<'_>) -> Result<Option<GitItemsView>> {
+    Ok(Some(desk(&fleet).await?.git_items().await?.into()))
 }

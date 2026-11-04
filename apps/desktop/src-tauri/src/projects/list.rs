@@ -1,16 +1,14 @@
 //! The projects the sidebar, Home and the Projects page list: imported
 //! rows, project agents, pins to the top, and removing one.
 
-use super::{known, needs_update};
 use crate::{
     beep::{Service, epoch_ms},
     center::view_cache::{View, ViewCache},
     center::{self, kept},
     error::Result,
+    fleet::projects::{FleetState, desk, mirror_remove},
 };
-use beep_proto::{
-    ImportedProject, ListProjects, ListProjectsOnTop, PinProjectToTop, ProjectAgent, RemoveProject,
-};
+use beep_proto::{ImportedProject, ListProjects, ProjectAgent};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
@@ -62,28 +60,32 @@ pub async fn center_projects(
 /// from a server too old to pin them.
 #[tauri::command]
 pub async fn projects_on_top(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<String>> {
-    let names = known(beep.call(ListProjectsOnTop {}).await).map(Option::unwrap_or_default);
+    let names = desk(&fleet).await.map(|desk| desk.on_top());
     kept(&cache, View::Top, names)
 }
 
 /// Pins `project` (`org/repo`) to the top of the sidebar, or unpins it.
-/// Not `PinProject`, which keeps a project off sync.
 #[tauri::command]
-pub async fn pin_project_to_top(beep: Service<'_>, project: String, pinned: bool) -> Result<()> {
-    beep.call(PinProjectToTop { project, pinned })
-        .await
-        .map_err(|e| needs_update(e, "before projects can be pinned"))
+pub async fn pin_project_to_top(
+    fleet: FleetState<'_>,
+    project: String,
+    pinned: bool,
+) -> Result<()> {
+    Ok(desk(&fleet).await?.pin(&project, pinned).await?)
 }
 
-/// Removes `project` (`org/repo`) from Beep: the server forgets it, stops
-/// syncing it and its workers, and deletes its chat and tasks. No files are
-/// deleted on any machine.
+/// Removes `project` (`org/repo`) from Beep: it is forgotten and no longer synced, and the
+/// server, if there is one, drops its chat and tasks. No files are deleted on any machine.
 #[tauri::command]
-pub async fn remove_project(beep: Service<'_>, project: String) -> Result<()> {
-    beep.call(RemoveProject { project })
-        .await
-        .map_err(|e| needs_update(e, "before projects can be removed"))
+pub async fn remove_project(
+    fleet: FleetState<'_>,
+    beep: Service<'_>,
+    project: String,
+) -> Result<()> {
+    desk(&fleet).await?.remove(&project).await?;
+    mirror_remove(&beep, &project).await;
+    Ok(())
 }

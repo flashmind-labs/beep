@@ -4,13 +4,13 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::Result,
+    fleet::projects::{FleetState, desk},
     projects::unknown_op,
     settings::credentials::plain,
 };
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn, ListAgentHarnesses,
-    ListHarnessSettings, MachineHarnessSettings, SaveHarnessSettings, SaveHarnessSettingsAll,
-    SecretText, UpdateAgentHarness,
+    MachineHarnessSettings, SecretText, UpdateAgentHarness,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -207,18 +207,16 @@ pub async fn agent_harnesses(
 /// Saves the settings of `agent` on `machine_id`.
 #[tauri::command]
 pub async fn harness_settings_save(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     machine_id: String,
     agent: String,
     settings: SettingsInput,
 ) -> Result<()> {
-    beep.call(SaveHarnessSettings {
-        machine_id,
-        agent,
-        settings: settings.into(),
-    })
-    .await
-    .map_err(plain)
+    desk(&fleet)
+        .await?
+        .save_harness_settings(&machine_id, &agent, settings.into(), true)
+        .await?;
+    Ok(())
 }
 
 /// Installs or updates `agent` on `machine_id`, and gives the harnesses
@@ -240,14 +238,11 @@ pub async fn agent_harness_update(
 /// server too old to say.
 #[tauri::command]
 pub async fn harness_settings_all(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     agent: String,
 ) -> Result<Option<Vec<MachineSettingsView>>> {
-    match beep.call(ListHarnessSettings { agent }).await {
-        Ok(all) => Ok(Some(all.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(plain(e)),
-    }
+    let all = desk(&fleet).await?.harness_settings(&agent)?;
+    Ok(Some(all.into_iter().map(Into::into).collect()))
 }
 
 /// Saves the settings of `agent`, as edited on `from_machine`, on every
@@ -255,18 +250,14 @@ pub async fn harness_settings_all(
 /// Gives how many machines were saved.
 #[tauri::command]
 pub async fn harness_settings_save_all(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     from_machine: String,
     agent: String,
     settings: SettingsInput,
     include_program: bool,
 ) -> Result<u32> {
-    beep.call(SaveHarnessSettingsAll {
-        from_machine,
-        agent,
-        settings: settings.into(),
-        include_program,
-    })
-    .await
-    .map_err(plain)
+    Ok(desk(&fleet)
+        .await?
+        .save_harness_settings(&from_machine, &agent, settings.into(), include_program)
+        .await?)
 }

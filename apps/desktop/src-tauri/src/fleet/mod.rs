@@ -8,6 +8,7 @@
 
 mod carry;
 mod mesh;
+pub(crate) mod projects;
 
 use crate::{
     beep::AsyncMutex,

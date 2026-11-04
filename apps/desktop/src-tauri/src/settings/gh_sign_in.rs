@@ -7,6 +7,7 @@ use crate::{
     bar::app::open_url,
     beep::Beep,
     error::Result,
+    fleet::projects::FleetState,
     settings::cli_login::{find_tool, refused, save_gh_login},
     settings::credentials::CredentialView,
 };
@@ -138,6 +139,7 @@ pub struct DeviceCode {
 /// token once the code is entered on GitHub.
 #[tauri::command]
 pub async fn gh_sign_in(
+    fleet: FleetState<'_>,
     beep: State<'_, Arc<Beep>>,
     sign_in: State<'_, GhSignIn>,
     on_code: Channel<DeviceCode>,
@@ -155,7 +157,7 @@ pub async fn gh_sign_in(
     run_gh(&gh, &on_code, cancelled).await?;
     // Dropped only now, after gh is gone, so quitting waits for that.
     drop(ended);
-    save_gh_login(&beep).await
+    save_gh_login(&fleet, &beep).await
 }
 
 /// Stops the GitHub sign-in under way.

@@ -1,5 +1,6 @@
 //! Calls to GitHub and Forgejo for a user's open items, forks and new repositories.
 
+pub mod board;
 pub mod forgejo;
 pub mod forks;
 pub mod github;

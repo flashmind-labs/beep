@@ -76,13 +76,15 @@ impl Desk {
             .collect())
     }
 
-    /// Saves the settings for `agent` on every machine. A variable with no value keeps the saved
-    /// one. Returns how many machines have them.
+    /// Saves the settings for `agent`, as edited on `machine`. They are one value for every
+    /// machine, binary path included; without `include_program` the saved path stays. A variable
+    /// with no value keeps the saved one. Returns how many machines have them.
     pub async fn save_harness_settings(
         &self,
         machine: &str,
         agent: &str,
         settings: HarnessSettings,
+        include_program: bool,
     ) -> Result<u32> {
         let machines = self.mesh.devices();
         if !machines
@@ -94,14 +96,17 @@ impl Desk {
         check_agent(agent)?;
         let settings = check_settings(settings)?;
         let key = Self::harness_key(agent);
-        let kept = read::<HarnessConfig>(&self.mesh, &key)
-            .map(|config| config.env)
-            .unwrap_or_default();
+        let saved = read::<HarnessConfig>(&self.mesh, &key);
+        let program = match include_program {
+            true => Some(settings.program).filter(|text| !text.is_empty()),
+            false => saved.as_ref().and_then(|saved| saved.program.clone()),
+        };
+        let kept = saved.map(|config| config.env).unwrap_or_default();
         let blank = |text: String| Some(text).filter(|text| !text.is_empty());
         let config = HarnessConfig {
             agent: agent.to_owned(),
             enabled: settings.enabled,
-            program: blank(settings.program),
+            program,
             home: blank(settings.home),
             args: settings.args,
             env: merged_env(kept, settings.env),

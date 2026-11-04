@@ -1,17 +1,23 @@
 //! Settings, Credentials: the account's GitHub token, Forgejo servers and
-//! API keys. Secrets go to the server once and never come back; the bar
-//! sees only their last four characters.
+//! API keys. Secrets go into the mesh once, for every machine, and never
+//! come back; the bar sees only their last four characters. A key only the
+//! server uses is saved there.
 
 use crate::{
     beep::{Beep, Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::{
+        Fleet,
+        projects::{FleetState, desk},
+    },
 };
+use beep_fleet::FleetError;
 use beep_proto::{
-    ApiError, ApiProvider, CheckCredential, Credential, CredentialCheck, CredentialKind,
-    GITHUB_ENV_VAR, GitHubAccount, ListCredentials, ListGitHubAccounts, RemoveCredential,
-    SaveCredential, SaveGitHubAccount, SecretText, SetDefaultGitHubAccount,
+    ApiError, ApiProvider, Credential, CredentialCheck, CredentialKind, GITHUB_ENV_VAR,
+    GitHubAccount, SaveCredential, SecretText,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// What a credential is for, as the bar names it.
 #[derive(Debug, Serialize, Deserialize)]
@@ -146,14 +152,15 @@ pub fn credential_providers() -> Vec<ProviderView> {
 }
 
 #[tauri::command]
-pub async fn list_credentials(beep: Service<'_>) -> Result<Vec<CredentialView>> {
-    let credentials = beep.call(ListCredentials {}).await?;
+pub async fn list_credentials(fleet: FleetState<'_>) -> Result<Vec<CredentialView>> {
+    let credentials = desk(&fleet).await?.credentials();
     Ok(credentials.into_iter().map(CredentialView::from).collect())
 }
 
 /// Checks and saves one; a refusal comes back as the host's reason.
 #[tauri::command]
 pub async fn save_credential(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     credential: NewCredential,
 ) -> Result<CredentialView> {
@@ -162,33 +169,39 @@ pub async fn save_credential(
         secret,
         to_machines,
     } = credential;
-    save(&beep, kind, SecretText::new(secret), to_machines).await
+    save(&fleet, &beep, kind, SecretText::new(secret), to_machines).await
 }
 
-/// Sends one to the server, which checks it with its host before keeping it.
-/// A GitHub token is saved as the account it signs in as, beside the others.
+/// Checks one with its host, then keeps it for every machine. A GitHub token
+/// is saved as the account it signs in as, beside the others. A key that is
+/// not for the machines is the server's to keep, so it goes there.
 pub(crate) async fn save(
+    fleet: &Arc<Fleet>,
     beep: &Beep,
     kind: Kind,
     secret: SecretText,
     to_machines: bool,
 ) -> Result<CredentialView> {
-    if matches!(kind, Kind::Github) {
-        let saved = beep
-            .call(SaveGitHubAccount { secret })
-            .await
-            .map_err(plain)?;
-        return Ok(saved.into());
-    }
-    let saved = beep
-        .call(SaveCredential {
-            kind: kind.into(),
-            secret,
-            to_machines,
-        })
+    let kind = CredentialKind::from(kind);
+    match desk(fleet)
+        .await?
+        .save_credential(&kind, &secret, to_machines)
         .await
-        .map_err(plain)?;
-    Ok(saved.into())
+    {
+        Ok(saved) => Ok(saved.into()),
+        Err(FleetError::NeedsServer) => {
+            let saved = beep
+                .call(SaveCredential {
+                    kind,
+                    secret,
+                    to_machines,
+                })
+                .await
+                .map_err(plain)?;
+            Ok(saved.into())
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// What checking a Forgejo token found, as the bar shows it.
@@ -218,29 +231,29 @@ impl From<CredentialCheck> for CheckView {
     }
 }
 
-/// Checks a saved Forgejo token from the server, else from the account's
-/// machines with teacli.
+/// Checks a saved Forgejo token from this Mac, else from the machines with
+/// teacli.
 #[tauri::command]
-pub async fn check_credential(beep: Service<'_>, id: String) -> Result<CheckView> {
-    Ok(beep.call(CheckCredential { id }).await?.into())
+pub async fn check_credential(fleet: FleetState<'_>, id: String) -> Result<CheckView> {
+    Ok(desk(&fleet).await?.check_credential(&id).await?.into())
 }
 
 #[tauri::command]
-pub async fn remove_credential(beep: Service<'_>, id: String) -> Result<()> {
-    beep.call(RemoveCredential { id }).await
+pub async fn remove_credential(fleet: FleetState<'_>, id: String) -> Result<()> {
+    Ok(desk(&fleet).await?.remove_credential(&id).await?)
 }
 
 /// The GitHub accounts, the default first.
 #[tauri::command]
-pub async fn list_github_accounts(beep: Service<'_>) -> Result<Vec<GitHubAccountView>> {
-    let accounts = beep.call(ListGitHubAccounts {}).await?;
+pub async fn list_github_accounts(fleet: FleetState<'_>) -> Result<Vec<GitHubAccountView>> {
+    let accounts = desk(&fleet).await?.github_accounts();
     Ok(accounts.into_iter().map(GitHubAccountView::from).collect())
 }
 
 /// Makes one GitHub account the one machines get as GH_TOKEN.
 #[tauri::command]
-pub async fn set_default_github_account(beep: Service<'_>, id: String) -> Result<()> {
-    beep.call(SetDefaultGitHubAccount { id }).await
+pub async fn set_default_github_account(fleet: FleetState<'_>, id: String) -> Result<()> {
+    Ok(desk(&fleet).await?.set_default_github(&id).await?)
 }
 
 /// The server's reason on its own, without the "bad request:" before it.
