@@ -30,3 +30,4 @@ tokio = { version = "1", features = ["io-util", "io-std", "macros", "net", "rt-m
 async-trait = "0.1"
 log = "0.4"
 iroh-tickets = "1"
+serde_bytes = "0.11"

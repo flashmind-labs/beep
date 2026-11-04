@@ -36,7 +36,7 @@ use beep_proto::node::{
     process::TaskId,
     status::{self, Report},
     sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
-    terminal::{Reply as TermReply, Size},
+    terminal::{Reply as TermReply, Request as TermRequest, Size},
 };
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 use iroh_tickets::Ticket;
@@ -160,7 +160,7 @@ impl Driver {
                     );
                 }
             }
-            ["agent", label, name, cwd, ..] => {
+            ["agent" | "agentbg", label, name, cwd, ..] => {
                 let client = self.client(name).await?;
                 let prompt = rest(4);
                 let opened = open_agent(
@@ -177,7 +177,10 @@ impl Driver {
                 .await?;
                 println!("session {} on {name}", opened.info.id);
                 self.sessions.insert((*label).to_owned(), opened);
-                self.pump(label).await?;
+                // `agentbg` leaves the turn running and does not wait for it.
+                if words[0] == "agent" {
+                    self.pump(label).await?;
+                }
             }
             ["answer", label, option] => {
                 let opened = self.sessions.get_mut(*label).context("no such session")?;
@@ -227,12 +230,20 @@ impl Driver {
                 let cwd = (*cwd != "-").then(|| (*cwd).to_owned());
                 let task = terminals::open(&client, Some(rest(3)), cwd, Size::DEFAULT).await?;
                 println!("terminal {} started", task.id.0);
-                let (_tx, mut rx) =
+                let (mut tx, mut rx) =
                     terminals::attach(&client, TaskId(task.id.0), 0, Size::DEFAULT).await?;
                 let mut text = Vec::new();
                 loop {
                     match timeout(Duration::from_secs(10), rx.recv::<TermReply>()).await {
                         Ok(Ok(Some(TermReply::Output { data, .. }))) => {
+                            // A Windows pseudo-terminal asks where the cursor is and
+                            // waits; a real terminal answers.
+                            if data.windows(4).any(|w| w == b"\x1b[6n") {
+                                tx.send(&TermRequest::Input {
+                                    data: serde_bytes::ByteBuf::from(b"\x1b[1;1R".to_vec()),
+                                })
+                                .await?;
+                            }
                             text.extend_from_slice(&data)
                         }
                         Ok(Ok(Some(TermReply::Ended { .. }))) | Ok(Ok(None)) => break,
