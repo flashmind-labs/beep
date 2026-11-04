@@ -5,9 +5,8 @@ use crate::{
     desk::Desk,
     error::Result,
     projects::{DeskMachines, DeskProject},
-    records::{now_ms, scan, time},
+    records::{now_ms, time},
 };
-use beep_mesh::Key;
 use beep_projects::{
     credentials::{Slot, last4},
     git_items::board::{Login, read},
@@ -36,36 +35,45 @@ pub fn project_id(name: &str) -> Uuid {
 impl Desk {
     /// The name of the project `id` is the id of, when this mesh has it.
     pub fn project_name(&self, id: Uuid) -> Option<String> {
-        scan::<crate::records::ProjectRecord>(&self.mesh, "project/")
+        crate::records::projects(&self.mesh)
             .into_iter()
-            .find_map(|(key, _)| match key {
-                Key::Project(name) if project_id(&name) == id => Some(name),
-                _ => None,
-            })
+            .find_map(|stored| (project_id(&stored.name) == id).then_some(stored.name))
     }
 
-    async fn host_reads(&self, name: &str) -> Result<(DeskProject, DeskMachines)> {
+    /// What reading `name`'s host needs. With `local_only`, and a checkout of the project on this
+    /// Mac, only this Mac is asked, so nothing waits on another machine.
+    pub(crate) async fn host_reads(
+        &self,
+        name: &str,
+        local_only: bool,
+    ) -> Result<(DeskProject, DeskMachines)> {
         let store = DeskProject::of(&self.mesh, name)?;
+        if local_only
+            && store.is_on(self.local)
+            && let Some(local) = self.local_machine().await
+        {
+            return Ok((store, DeskMachines::of(&[local])));
+        }
         Ok((store, DeskMachines::of(&self.machines().await)))
     }
 
     /// The project's open issues no task tracks.
     pub async fn issues(&self, project: &str) -> Result<Vec<ProjectIssue>> {
-        let (store, machines) = self.host_reads(project).await?;
+        let (store, machines) = self.host_reads(project, false).await?;
         let open = list_open(&store, &machines).await?;
         Ok(open.into_iter().map(issue_view).collect())
     }
 
     /// Every open pull request of the project, newest first.
     pub async fn pull_requests(&self, project: &str) -> Result<Vec<ProjectPullRequest>> {
-        let (store, machines) = self.host_reads(project).await?;
+        let (store, machines) = self.host_reads(project, false).await?;
         let listed = list_open_prs(&store, &machines).await?;
         Ok(listed.into_iter().map(pull_request_view).collect())
     }
 
     /// The branch pull request `number` is made from.
     pub async fn pr_head(&self, project: &str, number: u64) -> Result<PullRequestHead> {
-        let (store, machines) = self.host_reads(project).await?;
+        let (store, machines) = self.host_reads(project, false).await?;
         let head = pull_request_head(&store, &machines, number).await?;
         Ok(PullRequestHead {
             number: head.number,
@@ -79,7 +87,17 @@ impl Desk {
     /// The project's open pull requests, with their labels, and its issues no task tracks. A list
     /// that cannot be read says why beside the other.
     pub async fn lists(&self, project: &str) -> Result<LabeledProjectLists> {
-        let (store, machines) = self.host_reads(project).await?;
+        let local = self.lists_on(project, true).await?;
+        let failed = local.lists.prs_error.is_some() || local.lists.issues_error.is_some();
+        if failed && DeskProject::of(&self.mesh, project)?.is_on(self.local) {
+            // This Mac could not read it; the others may.
+            return self.lists_on(project, false).await;
+        }
+        Ok(local)
+    }
+
+    async fn lists_on(&self, project: &str, local_only: bool) -> Result<LabeledProjectLists> {
+        let (store, machines) = self.host_reads(project, local_only).await?;
         let (prs, issues) = tokio::join!(
             beep_projects::issues::list_open_prs(&store, &machines),
             list_open(&store, &machines),

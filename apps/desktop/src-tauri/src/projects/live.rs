@@ -25,6 +25,8 @@ use uuid::Uuid;
 
 /// How often a polled project's page reads the host again.
 const POLL_EVERY: Duration = Duration::from_secs(120);
+/// Why a mesh project is not live.
+const POLLING_WHY: &str = "Beep reads the host every couple of minutes while this page shows.";
 
 /// Project pages followed at once; the oldest goes for a new one.
 const MAX_FOLLOWED: usize = 8;
@@ -79,7 +81,7 @@ pub async fn follow_project(
     followed: State<'_, Followed>,
     project_id: Uuid,
 ) -> Result<()> {
-    let on_mesh = mesh_project(&fleet, project_id).await.is_some();
+    let on_mesh = mesh_project(&fleet, project_id).await?.is_some();
     let mut tasks = followed
         .tasks
         .lock()
@@ -112,14 +114,28 @@ pub fn unfollow_project(followed: State<'_, Followed>, project_id: Option<Uuid>)
     }
 }
 
+/// What a background read of a mesh project tells its page: read the lists or the runs again.
+pub(crate) fn changed(app: AppHandle) -> impl Fn(beep_fleet::Changed) + Send + Sync + 'static {
+    move |changed| {
+        emit(
+            &app,
+            &LiveRow {
+                project_id: beep_fleet::project_id(&changed.project),
+                live: Some(false),
+                polling_why: Some(POLLING_WHY.to_owned()),
+                lists: changed.lists,
+                runs: changed.runs,
+            },
+        );
+    }
+}
+
 /// Tells the page of a mesh project that it polls, then to read again every [`POLL_EVERY`].
 async fn poll(app: AppHandle, project_id: Uuid) {
     let mut row = LiveRow {
         project_id,
         live: Some(false),
-        polling_why: Some(
-            "Beep reads the host every couple of minutes while this page shows.".to_owned(),
-        ),
+        polling_why: Some(POLLING_WHY.to_owned()),
         lists: false,
         runs: false,
     };

@@ -5,10 +5,11 @@
 use crate::{
     beep::Beep,
     error::{DesktopError, Result},
-    fleet::{Fleet, projects::FleetState},
+    fleet::projects::FleetState,
     settings::credentials::{self, CredentialView, Kind},
 };
 use anyhow::Context;
+use beep_fleet::Session;
 use beep_proto::SecretText;
 use serde::Serialize;
 use std::{
@@ -216,7 +217,7 @@ pub async fn use_cli_login(
 }
 
 /// Saves the token `gh` holds for github.com, checked with GitHub.
-pub(crate) async fn save_gh_login(fleet: &Arc<Fleet>, beep: &Beep) -> Result<CredentialView> {
+pub(crate) async fn save_gh_login(fleet: &Arc<Session>, beep: &Beep) -> Result<CredentialView> {
     credentials::save(fleet, beep, Kind::Github, gh_token().await?, true).await
 }
 

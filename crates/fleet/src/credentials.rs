@@ -1,7 +1,7 @@
 //! The user's credentials, kept in the mesh as `credential/<id>`: the values the nodes read
 //! (`Credential::Env` and `Credential::Forgejo`), with everything else the desktop shows derived
 //! from the key and the value. An id is `<kind>.<saved_ms>.<name>`: `gh.<ms>.<login>` for a
-//! GitHub account, whose `:<owner>` siblings carry the same token for each owner it serves,
+//! GitHub account, whose `~<owner>` siblings carry the same token for each owner it serves,
 //! `forgejo.<ms>.<host>`, `api.<ms>.<provider>` and `agent.<ms>.<agent>`.
 //!
 //! A secret never reaches a log: [`SecretText`] and [`SecretString`] print nothing.
@@ -117,7 +117,7 @@ impl Desk {
         let mut out: Vec<Saved> = Vec::new();
         let mut orgs: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (id, value) in &found {
-            if let Some((main, owner)) = id.split_once(':') {
+            if let Some((main, owner)) = id.split_once('~') {
                 orgs.entry(main.to_owned())
                     .or_default()
                     .push(owner.to_owned());
@@ -439,7 +439,7 @@ impl Desk {
                 continue;
             }
             if let Some(name) = github_owner_var(owner) {
-                wanted.insert(format!("{id}:{owner}"), env(&name, secret));
+                wanted.insert(format!("{id}~{owner}"), env(&name, secret));
             }
         }
         // Gone: every GitHub key that is not wanted now.
@@ -470,7 +470,7 @@ impl Desk {
 
     /// Deletes the credential `id` and the owner keys that go with it.
     async fn drop_keys(&self, id: &str) -> Result<()> {
-        let owners = format!("{id}:");
+        let owners = format!("{id}~");
         for (key_id, _) in self.keys_of(parse_id(id).map_or("", |(kind, _, _)| kind)) {
             if key_id == id || key_id.starts_with(&owners) {
                 crate::records::write::<Value>(&self.mesh, key(&key_id), None).await?;

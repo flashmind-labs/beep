@@ -6,7 +6,8 @@ use crate::{
     desk::Desk,
     error::{FleetError, Result},
     records::{
-        GroupRecord, PinRecord, Place, ProjectRecord, WRITES, at, now_ms, read, scan, write,
+        GroupRecord, PinRecord, Place, ProjectRecord, Stored, WRITES, at, find_project, now_ms,
+        place_key, project_key, projects, read, scan, scan_where, write,
     },
 };
 use async_trait::async_trait;
@@ -15,7 +16,7 @@ use beep_projects::{
     Shell,
     branches::add_worktree,
     imports::{
-        flow::{self, Effects, Env, Import, project},
+        flow::{self, Effects, Env, Import},
         folder::{FolderPath, look},
         found::{self, MachineFound},
         host_repos::read_hosts,
@@ -48,16 +49,12 @@ const FOUND_LIMIT: u32 = 100;
 /// The most repositories one host lists.
 const MAX_REPOS: usize = 100;
 
-fn project_key(name: &str) -> Key {
-    Key::Project(name.to_owned())
-}
-
-fn row(name: &str, record: &ProjectRecord, machine: EndpointId, place: &Place) -> ImportRow {
+fn row(stored: &Stored, machine: EndpointId, place: &Place) -> ImportRow {
     ImportRow {
-        project: name.to_owned(),
+        project: stored.name.clone(),
         endpoint: machine.to_string(),
         folder: place.folder.clone(),
-        url: record.url.clone(),
+        url: stored.record.url.clone(),
         imported_at: at(place.imported_ms),
         fork: place
             .fork
@@ -66,7 +63,8 @@ fn row(name: &str, record: &ProjectRecord, machine: EndpointId, place: &Place) -
     }
 }
 
-/// The projects as the import code reads and writes them: `project/<name>` in the mesh.
+/// The projects as the import code reads and writes them: `project/<name>` and one
+/// `project/<name>/<machine>` per checkout in the mesh.
 pub(crate) struct MeshStore {
     mesh: Mesh,
 }
@@ -77,19 +75,36 @@ impl MeshStore {
     }
 
     pub(crate) fn rows(&self) -> Vec<ImportRow> {
-        scan::<ProjectRecord>(&self.mesh, "project/")
-            .into_iter()
-            .flat_map(|(key, record)| {
-                let Key::Project(name) = key else {
-                    return Vec::new();
-                };
-                record
+        projects(&self.mesh)
+            .iter()
+            .flat_map(|stored| {
+                stored
                     .places
                     .iter()
-                    .map(|(machine, place)| row(&name, &record, *machine, place))
-                    .collect()
+                    .map(|(machine, place)| row(stored, *machine, place))
+                    .collect::<Vec<_>>()
             })
             .collect()
+    }
+
+    /// Makes the project's own key if it is not there, with `url`.
+    async fn ensure(&self, name: &str, url: &str) -> anyhow::Result<()> {
+        let key = project_key(name);
+        let mut record = read::<ProjectRecord>(&self.mesh, &key).unwrap_or_default();
+        if record.url.is_empty() {
+            record.url = url.to_owned();
+            write(&self.mesh, key, Some(&record)).await?;
+        }
+        Ok(())
+    }
+
+    fn stored_row(&self, name: &str, machine: EndpointId) -> anyhow::Result<ImportRow> {
+        let stored = find_project(&self.mesh, name).ok_or_else(|| anyhow::anyhow!("not stored"))?;
+        let place = stored
+            .places
+            .get(&machine)
+            .ok_or_else(|| anyhow::anyhow!("not stored"))?;
+        Ok(row(&stored, machine, place))
     }
 }
 
@@ -102,42 +117,32 @@ impl ImportStore for MeshStore {
     async fn save_import(&self, import: NewImport<'_>) -> anyhow::Result<ImportRow> {
         let machine = import.endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let key = project_key(import.project);
-        let mut record = read::<ProjectRecord>(&self.mesh, &key).unwrap_or_default();
-        if record.url.is_empty() {
-            record.url = import.url.to_owned();
-        }
-        let place = record.places.entry(machine).or_insert_with(|| Place {
-            folder: String::new(),
-            imported_ms: now_ms(),
-            fork: None,
-        });
-        place.folder = import.folder.to_owned();
-        let place = place.clone();
-        write(&self.mesh, key, Some(&record)).await?;
-        Ok(row(import.project, &record, machine, &place))
+        self.ensure(import.project, import.url).await?;
+        let key = place_key(import.project, machine);
+        let place = Place {
+            folder: import.folder.to_owned(),
+            // Moving a checkout keeps when it was first imported.
+            imported_ms: read::<Place>(&self.mesh, &key).map_or_else(now_ms, |old| old.imported_ms),
+            fork: read::<Place>(&self.mesh, &key).and_then(|old| old.fork),
+        };
+        write(&self.mesh, key, Some(&place)).await?;
+        self.stored_row(import.project, machine)
     }
 
     async fn link_import(&self, import: NewImport<'_>) -> anyhow::Result<bool> {
         let machine = import.endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let key = project_key(import.project);
-        let mut record = read::<ProjectRecord>(&self.mesh, &key).unwrap_or_default();
-        if record.places.contains_key(&machine) {
+        let key = place_key(import.project, machine);
+        if self.mesh.get(&key).is_some() {
             return Ok(false);
         }
-        if record.url.is_empty() {
-            record.url = import.url.to_owned();
-        }
-        record.places.insert(
-            machine,
-            Place {
-                folder: import.folder.to_owned(),
-                imported_ms: now_ms(),
-                fork: None,
-            },
-        );
-        write(&self.mesh, key, Some(&record)).await?;
+        self.ensure(import.project, import.url).await?;
+        let place = Place {
+            folder: import.folder.to_owned(),
+            imported_ms: now_ms(),
+            fork: None,
+        };
+        write(&self.mesh, key, Some(&place)).await?;
         Ok(true)
     }
 
@@ -149,11 +154,8 @@ impl ImportStore for MeshStore {
     ) -> anyhow::Result<()> {
         let machine = endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let key = project_key(project);
-        let Some(mut record) = read::<ProjectRecord>(&self.mesh, &key) else {
-            return Ok(());
-        };
-        let Some(place) = record.places.get_mut(&machine) else {
+        let key = place_key(project, machine);
+        let Some(mut place) = read::<Place>(&self.mesh, &key) else {
             return Ok(());
         };
         let fork = fork.map(ToString::to_string);
@@ -161,7 +163,7 @@ impl ImportStore for MeshStore {
             return Ok(());
         }
         place.fork = fork;
-        write(&self.mesh, key, Some(&record)).await?;
+        write(&self.mesh, key, Some(&place)).await?;
         Ok(())
     }
 }
@@ -175,17 +177,25 @@ pub(crate) struct DeskProject {
 impl DeskProject {
     pub(crate) fn of(mesh: &Mesh, name: &str) -> Result<Self> {
         let name = RepoName::parse(name).map_err(|e| FleetError::refused(e.to_string()))?;
-        let record = read::<ProjectRecord>(mesh, &project_key(&name.to_string()))
-            .ok_or(FleetError::NotFound)?;
-        let places = record
+        let stored = find_project(mesh, &name.to_string()).ok_or(FleetError::NotFound)?;
+        let places = stored
             .places
             .keys()
             .map(|machine| ImportedPlace {
-                url: record.url.clone(),
+                url: stored.record.url.clone(),
                 machine: Some(*machine),
             })
             .collect();
         Ok(Self { name, places })
+    }
+}
+
+impl DeskProject {
+    /// Whether the project has a checkout on `machine`.
+    pub(crate) fn is_on(&self, machine: EndpointId) -> bool {
+        self.places
+            .iter()
+            .any(|place| place.machine == Some(machine))
     }
 }
 
@@ -312,7 +322,7 @@ impl Desk {
             .filter_map(|row| {
                 let id: EndpointId = row.endpoint.parse().ok()?;
                 let name = names.get(&id)?.clone();
-                Some(project(row, name, false))
+                Some(flow::project(row, name, false))
             })
             .collect()
     }
@@ -525,20 +535,29 @@ impl Desk {
     pub async fn remove(&self, name: &str) -> Result<()> {
         let _write = WRITES.lock().await;
         let name = name.trim();
-        let stored = scan::<ProjectRecord>(&self.mesh, "project/")
-            .into_iter()
-            .find_map(|(key, _)| match key {
-                Key::Project(found) if found.eq_ignore_ascii_case(name) => Some(found),
-                _ => None,
-            })
-            .ok_or(FleetError::NotFound)?;
-        write::<ProjectRecord>(&self.mesh, project_key(&stored), None).await?;
-        for key in [Key::Sync(stored.clone()), Key::Pin(stored)] {
+        let stored = find_project(&self.mesh, name).ok_or(FleetError::NotFound)?;
+        for machine in stored.places.keys() {
+            self.mesh
+                .set(place_key(&stored.name, *machine), None)
+                .await?;
+        }
+        write::<ProjectRecord>(&self.mesh, project_key(&stored.name), None).await?;
+        for key in [Key::Sync(stored.name.clone()), Key::Pin(stored.name)] {
             if self.mesh.get(&key).is_some() {
                 self.mesh.set(key, None).await?;
             }
         }
         Ok(())
+    }
+
+    /// Whether the mesh has the project `name`.
+    pub fn has_project(&self, name: &str) -> bool {
+        find_project(&self.mesh, name).is_some()
+    }
+
+    /// Whether the mesh has the group `id`.
+    pub fn has_group(&self, id: Uuid) -> bool {
+        self.mesh.get(&Key::Group(id.to_string())).is_some()
     }
 
     /// The projects pinned to the top of the sidebar, oldest pin first.
@@ -570,20 +589,24 @@ impl Desk {
 
     /// The user's groups, oldest first.
     pub fn groups(&self) -> Vec<ProjectGroup> {
-        let mut groups: Vec<(u64, ProjectGroup)> = scan::<GroupRecord>(&self.mesh, "group/")
-            .into_iter()
-            .filter_map(|(key, record)| {
-                let Key::Group(id) = key else { return None };
-                Some((
-                    record.created_ms,
-                    ProjectGroup {
-                        id: id.parse().ok()?,
-                        name: record.name,
-                        paths: record.paths,
-                    },
-                ))
-            })
-            .collect();
+        let mut groups: Vec<(u64, ProjectGroup)> = scan_where::<GroupRecord>(
+            &self.mesh,
+            "group/",
+            |key| matches!(key, Key::Group(id) if id.parse::<Uuid>().is_ok()),
+        )
+        .into_iter()
+        .filter_map(|(key, record)| {
+            let Key::Group(id) = key else { return None };
+            Some((
+                record.created_ms,
+                ProjectGroup {
+                    id: id.parse().ok()?,
+                    name: record.name,
+                    paths: record.paths,
+                },
+            ))
+        })
+        .collect();
         groups.sort_by_key(|(created, _)| *created);
         groups.into_iter().map(|(_, group)| group).collect()
     }

@@ -19,13 +19,13 @@ use std::{
 /// each other's change.
 pub(crate) static WRITES: AsyncMutex<()> = AsyncMutex::const_new(());
 
-/// `project/<org/repo>`: where a project is checked out.
+/// `project/<org/repo>`: that a project exists, and its repository's web page. Where it is
+/// checked out is one key per machine, `project/<org/repo>/<machine>`, so two desktops that
+/// import it on different machines never overwrite each other.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectRecord {
     /// The repository's web page.
     pub url: String,
-    #[serde(default)]
-    pub places: BTreeMap<EndpointId, Place>,
 }
 
 /// One machine's checkout of a project.
@@ -52,12 +52,9 @@ pub struct PinRecord {
     pub at_ms: u64,
 }
 
-/// `instructions`: every saved version of the user's instructions, oldest first.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstructionsRecord {
-    pub versions: Vec<SavedVersion>,
-}
-
+/// One saved version of the user's instructions. Each is its own key, `group/instructions.<ms>.<id>`
+/// (a group key whose id is not a uuid, which the groups list skips, because a new kind of key
+/// would break the nodes already running), so two desktops saving at once keep both.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedVersion {
     pub text: String,
@@ -68,7 +65,76 @@ pub struct SavedVersion {
 impl StateValue for ProjectRecord {}
 impl StateValue for GroupRecord {}
 impl StateValue for PinRecord {}
-impl StateValue for InstructionsRecord {}
+impl StateValue for Place {}
+impl StateValue for SavedVersion {}
+
+/// A project as the mesh holds it.
+pub(crate) struct Stored {
+    pub(crate) name: String,
+    pub(crate) record: ProjectRecord,
+    pub(crate) places: BTreeMap<EndpointId, Place>,
+}
+
+/// How many `/` a key's name holds: one for a project, two for a place of it.
+fn slashes(name: &str) -> usize {
+    name.matches('/').count()
+}
+
+/// Every project, with its places.
+pub(crate) fn projects(mesh: &Mesh) -> Vec<Stored> {
+    let mut found: BTreeMap<String, Stored> = BTreeMap::new();
+    let mut places = Vec::new();
+    for (key, bytes) in mesh.scan("project/") {
+        let Key::Project(name) = &key else { continue };
+        match slashes(name) {
+            1 => {
+                if let Some(record) = decode::<ProjectRecord>(&key, &bytes) {
+                    found.insert(
+                        name.clone(),
+                        Stored {
+                            name: name.clone(),
+                            record,
+                            places: BTreeMap::new(),
+                        },
+                    );
+                }
+            }
+            2 => {
+                let Some((project, machine)) = name.rsplit_once('/') else {
+                    continue;
+                };
+                let (Ok(machine), Some(place)) =
+                    (machine.parse::<EndpointId>(), decode::<Place>(&key, &bytes))
+                else {
+                    continue;
+                };
+                places.push((project.to_owned(), machine, place));
+            }
+            _ => {}
+        }
+    }
+    for (project, machine, place) in places {
+        if let Some(stored) = found.get_mut(&project) {
+            stored.places.insert(machine, place);
+        }
+    }
+    found.into_values().collect()
+}
+
+/// The project called `name`, in any case.
+pub(crate) fn find_project(mesh: &Mesh, name: &str) -> Option<Stored> {
+    projects(mesh)
+        .into_iter()
+        .find(|stored| stored.name.eq_ignore_ascii_case(name.trim()))
+}
+
+pub(crate) fn project_key(name: &str) -> Key {
+    Key::Project(name.to_owned())
+}
+
+pub(crate) fn place_key(name: &str, machine: EndpointId) -> Key {
+    Key::Project(format!("{name}/{machine}"))
+}
 
 /// The value at `key`, `None` when there is none or it does not read.
 pub(crate) fn read<T: StateValue>(mesh: &Mesh, key: &Key) -> Option<T> {
@@ -80,6 +146,22 @@ pub(crate) fn read<T: StateValue>(mesh: &Mesh, key: &Key) -> Option<T> {
 pub(crate) fn scan<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
     mesh.scan(prefix)
         .into_iter()
+        .filter_map(|(key, bytes)| {
+            let value = decode(&key, &bytes)?;
+            Some((key, value))
+        })
+        .collect()
+}
+
+/// As [`scan`], decoding only the keys `keep` accepts.
+pub(crate) fn scan_where<T: StateValue>(
+    mesh: &Mesh,
+    prefix: &str,
+    keep: impl Fn(&Key) -> bool,
+) -> Vec<(Key, T)> {
+    mesh.scan(prefix)
+        .into_iter()
+        .filter(|(key, _)| keep(key))
         .filter_map(|(key, bytes)| {
             let value = decode(&key, &bytes)?;
             Some((key, value))

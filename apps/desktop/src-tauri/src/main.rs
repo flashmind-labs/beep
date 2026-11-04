@@ -494,6 +494,12 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         machine.offers(),
     ));
     app.manage(fleet.clone());
+    // What the projects pages read, kept for the run of the app.
+    app.manage(beep_fleet::Session::new(
+        fleet.clone(),
+        beep_fleet::Options::default(),
+        projects::live::changed(handle.clone()),
+    )?);
     let (opening, push) = (fleet.clone(), beep.push());
     tauri::async_runtime::spawn(async move { opening.run(push).await });
     app.manage(machine);
