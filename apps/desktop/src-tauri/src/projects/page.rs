@@ -9,10 +9,10 @@ use crate::{
     error::Result,
 };
 use beep_proto::{
-    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines, ListProjectSessions,
-    ListProjectSyncthing, ListProjectTasks, ListProjectWorkers, PendingApproval, ProjectAgent,
-    ProjectCopy, ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
-    StopProjectWorker, SyncthingPlace, UpdateProjectTask,
+    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines,
+    ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers,
+    PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask, ProjectTaskState,
+    ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -79,7 +79,13 @@ pub async fn project_copy(
     project: String,
     machine_id: String,
 ) -> Result<Option<ProjectCopy>> {
-    known(beep.call(CopyProject { project, machine_id }).await)
+    known(
+        beep.call(CopyProject {
+            project,
+            machine_id,
+        })
+        .await,
+    )
 }
 
 /// The machines on which Syncthing keeps `project`'s folder in step. Empty
