@@ -497,6 +497,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let (opening, push) = (fleet.clone(), beep.push());
     tauri::async_runtime::spawn(async move { opening.run(push).await });
     app.manage(machine);
+    app.manage(machines::list::Outside::default());
     app.manage(tray::Recent::default());
     app.manage(projects::live::Followed::default());
     app.manage(research::Pending::default());

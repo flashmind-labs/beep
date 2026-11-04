@@ -14,13 +14,14 @@ use beep_proto::{
         status::{PROTOCOL, Report},
         traffic::TrafficReport,
         update,
+        version::{self, Version},
     },
 };
 use iroh::EndpointId;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     select,
@@ -45,6 +46,8 @@ struct Peer {
     online: bool,
     /// When it last reported.
     seen_at: Option<SystemTime>,
+    /// The beep-node it runs; not known to a node from before `version/1`.
+    version: Option<String>,
     offers: Vec<String>,
     env: Option<EnvReport>,
     stats: Option<Sampled<StatsReport>>,
@@ -57,6 +60,7 @@ impl Peer {
             device,
             online: false,
             seen_at: None,
+            version: None,
             offers: Vec::new(),
             env: None,
             stats: None,
@@ -95,6 +99,13 @@ impl Shared {
                 peer.device = status.device;
                 peer.online = status.online;
             }
+        }
+        self.changes.send_modify(|count| *count += 1);
+    }
+
+    fn set_version(&self, id: EndpointId, version: String) {
+        if let Some(peer) = self.peers().get_mut(&id) {
+            peer.version = Some(version);
         }
         self.changes.send_modify(|count| *count += 1);
     }
@@ -151,7 +162,7 @@ impl Status {
     /// The list of machines is read from it at once.
     pub(super) async fn watch(&self, mesh: Mesh) {
         self.stop().await;
-        self.shared.peers().clear();
+        // What the machines reported stays for those that are members still.
         self.shared.refresh(&mesh);
         let (stop, stopped) = oneshot::channel();
         let follower = Follower {
@@ -187,9 +198,9 @@ impl Status {
         self.shared.changes.subscribe()
     }
 
-    /// The machines of the mesh, online or not. A status report carries no
-    /// beep-node version, so `version` is empty; a machine that has not
-    /// reported has no `env`.
+    /// The machines of the mesh, online or not. `version` is empty until the
+    /// node says it, and for a node from before `version/1`; a machine that
+    /// has not reported has no `env`.
     pub fn machines(&self) -> Vec<Machine> {
         self.shared
             .peers()
@@ -201,7 +212,7 @@ impl Status {
                 seen_at: peer
                     .seen_at
                     .unwrap_or_else(|| UNIX_EPOCH + Duration::from_millis(peer.device.added_at_ms)),
-                version: String::new(),
+                version: peer.version.clone().unwrap_or_default(),
                 env: peer.env.clone().map(machine_env),
             })
             .collect()
@@ -327,13 +338,23 @@ impl Follower {
         let mut updates = self.mesh.updates();
         let mut follows = JoinSet::new();
         let mut running: BTreeMap<EndpointId, AbortHandle> = BTreeMap::new();
+        // When each follow that ended last did, so it is not started again
+        // on every change of the mesh.
+        let mut ended: BTreeMap<EndpointId, Instant> = BTreeMap::new();
         loop {
             updates.borrow_and_update();
             self.shared.refresh(&self.mesh);
-            running.retain(|_, follow| !follow.is_finished());
+            running.retain(|id, follow| {
+                let finished = follow.is_finished();
+                if finished {
+                    ended.insert(*id, Instant::now());
+                }
+                !finished
+            });
+            ended.retain(|id, _| self.shared.peers().contains_key(id));
             for status in self.mesh.devices().into_iter().filter(|s| s.online) {
                 let id = status.device.id;
-                if running.contains_key(&id) {
+                if running.contains_key(&id) || !retry_due(ended.get(&id).copied()) {
                     continue;
                 }
                 let client = if id == self.me {
@@ -359,8 +380,23 @@ impl Follower {
     }
 }
 
+/// Whether a follow that ended at `ended`, if one did, may start again.
+fn retry_due(ended: Option<Instant>) -> bool {
+    ended.is_none_or(|at| at.elapsed() >= RETRY)
+}
+
+/// The beep-node the machine runs, when it says.
+async fn node_version(client: &PeerClient) -> Option<String> {
+    let (_tx, mut rx) = client.open(version::PROTOCOL).await.ok()?;
+    let Version { version } = rx.recv().await.ok()??;
+    Some(version)
+}
+
 /// Takes the reports of one machine until it closes the stream or fails.
 async fn follow(client: PeerClient, id: EndpointId, shared: Arc<Shared>) {
+    if let Some(version) = node_version(&client).await {
+        shared.set_version(id, version);
+    }
     // Our half stays open: finishing it tells the node we are done.
     let (_tx, mut rx) = match client.open(PROTOCOL).await {
         Ok(stream) => stream,
@@ -475,8 +511,10 @@ fn machine_disk(disk: DiskUsage) -> MachineDisk {
 
 #[cfg(test)]
 mod tests {
+    use super::retry_due;
     use crate::fleet::tests::{LIMIT, join, online, start, until};
     use beep_mesh::DeviceKind;
+    use std::time::Instant;
     use tokio::time::timeout;
 
     use super::Status;
@@ -508,12 +546,17 @@ mod tests {
         settled(status, |status| {
             let machines = status.machines();
             let on = |id: &str| machines.iter().any(|m| m.id == id && m.online);
-            on(&this) && on(&other) && status.details().len() == 2
+            let versioned = machines
+                .iter()
+                .any(|m| m.id == this && !m.version.is_empty());
+            on(&this) && on(&other) && versioned && status.details().len() == 2
         })
         .await;
         let machines = status.machines();
         let studio = machines.iter().find(|m| m.id == this).expect("listed");
         assert_eq!(studio.name, "Studio");
+        // The node said its version, and a joined device that runs no node has none.
+        assert!(studio.version.starts_with(|c: char| c.is_ascii_digit()));
         // Switched off: its endpoint closes, and with it the link.
         router.shutdown().await.expect("the router stops");
         drop(mesh);
@@ -552,5 +595,34 @@ mod tests {
             mac.fleet.client(gone).await.is_err(),
             "a removed machine is not reachable"
         );
+    }
+
+    #[test]
+    fn a_follow_that_ended_waits_before_it_starts_again() {
+        assert!(retry_due(None));
+        assert!(!retry_due(Some(Instant::now())));
+        let long_ago = Instant::now()
+            .checked_sub(super::RETRY)
+            .expect("the clock has run that long");
+        assert!(retry_due(Some(long_ago)));
+    }
+
+    #[tokio::test]
+    async fn what_a_machine_reported_survives_a_swap_of_the_mesh() {
+        let mac = start("Studio").await;
+        let status = mac.fleet.status();
+        let this = mac.endpoint.id().to_string();
+        settled(status, |status| {
+            status
+                .machines()
+                .iter()
+                .any(|m| m.id == this && m.env.is_some())
+        })
+        .await;
+        status
+            .watch(mac.fleet.mesh().expect("the mesh is open"))
+            .await;
+        let machines = status.machines();
+        assert!(machines.iter().any(|m| m.id == this && m.env.is_some()));
     }
 }

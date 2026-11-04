@@ -4,21 +4,30 @@
 
 use crate::{
     beep::{Beep, Service, epoch_ms},
+    center::home_sessions::HOME_CHANGED,
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::Fleet,
     projects::unknown_op,
 };
 use beep_proto::{
-    Call, GetMachineLog, ListMachineDetails, ListMachineStats, ListMachineTraffic, ListMachines,
-    ListUpdatableMachines, Machine, MachineDetails, MachineEnv, MachineStats, MachineTraffic,
-    MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
+    AgentHost, Call, GetMachineLog, ListMachineDetails, ListMachineStats, ListMachineTraffic,
+    ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv, MachineStats,
+    MachineTraffic, MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
     node::logs::MAX_LINES,
 };
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
-use tauri::{AppHandle, Manager, State};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// How long a machine has to read its log; the server gives it 30 seconds.
 const LOG_TIMEOUT: Duration = Duration::from_secs(40);
@@ -50,55 +59,141 @@ impl From<Machine> for MachineView {
     }
 }
 
-/// `mesh`, and what the server lists that it does not: a machine outside the
-/// mesh is reached through the server, when there is one. A server that
-/// cannot answer adds nothing.
-pub(crate) async fn with_outside<R, T>(
-    beep: &Beep,
-    mut mesh: Vec<T>,
-    request: R,
-    id: impl Fn(&T) -> &str,
-) -> Vec<T>
-where
-    R: Call<Reply = Vec<T>>,
-{
-    if beep.server().is_none() {
-        return mesh;
-    }
-    match beep.call(request).await {
-        Ok(listed) => {
-            let outside: Vec<T> = listed
-                .into_iter()
-                .filter(|item| !mesh.iter().any(|held| id(held) == id(item)))
-                .collect();
-            mesh.extend(outside);
+/// What the server last listed for one request: the machines outside the
+/// mesh, which are reached through it. Read at once, and refreshed in the
+/// background, so a slow or absent server delays nothing.
+pub struct Held<T> {
+    list: Mutex<Vec<T>>,
+    refreshing: AtomicBool,
+}
+
+impl<T> Default for Held<T> {
+    fn default() -> Self {
+        Self {
+            list: Mutex::default(),
+            refreshing: AtomicBool::new(false),
         }
-        Err(e) => log::debug!("the server's machines are not listed: {e}"),
     }
+}
+
+impl<T: Clone + PartialEq + Send + 'static> Held<T> {
+    fn last(&self) -> Vec<T> {
+        self.list
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Whether the caller may refresh: one refresh runs at a time.
+    fn begin(&self) -> bool {
+        !self.refreshing.swap(true, Ordering::Relaxed)
+    }
+
+    /// Ends the refresh that `begin` allowed. A list that could not be read
+    /// keeps the last one. Whether the list changed.
+    fn finish(&self, listed: Result<Vec<T>>) -> bool {
+        self.refreshing.store(false, Ordering::Relaxed);
+        match listed {
+            Ok(listed) => {
+                let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
+                let changed = *held != listed;
+                *held = listed;
+                changed
+            }
+            Err(e) => {
+                log::debug!("the server's machines are not listed: {e}");
+                false
+            }
+        }
+    }
+
+    /// `mesh` and the machines the server last listed that it lacks, at
+    /// once. With a server, the list is read again in the background, and
+    /// the windows redraw when it changed.
+    pub(crate) fn merged<R>(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        mesh: Vec<T>,
+        request: R,
+        id: impl Fn(&T) -> &str,
+    ) -> Vec<T>
+    where
+        R: Call<Reply = Vec<T>>,
+    {
+        let beep = app.state::<Arc<Beep>>().inner().clone();
+        if beep.server().is_none() {
+            return mesh;
+        }
+        if self.begin() {
+            let (held, app) = (self.clone(), app.clone());
+            tauri::async_runtime::spawn(async move {
+                let listed = beep.call(request).await;
+                if held.finish(listed)
+                    && let Err(e) = app.emit(HOME_CHANGED, ())
+                {
+                    log::warn!("telling the windows the machines changed: {e}");
+                }
+            });
+        }
+        outside(mesh, &self.last(), id)
+    }
+}
+
+/// `mesh`, then the entries of `server` that are not in it.
+fn outside<T: Clone>(mut mesh: Vec<T>, server: &[T], id: impl Fn(&T) -> &str) -> Vec<T> {
+    let more: Vec<T> = server
+        .iter()
+        .filter(|item| !mesh.iter().any(|held| id(held) == id(item)))
+        .cloned()
+        .collect();
+    mesh.extend(more);
     mesh
 }
 
-pub(crate) async fn machines(beep: &Beep, fleet: &Fleet) -> Vec<Machine> {
-    let mesh = fleet.status().machines();
-    with_outside(beep, mesh, ListMachines {}, |machine| &machine.id).await
+/// What the server listed that is not in the mesh, per kind of list.
+#[derive(Default)]
+pub struct Outside {
+    machines: Arc<Held<Machine>>,
+    details: Arc<Held<MachineDetails>>,
+    stats: Arc<Held<MachineStats>>,
+    traffic: Arc<Held<MachineTraffic>>,
+    updatable: Arc<Held<UpdatableMachine>>,
+    pub(crate) hosts: Arc<Held<AgentHost>>,
 }
 
-pub(crate) async fn details(beep: &Beep, fleet: &Fleet) -> Vec<MachineDetails> {
+/// The machines of the mesh, and those only the server lists. A machine
+/// that has not said its beep-node version has the server's.
+pub(crate) fn machines(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<Machine> {
+    let mut mesh = fleet.status().machines();
+    let server = held.machines.last();
+    for machine in mesh.iter_mut().filter(|m| m.version.is_empty()) {
+        if let Some(listed) = server.iter().find(|s| s.id == machine.id) {
+            machine.version.clone_from(&listed.version);
+        }
+    }
+    held.machines
+        .merged(app, mesh, ListMachines {}, |machine| &machine.id)
+}
+
+pub(crate) fn details(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<MachineDetails> {
     let mesh = fleet.status().details();
-    with_outside(beep, mesh, ListMachineDetails {}, |details| &details.id).await
+    held.details
+        .merged(app, mesh, ListMachineDetails {}, |details| &details.id)
 }
 
-pub(crate) async fn stats(beep: &Beep, fleet: &Fleet) -> Vec<MachineStats> {
+pub(crate) fn stats(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<MachineStats> {
     let mesh = fleet.status().stats();
-    with_outside(beep, mesh, ListMachineStats {}, |stats| &stats.id).await
+    held.stats
+        .merged(app, mesh, ListMachineStats {}, |stats| &stats.id)
 }
 
 #[tauri::command]
 pub async fn list_machines(
-    beep: Service<'_>,
+    app: AppHandle,
     fleet: State<'_, Arc<Fleet>>,
+    held: State<'_, Outside>,
 ) -> Result<Vec<MachineView>> {
-    let machines = machines(&beep, &fleet).await;
+    let machines = machines(&app, &fleet, &held);
     Ok(machines.into_iter().map(MachineView::from).collect())
 }
 
@@ -120,11 +215,14 @@ impl From<MachineTraffic> for TrafficView {
 
 #[tauri::command]
 pub async fn machine_traffic(
-    beep: Service<'_>,
+    app: AppHandle,
     fleet: State<'_, Arc<Fleet>>,
+    held: State<'_, Outside>,
 ) -> Result<Vec<TrafficView>> {
     let mesh = fleet.status().traffic();
-    let traffic = with_outside(&beep, mesh, ListMachineTraffic {}, |traffic| &traffic.id).await;
+    let traffic = held
+        .traffic
+        .merged(&app, mesh, ListMachineTraffic {}, |traffic| &traffic.id);
     Ok(traffic.into_iter().map(TrafficView::from).collect())
 }
 
@@ -167,11 +265,14 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(6 * 60);
 /// `update/1`, and those the server updates.
 #[tauri::command]
 pub async fn updatable_machines(
-    beep: Service<'_>,
+    app: AppHandle,
     fleet: State<'_, Arc<Fleet>>,
+    held: State<'_, Outside>,
 ) -> Result<Vec<UpdatableMachine>> {
     let mesh = fleet.status().updatable();
-    Ok(with_outside(&beep, mesh, ListUpdatableMachines {}, |machine| &machine.id).await)
+    Ok(held
+        .updatable
+        .merged(&app, mesh, ListUpdatableMachines {}, |machine| &machine.id))
 }
 
 /// The recent log of one of the account's machines.
@@ -213,5 +314,42 @@ pub async fn update_machine(beep: Service<'_>, id: String) -> Result<MachineUpda
             "The server needs an update before machines can be updated here.".into(),
         )),
         done => done,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_machine_only_the_server_lists_is_added_to_the_mesh() {
+        let mesh = vec!["studio".to_owned(), "box".to_owned()];
+        let server = ["box".to_owned(), "phone-host".to_owned()];
+        let merged = outside(mesh, &server, |id| id);
+        assert_eq!(merged, ["studio", "box", "phone-host"]);
+    }
+
+    #[test]
+    fn a_server_that_cannot_answer_leaves_the_last_list() {
+        let held = Held::<String>::default();
+        assert!(held.begin());
+        assert!(!held.begin(), "one refresh runs at a time");
+        assert!(held.finish(Ok(vec!["far".to_owned()])));
+        assert!(held.begin());
+        assert!(!held.finish(Err(DesktopError::NoServer)));
+        assert_eq!(held.last(), ["far"]);
+        // The failed refresh ended, so the next may start, and a list
+        // that did not change is not news.
+        assert!(held.begin());
+        assert!(!held.finish(Ok(vec!["far".to_owned()])));
+    }
+
+    #[test]
+    fn with_no_server_the_mesh_machines_stand_alone() {
+        let held = Held::<String>::default();
+        assert_eq!(
+            outside(vec!["studio".to_owned()], &held.last(), |id| id),
+            ["studio"]
+        );
     }
 }

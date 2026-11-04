@@ -10,7 +10,7 @@ use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
     fleet::Fleet,
-    machines::list as machine_list,
+    machines::list::{self as machine_list, Outside},
     projects::{ProjectRow, known},
 };
 use beep_proto::{
@@ -217,24 +217,11 @@ pub async fn center_home(
     app: AppHandle,
     beep: Service<'_>,
     fleet: State<'_, Arc<Fleet>>,
+    held: State<'_, Outside>,
     cache: State<'_, Arc<ViewCache>>,
     agents: State<'_, Arc<AgentSessions>>,
 ) -> Result<HomeView> {
-    let (
-        machines,
-        details,
-        stats,
-        sessions,
-        researches,
-        approvals,
-        chats,
-        crons,
-        updates,
-        projects,
-    ) = join!(
-        machine_list::machines(&beep, &fleet),
-        machine_list::details(&beep, &fleet),
-        machine_list::stats(&beep, &fleet),
+    let (sessions, researches, approvals, chats, crons, updates, projects) = join!(
         agents.list(&app, beep.inner(), cache.inner()),
         beep.call(ListResearches {}),
         beep.call(ListPendingApprovals {}),
@@ -244,9 +231,9 @@ pub async fn center_home(
         beep.call(ListImportedProjects {}),
     );
     let view = home_view(HomeParts {
-        machines: Ok(machines),
-        details: Ok(details),
-        stats: Ok(stats),
+        machines: Ok(machine_list::machines(&app, &fleet, &held)),
+        details: Ok(machine_list::details(&app, &fleet, &held)),
+        stats: Ok(machine_list::stats(&app, &fleet, &held)),
         sessions,
         researches,
         approvals,

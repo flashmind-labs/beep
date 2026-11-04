@@ -9,7 +9,7 @@ use crate::{
     chat::markdown,
     error::Result,
     fleet::Fleet,
-    machines::list::with_outside,
+    machines::list::Outside,
     projects::{known, unknown_op},
 };
 use beep_mesh::Key;
@@ -26,7 +26,7 @@ use beep_proto::{
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Instant};
-use tauri::{State, WebviewWindow};
+use tauri::{AppHandle, State, WebviewWindow};
 use uuid::Uuid;
 
 /// A machine that can run a coding agent.
@@ -191,7 +191,11 @@ pub struct Started {
 /// The machines of the mesh that offer an agent, and those the server lists
 /// that are not in it.
 #[tauri::command]
-pub async fn agent_hosts(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
+pub async fn agent_hosts(
+    app: AppHandle,
+    fleet: State<'_, Arc<Fleet>>,
+    held: State<'_, Outside>,
+) -> Result<Vec<HostRow>> {
     let mesh = fleet.mesh();
     // A harness the desktops switched off is not offered.
     let is_off = |agent: &str| {
@@ -201,7 +205,9 @@ pub async fn agent_hosts(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Res
             .is_some_and(|config| !config.enabled)
     };
     let hosts = fleet.status().agent_hosts(is_off);
-    let hosts = with_outside(&beep, hosts, ListAgentHosts {}, |host| &host.machine_id).await;
+    let hosts = held
+        .hosts
+        .merged(&app, hosts, ListAgentHosts {}, |host| &host.machine_id);
     Ok(hosts.into_iter().map(HostRow::from).collect())
 }
 
