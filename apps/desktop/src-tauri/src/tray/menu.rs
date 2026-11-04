@@ -154,7 +154,7 @@ pub(crate) fn became_linked(app: &AppHandle) {
     refresh(app);
     tauri::async_runtime::spawn(refresh_recent(app.clone()));
     // Signing in brings an account with a server into the mesh.
-    tauri::async_runtime::spawn(crate::fleet::migrate::run(app.clone()));
+    crate::fleet::migrate::start(app.clone());
     app.state::<WaitingList>().poke();
 }
 

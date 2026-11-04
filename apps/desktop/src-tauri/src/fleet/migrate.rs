@@ -33,6 +33,16 @@ struct Server<'a> {
 
 #[async_trait]
 impl Source for Server<'_> {
+    /// The id of the account's own key: the primary device.
+    async fn account(&self) -> Result<String> {
+        let devices = self.beep.call(ListDevices {}).await.map_err(failed)?;
+        devices
+            .into_iter()
+            .find(|device| device.primary)
+            .map(|device| device.id)
+            .ok_or(FleetError::NotFound)
+    }
+
     async fn imports(&self) -> Result<Vec<ImportedProject>> {
         self.beep
             .call(ListImportedProjects {})
@@ -79,15 +89,19 @@ impl Source for Server<'_> {
     }
 }
 
-/// Moves this account into the mesh, if it has a server it is signed in to and the move did not
-/// finish before. A server that does not answer is logged, and the next launch tries again.
-pub(crate) async fn run(app: AppHandle) {
+/// Starts moving this account into the mesh in the background, if it has a server it is signed
+/// in to. A move already running is replaced. `Fleet::join` stops it before the mesh closes.
+pub(crate) fn start(app: AppHandle) {
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    // Owned by the fleet, which cancels it when the mesh is about to close.
+    let task = tauri::async_runtime::spawn(run(app));
+    fleet.moving(task);
+}
+
+async fn run(app: AppHandle) {
     let beep = app.state::<Arc<Beep>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    let Some(server) = beep.server() else {
-        return;
-    };
-    if beep.link_state() != LinkState::Linked {
+    if beep.server().is_none() || beep.link_state() != LinkState::Linked {
         return;
     }
     let mesh = match fleet.ready().await {
@@ -97,7 +111,7 @@ pub(crate) async fn run(app: AppHandle) {
             return;
         }
     };
-    match migrate::run(&mesh, &Server { beep: &beep }, &server.to_string()).await {
+    match migrate::run(&mesh, &Server { beep: &beep }).await {
         Ok(report) if report.already => {}
         Ok(report) => {
             log::info!(
