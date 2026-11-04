@@ -197,20 +197,26 @@ pub(crate) fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
     }
 }
 
+/// GitHub wraps a run's jobs in an object; Forgejo sends the bare list.
 #[derive(Debug, Deserialize)]
-pub(crate) struct JobsReply {
-    #[serde(default)]
-    jobs: Vec<HostJob>,
+#[serde(untagged)]
+pub(crate) enum JobsReply {
+    Wrapped {
+        #[serde(default)]
+        jobs: Vec<HostJob>,
+    },
+    Bare(Vec<HostJob>),
 }
 
 impl JobsReply {
     pub(crate) fn jobs(self) -> Vec<RunJob> {
-        self.jobs.into_iter().map(HostJob::into_job).collect()
+        let (Self::Wrapped { jobs } | Self::Bare(jobs)) = self;
+        jobs.into_iter().map(HostJob::into_job).collect()
     }
 }
 
 #[derive(Debug, Deserialize)]
-struct HostJob {
+pub(crate) struct HostJob {
     id: u64,
     #[serde(default)]
     name: String,
