@@ -300,6 +300,8 @@ impl Reader {
             Err(e) => return self.push(source.error(format!("{e:#}"))),
         };
         match place.format {
+            // `.agents` is shared, so its `AGENTS.md` and notes are no definitions.
+            Format::Markdown if place.harness == FLSH && !parse::has_frontmatter(&text) => {}
             Format::Markdown => self.push(source.row(parse::markdown(&text))),
             Format::CodexRoles => match parse::codex_role(&text) {
                 Ok(found) => self.push(source.row(found)),
@@ -511,6 +513,28 @@ mod tests {
         assert_eq!(tester.model.as_deref(), Some("model-b"));
         assert_eq!(tester.prompt, "Test it.");
         assert_eq!(tester.error, None);
+    }
+
+    #[test]
+    fn the_instructions_in_a_shared_agents_folder_are_no_agent() {
+        let s = setup();
+        write(&s.home, ".agents/AGENTS.md", "# Global instructions");
+        write(
+            &s.home,
+            ".agents/helper.md",
+            "---\nname: helper\n---\nHelp.",
+        );
+        write(
+            Path::new(&s.project),
+            ".claude/agents/plain.md",
+            "No block.",
+        );
+        let agents = list(&s.project, Some(&s.home)).unwrap();
+        let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
+        assert!(names.contains(&"helper"), "{names:?}");
+        assert!(!names.contains(&"AGENTS"), "{names:?}");
+        // A harness's own folder still says a definition is broken.
+        assert!(names.contains(&"plain"), "{names:?}");
     }
 
     #[cfg(unix)]

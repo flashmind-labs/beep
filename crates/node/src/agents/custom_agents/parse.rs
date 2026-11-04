@@ -30,6 +30,11 @@ pub(super) struct CodexDeclared {
     pub(super) config_file: Option<String>,
 }
 
+/// Whether `text` opens with frontmatter between `---` lines.
+pub(super) fn has_frontmatter(text: &str) -> bool {
+    split_frontmatter(text).is_some()
+}
+
 /// A Markdown definition: YAML frontmatter between `---` lines, then the
 /// prompt. Frontmatter that is not valid YAML is read a line at a time for
 /// what it can give, and the row says it is broken.
