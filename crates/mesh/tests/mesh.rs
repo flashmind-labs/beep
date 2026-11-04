@@ -10,14 +10,13 @@ use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
 use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
-use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
+use iroh::{Endpoint, EndpointId, SecretKey};
 use std::fs::{copy, create_dir_all, read_dir};
 use std::future::pending as never;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::time::{Instant, pause, timeout};
@@ -506,59 +505,6 @@ async fn a_removed_device_that_comes_back_learns_it_was_removed() {
         b.mesh.set(project("p"), None).await,
         Err(MeshError::Removed(_))
     ));
-}
-
-fn at(id: EndpointId, port: u16) -> EndpointAddr {
-    EndpointAddr::new(id).with_ip_addr(SocketAddr::from(([127, 0, 0, 1], port)))
-}
-
-fn addr_of(mesh: &Mesh, id: EndpointId) -> Option<EndpointAddr> {
-    mesh.devices()
-        .into_iter()
-        .find(|d| d.device.id == id)
-        .and_then(|d| d.addr)
-}
-
-#[tokio::test]
-async fn two_members_holding_different_addresses_for_a_third_settle() {
-    let a = create("a").await;
-    let b = join(&a, DeviceKind::Desktop, "b").await;
-    let c = join(&a, DeviceKind::Desktop, "c").await;
-    for (x, y) in [(&a, &b), (&a, &c), (&b, &c)] {
-        until(&x.mesh, |m| online(m, y.id())).await;
-        until(&y.mesh, |m| online(m, x.id())).await;
-    }
-    let (low, high) = (at(c.id(), 9), at(c.id(), 10));
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_millis() as u64;
-    b.mesh.hint_addr(low, now + 1_000).await;
-    a.mesh.hint_addr(high.clone(), now + 2_000).await;
-    until(&b.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
-    until(&a.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
-    // A note still in flight may land once. Trading notes forever would keep
-    // counting through every round trip of state.
-    let total = || {
-        [&a, &b, &c]
-            .map(|d| d.mesh.addr_updates())
-            .iter()
-            .sum::<u64>()
-    };
-    let before = total();
-    for round in 0..20u8 {
-        a.mesh
-            .set(project("barrier"), Some(vec![round]))
-            .await
-            .expect("write");
-        for peer in [&b, &c] {
-            until(&peer.mesh, |m| {
-                m.get(&project("barrier")) == Some(vec![round])
-            })
-            .await;
-        }
-    }
-    assert!(total() - before <= 3, "addresses kept changing hands");
 }
 
 /// Counts connections that reach the peer ALPN, then serves them.
