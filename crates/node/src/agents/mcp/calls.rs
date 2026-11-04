@@ -18,6 +18,8 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `Send <n> files to <machine>`
 /// - `Check job <id>`, `Cancel job <id>`
 /// - `Read log of <machine>`
+/// - `Remember: <content>`, `Recall: <query>`
+/// - `Update memory <id>: <content>`, `Forget memory <id>`
 /// - `Ask: <question>`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tool {
@@ -28,6 +30,10 @@ pub(crate) enum Tool {
     JobStatus,
     Cancel,
     MachineLog,
+    Remember,
+    Recall,
+    UpdateMemory,
+    Forget,
     AskUser,
 }
 
@@ -42,6 +48,10 @@ impl Tool {
             "job_status" => Self::JobStatus,
             "cancel" => Self::Cancel,
             "machine_log" => Self::MachineLog,
+            "remember" => Self::Remember,
+            "recall" => Self::Recall,
+            "update_memory" => Self::UpdateMemory,
+            "forget" => Self::Forget,
             ASK_USER => Self::AskUser,
             _ => return None,
         })
@@ -138,6 +148,13 @@ impl Tool {
             Self::JobStatus => format!("{PREFIX}Check job {}", text("id").unwrap_or("")),
             Self::Cancel => format!("{PREFIX}Cancel job {}", text("id").unwrap_or("")),
             Self::MachineLog => format!("{PREFIX}Read log of {}", machine.unwrap_or("a machine")),
+            Self::Remember => with("Remember".to_owned(), text("content")),
+            Self::Recall => with("Recall".to_owned(), text("query")),
+            Self::UpdateMemory => with(
+                format!("Update memory {}", text("id").unwrap_or("")),
+                text("content"),
+            ),
+            Self::Forget => format!("{PREFIX}Forget memory {}", text("id").unwrap_or("")),
             Self::AskUser => with("Ask".to_owned(), text("question")),
         }
         .trim_end()
@@ -187,5 +204,12 @@ mod tests {
         );
         assert_eq!(Tool::of_call("Run cargo test", None, None), None);
         assert_eq!(Tool::of_call("beep/unknown", None, None), None);
+        let remember = json!({"content": "Use the render box for Blender."});
+        assert_eq!(
+            Tool::of_name("mcp__beep__remember")
+                .unwrap()
+                .title(Some(&remember)),
+            "Beep: Remember: Use the render box for Blender."
+        );
     }
 }

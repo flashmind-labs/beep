@@ -102,10 +102,10 @@ const SCOPE_HELP: &str = "What the fact is about: `user` (the default) for the u
     project such as a repository, `account:<app>` for one of their accounts, such as `account:github`.";
 
 /// Scopes as the model writes them (`machine:build-box`); the store keys machines by id.
-struct ScopeNames(Vec<NodeRow>);
+pub(super) struct ScopeNames(Vec<NodeRow>);
 
 impl ScopeNames {
-    async fn load(user: &User) -> Result<Self> {
+    pub(super) async fn load(user: &User) -> Result<Self> {
         Ok(Self(user.nodes().await?))
     }
 
@@ -133,7 +133,7 @@ impl ScopeNames {
     }
 
     /// How the model reads `scope`, `None` for the user.
-    fn name(&self, scope: &Scope) -> Option<String> {
+    pub(super) fn name(&self, scope: &Scope) -> Option<String> {
         Some(match scope {
             Scope::User => return None,
             Scope::Machine(key) => {
@@ -149,7 +149,7 @@ impl ScopeNames {
     }
 
     /// The `scope` argument, when the call gave one.
-    fn arg(&self, args: &Value) -> Result<Option<Scope>> {
+    pub(super) fn arg(&self, args: &Value) -> Result<Option<Scope>> {
         opt_arg(args, "scope")
             .map(|text| self.parse(text))
             .transpose()
