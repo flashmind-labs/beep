@@ -6,8 +6,8 @@
 //! ending the task ends only conhost. Its log goes to a file, since there is
 //! no console to read.
 
-use super::{Launch, Manager, Restart, escape};
-use anyhow::{Context, Result, bail};
+use super::{Launch, Manager, Restart, escape, run};
+use anyhow::{Context, Result};
 use std::{
     env, fs,
     io::ErrorKind,
@@ -26,17 +26,20 @@ pub(super) fn install(launch: &Launch) -> Result<PathBuf> {
     }
     let xml = task_xml(launch, &user()?, &conhost(), &logs.join(LOG_NAME));
     fs::write(&path, utf16(&xml)).with_context(|| format!("writing {}", path.display()))?;
-    schtasks(&[
-        "/Create",
-        "/TN",
-        TASK,
-        "/XML",
-        &path.display().to_string(),
-        "/F",
-    ])?;
+    run(
+        "schtasks",
+        &[
+            "/Create",
+            "/TN",
+            TASK,
+            "/XML",
+            &path.display().to_string(),
+            "/F",
+        ],
+    )?;
     // Picks up a new binary when one was already running.
     end();
-    schtasks(&["/Run", "/TN", TASK])?;
+    run("schtasks", &["/Run", "/TN", TASK])?;
     Ok(path)
 }
 
@@ -46,7 +49,7 @@ pub(super) fn uninstall() -> Result<()> {
         return Ok(());
     }
     end();
-    schtasks(&["/Delete", "/TN", TASK, "/F"])?;
+    run("schtasks", &["/Delete", "/TN", TASK, "/F"])?;
     let path = task_path()?;
     match fs::remove_file(&path) {
         Ok(()) => {}
@@ -60,7 +63,7 @@ pub(super) fn uninstall() -> Result<()> {
 pub(super) fn restart() -> Result<()> {
     // Ending the task ends conhost, and the node with it (`--with-parent`).
     end();
-    schtasks(&["/Run", "/TN", TASK])
+    run("schtasks", &["/Run", "/TN", TASK])
 }
 
 /// What `restart` would do, without doing it.
@@ -277,22 +280,6 @@ fn end() {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-}
-
-fn schtasks(args: &[&str]) -> Result<()> {
-    let out = Command::new("schtasks")
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .context("running schtasks")?;
-    if !out.status.success() {
-        bail!(
-            "schtasks {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(())
 }
 
 #[cfg(test)]

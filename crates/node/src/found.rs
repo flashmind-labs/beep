@@ -35,6 +35,8 @@ mod flsh;
 mod git;
 mod memo;
 mod opencode;
+
+pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
 
 pub(crate) use disk::{forget_checkouts, saved_checkouts};
@@ -277,10 +279,6 @@ pub(crate) fn open_database(path: &Path) -> rusqlite::Result<Connection> {
     )?;
     conn.busy_timeout(Duration::from_millis(200))?;
     Ok(conn)
-}
-
-pub(crate) fn opencode_databases(root: &Path) -> Vec<PathBuf> {
-    opencode::databases_at(root)
 }
 
 /// Sessions in one folder, per agent, as `folders` gathers them.

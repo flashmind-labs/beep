@@ -352,13 +352,7 @@ impl Syncs {
         let config = Config { projects: kept };
         let saved = serde_json::to_vec_pretty(&config)
             .context("encoding the projects")
-            .and_then(|bytes| {
-                let file = self.inner.dir.join(CONFIG);
-                let temp = file.with_extension("tmp");
-                fs::write(&temp, bytes)?;
-                fs::rename(&temp, &file)?;
-                Ok(())
-            });
+            .and_then(|bytes| crate::note::write(&self.inner.dir.join(CONFIG), &bytes));
         if let Err(e) = saved {
             log::warn!("the synced projects are not saved: {e:#}");
         }

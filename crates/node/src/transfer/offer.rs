@@ -65,10 +65,6 @@ struct Walked {
     skipped: u64,
 }
 
-fn is_executable(metadata: &Metadata) -> bool {
-    fsat::is_executable(metadata)
-}
-
 fn walk(root: &Path) -> Result<Walked> {
     let mut walked = Walked::default();
     let mut total = 0u64;
@@ -99,7 +95,7 @@ fn walk(root: &Path) -> Result<Walked> {
                     name,
                     path: item.path(),
                     size: metadata.len(),
-                    executable: is_executable(&metadata),
+                    executable: fsat::is_executable(&metadata),
                     identity: Identity::of(&metadata),
                 });
                 ensure!(
@@ -211,7 +207,7 @@ pub(super) async fn offer(
             name: name.clone(),
             path: path.to_owned(),
             size: metadata.len(),
-            executable: is_executable(&metadata),
+            executable: fsat::is_executable(&metadata),
             identity: Identity::of(&metadata),
         };
         let mut ticker = Ticker::new(Stage::Hashing, entry.size);

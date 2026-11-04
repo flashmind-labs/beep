@@ -61,7 +61,7 @@ fn data_dir() -> Option<PathBuf> {
 }
 
 /// The databases at `root`: the database itself, or those in the folder.
-pub(super) fn databases_at(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn databases_at(root: &Path) -> Vec<PathBuf> {
     if root.is_file() {
         vec![root.to_owned()]
     } else {

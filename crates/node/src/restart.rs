@@ -10,11 +10,12 @@
 use crate::{
     agents::{Agents, OpenSession},
     local_socket::{Listener, Stream},
+    note,
     terminal::{self, OpenTerminal},
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{fs, io::ErrorKind, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split},
     sync::Notify,
@@ -24,8 +25,6 @@ use tokio::{
 const SOCKET: &str = "control.sock";
 /// What the node has open, in its folder.
 const FILE: &str = "reopen.json";
-/// Written first, then renamed over `FILE`.
-const TEMP: &str = "reopen.json.tmp";
 
 /// Woken when a session or terminal opens or closes.
 static CHANGED: Notify = Notify::const_new();
@@ -47,19 +46,7 @@ impl Reopen {
     /// write, so a start that dies before it took over still finds it.
     /// Nothing when there is none or it cannot be read.
     pub(crate) fn read(dir: &Path) -> Self {
-        let path = dir.join(FILE);
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Self::default(),
-            Err(e) => {
-                log::warn!("could not read {}: {e}", path.display());
-                return Self::default();
-            }
-        };
-        serde_json::from_str(&text).unwrap_or_else(|e| {
-            log::warn!("ignored {}: {e}", path.display());
-            Self::default()
-        })
+        note::read(&dir.join(FILE))
     }
 
     /// What `agents` and the terminals have open now.
@@ -72,10 +59,7 @@ impl Reopen {
 
     /// Writes this down in `dir` for the next start, whole or not at all.
     pub(crate) fn save(&self, dir: &Path) -> Result<()> {
-        let (temp, path) = (dir.join(TEMP), dir.join(FILE));
-        let text = serde_json::to_string(self).context("writing what was open")?;
-        fs::write(&temp, text).with_context(|| format!("writing {}", temp.display()))?;
-        fs::rename(&temp, &path).with_context(|| format!("writing {}", path.display()))
+        note::write_json(&dir.join(FILE), self)
     }
 }
 

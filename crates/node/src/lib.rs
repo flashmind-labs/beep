@@ -8,6 +8,8 @@
 //! serves the sessions Beep opens. `beep-node local` does both for the node
 //! bundled with a single-user server, which links it to the owner itself.
 
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
 pub mod agents;
 pub mod claude;
 pub mod env;
@@ -19,6 +21,7 @@ pub mod link;
 pub mod local;
 mod local_socket;
 pub mod mcp;
+mod note;
 mod process;
 pub mod provision;
 pub mod reconnect;
@@ -54,3 +57,8 @@ pub use terminal::host::in_process as terminal_host_in_process;
 pub use terminal::host::run as run_terminal_host;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
+
+/// Locks `mutex`, carrying on with what a holder that panicked left.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}

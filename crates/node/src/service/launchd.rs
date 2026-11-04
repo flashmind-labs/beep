@@ -1,8 +1,8 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::{Launch, Manager, Plan, Restart, escape};
-use anyhow::{Context, Result, bail};
+use super::{Launch, Manager, Plan, Restart, escape, run};
+use anyhow::{Context, Result};
 use std::{
     fs,
     io::ErrorKind,
@@ -24,8 +24,11 @@ pub(super) fn install(launch: &Launch) -> Result<PathBuf> {
     // Unloads an older copy; fails, harmlessly, when none is loaded.
     bootout(&service);
     // A service once disabled stays disabled across bootstraps.
-    launchctl(&["enable", &service])?;
-    launchctl(&["bootstrap", &domain, &path.display().to_string()])?;
+    run("launchctl", &["enable", &service])?;
+    run(
+        "launchctl",
+        &["bootstrap", &domain, &path.display().to_string()],
+    )?;
     Ok(path)
 }
 
@@ -47,9 +50,12 @@ pub(super) fn restart(reload: bool) -> Result<()> {
     let service = format!("{domain}/{LABEL}");
     if reload {
         bootout(&service);
-        launchctl(&["bootstrap", &domain, &plist_path()?.display().to_string()])
+        run(
+            "launchctl",
+            &["bootstrap", &domain, &plist_path()?.display().to_string()],
+        )
     } else {
-        launchctl(&["kickstart", "-k", &service])
+        run("launchctl", &["kickstart", "-k", &service])
     }
 }
 
@@ -123,7 +129,7 @@ fn domain() -> Result<String> {
     }
     #[cfg(not(unix))]
     {
-        bail!("launchd only runs on macOS")
+        anyhow::bail!("launchd only runs on macOS")
     }
 }
 
@@ -210,22 +216,6 @@ fn bootout(service: &str) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
-}
-
-fn launchctl(args: &[&str]) -> Result<()> {
-    let out = Command::new("launchctl")
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .context("running launchctl")?;
-    if !out.status.success() {
-        bail!(
-            "launchctl {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(())
 }
 
 #[cfg(test)]
