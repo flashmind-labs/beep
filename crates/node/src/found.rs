@@ -38,7 +38,7 @@ mod opencode;
 mod pi;
 
 pub(crate) use disk::checkouts;
-pub(crate) use git::{Checkout, checkout};
+pub(crate) use git::{Checkout, checkout, last_commit};
 pub(crate) use memo::Memo;
 
 /// The most session files one store looks at.
@@ -385,6 +385,21 @@ pub(crate) fn add_checkouts(
             last_activity: 0,
         });
     }
+}
+
+/// Raises each folder's `last_activity` to its last commit when that is
+/// newer (`commit` reads it, as `last_commit` does), then sorts newest first.
+pub(crate) fn with_commits(out: &mut [SessionFolder], commit: impl Fn(&Path) -> Option<u64>) {
+    for folder in out.iter_mut() {
+        if let Some(at) = commit(Path::new(&folder.path)) {
+            folder.last_activity = folder.last_activity.max(at);
+        }
+    }
+    out.sort_by(|a, b| {
+        b.last_activity
+            .cmp(&a.last_activity)
+            .then_with(|| a.path.cmp(&b.path))
+    });
 }
 
 /// Whether `cwd` is `folder` or inside it.

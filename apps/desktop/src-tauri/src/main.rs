@@ -296,6 +296,7 @@ fn main() {
             projects::list_machine_folder,
             projects::pick_folder,
             projects::found_projects,
+            projects::host_repos,
             projects::project_sessions,
             projects::project_machines,
             projects::project_syncthing,

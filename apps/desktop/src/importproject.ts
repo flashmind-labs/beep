@@ -1,9 +1,9 @@
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
-// online machine (Auto lets the server pick), the folder it goes in, then
-// Import.
+// online machine (Auto lets the server pick), the parent folder a clone goes
+// under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "./tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "./addmachine.ts";
-import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, defaultFolder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
+import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, folderUnder, folderNote, folderHelp, button, el, reason } from "./projects-state.ts";
 import type { ImportEvent, MachineFolder, ProjectRow } from "./projects-state.ts";
 import { checkoutNote, defaultPlaces, forkNote, placeChoices, previewLine, worktreesToAsk } from "./branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "./branchwork.ts";
@@ -69,8 +69,8 @@ let fork: ImportFork | null | undefined = undefined;
 const bases = new Map<string, string>();
 /// A folder is being read, so the folder buttons wait.
 let reading = false;
-/// The Folder field's text once the user types in it; null while it shows
-/// the folder chosen or the default.
+/// The parent field's text once the user types in it; null while it shows
+/// the folder chosen or the default parent.
 let folderText: string | null = null;
 /// The folders offered under the Folder field.
 let menu: FolderMenu = NO_MENU;
@@ -179,19 +179,14 @@ function update(event: ImportEvent) {
   else if (root) syncForm();
 }
 
-/// Import, or Enter: a folder typed is read first, as Choose… reads one,
-/// so a checkout there fills the repository; then the import starts.
-async function goImport() {
-  if (folderText != null && state.step === "form") {
-    const typed = folderText.trim();
-    if (!typed) update({ type: "unchoose" });
-    else if (state.machine) {
-      let found = false;
-      await read(typed, listing => { found = true; update({ type: "choose", listing }); });
-      if (!found) return;
-    }
-  }
-  submit();
+/// Import, or Enter.
+const goImport = () => submit();
+
+/// The parent a clone goes under: the one typed, else the default; null on
+/// Auto or with a folder chosen.
+function parentFolder() {
+  if (!state.machine || state.chosen) return null;
+  return (folderText ?? defaultParent())?.trim() || null;
 }
 
 async function submit() {
@@ -201,7 +196,7 @@ async function submit() {
   // The branches picked go with it only when they were read for this repo.
   const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
   try {
-    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees });
+    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees, parent: parentFolder() });
     keepLastImport(project);
     update({ type: "done", project });
     // The sheet may have closed while cloning: the project still lands.
@@ -216,9 +211,9 @@ function syncForm() {
   const go = sheet!.querySelector<HTMLButtonElement>(".ip-go");
   if (go) go.disabled = !looksLikeRepo(state.repo);
   if (!state.error) sheet!.querySelector(".am-msg.bad")?.remove();
-  // The default folder follows the repository typed.
-  const dir = sheet!.querySelector<HTMLInputElement>(".ip-dir");
-  if (dir && folderText == null && document.activeElement !== dir) dir.value = dir.title = shownFolder() ?? "";
+  // Where it goes follows the repository typed.
+  const to = sheet!.querySelector(".ip-to");
+  if (to) to.textContent = goesIn();
 }
 
 function draw() {
@@ -335,9 +330,10 @@ function form() {
     el("div", "am-line", input),
     el("div", "am-label", "Machine"),
     el("div", "am-line", chips),
-    el("div", "am-label", "Folder"),
+    el("div", "am-label", state.chosen ? "Folder" : "Clone into"),
     state.browsing ? browser(state.browsing) : folderLine(),
     state.chosen && !state.browsing ? el("div", "ip-found", state.chosen.origin != null && el("span", "ddot"), folderNote(state.chosen, state.repo)) : null,
+    state.chosen || state.browsing ? null : el("div", "am-sub ip-to", goesIn()),
     forkLine(),
     el("div", "am-sub", folderHelp(state, machines)),
     ...branchesBlock(),
@@ -382,12 +378,29 @@ function branchesBlock() {
   ];
 }
 
+/// The parent a clone goes under before anything is typed: the last one used
+/// on the picked machine, else its projects folder.
+function defaultParent() {
+  if (!state.machine) return null;
+  const last = lastImport();
+  if (last?.root && last.machine === state.machine) return last.root;
+  const base = bases.get(state.machine);
+  if (!base) return null;
+  const os = machines.find(x => x.id === state.machine)?.env?.os;
+  return `${base.replace(/\/+$/, "")}/${os === "linux" ? "projects" : "Projects"}`;
+}
+
 /// The folder the field shows before anything is typed: the one chosen,
-/// else the picked machine's default.
+/// else the default parent.
 function shownFolder() {
-  const m = machines.find(x => x.id === state.machine);
-  return state.chosen?.path
-    ?? (state.machine ? defaultFolder(bases.get(state.machine), m?.env?.os, state.repo) : null);
+  return state.chosen?.path ?? defaultParent();
+}
+
+/// "Goes in <parent>/<org>/<repo>." under the parent field.
+function goesIn() {
+  const parent = parentFolder();
+  if (!parent) return "";
+  return `Goes in ${folderUnder(parent, state.repo) ?? `${parent.replace(/\/+$/, "")}/<org>/<repo>`}.`;
 }
 
 /// Where it goes, the default or the folder chosen or typed, and Choose….
@@ -397,7 +410,7 @@ function folderLine() {
   path.spellcheck = false;
   path.autocapitalize = "off";
   path.setAttribute("autocorrect", "off");
-  path.setAttribute("aria-label", "Folder");
+  path.setAttribute("aria-label", state.chosen ? "Folder" : "Clone into");
   path.setAttribute("role", "combobox");
   path.setAttribute("aria-autocomplete", "list");
   path.setAttribute("aria-controls", "ip-menu");
@@ -406,7 +419,13 @@ function folderLine() {
   // On Auto there is no machine to name a folder on.
   path.disabled = !state.machine;
   path.value = path.title = state.machine ? folderText ?? shownFolder() ?? "" : "";
-  path.addEventListener("input", () => { folderText = path.title = path.value; lookFolders(); });
+  path.addEventListener("input", () => {
+    // Typing over a chosen folder makes it a parent again.
+    if (state.chosen) { const text = path.value; update({ type: "unchoose" }); folderText = text; draw(); return; }
+    folderText = path.title = path.value;
+    syncForm();
+    lookFolders();
+  });
   path.addEventListener("keydown", e => onFolderKey(e, path));
   path.addEventListener("blur", () => { lookup++; clearTimeout(lookupTimer); setMenu(NO_MENU); });
   const pick = button(reading ? "Reading…" : "Choose…", "dbtn quiet", choose);

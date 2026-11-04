@@ -235,6 +235,8 @@ sample_struct! {
     FoundProject { project, remote, places, agents, last_activity }
     FoundPlace { machine_id, machine_name, folder }
     FoundAgent { agent, sessions }
+    HostRepos { host, kind, repos, error }
+    HostRepo { name, url, updated_at }
     ProjectMachine { machine_id, machine_name, online, folder, checking, checked_at }
     SyncthingPlace { machine_id, folder, label }
     AgentHarnesses { machine_id, machine_name, checked_at, harnesses }
