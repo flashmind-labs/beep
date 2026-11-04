@@ -14,6 +14,7 @@ import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { firstRun } from "./firstrun.ts";
+import { viewHidden } from "../settings/subscription.ts";
 import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
@@ -194,6 +195,13 @@ listen<string>("link-state", e => {
   state.subscribed = now;
   for (const name of ["pinned", "chats", "views", "research"]) reloadGroup(name);
   if (now) loadAgents();
+  else {
+    state.agents = null;
+    // Signed out on a page that is only there with a subscription: Home.
+    const on = paneOn();
+    const arg = on.group ? { group: { id: on.group } } : on.session ? { chat: { session: on.session } } : on.view;
+    if (shown && viewHidden(shown, arg, false)) go("home");
+  }
   draw();
 });
 
