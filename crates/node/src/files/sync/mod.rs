@@ -160,26 +160,38 @@ pub struct Syncs {
 }
 
 impl Inner {
-    /// Whether `peer` is still a device of the mesh, when there is one.
-    /// Asked on every connection and request, so a removed device is out at
-    /// once, before the project's peer list catches up.
+    /// Whether `peer` is still a device of the mesh, when the node is in
+    /// one. Asked on every connection and request, so a removed device is
+    /// out at once, before the project's peer list catches up.
     fn in_mesh(&self, peer: &EndpointId) -> bool {
         lock(&self.mesh)
             .as_ref()
             .is_none_or(|mesh| mesh.is_member(*peer))
     }
+
+    /// Whether `peer` may sync: when the mesh owns the project list, only a
+    /// device of the mesh may. A list the server set names its own peers.
+    fn sync_allows(&self, peer: &EndpointId) -> bool {
+        lock(&self.mesh)
+            .as_ref()
+            .is_none_or(|mesh| !mesh.has_held("sync/") || mesh.is_member(*peer))
+    }
 }
 
 impl Access for Inner {
-    fn may_connect(&self, peer: &EndpointId) -> bool {
+    fn allows(&self, peer: &EndpointId) -> bool {
         self.in_mesh(peer)
+    }
+
+    fn may_connect(&self, peer: &EndpointId) -> bool {
+        self.sync_allows(peer)
             && lock(&self.projects)
                 .values()
                 .any(|running| running.shared.has_peer(peer))
     }
 
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
-        self.in_mesh(peer)
+        self.sync_allows(peer)
             && lock(&self.projects)
                 .values()
                 .any(|running| running.shared.has_peer(peer) && running.shared.has(hash))
@@ -267,8 +279,11 @@ impl Syncs {
         *lock(&self.inner.mesh) = Some(mesh);
     }
 
+    /// Whether the mesh owns the project list, so the server's is ignored.
     fn follows_mesh(&self) -> bool {
-        lock(&self.inner.mesh).is_some()
+        lock(&self.inner.mesh)
+            .as_ref()
+            .is_some_and(|mesh| mesh.has_held("sync/"))
     }
 
     /// Syncs exactly `projects`, as the mesh names them.
@@ -581,9 +596,10 @@ impl Syncs {
         self.inner.may_connect(peer)
     }
 
-    /// Whether `peer` may still make requests: it is not out of the mesh.
+    /// Whether `peer` may still make requests: it is not out of the mesh
+    /// that owns the project list.
     fn allows(&self, peer: &EndpointId) -> bool {
-        self.inner.in_mesh(peer)
+        self.inner.sync_allows(peer)
     }
 }
 

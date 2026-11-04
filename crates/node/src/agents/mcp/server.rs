@@ -119,7 +119,7 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": super::BRIEF,
+                    "instructions": super::brief(backend.memory_tools()),
                 }),
             )
         }

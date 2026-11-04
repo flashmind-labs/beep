@@ -172,7 +172,7 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
     let _provision = home.provision.start();
     // The same as `beep-node` serves, with agents found on the login
     // shell's PATH (the app adopts it at start), plus desktop control.
-    let mut offers = Offers::local(&[], home.provision.clone());
+    let mut offers = Offers::local(&[], home.provision.clone(), true);
     offers.extra.push(Arc::new(desktop::Desktop));
     // The embedded node logs to the app's own file.
     if let Some(log) = logfile::current() {

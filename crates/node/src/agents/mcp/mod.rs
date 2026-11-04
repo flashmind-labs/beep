@@ -58,8 +58,8 @@ const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 /// How long a starting session waits for the user's standing rules.
 const RULES_LIMIT: Duration = Duration::from_secs(3);
 
-/// What the agent hears ahead of its first prompt when it has the server.
-pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
+/// What the agent hears ahead of its first prompt about the machine tools.
+const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
     machines. list_machines says which machines there are, whether each is online, its OS, \
     what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
     machine whose OS and tools fit the work, such as a macOS machine with Xcode for iOS and \
@@ -67,9 +67,22 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     coding agent there with a prompt; job_status and cancel follow what it started. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. machine_log reads a machine's beep-node log. ask_user asks the user a question and waits \
-    for the answer. Running and sending may wait for the user to allow it. remember saves a \
-    lasting instruction or preference the user states, for every agent on every machine; recall \
-    looks up what they said, before a decision it may speak to.";
+    for the answer. Running and sending may wait for the user to allow it.";
+
+/// The memory tools, which only the server holds.
+const MEMORY_BRIEF: &str = " remember saves a lasting instruction or preference the user \
+    states, for every agent on every machine; recall looks up what they said, before a \
+    decision it may speak to.";
+
+/// What the agent hears ahead of its first prompt; the memory tools only
+/// when `memory`.
+pub(crate) fn brief(memory: bool) -> String {
+    if memory {
+        format!("{MACHINES_BRIEF}{MEMORY_BRIEF}")
+    } else {
+        MACHINES_BRIEF.to_owned()
+    }
+}
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
@@ -195,17 +208,33 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
 /// The server's connection, for the calls it runs: set while the node is
 /// connected to a server that takes `tools/1`.
 #[derive(Clone)]
-pub struct Upstream(Arc<watch::Sender<Option<Connection>>>);
+pub struct Upstream {
+    connection: Arc<watch::Sender<Option<Connection>>>,
+    /// The node has a server to link to at all.
+    has_server: bool,
+}
 
 impl Default for Upstream {
     fn default() -> Self {
-        Self(Arc::new(watch::Sender::new(None)))
+        Self::new(true)
     }
 }
 
 impl Upstream {
+    /// For a node that has a server (`server` in `node.toml`) or not.
+    pub fn new(has_server: bool) -> Self {
+        Self {
+            connection: Arc::new(watch::Sender::new(None)),
+            has_server,
+        }
+    }
+
+    pub(crate) fn has_server(&self) -> bool {
+        self.has_server
+    }
+
     pub(crate) fn set(&self, connection: Option<Connection>) {
-        self.0.send_replace(connection);
+        self.connection.send_replace(connection);
     }
 
     /// The user's standing rules for the first prompt of `session`. `None`
@@ -238,7 +267,7 @@ impl Upstream {
 
     /// Runs `request` on the server.
     pub async fn call(&self, request: &Request) -> Result<Reply> {
-        let connection = self.0.borrow().clone().context(
+        let connection = self.connection.borrow().clone().context(
             "this machine is not connected to Beep's server now, or the server is too old \
              for these tools",
         )?;
@@ -288,7 +317,7 @@ impl Backend for Node {
     /// The memory tools live on the server: a node in a mesh with none has
     /// nothing to remember with.
     fn memory_tools(&self) -> bool {
-        self.offers.has_server || !self.offers.mesh.joined()
+        self.offers.tools.has_server() || !self.offers.mesh.joined()
     }
 }
 

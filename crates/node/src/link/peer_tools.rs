@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{fmt::Write, time::Duration};
 use tokio::{
+    sync::Semaphore,
     task::spawn_blocking,
     time::{Instant, sleep, timeout},
 };
@@ -190,10 +191,20 @@ struct SyncArgs {
 const SYNC_WAIT: Duration = Duration::from_secs(90);
 const SYNC_POLL: Duration = Duration::from_millis(500);
 
+/// The most `sync_project` calls waiting on a project at once, from every
+/// peer together.
+const MAX_SYNCS: usize = 4;
+static SYNC_SLOTS: Semaphore = Semaphore::const_new(MAX_SYNCS);
+
 /// Scans the project here, then waits until it has what the other machines
 /// have, and says how it stands.
 async fn sync_project(args: Value, caller: &Caller) -> Outcome {
     let SyncArgs { project } = parse(args)?;
+    let Ok(_slot) = SYNC_SLOTS.try_acquire() else {
+        return Err(format!(
+            "busy: {MAX_SYNCS} syncs are already waiting on this machine"
+        ));
+    };
     let Some(transfers) = &caller.transfers else {
         return Err("This machine shares no folders, so it syncs no projects.".to_owned());
     };

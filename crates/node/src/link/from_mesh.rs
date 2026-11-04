@@ -6,6 +6,12 @@
 //!
 //! `follow` runs while the node is in the mesh. Each change to the state or
 //! the device list applies what differs from what was applied before.
+//!
+//! The mesh takes over one family of state (sync, credentials, harness
+//! settings, flsh) only once it has held a key of that family, a deleted one
+//! included. Until then the node keeps what the server set and keeps taking
+//! the server's pushes for it, so a running node that joins a mesh with
+//! nothing in it loses nothing.
 
 use crate::link::Offers;
 use beep_mesh::{Key, Mesh};
@@ -19,8 +25,41 @@ use beep_proto::{
     },
 };
 use iroh::{EndpointAddr, EndpointId};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::{broadcast::error::RecvError, watch};
+
+/// A kind of state the mesh can own on the node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Family {
+    Sync,
+    Credentials,
+    Harnesses,
+    Flsh,
+}
+
+impl Family {
+    const ALL: [Family; 4] = [
+        Family::Sync,
+        Family::Credentials,
+        Family::Harnesses,
+        Family::Flsh,
+    ];
+
+    /// What the text form of every key of this family starts with.
+    fn prefix(self) -> &'static str {
+        match self {
+            Family::Sync => "sync/",
+            Family::Credentials => "credential/",
+            Family::Harnesses => "harness/",
+            Family::Flsh => "flsh",
+        }
+    }
+
+    /// Whether `mesh` has ever held a key of this family.
+    pub(crate) fn owned_by(self, mesh: &Mesh) -> bool {
+        mesh.has_held(self.prefix())
+    }
+}
 
 /// The mesh the node belongs to, once it does.
 #[derive(Clone)]
@@ -43,6 +82,11 @@ impl Membership {
 
     pub(crate) fn joined(&self) -> bool {
         self.0.borrow().is_some()
+    }
+
+    /// Whether the node is in a mesh that owns `family` now.
+    pub(crate) fn owns(&self, family: Family) -> bool {
+        self.get().is_some_and(|mesh| family.owned_by(&mesh))
     }
 }
 
@@ -71,50 +115,76 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
 /// What the node holds from the mesh now, to apply only what changed.
 #[derive(Default)]
 struct Applied {
+    owned: Option<Vec<Family>>,
     credentials: Option<MachineCredentials>,
     settings: Option<AgentSettings>,
     projects: Option<Vec<Project>>,
+    /// The last spec of each project that read, for a key that stops reading.
+    specs: BTreeMap<Key, SyncSpec>,
 }
 
 impl Applied {
     async fn apply(&mut self, mesh: &Mesh, me: EndpointId, offers: &Offers) {
-        if let Some(provision) = &offers.provision {
+        let owned: Vec<Family> = Family::ALL
+            .into_iter()
+            .filter(|family| family.owned_by(mesh))
+            .collect();
+        if self.owned.as_ref() != Some(&owned) {
+            log::info!("from the mesh: owns {owned:?}");
+            self.owned = Some(owned.clone());
+        }
+        if let Some(provision) = &offers.provision
+            && owned.contains(&Family::Credentials)
+        {
             let credentials = credentials(mesh);
             if self.credentials.as_ref() != Some(&credentials) {
+                provision.apply(credentials.clone()).await;
                 log::info!(
                     "from the mesh: {} credentials",
                     credentials.env.len() + credentials.forgejo.len()
                 );
-                provision.apply(credentials.clone()).await;
                 self.credentials = Some(credentials);
             }
         }
-        let settings = settings(mesh);
-        if self.settings.as_ref() != Some(&settings) {
-            log::info!(
-                "from the mesh: settings for {} agents",
-                settings.harnesses.len()
-            );
-            offers.agents.set_settings(settings.clone());
-            offers.agents.settings_arrived();
-            self.settings = Some(settings);
+        let harnesses = owned.contains(&Family::Harnesses);
+        let flsh = owned.contains(&Family::Flsh);
+        if harnesses || flsh {
+            let now = offers.agents.settings();
+            let mut settings = settings(mesh);
+            if !harnesses {
+                settings.harnesses = now.harnesses;
+            }
+            if !flsh {
+                settings.flsh = now.flsh;
+            }
+            if self.settings.as_ref() != Some(&settings) {
+                offers.agents.set_settings(settings.clone());
+                offers.agents.settings_arrived();
+                log::info!(
+                    "from the mesh: settings for {} agents",
+                    settings.harnesses.len()
+                );
+                self.settings = Some(settings);
+            }
         }
-        if let Some(transfers) = &offers.transfers {
-            let projects = projects(mesh, me);
+        if let Some(transfers) = &offers.transfers
+            && owned.contains(&Family::Sync)
+        {
+            let projects = projects(mesh, me, &mut self.specs);
             if self.projects.as_ref() != Some(&projects) {
-                for project in &projects {
-                    log::info!(
-                        "from the mesh: sync {} with {} peers",
-                        project.name,
-                        project.peers.len()
-                    );
-                }
                 for refused in transfers
                     .syncs()
                     .configure_from_mesh(projects.clone())
                     .await
                 {
                     log::warn!("not syncing {}: {}", refused.project, refused.message);
+                }
+                for project in &projects {
+                    log::info!(
+                        "from the mesh: sync {} with {} peers",
+                        project.name,
+                        project.peers.len()
+                    );
                 }
                 self.projects = Some(projects);
             }
@@ -168,11 +238,27 @@ fn settings(mesh: &Mesh) -> AgentSettings {
 }
 
 /// The projects this device syncs: those whose spec names it, with the
-/// other devices of the spec that are in the mesh now.
-fn projects(mesh: &Mesh, me: EndpointId) -> Vec<Project> {
+/// other devices of the spec that are in the mesh now. A spec that stops
+/// reading keeps the last one that did, in `specs`.
+fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) -> Vec<Project> {
     let devices = mesh.devices();
-    read::<SyncSpec>(mesh, "sync/")
-        .into_iter()
+    let mut now = BTreeMap::new();
+    for (key, bytes) in mesh.scan("sync/") {
+        match SyncSpec::from_bytes(&bytes) {
+            Ok(spec) => {
+                now.insert(key, spec);
+            }
+            Err(_) => {
+                log::warn!("ignored {key} in the mesh: it does not read");
+                if let Some(last) = specs.get(&key) {
+                    now.insert(key, last.clone());
+                }
+            }
+        }
+    }
+    *specs = now;
+    specs
+        .iter()
         .filter_map(|(key, spec)| {
             let Key::Sync(name) = key else {
                 return None;
@@ -193,7 +279,7 @@ fn projects(mesh: &Mesh, me: EndpointId) -> Vec<Project> {
                 })
                 .collect();
             Some(Project {
-                name,
+                name: name.clone(),
                 folder,
                 peers,
                 paused: spec.paused,
