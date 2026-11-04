@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// What the server sends on an agent stream.
+/// A node older than a request answers that it does not know it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {
@@ -40,9 +41,8 @@ pub enum Request {
     /// Sends the agent a message. While a turn runs it waits for the turn
     /// to end.
     Prompt { text: String },
-    /// `Prompt` with images, sent to the agent after the text. Refused,
-    /// not sent without them, when the agent takes no images. A node from
-    /// before it answers that it does not know the request.
+    /// `Prompt` with images, sent to the agent after the text. Refused, not
+    /// sent without them, when the agent takes no images.
     PromptImages { text: String, images: Vec<Upload> },
     /// Answers the open question. `reply` is one of its options, by id,
     /// number or name; anything else declines and goes to the agent as the
@@ -52,22 +52,17 @@ pub enum Request {
     Cancel {},
     /// Ends the session and stops the agent.
     Close {},
-    /// Switches the running session to `model` and thinking at `effort`
-    /// (`None` keeps it), from its next turn. Refused when the agent cannot
-    /// switch. A node from before it answers that it does not know the
-    /// request.
+    /// Switches the running session to `model` and thinking at `effort` (`None`
+    /// keeps it), from its next turn. Refused when the agent cannot switch.
     Configure {
         model: Option<ModelId>,
         effort: Option<Effort>,
     },
-    /// A message for the running turn: sent once the agent's current tool
-    /// call finishes, by stopping the turn there and prompting again, and
-    /// ahead of any `Prompt` waiting. With no turn running it goes as a
-    /// `Prompt`. A node from before it answers that it does not know the
-    /// request.
+    /// A message for the running turn: sent once the agent's current tool call
+    /// finishes, by stopping the turn there and prompting again, and ahead of
+    /// any `Prompt` waiting. With no turn running it goes as a `Prompt`.
     Steer { text: String, images: Vec<Upload> },
-    /// Takes back the `Steer`s not yet sent to the agent. A node from
-    /// before it answers that it does not know the request.
+    /// Takes back the `Steer`s not yet sent to the agent.
     DropSteers {},
 }
 

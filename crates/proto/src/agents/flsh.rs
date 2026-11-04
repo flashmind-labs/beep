@@ -183,20 +183,6 @@ impl FlshSettings {
         }
         Ok(())
     }
-
-    /// The rule flsh uses for `model`: its own, else the global one, else
-    /// flsh's default (on, at the model's trigger).
-    pub fn autocompact_for(&self, model: &FlshModel) -> FlshAutoCompact {
-        self.models
-            .iter()
-            .find(|rule| &rule.model == model)
-            .map(|rule| rule.autocompact)
-            .or(self.autocompact)
-            .unwrap_or(FlshAutoCompact {
-                enabled: true,
-                tokens: None,
-            })
-    }
 }
 
 #[cfg(test)]
@@ -266,36 +252,6 @@ mod tests {
             ..FlshSettings::default()
         };
         assert_eq!(many.check(), Err(FlshSettingsError::TooManyModels));
-    }
-
-    #[test]
-    fn a_model_rule_applies_to_its_model_only() {
-        let global = FlshAutoCompact {
-            enabled: true,
-            tokens: Some(300_000),
-        };
-        let settings = FlshSettings {
-            autocompact: Some(global),
-            models: vec![rule("openrouter:vendor/small", Some(60_000))],
-            ..FlshSettings::default()
-        };
-        assert_eq!(
-            settings
-                .autocompact_for(&model("openrouter:vendor/small"))
-                .tokens,
-            Some(60_000)
-        );
-        assert_eq!(
-            settings.autocompact_for(&model("openrouter:vendor/large")),
-            global
-        );
-        assert_eq!(
-            FlshSettings::default().autocompact_for(&model("openrouter:vendor/large")),
-            FlshAutoCompact {
-                enabled: true,
-                tokens: None
-            }
-        );
     }
 
     #[test]
