@@ -1,4 +1,5 @@
 import { openInWindow } from "./chat.ts";
+import { copy } from "../ui/parts.ts";
 import { $, $$, bar, type ChatRow, type ChatsMode, esc, G, h, ICON, invoke, live, PANE, S } from "../bar/core.ts";
 import { authorName, type GroupSummary, renderGroup, renderInvite } from "./groups.ts";
 import { hints } from "../bar/hints.ts";
@@ -101,7 +102,7 @@ export async function loadChats(query: string) {
     S.chats = { ...S.chats, list, query, sel: same ? Math.min(S.chats.sel, Math.max(0, list.length - 1)) : 0, mode: same ? S.chats.mode : "list" };
     drawChats();
   } catch (e) {
-    if (S.view === "chats") $$("#list").innerHTML = `<div class="derr" style="padding:8px 10px">${esc(e)}</div>`;
+    if (S.view === "chats") $$("#list").innerHTML = `<div class="derr dpad">${esc(e)}</div>`;
   }
 }
 
@@ -124,7 +125,7 @@ function rowActions(c: ChatRow) {
 function chatRow(c: ChatRow, i: number) {
   const { sel, query, mode } = S.chats, on = i === sel;
   if (on && mode === "rename") return `<div class="dchat" aria-selected="true"><input id="rename" value="${esc(c.title)}" maxlength="200" spellcheck="false"></div>`;
-  if (on && mode === "delete") return `<div class="dchat" aria-selected="true"><span class="t"><span>Delete <b>${esc(c.title)}</b>?</span></span><span class="acts"><button class="dbtn warn" data-a="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn" data-a="cancel">Cancel</button></span></div>`;
+  if (on && mode === "delete") return `<div class="dchat" aria-selected="true"><span class="t"><span>Delete <b>${esc(c.title)}</b>?</span></span><span class="acts"><button class="dbtn warn" data-a="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-a="cancel">Cancel</button></span></div>`;
   const open = on && mode === "actions";
   const tail = open ? rowActions(c)
     : live.get(c.id)?.run || c.typing ? `<span class="run"><span class="dspin"></span>${c.typing ? "Beep is typing" : "Answering"}</span>`
@@ -141,15 +142,15 @@ function shareCard() {
   if (!sh || S.chats.mode !== "share") return "";
   const body = sh.error ? `<div class="derr">${esc(sh.error)}</div>`
     : !sh.url ? '<div class="dmuted"><span class="dspin"></span>Making a link…</div>'
-    : `<div class="code">${esc(sh.url)}</div><div style="display:flex;gap:8px"><button class="dbtn pri" data-a="copy-share">Copy link</button><button class="dbtn warn" data-a="unshare">Stop sharing</button></div>`;
-  return `<div class="dcard dshare">${body}<div class="dmuted" style="display:block">A copy of the chat as it is now. Only your messages and Beep's replies are shared, not tool results, thoughts or your location. Anyone with Beep can open the link.</div></div>`;
+    : `<div class="code">${esc(sh.url)}</div><div class="dline"><button class="dbtn pri" data-a="copy-share">Copy link</button><button class="dbtn warn" data-a="unshare">Stop sharing</button></div>`;
+  return `<div class="dcard dshare">${body}<div class="dmuted dblock">A copy of the chat as it is now. Only your messages and Beep's replies are shared, not tool results, thoughts or your location. Anyone with Beep can open the link.</div></div>`;
 }
 
 export function drawChats() {
   const { list, sel, query } = S.chats;
   const box = $$("#list");
   $$("#sec").textContent = query ? `${list.length} result${list.length === 1 ? "" : "s"}` : "Recent";
-  box.innerHTML = list.map((c, i) => chatRow(c, i) + (i === sel ? shareCard() : "")).join("") || '<div class="dmuted" style="padding:8px 10px">No chats</div>';
+  box.innerHTML = list.map((c, i) => chatRow(c, i) + (i === sel ? shareCard() : "")).join("") || '<div class="dmuted dpad">No chats</div>';
   box.querySelectorAll<HTMLElement>(".dchat[data-i]").forEach(b => b.addEventListener("click", e => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-a]");
     S.chats.sel = +b.dataset.i!;
@@ -225,25 +226,7 @@ export async function chatAction(a: ChatAction) {
       case "leave": await renderGroup(c.id, "leave"); break;
     }
   } catch (e) {
-    $$("#list").insertAdjacentHTML("afterbegin", `<div class="derr" style="padding:6px 10px">${esc(e)}</div>`);
+    $$("#list").insertAdjacentHTML("afterbegin", `<div class="derr dpad">${esc(e)}</div>`);
   }
 }
 
-/// Copies `text` and says so on the button for a moment.
-export async function copy(text: string, button?: HTMLElement | null) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // The webview may refuse the async clipboard; the old way still works.
-    const t = h<HTMLTextAreaElement>("<textarea></textarea>");
-    t.value = text;
-    document.body.append(t);
-    t.select();
-    document.execCommand("copy");
-    t.remove();
-  }
-  if (!button) return;
-  const was = button.innerHTML;
-  button.textContent = "Copied";
-  setTimeout(() => { if (button.isConnected) button.innerHTML = was; }, 1200);
-}

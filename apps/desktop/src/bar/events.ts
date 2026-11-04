@@ -1,7 +1,8 @@
 import "./keys.ts";
 import { chartClick } from "../chat/charts.ts";
 import { ANSWER, answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
-import { copy, loadChats } from "../chat/chats.ts";
+import { loadChats } from "../chat/chats.ts";
+import { copy } from "../ui/parts.ts";
 import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState, PANE, S, type Turn } from "./core.ts";
 import { drawGroup, type GroupApproval, loadGroup } from "../chat/groups.ts";
 import { learnedHotkey, refreshHints } from "./hints.ts";

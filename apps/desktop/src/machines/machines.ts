@@ -7,7 +7,7 @@ import { bar, esc, ICON, invoke, S } from "../bar/core.ts";
 import { bytes } from "../center/home-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
-import { copy } from "../chat/chats.ts";
+import { copy } from "../ui/parts.ts";
 import { notice } from "../chat/media.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
@@ -182,7 +182,7 @@ function searchRow(m: Machine) {
   if (!at || at.folder === null) return "";
   const value = at.draft === null
     ? `<span class="dmono">${esc(at.folder)}</span>${m.online ? ' <button class="dbtn" id="mcSearchEdit">Change</button>' : ""}`
-    : `<span class="dfield" style="display:flex;gap:6px;align-items:center"><input class="dmono" id="mcSearch" value="${esc(at.draft)}" aria-label="Search for projects in" spellcheck="false"${at.busy ? " disabled" : ""}><button class="dbtn pri" id="mcSearchSave"${at.busy ? " disabled" : ""}>Save</button><button class="dbtn quiet" id="mcSearchNo">Cancel</button></span>`;
+    : `<span class="dfield dline tight"><input class="dmono" id="mcSearch" value="${esc(at.draft)}" aria-label="Search for projects in" spellcheck="false"${at.busy ? " disabled" : ""}><button class="dbtn pri" id="mcSearchSave"${at.busy ? " disabled" : ""}>Save</button><button class="dbtn quiet" id="mcSearchNo">Cancel</button></span>`;
   return `<span>Projects in</span><span>${value}</span>`;
 }
 
@@ -340,7 +340,7 @@ function removeParts(m: Machine) {
     button: "",
     ask: `<div class="ask"><span>Remove ${esc(m.name)} from your account? ${what} To use it again, add it with a new setup command.</span>
       ${asking.error ? `<span class="derr">${esc(asking.error)}</span>` : ""}
-      <span class="acts"><button class="dbtn warn" id="rmYes"${asking.busy ? " disabled" : ""}>Remove</button><button class="dbtn" id="rmNo">Cancel</button></span></div>`,
+      <span class="acts"><button class="dbtn warn" id="rmYes"${asking.busy ? " disabled" : ""}>Remove</button><button class="dbtn quiet" id="rmNo">Cancel</button></span></div>`,
   };
 }
 

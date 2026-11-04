@@ -1,12 +1,12 @@
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { ago, since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
+import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "./pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
 import { base, machineSync, type RunningAgent } from "../center/home-state.ts";
-import { foundRow, injectStyle as injectAddProjectStyle } from "../addproject/addproject.ts";
+import { foundRow } from "../addproject/addproject.ts";
 import { withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -179,9 +179,7 @@ export function whereRow(p: Project, m: WhereRow) {
   if (m.kind === "here") {
     const path = m.folder!;
     const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }));
-    const copy = button("Copy path", "quiet small", async () => {
-      try { await navigator.clipboard.writeText(path); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
-    });
+    const copy = copyButton(path, "Copy path", "dbtn quiet small");
     const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
     const folder = h("span", "nm", h("span", "os", path));
     folder.title = path;
@@ -332,7 +330,6 @@ export async function loadSessions(name: string) {
 /// three, each with Import; the sheet lists them all.
 export function foundSection() {
   if (!state.found?.length) return null;
-  injectAddProjectStyle();
   const list = state.found.slice(0, 3).map(row => foundRow(row,
     { busy: state.importing, error: state.foundError?.name === row.name ? state.foundError.message : null }, importFromPage));
   const more = state.found.length > 3 ? button(`All ${state.found.length}`, "quiet small", addProject) : null;

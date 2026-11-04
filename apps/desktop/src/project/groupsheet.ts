@@ -1,6 +1,6 @@
 // The group sheet: the folders of a project group.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { addGroupFolder, groupPath } from "./projects-state.ts";
 import { button, el } from "../ui/dom.ts";
 import { present, reason } from "../addproject/importproject-state.ts";
@@ -19,7 +19,6 @@ let root: HTMLElement | null = null;
 
 export function openGroupSheet(options: GroupSheetOptions) {
   if (root) return;
-  linkSheetStyle();
   const group = options.group || null;
   const back = document.activeElement;
   let paths = [...(group?.paths || [])];
@@ -73,7 +72,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
 
   function draw() {
     const rows = paths.map(p => el("div", "gp-path", el("span", "", p),
-      button("Remove", "dbtn quiet", () => { paths = paths.filter(x => x !== p); error = null; draw(); })));
+      button("Remove", "dbtn quiet warn small", () => { paths = paths.filter(x => x !== p); error = null; draw(); })));
     const n = options.matches(paths);
     const named = group ? null : paths[0] || groupPath(field.value);
     const sum = paths.length

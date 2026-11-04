@@ -1,5 +1,5 @@
 import { renderChat } from "../chat/chat.ts";
-import { copy } from "../chat/chats.ts";
+import { copy } from "../ui/parts.ts";
 import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
 import { loadModels } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
@@ -67,13 +67,13 @@ export function drawLink(state: LinkState) {
   const qr = `<div class="qr${state === "waiting" ? "" : " dim"}">${o.qr_svg}${over}</div>`;
   const parts = {
     waiting: `<h4>Link to your phone</h4><p>Scan with Beep on your phone: Settings, Linked devices.</p>${qr}<div class="code">${esc(o.code)}</div>
-      <div class="wait"><span class="dspin"></span>Waiting for phone…</div><p style="font-size:12px">Code expires in <span id="count" style="font-variant-numeric:tabular-nums">10:00</span></p>`,
+      <div class="wait"><span class="dspin"></span>Waiting for phone…</div><p class="dfine">Code expires in <span id="count" style="font-variant-numeric:tabular-nums">10:00</span></p>`,
     linked: `<h4>Linked</h4><p>This computer now sees your chats and memories.</p>${qr}`,
-    expired: `<h4>Link to your phone</h4><p>Scan with Beep on your phone: Settings, Linked devices.</p>${qr}<button class="dbtn pri" id="again">New code</button><p style="font-size:12px">A code lasts ten minutes.</p>`,
+    expired: `<h4>Link to your phone</h4><p>Scan with Beep on your phone: Settings, Linked devices.</p>${qr}<button class="dbtn pri" id="again">New code</button><p class="dfine">A code lasts ten minutes.</p>`,
   };
   const alone = state === "linked" ? "" : `<div class="dor"><span>or</span></div>
     <button class="dbtn pri" id="here">Use Beep on this Mac</button>
-    <p style="font-size:12px">Starts an account on this Mac. You can link your phone to it later.</p>
+    <p class="dfine">Starts an account on this Mac. You can link your phone to it later.</p>
     <button class="dbtn quiet" id="havecode">Have a join code?</button>`;
   bar.innerHTML = `<div class="dwin">${parts[state]}${alone}</div>`;
   $("#again")?.addEventListener("click", renderLink);
@@ -165,10 +165,10 @@ function renderJoinCode(error = "", back: () => unknown = renderLink) {
   clearInterval(S.timer);
   S.view = "joincode";
   bar.innerHTML = `<div class="dwin"><h4>Join an account</h4>
-    <label class="dfield${error ? " err" : ""}" style="width:100%;text-align:left">Join code<input id="jcode" class="mono" maxlength="20" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
+    <label class="dfield${error ? " err" : ""} dwide">Join code<input id="jcode" class="mono" maxlength="20" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
       <span class="note">${esc(error || "The code your other computer shows under Settings, Devices.")}</span></label>
-    <p style="font-size:12px">This Mac's chats and memories move to that account.</p>
-    <div class="row" style="display:flex;gap:8px"><button class="dbtn" id="jback">Back</button><button class="dbtn pri" id="jjoin">Join<kbd>${ICON.ret}</kbd></button></div></div>`;
+    <p class="dfine">This Mac's chats and memories move to that account.</p>
+    <div class="row dline"><button class="dbtn" id="jback">Back</button><button class="dbtn pri" id="jjoin">Join<kbd>${ICON.ret}</kbd></button></div></div>`;
   $$("#jback").addEventListener("click", back);
   const input = $$<HTMLInputElement>("#jcode");
   const go = async () => {
@@ -204,9 +204,9 @@ export async function renderInvitePhone() {
   const until = Date.now() + inv.expires_in * 1000;
   bar.innerHTML = `<div class="dwin"><h4>Link a phone</h4>
     <p>Scan with Beep on your phone: Settings, Linked devices. The phone's chats and memories move to this Mac's account.</p>
-    <div class="qr" id="iqr">${inv.qr_svg}</div><div class="code" style="font-size:22px;font-weight:600">${esc(inv.code)}</div>
-    <p style="font-size:12px" id="ileft">A code lasts ten minutes.</p>
-    <div style="display:flex;gap:8px"><button class="dbtn" id="iback">Back</button><button class="dbtn pri" id="icopy">Copy code</button></div></div>`;
+    <div class="qr" id="iqr">${inv.qr_svg}</div><div class="code big">${esc(inv.code)}</div>
+    <p class="dfine" id="ileft">A code lasts ten minutes.</p>
+    <div class="dline"><button class="dbtn" id="iback">Back</button><button class="dbtn pri" id="icopy">Copy code</button></div></div>`;
   $$("#icopy").addEventListener("click", e => copy(inv.code, e.currentTarget as HTMLElement));
   $$("#iback").addEventListener("click", () => { clearInterval(S.timer); renderSettings(); });
   S.timer = setInterval(() => {

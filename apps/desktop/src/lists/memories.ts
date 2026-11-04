@@ -56,19 +56,23 @@ export async function loadList<T>(s: ListState<T>, cmd: string) {
 }
 
 /// The error under a list's head.
-export const errLine = (error: string) => error ? `<div class="derr" style="padding:8px 18px 0">${esc(error)}</div>` : "";
+export const errLine = (error: string) => error ? `<div class="derr dpadx">${esc(error)}</div>` : "";
 
 /// What a list shows when it is empty: its icon, a line, what it is for and
 /// `extra`, such as a button.
-export const emptyPage = (icon: string, title: string, about: string, extra = "", aboutStyle = "") =>
-  `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${icon}</span>
-      <b style="font-size:14px">${title}</b><span class="dmuted" style="display:block${aboutStyle}">${about}</span>${extra}</div>`;
+export const emptyPage = (icon: string, title: string, about: string, extra = "") =>
+  `<div class="dempty"><span class="dicon">${icon}</span>
+      <b class="dbig">${title}</b><span class="dmuted dblock">${about}</span>${extra}</div>`;
+
+/// A card asking before something: a title, what it means and its buttons.
+export const confirmCard = (title: string, text: string, buttons: string, cls = "") =>
+  `<div class="dcard${cls ? " " + cls : ""}"><div class="dask"><b class="dtitle">${title}</b><div class="dmuted dblock">${text}</div><div class="dline">${buttons}</div></div></div>`;
 
 /// Row `i` asking `question`, with `verb` (Delete, Revoke) and Cancel. The
 /// buttons carry `attr` as `<verb>-yes` and `list`.
 export const confirmRow = (i: number, question: string, attr: string, verb: string) =>
-  `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><span style="font-size:14px">${question}</span></span>
-          <span class="acts"><button class="dbtn warn" ${attr}="${verb.toLowerCase()}-yes">${verb}</button><button class="dbtn" ${attr}="list">Cancel</button></span></div>`;
+  `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><b>${question}</b></span>
+          <span class="acts"><button class="dbtn warn" ${attr}="${verb.toLowerCase()}-yes">${verb}</button><button class="dbtn quiet" ${attr}="list">Cancel</button></span></div>`;
 
 /// How many days from `from` to `to`, by the calendar.
 export function dayDiff(from: Date, to: Date) {
@@ -187,8 +191,8 @@ export function renderMemories() {
   invoke("close_group").catch(() => {});
   Object.assign(M, { sel: 0, query: "", mode: "list", error: "", filter: "all" });
   bar.innerHTML = `<div class="dinput"><input id="mfind" placeholder="Search memories" autocomplete="off" spellcheck="false"><span class="dmuted" id="mcount"></span><kbd>⌘M</kbd></div>
-    <div id="mchips" style="border-top:1px solid var(--border)"></div>
-    <div class="dlist" id="mlist" role="listbox" aria-label="Memories" style="padding-top:2px"></div><div id="mhints"></div>`;
+    <div id="mchips" class="dtop"></div>
+    <div class="dlist top" id="mlist" role="listbox" aria-label="Memories"></div><div id="mhints"></div>`;
   const find = $$<HTMLInputElement>("#mfind");
   find.focus();
   find.addEventListener("input", () => { M.query = find.value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); });
@@ -228,7 +232,7 @@ function memRow(m: Memory, i: number, today: string) {
   const sc = M.scopes.get(m.id), about = sc ? scopeTag(sc) + " · " : "";
   if (on && M.mode === "edit") {
     return `<div class="dmem" aria-selected="true" data-i="${i}"><div class="top"><textarea id="medit" rows="2" aria-label="Memory">${esc(m.content)}</textarea>
-            <span style="font-size:12px;color:var(--muted);flex:none;display:inline-flex;gap:4px;align-items:center">${ICON.ret} save</span></div><div class="m">${about}${esc(meta)}</div></div>`;
+            <span class="dfine dsave">${ICON.ret} save</span></div><div class="m">${about}${esc(meta)}</div></div>`;
   }
   const acts = on ? `<span class="acts"><button class="dbtn" data-m="edit">Edit</button><button class="dbtn warn" data-m="forget">Forget<kbd>⌘⌫</kbd></button></span>` : "";
   return `<div class="dmem${ended ? " ended" : ""}" role="option" aria-selected="${on}" data-i="${i}"><div class="top"><span class="c">${mark(m.content, M.query)}</span>${acts}</div>
@@ -245,10 +249,10 @@ export function drawMemories() {
   M.list = M.all.filter(m => (!q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q))) && (!picked?.ids || picked.ids.has(m.id)));
   const chips = $("#mchips");
   if (chips) {
-    const chip = (f: MemFilter) => `<button class="dchip" aria-pressed="${f === picked}" data-mf="${esc(f.key)}">${esc(f.label)}${f.ids ? ` <span style="color:var(--muted)">${f.ids.size}</span>` : ""}</button>`;
+    const chip = (f: MemFilter) => `<button class="dchip" aria-pressed="${f === picked}" data-mf="${esc(f.key)}">${esc(f.label)}${f.ids ? ` <span class="dmut">${f.ids.size}</span>` : ""}</button>`;
     const firstRead = filters.findIndex(f => f.read);
-    chips.innerHTML = filters.length ? `<div class="dchips" style="padding:8px 16px 2px">${filters.map((f, i) => (i === firstRead ? '<span class="dsep"></span>' : "") + chip(f)).join("")}</div>`
-      + (picked?.about ? `<div class="dmuted" style="padding:2px 18px 4px">${esc(picked.about)}</div>` : "") : "";
+    chips.innerHTML = filters.length ? `<div class="dchips dchipbar">${filters.map((f, i) => (i === firstRead ? '<span class="dsep"></span>' : "") + chip(f)).join("")}</div>`
+      + (picked?.about ? `<div class="dmuted dpadx">${esc(picked.about)}</div>` : "") : "";
   }
   // Grouped by category; the server lists newest first, so each group keeps that order.
   const cats = [...new Set(M.list.map(m => m.category || "Other"))];
@@ -256,22 +260,20 @@ export function drawMemories() {
   clampSel(M);
   $$("#mcount").textContent = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
   const today = dateValue(new Date());
-  let html = M.error ? `<div class="derr" style="padding:8px 10px">${esc(M.error)}</div>` : "";
+  let html = M.error ? `<div class="derr dpad">${esc(M.error)}</div>` : "";
   if (M.mode === "clear") {
-    html += `<div class="dcard" style="margin:8px"><div style="padding:10px 12px;display:grid;gap:8px">
-      <b style="font-size:13.5px">Forget everything?</b><div class="dmuted" style="display:block">Beep will forget all ${M.all.length} memories. This cannot be undone.</div>
-      <div style="display:flex;gap:8px"><button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn" data-m="list">Cancel</button></div></div></div>`;
+    html += confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn quiet" data-m="list">Cancel</button>', "dm8");
   } else if (M.loaded && !M.all.length) {
     html += emptyPage(MEM_ICON, "Nothing remembered yet.", 'Beep learns as you chat, or tell it "remember that…"');
   } else {
     let last: string | undefined;
     M.list.forEach((m, i) => {
       const cat = m.category || "Other";
-      if (cat !== last) html += `<div class="dsec" style="border:0;padding-left:10px">${esc(cat)}</div>`;
+      if (cat !== last) html += `<div class="dsec bare">${esc(cat)}</div>`;
       last = cat;
       html += memRow(m, i, today);
     });
-    if (M.all.length && !M.query && M.filter === "all") html += `<div style="padding:6px 10px 4px"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
+    if (M.all.length && !M.query && M.filter === "all") html += `<div class="dpad"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
   }
   list.innerHTML = html;
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });

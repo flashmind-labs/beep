@@ -89,7 +89,7 @@ export function drawResearches() {
     const rows = RL.list.map((r, i) => {
       const cur = i === RL.sel && !typed.trim();
       const ic = RUNNING.has(r.status) ? '<span class="dspin"></span>'
-        : r.status === "planning" ? '<span class="ddot" style="background:var(--hot)"></span>'
+        : r.status === "planning" ? '<span class="ddot hot"></span>'
         : r.status === "done" ? `<span class="dok">${ICON.check}</span>` : ICON.doc;
       const tail = cur && RL.mode === "actions" && r.sources
         ? '<span class="acts"><button class="dbtn" data-rl="pdf">Export PDF</button></span>' : "";
@@ -97,7 +97,7 @@ export function drawResearches() {
       return `<div class="drt${off ? " off" : ""}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${ic}</span>
         <span class="tt"><b>${esc(r.topic)}</b><small>${esc(researchLine(r))}</small></span>${tail}</div>`;
     }).join("");
-    list = `<div class="dlist" role="listbox" aria-label="Research" style="padding-top:8px">${rows}</div>`;
+    list = `<div class="dlist top" role="listbox" aria-label="Research">${rows}</div>`;
     keys = typed.trim() ? [[ICON.ret, "research"], ["esc", "back"]]
       : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
       : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];

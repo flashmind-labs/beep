@@ -4,6 +4,7 @@ import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, START, next, timeLeft, machineBy
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";
 import type { MacControl, MachineView } from "../center/home-state.ts";
 import { button, el } from "../ui/dom.ts";
+import { copyButton, focusBack, sheetShell } from "../ui/parts.ts";
 import { present } from "../addproject/importproject-state.ts";
 
 /// A setup token as `create_node_token` gives it (TokenView).
@@ -26,45 +27,6 @@ let mac: MacSeen | null = null, macAsked = false, macPoller: Timer;
 // Where the new machine looks for projects; it goes on the setup command.
 let searchInput: HTMLInputElement | null = null;
 
-/// A dialog over the window: the dimmed scrim holding the sheet, not yet
-/// on the page.
-export function sheetShell(label: string, cls: string) {
-  const box = el("div", cls);
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-modal", "true");
-  box.setAttribute("aria-label", label);
-  return { root: el("div", "am-scrim", box), sheet: box };
-}
-
-/// Gives focus back to what had it before a sheet opened.
-export function focusBack(was: Element | null) {
-  (was as HTMLElement | null)?.focus?.();
-}
-
-/// Loads the sheets' shared styles once, so the window only has to import
-/// the sheets.
-export function linkSheetStyle() {
-  if (document.querySelector("link[data-am]")) return;
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = new URL("./addmachine.css", import.meta.url).href;
-  link.dataset.am = "";
-  document.head.append(link);
-}
-
-function copyButton(text: string) {
-  const b = button("Copy", "dbtn", async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      b.textContent = "Copied";
-    } catch {
-      b.textContent = "Select and copy";
-    }
-    setTimeout(() => { if (b.isConnected) b.textContent = "Copy"; }, 1500);
-  });
-  return b;
-}
-
 function codeLine(text: string) {
   return el("div", "am-line", el("div", "am-code", text), copyButton(text));
 }
@@ -75,7 +37,6 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   if (root) return;
   onClose = options.onClose || null;
   back = document.activeElement;
-  linkSheetStyle();
   ({ root, sheet } = sheetShell("Add a machine", "am-sheet"));
   document.body.append(root);
   document.addEventListener("keydown", onKey, true);

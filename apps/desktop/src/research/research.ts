@@ -3,6 +3,7 @@
 // A research window: the lead's chat on the left, the team's workspace in the
 // middle and its agents on the right.
 import { followSkin } from "../ui/skin.ts";
+import { writeClipboard } from "../ui/parts.ts";
 followSkin();
 import { invoke, Channel } from "../ui/tauri.ts";
 import { esc } from "../ui/format.ts";
@@ -166,7 +167,7 @@ function doing(id: string): Doing {
 const ok = () => `<span class="dok">${ICON.check}</span>`;
 const stateIcon = (st: Doing[1]) => st === "run" ? '<span class="dspin"></span>'
   : st === "ok" ? ok()
-  : st === "wait" ? '<span class="ddot" style="background:var(--hot)"></span>' : "<span></span>";
+  : st === "wait" ? '<span class="ddot hot"></span>' : "<span></span>";
 
 // ---------- Title bar ----------
 
@@ -180,7 +181,7 @@ function drawBar() {
   document.title = r?.topic || "Research";
   const working = r ? r.agents.filter(a => a.id !== "lead" && doing(a.id)[1] === "run").length : 0;
   const lines: Record<Status, string> = {
-    planning: '<span class="ddot" style="background:var(--hot)"></span>Waiting for your go',
+    planning: '<span class="ddot hot"></span>Waiting for your go',
     researching: `<span class="dspin"></span>${round() > 1 ? `Round ${round()}` : "Researching"}, ${count(working, "agent")} working`,
     reviewing: '<span class="dspin"></span>Reviewing the findings',
     writing: '<span class="dspin"></span>Writing the paper',
@@ -544,16 +545,7 @@ document.addEventListener("selectionchange", () => { if (!selectedText()) $("#qu
 for (const id of ["work", "side", "chat"]) document.getElementById(id)!.addEventListener("scroll", () => $("#quote")?.remove(), true);
 
 async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const t = document.createElement("textarea");
-    t.value = text;
-    document.body.append(t);
-    t.select();
-    document.execCommand("copy");
-    t.remove();
-  }
+  await writeClipboard(text);
   notice("Copied the paper as Markdown");
 }
 

@@ -2,6 +2,7 @@
 // session: the prompt, a turn's heading, a thought, a tool call, the answer,
 // a failure, a queued message and the Stop button.
 import { clock, heading, thoughtLabel, type ToolKind, type TurnState } from "../agents/agentturns.ts";
+import { copy } from "../ui/parts.ts";
 import { esc, ICON } from "../bar/core.ts";
 import { endedHtml, liveHtml } from "../agents/thoughtlive.ts";
 
@@ -97,8 +98,7 @@ export const answerHtml = (html: string) => html.replace(/<pre(\s[^>]*)?>/g, (_m
 
 /// Copies the code block of Copy button `btn`.
 export function copyCode(btn: HTMLElement) {
-  navigator.clipboard.writeText(btn.parentElement?.querySelector("code")?.textContent ?? "")
-    .then(() => { btn.textContent = "Copied"; setTimeout(() => { btn.textContent = "Copy"; }, 1200); }).catch(console.warn);
+  copy(btn.parentElement?.querySelector("code")?.textContent ?? "", btn).catch(console.warn);
 }
 
 export const errorCardHtml = (message: string) => `<div class="derrcard"><b>The turn did not finish</b><span>${esc(message)}</span></div>`;
@@ -112,4 +112,4 @@ export function queueRowHtml(q: { label: string; cls: string; text: string; tip:
 
 /// The Stop button's face, and while the stop lands.
 export const stopFace = (stopping = false) => stopping ? '<span class="dspin"></span>Stopping'
-  : '<span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop';
+  : '<span class="dstopico"></span>Stop';

@@ -6,7 +6,7 @@ import type { ProjectAgent, TaskRow } from "./agent.ts";
 import { STATE_LABEL, reviewState } from "../review/review.ts";
 import type { ReviewState, ReviewView } from "../review/review.ts";
 import { plural } from "../ui/format.ts";
-import { emptyPanel, freshNote, stateChip } from "../ui/parts.ts";
+import { emptyPanel, freshNote, stateChip, secHead } from "../ui/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
 import type { ChecksRow } from "./runs.ts";
 
@@ -495,7 +495,7 @@ export function makeThreads(deps: ThreadDeps) {
       })));
     }
     if (s.chats?.length) {
-      out.push(h("div", "cc-sec", h("h4", "", "Chats about one thread")),
+      out.push(secHead("Chats about one thread"),
         h("div", "cc-panel", ...s.chats.map(c => {
           const row = h("div", "pj-task", h("span", "t", c.title || threadCode(c)));
           row.append(h("span", "acts", button("Open chat", "", () => openChat(c.chat_id))));

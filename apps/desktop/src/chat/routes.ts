@@ -96,7 +96,7 @@ export function drawRoute(card: RouteCardEl) {
   const leg = (l: RouteLeg, i: number) => {
     if (l.mode === "walk") {
       const km = l.meters >= 1000 ? `, ${(l.meters / 1000).toFixed(1)} km` : "";
-      return `<div class="dmuted" style="gap:10px"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
+      return `<div class="dmuted"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
     }
     const color = l.color || "var(--accent)", badge = l.line || l.name || l.mode;
     const key = `${card.pick}:${i}`, open = card.open.has(key), between = l.between ?? [];

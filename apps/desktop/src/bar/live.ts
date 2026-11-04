@@ -165,7 +165,7 @@ export function drawDock(v: LiveView | null) {
     <div class="drow1"><button class="dorb ${p.orb}" id="orb" aria-label="${p.label}"><span class="ring b"></span><span class="ring"></span><span class="core"></span></button>
       <div class="dtx"><div class="word ${p.word[1]}">${p.title ? `<span class="tt">${p.title}</span> · ` : ""}${p.word[0]}</div><div class="cap" aria-live="polite">${p.cap}</div></div>
       <button class="dleave" id="lleave" aria-label="${p.replying ? "Cancel the reply and leave live mode" : "Leave live mode"}">${ICON.x}</button></div>
-    <div class="dfoot">${soon}<div class="hint">${p.hint}</div>${p.replying ? `<button class="dbtn lcancel" id="lcancel">Cancel<kbd>esc</kbd></button>` : ""}</div>`;
+    <div class="dfoot">${soon}<div class="hint">${p.hint}</div>${p.replying ? `<button class="dbtn quiet lcancel" id="lcancel">Cancel<kbd>esc</kbd></button>` : ""}</div>`;
   if (lvl) $$("#orb").style.setProperty("--lvl", lvl);
   const cap = dock.querySelector(".cap")!;
   cap.scrollTop = cap.scrollHeight;

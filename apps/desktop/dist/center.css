@@ -3,20 +3,16 @@ html, body.cbody { background: var(--ink) }
 .cwin { --side-w: 184px; position: relative; height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); background: var(--ink) }
 /* The traffic lights sit over the top of the sidebar; both bars drag the window. */
 .cc-head { height: 38px; flex: none }
-.cc-top { min-height: 38px }
 .cc-err { color: var(--err); font-size: 12px }
 .cc-comp input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; user-select: text }
 .cc-comp input::placeholder { color: var(--dim) }
-.cc-view { user-select: text; cursor: auto }
-.cc-si { cursor: default }
-.cc-row.link { cursor: default }
 .cc-side { display: flex; flex-direction: column; padding: 10px 8px 0; min-width: 0; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent); overflow: hidden; min-height: 0 }
 .cc-side-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px; overflow-y: auto; scrollbar-width: none }
-.cc-brand { display: flex; align-items: center; gap: 9px; padding: 0 6px }
+.cc-brand { display: flex; align-items: center; gap: 10px; padding: 0 6px }
 .cc-brand b { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.03em }
 .cc-grp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px }
-.cc-grp h3 { margin: 0 0 3px; padding: 0 8px; font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
-.cc-si { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm); border: 0; background: transparent; text-align: left; width: 100%; font-size: 13px; color: color-mix(in srgb, var(--fg) 86%, transparent); white-space: nowrap }
+.cc-grp h3 { margin: 0 0 3px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between }
+.cc-si { cursor: default; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm); border: 0; background: transparent; text-align: left; width: 100%; font-size: 13px; color: color-mix(in srgb, var(--fg) 86%, transparent); white-space: nowrap }
 .cc-si:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .cc-si[aria-current="true"] { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--fg) }
 .cc-si svg { flex: none; color: var(--muted) }
@@ -24,16 +20,15 @@ html, body.cbody { background: var(--ink) }
 .cc-si .n.hot { color: var(--on-accent); background: var(--hot); border-radius: 999px; padding: 0 6px; font-weight: 600 }
 .cc-pdot { width: 8px; height: 8px; border-radius: 3px; flex: none }
 .ddot.busy { background: var(--warn) }
-.cc-foot { margin-top: auto; padding: 8px; font-size: 11.5px; line-height: 16px; color: var(--muted) }
+.cc-foot { display: flex; align-items: center; gap: 6px; margin-top: auto; padding: 8px; font-size: 11.5px; line-height: 16px; color: var(--muted) }
 .cc-foot b { color: var(--fg); font-weight: 500 }
 .cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size }
-.cc-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border) }
-.cc-top h2 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; line-height: 1 }
+.cc-top { min-height: 38px; flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border) }
+.cc-top h2 { white-space: nowrap; margin: 0; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; line-height: 1 }
 .cc-top small { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.cc-top h2 { white-space: nowrap }
-.cc-view { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
-.cc-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px }
-.cc-sec h4 { margin: 0; font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
+.cc-view { user-select: text; cursor: auto; flex: 1; min-height: 0; overflow: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
+.cc-sec { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px }
+.cc-sec h4 { margin: 0 }
 .cc-sec small { font-size: 11.5px; color: var(--muted) }
 .cc-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); min-width: 0 }
 .cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
@@ -45,7 +40,7 @@ html, body.cbody { background: var(--ink) }
 .cc-git { display: grid; gap: 14px }
 /* Home: every machine across the top, then the tabs, which stay in view. */
 .cc-mstrip { display: flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden }
-.cc-mstrip > .m { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border: 0; border-right: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; white-space: nowrap; min-width: 0 }
+.cc-mstrip > .m { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border: 0; border-right: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; white-space: nowrap; min-width: 0 }
 .cc-mstrip > button.m:hover { background: var(--elev) }
 .cc-mstrip > .m b { color: var(--fg); font-weight: 600 }
 .cc-mstrip > .m.off b { color: var(--muted) }
@@ -56,31 +51,40 @@ html, body.cbody { background: var(--ink) }
 .cc-tabs button:hover { color: var(--fg) }
 .cc-tabs button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent) }
 .cc-tabs .n { font-size: 11px; font-weight: 400; color: var(--muted) }
-.cc-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 11px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg) }
+.cc-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; text-align: left; width: 100%; border: 0; background: transparent; color: var(--fg) }
 .cc-row + .cc-row { border-top: 1px solid var(--border) }
 button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
-.cc-row .t { display: grid; min-width: 0; line-height: 18px }
-.cc-row .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-row .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+/* A row's title over one muted line, in every list. */
+.cc-row .t, .cc-line .t, .pj-li .t, .pj-node .t, .rv-shard .t { display: grid; min-width: 0; line-height: 18px }
+.cc-pal .it .t small, :is(.cc-row, .pj-li, .pj-node, .rv-shard) .t span, .cc-line .t > span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+:is(.cc-row, .cc-line, .pj-li, .pj-node, .rv-shard) .t b { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+:is(.pj-node, .rv-shard) .t b { font-size: 12.5px }
 .cc-row .r { font-size: 11.5px; color: var(--muted); display: grid; justify-items: end; gap: 2px; font-variant-numeric: tabular-nums }
 .cc-ag { width: 28px; height: 28px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev) }
 .cc-ag.claude { color: #F2A27A } .cc-ag.codex { color: var(--link) }
 .cc-ag.beep { color: var(--muted) }
-.cc-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 500; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap }
-.cc-tag.run { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
-.cc-tag.wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
-.cc-tag.term { color: var(--fg) }
-.cc-tag .dspin { width: 9px; height: 9px }
+/* A state chip: neutral, or coloured by what it says. Built by stateChip. */
+.chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 17px; white-space: nowrap }
+.chip.running, .chip.run, .chip.done { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
+.chip.blocked, .chip.wait, .chip.medium { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
+.chip.bad, .chip.high { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
+.chip.review { color: var(--link); border-color: color-mix(in srgb, var(--link) 45%, transparent) }
+.chip.term { color: var(--fg) }
+.chip.dropped { color: var(--dim); text-decoration: line-through }
+.rv-find > .chip { justify-self: start }
+/* Small spinners inside chips and one-line facts. */
+.chip .dspin, .rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin, .th-card .who .dspin { width: 9px; height: 9px }
+.dspin.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none; vertical-align: middle }
 .cc-when { width: 58px; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); line-height: 13px; font-variant-numeric: tabular-nums }
 .cc-when b { display: block; font-size: 12.5px; color: var(--fg) }
-.cc-note { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--fg) 90%, transparent) }
+.cc-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--fg) 90%, transparent) }
 .cc-note .ddot { margin-top: 1px }
 .cc-empty { padding: 22px 18px; display: grid; justify-items: center; gap: 8px; text-align: center; font-size: 13px; line-height: 19px; color: var(--muted) }
 .cc-empty b { color: var(--fg); font-size: 14px; font-weight: 500 }
 .cc-empty ol { margin: 0; padding-left: 18px; text-align: left; display: grid; gap: 3px; color: color-mix(in srgb, var(--fg) 86%, transparent) }
 .cc-empty code { font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
 /* Home's input, docked under the view. */
-.cc-comp { flex: none; padding: 7px 10px 7px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px }
+.cc-comp { flex: none; padding: 6px 10px 7px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px }
 .cc-comp .in { flex: 1; min-width: 0; font-size: 14px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-comp .in .ph { color: var(--dim) }
 .cc-comp .in .caret { height: 15px }
@@ -89,10 +93,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 }
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-pjc { flex: none; margin: 0 16px 14px; display: grid; gap: 6px }
-/* The project agent's bar stays at most 760px wide, centered; a narrow window
-   keeps the 16px gutter. */
-.cc-pjc { margin-inline: max(16px, calc((100% - 760px) / 2)) }
+/* At most 760px wide, centered; a narrow window keeps the 16px gutter. */
+.cc-pjc { flex: none; margin: 0 max(16px, calc((100% - 760px) / 2)) 14px; display: grid; gap: 6px }
 .cc-pjc .box { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
@@ -111,7 +113,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-pjc .cc-err:empty { display: none }
 .cc-pjc input.branch { height: 28px; width: 30ch; max-width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace }
 .cc-pjc input.branch:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.cc-pjc [hidden] { display: none }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 
@@ -123,9 +124,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* A chat's scope beside its title: General, or its project. */
 #scope { display: flex }
 #scope:empty { display: none }
-.cc-tag.pj-scope { background: none; cursor: pointer }
-.cc-tag.pj-scope:hover { color: var(--fg) }
-.cc-tag .cc-pdot { width: 6px; height: 6px; border-radius: 2px; background: var(--dim) }
+.chip.pj-scope { background: none; cursor: pointer }
+.chip.pj-scope:hover { color: var(--fg) }
+.chip .cc-pdot { width: 6px; height: 6px; border-radius: 2px; background: var(--dim) }
 #pane-box > .dbar { flex: 1; min-height: 0; height: auto }
 /* The bar's lists, widened into a panel in the pane, as in the mock. A coding agent
    session is not one: it fills the pane, with its media pane beside it. */
@@ -134,7 +135,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 #pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) .dinput { font-size: 15px; padding: 10px 14px }
 
 /* Sidebar groups. */
-.cc-grp h3 { display: flex; align-items: center; justify-content: space-between }
 .cc-grp h3 button { border: 0; background: transparent; color: var(--muted); padding: 0 2px; line-height: 1; display: grid }
 .cc-grp h3 button:hover { color: var(--fg) }
 .cc-si .tt { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
@@ -148,7 +148,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 
 /* Cmd+K palette, as in the mock. */
 .cc-si .tt + kbd { margin-left: auto }
-.cc-si kbd { font: inherit; font-size: 10.5px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
+.cc-pal kbd { margin-right: 4px }
+.cc-si kbd, .cc-pal kbd { font: inherit; font-size: 10.5px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 .cc-scrim { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--shade) 50%, transparent); display: grid; justify-items: center; align-content: start; padding-top: 70px }
 .cc-pal { width: 560px; max-width: calc(100% - 40px); border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 97%, transparent); box-shadow: 0 28px 70px color-mix(in srgb, var(--shade) 60%, transparent); overflow: hidden; align-self: start }
 .cc-pal .q { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
@@ -156,19 +157,17 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-pal .q input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 16px; caret-color: var(--accent); padding: 0 }
 .cc-pal .q input::placeholder { color: var(--dim) }
 .cc-pal .res { max-height: 340px; overflow: auto; padding: 6px; display: grid; gap: 1px; scrollbar-width: thin }
-.cc-pal h5 { margin: 6px 8px 3px; font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
+.cc-pal h5 { margin: 6px 8px 3px }
 .cc-pal .it { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius-sm); border: 0; background: transparent; text-align: left; width: 100%; color: var(--fg); font-size: 13px }
 .cc-pal .it[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 26%, transparent) }
 .cc-pal .it svg { flex: none; color: var(--muted) }
 .cc-pal .it .t { flex: 1; min-width: 0; display: grid; line-height: 17px }
 .cc-pal .it .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-pal .it .t small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-pal .it .w { font-size: 11px; color: var(--muted); flex: none }
 .cc-pal mark { background: color-mix(in srgb, var(--hot) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px }
 .cc-pal .none { padding: 22px 14px; text-align: center; font-size: 13px; color: var(--muted) }
 .cc-pal .none .dbtn { margin-top: 10px }
 .cc-pal .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--dim) }
-.cc-pal kbd { font: inherit; font-size: 10.5px; padding: 0 4px; margin-right: 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 
 /* A chat row: the open button and the pin toggle, side by side. */
 .cc-si.cc-chat { padding: 0 }
@@ -196,8 +195,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cwin.resizing { cursor: col-resize; user-select: none }
 
 /* Adding machines and projects: the empty groups' rows, the + buttons. */
-.dbtn.small { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
-.cc-foot { display: flex; align-items: center; gap: 6px }
 .cc-foot > button { margin-left: auto; min-height: 22px; padding: 0 5px; display: grid; place-items: center }
 
 /* Settings, a sheet over the window, as in the mock: the pages on the left,
@@ -217,14 +214,13 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-top .tt { display: grid }
 .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
 .cc-set .dset-top small { font-size: 12px; color: var(--muted) }
-.cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7 }
+.cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7; margin-left: auto; flex: none }
 .cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
 .cc-set .dset-crumbs > svg { flex: none; color: var(--dim) }
 .cc-set .dset-crumb { all: unset; cursor: pointer; font-size: 15px; color: var(--muted) }
 .cc-set .dset-crumb:hover, .cc-set .dset-crumb:focus-visible { color: var(--fg) }
 .cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--muted) }
 .cc-set .dset-back:hover, .cc-set .dset-back:focus-visible { color: var(--fg) }
-.cc-set .dset-top kbd { margin-left: auto; flex: none }
 .cc-set .dset-crumbs b { overflow: hidden; text-overflow: ellipsis }
 .cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
 .cc-set .dset-page > section { max-width: 780px }
@@ -233,7 +229,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-host > .cc-view { padding: 0; overflow: visible }
 .cc-set .dset-host > .dhead { padding: 0 0 12px; border-bottom: 0 }
 .cc-set .dset-host > .dlist { padding: 0; overflow: visible }
-.cc-set .dset-h { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); margin: 16px 0 6px }
+.cc-set .dset-h { margin: 16px 0 6px }
 .cc-set .dset-box { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin: 0 0 14px }
 .cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; outline: none }
 .cc-set .dset-row:last-child { border-bottom: 0 }
@@ -267,14 +263,11 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 @media (max-width: 560px) { .cc-set { grid-template-columns: minmax(0, 1fr) } .cc-set .dset-nav { display: none } }
 
 /* Home, as the mock's Balanced Home: a title and a count over each section. */
-.cc-sec { align-items: center }
 .cc-sec h4 .n { margin-left: 6px; color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none }
 /* A row is a title and one muted line; the whole row opens it. */
 .cc-line { cursor: pointer }
 .cc-line:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .cc-line .t { all: unset; display: grid; min-width: 0; line-height: 18px; cursor: pointer }
-.cc-line .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-line .t > span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-line .t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
 .cc-line .r { grid-auto-flow: column; align-items: center }
 .cc-line .ok { font-size: 12px; color: var(--accent) }
@@ -292,11 +285,10 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-gr.it.more { padding: 3px 11px 6px 26px }
 .cc-gr.it.more + .cc-row { border-top: 1px solid var(--border) }
 .cc-open .cc-note { margin: 8px 10px 2px }
-.cc-tag.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
 /* Machines as a table: one row per machine, so a glance compares them. */
 .cc-mt { display: grid; grid-template-columns: minmax(110px, 1.2fr) 52px max-content max-content minmax(0, 1.5fr) minmax(0, 1fr) max-content; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden }
 .cc-mt > * { padding: 6px 10px; display: flex; align-items: center; gap: 6px; min-width: 0; border-top: 1px solid color-mix(in srgb, var(--fg) 5%, transparent) }
-.cc-mt > .th { font-size: var(--label-size); letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); border-top: 0; padding-top: 7px; padding-bottom: 5px }
+.cc-mt > .th { border-top: 0; padding-top: 7px; padding-bottom: 5px }
 .cc-mt .nm { flex-direction: column; align-items: flex-start; gap: 0; scroll-margin-top: 30px }
 .cc-mt .nm b { display: flex; align-items: center; gap: 6px; max-width: 100%; font-weight: 500; font-size: 12.5px }
 .cc-mt .nm b span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -345,8 +337,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 #sec-found h4 small, #sec-sessions h4 small, #sec-where h4 small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 8px; text-transform: none; letter-spacing: 0 }
 
 /* A project's agent: Tasks beside Workers, then the cards its chat waits on. */
-.pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
 .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
+.pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
 @container (max-width: 640px) { .pj-cols, .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) } }
 /* Custom agents: under Agents in the same column, a row per agent with its harness, colour and scope. */
 .ca-col > div + div { margin-top: 14px }
@@ -361,19 +353,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .ca-sheet .am-head b { display: flex; align-items: center; gap: 8px }
 .ca-about { font-size: 13px; margin: 0 0 10px }
 .ca-prompt { margin: 0 0 12px; padding: 10px 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; line-height: 18px; background: var(--elev); border: 1px solid var(--border); border-radius: var(--radius-sm) }
-.pj-issue .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
-.pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 11px; align-items: center }
+.pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 8px 12px; align-items: center }
 .pj-task + .pj-task { border-top: 1px solid var(--border) }
-/* Issue and PR rows: title and one line of facts, their buttons at the
-   right once the row is pointed at or focused. */
-.pj-task.pj-hv { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px 12px; padding: 12px 14px }
-.pj-task.pj-hv > .t { grid-column: 1; grid-row: 1; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pj-task.pj-hv > .m { grid-column: 1; grid-row: 2; flex-wrap: nowrap; white-space: nowrap; overflow: hidden }
-.pj-task.pj-hv > .pj-st { grid-column: 2; grid-row: 1 / span 2 }
-.pj-task.pj-hv > .acts { grid-column: 3; grid-row: 1 / span 2; flex-wrap: nowrap; opacity: 0; transition: opacity .12s }
-.pj-task.pj-hv:hover > .acts, .pj-task.pj-hv:focus-within > .acts, .pj-task.pj-hv > .acts:has(.cc-err, :disabled) { opacity: 1 }
-.pj-task.pj-hv:hover { background: color-mix(in srgb, var(--fg) 2.5%, transparent) }
-@media (hover: none) { .pj-task.pj-hv > .acts { opacity: 1 } }
 .pj-task .t { font-size: 13px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .pj-task .m { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--muted); min-width: 0 }
 .pj-task .m:empty { display: none }
@@ -382,27 +363,12 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-task .m code { font-family: var(--mono); font-size: 11px }
 .pj-task .acts { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
 .pj-task .acts .dbtn.quiet:first-child { margin-left: -9px }
-.pj-label { font: inherit; font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer }
-.pj-label:hover { color: var(--fg) }
-.pj-label.on { color: var(--fg); border-color: var(--link); background: color-mix(in srgb, var(--link) 12%, transparent) }
-.pj-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 7px 11px; border-bottom: 1px solid var(--border) }
-.pj-labels .lbl, .pj-labels small { font-size: 11px; color: var(--muted) }
-.pj-st { font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; display: inline-flex; gap: 5px; align-items: center }
-.pj-st.running { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
-.pj-st.review { color: var(--link); border-color: color-mix(in srgb, var(--link) 45%, transparent) }
-.pj-st.blocked { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
-.pj-st.done { color: var(--dim) }
-.pj-st.dropped { color: var(--dim); text-decoration: line-through }
-.pj-st .dspin { width: 9px; height: 9px }
 .pj-tree { padding: 6px 0 }
-.pj-node { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; padding: 6px 11px; align-items: start }
+.pj-node { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; padding: 6px 10px; align-items: start }
 .pj-node.child { margin-left: 18px; padding-left: 14px; border-left: 1px solid var(--border) }
 .pj-node.over { opacity: .7 }
 .pj-node.link { cursor: pointer; border-radius: var(--radius-sm) }
 .pj-node.link:hover .t b { color: var(--link) }
-.pj-node .t { display: grid; line-height: 17px; min-width: 0 }
-.pj-node .t b { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.pj-node .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .pj-node .acts { grid-column: 2; display: flex; gap: 6px; align-items: center }
 .pj-node .acts .dbtn { margin-left: -9px }
 .pj-node .out { grid-column: 2; font-family: var(--mono); font-size: 11px; color: color-mix(in srgb, var(--fg) 75%, transparent); background: var(--ink); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -415,11 +381,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-plan .ok { font-size: 12px; color: var(--accent) }
 /* How fresh a section's kept data is: its age, or a spinner while it reads again. */
 .sw-age { font-size: 11px; color: var(--muted); white-space: nowrap }
-.dspin.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none; vertical-align: middle }
 .cc-sec h4 .sw-spin, .cc-sec h4 .sw-age { margin-left: 8px; letter-spacing: 0; text-transform: none; font-weight: 400 }
 .pj-task.found { background: color-mix(in srgb, var(--link) 8%, transparent) }
-.pb-chip { flex: none; font-size: 10.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted) }
-.pb-chip.wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
 .pb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden }
 .pb-seg button { font: inherit; font-size: 12px; padding: 4px 10px; background: none; border: 0; color: var(--muted); cursor: pointer }
 .pb-seg button[aria-pressed="true"] { background: var(--elev); color: inherit }
@@ -429,7 +392,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-view.split { padding: 0; overflow: hidden; display: block }
 .pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100% }
 .pj-list { overflow: auto; border-right: 1px solid var(--border); padding-bottom: 10px; scrollbar-width: thin }
-.pj-list h4 { margin: 0; padding: 12px 14px 4px; font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); display: flex; gap: 8px }
+.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
+.pj-list h4 { margin: 0; padding: 12px 14px 4px; display: flex; gap: 8px }
 .pj-list h4 .n { font-weight: 400 }
 .pj-list .note { padding: 4px 14px 6px; font-size: 12px; color: var(--muted) }
 .pj-li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 6px 12px 6px 14px; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer }
@@ -440,9 +404,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-li .num { font-family: var(--mono); font-size: 11px; color: var(--muted) }
 .cc-line > .num { font-family: var(--mono); font-size: 11px; color: var(--muted); justify-self: center }
 .cc-line:has(> .num) { grid-template-columns: minmax(28px, max-content) minmax(0, 1fr) auto }
-.pj-li .t { display: grid; min-width: 0; line-height: 17px }
-.pj-li .t b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.pj-li .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 /* A label: a small neutral chip after a row's meta text and in the detail pane. */
 .pj-tag { display: inline-block; margin-left: 4px; padding: 0 6px; font-style: normal; font-size: 10px; line-height: 14px; vertical-align: 1px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 .pj-dh .meta .pj-tag { margin-left: 0 }
@@ -451,11 +412,10 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-labels .pj-tag { margin-left: 0; font: inherit; font-size: 10px; line-height: 14px }
 .pj-tag.lab { cursor: pointer }
 .pj-tag.lab:hover { color: var(--fg) }
-.pj-tag.lab.on { color: var(--fg); border-color: var(--accent) }
-.cc-open > .pj-labels { padding: 8px 11px 4px }
+.pj-tag.lab.on { color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent) }
+.cc-open > .pj-labels { padding: 8px 12px 4px }
 .pj-li .r { font-size: 11.5px; color: var(--muted); white-space: nowrap }
 .pj-det { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; scrollbar-width: thin }
-.pj-det .pj-labels { border-bottom: 0; padding: 0 }
 .pj-rows { margin: 0 -18px }
 /* Long lists: the webview skips rows outside the pane. */
 .pj-rows > .pj-li, .pj-runbox > .pj-runrow { content-visibility: auto; contain-intrinsic-size: auto 52px }
@@ -463,9 +423,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-det .cc-sec:not(:first-child) { margin-top: 18px }
 .pj-det .cc-sec { margin-bottom: 9px }
 .pj-det .cc-sec > h4 + small { margin-right: auto }
-.pj-det .pj-labels { gap: 6px; margin-bottom: 12px }
+.pj-det .pj-labels { padding: 0; gap: 6px; margin-bottom: 12px }
 .pj-det .pj-labels .pj-tag { font-size: 11.5px; line-height: 18px; padding: 2px 10px; border-radius: var(--radius-sm) }
-.pj-tag.lab.on { background: color-mix(in srgb, var(--accent) 16%, transparent) }
 .pj-br.pj-task { gap: 6px 12px; padding: 12px 14px }
 .pj-br .m { gap: 4px 14px }
 .pj-br .m > :last-child { flex-basis: 100% }
@@ -475,7 +434,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-ov .cc-sec:not(:first-child) { margin-top: 0 }
 .pj-ov .r { display: flex; gap: 4px; align-items: center }
 .pj-ov .r .pj-tag { margin-left: 0 }
-.pj-scroll { max-height: 62vh; overflow: auto; scrollbar-width: thin }
 @media (max-width: 1000px) { .pj-ov { grid-template-columns: minmax(0, 1fr) } }
 .pj-det > * { flex: none }
 /* A pull request or issue: its head, then the description and comments. */
@@ -500,7 +458,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-post { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden }
 .pj-post .by { padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted) }
 .pj-post .by b { color: var(--fg); font-weight: 600 }
-.pj-post .pj-md { padding: 9px 12px }
+.pj-post .pj-md { padding: 10px 12px }
 
 /* The Projects overview: one card per project, grouped by org. */
 .pj-org { display: grid; gap: 8px; margin-bottom: 14px }
@@ -511,10 +469,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .pj-org h3.gp svg { color: var(--dim); flex: none }
 .pj-org h3 .gp-paths { font-weight: 400; font-size: 11px; color: var(--dim); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .pj-org h3 .gp-acts { margin-left: auto; display: inline-flex; gap: 6px; flex: none }
-.pj-org h3 .gp-acts .dbtn { padding: 2px 9px; font-size: 11.5px; min-height: 0 }
 .pj-org h3 input { padding: 1px 8px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--deep); color: var(--fg); font: inherit; outline: 0; min-width: 160px }
 .pj-org .gp-none { font-size: 12px; color: var(--muted) }
-.cc-org.gp { display: flex; align-items: center; gap: 5px }
+.cc-org.gp { display: flex; align-items: center; gap: 6px }
 .cc-org.gp svg { color: var(--dim) }
 /* A right-click menu, and the group sheet's folders. */
 .cc-menu { position: fixed; z-index: 40; min-width: 150px; padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
@@ -524,14 +481,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-menu .lbl { padding: 4px 10px 3px; font-size: 11px; color: var(--dim); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: var(--mono); border-top: 1px solid var(--border) }
 .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.gp-path .dbtn { padding: 1px 8px; font-size: 11.5px; min-height: 0; font-family: inherit }
-.gp-field { flex: 1; min-width: 0; padding: 8px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--accent); user-select: text }
-.gp-field:focus { border-color: var(--accent) }
-.gp-field::placeholder { color: var(--dim) }
-.gp-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px }
 .pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px }
 .pj-grid > * { min-width: 0 }
-.pj-card { display: grid; gap: 7px; padding: 12px 13px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); text-align: left; font-size: 12.5px; color: var(--fg); cursor: default }
+.pj-card { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); text-align: left; font-size: 12.5px; color: var(--fg); cursor: default }
 .pj-card:hover { border-color: color-mix(in srgb, var(--fg) 18%, transparent) }
 .pj-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .pj-card .h { display: flex; align-items: center; gap: 8px }
@@ -560,7 +512,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .in-tabs .tm-tab[aria-current="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg) }
 .in-cols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 14px; align-items: start }
 @container (max-width: 720px) { .in-cols { grid-template-columns: minmax(0, 1fr) } }
-.in-ed { display: grid; gap: 9px; padding: 11px 12px }
+.in-ed { display: grid; gap: 10px; padding: 10px 12px }
 .in-ver { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted) }
 .in-ver b { color: var(--fg); font-weight: 600 }
 .in-ed textarea { min-height: 300px; resize: vertical; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--shade) 25%, transparent); color: var(--fg); font: 12.5px/1.55 var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
@@ -571,14 +523,14 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .in-side { grid-template-columns: minmax(0, 1fr) auto }
 .in-sidecol { display: grid; gap: 14px }
 .in-layers { margin: 0; padding: 6px 0; list-style: none; counter-reset: l }
-.in-layers li { counter-increment: l; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 8px; padding: 6px 11px; font-size: 12.5px; line-height: 17px }
+.in-layers li { counter-increment: l; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 8px; padding: 6px 10px; font-size: 12.5px; line-height: 17px }
 .in-layers li::before { content: counter(l); font-size: 11px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums }
 .in-layers li small { grid-column: 2; font-size: 11.5px; color: var(--muted) }
 .in-layers li.me { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .in-layers b { font-weight: 500; color: var(--fg) }
 .in-mach { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 12px; border-bottom: 1px solid var(--border) }
 .in-mach:last-child { border-bottom: 0 }
-.in-mach > b { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600 }
+.in-mach > b { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600 }
 .in-files { grid-column: 1 / -1; display: grid; gap: 2px }
 .in-file { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 0; font-size: 12.5px }
 .in-file.miss { color: var(--muted) }
@@ -587,8 +539,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .in-file .r { display: flex; align-items: center; gap: 6px; color: var(--muted) }
 .in-ok { color: var(--accent) }
 .in-warn { color: var(--warn) }
-.in-pre { margin: 4px 0 6px; padding: 9px 11px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow: auto; user-select: text }
-.in-hist { padding: 9px 12px; border-bottom: 1px solid var(--border) }
+.in-pre { margin: 4px 0 6px; padding: 8px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow: auto; user-select: text }
+.in-hist { padding: 10px 12px; border-bottom: 1px solid var(--border) }
 .in-hist:last-child { border-bottom: 0 }
 .in-hist .h { display: flex; align-items: center; gap: 10px; font-size: 12.5px }
 .in-hist .h small { color: var(--muted) }
@@ -597,7 +549,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* A project's terminals: tabs, the open one's output, the new one's form. */
 .tm-tabs .tm-tab { display: inline-flex; align-items: center; gap: 6px }
 .tm-panel { display: grid; gap: 0; overflow: hidden }
-.tm-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
+.tm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
 .tm-head b { color: var(--fg); font-weight: 600 }
 .tm-head .tm-st { margin-left: auto }
 .tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: color-mix(in srgb, var(--shade) 35%, transparent); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--fg) 90%, transparent); white-space: pre-wrap; user-select: text }
@@ -610,16 +562,16 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .tm-form { display: grid; gap: 10px; padding: 12px }
 .tm-f { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 12.5px }
 .tm-f > span { color: var(--muted) }
-.tm-f input { padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--shade) 25%, transparent); color: var(--fg); font: 12.5px var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
+.tm-f input { padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--shade) 25%, transparent); color: var(--fg); font: 12.5px var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
 .tm-f input:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .tm-chips { display: flex; gap: 6px; flex-wrap: wrap }
 .fs-tools { display: flex; align-items: center; gap: 10px }
 .fs-list { display: grid; margin-bottom: 14px; overflow: hidden }
-.fs-row { display: grid; gap: 5px; padding: 9px 12px; font-size: 12.5px }
+.fs-row { display: grid; gap: 6px; padding: 10px 12px; font-size: 12.5px }
 .fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait { border-top: 1px solid var(--border) }
 .fs-h { display: flex; align-items: center; gap: 8px }
 .fs-h b { font-weight: 600 }
-.fs-h .pb-chip { margin-left: auto }
+.fs-h .chip { margin-left: auto }
 .fs-bar { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden }
 .fs-bar i { display: block; height: 100%; background: color-mix(in srgb, var(--ok) 60%, transparent) }
 .fs-pct { display: flex; align-items: center; gap: 8px }
@@ -643,7 +595,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .rv-pill.ready { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent) }
 .rv-pill.blocked { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent); background: color-mix(in srgb, var(--err) 8%, transparent) }
 .rv-pill.running { color: var(--muted); border-color: var(--border) }
-.rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin { width: 9px; height: 9px }
 .rv-facts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px }
 .rv-fact { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); font-size: 12px; white-space: nowrap }
 .rv-fact b { font-weight: 600 }
@@ -657,31 +608,23 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .rv-cfl-t { display: grid; gap: 2px }
 .rv-cfl-t span { color: var(--muted) }
 .rv-cfl-t code { font-family: var(--mono); font-size: 11.5px }
-.rv-find { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 11px; align-items: start }
+.rv-find { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 12px; align-items: start }
 .rv-find + .rv-find { border-top: 1px solid var(--border) }
 .rv-find.gone { opacity: .7 }
-.rv-sev { justify-self: start; font-size: 10.5px; font-weight: 600; line-height: 17px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted) }
-.rv-sev.high { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent) }
-.rv-sev.medium { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
 .rv-find .t { display: grid; gap: 2px; min-width: 0 }
 .rv-find .t b { font-size: 13px; font-weight: 500; line-height: 18px }
 .rv-find .t code { font-family: var(--mono); font-size: 11.5px; color: var(--link); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rv-find .t span { font-size: 11.5px; color: var(--muted) }
 .rv-side { display: grid; justify-items: end; gap: 4px }
-.rv-side .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
 .rv-ver { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); white-space: nowrap }
 .rv-ver.wait { color: var(--muted) }
 .rv-more { padding: 14px; border-top: 1px solid var(--border) }
 .rv-sum { max-width: 50ch }
-.rv-sum-row { padding: 9px 11px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted) }
-.rv-shard { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 2px 10px; padding: 9px 11px; align-items: center }
+.rv-sum-row { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted) }
+.rv-shard { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 12px; align-items: center }
 .rv-shard + .rv-shard { border-top: 1px solid var(--border) }
-.rv-shard .t { display: grid; line-height: 17px; min-width: 0 }
-.rv-shard .t b { font-size: 12.5px; font-weight: 500; font-family: var(--mono) }
-.rv-shard .t span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.rv-shard .pj-st { max-width: 180px; overflow: hidden; text-overflow: ellipsis }
-.pj-st.done { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
-.pj-st.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent) }
+.rv-shard .t b { font-family: var(--mono) }
+.rv-shard .chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis }
 .pj-task .acts.rv-acts .dbtn { margin-left: 0 }
 .rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--border); background: var(--ink) }
 .rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--muted) }
@@ -704,7 +647,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .th-card { flex: none; display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); font-size: 12.5px; line-height: 18px; user-select: text }
 .th-card[hidden] { display: none }
 .th-card .who { color: var(--muted); font-size: 11.5px; display: inline-flex; align-items: center; gap: 6px }
-.th-card .who .dspin { width: 9px; height: 9px }
 .th-card .c + .c { border-top: 1px solid var(--border); padding-top: 6px }
 .th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
 .th-card > .dbtn { justify-self: start }
@@ -781,18 +723,17 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
 .fl-row { display: flex; gap: 8px; align-items: center }
 .fl-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius) }
-.fl-tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border) }
+.fl-tbl th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border) }
 .fl-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle }
 .fl-tbl th:nth-child(2) { width: 52px } .fl-tbl th:nth-child(3) { width: 32% } .fl-tbl th:nth-child(4) { width: 96px }
-.fl-tbl th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .fl-tbl td:last-child { text-align: right; white-space: nowrap }
 .cc-ag.pi { color: #B18CE0 } .cc-ag.gemini { color: #6FA8DC } .cc-ag.flsh { color: #3B9B7A } .cc-ag.opencode { color: var(--warn) }
 /* Terminals on every machine: the page's machine list beside the open terminal. */
 .tl-view { display: flex; flex-direction: column }
 .tl { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; min-height: 0; flex: 1; align-items: start }
 .tl-list { display: grid; align-content: start; gap: 12px; overflow-y: auto; max-height: calc(100vh - 140px) }
+.tl-m h5 .dbtn { margin-left: auto }
 .tl-m h5 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted) }
-.tl-m h5 .dbtn { margin-left: auto; min-height: 20px; padding: 0 7px; font-size: 11.5px }
 .tl-it { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 9px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; color: var(--fg); font: inherit; cursor: pointer }
 .tl-it:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .tl-it[aria-current="true"] { background: var(--elev); border-color: var(--border) }
@@ -810,8 +751,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .us-pill .bar { width: 28px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; display: inline-block }
 .us-pill .bar i, .us-lim .bar i { display: block; height: 100%; background: var(--ok) }
 .us-pill .bar i.warn, .us-lim .bar i.warn { background: var(--warn) }
-.us-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 360px; max-width: calc(100vw - 16px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); padding: 12px 14px; display: grid; gap: 12px; font-size: 12.5px; color: var(--fg); cursor: default }
-.us-pop { grid-template-columns: minmax(0, 1fr) }
+.us-pop { grid-template-columns: minmax(0, 1fr); position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 360px; max-width: calc(100vw - 16px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); padding: 12px 14px; display: grid; gap: 12px; font-size: 12.5px; color: var(--fg); cursor: default }
 .us-pop > * { min-width: 0 }
 .us-pop h5 { margin: 0 0 6px; font-size: 11.5px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; gap: 8px }
 .us-lim { display: grid; grid-template-columns: 76px minmax(30px, 1fr) auto; gap: 8px; align-items: center; padding: 3px 0 }
@@ -859,9 +799,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .rr-chev.on { transform: rotate(45deg) }
 .pj-runrow .pj-run { margin: 0 14px 12px 46px }
 @container (max-width: 520px) { .rr-m .ev { display: none } .rr-acts { display: none } }
-.pj-chk { color: var(--muted) }
-.pj-chk.run { color: var(--accent); display: inline-flex; gap: 5px; align-items: center }
-.pj-chk.bad, .pj-task .m a.pj-chk.bad { color: var(--warn) }
 .pj-host { display: inline-block; font-size: 10.5px; line-height: 15px; padding: 0 5px; margin-right: 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); vertical-align: 1px; font-weight: 500 }
 .cc-sec small.hosterr { color: var(--warn) }
 .pj-run { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev) }
