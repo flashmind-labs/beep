@@ -16,7 +16,7 @@ mod usage;
 
 pub use desk::Desk;
 pub use error::{FleetError, Result};
-pub use issues::{places, project_id};
+pub use issues::{has_project, places, project_id, project_names};
 pub use peer::Peers;
 pub use projects::ImportJob;
 pub use session::{Changed, Options, Session};

@@ -8,10 +8,10 @@ use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
 use beep_proto::{
-    CredentialKind, SecretText,
+    CredentialKind, SecretText, WorkDiff,
     node::{
         EnvReport, LinkRx, LinkTx, Open, Opened, ToolInfo,
-        agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
+        agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         mesh_state::{Credential, StateValue},
         shell::{self, Event, Request},
         status::Report,
@@ -126,6 +126,8 @@ struct FakeNode {
     usage: Vec<SessionsReply>,
     /// The tools its `status/1` reports.
     tools: Vec<&'static str>,
+    /// The diffs it was asked for.
+    diffed: Mutex<Vec<DiffAsk>>,
 }
 
 impl FakeNode {
@@ -194,9 +196,23 @@ impl FakeNode {
                 }
             }
             "agents/1" => {
-                let Ok(Some(SessionsRequest::FollowUsage { .. })) =
-                    rx.recv::<SessionsRequest>().await
-                else {
+                let first = rx.recv::<SessionsRequest>().await;
+                if let Ok(Some(SessionsRequest::Diff { ask })) = first {
+                    let diff = WorkDiff {
+                        root: ask.root.clone(),
+                        base: "main".into(),
+                        merge_base: "abc123".into(),
+                        working_tree: false,
+                        files: Vec::new(),
+                        additions: 3,
+                        deletions: 1,
+                        more: 0,
+                    };
+                    self.diffed.lock().expect("log").push(ask);
+                    tx.send(&SessionsReply::Diff { diff }).await.ok();
+                    return;
+                }
+                let Ok(Some(SessionsRequest::FollowUsage { .. })) = first else {
                     return;
                 };
                 for reply in &self.usage {
@@ -1141,4 +1157,48 @@ async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
         .await
         .expect("removes the record");
     assert!(desk.credentials().is_empty());
+
+#[tokio::test]
+async fn a_branch_diff_of_a_mesh_project_is_read_from_its_checkout_with_no_server() {
+    let f = fleet().await;
+    let node = Arc::new(FakeNode::default());
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await;
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    // The mesh records the project and where its checkout is: no server is asked.
+    assert!(beep_fleet::has_project(&f.studio.mesh, "acme/widget"));
+    let places = beep_fleet::places(&f.studio.mesh, "acme/widget");
+    assert_eq!(places.len(), 1, "{places:?}");
+    let (machine, folder) = places[0].clone();
+    assert_eq!(machine, f.build.id);
+    // The desktop reads the diff on that machine for the branch, against the checkout's default.
+    let client = PeerClient::local(node.session());
+    let ask = DiffAsk {
+        root: folder.clone(),
+        base: String::new(),
+        head: "feature/login".into(),
+        only: Vec::new(),
+        lockfiles: false,
+    };
+    let beep_mesh::machine::sessions::NodeWork::Done(diff) =
+        beep_mesh::machine::sessions::diff(&client, ask)
+            .await
+            .expect("the machine answers")
+    else {
+        panic!("the machine refused the diff");
+    };
+    assert_eq!((diff.additions, diff.deletions), (3, 1));
+    let asked = node.diffed.lock().expect("log").clone();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].root, folder);
+    assert_eq!(asked[0].head, "feature/login");
+    assert_eq!(asked[0].base, "");
 }

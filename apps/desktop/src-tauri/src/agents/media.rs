@@ -195,7 +195,7 @@ async fn file_chunk(
     offset: u64,
 ) -> Result<AgentFileChunk> {
     let len = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
-    if let Some(chunk) = work_copy::read(beep, &machine_id, &path, offset, len).await {
+    if let Some(chunk) = work_copy::read(beep, fleet, &machine_id, &path, offset, len).await {
         return Ok(chunk);
     }
     let request = GetAgentFile {

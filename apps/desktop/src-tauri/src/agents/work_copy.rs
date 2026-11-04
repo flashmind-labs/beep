@@ -7,18 +7,22 @@
 use crate::{
     beep::Beep,
     error::{DesktopError, Result},
+    fleet::Fleet,
     projects::unknown_op,
 };
+use beep_mesh::{Key, Mesh};
 use beep_node::agents::{local_read, local_tree};
 use beep_proto::{
     AgentFileChunk, ImportedProject, ListImportedProjects, ListProjectSync, ListWorkTree,
-    ProjectSync, WorkTree,
+    MachineSync, ProjectSync, SyncStatus, WorkTree,
+    node::mesh_state::{StateValue, SyncSpec},
 };
+use iroh::EndpointId;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
-    time::{Duration, Instant},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 use tokio::task::spawn_blocking;
 
@@ -190,28 +194,96 @@ fn stays_inside(root: &Path, folder: &Path) -> bool {
     folder.starts_with(root) && folder.is_dir()
 }
 
-/// Asks the server which projects are where, and looks here. The outer error
-/// is a failed request, which says nothing about the copy.
-async fn look(beep: &Beep, machine_id: &str, dir: &str) -> Result<Result<LocalCopy, Miss>> {
-    let imported = beep.call(ListImportedProjects {}).await?;
-    let synced = match beep.call(ListProjectSync {}).await {
-        Err(e) if unknown_op(&e) => Vec::new(),
-        other => other?,
-    };
-    let (machine_id, dir) = (machine_id.to_owned(), dir.to_owned());
-    spawn_blocking(move || {
-        find_copy(&machine_id, &dir, &imported, &synced, |folder| {
-            folder.is_absolute() && folder.is_dir()
+/// What the mesh records of where projects are: their checkouts and the
+/// folders Beep's sync keeps. Nothing is asked of any machine.
+fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
+    let names: HashMap<EndpointId, String> = mesh
+        .devices()
+        .into_iter()
+        .map(|status| (status.device.id, status.device.name))
+        .collect();
+    let name_of = |id: &EndpointId| names.get(id).cloned().unwrap_or_default();
+    let imported = beep_fleet::project_names(mesh)
+        .into_iter()
+        .flat_map(|project| {
+            beep_fleet::places(mesh, &project)
+                .into_iter()
+                .map(move |(machine, folder)| (project.clone(), machine, folder))
         })
-    })
-    .await
-    .map_err(|e| DesktopError::Other(e.into()))
+        .map(|(project, machine, folder)| ImportedProject {
+            project,
+            url: String::new(),
+            machine_id: machine.to_string(),
+            machine_name: name_of(&machine),
+            folder,
+            cloned: false,
+            imported_at: UNIX_EPOCH,
+        })
+        .collect();
+    let synced = mesh
+        .scan("sync/")
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let Key::Sync(project) = key else {
+                return None;
+            };
+            let spec = SyncSpec::from_bytes(&value).ok()?;
+            let machines = spec
+                .folders
+                .into_iter()
+                .map(|(machine, folder)| MachineSync {
+                    machine_id: machine.to_string(),
+                    machine_name: name_of(&machine),
+                    folder,
+                    status: SyncStatus::InSync {},
+                    files: 0,
+                    bytes: 0,
+                    pending: 0,
+                    conflicts: Vec::new(),
+                    rescan_secs: None,
+                    hint: None,
+                    error: None,
+                })
+                .collect();
+            Some(ProjectSync {
+                project,
+                pinned: false,
+                machines,
+            })
+        })
+        .collect();
+    (imported, synced)
+}
+
+/// Looks for this Mac's copy of `dir` among the projects the mesh records,
+/// then, with a server linked and no mesh project holding it, among the
+/// server's. The outer error is a failed request, which says nothing about
+/// the copy.
+async fn look(
+    beep: &Beep,
+    fleet: &Fleet,
+    machine_id: &str,
+    dir: &str,
+) -> Result<Result<LocalCopy, Miss>> {
+    let (mut imported, mut synced) = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
+    let here = |folder: &Path| folder.is_absolute() && folder.is_dir();
+    let (machine, folder) = (machine_id.to_owned(), dir.to_owned());
+    if holder(&machine, &folder, &imported, &synced).is_none() && beep.server().is_some() {
+        imported = beep.call(ListImportedProjects {}).await?;
+        synced = match beep.call(ListProjectSync {}).await {
+            Err(e) if unknown_op(&e) => Vec::new(),
+            other => other?,
+        };
+    }
+    spawn_blocking(move || find_copy(&machine, &folder, &imported, &synced, here))
+        .await
+        .map_err(|e| DesktopError::Other(e.into()))
 }
 
 /// The copy here of `dir` on `machine_id`, when this Mac has the project.
-async fn copy_of(beep: &Beep, machine_id: &str, dir: &str) -> Option<LocalCopy> {
-    // The Mac's own folder is the copy: no trip through the server to its node.
-    if beep.id().to_string() == machine_id {
+async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Option<LocalCopy> {
+    // The Mac's own folder is the copy: no trip through its node.
+    if fleet.id().to_string() == machine_id {
         return Some(LocalCopy {
             remote: dir.to_owned(),
             local: PathBuf::from(dir),
@@ -224,7 +296,7 @@ async fn copy_of(beep: &Beep, machine_id: &str, dir: &str) -> Option<LocalCopy> 
     if let Some(copy) = beep.copies().kept(&asked) {
         return copy;
     }
-    match look(beep, machine_id, dir).await {
+    match look(beep, fleet, machine_id, dir).await {
         Ok(Ok(copy)) => {
             beep.copies().keep(asked, Some(copy.clone()));
             Some(copy)
@@ -255,8 +327,13 @@ fn place_or_top(local: PathBuf, rel: &str) -> PathBuf {
 }
 
 /// The folder on this Mac for `dir` on `machine_id`, when this Mac has it.
-pub(crate) async fn folder_here(beep: &Beep, machine_id: &str, dir: &str) -> Option<PathBuf> {
-    let copy = copy_of(beep, machine_id, dir).await?;
+pub(crate) async fn folder_here(
+    beep: &Beep,
+    fleet: &Fleet,
+    machine_id: &str,
+    dir: &str,
+) -> Option<PathBuf> {
+    let copy = copy_of(beep, fleet, machine_id, dir).await?;
     let rel = under(dir, &copy.remote)?.to_owned();
     spawn_blocking(move || place_or_top(copy.local, &rel))
         .await
@@ -272,12 +349,13 @@ fn parent(path: &str) -> &str {
 /// the node has to give it.
 pub(crate) async fn read(
     beep: &Beep,
+    fleet: &Fleet,
     machine_id: &str,
     full: &str,
     offset: u64,
     len: u32,
 ) -> Option<AgentFileChunk> {
-    let copy = copy_of(beep, machine_id, parent(full)).await?;
+    let copy = copy_of(beep, fleet, machine_id, parent(full)).await?;
     let rel = under(full, &copy.remote)?.to_owned();
     let found = spawn_blocking(move || local_read(&copy.local, &rel, offset, len)).await;
     match found {
@@ -295,9 +373,9 @@ pub(crate) async fn read(
 
 /// The tree `ask` names from the copy here; `None` when the node has to
 /// give it.
-pub(crate) async fn tree(beep: &Beep, ask: &ListWorkTree) -> Option<WorkTree> {
+pub(crate) async fn tree(beep: &Beep, fleet: &Fleet, ask: &ListWorkTree) -> Option<WorkTree> {
     let root = &ask.root;
-    let copy = copy_of(beep, &ask.machine_id, root).await?;
+    let copy = copy_of(beep, fleet, &ask.machine_id, root).await?;
     let local = copy.local.join(under(root, &copy.remote)?);
     let (path, ignored, depth) = (ask.path.clone(), ask.ignored, ask.depth);
     let found = spawn_blocking(move || {
@@ -323,8 +401,7 @@ pub(crate) async fn tree(beep: &Beep, ask: &ListWorkTree) -> Option<WorkTree> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::{MachineSync, SyncStatus};
-    use std::{env, fs, os::unix::fs::symlink, process, time::UNIX_EPOCH};
+    use std::{env, fs, os::unix::fs::symlink, process};
 
     fn machine(id: &str, folder: &str) -> MachineSync {
         MachineSync {

@@ -5,7 +5,10 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::projects::{FleetState, desk},
+    fleet::{
+        Machines, extra, files as direct,
+        projects::{FleetState, desk},
+    },
     projects::needs_update,
 };
 use beep_proto::{InstructionsVersion, MachineAgentFiles, ReadAgentFiles, SyncAgentFiles};
@@ -65,18 +68,46 @@ pub async fn instructions_versions(fleet: FleetState<'_>) -> Result<Vec<VersionR
     Ok(versions.into_iter().map(Into::into).collect())
 }
 
-/// The agent files on every online machine.
+/// The agent files on every online machine: those of the mesh read directly,
+/// then the server's other machines.
 #[tauri::command]
-pub async fn agent_files_read(beep: Service<'_>) -> Result<Vec<MachineAgentFiles>> {
-    beep.call(ReadAgentFiles {}).await.map_err(outdated)
+pub async fn agent_files_read(
+    beep: Service<'_>,
+    fleet: FleetState<'_>,
+    machines: Machines<'_>,
+) -> Result<Vec<MachineAgentFiles>> {
+    let newest = desk(&fleet).await.ok().and_then(|desk| desk.instructions());
+    let text = newest.as_ref().map(|version| version.text.as_str());
+    let mut files = direct::agent_files(&machines, text).await;
+    let others = extra(beep.call(ReadAgentFiles {}).await);
+    files.extend(
+        others
+            .into_iter()
+            .filter(|machine| machines.member(&machine.machine_id).is_none()),
+    );
+    Ok(files)
 }
 
 /// Writes the newest version into the agent files on `machine_id`.
 #[tauri::command]
-pub async fn agent_files_sync(beep: Service<'_>, machine_id: String) -> Result<MachineAgentFiles> {
-    beep.call(SyncAgentFiles { machine_id })
-        .await
-        .map_err(outdated)
+pub async fn agent_files_sync(
+    beep: Service<'_>,
+    fleet: FleetState<'_>,
+    machines: Machines<'_>,
+    machine_id: String,
+) -> Result<MachineAgentFiles> {
+    let Some(machine) = machines.member(&machine_id) else {
+        return beep
+            .call(SyncAgentFiles { machine_id })
+            .await
+            .map_err(outdated);
+    };
+    let newest = desk(&fleet).await?.instructions().ok_or_else(|| {
+        DesktopError::BadRequest(
+            "Save your instructions before writing them to agent files.".into(),
+        )
+    })?;
+    direct::sync_agent_files(&machines, machine, &newest.text).await
 }
 
 #[cfg(test)]

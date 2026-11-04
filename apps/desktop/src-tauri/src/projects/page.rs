@@ -33,8 +33,9 @@ pub async fn project_sessions(
     fleet: Machines<'_>,
     project: String,
 ) -> Result<Vec<SessionRow>> {
-    let places = super::branches::places(&beep, &fleet, &project).await;
-    if !places.is_empty() {
+    if let super::branches::Placed::Mesh(places) =
+        super::branches::placed(&beep, &fleet, &project).await?
+    {
         let sessions = direct::project_sessions(&fleet, &places).await;
         return Ok(sessions.into_iter().map(SessionRow::from).collect());
     }
