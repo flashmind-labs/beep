@@ -1096,6 +1096,120 @@ async fn a_checkout_here_is_read_without_asking_the_other_machines() {
     assert_eq!(got, (1, 1, "fix".to_owned()));
 }
 
+/// A server that lists one credential with no value, as a real one does.
+struct LastFour;
+
+#[async_trait]
+impl beep_fleet::migrate::Source for LastFour {
+    async fn account(&self) -> beep_fleet::Result<String> {
+        Ok("account".into())
+    }
+    async fn imports(&self) -> beep_fleet::Result<Vec<beep_proto::ImportedProject>> {
+        Ok(Vec::new())
+    }
+    async fn sync(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectSync>> {
+        Ok(Vec::new())
+    }
+    async fn groups(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectGroup>> {
+        Ok(Vec::new())
+    }
+    async fn on_top(&self) -> beep_fleet::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn credentials(&self) -> beep_fleet::Result<Vec<beep_proto::Credential>> {
+        Ok(vec![beep_proto::Credential {
+            id: "7".into(),
+            kind: CredentialKind::ApiKey {
+                provider: "anthropic".into(),
+            },
+            last4: "9f3a".into(),
+            account: None,
+            env_var: "ANTHROPIC_API_KEY".into(),
+            to_machines: true,
+            created_at: SystemTime::UNIX_EPOCH,
+            unreadable: false,
+        }])
+    }
+    async fn harness(
+        &self,
+        agent: &str,
+    ) -> beep_fleet::Result<Vec<beep_proto::MachineHarnessSettings>> {
+        if agent != "codex" {
+            return Ok(Vec::new());
+        }
+        Ok(vec![beep_proto::MachineHarnessSettings {
+            machine_id: SecretKey::generate().public().to_string(),
+            machine_name: "box".into(),
+            settings: beep_proto::HarnessSettings {
+                enabled: true,
+                program: String::new(),
+                home: String::new(),
+                args: Vec::new(),
+                env: vec![beep_proto::HarnessEnv {
+                    name: "OPENAI_API_KEY".into(),
+                    value: None,
+                }],
+            },
+        }])
+    }
+    async fn flsh(&self) -> beep_fleet::Result<beep_proto::FlshSettings> {
+        Ok(beep_proto::FlshSettings::default())
+    }
+    async fn instructions(&self) -> beep_fleet::Result<Vec<beep_proto::InstructionsVersion>> {
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
+    let studio = create("Studio").await;
+    beep_fleet::migrate::run(&studio.mesh, &LastFour)
+        .await
+        .expect("the account moves");
+    let desk = desk(&studio, &[]).await;
+    let listed = desk.credentials();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].unreadable);
+    assert_eq!(listed[0].last4, "9f3a");
+    assert!(matches!(listed[0].kind, CredentialKind::ApiKey { .. }));
+    // Entering the token again drops its record, so nodes may take the mesh's value.
+    assert_eq!(studio.mesh.scan("unmoved/credential/").len(), 1);
+    desk.save_credential(
+        &listed[0].kind,
+        &SecretText::new("sk-ant-newtokenvalue"),
+        true,
+    )
+    .await
+    .expect("saves");
+    assert!(studio.mesh.scan("unmoved/credential/").is_empty());
+    assert_eq!(desk.credentials().len(), 1);
+    assert!(!desk.credentials()[0].unreadable);
+    // The same for a harness variable, once it is given a value.
+    assert_eq!(studio.mesh.scan("unmoved/harness/").len(), 1);
+    let machine = studio.id.to_string();
+    desk.save_harness_settings_all(
+        &machine,
+        "codex",
+        beep_proto::HarnessSettings {
+            enabled: true,
+            program: String::new(),
+            home: String::new(),
+            args: Vec::new(),
+            env: vec![beep_proto::HarnessEnv {
+                name: "OPENAI_API_KEY".into(),
+                value: Some(SecretText::new("sk-openai-newvalue")),
+            }],
+        },
+        false,
+    )
+    .await
+    .expect("saves");
+    assert!(studio.mesh.scan("unmoved/harness/").is_empty());
+    let id = desk.credentials()[0].id.clone();
+    desk.remove_credential(&id).await.expect("removes it");
+    assert!(desk.credentials().is_empty());
+}
+
 #[tokio::test]
 async fn a_branch_diff_of_a_mesh_project_is_read_from_its_checkout_with_no_server() {
     let f = fleet().await;
@@ -1139,4 +1253,105 @@ async fn a_branch_diff_of_a_mesh_project_is_read_from_its_checkout_with_no_serve
     assert_eq!(asked[0].root, folder);
     assert_eq!(asked[0].head, "feature/login");
     assert_eq!(asked[0].base, "");
+}
+
+/// A server that lists two GitHub accounts, with no values.
+struct TwoAccounts;
+
+#[async_trait]
+impl beep_fleet::migrate::Source for TwoAccounts {
+    async fn account(&self) -> beep_fleet::Result<String> {
+        Ok("account".into())
+    }
+    async fn imports(&self) -> beep_fleet::Result<Vec<beep_proto::ImportedProject>> {
+        Ok(Vec::new())
+    }
+    async fn sync(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectSync>> {
+        Ok(Vec::new())
+    }
+    async fn groups(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectGroup>> {
+        Ok(Vec::new())
+    }
+    async fn on_top(&self) -> beep_fleet::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn credentials(&self) -> beep_fleet::Result<Vec<beep_proto::Credential>> {
+        let github = |id: &str, login: &str| beep_proto::Credential {
+            id: id.into(),
+            kind: CredentialKind::GitHub {},
+            last4: "9f3a".into(),
+            account: Some(login.into()),
+            env_var: "GH_TOKEN".into(),
+            to_machines: true,
+            created_at: SystemTime::UNIX_EPOCH,
+            unreadable: false,
+        };
+        Ok(vec![github("1", "octo"), github("2", "other")])
+    }
+    async fn harness(
+        &self,
+        _: &str,
+    ) -> beep_fleet::Result<Vec<beep_proto::MachineHarnessSettings>> {
+        Ok(Vec::new())
+    }
+    async fn flsh(&self) -> beep_fleet::Result<beep_proto::FlshSettings> {
+        Ok(beep_proto::FlshSettings::default())
+    }
+    async fn instructions(&self) -> beep_fleet::Result<Vec<beep_proto::InstructionsVersion>> {
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn saving_one_github_token_releases_only_its_own_record() {
+    let f = fleet().await;
+    let api = github().await;
+    beep_fleet::migrate::run(&f.studio.mesh, &TwoAccounts)
+        .await
+        .expect("the account moves");
+    assert_eq!(f.studio.mesh.scan("unmoved/credential/").len(), 2);
+    let studio = desk(&f.studio, &[]).await.github_api(&api);
+    // The fake GitHub says every token is octo's.
+    studio
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .await
+        .expect("saved");
+    let left: Vec<String> = f
+        .studio
+        .mesh
+        .scan("unmoved/credential/")
+        .into_iter()
+        .map(|(key, _)| key.to_string())
+        .collect();
+    assert_eq!(left, ["unmoved/credential/2"]);
+}
+
+#[tokio::test]
+async fn a_harness_variable_taken_out_drops_its_record_and_one_left_blank_keeps_it() {
+    let studio = create("Studio").await;
+    beep_fleet::migrate::run(&studio.mesh, &LastFour)
+        .await
+        .expect("the account moves");
+    let desk = desk(&studio, &[]).await;
+    let machine = studio.id.to_string();
+    let settings = |env: Vec<beep_proto::HarnessEnv>| beep_proto::HarnessSettings {
+        enabled: true,
+        program: String::new(),
+        home: String::new(),
+        args: Vec::new(),
+        env,
+    };
+    let blank = beep_proto::HarnessEnv {
+        name: "OPENAI_API_KEY".into(),
+        value: None,
+    };
+    desk.save_harness_settings_all(&machine, "codex", settings(vec![blank]), false)
+        .await
+        .expect("saves");
+    assert_eq!(studio.mesh.scan("unmoved/harness/").len(), 1);
+    // Taken out of the list: the record goes, so the node is not held for it.
+    desk.save_harness_settings_all(&machine, "codex", settings(Vec::new()), false)
+        .await
+        .expect("saves");
+    assert!(studio.mesh.scan("unmoved/harness/").is_empty());
 }

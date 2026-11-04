@@ -521,6 +521,16 @@ impl Mesh {
         Ok(())
     }
 
+    /// Writes `value` only if this mesh never held `key`: a key it holds, or held and deleted,
+    /// keeps its state. Returns whether it wrote. Desktops only.
+    pub async fn set_if_new(&self, key: Key, value: Vec<u8>) -> Result<bool, MeshError> {
+        if self.inner.view().held.contains(&key) {
+            return Ok(false);
+        }
+        self.set(key, Some(value)).await?;
+        Ok(true)
+    }
+
     pub fn get(&self, key: &Key) -> Option<Vec<u8>> {
         self.inner.view().values.get(key).cloned()
     }

@@ -2,6 +2,7 @@
 //! their instructions. They are the same on every machine, so they are one value each in the
 //! mesh (`harness/<agent>`, `flsh`, `instructions`), which the nodes read.
 
+use crate::migrate::{Unmoved, unmoved_env};
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
@@ -68,6 +69,18 @@ impl Desk {
         Key::Harness(format!("{agent}/{machine}"))
     }
 
+    /// The names of the env vars of `agent` the account move left to enter again.
+    fn unmoved_env(&self, agent: &str) -> Vec<String> {
+        let prefix = format!("unmoved/harness/{agent}/");
+        scan::<Unmoved>(&self.mesh, &prefix)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Unmoved::HarnessEnv { name, .. } => Some(name),
+                Unmoved::Credential(_) => None,
+            })
+            .collect()
+    }
+
     /// Each machine's settings for `agent`: the same on all of them, but for its own program path
     /// and home folder.
     pub fn harness_settings(&self, agent: &str) -> Result<Vec<MachineHarnessSettings>> {
@@ -83,6 +96,12 @@ impl Desk {
                     &Self::harness_device_key(agent, status.device.id),
                 );
                 let mut settings = settings_of(shared.as_ref());
+                // Variables the account move could not bring, to enter again.
+                for name in self.unmoved_env(agent) {
+                    if !settings.env.iter().any(|var| var.name == name) {
+                        settings.env.push(HarnessEnv { name, value: None });
+                    }
+                }
                 settings.program = own
                     .as_ref()
                     .and_then(|own| own.program.clone())
@@ -161,6 +180,7 @@ impl Desk {
         check_agent(agent)?;
         let settings = check_settings(settings)?;
         let key = Self::harness_key(agent);
+        let submitted: Vec<String> = settings.env.iter().map(|var| var.name.clone()).collect();
         let kept = read::<HarnessConfig>(&self.mesh, &key)
             .map(|config| config.env)
             .unwrap_or_default();
@@ -173,6 +193,14 @@ impl Desk {
             env: merged_env(kept, settings.env),
         };
         write(&self.mesh, key, Some(&config)).await?;
+        // A record goes once its variable has a value in the mesh, or was taken out. One submitted
+        // with no value stays: it is still only the server's.
+        for name in self.unmoved_env(agent) {
+            let entered = config.env.iter().any(|var| var.name == name);
+            if entered || !submitted.contains(&name) {
+                self.mesh.set(unmoved_env(agent, &name), None).await?;
+            }
+        }
         let blank = |text: String| Some(text).filter(|text| !text.is_empty());
         for (machine, program, home) in paths {
             let own = HarnessConfig {

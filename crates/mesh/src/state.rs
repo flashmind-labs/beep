@@ -50,6 +50,10 @@ pub enum Key {
     InstructionVersion(String),
     /// A terminal kept running on a machine: `terminal/<id>`.
     Terminal(String),
+    /// A value an account move could not bring from the server, as the record of what to enter
+    /// again: `unmoved/credential/<id>` or `unmoved/harness/<agent>/<VAR>`. Nodes keep the
+    /// server's values of that family while any record of it remains.
+    Unmoved(String),
     /// A kind this build does not know, as its text. A member holds it and passes it on and
     /// nothing reads it, so a newer desktop's new kind never stops an older member's sync.
     Other(String),
@@ -67,6 +71,7 @@ impl fmt::Display for Key {
             Key::Flsh => f.write_str("flsh"),
             Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
             Key::Terminal(n) => write!(f, "terminal/{n}"),
+            Key::Unmoved(n) => write!(f, "unmoved/{n}"),
             Key::Other(text) => f.write_str(text),
         }
     }
@@ -94,6 +99,7 @@ impl FromStr for Key {
             "harness" => Ok(Key::Harness(name)),
             "instructions" => Ok(Key::InstructionVersion(name)),
             "terminal" => Ok(Key::Terminal(name)),
+            "unmoved" => Ok(Key::Unmoved(name)),
             // Not a kind this build knows, but well formed: kept as it is.
             other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
             _ => Err(bad()),
@@ -667,6 +673,7 @@ mod tests {
             Key::Flsh,
             Key::InstructionVersion("1793000000000.a".into()),
             Key::Terminal("t1".into()),
+            Key::Unmoved("credential/7".into()),
             Key::Other("future-kind/x y".into()),
         ];
         for key in keys {

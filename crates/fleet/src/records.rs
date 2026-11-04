@@ -189,6 +189,16 @@ pub(crate) fn at(ms: u64) -> DateTime<Utc> {
         .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
 }
 
+/// `time` the other way, a time before the epoch reading as the epoch.
+pub(crate) fn time_ms(time: SystemTime) -> u64 {
+    u64::try_from(
+        time.duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX)
+}
+
 pub(crate) fn time(ms: u64) -> SystemTime {
     UNIX_EPOCH + std::time::Duration::from_millis(ms)
 }

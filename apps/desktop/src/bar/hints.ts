@@ -12,7 +12,7 @@ import { stopFace } from "../chat/turnrows.ts";
 /// A key and what it does, as the hint row and the shortcuts sheet show it.
 export type Hint = readonly string[];
 
-const LINK_STATUS: Partial<Record<LinkState, [string, string]>> = { unlinked: ["off", "Not linked"], revoked: ["bad", "Removed"] };
+const LINK_STATUS: Partial<Record<LinkState, [string, string]>> = { unlinked: ["off", "No subscription"], revoked: ["bad", "Removed"] };
 
 export function hints(items: readonly Hint[], extra = "") {
   items = forPane(items);

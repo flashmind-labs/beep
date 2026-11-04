@@ -2,7 +2,7 @@
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/loopclock.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
 import { pane } from "../bar/pane.ts";
@@ -13,6 +13,8 @@ import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
+import { firstRun } from "./firstrun.ts";
+import { viewHidden } from "../settings/subscription.ts";
 import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
@@ -168,10 +170,13 @@ export function askBeep(prompt: string) {
 /// Shows what the app kept from the server's last answers, so the window
 /// opens on Home, its projects and sidebar before the server answers.
 async function showCached() {
-  const [cached, mac] = await Promise.all([
+  const [cached, mac, link] = await Promise.all([
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
+    invoke<{ link: string }>("status").catch(() => null),
   ]);
+  state.subscribed = link?.link === "linked";
+  $("#home-comp").style.display = state.subscribed ? "" : "none";
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
   keepPagesFile(cached?.pages);
@@ -183,6 +188,22 @@ async function showCached() {
   reloadGroup("machines");
 }
 
+// Signing in or out changes what the window shows.
+listen<string>("link-state", e => {
+  const now = e.payload === "linked";
+  if (now === state.subscribed) return;
+  state.subscribed = now;
+  for (const name of ["pinned", "chats", "views", "research"]) reloadGroup(name);
+  if (now) loadAgents();
+  else {
+    state.agents = null;
+    // Signed out on a page that is only there with a subscription: Home.
+    const on = paneOn();
+    const arg = on.group ? { group: { id: on.group } } : on.session ? { chat: { session: on.session } } : on.view;
+    if (shown && viewHidden(shown, arg, false)) go("home");
+  }
+  draw();
+});
+
 // A reload starts with no chat open, as the window just opened does.
-Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(start);
-loadAgents();
+Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {})).then(start).then(() => { if (state.subscribed) loadAgents(); });

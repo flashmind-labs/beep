@@ -4,6 +4,7 @@ mod credentials;
 mod desk;
 mod error;
 mod issues;
+pub mod migrate;
 mod peer;
 mod projects;
 mod records;

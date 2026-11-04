@@ -9,7 +9,10 @@ use super::{
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::{Fleet, alerts},
+    fleet::{
+        Fleet, alerts,
+        projects::{FleetState, desk},
+    },
     machines::list::{self as machine_list, Outside},
     projects::{ProjectRow, known},
 };
@@ -115,6 +118,8 @@ struct MachineCard {
     id: String,
     name: String,
     online: bool,
+    /// In the mesh, or one only the account lists, reached through the server.
+    joined: bool,
     /// In milliseconds since the Unix epoch.
     seen_at: u64,
     version: String,
@@ -232,8 +237,9 @@ pub async fn center_home(
     held: State<'_, Outside>,
     cache: State<'_, Arc<ViewCache>>,
     agents: State<'_, Arc<AgentSessions>>,
+    session: FleetState<'_>,
 ) -> Result<HomeView> {
-    let (sessions, researches, approvals, chats, crons, updates, projects) = join!(
+    let (sessions, researches, approvals, chats, crons, updates, listed, imported) = join!(
         agents.list(&app, beep.inner(), cache.inner()),
         beep.call(ListResearches {}),
         beep.call(ListPendingApprovals {}),
@@ -241,8 +247,10 @@ pub async fn center_home(
         beep.call(ListCrons {}),
         beep.call(ListUpdates {}),
         beep.call(ListImportedProjects {}),
+        mesh_imports(&fleet, &session),
     );
-    let view = home_view(HomeParts {
+    let projects = with_server(imported, listed);
+    let mut view = home_view(HomeParts {
         machines: Ok(machine_list::machines(&app, &fleet, &held)),
         details: Ok(machine_list::details(&app, &fleet, &held)),
         stats: Ok(machine_list::stats(&app, &fleet, &held)),
@@ -254,15 +262,60 @@ pub async fn center_home(
         updates,
         projects,
     })?;
+    for card in view.machines.iter_mut().flatten() {
+        card.joined = fleet.member(&card.id).is_some();
+    }
     cache_view(&cache, View::Home, &view);
     Ok(view)
 }
 
+/// The projects the mesh holds, one row per machine of it that has one; none while the mesh is
+/// not open, so Home never waits for it.
+pub(crate) async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec<ImportedProject> {
+    if fleet.mesh().is_none() {
+        return Vec::new();
+    }
+    match desk(session).await {
+        Ok(desk) => desk.imported().await,
+        Err(e) => {
+            log::info!("no projects from the mesh: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// The mesh's projects, then the server's on machines the mesh does not hold. With no server, or
+/// one that does not answer, the mesh's alone; the server's failure shows only when the mesh has
+/// nothing, so a cached Home is kept rather than shown empty.
+pub(crate) fn with_server(
+    mut mesh: Vec<ImportedProject>,
+    server: Result<Vec<ImportedProject>>,
+) -> Result<Vec<ImportedProject>> {
+    match server {
+        Ok(listed) => {
+            let more: Vec<ImportedProject> = listed
+                .into_iter()
+                .filter(|row| {
+                    !mesh.iter().any(|held| {
+                        held.project == row.project && held.machine_id == row.machine_id
+                    })
+                })
+                .collect();
+            mesh.extend(more);
+            Ok(mesh)
+        }
+        Err(DesktopError::NoServer | DesktopError::Unlinked) => Ok(mesh),
+        Err(e) if mesh.is_empty() => Err(e),
+        Err(_) => Ok(mesh),
+    }
+}
+
 /// `None` for a request the server does not know or this account may not
-/// make; any other failure goes to the log.
+/// make; any other failure goes to the log. A server that is not there is no failure.
 pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     match result {
         Ok(listed) => Some(listed),
+        Err(DesktopError::NoServer | DesktopError::Unlinked) => None,
         Err(e) if is_unsupported(&e) => None,
         Err(e) => {
             log::warn!("listing {what} for the command center: {e}");
@@ -358,6 +411,7 @@ fn machine_cards(
                 id: machine.id,
                 name: machine.name,
                 online: machine.online,
+                joined: true,
                 version: machine.version,
                 env: machine.env,
             }
@@ -563,6 +617,48 @@ mod tests {
             updates: Ok(Vec::new()),
             projects: Ok(Vec::new()),
         }
+    }
+
+    fn imported(project: &str, machine: &str) -> ImportedProject {
+        ImportedProject {
+            project: project.into(),
+            url: format!("https://github.com/{project}"),
+            machine_id: machine.into(),
+            machine_name: "box".into(),
+            folder: format!("/srv/{project}"),
+            cloned: false,
+            imported_at: at(9000),
+        }
+    }
+
+    #[test]
+    fn projects_come_from_the_mesh_and_the_server_adds_machines_outside_it() {
+        let mesh = vec![imported("org/repo", "m1")];
+        let both = with_server(
+            mesh.clone(),
+            Ok(vec![imported("org/repo", "m1"), imported("org/repo", "m2")]),
+        )
+        .expect("listed");
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[1].machine_id, "m2");
+        // No server, or one that is down, leaves the mesh's own.
+        for failed in [
+            DesktopError::NoServer,
+            DesktopError::Unlinked,
+            DesktopError::BadRequest("the server took too long".into()),
+        ] {
+            assert_eq!(
+                with_server(mesh.clone(), Err(failed)).expect("kept").len(),
+                1
+            );
+        }
+        // With nothing in the mesh the failure shows, so Home keeps what it had.
+        assert!(with_server(Vec::new(), Err(DesktopError::BadRequest("down".into()))).is_err());
+        assert!(
+            with_server(Vec::new(), Err(DesktopError::NoServer))
+                .expect("none")
+                .is_empty()
+        );
     }
 
     #[test]

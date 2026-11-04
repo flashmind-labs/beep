@@ -56,6 +56,14 @@ export async function loadProjectAgent(after = true) {
   agentLoading = true;
   const picked = state.picked;
   const early = picked ? loadView(picked, after) : undefined;
+  // The project agent needs a subscription: no panel, and no call to ask for one.
+  if (!state.subscribed) {
+    agentLoading = false;
+    state.agents = null;
+    if (state.picked && (state.picked !== picked || !early)) loadView(state.picked);
+    redrawProjectsPage();
+    return;
+  }
   try {
     state.agents = await invoke<ProjectAgent[] | null>("center_projects");
   } catch (e) {

@@ -9,6 +9,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
+    migrate::{UNMOVED_CREDENTIAL, Unmoved, unmoved_credential},
     peer::probe,
     records::{WRITES, now_ms, time},
 };
@@ -260,7 +261,70 @@ impl Desk {
                 unreadable: false,
             });
         }
+        out.extend(self.unmoved(&out));
         out
+    }
+
+    /// Credentials an account move found on its server with no value to bring: shown as ones to
+    /// enter again, until one is saved for the same slot.
+    fn unmoved(&self, listed: &[Credential]) -> Vec<Credential> {
+        let saved = self.saved();
+        let held: Vec<&Slot> = saved.iter().map(|saved| &saved.slot).collect();
+        let logins: Vec<&str> = saved
+            .iter()
+            .filter_map(|saved| Some(saved.github.as_ref()?.login.as_str()))
+            .collect();
+        let mut kept: Vec<Credential> = self
+            .unmoved_credentials()
+            .into_iter()
+            .map(|(_, credential)| credential)
+            .filter(|credential| {
+                let Ok(slot) = Slot::from_wire(&credential.kind) else {
+                    return false;
+                };
+                if slot == Slot::GitHub {
+                    // One record per account: it waits for its own token.
+                    return !credential
+                        .account
+                        .as_deref()
+                        .map_or(!logins.is_empty(), |login| {
+                            logins.iter().any(|saved| saved.eq_ignore_ascii_case(login))
+                        });
+                }
+                !held.contains(&&slot)
+            })
+            .filter(|credential| !listed.iter().any(|row| row.id == credential.id))
+            .collect();
+        kept.sort_by(|a, b| a.id.cmp(&b.id));
+        kept
+    }
+
+    /// The records of credentials the account move left to enter again.
+    fn unmoved_credentials(&self) -> Vec<(Key, Credential)> {
+        crate::records::scan::<Unmoved>(&self.mesh, UNMOVED_CREDENTIAL)
+            .into_iter()
+            .filter_map(|(key, record)| match record {
+                Unmoved::Credential(credential) => Some((key, credential)),
+                Unmoved::HarnessEnv { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Drops the record of the credential just saved for `slot`, so nodes may take the mesh's
+    /// value. GitHub has several accounts, so only the record of `login` goes, or one that does
+    /// not say whose it is; the others wait for their own token.
+    async fn settle_unmoved(&self, slot: &Slot, login: Option<&str>) -> Result<()> {
+        for (key, credential) in self.unmoved_credentials() {
+            let same = Slot::from_wire(&credential.kind).is_ok_and(|held| held == *slot);
+            let whose = match (login, credential.account.as_deref()) {
+                (Some(saved), Some(record)) => saved.eq_ignore_ascii_case(record),
+                _ => true,
+            };
+            if same && whose {
+                self.mesh.set(key, None).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Checks `secret` with its host and saves it. A GitHub token is saved as the account it signs
@@ -310,6 +374,7 @@ impl Desk {
             self.drop_keys(&old.id).await?;
         }
         crate::records::write(&self.mesh, key(&id), Some(&value)).await?;
+        self.settle_unmoved(&slot, None).await?;
         Ok(Credential {
             id,
             kind: kind.clone(),
@@ -357,6 +422,7 @@ impl Desk {
             account.default &= !default;
             kept.push((saved.id, saved.saved_ms, saved.secret, account));
         }
+        let saved_login = login.clone();
         kept.push((
             id.clone(),
             now_ms(),
@@ -368,6 +434,8 @@ impl Desk {
             },
         ));
         self.write_github(kept).await?;
+        self.settle_unmoved(&Slot::GitHub, Some(&saved_login))
+            .await?;
         self.github_accounts()
             .into_iter()
             .find(|account| account.id == id)
@@ -485,7 +553,13 @@ impl Desk {
         let _write = WRITES.lock().await;
         let saved = self.saved();
         let Some(removed) = saved.iter().find(|saved| saved.id == id) else {
-            return Err(FleetError::NotFound);
+            // One an account move left to enter again.
+            let record = unmoved_credential(id);
+            if self.mesh.get(&record).is_none() {
+                return Err(FleetError::NotFound);
+            }
+            self.mesh.set(record, None).await?;
+            return Ok(());
         };
         if removed.github.is_none() {
             return self.drop_keys(id).await;

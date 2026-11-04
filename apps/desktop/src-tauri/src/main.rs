@@ -21,10 +21,7 @@ mod voice;
 
 use agents::artifacts;
 use anyhow::Context;
-use beep::{
-    Beep,
-    state::{LinkState, StateFile},
-};
+use beep::{Beep, state::StateFile};
 use beep_proto::client::bind_endpoint;
 use fleet::Fleet;
 use iroh::EndpointId;
@@ -265,7 +262,7 @@ fn main() {
             chat::sessions::share_session,
             chat::sessions::stock_chart,
             chat::sessions::unshare_session,
-            machines::add::create_node_token,
+            machines::add::mesh_join,
             machines::add::mesh_invite,
             machines::add::machine_search,
             machines::add::node_token_machine,
@@ -445,9 +442,7 @@ fn main() {
                 // Opening Beep again while it runs shows the window.
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => {
-                    if app.state::<Arc<Beep>>().link_state() == LinkState::Linked
-                        && let Err(e) = center::open(app)
-                    {
+                    if let Err(e) = center::open(app) {
                         log::warn!("opening the window: {e}");
                     }
                 }
@@ -505,6 +500,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     )?);
     let (opening, push) = (fleet.clone(), beep.push());
     tauri::async_runtime::spawn(async move { opening.run(push).await });
+    // An account with a server moves into the mesh in the background, after Home has drawn.
+    fleet::migrate::start(handle.clone());
     app.manage(machine);
     app.manage(machines::list::Outside::default());
     app.manage(tray::Recent::default());
@@ -555,10 +552,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
 
     tray::install(app, &beep)?;
 
-    // First launch, or a link still to finish: show the code.
-    if beep.link_state() != LinkState::Linked {
-        bar::show(&handle, Some("link"));
-    } else if !std::env::args().any(|arg| arg == LOGIN_ARG) {
+    // The app works with no subscription, so the first launch lands on Home like any other.
+    if !std::env::args().any(|arg| arg == LOGIN_ARG) {
         // Opened by the user, not as a login item: show the window.
         if let Err(e) = center::open(&handle) {
             log::warn!("opening the window at launch: {e}");

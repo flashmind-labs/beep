@@ -53,7 +53,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     let linked = link == LinkState::Linked;
     let status = match link {
         LinkState::Linked => "Linked to your phone",
-        LinkState::Unlinked => "Not linked yet",
+        LinkState::Unlinked => "No subscription",
         LinkState::Revoked => "Removed from the account",
     };
     let menu = Menu::new(app)?;
@@ -68,34 +68,37 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     separator()?;
     item("status", status, false, None)?;
     separator()?;
-    item("new", "New chat", linked, Some("cmd+n"))?;
-    let chats = app
-        .state::<Recent>()
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    let recent = Submenu::with_id(app, "recent", "Recent", linked && !chats.is_empty())?;
-    for chat in &chats {
-        let title = if chat.title.is_empty() {
-            "New chat"
-        } else {
-            chat.title.as_str()
-        };
-        let id = format!("{CHAT_ITEM}{}", chat.id);
-        recent.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
+    // Without a subscription the assistant's items are not there at all.
+    if linked {
+        item("new", "New chat", true, Some("cmd+n"))?;
+        let chats = app
+            .state::<Recent>()
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let recent = Submenu::with_id(app, "recent", "Recent", !chats.is_empty())?;
+        for chat in &chats {
+            let title = if chat.title.is_empty() {
+                "New chat"
+            } else {
+                chat.title.as_str()
+            };
+            let id = format!("{CHAT_ITEM}{}", chat.id);
+            recent.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
+        }
+        menu.append(&recent)?;
+        for (id, title, keys) in [
+            ("memories", "Memories", "cmd+m"),
+            ("routines", "Routines", "cmd+j"),
+            ("skills", "Skills", "cmd+l"),
+            ("research", "Research", "cmd+r"),
+        ] {
+            item(id, title, true, Some(keys))?;
+        }
+        item("apps", "Apps", true, None)?;
+        separator()?;
     }
-    menu.append(&recent)?;
-    for (id, title, keys) in [
-        ("memories", "Memories", "cmd+m"),
-        ("routines", "Routines", "cmd+j"),
-        ("skills", "Skills", "cmd+l"),
-        ("research", "Research", "cmd+r"),
-    ] {
-        item(id, title, linked, Some(keys))?;
-    }
-    item("apps", "Apps", linked, None)?;
-    separator()?;
     let waiting = app.state::<WaitingList>().entries();
     if linked && !waiting.is_empty() {
         item("waiting", "Waiting", false, None)?;
@@ -109,7 +112,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         separator()?;
     }
     if !linked {
-        item("link", "Link to phone…", true, None)?;
+        item("link", "Subscription…", true, None)?;
     }
     item("settings", "Settings…", true, Some("cmd+,"))?;
     match update::ready(app) {
@@ -153,6 +156,8 @@ pub(crate) fn became_linked(app: &AppHandle) {
     app.state::<Machine>().sync(&app.state::<Arc<Beep>>());
     refresh(app);
     tauri::async_runtime::spawn(refresh_recent(app.clone()));
+    // Signing in brings an account with a server into the mesh.
+    crate::fleet::migrate::start(app.clone());
     app.state::<WaitingList>().poke();
 }
 
@@ -184,7 +189,7 @@ fn tray_target(id: &str) -> Option<CenterTarget> {
         "memories" => Some(CenterTarget::Memories),
         "routines" => Some(CenterTarget::Routines),
         "skills" => Some(CenterTarget::Skills),
-        "settings" => Some(CenterTarget::Settings),
+        "settings" | "link" => Some(CenterTarget::Settings),
         waiting::MORE => Some(CenterTarget::Home),
         _ => None,
     }
@@ -209,8 +214,10 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         bar::show(app, Some("open"));
         return;
     }
+    // Without a subscription only Settings opens, where it is signed in.
     if let Some(target) = tray_target(event.id().as_ref())
-        && app.state::<Arc<Beep>>().link_state() == LinkState::Linked
+        && (app.state::<Arc<Beep>>().link_state() == LinkState::Linked
+            || matches!(target, CenterTarget::Settings))
     {
         let pending = app.state::<center::Pending>();
         if let Err(e) = center::open_on(app, &pending, target) {
@@ -220,10 +227,6 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
     }
     match event.id().as_ref() {
         "open-bar" => bar::show(app, Some("tray")),
-        // Before linking, the bar shows the code to link with.
-        "open-center" if app.state::<Arc<Beep>>().link_state() != LinkState::Linked => {
-            bar::show(app, Some("link"))
-        }
         "open-center" => {
             if let Err(e) = center::open(app) {
                 log::warn!("opening the command center: {e}");
@@ -233,9 +236,8 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             app.state::<Arc<Beep>>().set_session(None);
             bar::show(app, Some("new"));
         }
-        // Before linking these stay in the bar, which shows the code to link
-        // with instead.
-        view @ ("apps" | "link" | "memories" | "research" | "routines" | "skills" | "settings") => {
+        // Without a subscription these stay in the bar, which says so.
+        view @ ("apps" | "memories" | "research" | "routines" | "skills") => {
             bar::show(app, Some(view))
         }
         "check-update" => {
