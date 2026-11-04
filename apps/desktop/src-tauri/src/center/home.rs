@@ -9,14 +9,16 @@ use super::{
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::Fleet,
+    machines::list as machine_list,
     projects::{ProjectRow, known},
 };
 use beep_proto::{
     AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
-    DismissUpdates, ImportedProject, ListCrons, ListImportedProjects, ListMachineDetails,
-    ListMachineStats, ListMachines, ListPendingApprovals, ListResearches, ListUpdates, Machine,
-    MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
-    OpenUpdateChat, PendingApproval, ResearchStatus, ResearchSummary, Session,
+    DismissUpdates, ImportedProject, ListCrons, ListImportedProjects, ListPendingApprovals,
+    ListResearches, ListUpdates, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv,
+    MachineGpu, MachineSession, MachineStats, OpenUpdateChat, PendingApproval, ResearchStatus,
+    ResearchSummary, Session,
 };
 use serde::Serialize;
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
@@ -208,12 +210,13 @@ struct HomeParts {
     projects: Result<Vec<ImportedProject>>,
 }
 
-/// Home, from the server. Every section but the machines' agent sessions
-/// waits for the server; those wait only as long as `AgentSessions` allows.
+/// Home: the machines from the mesh, the rest from the server. Every section
+/// but the machines and their agent sessions waits for the server; those wait only as long as `AgentSessions` allows.
 #[tauri::command]
 pub async fn center_home(
     app: AppHandle,
     beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
     cache: State<'_, Arc<ViewCache>>,
     agents: State<'_, Arc<AgentSessions>>,
 ) -> Result<HomeView> {
@@ -229,9 +232,9 @@ pub async fn center_home(
         updates,
         projects,
     ) = join!(
-        beep.call(ListMachines {}),
-        beep.call(ListMachineDetails {}),
-        beep.call(ListMachineStats {}),
+        machine_list::machines(&beep, &fleet),
+        machine_list::details(&beep, &fleet),
+        machine_list::stats(&beep, &fleet),
         agents.list(&app, beep.inner(), cache.inner()),
         beep.call(ListResearches {}),
         beep.call(ListPendingApprovals {}),
@@ -241,9 +244,9 @@ pub async fn center_home(
         beep.call(ListImportedProjects {}),
     );
     let view = home_view(HomeParts {
-        machines,
-        details,
-        stats,
+        machines: Ok(machines),
+        details: Ok(details),
+        stats: Ok(stats),
         sessions,
         researches,
         approvals,

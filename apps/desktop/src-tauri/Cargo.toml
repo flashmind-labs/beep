@@ -21,6 +21,7 @@ beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }
 beep-proto = { path = "../../../crates/proto" }
 iroh = "1.3"
+iroh-tickets = "1"
 log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 percent-encoding = "2"
