@@ -116,6 +116,18 @@ pub async fn run(dir: &Path) -> Result<()> {
     serve(dir, listener, &Terminals::default()).await
 }
 
+/// Binds a host for the node in `dir` in this process and returns it to
+/// run, for a program that embeds the node with no `beep-node` binary to
+/// start one, such as a test.
+pub fn in_process(dir: &Path) -> Result<impl Future<Output = Result<()>> + use<>> {
+    if DIR.set(dir.to_path_buf()).is_err() {
+        bail!("the node's terminals were set up already");
+    }
+    let listener = Listener::bind(&dir.join(SOCKET))?;
+    let dir = dir.to_path_buf();
+    Ok(async move { serve(&dir, listener, &Terminals::default()).await })
+}
+
 /// What the host's connections share.
 struct Host<'a> {
     terminals: &'a Terminals,

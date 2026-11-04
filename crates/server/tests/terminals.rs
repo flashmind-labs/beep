@@ -59,6 +59,7 @@ struct Setup {
     client: Client,
     _phone: Node,
     _node: tokio::task::JoinHandle<anyhow::Result<()>>,
+    _terminals: TempDir,
 }
 
 async fn setup() -> Setup {
@@ -101,6 +102,11 @@ async fn setup() -> Setup {
     })
     .await
     .unwrap();
+    // The node keeps its terminals in a host; with no beep-node binary
+    // here to start one, it runs in this process.
+    let terminals = TempDir::new().expect("a temp folder");
+    let host = beep_node::terminal_host_in_process(terminals.path()).expect("a terminal host");
+    tokio::spawn(host);
     let addr = router.endpoint().addr();
     let node = endpoint(node_key.clone()).await;
     let task = tokio::spawn(async move {
@@ -125,6 +131,7 @@ async fn setup() -> Setup {
         client,
         _phone: phone,
         _node: task,
+        _terminals: terminals,
     }
 }
 
