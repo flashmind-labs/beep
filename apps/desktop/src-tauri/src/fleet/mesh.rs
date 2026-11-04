@@ -106,21 +106,26 @@ impl Serving {
         }
         match Transfers::start_shared(endpoint, &dir.join("blobs"), folders.clone()).await {
             Ok((transfers, served)) => {
-                let mut services = self.services();
-                if matches!(*services, Services::Stopped) {
+                let stopped = {
+                    let mut services = self.services();
+                    let stopped = matches!(*services, Services::Stopped);
+                    if !stopped {
+                        self.late.serve(served);
+                        peers.offer(Arc::new(transfers.syncs()));
+                        peers.offer(Arc::new(transfers.syncs().controls()));
+                        peers.offer(Arc::new(transfers.syncs().rescans()));
+                        peers.offer(Arc::new(transfers.clone()));
+                        *services = Services::Running(transfers.clone());
+                    }
+                    stopped
+                };
+                if stopped {
                     // Stopped while starting: these never run.
-                    drop(services);
                     if let Err(e) = transfers.shutdown().await {
                         log::warn!("transfers did not stop cleanly: {e:#}");
                     }
                     return;
                 }
-                self.late.serve(served);
-                peers.offer(Arc::new(transfers.syncs()));
-                peers.offer(Arc::new(transfers.syncs().controls()));
-                peers.offer(Arc::new(transfers.syncs().rescans()));
-                peers.offer(Arc::new(transfers.clone()));
-                *services = Services::Running(transfers);
             }
             Err(e) => {
                 log::warn!("not offering transfers: {e:#}");
