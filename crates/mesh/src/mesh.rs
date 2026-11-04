@@ -411,6 +411,17 @@ impl Mesh {
         self.inner.store.run(move |core| core.remove(id)).await
     }
 
+    /// This device's id.
+    pub fn me(&self) -> EndpointId {
+        self.inner.me
+    }
+
+    /// Whether `id` is a device of the mesh now. Asked per connection and
+    /// per request, so a removed device is out at once.
+    pub fn is_member(&self, id: EndpointId) -> bool {
+        self.inner.is_member(id)
+    }
+
     pub fn devices(&self) -> Vec<DeviceStatus> {
         let view = self.inner.view();
         let conns = self.inner.conns();

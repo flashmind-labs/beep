@@ -8,13 +8,13 @@ use crate::{
     files::syncthing::Syncthing,
     link::{Protocol, Session},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    transfer::{ContentKind, PROTOCOL, Reply, Request, Stage},
+    transfer::{Content, ContentKind, PROTOCOL, Reply, Request, Stage},
 };
 use iroh::{
-    Endpoint,
+    Endpoint, EndpointAddr, EndpointId,
     protocol::{Router, RouterBuilder},
 };
 use iroh_blobs::{
@@ -24,6 +24,7 @@ use iroh_blobs::{
         fs::{FsStore, options::Options},
     },
 };
+use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -51,6 +52,22 @@ const MAX_RUNNING: usize = 4;
 const GC_IDLE: Duration = Duration::from_secs(5 * 60);
 /// How often progress goes out while bytes move.
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
+
+/// Where a transfer's progress goes: the stream of the one who asked, or
+/// nowhere when the node moves files for its own agent.
+pub(super) enum Out<'a> {
+    Stream(&'a mut LinkTx),
+    Silent,
+}
+
+impl Out<'_> {
+    async fn send(&mut self, reply: &Reply) -> Result<()> {
+        match self {
+            Out::Stream(tx) => tx.send(reply).await,
+            Out::Silent => Ok(()),
+        }
+    }
+}
 
 /// Sends progress for one stage at most every `PROGRESS_EVERY`, so the
 /// server's idle timeouts only fire on a transfer that stopped moving.
@@ -83,7 +100,7 @@ impl Ticker {
     }
 
     /// Records `done` and reports it if one is due.
-    async fn tick(&mut self, tx: &mut LinkTx, done: u64) -> Result<()> {
+    async fn tick(&mut self, tx: &mut Out<'_>, done: u64) -> Result<()> {
         self.done = done;
         if self.due(Instant::now()) {
             self.send(tx).await?;
@@ -92,12 +109,12 @@ impl Ticker {
     }
 
     /// Reports `done` now, as the stage's last report.
-    async fn finish(&mut self, tx: &mut LinkTx, done: u64) -> Result<()> {
+    async fn finish(&mut self, tx: &mut Out<'_>, done: u64) -> Result<()> {
         self.done = done;
         self.send(tx).await
     }
 
-    async fn send(&mut self, tx: &mut LinkTx) -> Result<()> {
+    async fn send(&mut self, tx: &mut Out<'_>) -> Result<()> {
         self.last = Some(Instant::now());
         tx.send(&Reply::Progress {
             done: self.done.min(self.total),
@@ -133,6 +150,34 @@ struct Inner {
     // that answers its events. `None` when the caller serves `Served`.
     router: Option<Router>,
     _events: AbortOnDropHandle<()>,
+}
+
+/// A file or folder made ready for a peer, held open while it lives.
+pub(crate) struct Offer {
+    /// Always `Reply::Offered`.
+    pub(crate) reply: Reply,
+    _offered: offer::Offered,
+    _grant: grants::GrantGuard,
+}
+
+/// What a source offered and where to write it, as one node's agent hands
+/// it to another node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Incoming {
+    pub(crate) from: EndpointAddr,
+    pub(crate) content: Content,
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) executable: bool,
+    /// A folder inside the shared folders; the first one when unset.
+    #[serde(default)]
+    pub(crate) dest: Option<String>,
+}
+
+/// Where `receive` put it.
+pub(crate) struct Received {
+    pub(crate) path: PathBuf,
+    pub(crate) size: u64,
 }
 
 /// What `Transfers` answers on the endpoint: the blobs and sync protocols,
@@ -254,6 +299,78 @@ impl Transfers {
     /// The synced projects, served to the server as `sync/1`.
     pub fn syncs(&self) -> Syncs {
         self.inner.syncs.clone()
+    }
+
+    /// Makes `path` ready for `peer` to fetch, for this node's own agent
+    /// sending files to another machine: the offer stays open, and `peer`
+    /// may fetch it, until the returned `Offer` drops.
+    pub(crate) async fn offer_to(&self, path: &str, peer: EndpointId) -> Result<Offer> {
+        let inner = &self.inner;
+        let resolved = {
+            let (folders, path) = (inner.folders.clone(), path.to_owned());
+            spawn_blocking(move || folders.resolve(&path)).await??
+        };
+        let offered = offer::offer(
+            &inner.store,
+            &resolved,
+            inner.endpoint.addr(),
+            &mut Out::Silent,
+        )
+        .await?;
+        let grant = inner.grants.grant(peer, offered.content);
+        Ok(Offer {
+            reply: offered.reply.clone(),
+            _offered: offered,
+            _grant: grant,
+        })
+    }
+
+    /// Fetches what a source offered with `offer_to` into `dest` (the first
+    /// shared folder when none), writing under the first free name. Only
+    /// shared folders are written, as for any transfer.
+    pub(crate) async fn receive(&self, incoming: Incoming) -> Result<Received> {
+        let inner = &self.inner;
+        let _permit =
+            inner.running.clone().try_acquire_owned().map_err(|_| {
+                anyhow!("busy: {MAX_RUNNING} transfers are running on this machine")
+            })?;
+        let folder = match &incoming.dest {
+            Some(dest) => inner.folders.resolve(dest)?,
+            None => inner
+                .folders
+                .first()
+                .map(Path::to_path_buf)
+                .context("this node shares no folders")?,
+        };
+        let folder = check_fetch(inner, &incoming.name, &folder.to_string_lossy()).await?;
+        let hash = Hash::from_bytes(incoming.content.hash);
+        let job = fetch::Job {
+            from: incoming.from,
+            content: match incoming.content.kind {
+                ContentKind::File => HashAndFormat::raw(hash),
+                ContentKind::Folder => HashAndFormat::hash_seq(hash),
+            },
+            kind: incoming.content.kind,
+            name: incoming.name,
+            folder,
+            executable: incoming.executable,
+        };
+        let cancel = CancellationToken::new();
+        let cx = fetch::Fetcher {
+            endpoint: &inner.endpoint,
+            store: &inner.store,
+            store_dir: &inner.store_dir,
+            journal: &inner.journal,
+            room: &inner.room,
+            cancel: &cancel,
+        };
+        let fetched = fetch::fetch(cx, job, &mut Out::Silent).await;
+        inner.collect.notify_one();
+        let fetched = fetched?;
+        Ok(Received {
+            path: fetched.path,
+            size: fetched.size,
+        })
     }
 
     /// Stops the synced projects, saving their state, stops serving, and
@@ -389,8 +506,9 @@ async fn serve_offer(
     let from = inner.endpoint.addr();
     // Dropping the import when the server goes away leaves only blobs no
     // tag holds, which the store's collector drops.
+    let mut out = Out::Stream(&mut tx);
     let offered = tokio::select! {
-        offered = offer::offer(&inner.store, &resolved, from, &mut tx) => offered,
+        offered = offer::offer(&inner.store, &resolved, from, &mut out) => offered,
         _ = rx.recv::<Request>() => return Ok(()),
     };
     let offered = match offered {
@@ -426,7 +544,8 @@ async fn serve_fetch(
         cancel: &cancel,
     };
     let result = {
-        let work = fetch::fetch(cx, job, &mut tx);
+        let mut out = Out::Stream(&mut tx);
+        let work = fetch::fetch(cx, job, &mut out);
         let mut work = std::pin::pin!(work);
         loop {
             tokio::select! {

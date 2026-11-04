@@ -12,6 +12,7 @@ use crate::{
     link::state::State,
     link::traffic::Traffic,
     link::{
+        from_mesh::Membership,
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
@@ -136,6 +137,7 @@ pub async fn serve(
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision);
     offers.traffic = traffic;
+    offers.has_server = state.server.is_some();
     offers.extra.push(Arc::new(Logs::service()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
@@ -186,6 +188,7 @@ pub async fn serve(
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
+                offers.transfers = Some(transfers.clone());
                 started = Some(transfers);
             }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
@@ -426,6 +429,13 @@ pub struct Offers {
     pub tools: Upstream,
     /// What the node moved, reported over each link.
     pub traffic: Traffic,
+    /// The mesh the node belongs to, once it does.
+    pub(crate) mesh: Membership,
+    /// The node's transfers and synced projects, when it shares folders.
+    pub(crate) transfers: Option<Transfers>,
+    /// The node has a server to link to (`server` in `node.toml`). Without
+    /// one, the tools that need it are left off the agent's list.
+    pub(crate) has_server: bool,
 }
 
 impl Offers {
@@ -439,6 +449,9 @@ impl Offers {
             provision: Some(provision),
             tools: Upstream::default(),
             traffic: Traffic::default(),
+            mesh: Membership::default(),
+            transfers: None,
+            has_server: true,
         }
     }
 
@@ -590,14 +603,18 @@ impl Linked {
         }
         let served = serve_linked(&connection, &mut tx, &mut rx, &offers, &measured).await;
         offers.tools.set(None);
-        // Revoked or only cut off, the node keeps no token it cannot hear
-        // about being removed; the server sends them again on reconnecting.
-        if let Some(provision) = &offers.provision {
-            provision.forget().await;
+        // A node in a mesh takes these from it, which the server's link does
+        // not touch.
+        if !offers.mesh.joined() {
+            // Revoked or only cut off, the node keeps no token it cannot hear
+            // about being removed; the server sends them again on reconnecting.
+            if let Some(provision) = &offers.provision {
+                provision.forget().await;
+            }
+            // The harnesses' env vars may be secrets too; the server sends the
+            // settings again on reconnecting.
+            offers.agents.set_settings(Default::default());
         }
-        // The harnesses' env vars may be secrets too; the server sends the
-        // settings again on reconnecting.
-        offers.agents.set_settings(Default::default());
         served
     }
 }
@@ -644,10 +661,16 @@ async fn serve_linked(
                 Err(e) => log::warn!("session task failed: {e}"),
             },
             message = rx.recv::<Down>() => match message {
+                Ok(Some(Down::Credentials(_))) if offers.mesh.joined() => {
+                    log::info!("ignored credentials from the server: this node takes them from its mesh");
+                }
                 Ok(Some(Down::Credentials(credentials))) => match &offers.provision {
                     Some(provision) => provision.apply(credentials).await,
                     None => log::debug!("credentials came to a node that does not take them"),
                 },
+                Ok(Some(Down::AgentSettings(_))) if offers.mesh.joined() => {
+                    log::info!("ignored agent settings from the server: this node takes them from its mesh");
+                }
                 Ok(Some(Down::AgentSettings(settings))) => {
                     offers.agents.set_settings(settings);
                     offers.agents.settings_arrived();
@@ -733,14 +756,11 @@ pub(crate) async fn session(
         tools::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             let caller = match who {
-                Who::Everything => Caller {
-                    table: tasks::Table::Shared,
-                    // Lift this one check to let a desktop take RunOn from nodes.
-                    may_run_on_here: true,
-                },
+                Who::Everything => Caller::local(&offers),
                 Who::Node { peer, desktop_here } => Caller {
                     table: tasks::Table::Peer(peer),
                     may_run_on_here: !desktop_here,
+                    transfers: offers.transfers.clone(),
                 },
             };
             peer_tools::serve(tx, rx, caller).await

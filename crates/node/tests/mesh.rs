@@ -7,7 +7,7 @@
 //! Waits ride on the nodes' log lines, the mesh's `updates()` and channels,
 //! each under a generous outer timeout; nothing sleeps.
 
-use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Mesh, PEER_ALPN};
+use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
 use beep_proto::node::{
     Down, LinkRx, LinkTx, NODE_ALPN, NodeHello, Open, Opened,
     agent::{Event as AgentEvent, Request as AgentRequest},
@@ -17,6 +17,17 @@ use beep_proto::node::{
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
 };
+use beep_proto::{
+    SecretText,
+    node::{
+        EnvSecret, MachineCredentials,
+        harness::{AgentSettings, HarnessConfig},
+        mesh_state::{Credential, StateValue, SyncSpec},
+        sync::{
+            PROTOCOL as SYNC, Project as SyncProject, Reply as SyncReply, Request as SyncRequest,
+        },
+    },
+};
 use iroh::{
     Endpoint, EndpointId, SecretKey,
     endpoint::{Connection, presets},
@@ -24,11 +35,16 @@ use iroh::{
 };
 use iroh_tickets::Ticket;
 use serde_json::json;
-use std::{fs, path::Path, process::Stdio, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 use tempfile::TempDir;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, Command},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
+    process::{Child, ChildStdin, ChildStdout, Command},
     sync::mpsc,
     time::timeout,
 };
@@ -72,6 +88,7 @@ impl ProtocolHandler for Server {
 async fn bind(key: &SecretKey) -> Endpoint {
     Endpoint::builder(presets::Minimal)
         .secret_key(key.clone())
+        .transport_config(beep_mesh::transport_config())
         .bind()
         .await
         .expect("an endpoint binds")
@@ -165,7 +182,7 @@ struct Node {
     _child: Child,
     id: EndpointId,
     dir: TempDir,
-    _home: TempDir,
+    home: TempDir,
     lines: mpsc::UnboundedReceiver<String>,
     /// Every line logged so far.
     log: Vec<String>,
@@ -175,6 +192,11 @@ struct Node {
 struct Config {
     server: Option<EndpointId>,
     agent: Option<(String, Vec<String>)>,
+    name: Option<&'static str>,
+    /// Folders the node shares for files and sync.
+    files: Vec<PathBuf>,
+    /// The UDP port to bind; random when unset.
+    port: Option<u16>,
 }
 
 impl Node {
@@ -186,7 +208,11 @@ impl Node {
         fs::write(&key_file, key.to_bytes()).expect("the key is written");
         restrict(&key_file);
         // A random port, so no node here takes the live service's.
-        let mut settings = json!({ "name": "box-a", "port": 0 });
+        let mut settings =
+            json!({ "name": config.name.unwrap_or("box-a"), "port": config.port.unwrap_or(0) });
+        if !config.files.is_empty() {
+            settings["files"] = json!(config.files);
+        }
         if let Some(server) = config.server {
             settings["server"] = json!(server.to_string());
         }
@@ -196,6 +222,23 @@ impl Node {
         let text = toml::to_string(&toml::Value::try_from(settings).expect("settings are toml"))
             .expect("settings encode");
         fs::write(dir.path().join("node.toml"), text).expect("settings are written");
+        Self::run(dir, home, key.public()).await
+    }
+
+    /// Stops the process and starts it again on the same folder.
+    async fn restart(self) -> Self {
+        let Self {
+            mut _child,
+            id,
+            dir,
+            home,
+            ..
+        } = self;
+        _child.kill().await.expect("the node stops");
+        Self::run(dir, home, id).await
+    }
+
+    async fn run(dir: TempDir, home: TempDir, id: EndpointId) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
             .arg("--dir")
             .arg(dir.path())
@@ -222,9 +265,9 @@ impl Node {
         });
         let mut node = Self {
             _child: child,
-            id: key.public(),
+            id,
             dir,
-            _home: home,
+            home,
             lines,
             log: Vec::new(),
         };
@@ -318,22 +361,43 @@ async fn ready(conn: &Link, protocol: &str) -> Stream {
 }
 
 async fn tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Reply {
-    let mut stream = ready(conn, TOOLS).await;
-    stream
-        .tx
-        .send(&ToolRequest {
-            session: "a3f9c1".to_owned(),
-            tool,
-            args: args.to_string(),
-            approved: Default::default(),
-        })
+    try_tool(conn, tool, args)
         .await
-        .expect("the call is sent");
-    timeout(LIMIT, stream.rx.recv::<Reply>())
+        .unwrap_or_else(|e| panic!("the call failed: {e}"))
+}
+
+/// `tool`, with a failure to reach the node as an error: a link to a node
+/// that restarted may be the old one for a moment.
+async fn try_tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Result<Reply, String> {
+    let fail = |e: &dyn std::fmt::Display| e.to_string();
+    let (send, recv) = conn.mesh.open_bi(conn.id).await.map_err(|e| fail(&e))?;
+    let (mut tx, mut rx) = link(send, recv);
+    tx.send(&Open {
+        protocol: TOOLS.to_owned(),
+    })
+    .await
+    .map_err(|e| fail(&e))?;
+    match timeout(LIMIT, rx.recv::<Opened>())
+        .await
+        .expect("the node answered in time")
+        .map_err(|e| fail(&e))?
+    {
+        Some(Opened::Ready {}) => {}
+        other => return Err(format!("{TOOLS} was not opened: {other:?}")),
+    }
+    tx.send(&ToolRequest {
+        session: "a3f9c1".to_owned(),
+        tool,
+        args: args.to_string(),
+        approved: Default::default(),
+    })
+    .await
+    .map_err(|e| fail(&e))?;
+    timeout(LIMIT, rx.recv::<Reply>())
         .await
         .expect("the call answered in time")
-        .expect("the reply reads")
-        .expect("the node replied")
+        .map_err(|e| fail(&e))?
+        .ok_or_else(|| "the node closed the call".to_owned())
 }
 
 #[tokio::test]
@@ -730,4 +794,760 @@ async fn a_desktop_removed_mid_session_loses_its_stream() {
     })
     .await
     .expect("the removed desktop kept its stream");
+}
+
+/// A server that pushes what the test tells it to, over the control stream
+/// and over streams it opens on the node.
+#[derive(Debug)]
+struct Pushing(mpsc::UnboundedSender<ServerLink>);
+
+struct ServerLink {
+    conn: Connection,
+    tx: LinkTx,
+}
+
+impl ProtocolHandler for Pushing {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (mut tx, mut rx) = link(send, recv);
+        if let Ok(Some(_)) = rx.recv::<NodeHello>().await {
+            tx.send(&Down::Welcome { tools: false }).await.ok();
+            let conn = connection.clone();
+            self.0.send(ServerLink { conn, tx }).ok();
+        }
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+async fn desktop_pushing() -> (Member, mpsc::UnboundedReceiver<ServerLink>) {
+    let (links, seen) = mpsc::unbounded_channel();
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("a temp folder");
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .expect("the mesh is created");
+    let (peer, join) = mesh.protocols();
+    let router = Router::builder(endpoint)
+        .accept(PEER_ALPN, peer)
+        .accept(JOIN_ALPN, join)
+        .accept(NODE_ALPN, Pushing(links))
+        .spawn();
+    let member = Member {
+        mesh,
+        _router: router,
+        _dir: dir,
+    };
+    (member, seen)
+}
+
+fn env_credentials(vars: &[(&str, &str)]) -> MachineCredentials {
+    MachineCredentials {
+        env: vars
+            .iter()
+            .map(|(name, value)| EnvSecret {
+                name: (*name).to_owned(),
+                value: SecretText::new(*value),
+            })
+            .collect(),
+        forgejo: Vec::new(),
+    }
+}
+
+async fn set_credential(from: &Member, id: &str, name: &str, value: &str) {
+    let credential = Credential::Env(EnvSecret {
+        name: name.to_owned(),
+        value: SecretText::new(value),
+    });
+    from.mesh
+        .set(
+            Key::Credential(id.to_owned()),
+            Some(credential.to_bytes().expect("a credential encodes")),
+        )
+        .await
+        .expect("the credential is written");
+}
+
+/// What a command on the node sees of these env vars, as `got[a][b]`.
+async fn env_seen(conn: &Link, names: [&str; 2]) -> String {
+    let command = format!(
+        "printf 'got[%s][%s]\\n' \"${}\" \"${}\"",
+        names[0], names[1]
+    );
+    let Reply::Done { text, failed } = tool(
+        conn,
+        Tool::RunOn,
+        json!({ "machine": "box-a", "command": command }),
+    )
+    .await
+    else {
+        panic!("not done");
+    };
+    assert!(!failed, "{text}");
+    text.lines()
+        .find(|line| line.starts_with("got["))
+        .unwrap_or_else(|| panic!("no output in {text:?}"))
+        .to_owned()
+}
+
+async fn sync_call(conn: &Link, request: SyncRequest) -> SyncReply {
+    let mut stream = ready(conn, SYNC).await;
+    stream.tx.send(&request).await.expect("the request is sent");
+    timeout(LIMIT, stream.rx.recv::<SyncReply>())
+        .await
+        .expect("sync answered in time")
+        .expect("the reply reads")
+        .expect("sync replied")
+}
+
+async fn sync_names(conn: &Link) -> Vec<String> {
+    let SyncReply::Status { projects } = sync_call(conn, SyncRequest::Status {}).await else {
+        panic!("not a status");
+    };
+    let mut names: Vec<String> = projects.into_iter().map(|p| p.name).collect();
+    names.sort();
+    names
+}
+
+/// The reason a start was turned down, or `None` when the session started.
+async fn start_refusal(conn: &Link, cwd: &Path) -> Option<String> {
+    let mut agent = ready(conn, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: Some(cwd.display().to_string()),
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            checkout: None,
+        })
+        .await
+        .expect("the start is sent");
+    timeout(LIMIT, async {
+        loop {
+            match agent.rx.recv::<AgentEvent>().await {
+                Ok(Some(AgentEvent::Attached { .. })) => return None,
+                Ok(Some(AgentEvent::Ended { reason })) => return Some(reason),
+                Ok(Some(_)) => {}
+                Ok(None) => return Some("the stream closed".to_owned()),
+                Err(e) => return Some(format!("{e:#}")),
+            }
+        }
+    })
+    .await
+    .expect("the start answered in time")
+}
+
+fn adapter(log: &Path) -> (String, Vec<String>) {
+    (
+        "sh".to_owned(),
+        vec![
+            "-c".to_owned(),
+            ADAPTER.to_owned(),
+            "fake-adapter".to_owned(),
+            log.display().to_string(),
+        ],
+    )
+}
+
+/// What the server pushes: credentials, agent settings and a sync list, each
+/// of which a node out of a mesh would take. Returns once the node logged
+/// that it ignored all three.
+async fn push_everything(
+    server: &mut ServerLink,
+    node: &mut Node,
+    shared: &Path,
+    vars: &[(&str, &str)],
+) {
+    server
+        .tx
+        .send(&Down::Credentials(env_credentials(vars)))
+        .await
+        .expect("the credentials are sent");
+    server
+        .tx
+        .send(&Down::AgentSettings(AgentSettings {
+            harnesses: vec![HarnessConfig::new("codex")],
+            flsh: None,
+        }))
+        .await
+        .expect("the settings are sent");
+    let (send, recv) = server.conn.open_bi().await.expect("a stream opens");
+    let (mut tx, mut rx) = link(send, recv);
+    tx.send(&Open {
+        protocol: SYNC.to_owned(),
+    })
+    .await
+    .expect("the open is sent");
+    assert!(matches!(
+        rx.recv::<Opened>().await.expect("an answer reads"),
+        Some(Opened::Ready {})
+    ));
+    tx.send(&SyncRequest::Configure {
+        projects: vec![SyncProject {
+            name: "server-proj".to_owned(),
+            folder: shared.join("server-proj").display().to_string(),
+            peers: Vec::new(),
+            paused: false,
+        }],
+    })
+    .await
+    .expect("the list is sent");
+    timeout(LIMIT, rx.recv::<SyncReply>())
+        .await
+        .expect("sync answered in time")
+        .expect("the reply reads");
+    node.logged("ignored credentials from the server").await;
+    node.logged("ignored agent settings from the server").await;
+    node.logged("ignored the server's sync list").await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_servers_sync_and_credentials_do_not_overwrite_the_mesh() {
+    let (desktop, mut links) = desktop_pushing().await;
+    let shared = TempDir::new().expect("a temp folder");
+    let work = TempDir::new().expect("a temp folder");
+    let log = work.path().join("sent.jsonl");
+    let mut node = Node::start(Config {
+        server: Some(desktop.id()),
+        agent: Some(adapter(&log)),
+        files: vec![shared.path().to_owned()],
+        ..Config::default()
+    })
+    .await;
+    // The node finds its server through the mesh link, so it joins first.
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let mut server = timeout(LIMIT, links.recv())
+        .await
+        .expect("the node linked to its server in time")
+        .expect("the server saw the node");
+    // The server speaks before the mesh has said anything.
+    push_everything(
+        &mut server,
+        &mut node,
+        shared.path(),
+        &[("SRV_FIRST", "from-the-server")],
+    )
+    .await;
+    set_credential(&desktop, "gh", "MESH_VAR", "from-the-mesh").await;
+    let harness = HarnessConfig {
+        enabled: false,
+        ..HarnessConfig::new("codex")
+    };
+    desktop
+        .mesh
+        .set(
+            Key::Harness("codex".to_owned()),
+            Some(harness.to_bytes().expect("a harness encodes")),
+        )
+        .await
+        .expect("the setting is written");
+    let folder = shared.path().join("mesh-proj");
+    fs::create_dir(&folder).expect("the project folder");
+    let spec = SyncSpec {
+        folders: [(node.id, folder.display().to_string())].into(),
+        paused: false,
+    };
+    desktop
+        .mesh
+        .set(
+            Key::Sync("mesh-proj".to_owned()),
+            Some(spec.to_bytes().expect("a spec encodes")),
+        )
+        .await
+        .expect("the spec is written");
+    node.logged("from the mesh: 1 credentials").await;
+    node.logged("from the mesh: sync mesh-proj").await;
+    let conn = desktop.reach(node.id).await;
+    assert_eq!(
+        env_seen(&conn, ["MESH_VAR", "SRV_FIRST"]).await,
+        "got[from-the-mesh][]"
+    );
+    assert_eq!(sync_names(&conn).await, ["mesh-proj"]);
+    assert!(start_refusal(&conn, work.path()).await.is_some());
+    // And after the mesh has spoken.
+    push_everything(
+        &mut server,
+        &mut node,
+        shared.path(),
+        &[
+            ("SRV_LATER", "from-the-server"),
+            ("MESH_VAR", "server-override"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        env_seen(&conn, ["MESH_VAR", "SRV_LATER"]).await,
+        "got[from-the-mesh][]"
+    );
+    assert_eq!(sync_names(&conn).await, ["mesh-proj"]);
+    // The agent is turned off by the mesh, not by anything else: when the
+    // mesh drops the setting, it starts.
+    assert!(start_refusal(&conn, work.path()).await.is_some());
+    desktop
+        .mesh
+        .set(Key::Harness("codex".to_owned()), None)
+        .await
+        .expect("the setting is deleted");
+    node.logged("from the mesh: settings for 0 agents").await;
+    assert_eq!(start_refusal(&conn, work.path()).await, None);
+}
+
+/// Two nodes of one mesh that keep the project `proj` in step, each with
+/// the folder under a root it shares.
+struct Pair {
+    desktop: Member,
+    a: Node,
+    b: Node,
+    a_folder: PathBuf,
+    b_folder: PathBuf,
+    roots: [TempDir; 2],
+    /// Where the fake agent on `a` logs what it was sent.
+    work: TempDir,
+}
+
+async fn synced_pair() -> Pair {
+    synced_pair_with_agent(false).await
+}
+
+/// `a` runs the fake coding agent when `agent` is set.
+async fn synced_pair_with_agent(agent: bool) -> Pair {
+    let work = TempDir::new().expect("a temp folder");
+    let desktop = desktop(None).await;
+    let roots = [
+        TempDir::new().expect("a temp folder"),
+        TempDir::new().expect("a temp folder"),
+    ];
+    let sent = work.path().join("sent.jsonl");
+    let mut a = Node::start(Config {
+        name: Some("box-a"),
+        files: vec![roots[0].path().to_owned()],
+        agent: agent.then(|| adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    let mut b = Node::start(Config {
+        name: Some("box-b"),
+        files: vec![roots[1].path().to_owned()],
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let a_folder = roots[0].path().join("proj");
+    let b_folder = roots[1].path().join("proj");
+    fs::create_dir(&a_folder).expect("a project folder");
+    fs::create_dir(&b_folder).expect("a project folder");
+    let spec = SyncSpec {
+        folders: [
+            (a.id, a_folder.display().to_string()),
+            (b.id, b_folder.display().to_string()),
+        ]
+        .into(),
+        paused: false,
+    };
+    desktop
+        .mesh
+        .set(
+            Key::Sync("proj".to_owned()),
+            Some(spec.to_bytes().expect("a spec encodes")),
+        )
+        .await
+        .expect("the spec is written");
+    a.logged("from the mesh: sync proj").await;
+    b.logged("from the mesh: sync proj").await;
+    Pair {
+        desktop,
+        a,
+        b,
+        a_folder,
+        b_folder,
+        roots,
+        work,
+    }
+}
+
+/// Waits for `path` to hold `text`; the outer limit is the only clock.
+async fn has_text(path: &Path, text: &str) {
+    timeout(LIMIT, async {
+        loop {
+            if fs::read_to_string(path).is_ok_and(|have| have == text) {
+                return;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{} never held {text:?}", path.display()));
+}
+
+#[tokio::test]
+async fn a_project_syncs_between_two_nodes_with_no_server() {
+    let pair = synced_pair().await;
+    fs::write(pair.a_folder.join("from-a.txt"), "made on a").expect("a file");
+    has_text(&pair.b_folder.join("from-a.txt"), "made on a").await;
+    fs::write(pair.b_folder.join("from-b.txt"), "made on b").expect("a file");
+    has_text(&pair.a_folder.join("from-b.txt"), "made on b").await;
+}
+
+#[tokio::test]
+async fn a_removed_machine_stops_syncing_at_once() {
+    let mut pair = synced_pair().await;
+    fs::write(pair.a_folder.join("before.txt"), "before").expect("a file");
+    has_text(&pair.b_folder.join("before.txt"), "before").await;
+    pair.desktop
+        .mesh
+        .remove(pair.b.id)
+        .await
+        .expect("the removal is signed");
+    pair.a.logged("from the mesh: sync proj with 0 peers").await;
+    fs::write(pair.a_folder.join("after.txt"), "after").expect("a file");
+    // The removed machine keeps asking; the node refuses it.
+    pair.a.logged("refused a sync connection").await;
+    assert!(!pair.b_folder.join("after.txt").exists());
+}
+
+/// The Beep MCP server as a coding agent on the node has it: the command
+/// the node handed the agent, run with the env the node gave it.
+struct Mcp {
+    _child: Child,
+    stdin: ChildStdin,
+    out: Lines<BufReader<ChildStdout>>,
+    next: u64,
+}
+
+impl Mcp {
+    /// Runs the server entry in the agent's `session/new`, the second line
+    /// the fake adapter logged.
+    async fn start(sent: &Path) -> Self {
+        let text = fs::read_to_string(sent).expect("the adapter logged what it got");
+        let new: serde_json::Value =
+            serde_json::from_str(text.lines().nth(1).expect("a session/new")).expect("JSON");
+        let server = &new["params"]["mcpServers"][0];
+        let mut command = Command::new(server["command"].as_str().expect("a command"));
+        for arg in server["args"].as_array().expect("arguments") {
+            command.arg(arg.as_str().expect("an argument"));
+        }
+        for var in server["env"].as_array().expect("env vars") {
+            command.env(
+                var["name"].as_str().expect("a name"),
+                var["value"].as_str().expect("a value"),
+            );
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("the MCP server starts");
+        let stdin = child.stdin.take().expect("stdin is piped");
+        let out = BufReader::new(child.stdout.take().expect("stdout is piped")).lines();
+        let mut mcp = Self {
+            _child: child,
+            stdin,
+            out,
+            next: 0,
+        };
+        mcp.request("initialize", json!({ "protocolVersion": "2025-06-18" }))
+            .await;
+        mcp
+    }
+
+    async fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+        self.next += 1;
+        let line = json!({ "jsonrpc": "2.0", "id": self.next, "method": method, "params": params });
+        self.stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .expect("the request is written");
+        let answer = timeout(LIMIT, self.out.next_line())
+            .await
+            .expect("the MCP server answered in time")
+            .expect("a line reads")
+            .expect("the MCP server answered");
+        serde_json::from_str(&answer).expect("the answer is JSON")
+    }
+
+    async fn tools(&mut self) -> Vec<String> {
+        let answer = self.request("tools/list", json!({})).await;
+        answer["result"]["tools"]
+            .as_array()
+            .expect("a tool list")
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("a name").to_owned())
+            .collect()
+    }
+
+    /// The text of the call and whether it failed.
+    async fn call(&mut self, name: &str, args: serde_json::Value) -> (String, bool) {
+        let answer = self
+            .request("tools/call", json!({ "name": name, "arguments": args }))
+            .await;
+        let result = &answer["result"];
+        (
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            result["isError"].as_bool().unwrap_or(true),
+        )
+    }
+}
+
+/// Starts an agent session on the node, over the mesh, and waits for its
+/// first turn; the MCP server of that session after it.
+async fn agent_mcp(desktop: &Member, node: &Node, work: &Path, sent: &Path) -> Mcp {
+    let conn = desktop.reach(node.id).await;
+    assert_eq!(start_refusal(&conn, work).await, None);
+    Mcp::start(sent).await
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
+    let desktop = desktop(None).await;
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let a = Node::start(Config {
+        name: Some("box-a"),
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    desktop.reach(b.id).await;
+    let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
+    let (listed, failed) = mcp.call("list_machines", json!({})).await;
+    assert!(!failed, "{listed}");
+    assert!(
+        listed.contains("box-a") && listed.contains("box-b"),
+        "{listed}"
+    );
+    let (text, failed) = mcp
+        .call(
+            "run_on",
+            json!({ "machine": "box-b", "command": "printenv HOME" }),
+        )
+        .await;
+    assert!(!failed, "{text}");
+    let there = b.home.path().display().to_string();
+    assert!(text.contains(&there), "{text}");
+    // The job it starts there is found again by the id the call gave.
+    let (text, failed) = mcp
+        .call(
+            "run_on",
+            json!({ "machine": "box-b", "command": "sleep 300", "background": true }),
+        )
+        .await;
+    assert!(!failed, "{text}");
+    let id = text
+        .split("Job id: ")
+        .nth(1)
+        .and_then(|rest| rest.split(". ").next())
+        .expect("a job id")
+        .to_owned();
+    let (text, failed) = mcp.call("cancel", json!({ "id": id })).await;
+    assert!(!failed, "{text}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn memory_tools_are_absent_with_no_server() {
+    let desktop = desktop(None).await;
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let node = Node::start(Config {
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let mut mcp = agent_mcp(&desktop, &node, work.path(), &sent).await;
+    let tools = mcp.tools().await;
+    assert!(tools.iter().any(|tool| tool == "run_on"), "{tools:?}");
+    for memory in ["remember", "recall", "update_memory", "forget"] {
+        assert!(!tools.iter().any(|tool| tool == memory), "{tools:?}");
+    }
+    let (text, failed) = mcp.call("remember", json!({ "content": "x" })).await;
+    assert!(failed, "{text}");
+}
+
+/// Files under `dir` whose bytes hold `needle`.
+fn files_holding(dir: &Path, needle: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_owned()];
+    while let Some(folder) = pending.pop() {
+        for entry in fs::read_dir(&folder).into_iter().flatten().flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => pending.push(path),
+                Ok(kind) if kind.is_file() => {
+                    let bytes = fs::read(&path).unwrap_or_default();
+                    if bytes.windows(needle.len()).any(|w| w == needle.as_bytes()) {
+                        found.push(path.strip_prefix(dir).expect("under dir").to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() {
+    use std::os::unix::fs::PermissionsExt;
+    let desktop = desktop(None).await;
+    let mut a = Node::start(Config::default()).await;
+    let mut b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let (from_a, from_b) = (desktop.reach(a.id).await, desktop.reach(b.id).await);
+    set_credential(&desktop, "gh", "MESH_VAR", "kept-in-one-place").await;
+    a.logged("from the mesh: 1 credentials").await;
+    b.logged("from the mesh: 1 credentials").await;
+    for conn in [&from_a, &from_b] {
+        assert_eq!(
+            env_seen(conn, ["MESH_VAR", "NOT_SET"]).await,
+            "got[kept-in-one-place][]"
+        );
+    }
+    // The mesh's state file is the only copy on disk, and it is private.
+    for node in [&a, &b] {
+        assert_eq!(
+            files_holding(node.dir.path(), "kept-in-one-place"),
+            [PathBuf::from("mesh/state.log")]
+        );
+        let mode = fs::metadata(node.dir.path().join("mesh/state.log"))
+            .expect("the state file exists")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    // No log line holds it either.
+    for node in [&a, &b] {
+        assert!(
+            node.log
+                .iter()
+                .all(|line| !line.contains("kept-in-one-place"))
+        );
+    }
+    desktop
+        .mesh
+        .set(Key::Credential("gh".to_owned()), None)
+        .await
+        .expect("the credential is deleted");
+    a.logged("from the mesh: 0 credentials").await;
+    b.logged("from the mesh: 0 credentials").await;
+    for conn in [&from_a, &from_b] {
+        assert_eq!(env_seen(conn, ["MESH_VAR", "NOT_SET"]).await, "got[][]");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn credentials_come_back_after_a_restart_with_no_server() {
+    let desktop = desktop(None).await;
+    // The same port after the restart, so the desktop finds the node again
+    // with no discovery.
+    let port = std::net::UdpSocket::bind("127.0.0.1:0")
+        .expect("a free port")
+        .local_addr()
+        .expect("its address")
+        .port();
+    let mut node = Node::start(Config {
+        port: Some(port),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    set_credential(&desktop, "gh", "MESH_VAR", "still-here").await;
+    node.logged("from the mesh: 1 credentials").await;
+    let node = node.restart().await;
+    // Nothing reaches it from a desktop: the state file is what it has.
+    assert!(
+        node.log
+            .iter()
+            .any(|line| line.contains("from the mesh: 1 credentials")),
+        "{:?}",
+        node.log
+    );
+    // The desktop may hold the old process's link for a moment; ask again
+    // on the new one.
+    let mut updates = desktop.mesh.updates();
+    let seen = timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            let conn = desktop.reach(node.id).await;
+            let call = try_tool(
+                &conn,
+                Tool::RunOn,
+                json!({ "command": "printf 'got[%s]\\n' \"$MESH_VAR\"" }),
+            )
+            .await;
+            if let Ok(Reply::Done { text, .. }) = call {
+                return text;
+            }
+            updates.changed().await.expect("the mesh is alive");
+        }
+    })
+    .await
+    .expect("the restarted node answered in time");
+    assert!(seen.contains("got[still-here]"), "{seen}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_syncs_a_project_and_sends_a_file_with_no_server() {
+    let pair = synced_pair_with_agent(true).await;
+    let sent = pair.work.path().join("sent.jsonl");
+    let mut mcp = agent_mcp(&pair.desktop, &pair.a, pair.work.path(), &sent).await;
+    fs::write(pair.a_folder.join("plan.txt"), "the plan").expect("a file");
+    has_text(&pair.b_folder.join("plan.txt"), "the plan").await;
+    let (text, failed) = mcp
+        .call(
+            "sync_project",
+            json!({ "project": "proj", "machine": "box-b" }),
+        )
+        .await;
+    assert!(!failed && text.contains("box-b: in sync"), "{text}");
+    // A file goes to the other machine's first shared folder.
+    let note = pair.roots[0].path().join("note.txt");
+    fs::write(&note, "for b").expect("a file");
+    let (text, failed) = mcp
+        .call(
+            "send_files",
+            json!({ "machine": "box-b", "paths": [note.display().to_string()] }),
+        )
+        .await;
+    assert!(!failed, "{text}");
+    assert_eq!(
+        fs::read_to_string(pair.roots[1].path().join("note.txt")).expect("the file landed"),
+        "for b"
+    );
+    // Outside what it shares, the node sends nothing.
+    let (text, failed) = mcp
+        .call(
+            "send_files",
+            json!({ "machine": "box-b", "paths": ["/etc/hostname"] }),
+        )
+        .await;
+    assert!(failed, "{text}");
 }
