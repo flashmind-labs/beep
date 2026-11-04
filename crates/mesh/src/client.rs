@@ -114,6 +114,22 @@ impl PeerClient {
         Ok((tx, rx))
     }
 
+    /// Like `open`, with `first` sent right behind `Open`, before the node's
+    /// answer is read: a stream whose first message decides everything
+    /// (start a session, follow one) costs one round trip. A refusal is
+    /// reported in place of a failure to send.
+    pub async fn open_sending<Q: Serialize>(
+        &self,
+        protocol: &str,
+        first: &Q,
+    ) -> Result<(LinkTx, LinkRx), MeshError> {
+        let (mut tx, mut rx) = self.begin(protocol).await?;
+        let sent = tx.send(first).await;
+        self.confirmed(&mut rx, protocol).await?;
+        sent.map_err(MeshError::Link)?;
+        Ok((tx, rx))
+    }
+
     /// Opens the stream and sends `Open`, without waiting for the node's
     /// answer. What the caller sends next follows `Open` at once, so a call
     /// costs one round trip instead of two. `confirmed` reads the answer.
@@ -175,12 +191,7 @@ impl PeerClient {
         request: &Q,
     ) -> Result<R, MeshError> {
         timeout(limit, async {
-            let (mut tx, mut rx) = self.begin(protocol).await?;
-            // The request rides behind `Open`. A refusal is read first, as
-            // it explains a request the node then drops.
-            let sent = tx.send(request).await;
-            self.confirmed(&mut rx, protocol).await?;
-            sent.map_err(MeshError::Link)?;
+            let (_tx, mut rx) = self.open_sending(protocol, request).await?;
             rx.recv()
                 .await
                 .map_err(MeshError::Link)?
@@ -197,10 +208,7 @@ impl PeerClient {
         protocol: &str,
         request: &Q,
     ) -> Result<impl Stream<Item = Result<R, MeshError>> + use<Q, R>, MeshError> {
-        let (mut tx, mut rx) = self.begin(protocol).await?;
-        let sent = tx.send(request).await;
-        self.confirmed(&mut rx, protocol).await?;
-        sent.map_err(MeshError::Link)?;
+        let (tx, rx) = self.open_sending(protocol, request).await?;
         // `tx` rides along: finishing our half would read as a cancel.
         Ok(unfold(Some((tx, rx)), |state| async move {
             let (tx, mut rx) = state?;

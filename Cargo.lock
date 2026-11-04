@@ -498,6 +498,7 @@ dependencies = [
  "rmp-serde",
  "secrecy",
  "serde",
+ "serde_bytes",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
