@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     apps::permissions::{self, Check, RUN_ON, SEND_FILES, ToolApp},
-    nodes::{StartOn, agent_name, describe},
+    nodes::{DESKTOP, StartOn, agent_name, describe},
     protocol::node::{
         LinkRx, LinkTx, Open, Opened, agent,
         process::{Reply as TaskReply, Request as TaskRequest},
@@ -84,6 +84,9 @@ impl Calls {
             Ok(args) => args,
             Err(e) => return done(Err(format!("The arguments are not JSON: {e}"))),
         };
+        if let Some(text) = self.refuse_desktop(request.tool, &args).await {
+            return done(Err(text));
+        }
         if let Some(reply) = self.ask_first(request, &args).await {
             return reply;
         }
@@ -94,6 +97,32 @@ impl Calls {
             request.tool
         );
         done(self.run(request.tool, &request.session, args).await)
+    }
+
+    /// Why a node may not use a desktop through the server: the mesh lets only a desktop
+    /// give a desktop orders, and this path must not get around it. A caller that offers
+    /// `desktop/1` is a desktop and is not refused.
+    async fn refuse_desktop(&self, tool: Call, args: &Value) -> Option<String> {
+        if !matches!(tool, Call::RunOn | Call::MachineLog | Call::SendFiles) {
+            return None;
+        }
+        let machine = command_name(args.get("machine")?.as_str()?);
+        let rows = self.machines.user.nodes().await.ok()?;
+        let target = rows.iter().find(|row| command_name(&row.name) == machine)?;
+        let offers_desktop = |endpoint: &str| {
+            self.machines
+                .app
+                .nodes
+                .online(endpoint)
+                .is_some_and(|online| online.offers(DESKTOP))
+        };
+        (offers_desktop(&target.endpoint) && !offers_desktop(&self.caller)).then(|| {
+            format!(
+                "{} is a desktop. Only another desktop can run commands, read logs or send \
+                 files there.",
+                target.name
+            )
+        })
     }
 
     /// The refusal or ask card that stops an acting call; `None` lets it run.
@@ -708,13 +737,41 @@ mod tests {
     };
 
     fn calls(harness: &Harness) -> Calls {
+        calls_from(harness, "unknown")
+    }
+
+    fn calls_from(harness: &Harness, caller: &str) -> Calls {
         Calls {
             machines: Machines {
                 app: harness.app.clone(),
                 user: harness.alice.clone(),
             },
-            caller: "unknown".into(),
+            caller: caller.into(),
         }
+    }
+
+    /// A stand-in for the Mac app's `desktop/1`.
+    struct FakeDesktop;
+
+    impl beep_node::link::Protocol for FakeDesktop {
+        fn name(&self) -> &str {
+            "desktop/1"
+        }
+
+        fn serve(&self, _tx: LinkTx, _rx: LinkRx) -> beep_node::link::Session {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    async fn wait_online(harness: &Harness, key: &iroh::SecretKey) {
+        let id = key.public().to_string();
+        timeout(Duration::from_secs(20), async {
+            while harness.app.nodes.online(&id).is_none() {
+                sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the node came online");
     }
 
     fn request(tool: Call, args: Value, approved: Approved) -> Request {
@@ -729,6 +786,18 @@ mod tests {
     /// A node of Alice's with `offers`, connecting over a real link.
     async fn linked_node(
         harness: &Harness,
+        offers: beep_node::link::Offers,
+    ) -> (
+        iroh::SecretKey,
+        iroh::protocol::Router,
+        tokio::task::JoinHandle<Result<()>>,
+    ) {
+        named_node(harness, "build-box", offers).await
+    }
+
+    async fn named_node(
+        harness: &Harness,
+        name: &'static str,
         offers: beep_node::link::Offers,
     ) -> (
         iroh::SecretKey,
@@ -752,16 +821,15 @@ mod tests {
             .alice
             .link_key(crate::store::NewKey {
                 endpoint: key.public(),
-                name: "build-box",
+                name,
                 kind: crate::protocol::DeviceKind::Desktop {},
             })
             .await
             .expect("the node's key links");
         let node = endpoint(key.clone()).await.expect("the node binds");
         let addr = router.endpoint().addr();
-        let served = tokio::spawn(async move {
-            beep_node::link::connect(&node, addr, "build-box", &offers).await
-        });
+        let served =
+            tokio::spawn(async move { beep_node::link::connect(&node, addr, name, &offers).await });
         (key, router, served)
     }
 
@@ -1038,5 +1106,66 @@ mod tests {
             matches!(&asked, Reply::Ask { app, .. } if app == "Your machines"),
             "{asked:?}"
         );
+    }
+
+    /// A desktop `mac` offering `desktop/1` and a log, and a plain node `build-box`.
+    #[tokio::test]
+    async fn a_node_cannot_reach_a_desktop_through_the_server_but_a_desktop_can() {
+        let harness = Harness::new(Scripted::default()).await;
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let log = folder.path().join("beep.log");
+        std::fs::write(
+            &log,
+            "2099-01-01T00:00:00Z   WARN beep_node: a.rs:1 lost the link\n",
+        )
+        .expect("the log is written");
+        let mac = beep_node::link::Offers::with_protocols(vec![
+            std::sync::Arc::new(beep_node::machine::service::logs::Logs::file(log)),
+            std::sync::Arc::new(FakeDesktop),
+        ]);
+        let (mac_key, mac_router, mac_served) = named_node(&harness, "mac", mac).await;
+        let (node_key, node_router, node_served) =
+            named_node(&harness, "build-box", beep_node::link::Offers::default()).await;
+        let (desk_key, desk_router, desk_served) = named_node(
+            &harness,
+            "laptop",
+            beep_node::link::Offers::with_protocols(vec![std::sync::Arc::new(FakeDesktop)]),
+        )
+        .await;
+        for key in [&mac_key, &node_key, &desk_key] {
+            wait_online(&harness, key).await;
+        }
+
+        let run = json!({ "machine": "mac", "command": "uname" });
+        let log_args = json!({ "machine": "mac", "lines": 10 });
+        let send = json!({ "machine": "mac", "paths": ["a.txt"] });
+        let node = node_key.public().to_string();
+        for (tool, args) in [
+            (Call::RunOn, run.clone()),
+            (Call::MachineLog, log_args.clone()),
+            (Call::SendFiles, send),
+        ] {
+            let reply = calls_from(&harness, &node)
+                .answer(&request(tool, args, Approved::Once))
+                .await;
+            assert!(
+                matches!(&reply, Reply::Done { failed: true, text } if text.contains("is a desktop")),
+                "{tool:?} from a node: {reply:?}"
+            );
+        }
+        let desk = desk_key.public().to_string();
+        let read = calls_from(&harness, &desk)
+            .answer(&request(Call::MachineLog, log_args, Approved::No))
+            .await;
+        assert!(
+            matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
+            "{read:?}"
+        );
+        for served in [mac_served, node_served, desk_served] {
+            served.abort();
+        }
+        for router in [mac_router, node_router, desk_router] {
+            router.shutdown().await.expect("the router stops");
+        }
     }
 }
