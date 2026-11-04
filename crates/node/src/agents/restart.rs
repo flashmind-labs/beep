@@ -75,6 +75,22 @@ impl Agents {
         }
     }
 
+    /// Holds new prompts, waits up to `limit` for no turn to run, then
+    /// runs `restart` still holding them. A session that closes or ends
+    /// meanwhile is done.
+    #[cfg(feature = "cli")]
+    pub(crate) async fn restart_when_idle<T>(
+        &self,
+        limit: Duration,
+        restart: impl Future<Output = T>,
+    ) -> T {
+        let _hold = self.hold();
+        if timeout(limit, self.until_idle()).await.is_err() {
+            log::info!("a turn still runs after the wait; restarting anyway");
+        }
+        restart.await
+    }
+
     /// The sessions to resume when the node starts again: those that run
     /// or ended with the node, once the agent gave them its own id. One
     /// the user closed or that failed stays ended.
@@ -272,6 +288,33 @@ done
         until(&mut live, |live| live.info.turns == 2).await;
         let read = std::fs::read_to_string(&log).expect("the adapter's log");
         assert!(read.contains(r#""text":"after""#), "{read}");
+        agents.shutdown().await;
+    }
+
+    #[cfg(feature = "cli")]
+    #[tokio::test]
+    async fn an_update_restarts_once_the_busy_session_closes() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let kind = adapter(&dir.path().join("log"));
+        let agents = Agents::new(vec![kind.clone()]);
+        let session = agents
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.status() == Status::Asking).await;
+        let holding = agents.holding_now();
+        let restarted = agents.restart_when_idle(Duration::from_secs(600), async {
+            assert!(*holding.borrow(), "prompts stay held through the restart");
+        });
+        tokio::pin!(restarted);
+        assert!(
+            futures::poll!(&mut restarted).is_pending(),
+            "a turn waiting for an answer holds the restart"
+        );
+        session.close().await;
+        timeout(Duration::from_secs(20), restarted)
+            .await
+            .expect("a closed session no longer holds the restart");
         agents.shutdown().await;
     }
 

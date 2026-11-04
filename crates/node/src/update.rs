@@ -4,11 +4,13 @@
 //! it lives: the same archives, checked against the release's `SHA256SUMS`.
 
 use crate::{
+    agents::Agents,
     link::{Protocol, Session},
     restart::{self, Drained},
     service::{self, Restart},
 };
 use beep_proto::node::{LinkRx, LinkTx, update};
+use futures::FutureExt;
 use reqwest::{Client, StatusCode, Url};
 use rustls::{ClientConfig, RootCertStore};
 use sha2::{Digest, Sha256};
@@ -20,12 +22,13 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::{
-        Arc,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
     },
     time::Duration,
 };
 use tokio::task::{JoinError, spawn_blocking};
+use tokio_util::task::AbortOnDropHandle;
 
 /// Where releases are published; `BEEP_NODE_BASE` replaces it, as for the
 /// installers.
@@ -370,12 +373,33 @@ impl Download {
     }
 }
 
-/// Set while an update from Beep runs, so a second one is refused.
+/// Set while an update from Beep runs, until its restart, so a second one
+/// is refused.
 static UPDATING: AtomicBool = AtomicBool::new(false);
+
+/// How long an update waits for the agent sessions to be idle before
+/// restarting anyway, in minutes.
+pub const WAIT_MINUTES: u64 = 30;
+
+/// The restart an update from Beep waits to run.
+type Waiting = Arc<Mutex<Option<AbortOnDropHandle<()>>>>;
 
 /// `update/1`: what `beep-node update` does, asked by the server. Only the
 /// CLI's node offers it.
-pub struct Updates;
+pub struct Updates {
+    agents: Arc<Agents>,
+    /// Outlives the connection that asked for it.
+    waiting: Waiting,
+}
+
+impl Updates {
+    pub fn new(agents: Arc<Agents>) -> Self {
+        Self {
+            agents,
+            waiting: Waiting::default(),
+        }
+    }
+}
 
 impl Protocol for Updates {
     fn name(&self) -> &str {
@@ -383,25 +407,27 @@ impl Protocol for Updates {
     }
 
     fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
-        Box::pin(serve(tx, rx))
+        Box::pin(serve(tx, rx, self.agents.clone(), self.waiting.clone()))
     }
 }
 
-async fn serve(tx: LinkTx, mut rx: LinkRx) -> anyhow::Result<()> {
-    let Some(update::Request::Update {}) = rx.recv::<update::Request>().await? else {
+async fn serve(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    agents: Arc<Agents>,
+    waiting: Waiting,
+) -> anyhow::Result<()> {
+    let Some(update::Request::Update { now }) = rx.recv::<update::Request>().await? else {
         return Ok(());
     };
     if UPDATING.swap(true, AtomicOrdering::SeqCst) {
-        let mut tx = tx;
         tx.send(&update::Event::Failed {
             reason: "An update is already running on this machine.".into(),
         })
         .await?;
         return tx.finish().await;
     }
-    let done = remote().await;
-    UPDATING.store(false, AtomicOrdering::SeqCst);
-    let (event, restart) = match done {
+    let (event, restart) = match remote(&agents, now).await {
         Ok(Remote { event, restart }) => (event, restart),
         Err(e) => {
             // With its causes, as one line.
@@ -410,19 +436,36 @@ async fn serve(tx: LinkTx, mut rx: LinkRx) -> anyhow::Result<()> {
             (update::Event::Failed { reason }, None)
         }
     };
-    let mut tx = tx;
-    tx.send(&event).await?;
-    // The answer reaches the server before the restart drops the link.
-    if let Err(e) = tx.finish().await {
+    let Some(plan) = restart else {
+        UPDATING.store(false, AtomicOrdering::SeqCst);
+        tx.send(&event).await?;
+        return tx.finish().await;
+    };
+    // The answer reaches the server before the restart drops the link. The
+    // binary is installed, so it restarts even when the server is gone.
+    let answered = async {
+        tx.send(&event).await?;
+        tx.finish().await
+    };
+    if let Err(e) = answered.await {
         log::debug!("the server did not read the update's answer: {e:#}");
     }
-    if let Some(plan) = restart {
-        log::info!("restarting the service on the new binary");
-        match spawn_blocking(move || plan.run()).await? {
-            Ok(_) => {}
-            Err(e) => log::warn!("the service did not restart: {e:#}"),
+    let limit = Duration::from_secs(if now { 0 } else { WAIT_MINUTES * 60 });
+    let restart = tokio::spawn(async move {
+        let restarted = agents
+            .restart_when_idle(limit, async {
+                log::info!("restarting the service on the new binary");
+                spawn_blocking(move || plan.run()).await
+            })
+            .await;
+        match restarted {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => log::warn!("the service did not restart: {e:#}"),
+            Err(e) => log::warn!("the restart failed: {e}"),
         }
-    }
+        UPDATING.store(false, AtomicOrdering::SeqCst);
+    });
+    *waiting.lock().unwrap_or_else(PoisonError::into_inner) = Some(AbortOnDropHandle::new(restart));
     Ok(())
 }
 
@@ -433,7 +476,7 @@ struct Remote {
     restart: Option<service::Plan>,
 }
 
-async fn remote() -> Result<Remote, Error> {
+async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
     let base = base();
     let client = client()?;
     let Newest { current, latest } = newest(&client, &base).await?;
@@ -446,8 +489,6 @@ async fn remote() -> Result<Remote, Error> {
         });
     }
     log::info!("updating beep-node {current} to {latest}");
-    // The server asked only when no agent session runs or the user agreed
-    // to stop them, so it restarts without waiting for them.
     let exe = download(&client, &base, &latest).await?.install().await?;
     let plan = {
         let exe = exe.clone();
@@ -458,16 +499,19 @@ async fn remote() -> Result<Remote, Error> {
         source,
     })?;
     let restarting = matches!(plan.restart, Restart::Restarted(_));
+    let note = if !restarting {
+        said(&plan.restart, &latest)
+    } else if !now && agents.until_idle().now_or_never().is_none() {
+        "It restarts once its agent sessions are idle.".to_owned()
+    } else {
+        String::new()
+    };
     Ok(Remote {
         event: update::Event::Installed {
             from: current.to_string(),
             to: latest.to_string(),
             restarting,
-            note: if restarting {
-                String::new()
-            } else {
-                said(&plan.restart, &latest)
-            },
+            note,
         },
         restart: restarting.then_some(plan),
     })

@@ -78,7 +78,7 @@ pub async fn remove_machine(beep: Service<'_>, id: String) -> Result<()> {
 /// How long a node has to download and install a release.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(6 * 60);
 
-/// The machines Update works on, with the agent sessions it would stop.
+/// The machines Update works on.
 /// None from a server without it.
 #[tauri::command]
 pub async fn updatable_machines(beep: Service<'_>) -> Result<Vec<UpdatableMachine>> {
@@ -88,17 +88,13 @@ pub async fn updatable_machines(beep: Service<'_>) -> Result<Vec<UpdatableMachin
     }
 }
 
-/// Has one of the account's machines update its beep-node and restart.
-/// `stop_sessions` once the user agreed to stop its agent sessions.
+/// Has one of the account's machines update its beep-node and restart
+/// once its agent sessions are idle.
 #[tauri::command]
-pub async fn update_machine(
-    beep: Service<'_>,
-    id: String,
-    stop_sessions: bool,
-) -> Result<MachineUpdate> {
+pub async fn update_machine(beep: Service<'_>, id: String) -> Result<MachineUpdate> {
     let request = UpdateMachine {
         machine_id: id,
-        stop_sessions,
+        stop_sessions: false,
     };
     match beep.call_within(request, UPDATE_TIMEOUT).await {
         Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
