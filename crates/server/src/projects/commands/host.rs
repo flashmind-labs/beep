@@ -463,16 +463,8 @@ impl HostCommand<'_> {
                 &[],
                 &["--label", LABEL_OWNED, "-s", "all", "--per-page", "50"],
             ),
-            Self::ListOpenIssues => tea(
-                &["issue", "list"],
-                &[],
-                &["-s", "open", "--per-page", &TEA_OPEN_LIMIT.to_string()],
-            ),
-            Self::ListOpenPrs => tea(
-                &["pr", "list"],
-                &[],
-                &["-s", "open", "--per-page", &TEA_OPEN_LIMIT.to_string()],
-            ),
+            Self::ListOpenIssues => tea(&["issue", "list"], &[], &["-s", "open", "--all"]),
+            Self::ListOpenPrs => tea(&["pr", "list"], &[], &["-s", "open", "--all"]),
             Self::ViewIssue { number } => tea(&["issue", "get"], &[&number.to_string()], &[]),
             Self::ViewPrHead { number } => tea(&["pr", "get"], &[&number.to_string()], &[]),
             Self::CommentIssue { number, body } => tea(
@@ -525,10 +517,8 @@ impl HostCommand<'_> {
     }
 }
 
-/// Most open issues or pull requests one list reads (fewer for teacli, which prints whole text).
-pub(crate) const GH_OPEN_LIMIT: usize = 100;
-
-pub(crate) const TEA_OPEN_LIMIT: usize = 25;
+/// Most open issues or pull requests one gh list reads; gh fetches the pages itself.
+const GH_OPEN_LIMIT: usize = 1000;
 
 pub(super) const PR_FIELDS: &str =
     "state,mergedAt,reviewDecision,statusCheckRollup,url,number,title,body";
