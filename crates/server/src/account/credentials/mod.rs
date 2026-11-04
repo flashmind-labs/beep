@@ -1,7 +1,8 @@
 //! Credentials a user adds once, kept sealed and handed to their machines (`Down::Credentials`).
 
 mod check;
-pub(crate) mod machines;
+#[cfg(test)]
+mod machines;
 mod net;
 mod seal;
 
