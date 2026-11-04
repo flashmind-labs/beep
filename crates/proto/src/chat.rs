@@ -1,6 +1,17 @@
 //! Chats with the assistant: runs and their events, history, approvals and notices.
 
-use crate::{AutoPick, GroupMember, ImageRef};
+mod cards;
+mod group_chats;
+mod media;
+mod research;
+pub mod search;
+
+pub use cards::*;
+pub use group_chats::*;
+pub use media::*;
+pub use research::*;
+
+use crate::AutoPick;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use uuid::Uuid;
