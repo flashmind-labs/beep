@@ -11,7 +11,7 @@ html, body.cbody { background: var(--ink) }
 .cc-brand { display: flex; align-items: center; gap: 10px; padding: 0 6px }
 .cc-brand b { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.03em }
 .cc-grp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px }
-.cc-grp h3 { margin: 0 0 3px; padding: 0 8px }
+.cc-grp h3 { margin: 0 0 3px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between }
 .cc-si { cursor: default; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm); border: 0; background: transparent; text-align: left; width: 100%; font-size: 13px; color: color-mix(in srgb, var(--fg) 86%, transparent); white-space: nowrap }
 .cc-si:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .cc-si[aria-current="true"] { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--fg) }
@@ -135,7 +135,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 #pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) .dinput { font-size: 15px; padding: 10px 14px }
 
 /* Sidebar groups. */
-.cc-grp h3 { display: flex; align-items: center; justify-content: space-between }
 .cc-grp h3 button { border: 0; background: transparent; color: var(--muted); padding: 0 2px; line-height: 1; display: grid }
 .cc-grp h3 button:hover { color: var(--fg) }
 .cc-si .tt { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
@@ -215,14 +214,13 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-top .tt { display: grid }
 .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
 .cc-set .dset-top small { font-size: 12px; color: var(--muted) }
-.cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7 }
+.cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7; margin-left: auto; flex: none }
 .cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
 .cc-set .dset-crumbs > svg { flex: none; color: var(--dim) }
 .cc-set .dset-crumb { all: unset; cursor: pointer; font-size: 15px; color: var(--muted) }
 .cc-set .dset-crumb:hover, .cc-set .dset-crumb:focus-visible { color: var(--fg) }
 .cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--muted) }
 .cc-set .dset-back:hover, .cc-set .dset-back:focus-visible { color: var(--fg) }
-.cc-set .dset-top kbd { margin-left: auto; flex: none }
 .cc-set .dset-crumbs b { overflow: hidden; text-overflow: ellipsis }
 .cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
 .cc-set .dset-page > section { max-width: 780px }
