@@ -1,7 +1,7 @@
 import "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitFailure } from "../src/components/failbanner.ts";
+import { splitFailure } from "../src/ui/failbanner.ts";
 
 const failed = "Could not update OpenCode on build-box: opencode upgrade failed: Error: Unexpected EOF (tried brew upgrade opencode, then opencode upgrade)\n\n$ /srv/brew/bin/brew upgrade opencode\nError: untrusted tap\n\n$ /srv/brew/bin/opencode upgrade\nError: Unexpected EOF";
 

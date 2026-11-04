@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cardKey, parseAgentReport } from "../src/agentcard.ts";
+import { cardKey, parseAgentReport } from "../src/chat/agentcard.ts";
 
 const working = [
   "claude session a3f9c1 in /srv/project/atlas: working, 2 turns, 1 prompts waiting",

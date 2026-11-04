@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { taskTile, askingSessions, sessionKey } from "../src/board.ts";
+import { taskTile, askingSessions, sessionKey } from "../src/project/board.ts";
 
 test("a task whose worker asks gets the asks chip, before review or blocked", () => {
   const asking = askingSessions(

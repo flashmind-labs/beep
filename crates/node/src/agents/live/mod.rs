@@ -2,7 +2,7 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
-use super::{acp::Prompt, compaction::Usage, images::Images, usage::UsageHub};
+use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::schema::v1::{CompactionId, ToolCallId, ToolKind};
 use beep_proto::node::{
     agent::{Entry, SessionInfo, StopReason},
@@ -12,7 +12,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::Arc,
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 
 mod content;
@@ -65,9 +65,6 @@ pub(crate) struct Live {
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
-    /// How full the context window is, as the agent last said. Kept on
-    /// the node: the server is not told.
-    pub(crate) context: Option<Usage>,
     /// The names of the slash commands the agent advertises, such as
     /// `compact`.
     pub(crate) commands: Vec<String>,
@@ -91,6 +88,8 @@ pub(crate) struct Live {
     turn_start: u64,
     /// Image files the agent linked to this turn, as it named them.
     turn_links: Vec<String>,
+    /// When the running turn started, by the clock files are stamped with.
+    turn_began: Option<SystemTime>,
     /// Where finished turns' spending and plan limits go, shared by the
     /// node's sessions.
     usage: Arc<UsageHub>,
@@ -139,6 +138,11 @@ pub(crate) struct TurnFiles {
     pub(crate) cwd: PathBuf,
     /// Each joined to `cwd`, at most `image_files::MAX_PER_TURN`.
     pub(crate) paths: Vec<PathBuf>,
+    /// Files only shell commands or their output named: read when written
+    /// since `since`, so a listing does not show old pictures. Within the
+    /// same `MAX_PER_TURN` as `paths`.
+    pub(crate) made: Vec<PathBuf>,
+    pub(crate) since: SystemTime,
     /// The turn's last agent message, which shows them; a new entry when
     /// there is none.
     pub(crate) entry: Option<u64>,

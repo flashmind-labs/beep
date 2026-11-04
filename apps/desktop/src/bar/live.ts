@@ -1,11 +1,12 @@
-import { body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, reply, scrollDown, settle } from "./chat.ts";
-import { touch } from "./chats.ts";
+import { ASK, askText, body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { touch } from "../chat/chats.ts";
 import { $, $$, bar, entry, esc, h, here, ICON, invoke, listen, live, PANE, S, type Turn } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
-import { openSession } from "./history.ts";
-import { notice } from "./media.ts";
+import { openSession } from "../chat/history.ts";
+import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
 import { type HeldQuestion, waitingQuestion } from "./work.ts";
+import { userRowHtml } from "../chat/turnrows.ts";
 
 // ---------- Live voice ----------
 
@@ -204,12 +205,10 @@ export function liveTurn(id: string, text: string, runId: string) {
   b.querySelectorAll(".dreplies").forEach(r => r.remove());
   // The server's copy may have drawn the message already.
   const last = [...b.querySelectorAll<Turn>(".turn")].at(-1);
-  const turn = last?.user && !last.done && last.querySelector(".ask")?.textContent === text ? last : newTurn(text);
+  const turn = last?.user && !last.done && askText(last) === text ? last : newTurn(text);
   turn.user = true;
   turn.steps ??= [];
-  reply(turn).innerHTML = '<span class="caret"></span>';
-  e.body = b;
-  e.run = { id: runId, turn };
+  startRun(id, turn, runId);
   refreshHints();
   scrollDown();
   followAnswered(id, turn, runId);
@@ -253,10 +252,10 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 }
 /// Shows what the user said in place of the waiting prompt.
 export function heard(turn: Turn, text: string) {
-  const ask = turn.querySelector<HTMLElement>(".ask") ?? h('<div class="ask"></div>');
-  if (!ask.isConnected) turn.prepend(ask);
-  ask.textContent = text;
-  ask.classList.remove("dmuted");
+  let ask = turn.querySelector<HTMLElement>(ASK);
+  if (!ask) turn.prepend(ask = h(userRowHtml("")));
+  ask.querySelector("span")?.remove();
+  ask.append(h(`<span>${esc(text)}</span>`));
   touch(S.session!, text);
 }
 // Live mode stays in the bar and the orb.
@@ -269,8 +268,7 @@ if (!PANE) listen<LiveEvent>("live", e => {
         // What was typed in the prompt comes back when live mode ends.
         const ask = S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : null, typed = ask?.value.trim();
         if (typed) {
-          const key = S.session ?? "";
-          const kept = VN.drafts.get(key);
+          const key = S.session ?? "", kept = VN.drafts.get(key);
           VN.drafts.set(key, kept ? `${typed} ${kept}` : typed);
           ask!.value = "";
         }
@@ -300,28 +298,22 @@ if (!PANE) listen<LiveEvent>("live", e => {
       LIVE_CHATS.add(v.session);
       touch(v.session, v.text);
       return liveTurn(v.session, v.text, v.run);
-    case "left":
+    case "left": {
       LV.on = false;
       LV.view = null;
       LV.soon = null;
       LV.toast = "";
       // The bar, if Rust shows it next, opens on the chat live mode was in.
       if (v.session) S.session = v.session;
-      {
-        const key = v.session ?? "";
-        if (v.draft) {
-          // The chat takes the draft the next time it opens.
-          // A second draft for the same chat joins the first instead of
-          // replacing it.
-          const kept = VN.drafts.get(key);
-          VN.drafts.set(key, kept ? `${kept} ${v.draft}` : v.draft);
-        }
-        // A failure or the quiet timeout is said even with no words kept.
-        const kept = v.draft ? " Your words are kept here." : "";
-        const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet." : VN.typed ? "Left live mode to type." : v.draft ? "Left live mode." : "");
-        if (why) VN.note = why + kept;
-      }
+      // The chat takes the draft the next time it opens. A second draft for
+      // the same chat joins the first instead of replacing it.
+      const key = v.session ?? "", kept = VN.drafts.get(key);
+      if (v.draft) VN.drafts.set(key, kept ? `${kept} ${v.draft}` : v.draft);
+      // A failure or the quiet timeout is said even with no words kept.
+      const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet." : VN.typed ? "Left live mode to type." : v.draft ? "Left live mode." : "");
+      if (why) VN.note = why + (v.draft ? " Your words are kept here." : "");
       return renderLeft();
+    }
   }
 });
 

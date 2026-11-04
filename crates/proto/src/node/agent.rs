@@ -17,7 +17,7 @@
 //! server closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 
-use crate::{AgentCheckoutPlan, AgentEffort, ModelId, Upload};
+use crate::{AgentCheckoutPlan, AgentContext, AgentEffort, ModelId, Upload};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -155,6 +155,13 @@ pub struct SessionInfo {
     /// The agent's last message, cut short.
     pub last_message: String,
     pub turns: u32,
+    /// How full the context window is, as the agent last said.
+    pub context: Option<AgentContext>,
+    /// Every token the finished turns used.
+    pub tokens: u64,
+    /// What the finished turns cost at API prices, in US dollars, when the
+    /// agent reports a cost.
+    pub cost_usd: Option<f64>,
 }
 
 /// What a session is doing, small enough to send on every change.

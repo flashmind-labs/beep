@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bareVersion, newestNode, nodeBehind } from "../src/machines-state.ts";
+import { bareVersion, newestNode, nodeBehind } from "../src/machines/machines-state.ts";
 
 test("versions are bare, without the tool's name or a leading v", () => {
   assert.equal(bareVersion("claude", "2.1.312 (Claude Code)"), "2.1.312");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isOpen, menuKey, menuOf, splitTyped, suggest } from "../src/foldercomplete.ts";
+import { isOpen, menuKey, menuOf, splitTyped, suggest } from "../src/addproject/foldercomplete.ts";
 
 test("splitTyped refuses what the machine cannot read", () => {
   assert.equal(splitTyped(""), null);

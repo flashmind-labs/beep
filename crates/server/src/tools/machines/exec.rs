@@ -2,7 +2,7 @@
 
 use super::{Machines, Need, command_name, in_parameter};
 use crate::{
-    nodes::Exited,
+    nodes::{Exited, NODE_BACK, Repeat},
     permissions::shorten,
     protocol::node::process::{MAX_LINES, Reply, Request},
 };
@@ -11,6 +11,7 @@ use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::VecDeque, time::Duration};
+use tokio::time::Instant;
 
 pub(super) const NAME: &str = "exec";
 /// What every command's step says, so the command itself stays out of the chat.
@@ -184,13 +185,22 @@ impl Tool for ExecTool {
         let mut output = Output::new(args.preview());
         // Output goes to the model only; the step shows just `STEP`.
         let mut on_output = |text: &str| output.push(text);
-        let exited = match picked.online.exec(&command, limit, &mut on_output).await {
-            Ok(exited) => exited,
-            Err(e) => {
-                return Ok(ToolResult::failure(
-                    ctx.tool_call_id,
-                    format!("The command did not run on {}: {e:#}", picked.shown()),
-                ));
+        // A command the node never got goes again once its link is back.
+        let until = Instant::now() + NODE_BACK;
+        let mut on = picked.online.clone();
+        let exited = loop {
+            let e = match on.exec(&command, limit, &mut on_output).await {
+                Ok(exited) => break exited,
+                Err(e) => e,
+            };
+            match on.again(&e, Repeat::IfUnsent, until).await {
+                Some(back) => on = back,
+                None => {
+                    return Ok(ToolResult::failure(
+                        ctx.tool_call_id,
+                        format!("The command did not run on {}: {e:#}", picked.shown()),
+                    ));
+                }
             }
         };
         let text = report(&exited, output.finish(), limit);

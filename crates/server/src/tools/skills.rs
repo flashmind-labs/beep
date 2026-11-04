@@ -82,12 +82,15 @@ impl Tool for SkillTool {
         json!({"type": "object", "properties": properties, "required": ["action", "name"], "additionalProperties": false})
     }
     fn humanize(&self, args: &Value) -> String {
-        match action(args) {
-            Ok(Action::Create) => "Saving a skill",
-            Ok(Action::Update) => "Updating a skill",
-            _ => "Loading a skill",
+        let verb = match action(args) {
+            Ok(Action::Create) => "Saving",
+            Ok(Action::Update) => "Updating",
+            _ => "Loading",
+        };
+        match args.get("name").and_then(Value::as_str).map(str::trim) {
+            Some(name) if !name.is_empty() => format!("{verb} the {name} skill"),
+            _ => format!("{verb} a skill"),
         }
-        .to_owned()
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
         let action = match action(&ctx.args) {

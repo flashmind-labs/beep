@@ -509,6 +509,53 @@ cat > /dev/null
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Claude Code saving a plot from a shell command and never opening
+/// it, then listing the folder, which names an older picture too.
+const PLOTTING_ADAPTER: &str = r#"
+cat <<'EOF'
+UPDATE{"sessionUpdate":"tool_call","toolCallId":"t1","title":"`python -c \"import matplotlib.pyplot as plt; plt.plot([1, 2]); plt.savefig('plot.png')\"`","kind":"execute","status":"pending"}}}
+EOF
+printf '\211PNG\r\n\032\nplot' > plot.png
+echo 'UPDATE{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+echo 'UPDATE{"sessionUpdate":"tool_call","toolCallId":"t2","title":"`ls`","kind":"execute","status":"pending"}}}'
+echo 'UPDATE{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"completed","content":[{"type":"content","content":{"type":"text","text":"old.png\nplot.png"}}]}}}'
+echo 'UPDATE{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Plotted it."}}}}'
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_plot_a_command_saved_shows_once_the_turn_ends() {
+    let dir = temp("plot");
+    let old = std::fs::File::create(dir.join("old.png")).unwrap();
+    std::io::Write::write_all(&mut &old, b"\x89PNG\r\n\x1a\nold").unwrap();
+    old.set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    let session = started(&dir, &PLOTTING_ADAPTER.replace("UPDATE", UPDATE));
+    until(&session, |live| {
+        live.info.turns >= 1
+            && live
+                .transcript(10)
+                .0
+                .iter()
+                .any(|e| e.text.contains("[image:"))
+    })
+    .await;
+    let (entries, _) = session.live.borrow().transcript(10);
+    let plot = format!(
+        "[image: image-{}]",
+        beep_proto::image_key(b"\x89PNG\r\n\x1a\nplot")
+    );
+    let last = entries.last().unwrap();
+    assert_eq!(
+        last.text,
+        format!("Plotted it.\n{plot}"),
+        "only the new plot"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn closing_stops_the_agent_with_sigterm() {

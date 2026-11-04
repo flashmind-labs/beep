@@ -1,8 +1,8 @@
 import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attach, paneTerm, termStatus } from "../src/bar/paneterm.ts";
-import { makeTerminals, ALL, type Screen, type TermEvent, type TerminalRow } from "../src/terminals.ts";
+import { attach, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
+import { makeTerminals, ALL, type Screen, type TermEvent, type TerminalRow } from "../src/terminals/terminals.ts";
 
 const ROW: TerminalRow = {
   id: "t1", project: "", machine_id: "m1", machine_name: "build-box", name: "shell",

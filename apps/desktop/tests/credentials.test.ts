@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   credentialsHtml, draft, editFor, ghChoices, githubAccounts, sameServer, teaHas, teaOffers, type CliLogins, type Credential,
-} from "../src/credentials.ts";
+} from "../src/settings/credentials.ts";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 const ago = () => "today";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   MAX_UPLOAD, type Listing, type TreeEntry, atEdge, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, uploadParts,
   uploadRefusal, withMentions,
-} from "../src/files-state.ts";
+} from "../src/agentpane/files-state.ts";
 
 const file = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => ({ name, folder: false, size: 1, ignored: false, change: null, ...o });
 const dir = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => file(name, { folder: true, size: 0, ...o });
