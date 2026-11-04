@@ -234,15 +234,6 @@ export function folderUnder(root: string, repo: string): string | null {
   return parts ? `${root.replace(/\/+$/, "")}/${parts[0]}/${parts[1]}` : null;
 }
 
-/// Where the server puts it when no folder is chosen: `projects/org/repo` in
-/// the machine's workspace on Linux, `Projects/org/repo` in its home elsewhere.
-export function defaultFolder(base: string | null | undefined, os: string | null | undefined, repo: string) {
-  if (!base) return null;
-  const [org, name] = orgAndName(repo) || ["org", "repo"];
-  const projects = os === "linux" ? "projects" : "Projects";
-  return `${base.replace(/\/+$/, "")}/${projects}/${org}/${name}`;
-}
-
 /// What importing into the folder `listing` does, as the line under it says.
 export function folderNote(listing: MachineFolder | null | undefined, repo: string) {
   if (!listing) return null;

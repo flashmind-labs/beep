@@ -626,8 +626,8 @@ impl Agents {
         Ok(seen)
     }
 
-    /// The checkouts coding agents worked in, newest activity first, then
-    /// the other checkouts found on disk.
+    /// The checkouts coding agents worked in, then the other checkouts
+    /// found on disk, newest session or commit first.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = match usize::try_from(limit).unwrap_or(MAX_FOLDERS) {
             0 => DEFAULT_FOLDERS,
@@ -639,6 +639,7 @@ impl Agents {
         spawn_blocking(move || {
             let mut out = found::folders(&seen, home.as_deref(), limit, found::checkout);
             found::add_checkouts(&mut out, &on_disk, home.as_deref(), limit);
+            found::with_commits(&mut out, found::last_commit);
             out
         })
         .await

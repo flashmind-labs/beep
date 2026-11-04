@@ -7,6 +7,7 @@ mod folder;
 mod fork;
 mod found;
 mod gone;
+mod host_repos;
 mod link;
 pub(crate) mod place;
 mod preview;
@@ -17,6 +18,8 @@ mod tool;
 
 pub use checks::Checkouts;
 pub(crate) use found::MachineFound;
+pub use host_repos::HostRepoCache;
+pub(crate) use host_repos::host_repos;
 pub(crate) use preview::{checkout_for_worktree, parse_remotes, preview, remotes_script};
 pub(crate) use remove::remove_project;
 pub(crate) use service::{

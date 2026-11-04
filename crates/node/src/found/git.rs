@@ -35,6 +35,15 @@ pub(super) fn origin(root: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// When the commit checked out at `root` was made, Unix seconds; `None`
+/// before the first commit or when git is missing.
+pub(crate) fn last_commit(root: &Path) -> Option<u64> {
+    git(root, &["log", "-1", "--format=%ct"])?
+        .trim()
+        .parse()
+        .ok()
+}
+
 /// The checkout's main folder: the one holding the shared `.git`, else the
 /// top of this one (a submodule or a separate git dir).
 fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
