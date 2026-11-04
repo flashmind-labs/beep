@@ -51,6 +51,8 @@ log = "0.4"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 html2text = "0.17"
 imagesize = "0.14"
+# Thumbnails of coding agents' pictures.
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 jsonwebtoken = "9.3"
 qrcode = { version = "0.14", default-features = false }
 # A research's paper as a PDF (the `pdf` feature): Markdown read with pulldown-cmark, its LaTeX math

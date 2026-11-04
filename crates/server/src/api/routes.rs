@@ -273,6 +273,7 @@ pub fn router() -> Router {
         .call(threads::list_thread_chats)
         .call(agent_control::list_agent_images)
         .call(agent_control::get_agent_image)
+        .call(agent_control::get_agent_thumb)
         .call(agent_control::get_agent_file)
         .call(work_files::list_work_folder)
         .call(work_files::list_work_tree)

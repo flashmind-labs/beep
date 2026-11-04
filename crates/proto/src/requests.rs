@@ -1263,6 +1263,10 @@ requests! {
     /// signed-in one the login is attached to the caller's account; `Conflict`
     /// when another account holds it. `BadRequest` for any token that fails.
     416 CompleteLogin { token: SecretText } => Call<()>
+    /// `GetAgentImage`'s picture made small for the log: a JPEG, or the
+    /// picture as it is when it is already small or cannot be read. Never
+    /// for saving or a viewer. Fails as `GetAgentImage` does.
+    417 GetAgentThumb { machine_id: String, session: String, key: String } => Call<AgentImageData>
 }
 
 #[cfg(test)]

@@ -586,6 +586,7 @@ dependencies = [
  "flashmind",
  "futures",
  "html2text",
+ "image",
  "imagesize",
  "iroh",
  "jsonwebtoken",
