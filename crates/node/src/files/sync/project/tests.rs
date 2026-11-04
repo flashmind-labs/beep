@@ -19,7 +19,7 @@ use crate::{
 };
 use anyhow::Result;
 use beep_proto::node::sync::{Keep, State as SyncState};
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use iroh_blobs::store::fs::FsStore;
@@ -273,6 +273,24 @@ async fn only_an_unchanged_conflict_copy_is_settled() {
     let error = shared.resolve(COPY, Keep::Original).await.unwrap_err();
     assert!(error.to_string().contains("changed"), "{error}");
     assert!(project.path(COPY).exists());
+    project.stop().await;
+}
+
+#[tokio::test]
+async fn a_scan_that_finds_a_new_folder_asks_for_another() {
+    fn asked(project: &Project) -> bool {
+        let touched = project.task.shared.touched.notified();
+        touched.now_or_never().is_some()
+    }
+    let mut project = Project::new(&["a.txt"]).await;
+    assert!(asked(&project));
+    project.task.scan().await;
+    assert!(!asked(&project));
+    fs::create_dir(project.path("new")).unwrap();
+    project.task.scan().await;
+    assert!(asked(&project));
+    project.task.scan().await;
+    assert!(!asked(&project));
     project.stop().await;
 }
 
