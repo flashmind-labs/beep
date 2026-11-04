@@ -2,7 +2,7 @@
 // online machine (Auto lets the server pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, folderUnder, folderNote, folderHelp, reason } from "./importproject-state.ts";
 import { button, el } from "../ui/dom.ts";
 import type { ImportEvent } from "./importproject-state.ts";

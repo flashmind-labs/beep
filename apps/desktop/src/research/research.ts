@@ -3,6 +3,7 @@
 // A research window: the lead's chat on the left, the team's workspace in the
 // middle and its agents on the right.
 import { followSkin } from "../ui/skin.ts";
+import { writeClipboard } from "../ui/parts.ts";
 followSkin();
 import { invoke, Channel } from "../ui/tauri.ts";
 import { esc } from "../ui/format.ts";
@@ -544,16 +545,7 @@ document.addEventListener("selectionchange", () => { if (!selectedText()) $("#qu
 for (const id of ["work", "side", "chat"]) document.getElementById(id)!.addEventListener("scroll", () => $("#quote")?.remove(), true);
 
 async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const t = document.createElement("textarea");
-    t.value = text;
-    document.body.append(t);
-    t.select();
-    document.execCommand("copy");
-    t.remove();
-  }
+  await writeClipboard(text);
   notice("Copied the paper as Markdown");
 }
 

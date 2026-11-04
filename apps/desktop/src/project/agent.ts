@@ -4,7 +4,7 @@ import { harnessEl } from "../agents/harnessicon.ts";
 import type { ChatApproval } from "../center/home-state.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el } from "../ui/dom.ts";
-import { dbtn, emptyPanel, stateChip, svgEl } from "../ui/parts.ts";
+import { dbtn, emptyPanel, stateChip, svgEl, secHead } from "../ui/parts.ts";
 import type { Kid } from "../ui/dom.ts";
 
 /// A project agent with its chat (ProjectAgent).
@@ -231,7 +231,7 @@ const WORKER_STATUS: Record<string, string> = { starting: "starting", running: "
 function section(id: string, title: string, sub: string, body: Node) {
   const box = el("div");
   box.id = id;
-  box.append(el("div", "cc-sec", el("h4", "", title), sub ? el("small", "", sub) : null), body);
+  box.append(secHead(title, sub ? el("small", "", sub) : null), body);
   return box;
 }
 

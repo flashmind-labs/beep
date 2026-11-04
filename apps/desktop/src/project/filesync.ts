@@ -3,6 +3,7 @@
 // waiting, the conflicts with a way to keep either side, and Pause/Resume for
 // every machine.
 import type { invoke as Invoke } from "../ui/tauri.ts";
+import { secHead, emptyPanel } from "../ui/parts.ts";
 import { bytes } from "../center/home-state.ts";
 import type { SyncRow } from "../center/home-state.ts";
 import { reason } from "../addproject/importproject-state.ts";
@@ -335,27 +336,27 @@ export function makeFileSync(deps: FileSyncDeps) {
     const d = s.detail;
     const out: HTMLElement[] = [];
     if (s.error) out.push(h("div", "cc-err", s.error));
-    if (d === null) return [...out, h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it shows file sync in detail."))];
-    if (d === undefined) return [...out, h("div", "cc-panel cc-empty", h("span", "", "Loading…"))];
+    if (d === null) return [...out, emptyPanel(h("b", "", "The server needs an update before it shows file sync in detail."))];
+    if (d === undefined) return [...out, emptyPanel(h("span", "", "Loading…"))];
     const toggle = button(s.busy === "pause" ? (d.paused ? "Resuming…" : "Pausing…") : d.paused ? "Resume" : "Pause", d.paused ? "pri" : "", () => pause(name, !d.paused));
     toggle.disabled = !!s.busy || d.pinned || !d.machines.length;
     toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
     const moving = d.machines.filter(m => !m.paused && m.status === "syncing").length;
     const summary = d.pinned ? "pinned" : d.paused ? "paused on every machine" : moving ? `${moving} syncing` : d.machines.length ? "in sync" : "";
-    out.push(h("div", "cc-sec", h("h4", "", "Machines"), h("span", "fs-tools", h("small", "", summary), toggle)));
+    out.push(secHead("Machines", h("span", "fs-tools", h("small", "", summary), toggle)));
     out.push(h("div", "cc-panel fs-list", ...(d.machines.length
       ? d.machines.map(machineRow)
       : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
 
     const conflicts = conflictList(d);
     if (conflicts.length) {
-      out.push(h("div", "cc-sec", h("h4", "", "Conflicts"), h("small", "", "edited on two machines at once")));
+      out.push(secHead("Conflicts", h("small", "", "edited on two machines at once")));
       out.push(h("div", "cc-panel fs-list", ...conflicts.map(c => conflictRow(name, c, d.machines))));
     }
 
     const waiting = waitingList(d);
     if (waiting.length) {
-      out.push(h("div", "cc-sec", h("h4", "", "Waiting")));
+      out.push(secHead("Waiting"));
       out.push(h("div", "cc-panel fs-list", ...waiting.map(w => h("div", "fs-wait", h("code", "", w.path), h("span", "dmuted", w.machines.join(", "))))));
     }
     out.push(h("div", "dmuted fs-note", "Builds, ignored files and links stay on each machine."));

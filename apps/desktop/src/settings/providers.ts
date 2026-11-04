@@ -6,7 +6,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
-import { emptyPanel } from "../ui/parts.ts";
+import { copyButton, emptyPanel } from "../ui/parts.ts";
 import { flshPanel } from "./flsh.ts";
 import { failBanner } from "../ui/failbanner.ts";
 
@@ -274,9 +274,7 @@ export function registerProviders(deps: ProvidersDeps) {
       if (hv.install) {
         const install = button(busy ? "Installing…" : `Install on ${m}`, "pri", () => update([hv.agent]));
         install.disabled = busy;
-        const copy = button("Copy install command", "quiet", async () => {
-          try { await navigator.clipboard.writeText(hv.install!); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
-        });
+        const copy = copyButton(hv.install, "Copy install command", "dbtn quiet");
         out.push(acts(install, copy));
       } else {
         out.push(h("div", "hv-note", "Install it on the machine, then check again."));
