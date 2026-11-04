@@ -113,8 +113,6 @@ const SPEND_EVERY: Duration = Duration::from_secs(60);
 const AGENT_ID_WAIT: Duration = Duration::from_secs(6);
 /// How long the folders found in the agents' logs are kept.
 const SIGHTED_FOR: Duration = Duration::from_secs(60);
-/// How long the checkouts found on disk are kept.
-const ON_DISK_FOR: Duration = Duration::from_secs(10 * 60);
 /// How long a file request may wait for a look in the agents' logs.
 const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
@@ -371,21 +369,15 @@ pub struct Agents {
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
-    /// The checkouts found on disk under home, with when; one walk at a
-    /// time.
-    on_disk: AsyncMutex<Option<OnDisk>>,
+    /// The checkouts found on disk under home, once `warm` read them;
+    /// held while it does.
+    on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
 }
 
 /// The folders found in the agents' logs, and when.
 struct Sighted {
     at: Instant,
     folders: Arc<Vec<PathBuf>>,
-}
-
-/// The checkouts found on disk, and when.
-struct OnDisk {
-    at: Instant,
-    checkouts: Arc<Vec<found::Checkout>>,
 }
 
 impl Agents {
@@ -412,37 +404,29 @@ impl Agents {
         }
     }
 
-    /// Reads the agents' logs and walks home once ahead of the first
-    /// requests, which then find them read.
-    pub async fn warm(&self) {
+    /// Reads the agents' logs and the checkouts saved in the node's folder
+    /// `dir` ahead of the first requests, which then find them read. Home
+    /// is walked only when no checkouts are saved yet.
+    pub async fn warm(&self, dir: PathBuf) {
+        let mut on_disk = self.on_disk.lock().await;
         if let Err(e) = self.sighted_folders().await {
             log::debug!("the agents' logs were not read ahead: {e:#}");
         }
-        self.disk_checkouts().await;
-    }
-
-    /// The checkouts under home, walked at most `ON_DISK_FOR` ago.
-    /// Requests that come during a walk wait for it rather than walk again.
-    async fn disk_checkouts(&self) -> Arc<Vec<found::Checkout>> {
-        let mut on_disk = self.on_disk.lock().await;
-        if let Some(fresh) = on_disk.as_ref().filter(|d| d.at.elapsed() < ON_DISK_FOR) {
-            return fresh.checkouts.clone();
-        }
-        let walked = match dirs::home_dir() {
-            Some(home) => spawn_blocking(move || found::checkouts(&home))
+        let found = match dirs::home_dir() {
+            Some(home) => spawn_blocking(move || found::saved_checkouts(&home, &dir))
                 .await
                 .unwrap_or_else(|e| {
-                    log::warn!("home not walked for checkouts: {e}");
+                    log::warn!("the checkouts on disk were not read: {e}");
                     Vec::new()
                 }),
             None => Vec::new(),
         };
-        let checkouts = Arc::new(walked);
-        *on_disk = Some(OnDisk {
-            at: Instant::now(),
-            checkouts: checkouts.clone(),
-        });
-        checkouts
+        *on_disk = Some(Arc::new(found));
+    }
+
+    /// The checkouts under home `warm` read; requests during it wait.
+    async fn disk_checkouts(&self) -> Arc<Vec<found::Checkout>> {
+        self.on_disk.lock().await.clone().unwrap_or_default()
     }
 
     /// The folders sessions started outside Beep worked in, read from the

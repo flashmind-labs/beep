@@ -2,13 +2,14 @@
 //! is the checkout it was added to, a subfolder's the top) and its `origin`
 //! remote.
 
+use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
 /// A git checkout.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Checkout {
     /// Its main folder.
     pub(crate) root: PathBuf,
