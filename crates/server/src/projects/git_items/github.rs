@@ -11,13 +11,14 @@ use url::Url;
 pub const HOST: &str = "github.com";
 const SEARCH: &str = "https://api.github.com/search/issues";
 /// Items each search reads; the overview needs no more.
-const PER_PAGE: &str = "50";
+const PER_PAGE: &str = "100";
 
 /// One search and what its hits say about an item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Query {
     /// PRs and issues the user opened.
-    Authored,
+    AuthoredPulls,
+    AuthoredIssues,
     /// Issues assigned to the user.
     Assigned,
     /// PRs asking for the user's review.
@@ -31,8 +32,9 @@ enum Query {
 }
 
 impl Query {
-    const ALL: [Query; 6] = [
-        Query::Authored,
+    const ALL: [Query; 7] = [
+        Query::AuthoredPulls,
+        Query::AuthoredIssues,
         Query::Assigned,
         Query::ReviewRequested,
         Query::Approved,
@@ -42,7 +44,9 @@ impl Query {
 
     fn text(self) -> &'static str {
         match self {
-            Query::Authored => "is:open author:@me archived:false",
+            // Apart, so a long list of issues does not push the PRs off the page.
+            Query::AuthoredPulls => "is:open is:pr author:@me archived:false",
+            Query::AuthoredIssues => "is:open is:issue author:@me archived:false",
             Query::Assigned => "is:open is:issue assignee:@me archived:false",
             Query::ReviewRequested => "is:open is:pr review-requested:@me archived:false",
             Query::Approved => "is:open is:pr author:@me review:approved archived:false",
@@ -57,7 +61,7 @@ impl Query {
     fn lists(self) -> bool {
         matches!(
             self,
-            Query::Authored | Query::Assigned | Query::ReviewRequested
+            Query::AuthoredPulls | Query::AuthoredIssues | Query::Assigned | Query::ReviewRequested
         )
     }
 }
@@ -130,7 +134,7 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<Found> {
             });
             let item = &mut items[i].item;
             match query {
-                Query::Authored => item.authored = true,
+                Query::AuthoredPulls | Query::AuthoredIssues => item.authored = true,
                 Query::Assigned => item.assigned = true,
                 Query::ReviewRequested => item.review_requested = true,
                 _ => {}
@@ -245,7 +249,7 @@ mod tests {
     #[test]
     fn an_item_two_searches_find_is_listed_once_with_both_marks() {
         let items = merge(vec![
-            (Query::Authored, reply(AUTHORED)),
+            (Query::AuthoredIssues, reply(AUTHORED)),
             (Query::Assigned, reply(ASSIGNED)),
             (Query::ReviewRequested, reply(REVIEW)),
         ]);
@@ -273,7 +277,7 @@ mod tests {
     fn marking_searches_mark_but_never_add() {
         let items = merge(vec![
             (Query::Failing, reply(FAILING)),
-            (Query::Authored, reply(AUTHORED)),
+            (Query::AuthoredIssues, reply(AUTHORED)),
             (Query::ChangesRequested, reply(FAILING)),
         ]);
         assert_eq!(items.len(), 2);
