@@ -7,6 +7,8 @@ import { SWITCHES, sessionPicks } from "./session.ts";
 import { drawAgentBody } from "./logview.ts";
 import { steerAgent } from "./messages.ts";
 
+/// The pill by the field: the harness, the model and thinking switched to.
+/// A harness that cannot switch in a running session shows it disabled.
 export function drawModelPill() {
   const el = $("#agmodel"), s = AG.page?.session;
   if (!el || !s) return;

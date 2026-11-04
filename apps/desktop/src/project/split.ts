@@ -20,6 +20,7 @@ import { customAgentsSection, whereSection, agentsSection } from "./projects.ts"
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
 
+/// The split shows for an imported project whose agent's view has loaded.
 export function splitOn(p: Project) {
   return p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
 }

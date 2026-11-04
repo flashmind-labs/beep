@@ -15,6 +15,7 @@ import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jum
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
 
+/// Opens session `s` (a session row) and follows it while it is on screen.
 export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   S.view = "agent";
@@ -144,6 +145,8 @@ export function redrawAgentHints() {
   if (hint) hint.replaceWith(h(agentHints()));
 }
 
+/// A session's folder as the header shows it: the repository and its
+/// worktree (`widget · fix-login`), else the folder's name.
 export function shortCwd(cwd: string) {
   const m = /^(.*?)\/(?:\.claude\/worktrees|\.worktrees)\/(.+?)\/?$/.exec(cwd);
   if (m) return `${folderName(m[1])} · ${m[2]}`;

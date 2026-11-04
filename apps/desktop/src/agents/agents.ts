@@ -17,6 +17,7 @@ import { closeChild } from "./logview.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 
+/// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
   id: number;
   text: string;

@@ -8,6 +8,7 @@ import type { FoundRow, OverviewCard, Placed, Project, ProjectGroup, ProjectMach
 import type { GitItemsView } from "./openitems-state.ts";
 import type { ProjectAgent, ProjectView } from "../project/agent.ts";
 
+/// What `agent_resume` gives.
 export interface Started {
   session: SessionRow;
   why: string;

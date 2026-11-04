@@ -10,6 +10,9 @@ import { failure, tag, skeleton } from "../center/pieces.ts";
 import { shown, registerView, go, drawTop } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
 
+/// Every research on the account, newest first (null before the first
+/// answer), why the last read or start failed, whether one is starting and
+/// what the page's field holds.
 export const research = { list: null as ResearchRow[] | null, error: "", starting: false, draft: "" };
 /// The researches the sidebar lists under its Research heading.
 const SIDE_RESEARCH = 3;
