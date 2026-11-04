@@ -1,20 +1,24 @@
-//! The machines running beep-node on the account, as Settings lists them.
-//! Only the account's own machines.
+//! The machines running beep-node, as Settings lists them: the machines of
+//! the mesh, each with its live status, and the machines the server links
+//! that are not in it.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
+    fleet::Fleet,
     projects::unknown_op,
 };
 use beep_proto::{
-    GetMachineLog, ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineEnv,
-    MachineTraffic, MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
+    Call, GetMachineLog, ListMachineDetails, ListMachineStats, ListMachineTraffic, ListMachines,
+    ListUpdatableMachines, Machine, MachineDetails, MachineEnv, MachineStats, MachineTraffic,
+    MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
     node::logs::MAX_LINES,
 };
+use iroh::EndpointId;
 use serde::Serialize;
-use std::{fs, path::PathBuf, time::Duration};
-use tauri::{AppHandle, Manager};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+use tauri::{AppHandle, Manager, State};
 
 /// How long a machine has to read its log; the server gives it 30 seconds.
 const LOG_TIMEOUT: Duration = Duration::from_secs(40);
@@ -46,9 +50,55 @@ impl From<Machine> for MachineView {
     }
 }
 
+/// `mesh`, and what the server lists that it does not: a machine outside the
+/// mesh is reached through the server, when there is one. A server that
+/// cannot answer adds nothing.
+pub(crate) async fn with_outside<R, T>(
+    beep: &Beep,
+    mut mesh: Vec<T>,
+    request: R,
+    id: impl Fn(&T) -> &str,
+) -> Vec<T>
+where
+    R: Call<Reply = Vec<T>>,
+{
+    if beep.server().is_none() {
+        return mesh;
+    }
+    match beep.call(request).await {
+        Ok(listed) => {
+            let outside: Vec<T> = listed
+                .into_iter()
+                .filter(|item| !mesh.iter().any(|held| id(held) == id(item)))
+                .collect();
+            mesh.extend(outside);
+        }
+        Err(e) => log::debug!("the server's machines are not listed: {e}"),
+    }
+    mesh
+}
+
+pub(crate) async fn machines(beep: &Beep, fleet: &Fleet) -> Vec<Machine> {
+    let mesh = fleet.status().machines();
+    with_outside(beep, mesh, ListMachines {}, |machine| &machine.id).await
+}
+
+pub(crate) async fn details(beep: &Beep, fleet: &Fleet) -> Vec<MachineDetails> {
+    let mesh = fleet.status().details();
+    with_outside(beep, mesh, ListMachineDetails {}, |details| &details.id).await
+}
+
+pub(crate) async fn stats(beep: &Beep, fleet: &Fleet) -> Vec<MachineStats> {
+    let mesh = fleet.status().stats();
+    with_outside(beep, mesh, ListMachineStats {}, |stats| &stats.id).await
+}
+
 #[tauri::command]
-pub async fn list_machines(beep: Service<'_>) -> Result<Vec<MachineView>> {
-    let machines = beep.call(ListMachines {}).await?;
+pub async fn list_machines(
+    beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
+) -> Result<Vec<MachineView>> {
+    let machines = machines(&beep, &fleet).await;
     Ok(machines.into_iter().map(MachineView::from).collect())
 }
 
@@ -69,15 +119,39 @@ impl From<MachineTraffic> for TrafficView {
 }
 
 #[tauri::command]
-pub async fn machine_traffic(beep: Service<'_>) -> Result<Vec<TrafficView>> {
-    let traffic = beep.call(ListMachineTraffic {}).await?;
+pub async fn machine_traffic(
+    beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
+) -> Result<Vec<TrafficView>> {
+    let mesh = fleet.status().traffic();
+    let traffic = with_outside(&beep, mesh, ListMachineTraffic {}, |traffic| &traffic.id).await;
     Ok(traffic.into_iter().map(TrafficView::from).collect())
 }
 
-/// Unlinks one of the account's machines, online or not. The server drops
-/// its connection if it has one and refuses its node from then on.
+/// Removes a machine from the mesh, online or not. It loses its link to
+/// every other member, and never rejoins with the same key.
 #[tauri::command]
-pub async fn remove_machine(beep: Service<'_>, id: String) -> Result<()> {
+pub async fn mesh_remove(fleet: State<'_, Arc<Fleet>>, id: EndpointId) -> Result<()> {
+    fleet.remove(id).await
+}
+
+/// Removes one of the account's machines, online or not: from the mesh when
+/// it is a member, else from the server, which drops its connection and
+/// refuses its node from then on.
+#[tauri::command]
+pub async fn remove_machine(
+    beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
+    id: String,
+) -> Result<()> {
+    if let Ok(machine) = id.parse::<EndpointId>()
+        && fleet.machines().iter().any(|m| m.device.id == machine)
+    {
+        return fleet.remove(machine).await;
+    }
+    if beep.server().is_none() {
+        return Err(DesktopError::BadRequest("that is not a machine".into()));
+    }
     match beep.call(RemoveMachine { machine_id: id }).await {
         Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
             "The server needs an update before machines can be removed here.".into(),
@@ -89,14 +163,15 @@ pub async fn remove_machine(beep: Service<'_>, id: String) -> Result<()> {
 /// How long a node has to download and install a release.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(6 * 60);
 
-/// The machines Update works on.
-/// None from a server without it.
+/// The machines Update works on: those of the mesh that update over
+/// `update/1`, and those the server updates.
 #[tauri::command]
-pub async fn updatable_machines(beep: Service<'_>) -> Result<Vec<UpdatableMachine>> {
-    match beep.call(ListUpdatableMachines {}).await {
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        listed => listed,
-    }
+pub async fn updatable_machines(
+    beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
+) -> Result<Vec<UpdatableMachine>> {
+    let mesh = fleet.status().updatable();
+    Ok(with_outside(&beep, mesh, ListUpdatableMachines {}, |machine| &machine.id).await)
 }
 
 /// The recent log of one of the account's machines.

@@ -14,11 +14,15 @@ use crate::{
     beep::AsyncMutex,
     error::{DesktopError, Result},
 };
-use beep_mesh::{DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn, with_deadline};
+use beep_mesh::{
+    DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn,
+    with_deadline,
+};
 use beep_node::link::{Offers, peers::Peers};
 use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
+pub use status::Status;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
@@ -48,6 +52,7 @@ pub struct Fleet {
     /// The embedded node, as a call to this Mac reaches it.
     session: SessionFn,
     mesh: watch::Sender<Opened>,
+    status: Status,
     serving: Mutex<Option<Arc<Serving>>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
@@ -62,9 +67,11 @@ impl Fleet {
         let peers = Peers::new(endpoint.clone(), dir.to_owned(), name.to_owned(), offers);
         // Sessions that open these wait for the services `run` starts.
         peers.expect(&mesh::LATER);
+        let session = peers.local_session();
         Self {
             me,
-            session: peers.local_session(),
+            status: Status::new(me, session.clone()),
+            session,
             endpoint,
             dir: dir.to_owned(),
             name: name.to_owned(),
@@ -118,6 +125,7 @@ impl Fleet {
                 if let Err(e) = carry::replay(&self.dir, &mesh).await {
                     log::warn!("{e}");
                 }
+                self.status.watch(mesh.clone()).await;
                 self.mesh.send_replace(Opened::Open(mesh));
             }
             Err(e) => {
@@ -145,10 +153,13 @@ impl Fleet {
         carry::save(&self.dir, &old.scan(""))?;
         self.peers.leave().await;
         self.mesh.send_replace(Opened::Opening);
+        // The follows hold the mesh, which closes only with none left.
+        self.status.stop().await;
         if let Err(in_use) = old.close().await {
             let message = in_use.to_string();
             let InUse(old) = in_use;
             self.peers.install(old.clone());
+            self.status.watch(old.clone()).await;
             self.mesh.send_replace(Opened::Open(old));
             carry::discard(&self.dir);
             return Err(DesktopError::BadRequest(message));
@@ -165,6 +176,7 @@ impl Fleet {
             }
         };
         self.peers.install(new.clone());
+        self.status.watch(new.clone()).await;
         let carried = carry::replay(&self.dir, &new).await;
         self.mesh.send_replace(Opened::Open(new));
         carried
@@ -181,6 +193,7 @@ impl Fleet {
         if let Some(serving) = serving {
             serving.stop().await;
         }
+        self.status.stop().await;
     }
 
     pub fn id(&self) -> EndpointId {
@@ -214,6 +227,23 @@ impl Fleet {
     /// the mesh is open.
     pub fn machines(&self) -> Vec<DeviceStatus> {
         self.mesh().map(|mesh| mesh.devices()).unwrap_or_default()
+    }
+
+    /// What the machines of the mesh last reported.
+    pub fn status(&self) -> &Status {
+        &self.status
+    }
+
+    /// Mints a ticket that brings a device of `kind` into the mesh. Only a
+    /// desktop can, and this Mac is one.
+    pub async fn invite(&self, kind: DeviceKind) -> Result<JoinTicket> {
+        Ok(self.ready().await?.invite(kind, DEFAULT_TICKET_TTL).await?)
+    }
+
+    /// Removes `machine` from the mesh for good. Every other member drops it
+    /// and its link.
+    pub async fn remove(&self, machine: EndpointId) -> Result<()> {
+        Ok(self.ready().await?.remove(machine).await?)
     }
 
     /// A client for `machine`. This Mac's own node is served in this process
@@ -320,7 +350,11 @@ mod tests {
 
     /// A device that joins the mesh of `host` as `kind`, serving its own
     /// side of the mesh so the two connect.
-    pub(super) async fn join(host: &Fleet, kind: DeviceKind, name: &str) -> (Mesh, Router, Endpoint) {
+    pub(super) async fn join(
+        host: &Fleet,
+        kind: DeviceKind,
+        name: &str,
+    ) -> (Mesh, Router, Endpoint) {
         let ticket = host
             .mesh()
             .expect("the host is in a mesh")

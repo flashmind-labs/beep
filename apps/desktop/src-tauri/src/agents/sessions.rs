@@ -8,17 +8,24 @@ use crate::{
     center::AgentsShown,
     chat::markdown,
     error::Result,
+    fleet::Fleet,
+    machines::list::with_outside,
     projects::{known, unknown_op},
 };
+use beep_mesh::Key;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, GetAgentSession, GetAgentSessionModes,
     GetAgentSessionUsage, ListAgentHosts, ListAgentModels, ListAgentSessions, MachinePick,
     MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
-    node::agent::{CheckoutPlan, Effort},
+    node::{
+        agent::{CheckoutPlan, Effort},
+        harness::HarnessConfig,
+        mesh_state::StateValue,
+    },
 };
 use serde::Serialize;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 use tauri::{State, WebviewWindow};
 use uuid::Uuid;
 
@@ -181,9 +188,20 @@ pub struct Started {
     why: String,
 }
 
+/// The machines of the mesh that offer an agent, and those the server lists
+/// that are not in it.
 #[tauri::command]
-pub async fn agent_hosts(beep: Service<'_>) -> Result<Vec<HostRow>> {
-    let hosts = beep.call(ListAgentHosts {}).await?;
+pub async fn agent_hosts(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
+    let mesh = fleet.mesh();
+    // A harness the desktops switched off is not offered.
+    let is_off = |agent: &str| {
+        mesh.as_ref()
+            .and_then(|mesh| mesh.get(&Key::Harness(agent.to_owned())))
+            .and_then(|bytes| HarnessConfig::from_bytes(&bytes).ok())
+            .is_some_and(|config| !config.enabled)
+    };
+    let hosts = fleet.status().agent_hosts(is_off);
+    let hosts = with_outside(&beep, hosts, ListAgentHosts {}, |host| &host.machine_id).await;
     Ok(hosts.into_iter().map(HostRow::from).collect())
 }
 
