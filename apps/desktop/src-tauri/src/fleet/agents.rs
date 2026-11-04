@@ -106,16 +106,17 @@ where
     F: Fn(PeerClient, Host) -> Fut,
     Fut: Future<Output = Vec<T>>,
 {
+    let ask = &ask;
     let asks: Vec<_> = machines
         .into_iter()
-        .map(|machine| {
+        .map(|machine| async move {
             let one = async {
                 match fleet.client(machine).await {
                     Ok(client) => ask(client, fleet.host_of(machine)).await,
                     Err(_) => Vec::new(),
                 }
             };
-            async move { timeout(limit, one).await.unwrap_or_default() }
+            timeout(limit, one).await.unwrap_or_default()
         })
         .collect();
     stream::iter(asks)
