@@ -129,10 +129,11 @@ impl State {
         Self::save(dir, key, Some(server), name, None)
     }
 
-    /// The node in `dir`, made with `name` and no server when `dir` has no
-    /// settings yet, for a machine that only belongs to a mesh.
+    /// The node in `dir`, made with `name` and no server only when `dir` has
+    /// no settings yet, for a machine that only belongs to a mesh.
     pub fn load_or_start(dir: &Path, name: &str) -> Result<Self> {
-        if dir.join(SETTINGS_FILE).exists() && read_key(dir)?.is_some() {
+        // Settings without a key are never replaced: `load` says so.
+        if dir.join(SETTINGS_FILE).exists() {
             return Self::load(dir);
         }
         let key = ensure_key(dir)?;
@@ -313,6 +314,22 @@ mod tests {
         assert_eq!(again.name, "box");
         assert_eq!(again.key.public(), first.key.public());
         assert_eq!(saved_server(dir).unwrap(), None);
+    }
+
+    #[test]
+    fn settings_without_a_key_are_never_replaced() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let server = SecretKey::generate().public().to_string();
+        State::create(dir, &server, "box").unwrap();
+        let settings = fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap();
+        fs::remove_file(dir.join(KEY_FILE)).unwrap();
+        assert!(State::load_or_start(dir, "other").is_err());
+        assert_eq!(
+            fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap(),
+            settings
+        );
+        assert!(!dir.join(KEY_FILE).exists());
     }
 
     #[test]

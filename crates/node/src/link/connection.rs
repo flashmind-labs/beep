@@ -11,7 +11,10 @@ use crate::{
     link::restart::{self, Reopen},
     link::state::State,
     link::traffic::Traffic,
-    link::{peer_tools, peers, peers::Peers},
+    link::{
+        peer_tools::{self, Caller},
+        peers::{self, Peers},
+    },
     machine::env,
     machine::provision::Provision,
     machine::service::logs::Logs,
@@ -32,7 +35,7 @@ use beep_proto::{
     },
 };
 use iroh::{
-    Endpoint, EndpointAddr,
+    Endpoint, EndpointAddr, EndpointId,
     endpoint::{
         ConnectOptions, Connection, ConnectionError, RecvStream, SendStream, VarInt, presets,
     },
@@ -51,7 +54,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// Set, the node binds with no relay and no discovery service.
+/// Set, the node binds with no relay and no discovery service. For tests
+/// that run nodes side by side; a real node must not set it.
 const NO_RELAY: &str = "BEEP_NODE_NO_RELAY";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// How often the machine is probed again for changes.
@@ -106,16 +110,20 @@ pub async fn serve(
     stop: impl Future<Output = ()>,
 ) -> Result<()> {
     let traffic = Traffic::default();
+    let relays_off = std::env::var_os(NO_RELAY).is_some();
+    if relays_off {
+        log::warn!("{NO_RELAY} is set: no relay, no discovery (for tests only)");
+    }
     let builder = || {
         // Tests run nodes side by side on one machine, without relays.
-        let preset = if std::env::var_os(NO_RELAY).is_some() {
+        let preset = if relays_off {
             Endpoint::builder(presets::Minimal)
         } else {
             Endpoint::builder(presets::N0)
         };
         preset
             .secret_key(state.key.clone())
-            .transport_config(beep_proto::port::transport().build())
+            .transport_config(beep_mesh::transport_config())
             .hooks(traffic.clone())
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
@@ -691,7 +699,12 @@ pub(crate) enum Who {
     /// The server, or a desktop of the mesh: every protocol the node offers.
     Everything,
     /// Another node of the mesh: its status and agent tools, nothing else.
-    Node,
+    Node {
+        peer: EndpointId,
+        /// This device is a desktop, read from the device list when the
+        /// stream opened.
+        desktop_here: bool,
+    },
 }
 
 /// Serves one session stream in the protocol it opens with, if `who` may use it.
@@ -706,7 +719,9 @@ pub(crate) async fn session(
         .await
         .context("the session did not say its protocol")??
         .context("the session closed before its protocol")?;
-    if who == Who::Node && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL) {
+    if matches!(who, Who::Node { .. })
+        && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL)
+    {
         let reason = format!("a node may not open {}", open.protocol);
         return tx.send(&Opened::Refused { reason }).await;
     }
@@ -717,7 +732,18 @@ pub(crate) async fn session(
         }
         tools::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
-            peer_tools::serve(tx, rx).await
+            let caller = match who {
+                Who::Everything => Caller {
+                    table: tasks::Table::Shared,
+                    // Lift this one check to let a desktop take RunOn from nodes.
+                    may_run_on_here: true,
+                },
+                Who::Node { peer, desktop_here } => Caller {
+                    table: tasks::Table::Peer(peer),
+                    may_run_on_here: !desktop_here,
+                },
+            };
+            peer_tools::serve(tx, rx, caller).await
         }
         shell::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;

@@ -12,6 +12,7 @@ use beep_proto::node::{
     Down, LinkRx, LinkTx, NODE_ALPN, NodeHello, Open, Opened,
     agent::{Event as AgentEvent, Request as AgentRequest},
     link,
+    process::{Reply as ProcessReply, Request as ProcessRequest},
     shell::{Event as ShellEvent, PROTOCOL as SHELL, Request as ShellRequest},
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
@@ -473,11 +474,24 @@ async fn a_stranger_gets_no_shell() {
 #[tokio::test]
 async fn another_node_gets_no_shell_but_can_use_agent_tools() {
     let desktop = desktop(None).await;
-    let node = Node::start(Config::default()).await;
+    let node = Node::start(Config {
+        agent: Some(("sh".to_owned(), vec!["-c".to_owned(), "true".to_owned()])),
+        ..Config::default()
+    })
+    .await;
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     let other = peer_node(&desktop).await;
     let conn = other.reach(node.id).await;
-    for protocol in [SHELL, "process/1", "agents/1", "files/1", "terminal/1"] {
+    let refused = [
+        SHELL,
+        "process/1",
+        "agents/1",
+        "files/1",
+        "terminal/1",
+        "codex/1",
+        "desktop/1",
+    ];
+    for protocol in refused {
         match open(&conn, protocol).await {
             (_, Opened::Refused { .. }) => {}
             (_, other) => panic!("a node got {protocol}: {other:?}"),
@@ -531,4 +545,179 @@ async fn a_node_still_links_to_a_server_when_it_has_one() {
     // And the mesh works beside it.
     desktop.reach(node.id).await;
     node.logged("connected as").await;
+}
+
+/// The job id a background `run_on` reports.
+fn job_id(text: &str) -> String {
+    let rest = text.split("Job id: ").nth(1).expect("a job id is named");
+    rest.chars().take_while(char::is_ascii_digit).collect()
+}
+
+async fn run_background(conn: &Connection, command: &str) -> Reply {
+    tool(
+        conn,
+        Tool::RunOn,
+        json!({ "machine": "box-a", "command": command, "background": true }),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_node_peer_cannot_fill_the_desktops_tasks_or_read_its_jobs() {
+    let desktop = desktop(None).await;
+    let node = Node::start(Config::default()).await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let first = peer_node(&desktop).await;
+    let second = peer_node(&desktop).await;
+    let from_desktop = desktop.reach(node.id).await;
+    let from_first = first.reach(node.id).await;
+    let from_second = second.reach(node.id).await;
+    // The desktop's own job, which a node peer must not see.
+    let mut process = ready(&from_desktop, "process/1").await;
+    process
+        .tx
+        .send(&ProcessRequest::Start {
+            command: "sleep 30".to_owned(),
+            cwd: None,
+        })
+        .await
+        .expect("the start is sent");
+    let Some(ProcessReply::Started { id: desktop_job }) = process
+        .rx
+        .recv::<ProcessReply>()
+        .await
+        .expect("a reply reads")
+    else {
+        panic!("the desktop's job did not start");
+    };
+    for tool_call in [Tool::JobStatus, Tool::Cancel] {
+        let Reply::Done { failed, text } = tool(
+            &from_first,
+            tool_call,
+            json!({ "id": desktop_job.to_string() }),
+        )
+        .await
+        else {
+            panic!("not done");
+        };
+        assert!(failed && text.contains("No background process"), "{text}");
+    }
+    // One node peer's job is not another's.
+    let Reply::Done { text, failed } = run_background(&from_first, "sleep 30").await else {
+        panic!("not done");
+    };
+    assert!(!failed, "{text}");
+    let Reply::Done { failed, text } = tool(
+        &from_second,
+        Tool::JobStatus,
+        json!({ "id": job_id(&text) }),
+    )
+    .await
+    else {
+        panic!("not done");
+    };
+    assert!(failed && text.contains("No background process"), "{text}");
+    // Filling its own slots leaves the desktop's `process/1` working.
+    let mut refused = false;
+    for _ in 0..40 {
+        let Reply::Done { failed, .. } = run_background(&from_first, "sleep 30").await else {
+            panic!("not done");
+        };
+        refused |= failed;
+    }
+    assert!(refused, "the peer's slots never ran out");
+    process
+        .tx
+        .send(&ProcessRequest::Start {
+            command: "echo still-works".to_owned(),
+            cwd: None,
+        })
+        .await
+        .expect("the start is sent");
+    assert!(matches!(
+        process
+            .rx
+            .recv::<ProcessReply>()
+            .await
+            .expect("a reply reads"),
+        Some(ProcessReply::Started { .. })
+    ));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_control_socket_is_private_and_the_ticket_stays_out_of_the_log() {
+    use std::os::unix::fs::PermissionsExt;
+    let desktop = desktop(None).await;
+    let mut node = Node::start(Config::default()).await;
+    let ticket = desktop.ticket(DeviceKind::Node).await;
+    node.join(&ticket).await;
+    desktop.reach(node.id).await;
+    let mode = fs::metadata(node.dir.path().join("mesh.sock"))
+        .expect("the socket exists")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+    node.logged("joined a mesh").await;
+    let text = ticket.encode_string();
+    while let Ok(line) = node.lines.try_recv() {
+        node.log.push(line);
+    }
+    assert!(node.log.iter().all(|line| !line.contains(&text)));
+}
+
+#[tokio::test]
+async fn a_desktop_removed_mid_session_loses_its_stream() {
+    let first = desktop(None).await;
+    let node = Node::start(Config::default()).await;
+    node.join(&first.ticket(DeviceKind::Node).await).await;
+    // A second desktop joins through the first.
+    let ticket = first.ticket(DeviceKind::Desktop).await;
+    let dir = TempDir::new().expect("a temp folder");
+    let endpoint = bind(&SecretKey::generate()).await;
+    let mesh = Mesh::join(dir.path(), endpoint.clone(), &ticket, "second")
+        .await
+        .expect("the desktop joins");
+    let second = Member {
+        _router: router(endpoint, &mesh, None),
+        mesh,
+        _dir: dir,
+    };
+    let conn = second.reach(node.id).await;
+    let mut shell = ready(&conn, SHELL).await;
+    shell
+        .tx
+        .send(&ShellRequest::Run {
+            command: "echo before".to_owned(),
+            timeout_secs: 30,
+        })
+        .await
+        .expect("the run is sent");
+    while !matches!(
+        shell.rx.recv::<ShellEvent>().await.expect("an event reads"),
+        Some(ShellEvent::Done { .. })
+    ) {}
+    first
+        .mesh
+        .remove(second.id())
+        .await
+        .expect("the removal is signed");
+    // The shell stream ends, and the shell with it.
+    timeout(LIMIT, async {
+        loop {
+            let sent = shell
+                .tx
+                .send(&ShellRequest::Run {
+                    command: "echo after".to_owned(),
+                    timeout_secs: 30,
+                })
+                .await;
+            match shell.rx.recv::<ShellEvent>().await {
+                Ok(Some(_)) if sent.is_ok() => {}
+                _ => return,
+            }
+        }
+    })
+    .await
+    .expect("the removed desktop kept its stream");
 }
