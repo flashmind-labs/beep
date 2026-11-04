@@ -10,78 +10,109 @@ use crate::{
     },
     center,
     chat::groups::GroupApproval,
+    fleet::alerts::{Direct, Heard, Via},
     tray::{self, waiting::WaitingList},
     voice::Voice,
 };
 use beep_proto::{AgentNoticeKey, Notice};
 use std::{sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::{select, sync::mpsc};
 
-/// The server pushes notices to every key on the account. The first one
-/// this key gets means the phone linked it.
+/// Routes what the server pushes and what machines in the mesh send
+/// directly. The server pushes notices to every key on the account; the
+/// first one this key gets means the phone linked it. A coding-agent notice
+/// that comes both ways shows once.
 pub(crate) async fn serve(
     app: AppHandle,
     beep: Arc<Beep>,
     voice: Arc<Voice>,
     mut notices: Notices,
+    mut direct: mpsc::Receiver<Direct>,
 ) {
-    while let Some(notice) = notices.recv().await {
-        if beep.link_state() == LinkState::Unlinked {
+    let mut heard = Heard::default();
+    loop {
+        let (notice, via) = select! {
+            Some(notice) = notices.recv() => (notice, Via::Server),
+            Some(direct) = direct.recv() => match direct {
+                Direct::Notice(notice) => (notice, Via::Machine),
+                // Connected again: what the bar shows from outside the log,
+                // such as questions from background work, may have changed
+                // meanwhile, and so may what waits on the user.
+                Direct::Connected => {
+                    let _ = app.emit("reconnected", ());
+                    app.state::<WaitingList>().poke();
+                    continue;
+                }
+            },
+            else => return,
+        };
+        if matches!(via, Via::Server) && beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
             tray::became_linked(&app);
         }
-        // What waits on the user may have changed; the tray looks again.
-        if notice.approval.is_some() || (notice.changed && !notice.group) {
-            app.state::<WaitingList>().poke();
-        }
-        // Checked before `changed`, which a resolved question also sets.
-        if let Some(query_id) = notice.resolved_question() {
-            let resolved = work::Resolved {
-                session_id: notice.session_id.clone(),
-                query_id: query_id.to_owned(),
-            };
-            let _ = app.emit("work-resolved", resolved);
-            voice.withdrawn(query_id);
-            continue;
-        }
-        if notice.group {
-            group_notice(&app, &beep, notice);
-            continue;
-        }
-        if notice.changed {
-            let _ = app.emit("sessions-changed", notice.session_id);
-            tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
-            continue;
-        }
         if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-            agent_notice(&app, &beep, &key, &notice);
-            continue;
-        }
-        // Background work asks only through a notice, so its chat keeps a
-        // card for the question.
-        if let Some(question) =
-            work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
-        {
-            let _ = app.emit("work-question", question);
-        }
-        let showing = focused_center(&app);
-        if center::on_screen(
-            &seen(&app, beep.session(), showing.session),
-            &notice.session_id,
-        ) {
-            continue;
-        }
-        // While live mode is on in the orb, an approval asks there.
-        let Some(notice) = voice.approval_notice(notice) else {
-            continue;
-        };
-        match voice.wants(&notice) {
-            NoticeVoice::Aloud => {
-                tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
+            if !heard.first(&key, via, Instant::now()) {
+                continue;
             }
-            NoticeVoice::Ask => voice.offer(notice),
-            NoticeVoice::Off => notify::notice(&app, &notice),
         }
+        route(&app, &beep, &voice, notice);
+    }
+}
+
+/// What `notice` does to the tray, the windows and live mode.
+fn route(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, notice: Notice) {
+    // What waits on the user may have changed; the tray looks again.
+    if notice.approval.is_some() || (notice.changed && !notice.group) {
+        app.state::<WaitingList>().poke();
+    }
+    // Checked before `changed`, which a resolved question also sets.
+    if let Some(query_id) = notice.resolved_question() {
+        let resolved = work::Resolved {
+            session_id: notice.session_id.clone(),
+            query_id: query_id.to_owned(),
+        };
+        let _ = app.emit("work-resolved", resolved);
+        voice.withdrawn(query_id);
+        return;
+    }
+    if notice.group {
+        group_notice(app, beep, notice);
+        return;
+    }
+    if notice.changed {
+        let _ = app.emit("sessions-changed", notice.session_id);
+        tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
+        return;
+    }
+    if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
+        agent_notice(app, beep, &key, &notice);
+        return;
+    }
+    // Background work asks only through a notice, so its chat keeps a
+    // card for the question.
+    if let Some(question) =
+        work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
+    {
+        let _ = app.emit("work-question", question);
+    }
+    let showing = focused_center(app);
+    if center::on_screen(
+        &seen(app, beep.session(), showing.session),
+        &notice.session_id,
+    ) {
+        return;
+    }
+    // While live mode is on in the orb, an approval asks there.
+    let Some(notice) = voice.approval_notice(notice) else {
+        return;
+    };
+    match voice.wants(&notice) {
+        NoticeVoice::Aloud => {
+            tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
+        }
+        NoticeVoice::Ask => voice.offer(notice),
+        NoticeVoice::Off => notify::notice(app, &notice),
     }
 }
 

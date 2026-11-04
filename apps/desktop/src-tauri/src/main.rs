@@ -513,11 +513,14 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
 
+    let (following, direct) = fleet::alerts::start(fleet.clone());
+    tauri::async_runtime::spawn(following);
     tauri::async_runtime::spawn(notices::serve(
         handle.clone(),
         beep.clone(),
         voice.clone(),
         notices,
+        direct,
     ));
     tauri::async_runtime::spawn(beep::sync::follow(handle.clone(), beep.clone()));
     tauri::async_runtime::spawn(palette::lists::follow(handle.clone(), beep.clone()));
