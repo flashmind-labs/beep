@@ -7,12 +7,13 @@ use crate::{
     center::AgentsShown,
     chat::markdown,
     error::Result,
-    projects::unknown_op,
+    projects::{known, unknown_op},
 };
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentModel, AgentModels, AgentQuestion,
-    AgentSessionView, GetAgentSession, ListAgentHosts, ListAgentModels, ListAgentSessions,
-    MachinePick, MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
+    AgentSessionUsage, AgentSessionView, GetAgentSession, GetAgentSessionUsage, ListAgentHosts,
+    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
+    ResumeAgentSession, StartAgentSession,
     node::agent::{CheckoutPlan, Effort},
 };
 use serde::Serialize;
@@ -374,6 +375,25 @@ pub async fn agent_view(
         })
         .await?;
     Ok(view.into())
+}
+
+/// How full a Beep session's context is and what its finished turns
+/// used; `None` from a server too old to say.
+#[tauri::command]
+pub async fn agent_usage(
+    beep: Service<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<Option<AgentSessionUsage>> {
+    known(
+        beep.call(GetAgentSessionUsage {
+            machine_id,
+            agent,
+            session,
+        })
+        .await,
+    )
 }
 
 #[cfg(test)]

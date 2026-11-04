@@ -12,3 +12,4 @@ pub(crate) mod instructions;
 pub(crate) mod media;
 pub(crate) mod sessions;
 pub(crate) mod steer;
+pub(crate) mod work_copy;

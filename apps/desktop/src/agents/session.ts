@@ -7,8 +7,9 @@ import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
+import { copyCode, stopFace, toggleThought } from "../chat/turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached } from "./images.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
@@ -68,6 +69,7 @@ export async function pollAgent() {
       if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
       markDelivered(AG.queue, page.queued, read);
       drawAgentBody();
+      void readUsage(o, page);
       flushQueue();
     }
   } catch (e) {
@@ -160,16 +162,35 @@ export const sessionPicks = new Map<string, { model: string; effort: string | nu
 /// The session the mentions waiting above the field belong to.
 let paneSessionKey = "";
 
-export const STOP_MARK = '<span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>';
+/// The head's usage line, the session it is of, and the turns it counts.
+let usage = { of: "", turns: -1, text: "" };
+const usageKey = (s: AgentRow) => `${s.machine_id}\n${s.agent}\n${s.id}`;
+
+/// Reads the open session's usage once per finished turn into the head.
+async function readUsage(o: OpenAgent, page: AgentPage) {
+  const s = page.session, of = usageKey(s);
+  if (s.external || (usage.of === of && usage.turns === page.turns)) return;
+  usage = { of, turns: page.turns, text: usage.of === of ? usage.text : "" };
+  try {
+    const u = await invoke<AgentUsage | null>("agent_usage", where(o));
+    if (usage.of !== of || !u) return;
+    usage.text = usageLine(u);
+    const line = $("#aguse");
+    if (line && isOpen(o)) line.textContent = usage.text;
+  } catch (e) {
+    console.warn("agent usage not read", e);
+    if (usage.of === of) usage.turns = -1;
+  }
+}
 
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${STOP_MARK}Stop</button></div><div id="agpickm"></div>`;
+    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
-  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><span id="agstate">${stateTag(s.status)}</span></div>
+  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   MN.redraw = drawAgentAttached;
@@ -219,11 +240,7 @@ function agentClick(e: MouseEvent) {
     return;
   }
   const copy = target.closest<HTMLElement>("#agbody [data-copy]");
-  if (copy) {
-    const code = copy.parentElement?.querySelector("code")?.textContent ?? "";
-    navigator.clipboard.writeText(code).then(() => { copy.textContent = "Copied"; setTimeout(() => { copy.textContent = "Copy"; }, 1200); }).catch(console.warn);
-    return;
-  }
+  if (copy) return copyCode(copy);
   if (target.closest("#agjump")) { jumpToLatest(); return; }
   // A thought opens and folds in place, so only it animates.
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
@@ -231,12 +248,9 @@ function agentClick(e: MouseEvent) {
     const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
     // A thought streams open; once the reader folds or opens it, it keeps
     // their choice when it ends.
-    const open = !thought.parentElement?.classList.contains("open");
     m.touched.add(at);
-    if (open) m.thoughts.add(at);
+    if (toggleThought(thought)) m.thoughts.add(at);
     else m.thoughts.delete(at);
-    thought.parentElement?.classList.toggle("open", open);
-    thought.setAttribute("aria-expanded", String(open));
     return;
   }
   // A finished turn's heading or folded line opens its steps; the heading folds them again.

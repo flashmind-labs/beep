@@ -7,7 +7,7 @@ use crate::{
     beep::{Beep, Service},
     projects::unknown_op,
 };
-use beep_node::reconnect::Backoff;
+use beep_node::link::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
 use std::sync::{Arc, Mutex, PoisonError};

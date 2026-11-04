@@ -4,7 +4,7 @@
 //! only pipes stdin and stdout to the running app's node and never starts
 //! the app. Being the app itself, it is signed and notarized with it.
 
-use beep_node::mcp::Invocation;
+use beep_node::agents::mcp::Invocation;
 use std::ffi::OsString;
 use tokio::runtime::Builder;
 

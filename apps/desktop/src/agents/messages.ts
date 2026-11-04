@@ -2,9 +2,10 @@
 // answers to its questions, and interrupting it.
 import { type Attached, batches, dropDelivered, steersToQueue, type Waiting } from "./agentqueue.ts";
 import { composeMessage } from "../chat/compose.ts";
-import { $, esc, h, ICON, invoke } from "../bar/core.ts";
+import { $, h, ICON, invoke } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
+import { queueRowHtml } from "../chat/turnrows.ts";
 import { type Started, type Steer, AG, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, where } from "./agents.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
@@ -17,15 +18,17 @@ export function drawQueue() {
   if (!field) return;
   dropDelivered(AG.queue);
   const old = $("#agqueue");
-  const chip = (t: string) => `<span class="qatt" title="${esc(t)}">${esc(t)}</span>`;
   const row = (q: Waiting, i: number) => {
     const steer = q.how === "steer", done = q.state === "delivered";
-    const label = steer ? (done ? "Steered" : "Steer") : "Queued";
-    const when = !steer ? "after the turn" : done ? "delivered" : q.state === "sending" ? "sending" : "after the current step";
-    const what = q.typed || (q.images.length || q.paths.length ? "" : q.text);
-    const buttons = done ? "" : `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`;
-    return `<div class="it${steer ? " steer" : ""}${done ? " done" : ""}"><span class="lbl">${label}</span><span class="t" title="${esc(q.text)}">${esc(what)}</span>`
-      + `${q.images.map(a => chip(a.name)).join("")}${q.paths.map(chip).join("")}<span class="w">${when}</span>${buttons}</div>`;
+    return queueRowHtml({
+      label: steer ? (done ? "Steered" : "Steer") : "Queued",
+      cls: `${steer ? " steer" : ""}${done ? " done" : ""}`,
+      text: q.typed || (q.images.length || q.paths.length ? "" : q.text),
+      tip: q.text,
+      chips: [...q.images.map(a => a.name), ...q.paths],
+      when: !steer ? "after the turn" : done ? "delivered" : q.state === "sending" ? "sending" : "after the current step",
+      buttons: done ? "" : `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`,
+    });
   };
   const el = AG.queue.length ? h(`<div class="ag-queue" id="agqueue">${AG.queue.map(row).join("")}</div>`) : null;
   if (old) el ? old.replaceWith(el) : old.remove();

@@ -1,11 +1,8 @@
-//! What the node's coding agents spent and how much of their plans is
-//! left, waiting for the server's `FollowUsage` stream.
-//!
-//! Each finished turn waits in a bounded outbox. Plan usage is kept as the
-//! latest report per agent: `plans` reads it from the agents' own CLIs,
-//! and a running Claude Code session updates it as its rate limit events
-//! come.
+//! What the node's coding agents spent and how much of their plans is left
+//! (`UsageHub`), for the server's `FollowUsage` stream. Plan usage is the
+//! latest report per agent, from `plans` or Claude Code's rate limit events.
 
+use crate::lock;
 use beep_proto::{
     AgentSlug,
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
@@ -13,7 +10,7 @@ use beep_proto::{
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::Mutex,
 };
 use tokio::sync::{Notify, watch};
 
@@ -42,13 +39,9 @@ impl Default for UsageHub {
 }
 
 impl UsageHub {
-    fn turns(&self) -> MutexGuard<'_, VecDeque<TurnUsage>> {
-        self.turns.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Has `turn` wait for the server.
     pub(crate) fn record(&self, turn: TurnUsage) {
-        let mut turns = self.turns();
+        let mut turns = lock(&self.turns);
         turns.push_back(turn);
         while turns.len() > MAX_UNSENT {
             turns.pop_front();
@@ -61,7 +54,7 @@ impl UsageHub {
     pub(crate) async fn next_turn(&self) -> TurnUsage {
         loop {
             let arrived = self.arrived.notified();
-            if let Some(turn) = self.turns().pop_front() {
+            if let Some(turn) = lock(&self.turns).pop_front() {
                 return turn;
             }
             arrived.await;

@@ -145,6 +145,8 @@ impl LlmProvider for RecentAttachments {
 mod tests {
     use super::*;
     use flashmind::core::ConversationEntry;
+    use flashmind::tools::mcp::{McpBlob, McpContent, McpToolCallResult};
+    use serde_json::json;
 
     fn image(data: &str) -> ContentPart {
         ContentPart::Image {
@@ -202,6 +204,43 @@ mod tests {
             .filter(|part| matches!(part, ContentPart::Text { text } if text.contains("no longer shown")))
             .count();
         assert_eq!(notes, 3);
+    }
+
+    /// Chats saved before #164 hold a file's base64 in a tool's text; it is never sent again.
+    #[test]
+    fn a_saved_file_printed_as_text_is_left_out_of_the_request() {
+        let blob = "JVBERi0xLjcKJcfsj6IK".repeat(50_000);
+        let output = format!(
+            "Resource(EmbeddedResource {{ resource: BlobResourceContents {{ uri: \"x\", \
+             mime_type: Some(\"application/pdf\"), blob: \"{blob}\" }} }})"
+        );
+        let saved = json!({"entries": [
+            {"kind": {"type": "user", "data": {"content": "read my statement"}}, "timestamp": "2026-11-01T10:00:00Z"},
+            {"kind": {"type": "tool", "data": {"call_id": "1", "output": output}}, "timestamp": "2026-11-01T10:00:01Z"},
+        ]});
+        let conversation: Conversation = serde_json::from_value(saved).expect("a saved chat");
+        let mut messages = conversation.to_messages();
+        keep_recent(&mut messages);
+        let sent = serde_json::to_string(&messages).expect("it serializes");
+        assert!(sent.len() < 1_000, "{} bytes sent", sent.len());
+        assert!(sent.contains("KB of binary data left out"), "{sent}");
+    }
+
+    #[test]
+    fn a_large_pdf_fails_the_tool_call_instead_of_reaching_the_model() {
+        let result = McpToolCallResult {
+            content: vec![McpContent::Blob(McpBlob {
+                uri: Some("fastmail:2026-05-23_Statement.pdf".into()),
+                mime_type: Some("application/pdf".into()),
+                data: "JVBE".repeat(916 * 1024 / 3),
+            })],
+            is_error: false,
+        }
+        .into_tool_result("1");
+        assert!(!result.is_success());
+        assert!(result.content().iter().all(
+            |part| matches!(part, ContentPart::Text { text } if text.starts_with("2026-05-23_Statement.pdf is 916 KB"))
+        ));
     }
 
     #[test]

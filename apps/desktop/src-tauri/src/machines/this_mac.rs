@@ -5,10 +5,9 @@
 
 use crate::{beep::Beep, beep::state::LinkState, machines::desktop};
 use beep_node::{
-    link::{self, Offers},
-    mcp,
-    provision::Provision,
-    reconnect::Backoff,
+    agents::mcp,
+    link::{self, Offers, reconnect::Backoff},
+    machine::provision::Provision,
 };
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
