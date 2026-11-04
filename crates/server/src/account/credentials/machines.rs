@@ -1,10 +1,8 @@
 //! Checks a Forgejo token with `teacli whoami` from the user's machines, for servers only they reach.
 
-use super::ForgejoUrl;
-use crate::{
-    projects::{CommandOutput, Shell, parse_login, quote},
-    protocol::CredentialCheck,
-};
+use crate::protocol::CredentialCheck;
+use beep_projects::model::ForgejoUrl;
+use beep_projects::{Shell, ShellOutput, commands::parse_login, quote};
 use futures::future::join_all;
 use std::{sync::Arc, time::Duration};
 
@@ -30,10 +28,10 @@ enum Said {
 }
 
 /// Reads `teacli whoami` output: exit 4 is refused, 2 is unknown server, 1 may name the status.
-fn read(ran: &CommandOutput) -> Said {
-    let text = ran.out.to_ascii_lowercase();
-    match ran.code {
-        Some(0) => match parse_login(&ran.out) {
+fn read(ran: &ShellOutput) -> Said {
+    let text = ran.output.to_ascii_lowercase();
+    match ran.exit_code {
+        Some(0) => match parse_login(&ran.output) {
             Ok(login) => Said::Valid(login),
             Err(_) => Said::Unreachable,
         },

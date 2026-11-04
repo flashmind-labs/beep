@@ -354,10 +354,11 @@ impl WorkerTool {
 mod tests {
     use super::*;
     use crate::projects::{
-        model::{MachinePath, ProjectId, TaskId, TaskSlug, TaskState},
+        model::{ProjectId, TaskId, TaskState},
         testing::machine_id,
         worker::ChosenPersona,
     };
+    use beep_projects::model::{MachinePath, TaskSlug};
     use chrono::Utc;
     use uuid::Uuid;
 

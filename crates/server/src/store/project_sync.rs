@@ -3,16 +3,8 @@
 use super::Store;
 use crate::account::user::UserKey;
 use anyhow::Result;
+use beep_projects::imports::records::SyncRow;
 use sqlx::Row;
-
-/// One machine that syncs a project.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyncRow {
-    pub project: String,
-    /// The node's key, as the store keeps it.
-    pub endpoint: String,
-    pub folder: String,
-}
 
 impl Store {
     pub(crate) async fn project_syncs(&self, user: &UserKey) -> Result<Vec<SyncRow>> {

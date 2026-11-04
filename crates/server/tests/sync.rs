@@ -12,6 +12,7 @@ use beep_node::{
     files::{Folders, sync::Syncs, syncthing::Syncthing, transfer::Transfers},
     link::{Offers, Protocol},
 };
+use beep_projects::imports::records::{NewImport, SyncRow};
 use beep_server::{
     account::user::User,
     agent::models::ModelChoices,
@@ -25,7 +26,7 @@ use beep_server::{
         RemoveDevice, RemoveProject, ResolveSyncConflict, SetProjectSync, SkipRule, SyncStatus,
     },
     push::Pusher,
-    store::{NewImport, NewKey, SyncRow, TestDb},
+    store::{NewKey, TestDb},
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,

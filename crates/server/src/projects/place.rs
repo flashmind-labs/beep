@@ -1,8 +1,9 @@
 //! Which machine a project worker runs on: online, offering the agent, with a shared checkout
 //! that has room.
 
-use super::model::{MAX_MACHINE_WORKERS, MachinePath};
+use super::model::MAX_MACHINE_WORKERS;
 use crate::{protocol::node::Capability, tools::machines::command_name};
+use beep_projects::model::MachinePath;
 use iroh::EndpointId;
 
 /// What placement knows about one machine for one project.

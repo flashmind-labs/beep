@@ -1,19 +1,23 @@
 //! One pull request or issue read in full from the project's GitHub or Forgejo
 //! host, for the project page's detail pane.
 
-use super::{
-    commands::{ChecksState, Shell, checks_of, gh_account, json, quote, text},
-    fleet::Fleet,
-    issues::{self, IssueError, run_rendered},
-    model::IssueHost,
-    threads::clipped,
-};
+use super::{fleet::Fleet, issues::IssueError, threads::clipped};
+use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
     protocol::{GitItemKind, GitReview, RunState, ThreadDetail, ThreadPost, ThreadState},
     store::ProjectRow,
 };
 use anyhow::{Result, anyhow};
+use beep_projects::issues::SourceError;
+use beep_projects::issues::issue_source;
+use beep_projects::{
+    Shell,
+    commands::{ChecksState, checks_of, gh_account, json, text},
+    issues::run_rendered,
+    model::IssueHost,
+    quote,
+};
 use chrono::{DateTime, Utc};
 use serde_json::{Deserializer, Value};
 use std::time::SystemTime;
@@ -35,13 +39,16 @@ pub(crate) async fn read(
     project: &ProjectRow,
     number: u64,
 ) -> Result<ThreadDetail, IssueError> {
-    let Some(source) = issues::issue_source(fleet, user, project).await? else {
-        return Err(IssueError::Refused(
+    let Some(source) = issue_source(&StoredProject::new(user, project), fleet).await? else {
+        return Err(IssueError::from(SourceError::Refused(
             "The project has no GitHub or Forgejo host.".to_owned(),
-        ));
+        )));
     };
-    let failed =
-        |error: anyhow::Error| IssueError::Refused(format!("Could not read the host: {error:#}"));
+    let failed = |error: anyhow::Error| {
+        IssueError::from(SourceError::Refused(format!(
+            "Could not read the host: {error:#}"
+        )))
+    };
     let out = run_rendered(
         source.shell.as_ref() as &dyn Shell,
         &render(&source.host, &project.name.to_string(), number),
@@ -50,10 +57,10 @@ pub(crate) async fn read(
     .map_err(failed)?;
     let detail = parse(&source.host, &out).map_err(failed)?;
     if detail.number != number {
-        return Err(IssueError::Refused(format!(
+        return Err(IssueError::from(SourceError::Refused(format!(
             "The host gave #{} for #{number}.",
             detail.number
-        )));
+        ))));
     }
     Ok(detail)
 }
@@ -272,7 +279,7 @@ fn parse(host: &IssueHost, out: &str) -> Result<ThreadDetail> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::model::ForgejoHost;
+    use beep_projects::model::ForgejoHost;
     use serde_json::json;
 
     #[test]

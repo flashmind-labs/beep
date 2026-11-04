@@ -5,7 +5,6 @@ use crate::{
     memory::watchers::testing::{Harness, Scripted},
     nodes,
     projects::imports::remove_project,
-    projects::model::RepoName,
     protocol::{
         DeviceKind,
         node::{
@@ -16,6 +15,7 @@ use crate::{
     store::{NewKey, NewWebhook, OrphanWebhooks},
 };
 use beep_node::link::{Offers, Protocol, Session};
+use beep_projects::model::RepoName;
 use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::mpsc, time::timeout};

@@ -1,20 +1,25 @@
 //! The project agents, their tasks and workers, for the apps.
 
 use super::Reply;
+use crate::projects::issues;
+use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
     api::router::Cx,
     app::App,
     projects::{
         fleet::NodeFleet,
-        issues::{self, IssueError, IssueWork, ListedPr, OpenIssue},
-        model::{ProjectId, RepoName, TaskId, TaskState, WorkerAgent, WorkerId},
+        issues::{IssueError, IssueWork},
+        model::{ProjectId, TaskId, TaskState, WorkerAgent, WorkerId},
         tools::{drop_task, reopen_task},
         worker::stop_worker,
     },
     protocol::*,
     store::{ProjectRow, TaskRow, WorkerRow},
 };
+use beep_projects::issues::SourceError;
+use beep_projects::issues::{ListedPr, pull_request_head};
+use beep_projects::{commands::OpenIssue, model::RepoName};
 use chrono::{Duration as TimeDelta, Utc};
 use iroh::EndpointId;
 use std::{
@@ -82,9 +87,9 @@ pub(super) async fn get_pull_request_head(
 ) -> Reply<PullRequestHead> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
     let fleet = NodeFleet::new(&cx.app, &cx.user);
-    let head = issues::pull_request_head(&fleet, &cx.user, &project, req.number)
+    let head = pull_request_head(&StoredProject::new(&cx.user, &project), &fleet, req.number)
         .await
-        .map_err(issue_refusal)?;
+        .map_err(|error| issue_refusal(error.into()))?;
     Ok(PullRequestHead {
         number: head.number,
         branch: head.branch,
@@ -109,11 +114,11 @@ pub(super) async fn dismiss_project_issue(cx: Cx, req: DismissProjectIssue) -> R
 
 pub(super) fn issue_refusal(error: IssueError) -> ApiError {
     match error {
-        IssueError::Refused(why) => ApiError::bad_request(why),
+        IssueError::Source(SourceError::Refused(why)) => ApiError::bad_request(why),
         tracked @ IssueError::Tracked(_) => ApiError::Conflict {
             message: tracked.to_string(),
         },
-        IssueError::Store(error) => error.into(),
+        IssueError::Source(SourceError::Store(error)) => error.into(),
     }
 }
 

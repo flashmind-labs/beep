@@ -1,14 +1,13 @@
 //! What a review asks of the project: the branch's PR and a task to fix open findings.
 
 use super::super::{
-    commands::{ChecksState, HostCommand, parse_pr},
     fleet::{Fleet, NodeFleet},
-    issues::{issue_host, run_host},
     lifecycle::start_failed,
     model::{StartRequest, WorkerAgent},
     turn::WORKER_LABEL,
     worker::Started,
 };
+use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
     app::App,
@@ -17,6 +16,11 @@ use crate::{
     store::{NewTask, PrRow, ProjectRow, TaskRow},
 };
 use anyhow::{Context, Result};
+use beep_projects::issues::issue_host;
+use beep_projects::{
+    commands::{ChecksState, HostCommand, parse_pr},
+    issues::run_host,
+};
 use std::sync::Arc;
 
 fn checks(state: ChecksState) -> ReviewChecks {
@@ -38,7 +42,7 @@ pub(crate) async fn find_pr(
 ) -> Result<Option<PrRow>> {
     let host = match &project.roles.prs {
         Some(host) => host.clone(),
-        None => match issue_host(user, project).await? {
+        None => match issue_host(&StoredProject::new(user, project)).await? {
             Some(host) => host,
             None => return Ok(None),
         },
@@ -46,7 +50,7 @@ pub(crate) async fn find_pr(
     let out = run_host(
         machine,
         &host,
-        project,
+        &project.name,
         HostCommand::FindPr { branch, base },
     )
     .await?;

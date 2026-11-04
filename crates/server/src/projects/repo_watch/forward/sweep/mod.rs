@@ -7,7 +7,6 @@ use crate::{
     account::user::User,
     app::App,
     nodes::Online,
-    projects::model::{IssueHost, RepoName},
     protocol::{
         SecretText,
         node::webhook::{Watch, WatchReply},
@@ -15,6 +14,7 @@ use crate::{
     store::OrphanWebhooks,
 };
 use anyhow::{Context, Result};
+use beep_projects::model::{IssueHost, RepoName};
 use secrecy::ExposeSecret;
 use std::time::Duration;
 use tokio::time::timeout;

@@ -8,6 +8,7 @@ use crate::projects::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use beep_projects::issues::SourceError;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -85,7 +86,7 @@ enum Replied {
 
 fn refused(error: IssueError) -> Result<Replied> {
     match error {
-        IssueError::Store(error) => Err(error),
+        IssueError::Source(SourceError::Store(error)) => Err(error),
         other => Ok(Replied::Refused(other.to_string())),
     }
 }

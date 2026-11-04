@@ -1,120 +1,44 @@
-//! Picking the machine, running the clone there and recording the project.
+//! The server's side of importing: loading what the shared import code reads, and the pages that
+//! list machines and found checkouts.
 
 use super::{
-    ImportError,
     checks::{self, Machine, Page},
-    clone::{self, Failure, ForkSetup, Job, Outcome},
-    folder::{self, FolderPath, Seen},
-    fork::{self, UsedFork},
-    found::{self, MachineFound},
-    link::link_fork,
-    place::{self, Candidate, Folders},
-    preview::existing_checkout,
-    repo::{Host, RepoRef},
+    context::Context,
 };
 use crate::{
-    account::credentials::{ForgejoUrl, Opened, Slot},
     account::user::User,
     app::App,
-    nodes::{Online, SHELL},
     protocol::{
-        FoundProject, ImportFork, ImportedProject, MachineFolder, ProjectMachine,
+        FoundProject, ImportFork, ImportPreview, ImportedProject, MachineFolder, ProjectMachine,
         node::agent::SESSIONS_PROTOCOL,
     },
-    store::{ImportRow, NewImport, NodeRow},
+    store::NodeRow,
+};
+use beep_projects::imports::{
+    ImportError,
+    flow::{self, Import, choose_machine, project},
+    folder::{FolderPath, look},
+    found::{self, MachineFound},
+    hosts::{find_fork as find_used_fork, forgejo_of},
+    preview::{self as previews, checkout_for_worktree as worktree_checkout},
+    records::ImportRow,
+    repo::RepoRef,
 };
 use chrono::Utc;
-use secrecy::{ExposeSecret, SecretString};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
 };
-
-/// The longest a clone may take.
-const CLONE_LIMIT: Duration = Duration::from_secs(30 * 60);
-/// The most output kept while cloning; the end explains a failure.
-const MAX_OUTPUT: usize = 64 * 1024;
-/// The longest reading a folder may take.
-const LOOK_LIMIT: Duration = Duration::from_secs(20);
-/// The most output kept from reading a folder; past it, folders are left out.
-const MAX_LISTING: usize = 256 * 1024;
-
-/// One import, as the sheet or the tool asks for it.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Import<'a> {
-    /// `org/repo` or the repository's URL.
-    pub(crate) repo: &'a str,
-    /// The machine's id; `None` lets `place::choose` pick.
-    pub(crate) machine_id: Option<&'a str>,
-    /// Where it goes, absolute or `~/...`; `None` or blank for the machine's projects folder.
-    pub(crate) folder: Option<&'a str>,
-    /// The folder it goes under as `<parent>/<org>/<repo>` when `folder` is not given.
-    pub(crate) parent: Option<&'a str>,
-}
-
-/// One of the user's machines, online and able to run commands.
-pub(super) struct Chosen {
-    pub(super) row: NodeRow,
-    pub(super) node: Online,
-}
-
-/// The machine `machine_id` names, or the one `place::choose` picks.
-pub(super) async fn choose_machine(
-    app: &App,
-    user: &User,
-    machine_id: Option<&str>,
-) -> Result<Chosen, ImportError> {
-    let mut rows = user.nodes().await?;
-    let mut online: Vec<Option<Online>> = rows
-        .iter()
-        .map(|row| {
-            app.nodes
-                .online(&row.endpoint)
-                .filter(|online| online.user == user.id())
-        })
-        .collect();
-    let candidates: Vec<Candidate<'_>> = rows
-        .iter()
-        .zip(&online)
-        .map(|(row, online)| Candidate {
-            id: &row.endpoint,
-            name: &row.name,
-            online: online.is_some(),
-            shell: online.as_ref().is_some_and(|online| online.offers(SHELL)),
-            workspace: online
-                .as_ref()
-                .is_some_and(|online| online.workspace.is_some()),
-        })
-        .collect();
-    let at = place::choose(&candidates, machine_id)?;
-    let row = rows.swap_remove(at);
-    let node = online
-        .swap_remove(at)
-        .ok_or_else(|| ImportError::Offline(row.name.clone()))?;
-    Ok(Chosen { row, node })
-}
-
-/// The Forgejo servers among the user's credentials.
-pub(super) fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {
-    credentials
-        .iter()
-        .filter_map(|opened| match &opened.slot {
-            Slot::Forgejo(url) => Some(url.clone()),
-            _ => None,
-        })
-        .collect()
-}
 
 /// Whether importing `input` would clone the user's fork of it.
 pub(crate) async fn find_fork(
-    app: &App,
-    user: &User,
+    app: &Arc<App>,
+    user: &Arc<User>,
     input: &str,
 ) -> Result<ImportFork, ImportError> {
-    let credentials = user.git_credentials(&app.credential_key).await?;
-    let repo = RepoRef::parse(input, &forgejo_of(&credentials))?;
-    let found = fork::find(app, &credentials, &repo).await;
+    let context = Context::load(app, user).await?;
+    let repo = RepoRef::parse(input, &forgejo_of(&context.credentials))?;
+    let found = find_used_fork(context.hosts(), &context.credentials, &repo).await;
     Ok(ImportFork {
         project: repo.project(),
         fork: found.as_ref().map(|fork| fork.repo.project()),
@@ -122,99 +46,50 @@ pub(crate) async fn find_fork(
     })
 }
 
-/// `<parent>/<org>/<repo>`; blank when `parent` is, so the machine's projects folder is used.
-fn under_parent(parent: &str, repo: &RepoRef) -> String {
-    let parent = parent.trim().trim_end_matches('/');
-    if parent.is_empty() {
-        return String::new();
-    }
-    format!("{parent}/{}/{}", repo.org(), repo.name())
-}
-
-/// Imports `job.repo` onto its machine: clones (the fork, when any) or links an existing checkout,
-/// records it, then looks for checkouts on the user's other machines in the background.
+/// Imports `job.repo` onto its machine, then looks through the user's other machines in the
+/// background.
 pub(crate) async fn import(
     app: &Arc<App>,
     user: &Arc<User>,
     job: Import<'_>,
 ) -> Result<ImportedProject, ImportError> {
-    let credentials = user.git_credentials(&app.credential_key).await?;
-    let repo = RepoRef::parse(job.repo, &forgejo_of(&credentials))?;
-    let folder = match job.folder.filter(|folder| !folder.trim().is_empty()) {
-        Some(folder) => Some(folder.to_owned()),
-        None => job.parent.map(|parent| under_parent(parent, &repo)),
-    };
-    let picked = match folder.as_deref() {
-        Some(folder) => FolderPath::parse(folder)?,
-        None => None,
-    };
-    let Chosen { row, node } = choose_machine(app, user, job.machine_id).await?;
-    let fork = fork::find(app, &credentials, &repo).await;
-    let seen = match &picked {
-        Some(picked) => Some(look(&node, &row, picked).await?),
-        None => None,
-    };
-    let existing = if seen.as_ref().is_none_or(|seen| !seen.exists) {
-        existing_checkout(&row, &node, &repo, fork.as_ref().map(|fork| &fork.repo)).await
-    } else {
-        None
-    };
-    let token = repo.credential(&credentials).map(|opened| &opened.secret);
-    let (folder, cloned) = match existing {
-        Some(found) => (found.folder, false),
-        None => {
-            let folder = match &seen {
-                Some(seen) => folder::destination(seen, repo.name()),
-                None => {
-                    let env = row.env.as_ref();
-                    let folders = Folders {
-                        os: env.map(|env| env.os.as_str()),
-                        home: env.map(|env| env.home.as_str()),
-                        workspace: node.workspace.as_deref(),
-                    };
-                    place::checkout_folder(folders, &repo)
-                        .ok_or_else(|| ImportError::NoHome(row.name.clone()))?
-                }
-            };
-            let cloned = run_clone(&node, &row, &repo, fork.as_ref(), &folder, token).await?;
-            (folder, cloned)
-        }
-    };
-    if !cloned && let Some(fork) = &fork {
-        link_fork(&node, &row, &repo, fork, &folder, token).await;
-    }
-    let saved = user
-        .save_import(NewImport {
-            project: &repo.project(),
-            endpoint: &row.endpoint,
-            folder: &folder,
-            url: &repo.web_url(),
-        })
-        .await?;
-    let fork_name = fork.as_ref().map(|fork| &fork.found.name);
-    user.set_import_fork(&saved.project, &row.endpoint, fork_name)
-        .await?;
-    log::info!(
-        "project imported; project={} node={} cloned={cloned} fork={}",
-        saved.project,
-        row.endpoint,
-        fork.is_some()
-    );
-    let others: Vec<String> = user
-        .nodes()
-        .await?
-        .into_iter()
-        .map(|node| node.endpoint)
-        .filter(|endpoint| *endpoint != row.endpoint)
-        .collect();
-    app.checkouts.check_all(app, user, &others);
-    Ok(project(saved, row.name, cloned))
+    let context = Context::load(app, user).await?;
+    flow::import(&context.env(user), job).await
+}
+
+/// Where `input` is checked out on online machines, and its branches with work in the first one.
+pub(crate) async fn preview(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    input: &str,
+) -> Result<ImportPreview, ImportError> {
+    let context = Context::load(app, user).await?;
+    let imports = user.imports().await?;
+    previews::preview(&context.usable(), &imports, &context.servers(), input).await
+}
+
+/// The checkout of `input` on `endpoint`, recorded as the project's folder; `None` when offline or absent.
+pub(crate) async fn checkout_for_worktree(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    input: &str,
+    endpoint: &str,
+) -> Result<Option<String>, ImportError> {
+    let context = Context::load(app, user).await?;
+    worktree_checkout(
+        user.as_ref(),
+        &context.usable(),
+        &context.servers(),
+        input,
+        endpoint,
+    )
+    .await
 }
 
 /// One folder on `machine_id` for the folder browser: `path`, else the workspace, else home.
 pub(crate) async fn browse(
-    app: &App,
-    user: &User,
+    app: &Arc<App>,
+    user: &Arc<User>,
     machine_id: &str,
     path: Option<&str>,
 ) -> Result<MachineFolder, ImportError> {
@@ -222,119 +97,16 @@ pub(crate) async fn browse(
         Some(path) => FolderPath::parse(path)?,
         None => None,
     };
-    let Chosen { row, node } = choose_machine(app, user, Some(machine_id)).await?;
+    let context = Context::load(app, user).await?;
+    let machine = choose_machine(&context.machines, Some(machine_id))?;
     let start = match picked {
         Some(picked) => picked,
-        None => match node.workspace.as_deref().map(FolderPath::parse) {
+        None => match machine.workspace.as_deref().map(FolderPath::parse) {
             Some(Ok(Some(workspace))) => workspace,
             _ => FolderPath::Home(String::new()),
         },
     };
-    look(&node, &row, &start).await
-}
-
-/// What `folder` on the machine holds.
-pub(super) async fn look(
-    node: &Online,
-    row: &NodeRow,
-    folder: &FolderPath,
-) -> Result<MachineFolder, ImportError> {
-    let mut output = String::new();
-    let mut on_output = |text: &str| {
-        if output.len() < MAX_LISTING {
-            output.push_str(text);
-        }
-    };
-    node.exec(&folder::script(folder), LOOK_LIMIT, &mut on_output)
-        .await
-        .map_err(|e| ImportError::Link {
-            machine: row.name.clone(),
-            detail: format!("{e:#}"),
-        })?;
-    match folder::read(&output) {
-        Some(Seen::Folder(seen)) => Ok(seen),
-        Some(Seen::File(path)) => Err(ImportError::NotAFolder {
-            folder: path,
-            machine: row.name.clone(),
-        }),
-        Some(Seen::Denied(path)) => Err(ImportError::Unreadable {
-            folder: path,
-            machine: row.name.clone(),
-        }),
-        None => Err(ImportError::NoListing {
-            machine: row.name.clone(),
-        }),
-    }
-}
-
-/// Clones on `node`, the fork when there is one; `false` when a checkout was there already.
-async fn run_clone(
-    node: &Online,
-    row: &NodeRow,
-    repo: &RepoRef,
-    fork: Option<&UsedFork>,
-    folder: &str,
-    token: Option<&SecretString>,
-) -> Result<bool, ImportError> {
-    let cloning = fork.map_or(repo, |fork| &fork.repo);
-    let url = cloning.clone_url();
-    let upstream_url = repo.clone_url();
-    let script = clone::script(&Job {
-        url: &url,
-        folder,
-        token,
-        github: repo.host == Host::GitHub,
-        fork: fork.map(|fork| ForkSetup {
-            upstream_url: &upstream_url,
-            default_branch: &fork.found.default_branch,
-            branches: &fork.found.branches,
-        }),
-    });
-    let mut output = String::new();
-    let mut on_output = |text: &str| {
-        output.push_str(text);
-        if output.len() > MAX_OUTPUT * 2 {
-            output = clone::tail(&output);
-        }
-    };
-    let exited = node
-        .exec(script.expose_secret(), CLONE_LIMIT, &mut on_output)
-        .await
-        .map_err(|e| ImportError::Link {
-            machine: row.name.clone(),
-            detail: format!("{e:#}"),
-        })?;
-    match clone::outcome(&output, exited.exit_code, exited.timed_out) {
-        Outcome::Cloned => Ok(true),
-        Outcome::Existing(remote)
-            if repo.matches_remote(&remote)
-                || fork.is_some_and(|fork| fork.repo.matches_remote(&remote)) =>
-        {
-            Ok(false)
-        }
-        Outcome::Existing(remote) => Err(ImportError::OtherRepo {
-            folder: folder.to_owned(),
-            machine: row.name.clone(),
-            remote: if remote.is_empty() {
-                "no origin remote".to_owned()
-            } else {
-                remote
-            },
-        }),
-        Outcome::Occupied => Err(ImportError::Occupied {
-            folder: folder.to_owned(),
-            machine: row.name.clone(),
-        }),
-        Outcome::NoGit => Err(ImportError::NoGit(row.name.clone())),
-        Outcome::TimedOut => Err(ImportError::TimedOut(cloning.project())),
-        Outcome::Failed(said) => Err(clone::explain(Failure {
-            output: &said,
-            project: cloning.project(),
-            host: repo.host_name(),
-            machine: &row.name,
-            had_token: token.is_some(),
-        })),
-    }
+    look(machine.shell()?, &machine.name, &start).await
 }
 
 /// What the machines found, one row per repository not imported yet.
@@ -417,28 +189,4 @@ pub(crate) async fn imported(user: &User) -> anyhow::Result<Vec<ImportedProject>
             Some(project(row, name, false))
         })
         .collect())
-}
-
-pub(super) fn project(row: ImportRow, machine_name: String, cloned: bool) -> ImportedProject {
-    ImportedProject {
-        project: row.project,
-        url: row.url,
-        machine_id: row.endpoint,
-        machine_name,
-        folder: row.folder,
-        cloned,
-        imported_at: row.imported_at.into(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_parent_takes_the_owner_and_name() {
-        let repo = RepoRef::parse("acme/widget", &[]).expect("org/repo parses");
-        assert_eq!(under_parent("~/Projects/", &repo), "~/Projects/acme/widget");
-        assert_eq!(under_parent("  ", &repo), "");
-    }
 }

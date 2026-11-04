@@ -520,11 +520,11 @@ async fn run_jobs(app: Weak<App>, mut waiting: mpsc::Receiver<Job>) {
 mod tests {
     use super::*;
     use crate::memory::watchers::testing::{Harness, Scripted};
-    use crate::{
-        memory::leak::PublicText,
-        projects::model::{MachinePath, RepoName, Visibility},
-    };
     use anyhow::anyhow;
+    use beep_projects::{
+        leak::PublicText,
+        model::{MachinePath, RepoName, Visibility},
+    };
     use tokio::sync::{Semaphore, oneshot};
     use uuid::Uuid;
 

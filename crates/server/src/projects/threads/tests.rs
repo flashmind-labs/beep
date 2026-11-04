@@ -2,13 +2,14 @@ use super::*;
 use crate::projects::testing::widget_project;
 use crate::{
     projects::{
-        model::{Roles, Visibility},
         testing::{FakeFleet, FakeShell},
         threads::parse::ThreadComment,
         turn::REPLY_LABEL,
     },
     store::TestDb,
 };
+use beep_projects::issues::SourceError;
+use beep_projects::model::{Roles, Visibility};
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Value, json};
 
@@ -149,7 +150,10 @@ async fn open_thread_chat_is_idempotent() {
     assert_eq!(user.thread_in(first.chat).await.unwrap(), Some(first));
     // Another repository is refused.
     let other = open_chat(&fleet, &user, &project, "acme/other", 41).await;
-    assert!(matches!(other, Err(IssueError::Refused(_))), "{other:?}");
+    assert!(
+        matches!(other, Err(IssueError::Source(SourceError::Refused(_)))),
+        "{other:?}"
+    );
 }
 
 #[tokio::test]
@@ -223,6 +227,9 @@ async fn a_thread_card_shows_the_post_and_newest_comments() {
     // Another repository is refused before anything is read.
     let before = shell.ran_with("pr view").len();
     let other = view(&fleet, &user, &project, "acme/other", 41).await;
-    assert!(matches!(other, Err(IssueError::Refused(_))), "{other:?}");
+    assert!(
+        matches!(other, Err(IssueError::Source(SourceError::Refused(_)))),
+        "{other:?}"
+    );
     assert_eq!(shell.ran_with("pr view").len(), before);
 }

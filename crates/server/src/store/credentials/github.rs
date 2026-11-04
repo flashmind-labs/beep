@@ -4,11 +4,12 @@ use super::{
     super::Store, ACCOUNT, FORGEJO, GITHUB, GitHubAccountRow, GitLogin, NewGitHubAccount,
     account_from, opens, slot_from,
 };
-use crate::{
-    account::credentials::{CredentialKey, Owner, Slot},
-    account::user::UserKey,
+use crate::account::{
+    credentials::{CredentialKey, Owner},
+    user::UserKey,
 };
 use anyhow::Result;
+use beep_projects::credentials::Slot;
 use sqlx::Row;
 use uuid::Uuid;
 

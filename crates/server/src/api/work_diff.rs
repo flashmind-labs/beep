@@ -9,9 +9,9 @@ use super::{
 use crate::{
     api::router::Cx,
     nodes::NodeWork,
-    projects::branches::branch_name,
     protocol::{ApiError, GetBranchDiff, GetWorkDiff, WorkDiff, node::agent::DiffAsk},
 };
+use beep_projects::model::branch_name;
 
 fn unreachable_node(machine: &str, e: &anyhow::Error) -> ApiError {
     ApiError::bad_request(format!(
