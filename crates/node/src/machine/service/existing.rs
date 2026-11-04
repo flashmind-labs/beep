@@ -51,13 +51,23 @@ fn found(dir: Option<PathBuf>) -> Installed {
     dir.map_or(Installed::Unreadable, Installed::From)
 }
 
-/// Whether `join` into `dir` may install and start the service: when none
-/// is installed, or the installed one already runs from `dir`.
-pub(super) fn decide(installed: &Installed, dir: &Path) -> Result<()> {
+/// What `join` into a folder does about the service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// None is installed: write it and start it.
+    Install,
+    /// The installed one runs from this folder: start it as it is, so its
+    /// own arguments (such as `--workspace`) stay.
+    Start,
+}
+
+/// What `join` into `dir` does about the service, or why it must not touch
+/// the one installed.
+pub(super) fn decide(installed: &Installed, dir: &Path) -> Result<Action> {
     let here = dir.display();
     match installed {
-        Installed::No => Ok(()),
-        Installed::From(other) if same_folder(other, dir) => Ok(()),
+        Installed::No => Ok(Action::Install),
+        Installed::From(other) if same_folder(other, dir) => Ok(Action::Start),
         Installed::From(other) => {
             let other = other.display();
             bail!(
@@ -115,12 +125,14 @@ mod tests {
 
     #[test]
     fn no_service_lets_a_join_install_one() {
-        assert!(decide(&Installed::No, Path::new("/srv/new")).is_ok());
+        let action = decide(&Installed::No, Path::new("/srv/new")).unwrap();
+        assert_eq!(action, Action::Install);
     }
 
     #[test]
-    fn a_service_from_this_folder_lets_a_join_restart_it() {
-        assert!(decide(&from("/srv/node"), Path::new("/srv/node")).is_ok());
+    fn a_service_from_this_folder_is_started_not_rewritten() {
+        let action = decide(&from("/srv/node"), Path::new("/srv/node")).unwrap();
+        assert_eq!(action, Action::Start);
     }
 
     #[test]

@@ -59,6 +59,10 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
+pub(super) fn start() -> Result<()> {
+    systemctl(&["start", UNIT])
+}
+
 pub(super) fn restart() -> Result<()> {
     systemctl(&["restart", UNIT])
 }
