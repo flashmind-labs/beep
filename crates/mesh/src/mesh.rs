@@ -489,6 +489,11 @@ impl Mesh {
         self.inner.addr_updates.load(Ordering::Relaxed)
     }
 
+    /// Whether `id` is a current member of this mesh.
+    pub fn is_member(&self, id: EndpointId) -> bool {
+        self.inner.is_member(id)
+    }
+
     pub fn peer(&self, id: EndpointId) -> Option<Connection> {
         self.inner.live(id)
     }

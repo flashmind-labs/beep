@@ -122,6 +122,15 @@ pub enum MeshError {
     Net(String),
     #[error("the mesh is closed")]
     Closed,
+    /// A stream to a node failed before it opened or while it was in use.
+    #[error(transparent)]
+    Link(anyhow::Error),
+    /// The node said it will not serve the protocol.
+    #[error("the node refused {protocol}: {reason}")]
+    Declined { protocol: String, reason: String },
+    /// The node answered an `Open` with something other than `Ready` or `Refused`.
+    #[error("the node answered {0}")]
+    Unexpected(String),
 }
 
 /// How far a device's replicated writes are accepted.
