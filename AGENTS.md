@@ -220,6 +220,28 @@ installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
 (the Dockerfile's `node-dist-windows` stage). Updates move the running exe
 aside to `beep-node.exe.old`, removed by the next update.
 
+## beep-sync and git
+
+The whole checkout syncs: tracked files, ignored files and `.git`
+(`crates/node/src/files/sync/gitdir.rs` says what each path in `.git` does).
+`.beepignore` and the built-in defaults still apply, except that a tracked file
+stays in spite of a default. The `.stignore` of any folder at or above a project
+applies too; one it cannot read refuses the folder and says why.
+
+- Objects add up: a peer's `git gc` deletes nothing here. Refs are read from git
+  and written with `git update-ref`, once all they name is here, so the reflog
+  keeps a ref moved backwards. Each machine rebuilds its own index.
+- Commits on both sides of a branch: the later commit keeps the branch, and the
+  other stays as `refs/beep-conflicts/<ref>-<tag>`, listed as a conflict. If one
+  is an ancestor of the other, the branch moves forward and the ref goes.
+- Two checkouts never merged before sync only once they are at one commit;
+  until then both show why, and neither changes.
+- Locks, `FETCH_HEAD`, reflogs, hooks and `.git/worktrees` stay on their
+  machine, and so does any folder whose `.git` is a file (a linked worktree or
+  a submodule). Its branch still travels; it waits on a machine that has it
+  checked out in a linked worktree.
+- Peers talk `beep-sync/2`. Nodes on `beep-sync/1` do not sync with it.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches

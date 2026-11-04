@@ -3,6 +3,7 @@
 
 use super::state::{Seen, State};
 use crate::files::sync::{
+    gitdir::{self, Kind},
     map::{Entry, FileMeta, Map, Order, Version, valid_path},
     rules::Rules,
     scan::{Found, MAX_FILES, Stat},
@@ -73,12 +74,15 @@ pub(super) fn record(state: &mut State, found: &Found, hash: [u8; 32], prior: Op
 /// Where the content at `path` should move: a path the list wants that
 /// content at, that is not on disk and that the rules keep.
 pub(super) fn move_target(state: &State, rules: &Rules, path: &str) -> Option<String> {
+    if gitdir::in_git(path) {
+        return None;
+    }
     let seen = state.saved.seen.get(path)?;
     state
         .saved
         .map
         .entries()
-        .filter(|entry| entry.path != path)
+        .filter(|entry| entry.path != path && !gitdir::in_git(&entry.path))
         .filter(|entry| entry.file.as_ref().is_some_and(|f| f.hash == seen.hash))
         .filter(|entry| !rules.skips_any(Path::new(&entry.path), false))
         .find(|entry| !state.saved.seen.contains_key(&entry.path))
@@ -118,9 +122,28 @@ pub(super) fn merge_peer(map: &mut Map, entries: &[Entry]) -> Merged {
     merged
 }
 
+/// When `work` comes in a round: what git needs before what names it, so a
+/// repository never looks corrupt. A pack before its index, which is what
+/// makes git see it; objects before the refs that name them; a new HEAD
+/// before refs (git needs one to take them), a changing HEAD after the ref it
+/// may name, and refs removed last, once HEAD left them.
+fn turn(work: &Work) -> u8 {
+    match gitdir::kind(&work.path) {
+        Some(Kind::Object) if work.path.ends_with(".idx") => 1,
+        Some(Kind::Object) => 0,
+        Some(Kind::Head) if work.expected.is_none() => 3,
+        Some(Kind::Head) => 5,
+        Some(Kind::Ref) if work.file.is_none() => 6,
+        Some(Kind::Ref) => 4,
+        _ => 2,
+    }
+}
+
 /// What it takes to bring the folder in line with the list: the paths
 /// whose entry is not what the folder holds, leaving out paths the rules
-/// skip here. Moves to conflict copies come first.
+/// skip here. Moves to conflict copies come first within their turn. In
+/// `.git` only refs are ever removed, and files a machine keeps for itself
+/// are only written where it has none.
 pub(super) fn plan(state: &State, rules: &Rules) -> Vec<Work> {
     let mut work: Vec<Work> = state
         .saved
@@ -134,6 +157,8 @@ pub(super) fn plan(state: &State, rules: &Rules) -> Vec<Work> {
             match (&entry.file, seen) {
                 (Some(file), Some(seen)) if seen.hash == file.hash => None,
                 (None, None) => None,
+                (None, Some(_)) if gitdir::is_kept_from_deletes(&entry.path) => None,
+                (Some(_), Some(_)) if gitdir::is_written_once(&entry.path) => None,
                 _ => Some(Work {
                     path: entry.path.clone(),
                     version: entry.version.clone(),
@@ -143,6 +168,6 @@ pub(super) fn plan(state: &State, rules: &Rules) -> Vec<Work> {
             }
         })
         .collect();
-    work.sort_by_key(|item| item.expected.is_none());
+    work.sort_by_key(|item| (turn(item), item.expected.is_none()));
     work
 }

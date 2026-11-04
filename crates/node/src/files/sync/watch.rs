@@ -1,7 +1,7 @@
 //! Watches project folders for changes with one `Watcher` per node, and
 //! falls back to a rescan every `RESCAN` for a folder it cannot watch.
 
-use super::rules::Rules;
+use super::{gitdir, rules::Rules};
 use crate::{lock, read_lock};
 use notify::{
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _,
@@ -205,8 +205,11 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
         let Ok(relative) = path.strip_prefix(&route.root) else {
             continue;
         };
+        // Git writes objects before the ref that names them, and packs them
+        // up without a word to anyone: the ref's move is the signal.
+        let git_says = gitdir::wakes(relative);
         let skipped = read_lock(&route.rules).skips_any(relative, path.is_dir());
-        if !skipped {
+        if git_says || (!skipped && !gitdir::is_quiet(&relative.to_string_lossy())) {
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
         }
