@@ -6,11 +6,12 @@ use crate::{
     beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name, image_mime},
     error::{DesktopError, Result},
+    projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GetAgentFile, GetAgentImage, MAX_AGENT_FILE,
-    image_key,
+    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, ApiError, GetAgentFile, GetAgentImage,
+    GetAgentThumb, MAX_AGENT_FILE, image_key,
 };
 use serde::Serialize;
 use std::{fs, path::PathBuf, process::Command};
@@ -32,6 +33,43 @@ pub async fn agent_image(
             key,
         })
         .await;
+    picture_url(image)
+}
+
+/// `agent_image`'s picture made small, for the log to draw. Never for opening
+/// or saving: a server from before thumbnails gives it whole, but a newer
+/// one gives a small JPEG.
+#[tauri::command]
+pub async fn agent_thumb(
+    beep: Service<'_>,
+    machine_id: String,
+    session: String,
+    key: String,
+) -> Result<String> {
+    let thumb = beep
+        .call(GetAgentThumb {
+            machine_id: machine_id.clone(),
+            session: session.clone(),
+            key: key.clone(),
+        })
+        .await;
+    let image = match thumb {
+        Err(e) if unknown_op(&e) => {
+            beep.call(GetAgentImage {
+                machine_id,
+                session,
+                key,
+            })
+            .await
+        }
+        other => other,
+    };
+    picture_url(image)
+}
+
+/// A data URL the bar can draw, with a picture the server no longer has as
+/// `GONE`.
+fn picture_url(image: Result<AgentImageData>) -> Result<String> {
     let image = match image {
         Err(DesktopError::Api(ApiError::NotFound {})) => {
             return Err(DesktopError::BadRequest(GONE.into()));
