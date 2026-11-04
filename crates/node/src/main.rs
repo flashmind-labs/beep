@@ -174,6 +174,9 @@ enum MeshAction {
         /// The ticket, or `-` to read it from stdin, which keeps it out of
         /// process listings and shell history.
         ticket: String,
+        /// The folder to look for git checkouts in, as for `setup`.
+        #[arg(long)]
+        search: Option<String>,
     },
     /// Lists the devices of the mesh and which are online.
     Devices,
@@ -299,7 +302,12 @@ async fn main() -> Result<()> {
             link::print_offer(&state)
         }
         Command::Mesh { action } => match action {
-            MeshAction::Join { ticket } => {
+            MeshAction::Join { ticket, search } => {
+                // Refused before the ticket is spent, as `setup` does.
+                let search = search.as_deref().map(state::Search::parse);
+                if let Some(search) = &search {
+                    search.existing_root().context("--search")?;
+                }
                 let ticket = if ticket == "-" {
                     let mut text = String::new();
                     tokio::io::AsyncReadExt::read_to_string(&mut tokio::io::stdin(), &mut text)
@@ -309,6 +317,9 @@ async fn main() -> Result<()> {
                     ticket
                 };
                 peers::join(&dir, &ticket).await?;
+                if let Some(search) = &search {
+                    state::save_search(&dir, search)?;
+                }
                 println!("Joined. The node picked it up.");
                 Ok(())
             }

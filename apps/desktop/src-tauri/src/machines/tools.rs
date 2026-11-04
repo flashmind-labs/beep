@@ -19,9 +19,14 @@ const LIST_LIMIT: Duration = Duration::from_secs(30);
 /// How long a machine has to download and install a release.
 const UPDATE_LIMIT: Duration = Duration::from_secs(11 * 60);
 
-/// The tools behind their newest release; none from a server without it.
+/// The tools behind their newest release; none without a server, or from one
+/// without it.
 #[tauri::command]
 pub async fn tool_updates(beep: Service<'_>) -> Result<Vec<ToolUpdate>> {
+    // The newest releases are looked up by the server.
+    if beep.server().is_none() {
+        return Ok(Vec::new());
+    }
     match beep.call_within(ListToolUpdates {}, LIST_LIMIT).await {
         Err(e) if unknown_op(&e) => Ok(Vec::new()),
         listed => listed,

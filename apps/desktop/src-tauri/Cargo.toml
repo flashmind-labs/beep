@@ -24,6 +24,7 @@ beep-projects = { path = "../../../crates/projects" }
 beep-proto = { path = "../../../crates/proto" }
 futures = "0.3"
 iroh = "1.3"
+iroh-tickets = "1"
 log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 percent-encoding = "2"
