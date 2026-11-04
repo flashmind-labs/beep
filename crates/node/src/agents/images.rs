@@ -1,10 +1,6 @@
-//! The pictures in sessions' transcripts, kept by `image_key` so the server
-//! can ask for one by its `[image: image-<key>]` line. Kept in memory,
-//! bounded per session and overall; one evicted, or lost when the node
-//! restarted, is found again in the agent's own session file.
-//!
-//! A picture a running session shows for the first time also waits in an
-//! outbox for the server's `FollowImages` stream, which keeps a copy.
+//! The pictures in sessions' transcripts (`Images`), kept by `image_key` so
+//! the server can ask for one by its `[image: image-<key>]` line, and queued
+//! for the server's `FollowImages` stream.
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::image_key;
@@ -50,7 +46,9 @@ pub(crate) fn image_line(data: &[u8]) -> String {
     format!("[image: image-{}]", image_key(data))
 }
 
-/// The pictures kept, oldest first.
+/// The pictures kept, oldest first, bounded per session and overall. One
+/// evicted, or lost when the node restarted, is found again in the agent's
+/// own session file (`find_in_file`).
 #[derive(Debug, Default)]
 pub(crate) struct Images {
     kept: Mutex<Kept>,

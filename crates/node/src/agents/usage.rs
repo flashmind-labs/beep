@@ -1,10 +1,6 @@
-//! What the node's coding agents spent and how much of their plans is
-//! left, waiting for the server's `FollowUsage` stream.
-//!
-//! Each finished turn waits in a bounded outbox. Plan usage is kept as the
-//! latest report per agent: `plans` reads it from the agents' own CLIs,
-//! and a running Claude Code session updates it as its rate limit events
-//! come.
+//! What the node's coding agents spent and how much of their plans is left
+//! (`UsageHub`), for the server's `FollowUsage` stream. Plan usage is the
+//! latest report per agent, from `plans` or Claude Code's rate limit events.
 
 use beep_proto::{
     AgentSlug,

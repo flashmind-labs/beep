@@ -4,13 +4,13 @@ use super::{
     ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS,
     content::{cut, image_picture, parent_tool, picture_of},
 };
+use crate::agents::mcp::calls::Tool as BeepTool;
 use crate::agents::{
     acp::wire_name,
     images::Picture,
     subagent::{Activity, Run, Subagent},
     tool_diff::diff_text,
 };
-use crate::mcp::calls::Tool as BeepTool;
 use agent_client_protocol::schema::v1::{
     ContentBlock, EmbeddedResourceResource, ToolCall as AcpToolCall, ToolCallContent, ToolCallId,
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,

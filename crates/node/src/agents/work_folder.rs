@@ -1,10 +1,6 @@
-//! A coding agent session's working folder, for the apps' Files tab: its
-//! folders listed, one or a tree of them, with what git ignores and sees
-//! changed, any file in it read a part at a time, and files dropped on the
-//! session written into it (`SessionsRequest::Folder`, `ReadFile` and
-//! `WriteFile`). Nothing outside
-//! the folder is read or written: every path is checked once its symlinks
-//! resolve.
+//! A session's working folder for the apps' Files tab (`WorkRoot`): `list`
+//! and `tree` its folders with git's ignored and changed marks, `read` a file
+//! a part at a time, and `write` files dropped on the session.
 
 use super::media_file::Chunk;
 use anyhow::{Context, Result, bail};
@@ -29,7 +25,8 @@ const PART: &str = ".beep-part";
 /// `.gitignore` so they stay out of commits.
 const BEEP_FOLDER: &str = ".beep";
 
-/// A session's working folder, its symlinks resolved.
+/// A session's working folder, its symlinks resolved. Nothing outside it
+/// is read or written: every path is checked once its symlinks resolve.
 pub(super) struct WorkRoot {
     root: PathBuf,
 }
@@ -367,7 +364,7 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
         return Ok(None);
     };
     let mut file =
-        crate::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
+        crate::files::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
     let meta = file
         .metadata()
         .with_context(|| format!("could not read {path}"))?;

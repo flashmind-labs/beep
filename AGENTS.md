@@ -188,3 +188,18 @@ to select one; `IOS_TEAM_ID` overrides the local development certificate's team.
 chats|settings|memories|routines` as launch arguments
 (`xcrun simctl launch booted com.flashmind.beep -send "hi"`), so it can be
 tested without tapping.
+
+## Code map: beep-node
+
+`crates/node/src`, one line per top-level module:
+
+- `agents/`: coding agents run over ACP, their sessions and spend, sessions
+  found on disk (`claude/`, `found/`) and the Beep MCP server (`mcp/`).
+- `files/`: shared folders (`Folders`), project sync, Syncthing checks,
+  node-to-node transfers and the git checkout search.
+- `link/`: the node's key and settings (`state`), linking and the control
+  stream, reconnecting, and what carries over a restart.
+- `machine/`: what the machine has (`env`, `stats`), setup, the service,
+  self-update, provisioning, `ssh` and repository webhooks.
+- `run/`: process groups, shell sessions, background tasks and terminals.
+- `lib.rs` declares these; `main.rs` is the command line.

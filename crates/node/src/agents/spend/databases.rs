@@ -1,22 +1,12 @@
-//! What OpenCode and flsh sessions spent, from their SQLite databases,
-//! read whole again whenever a database changes.
-//!
-//! OpenCode keeps each assistant message in `message.data` with `modelID`,
-//! `tokens` (`input` read fresh, `output`, `reasoning`, `cache.read`,
-//! `cache.write`) and `cost` (zero on a subscription), and `time_created`
-//! in Unix milliseconds, and `providerID`, which tells how it was paid
-//! for. flsh keeps only each session's totals, in
-//! `session_meta.total_usage` (`input_tokens` counting cached input,
-//! `cached_input_tokens`, `output_tokens`, `total_cost` as a decimal
-//! string): they count in the hour of its last entry, paid for as the
-//! provider its model names (`openrouter:example/model`).
+//! What OpenCode and flsh sessions spent (`opencode`, `flsh`), from their
+//! SQLite databases, read whole again whenever a database changes.
 
 use super::{
     billing::{Accounts, flsh_provider},
     ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
 };
+use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
-use crate::found::{Agent, open_database};
 use beep_proto::{ModelId, node::usage::Billing};
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path};
@@ -24,6 +14,9 @@ use std::{collections::BTreeMap, path::Path};
 /// The most rows one database gives in a pass.
 const MAX_ROWS: i64 = 50_000;
 
+/// Each assistant message's `message.data`: `modelID`, `tokens` (`input`
+/// read fresh), `cost` (zero on a subscription) and `providerID`, which
+/// tells how it was paid for.
 const OPENCODE: &str = "SELECT m.session_id, s.directory, (m.time_created / 3600000) * 3600,
         COALESCE(json_extract(m.data, '$.modelID'), ''),
         CAST(SUM(COALESCE(json_extract(m.data, '$.tokens.input'), 0)) AS INTEGER),
@@ -38,6 +31,9 @@ const OPENCODE: &str = "SELECT m.session_id, s.directory, (m.time_created / 3600
      GROUP BY 1, 2, 3, 4, 10
      LIMIT ?2";
 
+/// Each session's totals, `session_meta.total_usage` (`input_tokens`
+/// counting cached input, `total_cost` a decimal string), counted in the
+/// hour of its last entry.
 const FLSH: &str = "SELECT m.chat_key, m.working_dir, COALESCE(m.model, ''), m.total_usage,
         (SELECT MAX(s.created_at) FROM sessions s WHERE s.chat_key = m.chat_key) AS last
      FROM session_meta m

@@ -5,8 +5,8 @@ use super::{
     MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted, holders, images,
 };
 use crate::{
-    claude::{self, External},
-    found::{self, Agent},
+    agents::claude::{self, External},
+    agents::found::{self, Agent},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::agent::{ExternalSession, Presence, SessionFolder, Status};

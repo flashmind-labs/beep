@@ -9,11 +9,8 @@
 
 use async_trait::async_trait;
 use beep_node::{
-    files::Folders,
+    files::{Folders, sync::Syncs, syncthing::Syncthing, transfer::Transfers},
     link::{Offers, Protocol},
-    sync::Syncs,
-    syncthing::Syncthing,
-    transfer::Transfers,
 };
 use beep_server::{
     app::{App, ServerTools},

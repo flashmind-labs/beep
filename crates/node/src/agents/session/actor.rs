@@ -12,7 +12,7 @@ use crate::agents::{
     known,
     live::{Live, TurnTokens, cut},
 };
-use crate::process::{GroupLeader, STOP_GRACE};
+use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
     Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
     on_receive_request,
@@ -283,7 +283,7 @@ impl Actor {
                 live.info.state.error = Some(reason);
             }
         });
-        crate::restart::changed();
+        crate::link::restart::changed();
     }
 
     async fn serve(
@@ -581,7 +581,7 @@ impl Actor {
             live.agent_session = Some(session.to_string());
             live.info.id = session.to_string();
         });
-        crate::restart::changed();
+        crate::link::restart::changed();
         let Some(model) = self.model.take() else {
             self.think(cx);
             return None;
